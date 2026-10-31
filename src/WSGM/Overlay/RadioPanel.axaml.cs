@@ -45,7 +45,7 @@ public partial class RadioPanel : UserControl
         Tabs.SelectedIndex = bluetooth ? 1 : 0;
         ShowTab(Tabs.SelectedIndex);
 
-        _radios.PairingRequested += OnPairingRequested;
+        _radios.Pairing.Requested += OnPairingRequested;
         _radios.PropertyChanged += OnRadiosPropertyChanged;
         AttachedToVisualTree += (_, _) => _radios.StartScanning();
         DetachedFromVisualTree += (_, _) =>
@@ -58,12 +58,12 @@ public partial class RadioPanel : UserControl
             if (_prompt is PromptMode.PairingPin or PromptMode.PairingConfirm)
             {
                 Log.Info("Radio panel closed with a pairing question open — declining it.");
-                RadioManager.RespondToPairing(_promptToken, false, null);
+                BluetoothPairing.Respond(_promptToken, false, null);
                 _prompt = PromptMode.None;
             }
 
             _radios.StopScanning();
-            _radios.PairingRequested -= OnPairingRequested;
+            _radios.Pairing.Requested -= OnPairingRequested;
             _radios.PropertyChanged -= OnRadiosPropertyChanged;
         };
         StatusPanel.WirePanelBehaviour(ListScroller);
@@ -157,7 +157,7 @@ public partial class RadioPanel : UserControl
             return;
         }
 
-        foreach (var other in _radios.Networks)
+        foreach (var other in _radios.Wifi.Networks)
         {
             other.Expanded = ReferenceEquals(other, entry) && !entry.Expanded;
         }
@@ -172,7 +172,7 @@ public partial class RadioPanel : UserControl
 
         if (entry.Connected)
         {
-            _ = RunRadioActionAsync(() => _radios.DisconnectAsync(), "Wi-Fi disconnect");
+            _ = RunRadioActionAsync(() => _radios.Wifi.DisconnectAsync(), "Wi-Fi disconnect");
             return;
         }
 
@@ -195,7 +195,7 @@ public partial class RadioPanel : UserControl
         }
 
         _ = RunRadioActionAsync(
-            () => _radios.ConnectAsync(entry.Key, null),
+            () => _radios.Wifi.ConnectAsync(entry.Key, null),
             $"Wi-Fi connect to {entry.Ssid}");
     }
 
@@ -203,7 +203,7 @@ public partial class RadioPanel : UserControl
     {
         if ((sender as Control)?.DataContext is WifiNetworkEntry entry)
         {
-            _ = RunRadioActionAsync(() => _radios.ForgetAsync(entry.Key),
+            _ = RunRadioActionAsync(() => _radios.Wifi.ForgetAsync(entry.Key),
                 $"Wi-Fi forget {entry.Ssid}");
         }
     }
@@ -237,7 +237,7 @@ public partial class RadioPanel : UserControl
         {
             _ = RunRadioActionAsync(() =>
                 {
-                    _radios.BeginPairing(entry);
+                    _radios.Pairing.Begin(entry);
                     return Task.CompletedTask;
                 }, $"Bluetooth pairing for {entry.Name}");
             return;
@@ -275,7 +275,7 @@ public partial class RadioPanel : UserControl
         PromptReveal.Content = hidden ? "Hide" : "Show";
     }
 
-    private void OnPairingRequested(RadioManager.PairingPrompt prompt)
+    private void OnPairingRequested(PairingPrompt prompt)
     {
         _promptToken = prompt.Token;
         switch (prompt.Kind)
@@ -386,14 +386,14 @@ public partial class RadioPanel : UserControl
         switch (mode)
         {
             case PromptMode.WifiPassword:
-                _ = RunRadioActionAsync(() => _radios.ConnectAsync(network, text),
+                _ = RunRadioActionAsync(() => _radios.Wifi.ConnectAsync(network, text),
                     $"Wi-Fi connect to {network.DisplayText}");
                 break;
             case PromptMode.PairingPin:
-                RadioManager.RespondToPairing(token, true, text);
+                BluetoothPairing.Respond(token, true, text);
                 break;
             case PromptMode.PairingConfirm:
-                RadioManager.RespondToPairing(token, true, null);
+                BluetoothPairing.Respond(token, true, null);
                 break;
             case PromptMode.None:
             default:
@@ -410,7 +410,7 @@ public partial class RadioPanel : UserControl
         // it out, so a cancel has to be reported rather than just dismissed.
         if (mode is PromptMode.PairingPin or PromptMode.PairingConfirm)
         {
-            RadioManager.RespondToPairing(token, false, null);
+            BluetoothPairing.Respond(token, false, null);
         }
     }
 

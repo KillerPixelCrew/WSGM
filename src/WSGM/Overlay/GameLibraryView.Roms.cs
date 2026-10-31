@@ -53,11 +53,12 @@ public sealed partial class GameLibraryView
 
     private void RenderRomSource()
     {
-        var state = _service?.ReadState();
-        if (_romDraft is not { } draft || state is null)
+        if (_romDraft is not { } draft || ReadRomEditor() is not { } shown)
         {
             return;
         }
+
+        var state = shown.State;
 
         var body = NewStack(draft.Id.Length == 0
             ? _romSingleFile ? "Add a ROM" : "Add a ROM library"
@@ -158,7 +159,10 @@ public sealed partial class GameLibraryView
                             : _service!.RemoveRomSourceAsync(draft.Id, token))), "rom.remove"));
         }
 
-        SetContent(body);
+        // The draft is the view's own; only the status, the systems and the emulator choices come from the
+        // library, so an apply's saved titles leave the editor as drawn.
+        SetLibraryContent(body, shown, ReadRomEditor, static reading => reading.State,
+            static (a, b) => ReferenceEquals(a.Rom, b.Rom) && a.Systems.SequenceEqual(b.Systems));
     }
 
     private async Task ChooseRomFolderAsync()

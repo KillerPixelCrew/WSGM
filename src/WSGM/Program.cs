@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -15,22 +14,6 @@ using WSGM.Shared;
 using WSGM.Shell;
 
 namespace WSGM;
-
-/// <summary>The intentionally narrow operating modes accepted by the executable.</summary>
-public enum RunMode
-{
-    /// <summary>
-    ///     Runs the resident session, with Game Mode takeover or Desktop residency selected by startup options.
-    ///     Explorer remains the registered Windows shell.
-    /// </summary>
-    Shell,
-
-    /// <summary>Opens Settings, handing off to a resident session when available.</summary>
-    Settings,
-
-    /// <summary>Runs the manual overlay smoke-test session.</summary>
-    OverlayTest
-}
 
 /// <summary>Defines the safe command-line entry points and application bootstrap.</summary>
 public static class Program
@@ -71,7 +54,7 @@ public static class Program
         // semantics across a shell transition. It must run before logging, package discovery,
         // elevation, Avalonia, or any other WSGM service. The mode accepts no executable or
         // argument input and can start only the canonical Windows Explorer path.
-        if (ExplorerShellAnchor.TryRunProcessMode(args, out var anchorExitCode))
+        if (ExplorerShellAnchorProcess.TryRunProcessMode(args, out var anchorExitCode))
         {
             return anchorExitCode;
         }
@@ -166,7 +149,7 @@ public static class Program
         {
             Log.Info(
                 $"Run mode: {_startupOptions.Mode} (service boot, elevated={ElevationCheck.IsCurrentProcessElevated()}, " +
-                $"session {WindowFinder.CurrentSessionId})");
+                $"session {ProcessLookup.CurrentSessionId})");
         }
         else
         {
@@ -306,7 +289,7 @@ public static class Program
         // registration and sign-in start changed underneath it. Ask it to shut down normally,
         // which restores Explorer itself; the start below then finds the desktop running.
         if (UpdateExitWatcher.RequestResidentShellExit(TimeSpan.FromSeconds(45))
-            && ExplorerShellAnchor.HasRecoveryOwner(WindowFinder.CurrentSessionId))
+            && ExplorerShellAnchor.HasRecoveryOwner(ProcessLookup.CurrentSessionId))
         {
             // The resident left without stopping its Explorer anchor (a crash, or a forced exit
             // past its cleanup deadline), so that anchor is restoring Explorer now that its owner
@@ -323,26 +306,7 @@ public static class Program
         // queued de-elevation check would be torn down before it ran and the user
         // would be left with an elevated Explorer (breaks UWP); see docs\elevation.md.
         ExplorerControl.StartExplorerAndVerify(Store.Context);
-        var recoveryAudio = new AudioProfileService(new CoreAudioProfileOperations());
-        try
-        {
-            using var recoveryBudget = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-            var fingerprint = GameModeReturnRecovery.PendingFingerprint(Store);
-            if (await GameModeReturnRecovery.RestorePendingAsync(Store, recoveryBudget.Token, recoveryAudio,
-                    static _ => { }).ConfigureAwait(false) && ExplorerControl.IsDesktopShellRunning())
-            {
-                GameModeReturnRecovery.ClearRestored(Store, fingerprint);
-            }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            // Explorer recovery remains usable when optional saved state cannot be restored.
-        }
-        finally
-        {
-            // Disposal waits for a restore the budget abandoned; restore-shell does not wait with it.
-            recoveryAudio.DisposeAsync().AsTask().ObserveFaults();
-        }
+        GameModeReturnRecovery.RestoreBestEffort(Store);
 
         // No Steam Input lease release here: a lease is pipe-backed, so a crashed shell's ends
         // when Windows closes its handles, and a live shell releases its own on the way out.
@@ -579,7 +543,7 @@ public static class Program
             return StartupOptions.ArgumentValue(args, "--answers=") is null ? 0 : 1;
         }
 
-        ShellRegistration.ApplyGamingHomeGuard(Store, config);
+        ShellRegistration.ApplyGamingHomeGuard(Store);
         return !BootManifestWriter.WriteCurrent(Store.Read(), Store.Context) ? 1 : managerRestartRequired ? SessionProtocolNames.RestartRequired : 0;
     }
 
@@ -861,7 +825,7 @@ public static class Program
 
             if (!ExplorerControl.IsDesktopShellRunning())
             {
-                if (ExplorerShellAnchor.HasRecoveryOwner(WindowFinder.CurrentSessionId))
+                if (ExplorerShellAnchor.HasRecoveryOwner(ProcessLookup.CurrentSessionId))
                 {
                     // The verified medium/jobless anchor restores Explorer after this process
                     // actually exits. Starting one here would race that exact owner and the
@@ -875,10 +839,7 @@ public static class Program
             }
 
             RestoreDisplayScalesBestEffort();
-            var recoveryAudio = new AudioProfileService(new CoreAudioProfileOperations());
-            GameModeReturnRecovery.RestoreBestEffort(Store, recoveryAudio);
-            // Panic never waits for a restore its budget abandoned, so neither does this disposal.
-            recoveryAudio.DisposeAsync().AsTask().ObserveFaults();
+            GameModeReturnRecovery.RestoreBestEffort(Store);
         }
 
         // This process's own lease only: a crashing Settings process cannot release a still-running
@@ -917,89 +878,5 @@ public static class Program
             .UsePlatformDetect()
             .WithInterFont()
             .LogToTrace();
-    }
-}
-
-/// <summary>
-///     Disarms WSGM if the shell process keeps dying at logon: 3 or more
-///     shell-mode starts within 2 minutes disarm the service boot automatically
-///     (boot.json disabled plus the config flag cleared), so the next sign-in is a plain
-///     Explorer desktop. Dropping a legacy shell registration is a migration remnant of
-///     the same disarm, not its primary action.
-/// </summary>
-internal static class CrashLoopBreaker
-{
-    private static string MarkerPath(string root)
-    {
-        return Path.Combine(root, "shell-starts.txt");
-    }
-
-    public static void RecordStart(string root)
-    {
-        try
-        {
-            File.AppendAllText(MarkerPath(root), DateTime.UtcNow.ToString("O") + Environment.NewLine);
-        }
-        catch (Exception)
-        {
-            // Best effort: a missing marker only weakens crash-loop detection.
-        }
-    }
-
-    /// <summary>Call AFTER RecordStart so the current start counts toward the 3.</summary>
-    /// <param name="root">Data directory containing the startup marker.</param>
-    /// <returns>
-    ///     True for at least three recorded starts in the last two minutes; false for missing or unreadable markers.
-    ///     Stale entries may be pruned.
-    /// </returns>
-    public static bool IsLooping(string root)
-    {
-        try
-        {
-            if (!File.Exists(MarkerPath(root)))
-            {
-                return false;
-            }
-
-            var cutoff = DateTime.UtcNow - TimeSpan.FromMinutes(2);
-            var all = File.ReadAllLines(MarkerPath(root))
-                .Select(l =>
-                    DateTime.TryParse(l, null, DateTimeStyles.RoundtripKind, out var t) ? t : DateTime.MinValue)
-                .Where(t => t != DateTime.MinValue)
-                .ToArray();
-            var recent = all.Count(t => t > cutoff);
-            if (recent >= 3)
-            {
-                return true;
-            }
-
-            // Trim stale entries so the file doesn't grow forever.
-            if (recent < all.Length)
-            {
-                File.WriteAllLines(MarkerPath(root), all.Where(t => t > cutoff).Select(t => t.ToString("O")));
-            }
-
-            return false;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    ///     Attempts to clear the crash-loop marker after the breaker fires.
-    /// </summary>
-    /// <param name="root">Data directory containing the startup marker; deletion failures are ignored.</param>
-    public static void Reset(string root)
-    {
-        try
-        {
-            File.Delete(MarkerPath(root));
-        }
-        catch (Exception)
-        {
-            // Best effort: a stale marker only makes the next loop check stricter.
-        }
     }
 }

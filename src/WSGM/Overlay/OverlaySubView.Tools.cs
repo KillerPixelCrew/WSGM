@@ -1,7 +1,9 @@
 using System;
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
+using WSGM.Controls;
 
 namespace WSGM.Overlay;
 
@@ -9,18 +11,50 @@ public abstract partial class OverlaySubView
 {
     private protected static Control ToolTabs(string selected, params (string Id, string Label, Action Select)[] tabs)
     {
-        var panel = new WrapPanel { Orientation = Orientation.Horizontal };
-        foreach (var tab in tabs)
+        return CommandStrip([
+            .. tabs.Select(tab => Command("tool.tab:" + tab.Id, tab.Label, tab.Select, tab.Id == selected))
+        ]);
+    }
+
+    /// <summary>One compact command for a <see cref="CommandStrip" />.</summary>
+    /// <param name="tag">The stable focus key.</param>
+    /// <param name="label">What the command reads.</param>
+    /// <param name="onClick">What it does, or null while it is unavailable.</param>
+    /// <param name="selected">Whether it is the current tab, tool or the primary command.</param>
+    /// <returns>The command.</returns>
+    private protected static ActionButton Command(string tag, string label, Action? onClick, bool selected = false)
+    {
+        var button = Row(label, "", null, onClick);
+        button.Tag = tag;
+        button.Classes.Set("primary", selected);
+        return button;
+    }
+
+    /// <summary>
+    ///     Lays commands out as one compact wrapping strip: tabs, tools and short actions. A command there is
+    ///     its label, so a row's description and icon are dropped; other controls keep their own look.
+    /// </summary>
+    /// <param name="commands">The strip's commands and controls, in order.</param>
+    /// <returns>The strip.</returns>
+    private protected static WrapPanel CommandStrip(params Control[] commands)
+    {
+        var strip = new WrapPanel { Orientation = Orientation.Horizontal };
+        foreach (var command in commands)
         {
-            var button = (OverlayActionButton)Row(tab.Label, "", null, tab.Select);
-            button.Tag = "tool.tab:" + tab.Id;
-            button.MinWidth = 100;
-            button.Margin = new Thickness(0, 0, 8, 8);
-            button.Classes.Set("primary", tab.Id == selected);
-            panel.Children.Add(button);
+            if (command is ActionButton button)
+            {
+                button.Description = "";
+                button.IconGeometry = null;
+                button.MinWidth = 52;
+                button.Padding = new Thickness(6, 6);
+                button.HorizontalAlignment = HorizontalAlignment.Left;
+            }
+
+            command.Margin = new Thickness(0, 0, 8, 8);
+            strip.Children.Add(command);
         }
 
-        return panel;
+        return strip;
     }
 
     private protected static Control PreviewCard(string id, string? image, string title, string description,
@@ -37,6 +71,8 @@ public abstract partial class OverlaySubView
 
     private protected static Control ToggleRow(string label, bool value, Action<bool> changed, bool enabled = true)
     {
-        return ChoiceRow(label, new[] { (false, "Off"), (true, "On") }, value, changed);
+        var row = ChoiceRow(label, new[] { (false, "Off"), (true, "On") }, value, changed);
+        row.IsEnabled = enabled;
+        return row;
     }
 }

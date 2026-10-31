@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading;
 
 namespace WSGM.Core;
@@ -239,8 +238,3 @@ public sealed class AnimationLibrary
             JsonSerializer.Serialize(listings, AnimationJsonContext.Default.ListAnimationListing), false);
     }
 }
-
-/// <summary>Serializer metadata for the library's catalog.</summary>
-[JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-[JsonSerializable(typeof(List<AnimationListing>))]
-internal sealed partial class AnimationJsonContext : JsonSerializerContext;

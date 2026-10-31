@@ -1,0 +1,211 @@
+using System;
+using System.Linq;
+using System.Threading;
+using WindowsDeviceControl;
+using WSGM.Interop;
+
+namespace WSGM.Core;
+
+/// <summary>
+///     Manual hybrid core placement over the reusable library. Reads consult Windows; writes preserve
+///     unrelated policy values and activate the scheme without a confirming read.
+/// </summary>
+/// <remarks>
+///     Independent of device integration: this is Windows power policy, not a device capability, so it
+///     works with no plugin installed. Call from background work when projecting into a UI.
+/// </remarks>
+/// <param name="schemes">Session owner supplying the active scheme and shared mutation lock.</param>
+/// <param name="api">Platform adapter retained for this policy owner; native failures propagate.</param>
+internal sealed class HybridCores(PowerSchemes schemes, IHybridCoreApi api)
+{
+    private static readonly HybridCoreOption[] Offered =
+    [
+        new(HybridCoreMode.Automatic, "Automatic",
+            "Windows decides which cores run what. The setting your handheld shipped with."),
+        new(HybridCoreMode.PreferPerformance, "Prefer performance cores",
+            "Games get the fast cores first; background work still uses the efficient ones."),
+        new(HybridCoreMode.PreferEfficiency, "Prefer efficiency cores",
+            "Favours the low-power cores for longer battery life at lower frame rates."),
+        new(HybridCoreMode.PerformanceOnly, "Performance cores only",
+            "Nothing runs on the efficient cores. Highest draw, and fewer cores in total."),
+        new(HybridCoreMode.EfficiencyOnly, "Efficiency cores only",
+            "Nothing runs on the fast cores. Lowest draw, for light or idle sessions.")
+    ];
+
+    /// <summary>The scheduling policy pair a mode writes, for ordinary and short-running threads.</summary>
+    /// <remarks>
+    ///     One pair, not two independent settings: a mode that steered ordinary threads one way and
+    ///     short-lived ones another would be a placement nobody asked for and could not be read back as
+    ///     any offered mode.
+    /// </remarks>
+    private static HybridSchedulingPolicy PolicyFor(HybridCoreMode mode)
+    {
+        return mode switch
+        {
+            HybridCoreMode.PreferPerformance => HybridSchedulingPolicy.PreferPerformantProcessors,
+            HybridCoreMode.PreferEfficiency => HybridSchedulingPolicy.PreferEfficientProcessors,
+            HybridCoreMode.PerformanceOnly => HybridSchedulingPolicy.PerformantProcessors,
+            HybridCoreMode.EfficiencyOnly => HybridSchedulingPolicy.EfficientProcessors,
+            _ => HybridSchedulingPolicy.Automatic
+        };
+    }
+
+    /// <summary>The mode a stored pair reads back as, or null when it matches none WSGM offers.</summary>
+    /// <remarks>
+    ///     Null rather than a nearest guess. Something else set that pair — an OEM tool, a policy, a
+    ///     hand edit — and showing it as one of WSGM's modes would claim WSGM put it there.
+    /// </remarks>
+    /// <param name="state">Non-null observed ordinary-thread and short-thread policy values.</param>
+    /// <returns>The matching offered mode, or null when the pair differs or is unrecognized.</returns>
+    /// <exception cref="ArgumentNullException">The state is null.</exception>
+    internal static HybridCoreMode? ModeFor(HybridCoreState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        if (state.Threads != state.ShortThreads)
+        {
+            return null;
+        }
+
+        foreach (var option in Offered)
+        {
+            if (PolicyFor(option.Mode) == state.Threads)
+            {
+                return option.Mode;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Says what is in effect, naming each power source only when the two disagree.</summary>
+    /// <param name="status">Published support and AC/battery choices.</param>
+    /// <returns>The one status sentence the overlay and Steam's Quick Access both show.</returns>
+    internal static string Describe(HybridCoreStatus status)
+    {
+        ArgumentNullException.ThrowIfNull(status);
+        if (!status.Supported)
+        {
+            return "This processor has one kind of core, so there is nothing to choose.";
+        }
+
+        var cores = $"{status.PerformanceCores} performance and {status.EfficiencyCores} efficiency cores.";
+        if (status.OnAc is null || status.OnBattery is null)
+        {
+            // Something outside WSGM wrote a placement WSGM does not offer. Saying which of its own
+            // modes is active would be a claim about a value it did not set.
+            return $"{cores} The current preference was not set by WSGM.";
+        }
+
+        return status.OnAc == status.OnBattery
+            ? $"{cores} Applies to both battery and plugged in."
+            : $"{cores} Plugged in and battery currently differ; choosing sets both.";
+    }
+
+    /// <summary>The stable id a mode is published under, independent of its display name.</summary>
+    /// <remarks>
+    ///     One vocabulary for every surface. The overlay picks a mode from the list directly, but Steam
+    ///     carries the choice as a string over the bridge, and an id derived from the localized name
+    ///     would change meaning the moment the wording did.
+    /// </remarks>
+    /// <param name="mode">The mode to name.</param>
+    /// <returns>An id matching the bridge's identifier rules.</returns>
+    internal static string IdFor(HybridCoreMode mode)
+    {
+        return mode switch
+        {
+            HybridCoreMode.PreferPerformance => "prefer-performance",
+            HybridCoreMode.PreferEfficiency => "prefer-efficiency",
+            HybridCoreMode.PerformanceOnly => "performance-only",
+            HybridCoreMode.EfficiencyOnly => "efficiency-only",
+            _ => "automatic"
+        };
+    }
+
+    /// <summary>The mode an id names, or null when it names none.</summary>
+    /// <param name="id">An id previously produced by <see cref="IdFor" />.</param>
+    /// <returns>The mode, or null for an id this build does not know.</returns>
+    internal static HybridCoreMode? ModeForId(string id)
+    {
+        foreach (var option in Offered)
+        {
+            if (string.Equals(IdFor(option.Mode), id, StringComparison.Ordinal))
+            {
+                return option.Mode;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Reads support and the effective modes. Native failures propagate.</summary>
+    /// <returns>What to offer, and what is in effect for each power source.</returns>
+    internal HybridCoreStatus Read()
+    {
+        var scheme = schemes.ReadActive();
+        var support = api.Query(scheme);
+        if (!support.Hybrid || !support.Configurable)
+        {
+            return new HybridCoreStatus(false, 0, 0, [], null, null);
+        }
+
+        var performance = 0;
+        var efficiency = 0;
+        var best = support.Classes.Aggregate<HybridCoreClass, byte>(
+            0,
+            (current, observed) => Math.Max(current, observed.EfficiencyClass));
+        foreach (var observed in support.Classes)
+        {
+            if (observed.EfficiencyClass == best)
+            {
+                performance += observed.Cores;
+            }
+            else
+            {
+                efficiency += observed.Cores;
+            }
+        }
+
+        // Only modes this Windows build actually publishes a value for. A mode offered here that
+        // the machine will not accept is a control that does nothing when pressed.
+        var options = Offered
+            .Where(option => support.SchedulingPolicies.Contains(PolicyFor(option.Mode))
+                             && support.ShortSchedulingPolicies.Contains(PolicyFor(option.Mode)))
+            .ToList();
+
+        return new HybridCoreStatus(
+            options.Count > 0,
+            performance,
+            efficiency,
+            options,
+            ModeFor(api.Read(scheme, false)),
+            ModeFor(api.Read(scheme, true)));
+    }
+
+    /// <summary>Writes one mode to both power sources and activates the policy without confirming reads.</summary>
+    /// <remarks>
+    ///     The heterogeneous-policy value is carried through untouched, because Windows publishes no
+    ///     meaning for it. Activation is what makes processor policy take effect, and it is global, so
+    ///     the write and the activation happen under the scheme owner's mutation lock together, the lock
+    ///     scheme selection and timeout writes take as well.
+    /// </remarks>
+    /// <param name="mode">The mode to apply.</param>
+    /// <param name="cancellationToken">Cancels before the write starts.</param>
+    internal void Apply(HybridCoreMode mode, CancellationToken cancellationToken = default)
+    {
+        var policy = PolicyFor(mode);
+        using (schemes.EnterMutation())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            // Read the active scheme inside the shared lock: a scheme switch between the read and
+            // the write would land this policy in a scheme that is no longer active.
+            var scheme = schemes.ReadActive();
+            // Capture both unrelated heterogeneous-policy values before either write.
+            var ac = api.Read(scheme, false);
+            var dc = api.Read(scheme, true);
+            api.Write(scheme, false, ac with { Threads = policy, ShortThreads = policy });
+            api.Write(scheme, true, dc with { Threads = policy, ShortThreads = policy });
+
+            schemes.RefreshActive();
+        }
+    }
+}

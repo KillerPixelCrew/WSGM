@@ -9,12 +9,11 @@ public sealed partial class OverlayController
 {
     private async Task RequestOnScreenKeyboardAsync()
     {
-        if (_keyboardRequestPending || _disposed || _overlay is not { } window)
+        if (_keyboardRequestCancellation is not null || _disposed || _overlay is not { } window)
         {
             return;
         }
 
-        _keyboardRequestPending = true;
         using var cancellation = new CancellationTokenSource();
         _keyboardRequestCancellation = cancellation;
         TaskCompletionSource closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -59,14 +58,7 @@ public sealed partial class OverlayController
             if (ReferenceEquals(_keyboardRequestCancellation, cancellation))
             {
                 _keyboardRequestCancellation = null;
-                _keyboardRequestPending = false;
             }
         }
-    }
-
-
-    private void CloseKeyboardNow()
-    {
-        _overlay?.CloseAllSurfaces();
     }
 }

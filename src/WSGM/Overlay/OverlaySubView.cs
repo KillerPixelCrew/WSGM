@@ -11,7 +11,6 @@ using SteamUiToolkit;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Input;
-using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
@@ -56,6 +55,11 @@ public abstract partial class OverlaySubView : UserControl
 
     /// <summary>UI-thread notification that navigation changed and transient surface state may need to close.</summary>
     internal event Action? LevelChanged;
+
+    /// <summary>Renders the view's first level; the window calls it each time it enters the view's page.</summary>
+    public virtual void Open()
+    {
+    }
 
     /// <summary>Invalidates pending view generations and releases the mounted content and navigation stack.</summary>
     /// <remarks>
@@ -137,20 +141,6 @@ public abstract partial class OverlaySubView : UserControl
         {
             Log.Error($"{LogScope} {operation} failed.", ex);
         }
-    }
-
-    /// <summary>Reads the Steam library through the shared lookup, preserving an unavailable service as an error.</summary>
-    /// <returns>The current library, including an empty list when Steam successfully reports no titles.</returns>
-    /// <exception cref="InvalidOperationException">The lookup failed; callers must render an unavailable state.</exception>
-    private protected async Task<IReadOnlyList<SteamLibraryApp>> SafeGamesAsync()
-    {
-        var result = await OverlayLibraryLookup.ReadAsync(Steam);
-        if (!result.Succeeded)
-        {
-            throw new InvalidOperationException(result.Error);
-        }
-
-        return result.Games;
     }
 
     /// <summary>Opens the owning window's controller-accessible local picker.</summary>
@@ -295,7 +285,7 @@ public abstract partial class OverlaySubView : UserControl
         // has to land BEFORE anything re-renders or the user sees the old text. The keyboard
         // surface pushes no navigation level, so this re-renders the
         // current level itself instead of relying on a pop to do it.
-        if (TopLevel.GetTopLevel(this) is OverlayWindow window && window.RequestText(title, current, maxLen, v =>
+        if (OverlayWindow.RequestTextFor(this, title, current, maxLen, v =>
             {
                 onAccept(v);
                 CurrentLevel?.Invoke();
@@ -311,13 +301,5 @@ public abstract partial class OverlaySubView : UserControl
         // docs\overlay-and-input.md.
         Log.Warn($"{LogScope}: cannot edit '{title}' — no keyboard surface is available.");
         Toast("Text entry needs the overlay keyboard, which is not available.");
-    }
-
-    private sealed record ChoiceValue<T>(T Value, string Label)
-    {
-        public override string ToString()
-        {
-            return Label;
-        }
     }
 }

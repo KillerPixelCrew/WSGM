@@ -36,39 +36,16 @@ public sealed partial class OverlayController
             return;
         }
 
-        _windowReturnCancellation?.Cancel();
-        var cancellation = new CancellationTokenSource();
-        _windowReturnCancellation = cancellation;
         Log.Info($"Open apps: focusing '{entry.Title}'.");
-        _suppressFocusRestore = true;
-        Log.Observe(PickWindowAsync(entry, window, cancellation), "Open apps activation");
-        CloseOverlay(true);
-    }
-
-
-    private async Task PickWindowAsync(AppSwitcherEntry entry, OverlayWindow window,
-        CancellationTokenSource cancellation)
-    {
-        TaskCompletionSource closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        window.Closed += OnClosed;
-        try
+        RunAfterClose(window, "Open apps activation", async token =>
         {
-            await closed.Task.WaitAsync(cancellation.Token);
-            await _leaseRelease.WaitAsync(cancellation.Token);
-
-            cancellation.Token.ThrowIfCancellationRequested();
-            if (_disposed)
-            {
-                return;
-            }
-
             if (entry.IsSteam)
             {
-                _modes.FocusSteam();
+                _modes.SteamLifecycle.Focus();
             }
             else if (GameReturn is { } gameReturn)
             {
-                await gameReturn.ReturnAsync(entry.Hwnd, entry.ProcessId, cancellation.Token);
+                await gameReturn.ReturnAsync(entry.Hwnd, entry.ProcessId, token);
             }
             else
             {
@@ -78,26 +55,60 @@ public sealed partial class OverlayController
                     WindowFinder.BringToForeground(entry.Hwnd);
                 }
             }
-        }
-        catch (OperationCanceledException)
-        {
-        } // A reopened sheet or session shutdown ends the return.
-        finally
-        {
-            window.Closed -= OnClosed;
-            if (ReferenceEquals(_windowReturnCancellation, cancellation))
-            {
-                _windowReturnCancellation = null;
-            }
+        });
+    }
 
-            cancellation.Dispose();
-        }
-
+    /// <summary>
+    ///     Closes the sheet and runs an activation once the window has closed and the input lease is
+    ///     released, without restoring focus to the window the sheet came from.
+    /// </summary>
+    /// <param name="window">The open sheet.</param>
+    /// <param name="operation">The name failures are logged under.</param>
+    /// <param name="activate">The activation; its token ends when the sheet reopens or the session shuts down.</param>
+    private void RunAfterClose(OverlayWindow window, string operation, Func<CancellationToken, Task> activate)
+    {
+        _windowReturnCancellation?.Cancel();
+        var cancellation = new CancellationTokenSource();
+        _windowReturnCancellation = cancellation;
+        _suppressFocusRestore = true;
+        Log.Observe(RunAsync(), operation);
+        CloseOverlay(true);
         return;
 
-        void OnClosed(object? sender, EventArgs args)
+        async Task RunAsync()
         {
-            closed.TrySetResult();
+            TaskCompletionSource closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            window.Closed += OnClosed;
+            try
+            {
+                await closed.Task.WaitAsync(cancellation.Token);
+                await _leaseRelease.WaitAsync(cancellation.Token);
+                cancellation.Token.ThrowIfCancellationRequested();
+                if (!_disposed)
+                {
+                    await activate(cancellation.Token);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            } // A reopened sheet or session shutdown ends the activation.
+            finally
+            {
+                window.Closed -= OnClosed;
+                if (ReferenceEquals(_windowReturnCancellation, cancellation))
+                {
+                    _windowReturnCancellation = null;
+                }
+
+                cancellation.Dispose();
+            }
+
+            return;
+
+            void OnClosed(object? sender, EventArgs args)
+            {
+                closed.TrySetResult();
+            }
         }
     }
 
@@ -125,14 +136,14 @@ public sealed partial class OverlayController
     /// </summary>
     private static void FocusTaskManagerWhenVisible(int attempt)
     {
-        RunOnUiThreadAfter(TaskManagerFocusInterval, () =>
+        DispatcherTimer.RunOnce(() =>
         {
             // Only the real System32 Task Manager qualifies — never promote a
             // same-named exe running from elsewhere to the foreground.
             var expected = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.System), "Taskmgr.exe");
-            var pids = WindowFinder.FindProcessIds("Taskmgr");
-            pids.RemoveWhere(pid => !WindowFinder.ProcessImagePathEquals(pid, expected));
+            var pids = ProcessLookup.FindProcessIds("Taskmgr");
+            pids.RemoveWhere(pid => !ProcessLookup.ProcessImagePathEquals(pid, expected));
             var hwnd = WindowFinder.FindWindow(pids, null);
             if (hwnd != 0)
             {
@@ -147,7 +158,7 @@ public sealed partial class OverlayController
             }
 
             FocusTaskManagerWhenVisible(attempt + 1);
-        });
+        }, TaskManagerFocusInterval);
     }
 
     /// <summary>
@@ -249,11 +260,11 @@ public sealed partial class OverlayController
             // EnumWindows, DWM queries and the process-table snapshot are synchronous Win32 work.
             // Avalonia's dispatcher also owns pointer delivery and the 16 ms gamepad poll, so only
             // a detached snapshot returns to it.
-            (HashSet<uint> SteamPids, IReadOnlyList<WindowFinder.AppWindow> Windows) snapshot =
+            (HashSet<uint> SteamPids, IReadOnlyList<AppWindow> Windows) snapshot =
                 await Task.Run(() =>
                 {
                     var steamPids = refreshSteamPids
-                        ? WindowFinder.FindProcessIds(Steam.ProcessNames)
+                        ? ProcessLookup.FindProcessIds(Steam.ProcessNames)
                         : cachedSteamPids;
                     return (steamPids, WindowFinder.ListSwitchableWindows());
                 }).ConfigureAwait(false);
@@ -284,7 +295,7 @@ public sealed partial class OverlayController
     }
 
     private AppSwitcherEntry CreateSwitcherEntry(
-        WindowFinder.AppWindow window,
+        AppWindow window,
         HashSet<uint> steamPids)
     {
         // Cached icons are handed over synchronously; a miss resolves off the UI thread

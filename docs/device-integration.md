@@ -47,8 +47,9 @@ re-acquires the service but repeats neither the settle nor the decision. Busy (1
 stays visible as "Unknown".
 
 [Profiles](profiles.md) resolves Global and per-application preferences. Power presets and AC/DC
-assignments use the coordinator's serialized power lane. Native firmware controls and WSGM's
-software fan/charge controllers have explicit ownership, so they do not fight each other.
+assignments use the serialized power lane of the coordinator's `DevicePowerPolicy`. Native firmware
+controls and WSGM's software fan/charge controllers have explicit ownership, so they do not fight
+each other.
 
 Each fan's mode says who drives it: Firmware (the firmware's own automatic mode), Software (WSGM's
 fan curve) or Manual (the duty slider); other firmware modes such as full speed stay beside them.
@@ -60,18 +61,22 @@ restore never replays a saved duty or curve for a fan in another mode. The curve
 of the device's own temperature and RTSS's readings, averaged over the latest three seconds. It
 recomputes its target only after a 2 °C change, except beyond its end points, and steps the duty by
 at most 10 points up or 3 points down per second, so one spiky reading and sensor jitter do not move
-the fans and a load spike spins up briskly and down slowly. A device's fan table may carry its own
-smoothing: the Atlas 8's package temperature swings ten or twenty degrees within a second or two at
-idle, so there the curve reads a ten-second average, waits for 3 °C and ramps 5 points up or 2 down
-per second. The Quiet, Default and Aggressive presets are HandheldCompanion's shapes on devices it
-also supports and a measured table on the Atlas 8.
+the fans and a load spike spins up briskly and down slowly. The Quiet, Default and Aggressive
+presets are HandheldCompanion's shapes (`FanCurvePresetTable.HandheldCompanion`) unless the matched
+LibHandheld definition carries measured duties in `HandheldDefinition.FanCurvePresets`, together
+with its own smoothing. `DeviceCoordinator.FanPresets` resolves that table once when the definition
+is detected, through `HandheldUiProjection.FanPresets`, and the software curve, Overlay, Steam
+settings and Quick Access all read that one value. Today only the Atlas 8 carries its own: its
+package temperature swings ten or twenty degrees within a second or two at idle, so there the curve
+reads a ten-second average, waits for 3 °C and ramps 5 points up or 2 down per second.
 
 ## Controllers and OEM buttons
 
-LibHandheld produces canonical physical input. ControllerManager owns HidHide, VIIPER targets,
-forwarding and UI capture. Steam Input leases keep capture and wrapped-game ownership separate from
-native device acquisition. Explicit OEM action assignments override defaults; Guide and Quick Access
-actions remain available through wrapper leases.
+LibHandheld produces canonical physical input. ControllerManager owns HidHide, VIIPER targets and
+the controller handoff; its ControllerForwarding owns sample forwarding and UI capture. Steam Input
+leases keep capture and wrapped-game ownership separate from native device acquisition. Explicit OEM
+action assignments override defaults; Guide and Quick Access actions remain available through
+wrapper leases.
 
 The Xbox Ally Armoury Crate button declares the companion-application default and opens WSGM without
 a recorded keyboard shortcut. OEM release edges still reach the host during suspend, stop and fault

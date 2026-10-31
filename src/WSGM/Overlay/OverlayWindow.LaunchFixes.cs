@@ -118,7 +118,7 @@ public partial class OverlayWindow
     {
         var title = button.Title;
         button.Title = "Asking Steam…";
-        var appId = await CurrentAppIdAsync();
+        var appId = await SteamCurrentGame.AppIdAsync(_steam);
         if (_closed)
         {
             return null;
@@ -149,35 +149,22 @@ public partial class OverlayWindow
                    appId, appId.ToString(CultureInfo.InvariantCulture), SteamApps.IsShortcutAppId(appId));
     }
 
-    /// <summary>The game page Steam shows, or 0 when none does or Steam did not answer.</summary>
-    private async Task<uint> CurrentAppIdAsync()
-    {
-        if (_steam is null)
-        {
-            return 0;
-        }
-
-        var page = await _steam.CurrentPage.GetAsync();
-        return page.Succeeded ? page.Value.AppId : 0;
-    }
-
     private void OnCustomLaunchGamePicked(
         string path, string arguments, SteamLibraryApp game)
     {
-        _ = ApplyCustomLaunchToAsync(path, arguments, game, CustomLaunchButton);
+        ApplyCustomLaunchTo(path, arguments, game, CustomLaunchButton);
     }
 
-    private Task ApplyCustomLaunchToAsync(
+    private void ApplyCustomLaunchTo(
         string path, string arguments, SteamLibraryApp game, ActionButton button)
     {
         if (_launchActions is null)
         {
             button.Title = "Launch actions unavailable";
-            return Task.CompletedTask;
+            return;
         }
 
         LaunchWrapperHost.OpenActions(game, LaunchWrapperMode.None, path, arguments);
-        return Task.CompletedTask;
     }
 
     private void StartLaunchFix(LaunchWrapperMode mode, ActionButton button)
@@ -258,7 +245,7 @@ public partial class OverlayWindow
         try
         {
             button.Title = "Asking Steam…";
-            var appId = await CurrentAppIdAsync();
+            var appId = await SteamCurrentGame.AppIdAsync(_steam);
             if (_closed)
             {
                 return;
@@ -278,7 +265,7 @@ public partial class OverlayWindow
             }
 
             var game = await LookupGameAsync(appId);
-            await ApplyLaunchFixToAsync(mode, button, game.AppId, game.Name, game.Shortcut);
+            ApplyLaunchFixTo(mode, button, game.AppId, game.Name, game.Shortcut);
         }
         catch (Exception ex)
         {
@@ -287,30 +274,17 @@ public partial class OverlayWindow
         }
     }
 
-    private Task ApplyLaunchFixToAsync(
+    private void ApplyLaunchFixTo(
         LaunchWrapperMode mode, ActionButton button, long appId, string name, bool isShortcut)
     {
         if (_launchActions is null)
         {
             button.Title = "Launch actions unavailable";
-            return Task.CompletedTask;
+            return;
         }
 
         LaunchWrapperHost.OpenActions(new SteamLibraryApp(SteamApps.NormalizeAppId(appId), name, isShortcut), mode);
         EnterSubView(OverlayPage.SteamLaunchConfiguration);
-        return Task.CompletedTask;
-    }
-
-    /// <summary>Keeps the first restoration record, unwrapping a manually configured launch fix when needed.</summary>
-    /// <param name="appId">Steam application or shortcut identity.</param>
-    /// <param name="isShortcut">Whether the target is a non-Steam shortcut.</param>
-    /// <param name="details">Current Steam launch fields read for this target.</param>
-    /// <param name="existing">Previously owned launch snapshot, if any.</param>
-    /// <returns>A launch snapshot when a safe unwrapped baseline is available, otherwise null.</returns>
-    internal static LaunchWrapperConfig? CaptureLaunchSnapshot(long appId, bool isShortcut, SteamAppDetails details,
-        LaunchWrapperConfig? existing)
-    {
-        return existing ?? LaunchActionService.CaptureSnapshot(appId, isShortcut, details, null);
     }
 
     private void OnLaunchFixGamePicked(SteamLibraryApp game)
@@ -322,6 +296,6 @@ public partial class OverlayWindow
         }
 
         LeaveSubView(OverlayPage.SteamLaunchConfiguration);
-        _ = ApplyLaunchFixToAsync(pending.Mode, pending.Button, game.AppId, game.Name, game.Shortcut);
+        ApplyLaunchFixTo(pending.Mode, pending.Button, game.AppId, game.Name, game.Shortcut);
     }
 }

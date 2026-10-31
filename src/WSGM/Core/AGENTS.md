@@ -3,6 +3,16 @@
 Core owns nonvisual product policy, configuration, integration lifetimes, package management, Steam coordination, and
 recovery primitives. Native ABI declarations remain in Interop; UI presentation remains in its feature scope.
 
+## Layout
+
+- Core is grouped into one folder per feature (Config, Desktop, Device, Library, Performance, Session, Steam and so
+  on). docs/source-map.md lists every folder and what it owns. A folder is not a namespace: every type here is in
+  `WSGM.Core`, so moving a file between folders changes no code.
+- Each top-level type has its own file, named after it. Put a new file in the folder of the owner it belongs to and
+  create a subfolder only where one already exists (`Library/Sources`, `SteamUiAssets/Source`). Core keeps the
+  persisted and pure half of a feature; its live owner sits in the Shell folder of the same name.
+- Tests mirror the layout under tests/WSGM.Tests/Core/<Feature>/.
+
 ## State and lifetime
 
 - ConfigStore is the authority for per-user configuration. Preserve strict validation, atomic replacement, serialized
@@ -11,9 +21,9 @@ recovery primitives. Native ABI declarations remain in Interop; UI presentation 
   over its recovery snapshots.
 - Recovery operations must be idempotent and usable before normal application initialization.
 - ExplorerControl only ever asks Explorer to leave: the orderly `0x05B4` exit, then `WM_CLOSE` to a retired process's
-  remaining windows. ExplorerDesktopHost alone may then terminate the exact held shell owner that ignored the request,
-  with exit status 1, as docs/boot-and-shell.md describes; a lingering retired owner otherwise blocks every desktop
-  return. Never sweep folder processes. A non-zero exit code means
+  remaining windows. ExplorerDesktopHost alone, through its ExplorerShellExit, may then terminate the exact held shell
+  owner that ignored the request, with exit status 1, as docs/boot-and-shell.md describes; a lingering retired owner
+  otherwise blocks every desktop return. Never sweep folder processes. A non-zero exit code means
   Winlogon will respawn the shell: wait for the replacement, do not race it. Every failed exit uses verified desktop
   recovery. "Is the desktop up" is `IsDesktopShellRunning` (taskbar owned by explorer.exe), never a process count.
 - One owner creates and disposes each long-lived integration. Do not let views acquire hardware, Steam, RTSS, or input
@@ -32,10 +42,10 @@ recovery primitives. Native ABI declarations remain in Interop; UI presentation 
 
 ## Steam boundaries
 
-- SharedJSContext is the Steam execution surface for CEF modules and stores; Shell/SteamUiSessionHost owns the bridge,
-  patch manager, modules, runtime, and their lifetime. Use the toolkit's module resolver for literal lookups or unique
-  source fingerprints, and JSON-encode values across the JavaScript boundary. Features must not implement registry scans
-  or raw require.
+- SharedJSContext is the Steam execution surface for CEF modules and stores; Shell/Steam/SteamUiSessionHost owns the
+  bridge, patch manager, modules, runtime, and their lifetime. Use the toolkit's module resolver for literal lookups or
+  unique source fingerprints, and JSON-encode values across the JavaScript boundary. Features must not implement
+  registry scans or raw require.
 - Keep CEF debugger sockets loopback-only. Artwork queries request static assets, require HTTPS, and cap downloads at
   16 MiB; an image's format is read from its first bytes, never its URL, and its declared size from its header. Those
   checks do not validate MIME headers or decode the image. Each provider paces its requests and downloads behind its own

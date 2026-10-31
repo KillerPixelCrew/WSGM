@@ -40,6 +40,7 @@ public sealed partial class OverlayController : IDisposable
     private readonly SdFormatManager? _formatManager;
 
     private readonly GamepadService _gamepad = new();
+    private readonly NativeQamHybridCoreService _hybridCores;
     private readonly HotkeyService? _hotkey;
     private readonly KeepAwakeService? _keepAwake;
 
@@ -106,7 +107,6 @@ public sealed partial class OverlayController : IDisposable
 
     private WindowIconCache? _iconCache;
     private CancellationTokenSource? _keyboardRequestCancellation;
-    private bool _keyboardRequestPending;
 
     private string? _lastWakeLockError;
 
@@ -201,8 +201,8 @@ public sealed partial class OverlayController : IDisposable
         _sources = sources ?? new OverlaySources(DisplayModes: DisplayModeAccess.Unavailable);
         // A preview writes nothing, so a set of its own never needs the session's lock.
         _power = power ?? WindowsPowerPolicy.OverWindows();
-        _powerProfiles = _sources.PowerProfiles ?? new NativeQamPowerProfileService(_power.Schemes,
-            _ => throw new InvalidOperationException("A preview cannot persist a power-profile selection."));
+        _powerProfiles = _sources.PowerProfiles ?? new NativeQamPowerProfileService(_power.Schemes);
+        _hybridCores = _sources.HybridCores ?? new NativeQamHybridCoreService(_power.HybridCores);
         _store = store;
         _steamInput = steamInput ?? throw new ArgumentNullException(nameof(steamInput));
         _displayTimeouts = displayTimeouts;
@@ -220,7 +220,7 @@ public sealed partial class OverlayController : IDisposable
         if (formats is not null)
         {
             _formatManager = formats;
-            _formatManager.Finished += OnFormatFinished;
+            _formatManager.Progress.Finished += OnFormatFinished;
         }
 
         _config = config;
@@ -246,7 +246,7 @@ public sealed partial class OverlayController : IDisposable
             _hotkey.Apply(config.Hotkey);
             _chordWatcher = new GamepadChordWatcher(_gamepad, config.GamepadChord);
             _chordWatcher.Triggered += ShowOverlay;
-            if (config.GamepadChord.Enabled && config.GamepadChord.Buttons != 0)
+            if (ChordActive(config))
             {
                 _gamepad.Start();
             }
@@ -308,7 +308,7 @@ public sealed partial class OverlayController : IDisposable
         _windowReturnCancellation?.Cancel();
         _overlay?.ReleaseProgramsPresentation();
         DisposeNotes();
-        CloseKeyboardNow();
+        _overlay?.CloseAllSurfaces();
         // Deliberately NOT retracting the injected Steam UI (tabs, badge, Wi-Fi AP)
         // here: both the Settings preview and session shutdown call this Dispose, and
         // retracting from the preview would tear the LIVE session's tabs out of Big
@@ -331,7 +331,7 @@ public sealed partial class OverlayController : IDisposable
         if (_formatManager is not null)
         {
             // The composition owns the format manager; only the subscription is ours.
-            _formatManager.Finished -= OnFormatFinished;
+            _formatManager.Progress.Finished -= OnFormatFinished;
         }
 
         if (_hotkey is not null)
@@ -436,8 +436,7 @@ public sealed partial class OverlayController : IDisposable
         // and session modes itself.
         _hotkey?.Apply(config.Hotkey);
         _chordWatcher?.ApplyConfig(config.GamepadChord);
-        var chordActive = _activationEnabled && config.GamepadChord.Enabled && config.GamepadChord.Buttons != 0;
-        switch (chordActive)
+        switch (ChordActive(config))
         {
             case true when !_gamepad.IsRunning:
                 _gamepad.Start();
@@ -491,6 +490,8 @@ public sealed partial class OverlayController : IDisposable
         vm.ShowGameLibrary = _sources.GameLibrary is not null;
         vm.ShowEmulators = _sources.Emulators is not null;
         vm.ShowArtwork = config.Cef.Enabled && _sources.Artwork is not null;
+        // The install folder and shortcut target come from Steam's frontend on every scan.
+        vm.ShowGameTools = config.Cef.Enabled && _sources.GameTools is not null;
         vm.ShowThemes = config.Cef.Enabled && _sources.Themes is not null;
         vm.ShowAnimations = config.Cef.Enabled && _sources.Animations is not null;
         vm.ShowSounds = _sources.Sounds is not null;
@@ -559,7 +560,7 @@ public sealed partial class OverlayController : IDisposable
             AcquireSteamInputLease();
         }
 
-        HideTouchEdges();
+        _touchSwipes?.Disarm();
         if (_overlay is not null)
         {
             ReactivateOpenOverlay(_overlay);
@@ -571,20 +572,15 @@ public sealed partial class OverlayController : IDisposable
         var explorerRunning = ExplorerControl.IsDesktopShellRunning();
         var vm = new OverlayViewModel
         {
-            ExplorerRunning = explorerRunning,
-            HomeAppAlive = _monitor?.IsAlive ?? false,
             HomeAppName = "Steam",
             GlyphStyle = _config.GlyphStyle,
-            WarningText = _pendingWarning,
             ShowKeepAwake = _keepAwake is not null,
             ModeSwitchAvailable = !_previewOnly,
             SettingsAvailable = OpenSettings is not null,
-            PowerTimeoutsEditable = !_previewOnly,
-            KeepAwakeManualMode = _keepAwake?.ManualMode ?? ManualWakeMode.Off,
-            KeepAwakeDownloadActive = _keepAwake?.DownloadHold ?? false
+            PowerTimeoutsEditable = !_previewOnly
         };
         ApplyCefVisibility(vm, _config);
-        RefreshPowerTimeouts(vm);
+        RefreshSessionState(vm, explorerRunning);
 
         _overlayViewModel = vm;
         // The Open apps strip, tray and status pills live only while the sheet is
@@ -616,12 +612,14 @@ public sealed partial class OverlayController : IDisposable
         }
 
         _overlay.OnScreenKeyboardRequested += async () => await RequestOnScreenKeyboardAsync();
-        var powerSchemes = new PowerSchemeSelection(_powerProfiles,
+        var powerSchemes = new ChoiceRowSelection("system.power-profile.choice", "Windows power profile",
+            _powerProfiles.ReadAsync, _powerProfiles.SetPowerProfileAsync,
             _previewOnly || _sources.PowerProfiles is null);
         _overlay.AttachPowerSchemes(powerSchemes);
         // Read on every open rather than cached for the session: activating a power scheme can
         // carry a different core preference with it, so a value read once would go stale silently.
-        var hybridCores = new HybridCoreSelection(_power.HybridCores, _previewOnly);
+        var hybridCores = new ChoiceRowSelection("system.hybrid-cores.choice", "Processor core preference",
+            _hybridCores.ReadAsync, _hybridCores.SetHybridCoresAsync, _previewOnly);
         _overlay.AttachHybridCores(hybridCores);
         RefreshWindowsPolicies(_overlay);
         if (_powerPresets is not null)
@@ -632,33 +630,15 @@ public sealed partial class OverlayController : IDisposable
 
         powerSchemes.Changed += () =>
         {
-            if (powerSchemes is { Busy: false, ActiveId: not null } && ReferenceEquals(_overlayViewModel, vm))
+            if (powerSchemes is { Busy: false, State.Current.Length: > 0 } && ReferenceEquals(_overlayViewModel, vm))
             {
                 RefreshPowerTimeouts(vm);
             }
         };
         var constructDone = Stopwatch.GetTimestamp();
-        _overlay.AttachDeviceBridge(_sources.Device);
-        _overlay.AttachGraphicsSource(_sources.Graphics);
-        _overlay.AttachDevicePrerequisites(_sources.DevicePrerequisites);
-        _overlay.AttachCommonPlugins(_sources.CommonPlugins);
-        _overlay.AttachGameLibrary(_sources.GameLibrary);
-        _overlay.AttachEmulators(_sources.Emulators);
-        _overlay.AttachPrograms(_sources.Programs);
-        _overlay.AttachLaunchActions(_sources.LaunchActions);
-        _overlay.AttachLibraryManager(_sources.LibraryManager);
+        _overlay.AttachSources(_sources);
         AttachNotes(_overlay);
-        _overlay.AttachScreensavers(_sources.Screensavers);
-        if (_sources.Browser is { } browser)
-        {
-            _overlay.AttachBrowserSession(browser);
-        }
         _overlay.ProgramActivateRequested += ActivateProgram;
-        _overlay.AttachThemes(_sources.Themes);
-        _overlay.AttachAnimations(_sources.Animations);
-        _overlay.AttachSounds(_sources.Sounds);
-        _overlay.AttachArtwork(_sources.Artwork);
-        _overlay.AttachPerformanceSource(_sources.Performance);
         _overlay.SetPins(_pins);
         _overlay.PinToggleRequested += OnPinToggleRequested;
         _overlay.WindowPicked += PickWindow;
@@ -726,14 +706,8 @@ public sealed partial class OverlayController : IDisposable
 
         if (_overlayViewModel is not null)
         {
-            _overlayViewModel.WarningText = _pendingWarning;
-            // Recompute what the fresh-open path computes — Steam may have died
-            // or the desktop may have changed while the panel stayed open.
-            _overlayViewModel.ExplorerRunning = ExplorerControl.IsDesktopShellRunning();
-            _overlayViewModel.HomeAppAlive = _monitor?.IsAlive ?? false;
-            _overlayViewModel.KeepAwakeManualMode = _keepAwake?.ManualMode ?? ManualWakeMode.Off;
-            _overlayViewModel.KeepAwakeDownloadActive = _keepAwake?.DownloadHold ?? false;
-            RefreshPowerTimeouts(_overlayViewModel);
+            // Steam may have died or the desktop may have changed while the panel stayed open.
+            RefreshSessionState(_overlayViewModel, ExplorerControl.IsDesktopShellRunning());
             RefreshWakeLockIndicator();
             StartWakeLockRefresh();
         }
@@ -748,6 +722,19 @@ public sealed partial class OverlayController : IDisposable
         overlay.Activate();
     }
 
+    /// <summary>Copies the session state an open or re-summoned sheet shows into its view model.</summary>
+    /// <param name="vm">The sheet's view model.</param>
+    /// <param name="explorerRunning">Whether the desktop shell runs, read once by the caller.</param>
+    private void RefreshSessionState(OverlayViewModel vm, bool explorerRunning)
+    {
+        vm.WarningText = _pendingWarning;
+        vm.ExplorerRunning = explorerRunning;
+        vm.HomeAppAlive = _monitor?.IsAlive ?? false;
+        vm.KeepAwakeManualMode = _keepAwake?.ManualMode ?? ManualWakeMode.Off;
+        vm.KeepAwakeDownloadActive = _keepAwake?.DownloadHold ?? false;
+        RefreshPowerTimeouts(vm);
+    }
+
     /// <summary>Connects the sheet's requests to the session actions they start.</summary>
     /// <param name="overlay">The sheet being opened.</param>
     /// <param name="vm">Its view model, which some requests update.</param>
@@ -757,7 +744,7 @@ public sealed partial class OverlayController : IDisposable
         {
             _suppressFocusRestore = true;
             CloseOverlay();
-            _modes.StartOrFocusSteam();
+            _modes.SteamLifecycle.StartOrFocus();
         };
         overlay.DesktopRequested += () =>
         {
@@ -794,11 +781,11 @@ public sealed partial class OverlayController : IDisposable
         {
             _suppressFocusRestore = true;
             CloseOverlay();
-            SessionModes.ExitBigPicture();
+            SteamLifecycle.ExitBigPicture();
         };
         overlay.CloseLauncherRequested += () =>
         {
-            _modes.CloseSteam();
+            _modes.SteamLifecycle.Close();
             vm.HomeAppAlive = false;
         };
         overlay.PowerActionRequested += action =>
@@ -982,7 +969,7 @@ public sealed partial class OverlayController : IDisposable
         StopWakeLockRefresh();
         _powerMenuOnly = false;
         // Keep polling if the controller chord still needs it.
-        if (!(_activationEnabled && _config.GamepadChord.Enabled && _config.GamepadChord.Buttons != 0))
+        if (!ChordActive(_config))
         {
             _gamepad.Stop();
         }
@@ -999,7 +986,7 @@ public sealed partial class OverlayController : IDisposable
         }
 
         _restoreFocusTo = 0;
-        ShowTouchEdges();
+        _touchSwipes?.Arm();
         if (reopenForWarning)
         {
             Dispatcher.UIThread.Post(ShowOverlay);
@@ -1110,7 +1097,7 @@ public sealed partial class OverlayController : IDisposable
                 status,
                 _windowSession,
                 static window => window.DockToTopEdge(),
-                UiScale())
+                UiScale(ExplorerControl.IsDesktopShellRunning()))
             {
                 WarmingUp = true,
                 // Far off-screen: the render backend (Skia GPU context, ANGLE device, the
@@ -1204,11 +1191,6 @@ public sealed partial class OverlayController : IDisposable
     ///     it, so boosting again would double up (device-reported: surfaces rendered
     ///     huge on a 100% desktop when the recommended-scale fallback fired there).
     /// </summary>
-    private double UiScale()
-    {
-        return UiScale(ExplorerControl.IsDesktopShellRunning());
-    }
-
     private double UiScale(bool explorerRunning)
     {
         return explorerRunning
@@ -1216,15 +1198,10 @@ public sealed partial class OverlayController : IDisposable
             : DisplayScale.GetUiScalePercent(_config) / 100.0;
     }
 
-    /// <summary>
-    ///     The single idiom for delayed UI-thread work in this controller
-    ///     (deferred close, Task Manager focus polling). Runs the action
-    ///     on the UI thread after the delay; dispose the returned handle to cancel.
-    ///     UI-thread callers only — overlay events and SteamMonitor's tick already are.
-    /// </summary>
-    private static IDisposable RunOnUiThreadAfter(TimeSpan delay, Action action)
+    /// <summary>Whether the controller chord opens the sheet, which keeps the gamepad polled while it is closed.</summary>
+    private bool ChordActive(AppConfig config)
     {
-        return DispatcherTimer.RunOnce(action, delay);
+        return _activationEnabled && config.GamepadChord.Enabled && config.GamepadChord.Buttons != 0;
     }
 
     private bool IsNintendoLayout()
@@ -1258,11 +1235,11 @@ public sealed partial class OverlayController : IDisposable
         // ShowOverlay cancels this via _pendingClose when re-summoned in time.
         _overlay.IsEnabled = false;
         _navigation?.IsEnabled = false;
-        _pendingClose = RunOnUiThreadAfter(TouchInput.CloseGrace, () =>
+        _pendingClose = DispatcherTimer.RunOnce(() =>
         {
             _pendingClose = null;
             _overlay?.Close();
-        });
+        }, TouchInput.CloseGrace);
     }
 
     /// <summary>UI sink for the coordinator's Steam start failures.</summary>

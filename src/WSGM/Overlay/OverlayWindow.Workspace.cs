@@ -13,7 +13,6 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using FluentAvalonia.UI.Controls;
 using WSGM.Controls;
-using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
@@ -22,7 +21,6 @@ public partial class OverlayWindow
     private readonly Dictionary<string, FAInfoBadge> _sectionBadges = [];
     private readonly List<WorkspaceSection> _workspaceSections = [];
     private OverlayViewModel ViewModel => (OverlayViewModel)DataContext!;
-    private Dictionary<OverlayDestination, string> SelectedSections => _session.Sections;
 
     private Button? SelectedSectionButton => SectionRail.Children.OfType<Button>()
         .FirstOrDefault(button => button.Classes.Contains("selected"));
@@ -32,7 +30,8 @@ public partial class OverlayWindow
         if (_closed || e.PropertyName is not (
                 nameof(OverlayViewModel.ShowThemes) or nameof(OverlayViewModel.ShowAnimations)
                 or nameof(OverlayViewModel.ShowSounds) or nameof(OverlayViewModel.ShowArtwork)
-                or nameof(OverlayViewModel.ShowGameLibrary) or nameof(OverlayViewModel.ShowEmulators)))
+                or nameof(OverlayViewModel.ShowGameLibrary) or nameof(OverlayViewModel.ShowEmulators)
+                or nameof(OverlayViewModel.ShowGameTools)))
         {
             return;
         }
@@ -59,10 +58,8 @@ public partial class OverlayWindow
         };
         if (_navigation.Destination == OverlayDestination.Device)
         {
-            RefreshDeviceSectionRail(_deviceBridge?.Snapshot()
-                                     ?? new DeviceOverlaySnapshot(false, "Device integration off", string.Empty, null,
-                                         []),
-                _performanceSource?.Snapshot());
+            RefreshDeviceSectionRail(
+                DeviceOverlaySectionPages.Build(DeviceSnapshotOrOff(), _performanceSource?.Snapshot()));
             return;
         }
 
@@ -70,7 +67,7 @@ public partial class OverlayWindow
         if (_navigation.Destination == OverlayDestination.QuickAccess)
         {
             sections.Add(new WorkspaceSection("quick-access", "Pinned controls", Icons.Pin,
-                OverlayPage.QuickAccess, null, null));
+                OverlayPage.QuickAccess, null));
         }
         else
         {
@@ -79,14 +76,14 @@ public partial class OverlayWindow
                                                         (view.Available?.Invoke() ?? true)))
             {
                 sections.Add(new WorkspaceSection(view.Page.ToString(), view.Title!,
-                    view.Icon, view.Page, null, null));
+                    view.Icon, view.Page, null));
             }
         }
 
         ReconcileSectionRail(sections);
     }
 
-    private void RefreshDeviceSectionRail(DeviceOverlaySnapshot snapshot, PerformanceOverlaySnapshot? performance)
+    private void RefreshDeviceSectionRail(IReadOnlyList<DeviceOverlaySectionEntry> sections)
     {
         if (_navigation.Destination != OverlayDestination.Device)
         {
@@ -95,14 +92,12 @@ public partial class OverlayWindow
 
         var entries = new List<WorkspaceSection>
         {
-            new("device.overview", "Overview", Icons.Gear, OverlayPage.Device, null, null)
+            new("device.overview", "Overview", Icons.Gear, OverlayPage.Device, null)
         };
-        var sections = DeviceOverlaySectionPages.Build(snapshot, performance);
         entries.AddRange(sections.Select(entry =>
             new WorkspaceSection(DeviceOverlaySectionPages.FocusKey(entry), entry.Title,
-                SectionIconFor(entry.Icon) ?? Icons.ListLines, entry.Page, entry.PluginSectionId,
-                entry.PluginSectionId is null ? entry.Section : null)));
-        entries.Add(new WorkspaceSection("device.gpu", "GPU", Icons.Monitor, OverlayPage.DeviceGpu, null, null));
+                SectionIconFor(entry.Icon) ?? Icons.ListLines, entry.Page, entry.PluginSectionId)));
+        entries.Add(new WorkspaceSection("device.gpu", "GPU", Icons.Monitor, OverlayPage.DeviceGpu, null));
         ReconcileSectionRail(entries);
         foreach (var entry in sections)
         {
@@ -116,7 +111,7 @@ public partial class OverlayWindow
 
     private void ReconcileSectionRail(IReadOnlyList<WorkspaceSection> entries)
     {
-        var focusedKey = (FocusManager?.GetFocusedElement() as Control)?.Tag as string;
+        var focusedKey = CurrentSemanticFocusKey();
         // Values never participate in this comparison. Telemetry must not replace rail focus targets.
         if (!_workspaceSections.SequenceEqual(entries))
         {
@@ -162,7 +157,7 @@ public partial class OverlayWindow
             LeaveAllNestedPages();
         }
 
-        var selectedKey = SelectedSections.GetValueOrDefault(_navigation.Destination);
+        var selectedKey = _session.Sections.GetValueOrDefault(_navigation.Destination);
         if (selectedKey is not null && entries.All(entry => entry.Key != selectedKey)
                                     && entries.FirstOrDefault() is { } fallback)
         {
@@ -185,12 +180,16 @@ public partial class OverlayWindow
     {
         var face = new Grid { ColumnDefinitions = new ColumnDefinitions("4,24,*,Auto"), ColumnSpacing = 12 };
         face.Children.Add(new Border
-            { Classes = { "selection-rule" }, Height = 24, VerticalAlignment = VerticalAlignment.Center });
+        { Classes = { "selection-rule" }, Height = 24, VerticalAlignment = VerticalAlignment.Center });
         var icon = new Path
         {
-            Data = entry.Icon, Width = 20, Stretch = Stretch.Uniform,
-            StrokeThickness = 1.6, StrokeLineCap = PenLineCap.Round,
-            StrokeJoin = PenLineJoin.Round, VerticalAlignment = VerticalAlignment.Center,
+            Data = entry.Icon,
+            Width = 20,
+            Stretch = Stretch.Uniform,
+            StrokeThickness = 1.6,
+            StrokeLineCap = PenLineCap.Round,
+            StrokeJoin = PenLineJoin.Round,
+            VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Center
         };
         icon.Bind(Shape.StrokeProperty, this.GetResourceObservable("DeckSecondaryBrush"));
@@ -198,8 +197,11 @@ public partial class OverlayWindow
         face.Children.Add(icon);
         var label = new TextBlock
         {
-            Text = entry.Title, FontSize = 15, TextTrimming = TextTrimming.CharacterEllipsis,
-            TextWrapping = TextWrapping.Wrap, MaxLines = 2,
+            Text = entry.Title,
+            FontSize = 15,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            TextWrapping = TextWrapping.Wrap,
+            MaxLines = 2,
             VerticalAlignment = VerticalAlignment.Center
         };
         Grid.SetColumn(label, 2);
@@ -224,20 +226,19 @@ public partial class OverlayWindow
 
         LeaveAllNestedPages();
         _navigation.Select(_navigation.Destination);
-        SelectedSections[_navigation.Destination] = section.Key;
+        _session.Sections[_navigation.Destination] = section.Key;
         if (section.PluginSection is { } plugin)
         {
             EnterDevicePluginSection(plugin);
         }
-        else if (section.DeviceSection is { } device)
+        else if (DeviceOverlaySectionPages.SectionFor(section.Page) is { } device)
         {
             EnterDeviceSection(device);
         }
         else if (section.Page == OverlayPage.Device)
         {
             PanelDevice.IsVisible = true;
-            RefreshDevicePanel();
-            RefreshPerformancePanel();
+            RefreshDevicePage();
         }
         else if (section.Page != OverlayPage.QuickAccess)
         {
@@ -254,7 +255,7 @@ public partial class OverlayWindow
 
     private void SelectRememberedSection(bool focusRail)
     {
-        var remembered = SelectedSections.GetValueOrDefault(_navigation.Destination);
+        var remembered = _session.Sections.GetValueOrDefault(_navigation.Destination);
         var section = _workspaceSections.FirstOrDefault(item => item.Key == remembered)
                       ?? _workspaceSections.FirstOrDefault();
         if (section is not null)
@@ -273,7 +274,7 @@ public partial class OverlayWindow
         var selected = _workspaceSections.FirstOrDefault(section => section.Page == _navigation.Page
                                                                     && section.PluginSection == _navigation.SectionId)
                            ?.Key
-                       ?? SelectedSections.GetValueOrDefault(_navigation.Destination);
+                       ?? _session.Sections.GetValueOrDefault(_navigation.Destination);
         foreach (var button in SectionRail.Children.OfType<Button>())
         {
             button.Classes.Set("selected", Equals(button.Tag, "rail." + selected));
@@ -284,7 +285,7 @@ public partial class OverlayWindow
     {
         if (!HasActiveSurface && FocusManager?.GetFocusedElement() is Control sectionFocus
                               && sectionFocus.GetVisualAncestors().OfType<CollapsibleSection>().FirstOrDefault() is
-                                  { } fold
+                              { } fold
                               && ReferenceEquals(sectionFocus, fold.Heading)
                               && direction is NavigationDirection.Left or NavigationDirection.Right)
         {
@@ -318,16 +319,10 @@ public partial class OverlayWindow
         ShowBrightnessSurface();
     }
 
-    private void OnHeaderKeyboard(object? sender, RoutedEventArgs e)
-    {
-        OnScreenKeyboard(sender, e);
-    }
-
     private sealed record WorkspaceSection(
         string Key,
         string Title,
         Geometry? Icon,
         OverlayPage Page,
-        string? PluginSection,
-        DeviceOverlaySection? DeviceSection);
+        string? PluginSection);
 }

@@ -1,0 +1,299 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using WindowsDeviceControl;
+
+namespace WSGM.Core;
+
+/// <summary>
+///     Owns WSGM's per-monitor scaling policy (the 100%/125%/150% setting), using
+///     <see cref="DisplayScaling" /> for the Windows CCD reads and writes. Changes apply INSTANTLY
+///     with no logoff (live-verified) and PERSIST in the registry. Scaling
+///     persistence is why the pre-game values are stored in WSGM's config and restored on desktop
+///     mode, clean exit, panic, and recovery. Game mode runs at 100% so DPI-unaware games render
+///     1:1 on the panel. HDR is queried and set on the path TARGET, never the GDI source; see
+///     docs\power-and-display.md. A configured Game Mode layout owns resolution, position, refresh,
+///     per-display scaling and HDR instead, through <see cref="WindowsDeviceControl.DisplayLayouts" />;
+///     this class remains the scaling posture Default entry applies and the snapshot recovery
+///     restores.
+/// </summary>
+internal static class DisplayScale
+{
+    /// <summary>
+    ///     Captures identified active displays whose scale differs from 100%, persists their originals,
+    ///     then lowers those displays. A surviving recovery snapshot permits lowering only its named
+    ///     displays, so newly connected displays are not changed without restoration ownership.
+    ///     A failed capture save leaves scaling untouched; the session receives the snapshot on reload.
+    /// </summary>
+    /// <param name="store">Strict persistence that must durably own original scaling before any lowering write.</param>
+    public static void ApplyGameMode(ConfigStore store)
+    {
+        var sources = GetActiveSources();
+        if (sources.Count == 0)
+        {
+            Log.Warn("Display scale: no active display sources found.");
+            return;
+        }
+
+        List<DisplayScaleEntry> saved;
+        try
+        {
+            saved = store.Read().RequireConfig().SavedDisplayScaleEntries;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Display scale: could not read saved values — leaving scaling unchanged: {ex.Message}");
+            return;
+        }
+
+        var freshCapture = saved.Count == 0;
+        var captured = new List<DisplayScaleEntry>();
+        var toLower = new List<(ActiveDisplayPath Display, int Current)>();
+        foreach (var source in sources)
+        {
+            if (!DisplayScaling.TryRead(source.Target, out var current) || current == 100)
+            {
+                continue;
+            }
+
+            var name = source.SourceName;
+            if (name.Length == 0)
+            {
+                // A ""-named entry can never be matched by name on restore, so it
+                // would sit in the config forever, re-logged on every restore.
+                // Leave this display's scaling untouched rather than lower a value
+                // we could not identify for restore.
+                Log.Warn(
+                    $"Display scale: device name query failed for a display at {current}% — leaving it unchanged.");
+                continue;
+            }
+
+            captured.Add(new DisplayScaleEntry { DeviceName = name, Percent = current });
+            // A surviving snapshot means the previous game-mode session did not
+            // finish restoring every display.  A dock/undock can expose a different
+            // active source before recovery runs; never force that new display to
+            // 100% without first owning its desktop-scale snapshot.  Existing named
+            // entries are safe to lower again because their original value is still
+            // recoverable.
+            if (ShouldLowerDisplay(freshCapture, saved, name))
+            {
+                toLower.Add((source, current));
+            }
+        }
+
+        if (freshCapture && captured.Count > 0)
+        {
+            try
+            {
+                PersistScaleEntries(store, captured);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Display scale: could not persist saved values — leaving scaling unchanged: {ex.Message}");
+                return;
+            }
+        }
+
+        foreach (var (source, current) in toLower)
+        {
+            if (TrySetScale(source.Target, 100))
+            {
+                Log.Info($"Display scale -> 100% (was {current}%).");
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Recovery path for clean exit, the return to the desktop, panic, uninstall and shell repair.
+    ///     Restores any pending scaling snapshot; the layout a Game Mode session owes the desktop is
+    ///     separate and belongs to <see cref="GameModeLaunchRecovery" />.
+    /// </summary>
+    /// <param name="store">Strict persistence holding the latest per-display recovery entries.</param>
+    /// <param name="config">Session snapshot whose recovery list is updated after the restoration attempt.</param>
+    /// <remarks>Disconnected or failed targets retain recovery entries. A failed strict read propagates without a write.</remarks>
+    public static void RestoreSaved(ConfigStore store, AppConfig config)
+    {
+        var persisted = store.Read().RequireConfig();
+        RestoreDpiSnapshot(store, persisted);
+        config.SavedDisplayScaleEntries = persisted.SavedDisplayScaleEntries;
+    }
+
+    private static void RestoreDpiSnapshot(ConfigStore store, AppConfig config)
+    {
+        if (config.SavedDisplayScaleEntries.Count == 0)
+        {
+            return;
+        }
+
+        var sources = GetActiveSources();
+        if (sources.Count == 0)
+        {
+            Log.Warn("Display scale: no active display sources — keeping saved values for a later restore.");
+            return;
+        }
+
+        var named = sources
+            .Select(source => (Source: source, Name: source.SourceName))
+            .ToList();
+
+        var remaining = new List<DisplayScaleEntry>();
+        foreach (var entry in config.SavedDisplayScaleEntries)
+        {
+            if (entry.Percent is not (>= 100 and <= 500) || string.IsNullOrEmpty(entry.DeviceName))
+            {
+                continue; // a garbage value or no display to match: dropping it is the only safe move
+            }
+
+            var idx = named.FindIndex(s => string.Equals(s.Name, entry.DeviceName, StringComparison.OrdinalIgnoreCase));
+            if (idx < 0)
+            {
+                Log.Warn(
+                    $"Display scale: display '{entry.DeviceName}' not active — keeping {entry.Percent}% for a later restore.");
+                remaining.Add(entry);
+                continue;
+            }
+
+            if (TrySetScale(named[idx].Source.Target, entry.Percent))
+            {
+                Log.Info($"Display scale restored to {entry.Percent}% ({entry.DeviceName}).");
+            }
+            else
+            {
+                remaining.Add(entry); // nothing was written; the next restore path tries again
+            }
+        }
+
+        config.SavedDisplayScaleEntries = remaining;
+        try
+        {
+            PersistScaleEntries(store, remaining);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Display scale: could not persist restore: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    ///     Persists ONLY the display-scale snapshot, through the config store's
+    ///     read-modify-write path. Callers hand in a LONG-LIVED <see cref="AppConfig" /> —
+    ///     the shell session's, on every game/desktop transition — and saving that whole
+    ///     object would overwrite every field another process persisted since it was
+    ///     loaded (see ConfigStore's contract), so a mode switch could silently revert
+    ///     settings the user had just saved. Callers mirror the same values onto their own
+    ///     instance so it stays in step with what went to disk.
+    /// </summary>
+    /// <param name="store">The process-owned configuration persistence.</param>
+    /// <param name="entries">The scale entries to persist (empty clears the snapshot).</param>
+    private static void PersistScaleEntries(ConfigStore store, List<DisplayScaleEntry> entries)
+    {
+        store.Update(fresh =>
+        {
+            fresh.SavedDisplayScaleEntries = entries;
+            return true;
+        });
+    }
+
+    /// <summary>
+    ///     The display-scale percent WSGM's own UI should render at. Game
+    ///     mode forces every display to 100%, which makes DIP-sized WSGM surfaces
+    ///     physically tiny on dense handheld panels — so the overlay/taskbar upscale
+    ///     themselves to the user's DESKTOP scaling: the pre-game-mode snapshot when
+    ///     one exists, otherwise the panel's Windows-recommended scale (the snapshot
+    ///     only captures displays that weren't already at 100%). Returns 100 when
+    ///     nothing better is known.
+    /// </summary>
+    /// <param name="config">The configuration holding the pre-game-mode scale snapshot.</param>
+    /// <returns>UI scale percent, at least 100; valid saved values are bounded to 100–500.</returns>
+    public static uint GetUiScalePercent(AppConfig config)
+    {
+        try
+        {
+            var sources = GetActiveSources();
+            foreach (var saved in sources
+                         .Select(source => source.SourceName)
+                         .Select(name => config.SavedDisplayScaleEntries.Find(e =>
+                             string.Equals(e.DeviceName, name, StringComparison.OrdinalIgnoreCase))))
+            {
+                if (saved is { Percent: >= 100 and <= 500 })
+                {
+                    return (uint)saved.Percent;
+                }
+            }
+
+            if (sources.Count > 0 &&
+                DisplayScaling.TryReadRange(sources[0].Target, out var current, out var recommended, out _))
+            {
+                return PickUiScalePercent((uint)current, (uint)recommended);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Display scale: UI scale query failed: {ex.Message}");
+        }
+
+        return 100;
+    }
+
+    /// <summary>
+    ///     The pure UI-scale decision once no saved desktop percent applies: the larger of the current
+    ///     and Windows-recommended scale (in game mode current is the forced 100, so recommended carries
+    ///     panels whose desktop already ran at 100%).
+    /// </summary>
+    /// <param name="currentPercent">The display's current scale percent.</param>
+    /// <param name="recommendedPercent">The display's Windows-recommended percent.</param>
+    /// <returns>The larger current/recommended value with a 100 percent floor.</returns>
+    public static uint PickUiScalePercent(uint currentPercent, uint recommendedPercent)
+    {
+        return Math.Max(Math.Max(currentPercent, recommendedPercent), 100);
+    }
+
+    /// <summary>
+    ///     Decides whether a display may be lowered after its scale was read.
+    ///     A fresh capture owns every successfully identified value; during crash
+    ///     recovery only a source already present in the durable snapshot is owned.
+    /// </summary>
+    /// <param name="freshCapture">Whether no earlier recovery snapshot exists.</param>
+    /// <param name="savedEntries">The durable, device-keyed recovery snapshot.</param>
+    /// <param name="deviceName">The active source's GDI device name.</param>
+    /// <returns>True for a fresh capture or a case-insensitive source-name match in saved recovery state.</returns>
+    internal static bool ShouldLowerDisplay(
+        bool freshCapture,
+        IReadOnlyList<DisplayScaleEntry> savedEntries,
+        string deviceName)
+    {
+        return freshCapture || savedEntries.Any(entry =>
+            string.Equals(entry.DeviceName, deviceName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    ///     Writes one scaling value. A write Windows accepted, or a display already at that value, counts
+    ///     as done without reading it back; only a write that did not happen keeps its restore entry.
+    /// </summary>
+    private static bool TrySetScale(DisplayTargetIdentity target, int percent)
+    {
+        var result = DisplayScaling.Set(target, percent);
+        if (!result.Succeeded)
+        {
+            Log.Warn(
+                $"Display scale: set {percent}% failed: {DisplayText.Scaling(result.Outcome, result.NativeStatus)}.");
+        }
+
+        return result.Succeeded;
+    }
+
+    private static List<ActiveDisplayPath> GetActiveSources()
+    {
+        try
+        {
+            return DisplayTopology.CaptureActive().Paths
+                .DistinctBy(path => path.SourceName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Display scale: enumeration failed: {ex.Message}");
+            return [];
+        }
+    }
+}

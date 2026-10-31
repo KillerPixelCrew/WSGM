@@ -16,9 +16,6 @@ namespace WSGM.Core;
 /// </remarks>
 internal static class LibraryFiles
 {
-    /// <summary>The largest file a source reads whole.</summary>
-    internal const long DefaultMaximumBytes = 16 * 1024 * 1024;
-
     /// <summary>Reads a file's text.</summary>
     /// <param name="path">The file.</param>
     /// <returns>Its text, or null when it cannot be read.</returns>
@@ -36,33 +33,16 @@ internal static class LibraryFiles
 
     /// <summary>Reads a file's bytes, sharing it with a launcher that may be writing it.</summary>
     /// <param name="path">The file.</param>
-    /// <param name="maximumBytes">The largest file accepted.</param>
     /// <returns>Its bytes, or null when the file or directory is missing.</returns>
-    /// <exception cref="IOException">The file could not be read or exceeds the accepted bound.</exception>
-    internal static byte[]? ReadBytes(string path, long maximumBytes = DefaultMaximumBytes)
+    /// <exception cref="IOException">The file could not be read.</exception>
+    internal static byte[]? ReadBytes(string path)
     {
         try
         {
             using FileStream stream = new(
                 path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            if (stream.Length > maximumBytes)
-            {
-                throw new IOException($"Launcher file '{path}' exceeds {maximumBytes} bytes.");
-            }
-
             using MemoryStream copy = new();
-            var buffer = new byte[81920];
-            int read;
-            while ((read = stream.Read(buffer)) > 0)
-            {
-                if (copy.Length + read > maximumBytes)
-                {
-                    throw new IOException($"Launcher file '{path}' exceeds {maximumBytes} bytes.");
-                }
-
-                copy.Write(buffer, 0, read);
-            }
-
+            stream.CopyTo(copy);
             return copy.ToArray();
         }
         catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
@@ -244,8 +224,8 @@ internal static class LibraryFiles
         return raw is null ? null : Unescape(raw);
     }
 
-    /// <summary>Whether an exception means only that a file or folder cannot be read.</summary>
-    private static bool IsUnreadable(Exception ex)
+    /// <summary>Whether an exception means only that a file, folder or registry key cannot be read.</summary>
+    internal static bool IsUnreadable(Exception ex)
     {
         return ex is IOException or UnauthorizedAccessException or SecurityException or ArgumentException
             or NotSupportedException;

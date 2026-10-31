@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.LogicalTree;
+using Avalonia.Media;
 using Avalonia.Threading;
 using SteamUiToolkit;
 using WSGM.Controls;
@@ -19,8 +21,14 @@ namespace WSGM.Overlay;
 ///     keeps focus on the row the user was on through that redraw, and runs the service's commands
 ///     with their refusal shown as a toast. The Game Library and Themes views are two of these.
 /// </summary>
+/// <remarks>
+///     A level that shows running work registers it with <see cref="SetLiveContent{TState}" />. A publication that
+///     leaves the level's structure unchanged then updates its <see cref="OverlayProgress" /> element in place instead
+///     of running the level again; only a structural change redraws it.
+/// </remarks>
 public abstract class ServiceSubView : OverlaySubView
 {
+    private LiveLevel? _live;
     private OverlayWindow? _owner;
     private int _refreshQueued;
     private bool _renderDeferred;
@@ -58,8 +66,11 @@ public abstract class ServiceSubView : OverlaySubView
         }
     }
 
+    /// <summary>Whether the current level shows the service's state, so the service's changes redraw it.</summary>
+    private protected virtual bool RedrawsOnSourceChange => true;
+
     /// <summary>Opens the view on its home level.</summary>
-    public void Open()
+    public override void Open()
     {
         NavigationStack.Clear();
         CurrentLevel = null;
@@ -86,9 +97,65 @@ public abstract class ServiceSubView : OverlaySubView
         }
     }
 
+    /// <summary>
+    ///     Sets a level whose service state is partly live: later publications with the same structure update the
+    ///     level's <see cref="OverlayProgress" /> element in place, and any other publication redraws the level.
+    /// </summary>
+    /// <typeparam name="TState">The service state the level was drawn from.</typeparam>
+    /// <param name="stack">The level.</param>
+    /// <param name="rendered">
+    ///     The state the level was drawn from, read before drawing it, so a change published during the draw still
+    ///     counts as a change.
+    /// </param>
+    /// <param name="read">Reads the service's current state on the UI thread; null redraws the level.</param>
+    /// <param name="sameStructure">
+    ///     Whether two states draw the same level apart from its live progress: the same rows, actions,
+    ///     availability, enablement and messages.
+    /// </param>
+    /// <param name="progress">
+    ///     The live progress element's state, or null for a level without one; its publications then change nothing
+    ///     until the structure does.
+    /// </param>
+    /// <remarks>
+    ///     The level draws at most one <see cref="OverlayProgress" />, mounted even while hidden so that work which
+    ///     starts without a structural change can still be shown. Live updates also run behind an in-window surface,
+    ///     since they replace no control and move no focus.
+    /// </remarks>
+    private protected void SetLiveContent<TState>(StackPanel stack, TState rendered, Func<TState?> read,
+        Func<TState, TState, bool> sameStructure, Func<TState, OverlayProgressState?>? progress)
+        where TState : class
+    {
+        SetContent(stack);
+        if (CurrentLevel is not { } level)
+        {
+            return;
+        }
+
+        var element = Content is Control root
+            ? root.GetLogicalDescendants().OfType<OverlayProgress>().FirstOrDefault()
+            : null;
+        _live = new LiveLevel<TState>(level, NavigationGeneration, element, rendered, read, sameStructure, progress);
+    }
+
+    /// <summary>Sets a level that shows no service state, so the service's publications leave it as drawn.</summary>
+    /// <param name="stack">The level.</param>
+    private protected void SetStaticContent(StackPanel stack)
+    {
+        SetLiveContent(stack, stack, () => stack, static (_, _) => true, null);
+    }
+
+    /// <inheritdoc />
+    internal override void Leave()
+    {
+        _live = null;
+        base.Leave();
+    }
+
     /// <inheritdoc />
     private protected override void SetContent(StackPanel stack)
     {
+        // Every draw replaces the previous level's registration; a live level registers again after this.
+        _live = null;
         if (_renderGeneration != NavigationGeneration || Content is not Control old)
         {
             _renderGeneration = NavigationGeneration;
@@ -132,18 +199,37 @@ public abstract class ServiceSubView : OverlaySubView
                 stack.Spacing = nextStack.Spacing;
             }
 
+            var keyed = new Dictionary<string, Control>(StringComparer.Ordinal);
+            foreach (var child in target.Children)
+            {
+                if (Key(child) is string childKey)
+                {
+                    keyed.TryAdd(childKey, child);
+                }
+            }
+
             var desired = next.Children.ToArray();
             for (var index = 0; index < desired.Length; index++)
             {
                 var fresh = desired[index];
                 var existing = Key(fresh) is string key
-                    ? target.Children.FirstOrDefault(child => Equals(Key(child), key))
+                    ? keyed.GetValueOrDefault(key)
                     : index < target.Children.Count
                         ? target.Children[index]
                         : null;
                 if (existing?.GetType() == fresh.GetType() && Equals(Key(existing), Key(fresh)))
                 {
-                    existing.Opacity = fresh.Opacity;
+                    // The fresh control is unstyled, so copy only an opacity it set itself; copying the default
+                    // would override the retained control's styled value, such as a disabled row's dimming.
+                    if (fresh.IsSet(OpacityProperty))
+                    {
+                        existing.Opacity = fresh.Opacity;
+                    }
+                    else
+                    {
+                        existing.ClearValue(OpacityProperty);
+                    }
+
                     existing.IsEnabled = fresh.IsEnabled;
                     existing.IsVisible = fresh.IsVisible;
                     if (target.Children.IndexOf(existing) != index)
@@ -206,25 +292,128 @@ public abstract class ServiceSubView : OverlaySubView
         }
     }
 
-    /// <summary>A level's status: working, then the error, else the notice.</summary>
+    /// <summary>A level's status: the shared progress element while working, then the error, else the notice.</summary>
     /// <param name="stack">The level.</param>
-    /// <param name="busy">Whether the service is working.</param>
+    /// <param name="busy">
+    ///     Whether the service is working; it then shows an indeterminate <see cref="OverlayProgress" />, the same
+    ///     element a level with measured progress shows.
+    /// </param>
     /// <param name="error">The last refusal, or null.</param>
     /// <param name="notice">A line worth reading, or null.</param>
-    private protected static void AddStatus(StackPanel stack, bool busy, string? error, string? notice)
+    /// <param name="tag">The error or notice line's stable tag, or null to leave it untagged.</param>
+    private protected static void AddStatus(StackPanel stack, bool busy, string? error, string? notice,
+        string? tag = null)
     {
         if (busy)
         {
-            stack.Children.Add(Caption("Working…"));
+            stack.Children.Add(new OverlayProgress("status.progress", new OverlayProgressState("Working…", true)));
         }
 
-        if (error is { Length: > 0 })
+        var message = error is { Length: > 0 } ? error : notice is { Length: > 0 } ? notice : null;
+        if (message is not null)
         {
-            stack.Children.Add(Caption(error));
+            var caption = Caption(message);
+            stack.Children.Add(tag is null ? caption : Tagged(caption, tag));
         }
-        else if (notice is { Length: > 0 })
+    }
+
+    /// <summary>
+    ///     Adds the searchable, paged Steam library rows a view opens games from: search, refresh, the read's
+    ///     state, one row per matching game, Load more and the empty text.
+    /// </summary>
+    /// <param name="body">The level.</param>
+    /// <param name="list">The view's list state.</param>
+    /// <param name="icon">The icon of each game row.</param>
+    /// <param name="read">Reads the library; used by Refresh.</param>
+    /// <param name="open">Opens a game.</param>
+    /// <param name="render">Redraws the level after a search or Load more.</param>
+    /// <remarks>Call <see cref="EnsureGameList" /> after the level's content is set.</remarks>
+    private protected void AddGameList(StackPanel body, GameList list, Geometry icon,
+        Func<Task<SteamLibraryReadResult>> read, Action<SteamLibraryApp> open, Action render)
+    {
+        body.Children.Add(Tagged(Row("Search games", list.Query, Icons.ListLines,
+            () => EditText("Search your Steam library", list.Query, 0, query =>
+            {
+                list.Query = query;
+                list.Shown = GameList.Chunk;
+                render();
+            })), "games.search"));
+        body.Children.Add(Tagged(Row("Refresh games", "Read the library from Steam again", Icons.Restart,
+            list.Reading ? null : () => _ = RunSafelyAsync(ReadGameListAsync(list, read), "games")), "games.refresh"));
+        if (list.Error is not null)
         {
-            stack.Children.Add(Caption(notice));
+            body.Children.Add(Tagged(Caption(list.Error), "games.error"));
+        }
+
+        if (list.Reading)
+        {
+            body.Children.Add(Tagged(Caption("Asking Steam…"), "games.reading"));
+        }
+
+        var games = list.Games.Where(game => game.Name.Contains(list.Query, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        foreach (var game in games.Take(list.Shown))
+        {
+            var chosen = game;
+            body.Children.Add(Tagged(Row(game.Name, game.Shortcut ? "Non-Steam game" : "Steam game", icon,
+                () => open(chosen)), "game:" + game.AppId));
+        }
+
+        if (games.Length > list.Shown)
+        {
+            var added = "game:" + games[list.Shown].AppId;
+            body.Children.Add(PagedRows.More(this, "games.more", $"{list.Shown} of {games.Length}", added, () =>
+            {
+                list.Shown += GameList.Chunk;
+                render();
+            }));
+        }
+
+        if (list.Loaded && !list.Reading && list.Error is null && games.Length == 0)
+        {
+            body.Children.Add(Tagged(Caption(list.Games.Count == 0
+                ? "Your Steam library has no games."
+                : "No games match the search."), "games.empty"));
+        }
+    }
+
+    /// <summary>Starts the first library read once the list level is on screen.</summary>
+    /// <param name="list">The view's list state.</param>
+    /// <param name="read">Reads the library.</param>
+    private protected void EnsureGameList(GameList list, Func<Task<SteamLibraryReadResult>> read)
+    {
+        if (!list.Loaded && !list.Reading)
+        {
+            _ = RunSafelyAsync(ReadGameListAsync(list, read), "games");
+        }
+    }
+
+    private async Task ReadGameListAsync(GameList list, Func<Task<SteamLibraryReadResult>> read)
+    {
+        var generation = NavigationGeneration;
+        list.Reading = true;
+        CurrentLevel?.Invoke();
+        SteamLibraryReadResult result;
+        try
+        {
+            result = await read();
+        }
+        finally
+        {
+            list.Reading = false;
+            list.Loaded = true;
+        }
+
+        if (result.Succeeded)
+        {
+            list.Games = result.Games;
+        }
+
+        // A failed read keeps the last good list rather than presenting it as an empty library.
+        list.Error = result.Error;
+        if (generation == NavigationGeneration)
+        {
+            CurrentLevel?.Invoke();
         }
     }
 
@@ -308,7 +497,8 @@ public abstract class ServiceSubView : OverlaySubView
             body.Children.Add(Tagged(
                 DangerRow("Confirm", "", Icons.Close, () => _ = RunSafelyAsync(CommitAsync(), "confirm")),
                 "confirm.accept"));
-            SetContent(body);
+            // The question is fixed text: a publication while it is open must not redraw it under the user.
+            SetStaticContent(body);
         });
         return;
 
@@ -346,8 +536,13 @@ public abstract class ServiceSubView : OverlaySubView
         Dispatcher.UIThread.Post(() =>
         {
             Interlocked.Exchange(ref _refreshQueued, 0);
-            if (_source is not null && IsEffectivelyVisible)
+            if (_source is not null && IsEffectivelyVisible && RedrawsOnSourceChange)
             {
+                if (_live is { } live && live.TryUpdate(this))
+                {
+                    return;
+                }
+
                 if (_owner?.HasActiveSurface == true)
                 {
                     _renderDeferred = true;
@@ -358,5 +553,79 @@ public abstract class ServiceSubView : OverlaySubView
                 }
             }
         }, DispatcherPriority.Background);
+    }
+
+    /// <summary>A registered live level: what it was drawn from and how its progress element follows the service.</summary>
+    private abstract class LiveLevel
+    {
+        /// <summary>Applies a publication in place when the level's structure is unchanged.</summary>
+        /// <param name="view">The view that registered the level.</param>
+        /// <returns>True when the level needs no redraw; false when the caller must redraw it.</returns>
+        internal abstract bool TryUpdate(ServiceSubView view);
+    }
+
+    /// <summary>A live level over one kind of service state.</summary>
+    /// <typeparam name="TState">The service state the level was drawn from.</typeparam>
+    private sealed class LiveLevel<TState>(
+        Action level,
+        int generation,
+        OverlayProgress? element,
+        TState shown,
+        Func<TState?> read,
+        Func<TState, TState, bool> sameStructure,
+        Func<TState, OverlayProgressState?>? progress) : LiveLevel
+        where TState : class
+    {
+        private TState _shown = shown;
+
+        /// <inheritdoc />
+        internal override bool TryUpdate(ServiceSubView view)
+        {
+            if (generation != view.NavigationGeneration || !ReferenceEquals(level, view.CurrentLevel)
+                                                        || read() is not { } next
+                                                        || !sameStructure(_shown, next))
+            {
+                return false;
+            }
+
+            if (progress is not null)
+            {
+                // A progress element that left the tree falls back to a redraw, which registers the mounted one.
+                if (element is null || !view.IsLogicalAncestorOf(element))
+                {
+                    return false;
+                }
+
+                element.Apply(progress(next));
+            }
+
+            _shown = next;
+            return true;
+        }
+    }
+
+    /// <summary>A view's Steam library list: the games read last, the search and how many rows are shown.</summary>
+    private protected sealed class GameList
+    {
+        /// <summary>The rows each Load more adds.</summary>
+        internal const int Chunk = 48;
+
+        /// <summary>The last successfully read library.</summary>
+        internal IReadOnlyList<SteamLibraryApp> Games { get; set; } = [];
+
+        /// <summary>Why the last read failed, or null.</summary>
+        internal string? Error { get; set; }
+
+        /// <summary>Whether a read has finished.</summary>
+        internal bool Loaded { get; set; }
+
+        /// <summary>Whether a read is running.</summary>
+        internal bool Reading { get; set; }
+
+        /// <summary>The search text.</summary>
+        internal string Query { get; set; } = "";
+
+        /// <summary>How many matching games are shown.</summary>
+        internal int Shown { get; set; } = Chunk;
     }
 }

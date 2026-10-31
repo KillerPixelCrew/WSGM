@@ -43,8 +43,10 @@ public static class PreviewTools
         FakeLibrarySource? library = null)
     {
         var window = fixture.Overlay(width, height);
-        UiFixture.Named<ThemesView>(window, "ThemesHost").AttachSession(new FakeThemesSource());
-        UiFixture.Named<AnimationsView>(window, "AnimationsHost").AttachSession(new FakeMoviesSource());
+        var themes = new FakeThemesSource();
+        UiFixture.Named<ThemesView>(window, "ThemesHost").AttachSession(themes, themes);
+        var movies = new FakeMoviesSource();
+        UiFixture.Named<AnimationsView>(window, "AnimationsHost").AttachSession(movies, movies);
         UiFixture.Named<ArtworkView>(window, "ArtworkHost").AttachSession(new FakeArtworkSource());
         UiFixture.Named<GameLibraryView>(window, "GameLibraryHost").Attach(library ?? new FakeLibrarySource());
         UiFixture.Named<EmulatorManagerView>(window, "EmulatorManagerHost").Attach(PreviewEmulators.Create());

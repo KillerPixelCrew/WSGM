@@ -1,9 +1,7 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
-using Avalonia.Controls;
-using Avalonia.Input;
-using Avalonia.Threading;
+using Avalonia;
 using SteamUiToolkit;
 using WSGM.Controls;
 using WSGM.Core;
@@ -18,40 +16,34 @@ namespace WSGM.Overlay;
 ///     are their own thing, not a tab-builder level. The view is one projection of
 ///     <see cref="LibraryManagerService" />, which Steam's SD Card Manager page projects too:
 ///     every operation, the card model and its capacity come from there, and a change made in
-///     Steam or by a card insertion redraws the list here.
+///     Steam or by a card insertion redraws the list here. The view reaches it through
+///     <see cref="ICardManagerSource" />, so a headless capture supplies an explicit fake.
 /// </summary>
-public sealed class CardManagerView : OverlaySubView
+public sealed class CardManagerView : ServiceSubView
 {
-    private bool _listShown;
-
-    private LibraryManagerService? _service;
+    private ICardManagerSource? _service;
 
     /// <inheritdoc />
     protected override string LogScope => "Card manager";
 
-    private LibraryManagerService Service =>
+    private ICardManagerSource Service =>
         _service ?? throw new InvalidOperationException("The session library manager is unavailable.");
 
     /// <summary>Attaches the view to the session's shared manager, or detaches it with null.</summary>
-    /// <param name="service">The session's service, borrowed; null when the overlay closes or the session has none.</param>
-    internal void Attach(LibraryManagerService? service)
+    /// <param name="service">
+    ///     The session's <see cref="LibraryManagerService" />, or an explicit fake in a headless capture; borrowed,
+    ///     null when the overlay closes or the session has none.
+    /// </param>
+    internal void Attach(ICardManagerSource? service)
     {
         if (ReferenceEquals(_service, service))
         {
             return;
         }
 
-        if (_service is not null)
-        {
-            _service.Changed -= OnServiceChanged;
-        }
-
         _service = service;
-        if (service is not null)
-        {
-            service.Changed += OnServiceChanged;
-        }
-        else
+        AttachSource(service);
+        if (service is null)
         {
             Leave();
         }
@@ -61,59 +53,28 @@ public sealed class CardManagerView : OverlaySubView
     ///     Resets navigation and renders the card list. Called by the overlay
     ///     when the sub-view opens.
     /// </summary>
-    public void Open()
+    public override void Open()
     {
-        NavigationStack.Clear();
-        CurrentLevel = null;
+        base.Open();
+        if (_service is not null)
+        {
+            // The list shows the last reading at once; the scan replaces it through Changed.
+            _ = RunSafelyAsync(_service.RefreshAsync(), "card list");
+        }
+    }
+
+    // ---- Level: card list ----
+
+    // A change from Steam's page, from a card insertion or from this view's own operation redraws
+    // the current level in place, keeping the finger on the same card or row.
+    private protected override void RenderHome()
+    {
         if (_service is null)
         {
             RenderMessage("Card Manager", "Card management is unavailable in this session.");
             return;
         }
 
-        Navigate(RenderCardList);
-        // The list shows the last reading at once; the scan replaces it through Changed.
-        _ = RunSafelyAsync(Service.RefreshAsync(), "card list");
-    }
-
-    /// <inheritdoc />
-    internal override void Leave()
-    {
-        _listShown = false;
-        base.Leave();
-    }
-
-    // A change from Steam's page, from a card insertion or from this view's own operation: the
-    // list redraws in place, keeping the finger on the same card. Deeper levels redraw after their
-    // own operation, so a card ejected while its editor is open does not move the focus.
-    private void OnServiceChanged()
-    {
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (_service is not null && _listShown && IsVisible && Content is not null)
-            {
-                RenderCardList(FocusedContentId());
-            }
-        });
-    }
-
-    private string? FocusedContentId()
-    {
-        return TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is ActionButton { Tag: string id }
-            ? id
-            : null;
-    }
-
-    // ---- Level: card list ----
-
-    private void RenderCardList()
-    {
-        RenderCardList(null);
-    }
-
-    private void RenderCardList(string? focusContentId)
-    {
-        _listShown = true;
         var state = Service.ReadCardState();
         var stack = NewStack("Card Manager");
         if (!state.Loaded)
@@ -137,30 +98,21 @@ public sealed class CardManagerView : OverlaySubView
             var c = card;
             var row = Row(c.Name, Describe(c), Icons.SdCard, () => RenderCardEditor(c.ContentId));
             row.Tag = c.ContentId;
+            if (c.HasCapacity)
+            {
+                // Inside the card's own row, under the amounts it draws, as Steam's page shows it: a bar
+                // between two rows reads as a divider and belongs to neither.
+                var meter = OverlayProgress.UsageMeter(c.UsedBytes, c.CapacityBytes, c.Name + " space used");
+                meter.Margin = new Thickness(0, 2, 0, 2);
+                row.Footer = meter;
+            }
+
             stack.Children.Add(row);
         }
 
         stack.Children.Add(SectionLabel(""));
         stack.Children.Add(Row("Back", "Return to Steam", Icons.ExitFullscreen, () => Back()));
         SetContent(stack);
-        if (focusContentId is null)
-        {
-            return;
-        }
-
-        // Posted after SetContent's own first-row focus post, so it wins: a card list redrawn under
-        // the user keeps the focus on the card they were on.
-        Dispatcher.UIThread.Post(() =>
-        {
-            foreach (var child in stack.Children)
-            {
-                if (child is ActionButton { Tag: string id } button && id == focusContentId)
-                {
-                    button.Focus(NavigationMethod.Directional);
-                    return;
-                }
-            }
-        });
     }
 
     private static string Describe(LibraryCardView card)
@@ -169,8 +121,8 @@ public sealed class CardManagerView : OverlaySubView
         var state = $"{card.GameCount} games · {marker}";
         if (card.HasCapacity)
         {
-            state += $" · {LibraryManagerService.FormatBytes(card.FreeBytes)} free of "
-                     + LibraryManagerService.FormatBytes(card.CapacityBytes);
+            state += $" · {LibraryCardView.FormatBytes(card.FreeBytes)} free of "
+                     + LibraryCardView.FormatBytes(card.CapacityBytes);
         }
 
         return state + (card.Enabled ? "" : " · tab off") + (card.Hidden ? " · hidden" : "");
@@ -185,21 +137,21 @@ public sealed class CardManagerView : OverlaySubView
 
     private void DrawCardEditor(string contentId)
     {
-        _listShown = false;
         if (Service.ReadCardState().Cards.FirstOrDefault(c => c.ContentId == contentId) is not { } card)
         {
-            // Forgotten on the other surface while this editor was open.
-            Toast("That card is no longer tracked.");
+            // Forgotten on the other surface while this editor was open. Back first, so the notice
+            // redraws the card list rather than this editor again.
             Back();
+            Toast("That card is no longer tracked.");
             return;
         }
 
         var stack = NewStack(card.Name);
         stack.Children.Add(Caption(card.Inserted ? "Currently inserted." : "Not inserted (remembered)."));
         stack.Children.Add(Caption(card.HasCapacity
-            ? $"{LibraryManagerService.FormatBytes(card.UsedBytes)} used · "
-              + $"{LibraryManagerService.FormatBytes(card.FreeBytes)} free · "
-              + $"{LibraryManagerService.FormatBytes(card.CapacityBytes)} in all"
+            ? $"{LibraryCardView.FormatBytes(card.UsedBytes)} used · "
+              + $"{LibraryCardView.FormatBytes(card.FreeBytes)} free · "
+              + $"{LibraryCardView.FormatBytes(card.CapacityBytes)} in all"
               + (card.Inserted ? "" : " (last reading)")
             : "Size not read yet; connect the card once."));
         stack.Children.Add(Row("Rename", card.Name, Icons.CopyDoc, () =>
@@ -207,24 +159,11 @@ public sealed class CardManagerView : OverlaySubView
                 // Renames the drive itself first, then the tab, the Steam library label and the
                 // Windows volume. A refusal (an unmounted library) comes back as the failure, a
                 // partial write as the notice to show.
-                () => Service.RenameCardAsync(card.ContentId, v), () =>
-                {
-                    // Drop the text-entry level and the card editor, landing on a fresh card list.
-                    PopIfAny();
-                    Replace(RenderCardList);
-                }))));
-        stack.Children.Add(ChoiceRow("Steam tab", [(false, "Off"), (true, "On")], card.Enabled, enabled =>
-            _ = RunCardMutationAsync(() => Service.SetCardEnabledAsync(card.ContentId, enabled), () =>
-            {
-                PopIfAny();
-                Replace(RenderCardList);
-            })));
+                () => Service.RenameCardAsync(card.ContentId, v)))));
+        stack.Children.Add(ToggleRow("Steam tab", card.Enabled, enabled =>
+            _ = RunCardMutationAsync(() => Service.SetCardEnabledAsync(card.ContentId, enabled))));
         stack.Children.Add(ChoiceRow("Hidden", [(false, "No"), (true, "Yes")], card.Hidden, hidden =>
-            _ = RunCardMutationAsync(() => Service.SetCardHiddenAsync(card.ContentId, hidden), () =>
-            {
-                PopIfAny();
-                Replace(RenderCardList);
-            })));
+            _ = RunCardMutationAsync(() => Service.SetCardHiddenAsync(card.ContentId, hidden))));
         stack.Children.Add(Row("View games", $"{card.GameCount} installed", Icons.Grid4,
             () => OpenGameList(card)));
         stack.Children.Add(SectionLabel(""));
@@ -242,18 +181,13 @@ public sealed class CardManagerView : OverlaySubView
         stack.Children.Add(Caption("Its Steam tab and tracking are removed. The games on the card stay; "
                                    + "reinserting the card tracks it again as new."));
         stack.Children.Add(DangerRow("Forget card", "Remove its tab and tracking", Icons.Close,
-            () => _ = RunCardMutationAsync(() => Service.ForgetCardAsync(card.ContentId), () =>
-            {
-                // Drop the confirmation and the editor, landing on a fresh card list.
-                PopIfAny();
-                PopIfAny();
-                Replace(RenderCardList);
-            })));
+            () => _ = RunCardMutationAsync(() => Service.ForgetCardAsync(card.ContentId))));
         stack.Children.Add(Row("Cancel", "Keep the card", Icons.ExitFullscreen, () => Back()));
         SetContent(stack);
     }
 
-    private async Task RunCardMutationAsync(Func<Task<SteamUiCommandResult>> mutation, Action completed)
+    // An applied change drops the editor and any confirmation, landing on a freshly drawn card list.
+    private async Task RunCardMutationAsync(Func<Task<SteamUiCommandResult>> mutation)
     {
         try
         {
@@ -265,15 +199,19 @@ public sealed class CardManagerView : OverlaySubView
             }
 
             // A partial rename leaves a note; it is shown once here and cleared for Steam's page.
-            if (Service.ReadCardState().Notice is { } notice)
+            var notice = Service.ReadCardState().Notice;
+            if (notice is not null)
             {
                 _ = Service.DismissAsync();
-                completed();
-                Toast(notice);
-                return;
             }
 
-            completed();
+            NavigationStack.Clear();
+            NavigationGeneration++;
+            Replace(RenderHome);
+            if (notice is not null)
+            {
+                Toast(notice);
+            }
         }
         catch (Exception ex)
         {
@@ -300,6 +238,8 @@ public sealed class CardManagerView : OverlaySubView
             return;
         }
 
+        // A new level over the loading message, drawn afresh rather than reconciled into it.
+        NavigationGeneration++;
         Replace(() =>
         {
             var stack = NewStack($"{card.Name} — Games");

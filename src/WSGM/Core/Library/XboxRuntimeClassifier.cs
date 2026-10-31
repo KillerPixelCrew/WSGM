@@ -1,47 +1,7 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 
 namespace WSGM.Core;
-
-/// <summary>What launch route a packaged title needs.</summary>
-public enum XboxRuntime
-{
-    /// <summary>Neither shape could be established from the package's own metadata.</summary>
-    Unknown,
-
-    /// <summary>A native UWP title, which runs in an AppContainer.</summary>
-    NativeUwp,
-
-    /// <summary>A full-trust packaged Win32 title with GDK evidence.</summary>
-    PackagedWin32Gdk
-}
-
-/// <summary>What one package's metadata says about the application being classified.</summary>
-/// <param name="ApplicationId">The application id inside the package, or empty when absent.</param>
-/// <param name="EntryPoint">Its declared entry point, or empty.</param>
-/// <param name="Executable">The executable the manifest names, or empty.</param>
-/// <param name="HasRunFullTrust">Whether the package declares the full-trust capability.</param>
-/// <param name="ApplicationCount">How many applications the package declares.</param>
-/// <param name="PackageDependencies">The package families it depends on.</param>
-/// <param name="HasMicrosoftGameConfig">Whether the install root carries MicrosoftGame.config.</param>
-/// <param name="ManifestReadable">Whether the manifest could be read and parsed at all.</param>
-/// <param name="ProcessorArchitecture">What the package's identity declares it is built for, or empty.</param>
-public sealed record XboxPackageFacts(
-    string ApplicationId,
-    string EntryPoint,
-    string Executable,
-    bool HasRunFullTrust,
-    int ApplicationCount,
-    IReadOnlyList<string> PackageDependencies,
-    bool HasMicrosoftGameConfig,
-    bool ManifestReadable = true,
-    string ProcessorArchitecture = "");
-
-/// <summary>A runtime and the one sentence of evidence that decided it.</summary>
-/// <param name="Runtime">The classification.</param>
-/// <param name="Evidence">Why, in words the import preview shows the user.</param>
-public sealed record XboxRuntimeClassification(XboxRuntime Runtime, string Evidence);
 
 /// <summary>Decides which launch route a packaged title needs, from its own metadata.</summary>
 /// <remarks>
@@ -65,9 +25,6 @@ public static class XboxRuntimeClassifier
 
     /// <summary>The launch helper a GDK title activates.</summary>
     private const string GameLaunchHelper = "gamelaunchhelper.exe";
-
-    /// <summary>The capability a packaged Win32 application needs to run outside a sandbox.</summary>
-    private const string RunFullTrust = "runFullTrust";
 
     /// <summary>The package family every GDK title depends on.</summary>
     private const string GamingServices = "Microsoft.GamingServices";

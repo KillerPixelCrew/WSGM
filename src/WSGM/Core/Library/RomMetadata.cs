@@ -11,8 +11,6 @@ namespace WSGM.Core;
 /// <summary>Bounded metadata reads and filename rules used by ROM discovery.</summary>
 internal static class RomMetadata
 {
-    internal sealed record Sfo(string Title, string TitleId, string Category);
-
     internal static string CleanTitle(string name)
     {
         var cleaned = Regex.Replace(name, @"\s*[\[(]([^\])]+)[\])]", match =>
@@ -40,7 +38,7 @@ internal static class RomMetadata
                    CultureInfo.InvariantCulture, out var titleId) && (titleId & 0x1fff) != 0;
     }
 
-    internal static Sfo? ReadSfo(string eboot)
+    internal static SfoMetadata? ReadSfo(string eboot)
     {
         var folder = Path.GetDirectoryName(eboot)!;
         if (Path.GetFileName(folder).Equals("USRDIR", StringComparison.OrdinalIgnoreCase))
@@ -50,7 +48,7 @@ internal static class RomMetadata
 
         try
         {
-            var bytes = LibraryFiles.ReadBytes(Path.Combine(folder, "PARAM.SFO"), maximumBytes: 1024 * 1024);
+            var bytes = LibraryFiles.ReadBytes(Path.Combine(folder, "PARAM.SFO"));
             if (bytes is null || bytes.Length < 20 || !bytes.AsSpan(0, 4).SequenceEqual("\0PSF"u8))
             {
                 return null;
@@ -101,7 +99,7 @@ internal static class RomMetadata
                 }
             }
 
-            return new Sfo(title, titleId, category);
+            return new SfoMetadata(title, titleId, category);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

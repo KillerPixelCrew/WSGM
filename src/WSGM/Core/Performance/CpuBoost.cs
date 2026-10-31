@@ -1,0 +1,140 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Linq;
+using System.Threading;
+using WSGM.Interop;
+
+namespace WSGM.Core;
+
+/// <summary>
+///     The processor boost mode over Windows power policy, written the way Handheld Companion
+///     writes it: both power sources to one value on the active scheme, then the scheme re-activated.
+/// </summary>
+/// <remarks>
+///     Independent of device integration: this is Windows power policy, not a device capability, so it
+///     works with no plugin installed. Call from background work when projecting into a UI. HC
+///     <c>PerformanceManager.RequestPerfBoostMode</c> and <c>PowerScheme.WritePowerCfg</c> are the
+///     reference for the mechanism.
+/// </remarks>
+/// <param name="schemes">Session owner supplying the active scheme and shared mutation lock.</param>
+/// <param name="api">Platform adapter retained for this policy owner; native failures propagate.</param>
+internal sealed class CpuBoost(PowerSchemes schemes, ICpuBoostApi api)
+{
+    /// <summary>HC's five choices, in HC's order, with HC's labels.</summary>
+    internal static readonly IReadOnlyList<CpuBoostOption> Offered =
+    [
+        new(CpuBoostMode.Disabled, "Disabled",
+            "Cores stay at their base clock. Cooler and steadier; some games prefer it."),
+        new(CpuBoostMode.Enabled, "Enabled",
+            "Windows' default. Cores boost when there is thermal and power headroom."),
+        new(CpuBoostMode.Aggressive, "Aggressive",
+            "Boost as hard as the platform allows. Highest single-thread speed and draw."),
+        new(CpuBoostMode.EfficientEnabled, "Efficient enabled",
+            "Boost when there is headroom, weighed against energy efficiency."),
+        new(CpuBoostMode.EfficientAggressive, "Efficient aggressive",
+            "Boost hard, weighed against energy efficiency.")
+    ];
+
+    /// <summary>The stable id a mode is published under, independent of its display name.</summary>
+    /// <param name="mode">The mode to name.</param>
+    /// <returns>An id matching the bridge's identifier rules.</returns>
+    internal static string IdFor(CpuBoostMode mode)
+    {
+        return mode switch
+        {
+            CpuBoostMode.Disabled => "disabled",
+            CpuBoostMode.Aggressive => "aggressive",
+            CpuBoostMode.EfficientEnabled => "efficient-enabled",
+            CpuBoostMode.EfficientAggressive => "efficient-aggressive",
+            _ => "enabled"
+        };
+    }
+
+    /// <summary>The mode an id names, or null when it names none.</summary>
+    /// <param name="id">An id previously produced by <see cref="IdFor" />.</param>
+    /// <returns>The mode, or null for an id this build does not know.</returns>
+    internal static CpuBoostMode? ModeForId(string id)
+    {
+        foreach (var option in Offered)
+        {
+            if (string.Equals(IdFor(option.Mode), id, StringComparison.Ordinal))
+            {
+                return option.Mode;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>HC's label for a mode.</summary>
+    /// <param name="mode">The mode.</param>
+    /// <returns>The label the user reads.</returns>
+    internal static string NameFor(CpuBoostMode mode)
+    {
+        return Offered.FirstOrDefault(option => option.Mode == mode)?.Name ?? mode.ToString();
+    }
+
+    /// <summary>The mode a stored value reads back as, or null when it is none WSGM offers.</summary>
+    /// <remarks>
+    ///     Null rather than a nearest guess for modes 5 and 6: something else set them, and showing
+    ///     them as one of WSGM's choices would claim WSGM put it there.
+    /// </remarks>
+    /// <param name="value">Raw Windows PERFBOOSTMODE value.</param>
+    /// <returns>The offered mode for values 0–4, or null for unsupported/unknown native values.</returns>
+    internal static CpuBoostMode? ModeFor(uint value)
+    {
+        return value <= (uint)CpuBoostMode.EfficientAggressive ? (CpuBoostMode)value : null;
+    }
+
+    /// <summary>Reads support and the effective modes.</summary>
+    /// <returns>What is in effect for each power source, or unsupported when the scheme has no such setting.</returns>
+    internal CpuBoostStatus Read()
+    {
+        try
+        {
+            var scheme = schemes.ReadActive();
+            return new CpuBoostStatus(true, ModeFor(api.Read(scheme, false)), ModeFor(api.Read(scheme, true)));
+        }
+        catch (Win32Exception)
+        {
+            // A scheme without the processor boost setting refuses the read. Nothing to offer then.
+            return new CpuBoostStatus(false, null, null);
+        }
+    }
+
+    /// <summary>Applies one mode to both power sources, as HC does.</summary>
+    /// <remarks>
+    ///     HC's <c>PerformanceManager.RequestPerfBoostMode</c>: read both sources and stop when they
+    ///     already hold the mode, otherwise write them through <c>PowerScheme.WritePowerCfg</c> (reveal
+    ///     the setting, write AC and DC, re-activate the active scheme so the processor policy takes
+    ///     effect). The accepted write stands without a confirming read. Activation is global, so the write and the
+    ///     activation happen under the scheme owner's mutation lock together, the lock scheme selection and
+    ///     the core preference take as well.
+    /// </remarks>
+    /// <param name="mode">The mode to apply.</param>
+    /// <param name="cancellationToken">Cancels before the write starts.</param>
+    internal void Apply(CpuBoostMode mode, CancellationToken cancellationToken = default)
+    {
+        var value = (uint)mode;
+        using (schemes.EnterMutation())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            // Read the active scheme inside the shared lock: a scheme switch between the read and
+            // the write would land the mode in a scheme that is no longer active.
+            var scheme = schemes.ReadActive();
+            // HC's ReadPowerCfg returns both sources in one call; both are read before comparing.
+            var acValue = api.Read(scheme, false);
+            var dcValue = api.Read(scheme, true);
+            if (acValue == value && dcValue == value)
+            {
+                return;
+            }
+
+            _ = api.TryReveal();
+            api.Write(scheme, false, value);
+            api.Write(scheme, true, value);
+            schemes.RefreshActive();
+        }
+    }
+}

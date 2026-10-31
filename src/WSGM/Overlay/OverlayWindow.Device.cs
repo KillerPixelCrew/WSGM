@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
-using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.LogicalTree;
 using Avalonia.Media;
@@ -40,15 +39,24 @@ public partial class OverlayWindow
         QueueLiveRefresh(DeviceLiveRefresh);
     }
 
-    /// <summary>
-    ///     Redraws the written activation hints as the device's own buttons, where one resolved.
-    /// </summary>
+    /// <summary>Reads the prerequisites again when the integration switch or the device changed.</summary>
+    /// <param name="device">The current Device snapshot.</param>
     /// <remarks>
-    ///     Written letters stay in the markup and remain the fallback, so this only ever adds. That
-    ///     matters on the two machines it will not resolve for — one with no glyph profile, and one
-    ///     where the input actually reaching WSGM is not the managed handheld's — because a hint showing
-    ///     a Claw button while the user holds an Xbox pad is worse than the letter it replaced.
+    ///     The read checks files, a driver and the registry, and only the definition and the switch change
+    ///     what it finds, so a value or telemetry change does not repeat it.
     /// </remarks>
+    private void RefreshDevicePrerequisites(DeviceOverlaySnapshot device)
+    {
+        (bool Enabled, string Device) subject = (device.Visible, device.Detail);
+        if (_devicePrerequisitesFor == subject)
+        {
+            return;
+        }
+
+        _devicePrerequisitesFor = subject;
+        RefreshDevicePrerequisites();
+    }
+
     /// <summary>Renders what a device package on this install is missing, if anything.</summary>
     private void RefreshDevicePrerequisites()
     {
@@ -57,7 +65,7 @@ public partial class OverlayWindow
         // more after it.
         if (_devicePrerequisites is not { } source)
         {
-            ShowDevicePrerequisites(new DevicePrerequisiteAdvice("", false, false));
+            ShowDevicePrerequisites(new DevicePrerequisiteAdvice(""));
             return;
         }
 
@@ -99,41 +107,21 @@ public partial class OverlayWindow
         // the gate. It stays up on the Device sub-pages too, which is where someone hunting a dead
         // device most likely ends up.
         DevicePrerequisiteBanner.IsVisible = advice.HasAdvice;
+        // The banner only explains: INV-020 keeps driver installation in setup, because the USB/IP
+        // install restarts every USB 3.0 hub and would take the pad, the touch digitiser and the
+        // keyboard away from whoever is holding the machine.
         DevicePrerequisiteDetail.Text = advice.Detail;
-        // The driver half is deliberately not offered here: INV-020 keeps driver installation in
-        // setup, because the USB/IP install restarts every USB 3.0 hub and would take the pad, the
-        // touch digitiser and the keyboard away from whoever is holding the machine.
-        DevicePrerequisiteEnable.IsVisible = advice.CanEnableIntegration;
     }
 
-    private void OnEnableDeviceIntegration(object? sender, RoutedEventArgs e)
-    {
-        _ = EnableDeviceIntegrationAsync();
-    }
-
-    private async Task EnableDeviceIntegrationAsync()
-    {
-        if (_devicePrerequisites is not { } prerequisites)
-        {
-            return;
-        }
-
-        DevicePrerequisiteEnable.IsEnabled = false;
-        try
-        {
-            await prerequisites.EnableAsync();
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Enabling Device Integration from the overlay failed", ex);
-        }
-        finally
-        {
-            DevicePrerequisiteEnable.IsEnabled = true;
-            RefreshDevicePrerequisites();
-        }
-    }
-
+    /// <summary>
+    ///     Redraws the written activation hints as the device's own buttons, where one resolved.
+    /// </summary>
+    /// <remarks>
+    ///     Written letters stay in the markup and remain the fallback, so this only ever adds. That
+    ///     matters on the two machines it will not resolve for — one with no glyph profile, and one
+    ///     where the input actually reaching WSGM is not the managed handheld's — because a hint showing
+    ///     a Claw button while the user holds an Xbox pad is worse than the letter it replaced.
+    /// </remarks>
     private void RefreshNavigationHints()
     {
         // FaceSouth rather than "A": the glyph vocabulary is positional, so a device whose bottom
@@ -174,6 +162,10 @@ public partial class OverlayWindow
         }
 
         var refreshes = Interlocked.Exchange(ref _pendingLiveRefreshes, 0);
+        var deviceChanged = (refreshes & DeviceLiveRefresh) != 0;
+        var performanceChanged = (refreshes & PerformanceLiveRefresh) != 0;
+        var graphicsChanged = (refreshes & GraphicsLiveRefresh) != 0;
+        var pluginsChanged = (refreshes & PluginsLiveRefresh) != 0;
         var offset = ContentScroller.Offset;
         var page = _navigation.Page;
         var sectionId = _navigation.SectionId;
@@ -182,23 +174,43 @@ public partial class OverlayWindow
         PanelSystem.AddHandler(RequestBringIntoViewEvent, KeepViewport);
         try
         {
-            if ((refreshes & PerformanceLiveRefresh) != 0)
+            // Each source is projected once for the pass and handed to every panel that draws it.
+            var device = deviceChanged ? DeviceSnapshotOrOff() : null;
+            if (device is not null)
             {
-                RefreshPerformancePanel();
+                ConfigureTabs(device.Visible);
+                RefreshNavigationHints();
+                RefreshDevicePrerequisites(device);
+                RefreshManualTdp();
             }
 
-            if ((refreshes & DeviceLiveRefresh) != 0
-                || ((refreshes & PerformanceLiveRefresh) != 0
-                    && _navigation.IsVisible(OverlayDestination.Device)))
+            // A hidden Device panel is marked stale instead, and draws when it next shows.
+            var renderDevice = (deviceChanged || performanceChanged || graphicsChanged) && DevicePanelShowing();
+            var performance = performanceChanged || renderDevice ? _performanceSource?.Snapshot() : null;
+            var graphics = graphicsChanged ? _graphicsSource?.Snapshot() ?? GraphicsOverlaySnapshot.Empty : null;
+            if (performanceChanged)
             {
-                ConfigureTabs(DeviceSnapshotOrOff().Visible);
-                RefreshDevicePanel();
+                RefreshPerformancePanel(performance, device);
             }
 
-            if ((refreshes & GraphicsLiveRefresh) != 0)
+            if (renderDevice)
             {
-                ConfigureGpuDestination(_graphicsSource?.Snapshot().Visible == true);
-                RefreshGraphicsPanel();
+                device ??= DeviceSnapshotOrOff();
+                RefreshDevicePanel(device, performance, graphics);
+            }
+
+            if (graphics is not null)
+            {
+                ConfigureGpuDestination(graphics.Visible);
+                RefreshGraphicsPanel(graphics);
+            }
+
+            // Once per pass, whatever changed: program, performance, device and graphics rows can all
+            // be pinned.
+            RenderPins(device, performance, graphics);
+            if (deviceChanged || pluginsChanged)
+            {
+                RefreshPluginWidgets(deviceChanged, pluginsChanged);
             }
 
             // Replacing the anchor/focused row is an observation update, not navigation. Complete
@@ -262,71 +274,103 @@ public partial class OverlayWindow
                ?? new DeviceOverlaySnapshot(false, "Device integration off", string.Empty, null, []);
     }
 
+    /// <summary>Whether the Device panel can be drawn now; a hidden one is marked stale instead.</summary>
+    private bool DevicePanelShowing()
+    {
+        // The first render runs when the window opens.
+        if (_closed || !_opened)
+        {
+            return false;
+        }
+
+        if (PanelDevice.IsVisible)
+        {
+            return true;
+        }
+
+        _devicePanelStale = true;
+        return false;
+    }
+
+    /// <summary>Draws the Device panel from current snapshots when it shows; otherwise marks it stale.</summary>
     private void RefreshDevicePanel()
     {
-        if (_closed)
+        if (DevicePanelShowing())
         {
-            return;
+            RefreshDevicePanel(DeviceSnapshotOrOff(), _performanceSource?.Snapshot());
         }
+    }
 
-        if (!_opened)
-        {
-            _rendersAwaitingOpen |= DeviceRenderAwaitingOpen;
-            return;
-        }
-
-        var snapshot = DeviceSnapshotOrOff();
-        PlaceUnifiedPowerControls(snapshot);
+    /// <summary>Draws the Device panel and the shared performance rows from one read of each source.</summary>
+    /// <param name="device">The Device snapshot, when the caller already holds one.</param>
+    private void RefreshDevicePage(DeviceOverlaySnapshot? device = null)
+    {
         var performance = _performanceSource?.Snapshot();
-        RefreshNavigationHints();
-        RefreshDeviceSectionRail(snapshot, performance);
+        device ??= DeviceSnapshotOrOff();
+        if (DevicePanelShowing())
+        {
+            RefreshDevicePanel(device, performance);
+        }
+
+        RefreshPerformancePanel(performance, device);
+    }
+
+    /// <summary>Draws the Device panel from snapshots the caller read once for the whole pass.</summary>
+    /// <param name="snapshot">The Device snapshot.</param>
+    /// <param name="performance">The performance snapshot, or null without a performance source.</param>
+    /// <param name="graphics">The graphics snapshot, or null to read it for the pin list.</param>
+    private void RefreshDevicePanel(DeviceOverlaySnapshot snapshot, PerformanceOverlaySnapshot? performance,
+        GraphicsOverlaySnapshot? graphics = null)
+    {
+        if (_closed || !_opened)
+        {
+            return;
+        }
+
+        _devicePanelStale = false;
+        var sectionPages = DeviceOverlaySectionPages.Build(snapshot, performance);
+        var pinSections = DevicePinSections(snapshot, sectionPages);
+        PlaceUnifiedPowerControls(snapshot, sectionPages);
+        RefreshDeviceSectionRail(sectionPages);
         var powerPage = _navigation.Page is OverlayPage.Device or OverlayPage.DevicePowerAndThermals
                         || (_navigation.Page == OverlayPage.DevicePluginSection
                             && DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot,
                                 _navigation.SectionId ?? string.Empty)
                             == DeviceOverlaySection.PowerAndThermals);
         DevicePowerSchemeHost.IsVisible = powerPage;
-        DeviceWindowsPower.IsVisible = _powerSchemeSelection is { Offered: true };
+        DeviceWindowsPower.IsVisible = _powerSchemeSelection is { State.Options.Count: > 0 };
         DevicePowerPresetContainer.IsVisible = powerPage && snapshot.Visible && DevicePowerPresetHost.IsVisible;
         ManualTdpHost.IsVisible = snapshot.Visible &&
                                   ManualTdpHost.Children.OfType<ManualTdpModeView>().Any(view => view.IsVisible);
         var powerControlsVisible = powerPage && (_unifiedPowerDetails || DeviceWindowsPower.IsVisible
                                                  || DevicePowerPresetContainer.IsVisible || ManualTdpHost.IsVisible);
-        if (this.FindControl<Border>("DevicePowerControlsCard") is { } powerControls)
-        {
-            powerControls.IsVisible = powerControlsVisible;
-        }
+        DevicePowerControlsCard.IsVisible = powerControlsVisible;
 
         DevicePowerOverview.IsVisible = powerPage && (powerControlsVisible || performance?.Visible is true);
         DeviceWidgetsExpander.IsVisible = _navigation.Page == OverlayPage.Device;
-        RefreshDeviceSectionPins(snapshot);
+        RefreshDeviceSectionPins(snapshot, pinSections, performance, graphics);
         // Only on a hybrid CPU whose active scheme exposes the policy. Everywhere else the section
         // would open on a control that has nothing to offer.
-        DeviceHybridCores.IsVisible = powerPage && _hybridCoreSelection?.Status.Supported is true;
+        DeviceHybridCores.IsVisible = powerPage && _hybridCoreSelection is { State.Options.Count: > 0 };
         DeviceStatusTitle.IsVisible =
             DeviceStatusDetail.IsVisible = _navigation.Page == OverlayPage.Device && snapshot.Visible;
         DeviceStatusTitle.Text = snapshot.Status;
         DeviceStatusDetail.Text = snapshot.Detail;
-        RefreshDevicePrerequisites();
 
         if (_renderedDevicePage == _navigation.Page && _renderedDeviceSection == _navigation.SectionId
                                                     && SameDeviceLayout(_deviceLayout, snapshot))
         {
             foreach (var host in DeviceRenderHosts.Where(host => host.Children.Count > 0))
             {
-                RefreshDeviceValues(host, snapshot);
+                RefreshDeviceValues(host, snapshot, performance);
             }
 
-            RenderPins();
             return;
         }
 
         _deviceLayout = snapshot;
 
-        var focusedKey = GetTopLevel(this)?.FocusManager.GetFocusedElement()
-            is Control focused
-            ? focused.Tag as string
-            : null;
+        var focusedKey = CurrentSemanticFocusKey();
         var previousFocus = GetTopLevel(this)?.FocusManager.GetFocusedElement() as Control;
         var foldKey = previousFocus?.GetVisualAncestors().OfType<CollapsibleSection>()
             .FirstOrDefault()?.Heading.Tag;
@@ -344,7 +388,6 @@ public partial class OverlayWindow
         // The tiles belong to the tree that was just cleared. Dropping the references here, before
         // anything can rebuild them, is what stops the input test writing to detached controls.
         _glyphTiles.Clear();
-        var sectionPages = DeviceOverlaySectionPages.Build(snapshot, performance);
         if (sectionPages.Count == 0)
         {
             DeviceCapabilityList.Children.Add(new TextBlock
@@ -367,10 +410,10 @@ public partial class OverlayWindow
             ? _navigation.SectionId
             : null;
         var restoreFocus = openSection is { } section
-            ? RenderDeviceSection(snapshot, section, focusedKey)
+            ? RenderDeviceSection(snapshot, pinSections, section, focusedKey)
             : openPluginSection is not null
-                ? RenderDevicePluginSection(snapshot, openPluginSection, focusedKey)
-                : RenderDeviceSectionMenu(snapshot, performance, sectionPages, focusedKey);
+                ? RenderDevicePluginSection(snapshot, pinSections, openPluginSection, focusedKey)
+                : RenderDeviceSectionMenu(snapshot, performance, sectionPages, pinSections, focusedKey);
 
         // A Device page that renders nothing is indistinguishable from a device that published
         // nothing, and the difference is the whole diagnosis. Reported on every render, not only
@@ -408,7 +451,8 @@ public partial class OverlayWindow
         }
 
         RestoreSectionHeaderFocus(focusedKey);
-        RenderPins();
+        // A page change can show the widget pin toggles, which follow the device only while shown.
+        RefreshDeviceWidgetPins();
     }
 
     /// <summary>
@@ -419,6 +463,7 @@ public partial class OverlayWindow
         DeviceOverlaySnapshot snapshot,
         PerformanceOverlaySnapshot? performance,
         IReadOnlyList<DeviceOverlaySectionEntry> sectionPages,
+        DevicePinSection[] pinSections,
         string? focusedKey)
     {
         Control? restoreFocus = null;
@@ -443,11 +488,12 @@ public partial class OverlayWindow
 
         // The Overview is where a handheld user lands mid-game, so it carries the controls they came
         // for: the same Power and Fans folds as the Power page, drawn by the same renderer and keys.
-        if (_unifiedPowerDetails && OverviewPowerEntry(snapshot) is { } power)
+        if (_unifiedPowerDetails && OverviewPowerEntry(snapshot, sectionPages) is { } power)
         {
             restoreFocus = (power.PluginSectionId is { } sectionId
-                ? RenderDevicePluginSection(snapshot, sectionId, focusedKey)
-                : RenderDeviceSection(snapshot, DeviceOverlaySection.PowerAndThermals, focusedKey)) ?? restoreFocus;
+                ? RenderDevicePluginSection(snapshot, pinSections, sectionId, focusedKey)
+                : RenderDeviceSection(snapshot, pinSections, DeviceOverlaySection.PowerAndThermals, focusedKey))
+                           ?? restoreFocus;
         }
 
         return restoreFocus;
@@ -459,13 +505,15 @@ public partial class OverlayWindow
     /// <summary>Renders one plugin-declared section page: lead rows, then category groups.</summary>
     private Control? RenderDevicePluginSection(
         DeviceOverlaySnapshot snapshot,
+        DevicePinSection[] pinSections,
         string sectionId,
         string? focusedKey)
     {
         if (DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, sectionId) ==
             DeviceOverlaySection.ControllerAndMotion)
         {
-            return RenderControllerPage(snapshot, focusedKey, "section.device.plugin." + sectionId + ".configuration");
+            return RenderControllerPage(snapshot, pinSections, focusedKey,
+                "section.device.plugin." + sectionId + ".configuration");
         }
 
         var pluginSection = snapshot.PluginSections
@@ -491,7 +539,7 @@ public partial class OverlayWindow
         }
 
         Control? restoreFocus = null;
-        foreach (var section in DevicePinSections(snapshot).Where(section => section.PluginSectionId == sectionId))
+        foreach (var section in pinSections.Where(section => section.PluginSectionId == sectionId))
         {
             var content = CreateSection(section.Id, section.Title);
             restoreFocus = AddDeviceSectionRows(snapshot, section, content, focusedKey) ?? restoreFocus;
@@ -526,7 +574,8 @@ public partial class OverlayWindow
     }
 
     /// <summary>WSGM's geometry for a declared section icon, or null for the shared default.</summary>
-    private static StreamGeometry? SectionIconFor(SectionIcon icon)
+    /// <remarks>Plugin widget icons use the same map, so a power widget and a Power section look alike.</remarks>
+    internal static StreamGeometry? SectionIconFor(SectionIcon icon)
     {
         return icon switch
         {
@@ -544,15 +593,16 @@ public partial class OverlayWindow
 
     private Control? RenderDeviceSection(
         DeviceOverlaySnapshot snapshot,
+        DevicePinSection[] pinSections,
         DeviceOverlaySection section,
         string? focusedKey)
     {
         if (section == DeviceOverlaySection.ControllerAndMotion)
         {
-            return RenderControllerPage(snapshot, focusedKey, "section.device.controller-and-motion");
+            return RenderControllerPage(snapshot, pinSections, focusedKey, "section.device.controller-and-motion");
         }
 
-        var definition = DevicePinSections(snapshot).FirstOrDefault(candidate =>
+        var definition = pinSections.FirstOrDefault(candidate =>
             candidate.Id == SectionKey.FromKey(DeviceOverlaySectionPages.FocusKey(section)).FocusKey);
         if (definition is null)
         {
@@ -705,7 +755,7 @@ public partial class OverlayWindow
         if (section is DeviceOverlaySection.ControllerAndMotion
             && snapshot.GlyphSelection is { } glyphSelection)
         {
-            target.Children.Add(CreateGlyphSelectionRow(glyphSelection, snapshot.GlyphMode));
+            target.Children.Add(CreateHostDeviceRow(snapshot, glyphSelection));
         }
 
         // After the selection row it is the result of, so changing the selection and seeing what it
@@ -823,12 +873,12 @@ public partial class OverlayWindow
 
         // A declared section that absorbs the controller page draws the glyph preview and input
         // test, so it needs the same high-rate lease the WSGM page takes.
+        var snapshot = DeviceSnapshotOrOff();
         UpdateGlyphInputObservation(
-            _deviceBridge?.Snapshot() is { } snapshot
+            _deviceBridge is not null
             && DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, sectionId)
                 is DeviceOverlaySection.ControllerAndMotion);
-        RefreshDevicePanel();
-        RefreshPerformancePanel();
+        RefreshDevicePage(snapshot);
         SyncBackAffordance();
         ContentScroller.Offset = default;
         FocusFirstControl(DevicePowerOverview.IsVisible ? DevicePowerOverview : DeviceCapabilityList);
@@ -846,11 +896,10 @@ public partial class OverlayWindow
         // The sample stream fires at input rate, so it is leased only for the one page that draws
         // it and released the moment that page is left.
         UpdateGlyphInputObservation(section is DeviceOverlaySection.ControllerAndMotion);
-        RefreshDevicePanel();
 
         // The shared performance rows belong to one Device page, so entering or leaving any page
         // changes whether they are on screen.
-        RefreshPerformancePanel();
+        RefreshDevicePage();
         SyncBackAffordance();
         ContentScroller.Offset = default;
         FocusFirstControl(DevicePowerOverview.IsVisible ? DevicePowerOverview : DeviceCapabilityList);
@@ -861,8 +910,7 @@ public partial class OverlayWindow
         UpdateGlyphInputObservation(false);
         var returnFocusKey = _navigation.Pop()
                              ?? DeviceOverlaySectionPages.FocusKey(section);
-        RefreshDevicePanel();
-        RefreshPerformancePanel();
+        RefreshDevicePage();
         RestoreRootFocus(returnFocusKey);
     }
 
@@ -878,8 +926,7 @@ public partial class OverlayWindow
         UpdateGlyphInputObservation(false);
         var returnFocusKey = _navigation.Pop()
                              ?? (sectionId is null ? null : "device.section.plugin." + sectionId);
-        RefreshDevicePanel();
-        RefreshPerformancePanel();
+        RefreshDevicePage();
         RestoreRootFocus(returnFocusKey);
     }
 

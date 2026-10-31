@@ -65,6 +65,22 @@ public partial class OverlayWindow
         return RequestText(prompt, initial, maxLength, onAccept, false, null);
     }
 
+    /// <summary>Opens the keyboard of the overlay window that hosts a control.</summary>
+    /// <param name="owner">A control in the overlay window.</param>
+    /// <param name="prompt">Accessible field label.</param>
+    /// <param name="initial">Text copied into the editor.</param>
+    /// <param name="maxLength">Character limit, or zero for no explicit limit.</param>
+    /// <param name="onAccept">UI-thread callback invoked once with accepted text; cancellation does not invoke it.</param>
+    /// <param name="multiline">Whether Enter starts a new line instead of accepting.</param>
+    /// <param name="changed">UI-thread callback with the text after every edit, or null.</param>
+    /// <returns>True when a keyboard was created; false outside an overlay window or after it closed.</returns>
+    internal static bool RequestTextFor(Control owner, string prompt, string initial, int maxLength,
+        Action<string> onAccept, bool multiline = false, Action<string>? changed = null)
+    {
+        return GetTopLevel(owner) is OverlayWindow window
+               && window.RequestText(prompt, initial, maxLength, onAccept, multiline, changed);
+    }
+
     /// <summary>Opens the local keyboard surface for a single-line or multiline field.</summary>
     /// <param name="prompt">Accessible field label.</param>
     /// <param name="initial">Text copied into the editor.</param>
@@ -75,16 +91,17 @@ public partial class OverlayWindow
     ///     UI-thread callback with the text after every edit, so an owner can keep a draft that outlives a
     ///     cancelled or closed surface; null when the caller only needs the accepted text.
     /// </param>
+    /// <param name="sensitive">Whether the field holds a secret, such as a network password.</param>
     /// <returns>True when a keyboard was created; false after the window closed.</returns>
     internal bool RequestText(string prompt, string initial, int maxLength, Action<string> onAccept, bool multiline,
-        Action<string>? changed)
+        Action<string>? changed, bool sensitive = false)
     {
         if (_closed)
         {
             return false;
         }
 
-        var keyboard = new KeyboardPanel(prompt, initial, maxLength, multiline: multiline);
+        var keyboard = new KeyboardPanel(prompt, initial, maxLength, sensitive, multiline);
         keyboard.Accepted += onAccept;
         if (changed is not null)
         {
@@ -128,11 +145,7 @@ public partial class OverlayWindow
     {
         panel.CloseRequested += () => CloseSurface(panel);
         panel.TextEntryRequested += (prompt, initial, accept) =>
-        {
-            var keyboard = new KeyboardPanel(prompt, initial, 0, true);
-            keyboard.Accepted += accept;
-            ShowKeyboardSurface(keyboard);
-        };
+            RequestText(prompt, initial, 0, accept, false, null, sensitive: true);
         ShowSurface(panel, SurfaceKind.Utility, "Connections", null);
     }
 
@@ -170,12 +183,7 @@ public partial class OverlayWindow
                 CloseSurface(picker);
             }
         };
-        picker.TextEntryRequested += (initial, accept) =>
-        {
-            var keyboard = new KeyboardPanel("Local path", initial, 0);
-            keyboard.Accepted += accept;
-            ShowKeyboardSurface(keyboard);
-        };
+        picker.TextEntryRequested += (initial, accept) => RequestText("Local path", initial, 0, accept);
         ShowSurface(picker, SurfaceKind.Utility, folder ? "Choose a folder" : "Choose a file", null);
         return completion.Task;
     }

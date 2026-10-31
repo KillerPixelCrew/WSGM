@@ -6,30 +6,9 @@ using System.Text.Json;
 
 namespace WSGM.Core;
 
-/// <summary>A library format this build cannot interpret and must never repair or overwrite.</summary>
-public sealed class StorageLibraryUnsupportedVersionException : IOException
-{
-    /// <summary>Identifies an unsupported schema version.</summary>
-    /// <param name="version">The schema version read from the card.</param>
-    public StorageLibraryUnsupportedVersionException(int version)
-        : base($"Library format {version} is not supported by this WSGM. Update WSGM before using this card.")
-    {
-    }
-
-    /// <summary>Identifies schema fields this reader cannot safely preserve.</summary>
-    /// <param name="detail">The unsupported schema information.</param>
-    public StorageLibraryUnsupportedVersionException(string detail) : base(detail)
-    {
-    }
-}
-
-/// <summary>Bounded host-owned card inventory I/O and portable identity matching.</summary>
+/// <summary>Host-owned card inventory I/O and portable identity matching.</summary>
 public static class StorageLibraryStorage
 {
-    /// <summary>The schema-v1 byte limit.</summary>
-    public const int MaximumBytes = 32 * 1024 * 1024;
-    /// <summary>The schema-v1 inventory limit.</summary>
-    public const int MaximumEntries = 100000;
     private const string ManifestPath = @".wsgm\library.json";
     private static readonly object PublicationGate = new();
 
@@ -94,26 +73,7 @@ public static class StorageLibraryStorage
     private static byte[] ReadBytes(string volumeId)
     {
         ManagedContentStorage.RejectLibraryReparsePoints(volumeId, ManifestPath);
-        using var stream = new FileStream(ManagedContentStorage.ResolveLibraryPath(volumeId, ManifestPath),
-            FileMode.Open, FileAccess.Read, FileShare.Read);
-        if (stream.Length > MaximumBytes)
-        {
-            throw new InvalidDataException("The library manifest exceeds the 32 MiB limit.");
-        }
-
-        using MemoryStream bounded = new();
-        var buffer = new byte[8192];
-        int count;
-        while ((count = stream.Read(buffer)) > 0)
-        {
-            if (bounded.Length + count > MaximumBytes)
-            {
-                throw new InvalidDataException("The library manifest exceeds the 32 MiB limit.");
-            }
-            bounded.Write(buffer, 0, count);
-        }
-
-        return bounded.ToArray();
+        return File.ReadAllBytes(ManagedContentStorage.ResolveLibraryPath(volumeId, ManifestPath));
     }
 
     /// <summary>Repairs a missing/damaged manifest only after explicit review/Apply of an accepted local binding.</summary>
@@ -127,10 +87,6 @@ public static class StorageLibraryStorage
             throw new InvalidDataException("Review this library's repair and expected revision before applying.");
         }
         var bytes = JsonSerializer.SerializeToUtf8Bytes(manifest, StorageLibraryJsonContext.Default.StorageLibraryManifest);
-        if (bytes.Length > MaximumBytes)
-        {
-            throw new InvalidDataException("The repaired manifest exceeds the 32 MiB limit.");
-        }
         lock (PublicationGate)
         {
             try
@@ -195,11 +151,6 @@ public static class StorageLibraryStorage
         }
 
         var bytes = JsonSerializer.SerializeToUtf8Bytes(manifest, StorageLibraryJsonContext.Default.StorageLibraryManifest);
-        if (bytes.Length > MaximumBytes)
-        {
-            throw new InvalidDataException("The library manifest exceeds the 32 MiB limit.");
-        }
-
         lock (PublicationGate)
         {
             AssertGeneration(volumeId, manifest.Id, expectedRevision);
@@ -262,6 +213,29 @@ public static class StorageLibraryStorage
         {
             return ContentPathState.Unreadable;
         }
+    }
+
+    /// <summary>Whether every file a card entry needs, its backing path and each required companion, is on the card.</summary>
+    /// <param name="entry">The card entry.</param>
+    /// <param name="volumeId">The card's volume.</param>
+    /// <param name="context">The shared probe context of one availability pass, or null for a single check.</param>
+    /// <returns>True when each path reads as present.</returns>
+    public static bool FilesPresent(StorageLibraryContent entry, string volumeId,
+        ManagedContentCheckContext? context = null)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        return new[] { entry.BackingPath }.Concat(entry.RequiredPaths).All(path =>
+            InspectPath(volumeId, path.RelativePath, path.Directory, context) == ContentPathState.Present);
+    }
+
+    /// <summary>Whether a record's content can travel on its card: a directly launched recipe bound to a volume.</summary>
+    /// <param name="content">The managed content.</param>
+    /// <returns>True for ROM, folder and manual content with a bound volume.</returns>
+    public static bool IsPortable(ManagedContentRecord content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        return content.SourceKind is LibrarySourceKind.Rom or LibrarySourceKind.Folder or LibrarySourceKind.Manual
+               && content.BackingPath.VolumeId.Length > 0;
     }
 
     /// <summary>Finds a unique existing portable recipe; a conflict throws rather than guessing an ID.</summary>
@@ -350,10 +324,6 @@ public static class StorageLibraryStorage
             || manifest.Name is null || manifest.Revision < 1 || manifest.Entries is null)
         {
             throw new InvalidDataException("The library manifest schema, UUID or revision is invalid.");
-        }
-        if (manifest.Entries.Count > MaximumEntries)
-        {
-            throw new InvalidDataException("The library manifest exceeds the 100,000-entry limit.");
         }
         HashSet<string> ids = new(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in manifest.Entries)

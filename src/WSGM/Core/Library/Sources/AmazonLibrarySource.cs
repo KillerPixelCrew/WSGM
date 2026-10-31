@@ -8,23 +8,6 @@ using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
-/// <summary>One row of the Amazon Games app's install table.</summary>
-/// <param name="Id">The game's Amazon id.</param>
-/// <param name="ProductTitle">Its title.</param>
-/// <param name="InstallDirectory">Where it is installed.</param>
-public sealed record AmazonInstall(string Id, string ProductTitle, string InstallDirectory);
-
-/// <summary>What a game's <c>fuel.json</c> says about starting it.</summary>
-/// <param name="Command">The executable, relative to the install folder, or empty.</param>
-/// <param name="Arguments">Its arguments.</param>
-/// <param name="WorkingSubdirectory">The working folder relative to the install folder, or empty.</param>
-/// <param name="NeedsSignIn">Whether the game asks the Amazon Games app for a sign-in token.</param>
-internal sealed record AmazonFuel(
-    string Command,
-    IReadOnlyList<string> Arguments,
-    string WorkingSubdirectory,
-    bool NeedsSignIn);
-
 /// <summary>Finds the games the Amazon Games app has installed on this machine.</summary>
 /// <remarks>
 ///     <para>

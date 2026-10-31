@@ -58,15 +58,15 @@ normally; a Steam client or launch wrapper that remains is a setup refusal, neve
 Details in [setup](setup.md#the-exit-events-are-a-cross-version-contract).
 
 **One config file, one lock.** Config lives at `%LOCALAPPDATA%\WSGM\config.json`
-(`Core\ConfigStore`, System.Text.Json source generation; a new scalar property needs no context
-change). `Program` builds one `UserDataContext` (data root and mutex name) and one `ConfigStore`
-over it, and passes them to everything that reads or writes per-user state; nothing derives the root
-from the logger or the environment on its own. The registry snapshots inside the config belong to
-the install lifecycle and feature code never clobbers them. `ConfigStore.Transaction()` is the
-single cross-process writer scope: the Settings save holds it across the config write and the
-splash-asset promotion, while the multi-megabyte image copies happen outside it (sidecars are
-per-transaction unique). A writer is never nested; a second writer or a read on the writer's thread
-is refused rather than stacking 2 s timeouts.
+(`Core\Config\ConfigStore`, System.Text.Json source generation; a new scalar property needs no
+context change). `Program` builds one `UserDataContext` (data root and mutex name) and one
+`ConfigStore` over it, and passes them to everything that reads or writes per-user state; nothing
+derives the root from the logger or the environment on its own. The registry snapshots inside the
+config belong to the install lifecycle and feature code never clobbers them.
+`ConfigStore.Transaction()` is the single cross-process writer scope: the Settings save holds it
+across the config write and the splash-asset promotion, while the multi-megabyte image copies happen
+outside it (sidecars are per-transaction unique). A writer is never nested; a second writer or a
+read on the writer's thread is refused rather than stacking 2 s timeouts.
 
 **Config schema.** `AppConfig.SchemaVersion` is 1; a 2.0 file has none and reads as 0. Reading
 migrates an older file in memory, rewriting only stored values whose meaning changed (2.0's
@@ -146,7 +146,7 @@ Picture and borderless fullscreen report it.
 cancel surface, so an entry that has anything to wait for must show it. Its Big Picture timeout
 starts when Steam is actually asked, not when the cover goes up: the reference machine waits for a
 TV behind an HDMI switch, and a timeout measured from the cover would fire in the middle of exactly
-the wait the cover exists for. `Shell\SplashPolicy.cs` is that rule.
+the wait the cover exists for. `Shell\Boot\SplashPolicy.cs` is that rule.
 
 **Desktop recovery is a single transition (2026-09-13).** Normal return and failed Game Mode entry
 share ordered, independently guarded cleanup. They restore a responsive Explorer before optional IR
@@ -213,9 +213,9 @@ Performance section and Steam's Performance tab and needs no device plugin.
 
 **AutoTDP has its own target frame rate (2026-10-29).** AutoTDP used to take its deadline from the
 active RTSS frame limit, so it could not run without one, and its Quick Access switch vanished
-whenever no limit was active. It now aims for its own per-game target, a slider under the switch
-on the Overlay, in Quick Access and on Steam's Power page. A lower active frame limit wins, because
-a capped game cannot reach a higher target. Details are in
+whenever no limit was active. It now aims for its own per-game target, a slider under the switch on
+the Overlay, in Quick Access and on Steam's Power page. A lower active frame limit wins, because a
+capped game cannot reach a higher target. Details are in
 [AutoTDP](autotdp-controller.md#the-service).
 
 **Four display modes became two, and the old Off became Default.** Off, DPI-only and automatic
@@ -316,6 +316,18 @@ or Steam marker content id read through its volume GUID, and a literal path is b
 the card it was found on. Repair library and Use this card are immediate commands rather than staged
 Apply actions. See [shortcut availability](game-library.md#shortcut-availability).
 
+**Game Tools is a routed page backed by one WSGM-owned manifest (2026-10-30).** Issue #218 adds
+per-game tools, starting with OptiScaler. The game menu's "Game Tools…" opens a routed Big Picture
+page rather than a nested menu, because a tool needs the detected program, upscalers, anti-cheat,
+versions, a proxy name and settings in one view; the Overlay has the same page over the same
+service. OptiScaler is downloaded from its upstream GitHub release when the user installs it, with
+its published digest required, and WSGM never redistributes it. WSGM states it is not affiliated
+with OptiScaler. Every change is a journaled transaction recorded in WSGM's own `game-tools.json`:
+WSGM removes only files it wrote and whose hash still matches, restores what it backed up, and
+refuses any file it cannot classify, including another mod or a copy of the tool installed outside
+WSGM, which only an explicit, confirmed replacement may take over. Install waits for an explicit
+acknowledgement when anti-cheat is found. See [Game Tools](game-tools.md).
+
 **WSGM writes Steam shortcuts through the running client (2026-09-22).** This reverses the rule
 recorded after the September 2026 launcher trials, when CEF shortcut-management calls destabilized a
 live Steam session during an attended investigation
@@ -407,6 +419,16 @@ writes are never retried automatically. Crash recovery handles unfinished sessio
 records are evidence, not runtime drivers. Production support comes from a native LibHandheld
 contribution. AllyXLab was retired on 2026-09-25, once the wizard covered it.
 
+**Intel power limits have selectable paths, and KX is back (2026-10-31).** Every Intel handheld
+offers its firmware path where it has one (Atlas EC, Claw WMI), PawnIO MSR 0x610, and KX MSR plus
+the MCHBAR mirror, in both the Overlay and Steam Quick Access, stored globally. On the Atlas the
+firmware path lagged in games and Intel's IPF service kept lowering MCHBAR PL1 to 35 W, so the
+direct paths disable and stop IPF while selected and restore it afterwards. KX is offered only when
+its pinned helper is deployed and Memory Integrity is not running, and runs only while selected. A
+model that declares `DeviceHardwareAccess.IntelKx` (the Atlas) makes setup turn Memory Integrity and
+the vulnerable-driver blocklist off, written as Device Guard policy so Windows keeps it off.
+Evidence is in the Atlas `PROVENANCE.md`. This supersedes the KX part of the next entry.
+
 **Device Lab and KX are removed (2026-10-28).** Device Lab, its tests, publishing scripts and skill
 were deleted from the repository. Hardware evidence is gathered in attended sessions and recorded in
 the family `PROVENANCE.md` beside the LibHandheld code it supports. Handheld Companion's KX helper
@@ -466,7 +488,7 @@ are in `src\Avalonia.LiveBackdrop\README.md` and `docs\overlay-and-input.md`.
 **RTSS starts with WSGM and stays running (2026-10-03).** Enabled integration probes immediately,
 starts only the verified executable when it is absent, and restarts a discovered or started process
 after its exit. The session poll remains active without a performance UI. There is no restart
-cooldown; one in-flight launch guard includes the 10 s initialization settle. Disabled integration
-never launches or writes, and WSGM never kills RTSS. An unresolved game executable holds only the
-frame limit; the overlay level applies through the global profile meanwhile. Details are in
-[RTSS integration](rtss.md#wsgm-starts-rtss).
+cooldown; the one-at-a-time session refresh owns the launch and its 10 s initialization settle.
+Disabled integration never launches or writes, and WSGM never kills RTSS. An unresolved game
+executable holds only the frame limit; the overlay level applies through the global profile
+meanwhile. Details are in [RTSS integration](rtss.md#wsgm-starts-rtss).

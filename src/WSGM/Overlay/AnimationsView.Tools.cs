@@ -33,7 +33,7 @@ public sealed partial class AnimationsView
 
     private void AddMoviePreview(StackPanel body, SteamAnimationsItem item)
     {
-        var source = _browser!.PreviewPath(item.Id) ?? item.PreviewUrl;
+        var source = _service!.PreviewPath(item.Id) ?? item.PreviewUrl;
         if (source is not null)
         {
             body.Children.Add(new OverlayMediaPreview(Context, source) { Tag = "movie.preview:" + item.Id });
@@ -77,9 +77,8 @@ public sealed partial class AnimationsView
 
         if (browse.Items.Count < browse.Matched)
         {
-            body.Children.Add(Tagged(
-                Row("Load more", $"{browse.Items.Count} of {browse.Matched}", Icons.ArrowDown,
-                    browse.Loading ? null : () => Run(_browser!.BrowseMoreAsync)), "load-more"));
+            body.Children.Add(PagedRows.More("load-more", $"{browse.Items.Count} of {browse.Matched}",
+                browse.Loading ? null : () => Run(_browser!.BrowseMoreAsync)));
         }
     }
 

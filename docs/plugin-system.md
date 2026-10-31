@@ -100,8 +100,8 @@ startup.
 
 ## Package loading and dependencies
 
-`Shell\PluginLoader` loads a common package's public parameterless `IPlugin` entry type with a
-matching ID, after checking that the reopened `plugin.wsgm.json` still equals the admitted one. It
+`Shell\Plugins\PluginLoader` loads a common package's public parameterless `IPlugin` entry type with
+a matching ID, after checking that the reopened `plugin.wsgm.json` still equals the admitted one. It
 rejects Device-category packages; native handheld integration uses the directly linked library.
 Package roots and entry/manifest files cannot be reparse points. Package constructors must not
 acquire external resources.
@@ -173,12 +173,12 @@ A third-party graphics package exposes driver controls through the common SDK's 
 contracts. These packages run independently of built-in handheld integration and never own its
 machine-wide hardware cycle.
 
-**Enablement.** `Core\CommonPluginEnablement` decides which instances run. A graphics package runs
-as its `default` instance on a machine where `DisplayAdapterInventory.Collect()` reports a PCI
-adapter matching one of its `displayAdapters`, until `PluginInstances` names an instance of it: an
-explicit `Enabled = false` switches it off. On a machine without such an adapter it never runs,
-whatever the configuration says. Setup offers the package by the same match and writes no enable
-entry. The adapter list is read once per process and logged.
+**Enablement.** `Core\Plugins\CommonPluginEnablement` decides which instances run. A graphics
+package runs as its `default` instance on a machine where `DisplayAdapterInventory.Collect()`
+reports a PCI adapter matching one of its `displayAdapters`, until `PluginInstances` names an
+instance of it: an explicit `Enabled = false` switches it off. On a machine without such an adapter
+it never runs, whatever the configuration says. Setup offers the package by the same match and
+writes no enable entry. The adapter list is read once per process and logged.
 
 **Admission.** The loader refuses a graphics entry type that does not implement `ICapabilityPlugin`.
 Before admission `CommonPluginManager` asks `GpuCoordinator` to open a `PluginCapabilityChannel` for
@@ -193,18 +193,19 @@ manifest's `capabilities` list does not declare.
 `IPluginHost.TraceChange`. WSGM writes the lines into `wsgm.log` as
 `plugin/<plugin id>/<scope>: ...`, and `TraceChange` writes only when that key's value changed.
 
-**Ownership.** `Shell\GpuCoordinator` owns one `DeviceCapabilityRouter` per publisher. It is never
-merged with the device router: consumers that select the power limit, a fan or VRR by role expect
-exactly one match within a publisher. The router reads its publisher through `ICapabilityPublisher`,
-the same small interface the device runtime implements. Values are stored under `gpu:<plugin id>`,
-each descriptor's profile scope is honoured, and native per-application values are handed to the
-plugin through `SyncApplicationProfilesAsync`; `docs\profiles.md` has those rules.
+**Ownership.** `Shell\Graphics\GpuCoordinator` owns one `DeviceCapabilityRouter` per publisher. It
+is never merged with the device router: consumers that select the power limit, a fan or VRR by role
+expect exactly one match within a publisher. The router reads its publisher through
+`ICapabilityPublisher`, the same small interface the device runtime implements. Values are stored
+under `gpu:<plugin id>`, each descriptor's profile scope is honoured, and native per-application
+values are handed to the plugin through `SyncApplicationProfilesAsync`; `docs\profiles.md` has those
+rules.
 
 The UI reaches graphics capabilities only through the coordinator:
 
-- `Publishers()` lists each running publisher with its name, profile key and health.
-- `Snapshot(pluginId)` returns its sections and each capability's view, with the projection (desired
-  and Global values, profile scope, apply timing), the last result and the override id.
+- `Snapshots()` returns every running publisher, with its name, profile key and health, its sections
+  and each capability's view: the projection (desired and Global values, profile scope, apply
+  timing), the last result and the override id. `Snapshot(pluginId)` returns one of them.
 - `ExecuteAsync(pluginId, capabilityId, instanceId, value, origin)` writes one value and, for the
   user, saves it by its scope.
 - `UseGlobalAsync(overrideId)` clears exactly that publisher's game value.
@@ -213,7 +214,7 @@ The UI reaches graphics capabilities only through the coordinator:
 The overlay and Steam draw them through `GraphicsOverlayBridge`: the overlay's Device > GPU section
 ([overlay and input](overlay-and-input.md#graphics-sections)) and Steam Settings > Display
 ([Steam CEF system](steam-cef-system.md#native-steam-settings)). Steam Quick Access also shows every
-published category in Performance through `SteamSettingsQuickAccessRow`, using the same rows and
+published category in Performance through `SteamQuickAccessRowsSurface`, using the same rows and
 command backend. Steam Display groups the sections by adapter, display and declared category.
 
 Variable refresh is published by a graphics package, per display. The Quick Access switch, the
@@ -329,8 +330,9 @@ registration, configuration revision and generation before dispatch. Secret sett
 in Steam and are never published back. This declarative path does not supply React/webpack or raw
 evaluation handles; its page presentation is a compiled package-owned fragment using the toolkit's
 generic renderer registration and typed bridge. The current projection exposes only Ready,
-non-stopping, non-quarantined registrations. IDs belong to the captured registration and generation,
-so a replacement with the same plugin identity cannot receive an old menu action. `SteamUiChanged`
+non-stopping, non-quarantined registrations, the same `PluginRegistration.CanInvoke` rule that
+enables the Overlay's plugin controls. IDs belong to the captured registration and generation, so a
+replacement with the same plugin identity cannot receive an old menu action. `SteamUiChanged`
 invalidates plugin module state without coupling the session host to a particular plugin. A
 package's Steam UI modules are registered when it becomes ready and removed when it stops, without
 rebuilding the session host; a module whose patch, state or command collides with one already
@@ -429,11 +431,11 @@ instance, a declared action, its primitive arguments and a 1–120 second deadli
 origin `SessionAutomation`, and the step's generation is resolved at the moment it runs, so a plugin
 that restarted between two steps is never addressed with a stale one.
 
-`Shell\PluginActionSequence.cs` runs them. Entry stops at the first step that did not succeed;
-sending the rest after the TV failed to come on only makes the failure harder to read. The other
-three run every step and report what failed, because each one is independently worth attempting and
-there is nothing to abort. **Nothing is ever retried**, in either mode: a `Dispatched` or
-`Unconfirmed` outcome means the command may already be on the wire.
+`Shell\Plugins\PluginActionSequence.cs` runs them. Entry stops at the first step that did not
+succeed; sending the rest after the TV failed to come on only makes the failure harder to read. The
+other three run every step and report what failed, because each one is independently worth
+attempting and there is nothing to abort. **Nothing is ever retried**, in either mode: a
+`Dispatched` or `Unconfirmed` outcome means the command may already be on the wire.
 
 Settings > Display authors the four lists: add a step from a running plugin's declared actions,
 remove it, move it earlier or later, and edit its arguments and deadline. Order is the point, not a
@@ -444,23 +446,23 @@ sent and refused.
 
 Which actions can be added depends on where Settings was opened. Opened from the WSGM tray icon, the
 overlay or a desktop Settings launch it is the shell session's one Settings window
-(`Shell\SettingsSurface`), and the session hands it its own reader of the running instances; a
-standalone `--settings` process has no plugin host, so it lists nothing to add. A saved step whose
+(`Shell\Session\SettingsSurface`), and the session hands it its own reader of the running instances;
+a standalone `--settings` process has no plugin host, so it lists nothing to add. A saved step whose
 plugin is not running keeps its values, is shown but not editable, and is still removable: dropping
 a step you no longer want must not require starting a plugin. Its argument schema is captured by the
 host before the plugin starts, so for one that is not there, there is nothing truthful to render.
 
-Desktop startup and wake are coalesced by `Shell\DesktopActionAdmission.cs`: one run at a time, a
-five-second cooldown, and never while Game Mode is active or a transition is in flight. The four
-notifications around a sleep overlap, and an action list must not fire twice for one wake.
+Desktop startup and wake are coalesced by `Shell\Desktop\DesktopActionAdmission.cs`: one run at a
+time, a five-second cooldown, and never while Game Mode is active or a transition is in flight. The
+four notifications around a sleep overlap, and an action list must not fire twice for one wake.
 
 ### Game Mode entry
 
-`Shell\GameModeEntryTransaction.cs` owns the order and the compensation; the backend owns the
-effects. Everything before Explorer leaves is undoable, so the splash offers Cancel and a failure
-puts the desktop back exactly as it was. Once Explorer is gone there is no cheap desktop to return
-to, so that exit is the boundary: after it the splash button becomes "Switch to desktop" and later
-failures compensate forwards.
+`Shell\Desktop\GameModeEntryTransaction.cs` owns the order and the compensation; the backend owns
+the effects. Everything before Explorer leaves is undoable, so the splash offers Cancel and a
+failure puts the desktop back exactly as it was. Once Explorer is gone there is no cheap desktop to
+return to, so that exit is the boundary: after it the splash button becomes "Switch to desktop" and
+later failures compensate forwards.
 
 The order is: record what to return to, run the entry actions, wait for every required display,
 persist the pending return layout, prepare the Explorer anchor, re-check the displays, exit
@@ -478,10 +480,10 @@ switch the user never asked to move.
 
 The display wait has **no deadline**, only cancellation. The reference setup puts a TV behind an
 HDMI switch, so how long the display takes is up to a person and a piece of consumer hardware; a
-timeout would only ever fire on the honest case. `Shell\DisplayArrivalWaiter.cs` requires two
-identical observations a settle apart before it believes a display has arrived, because a monitor
-coming up behind a switch enumerates, disappears and re-enumerates while the sink negotiates.
-`Interop\DisplayChangeWindow.cs` supplies the hint: a hidden top-level window, because
+timeout would only ever fire on the honest case. `Shell\Display\DisplayArrivalWaiter.cs` requires
+two identical observations a settle apart before it believes a display has arrived, because a
+monitor coming up behind a switch enumerates, disappears and re-enumerates while the sink
+negotiates. `Interop\DisplayChangeWindow.cs` supplies the hint: a hidden top-level window, because
 `WM_DISPLAYCHANGE` is broadcast to top-level windows only and the message-only window never hears
 it. The hint only shortens a wait; a five-second backstop poll is what makes the wait correct when
 no broadcast arrives.
@@ -513,18 +515,18 @@ separate from #52's carrier measurement and real-remote acceptance.
 
 ## Source routes
 
-| Boundary                                                    | Owning source                                                                                                                                                                          |
-| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Public types and interface semantics                        | [Common SDK reference](../src/WSGM.Plugin.Sdk/docs/reference.md)                                                                                                                       |
-| Archive admission and version selection                     | [PluginPackageFile](../src/WSGM/Core/PluginPackageFile.cs), [PluginPackageCatalog](../src/WSGM/Core/PluginPackageCatalog.cs)                                                           |
-| Instance activation and dependency order                    | [CommonPluginManager](../src/WSGM/Shell/CommonPluginManager.cs), [CommonPluginDependencyPlan](../src/WSGM/Shell/CommonPluginDependencyPlan.cs)                                         |
-| Collectible loading and shared assembly identity            | [PluginLoader](../src/WSGM/Shell/PluginLoader.cs)                                                                                                                                      |
-| Lifecycle serialization, generations and retained ownership | [PluginHost / PluginRegistration](../src/WSGM/Shell/PluginHost.cs)                                                                                                                     |
-| Desired configuration and effective state                   | [CommonPluginSettings](../src/WSGM/Shell/CommonPluginSettings.cs) and the registration's publication handlers                                                                          |
-| Named actions and session sequences                         | [CommonPluginActions](../src/WSGM/Shell/CommonPluginActions.cs), [PluginActionSequence](../src/WSGM/Shell/PluginActionSequence.cs)                                                     |
-| Overlay and Steam projections                               | [CommonPluginOverlaySource](../src/WSGM/Shell/CommonPluginOverlaySource.cs), [CommonPluginSteamUiSource](../src/WSGM/Shell/CommonPluginSteamUiSource.cs)                               |
-| GPU capability admission and profile routing                | [PluginCapabilityChannel](../src/WSGM/Shell/PluginCapabilityChannel.cs), [GpuCoordinator](../src/WSGM/Shell/GpuCoordinator.cs)                                                         |
-| Built-in vendor driver library                              | [LibGPUDriverInteract](../external/libgpu-driver-interact/README.md), [public API](../external/libgpu-driver-interact/API.md), [WSGM adapter](../src/WSGM/Shell/GpuDriverPublisher.cs) |
+| Boundary                                                    | Owning source                                                                                                                                                                                   |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Public types and interface semantics                        | [Common SDK reference](../src/WSGM.Plugin.Sdk/docs/reference.md)                                                                                                                                |
+| Archive admission and version selection                     | [PluginPackageFile](../src/WSGM/Core/Plugins/PluginPackageFile.cs), [PluginPackageCatalog](../src/WSGM/Core/Plugins/PluginPackageCatalog.cs)                                                    |
+| Instance activation and dependency order                    | [CommonPluginManager](../src/WSGM/Shell/Plugins/CommonPluginManager.cs), [CommonPluginDependencyPlan](../src/WSGM/Shell/Plugins/CommonPluginDependencyPlan.cs)                                  |
+| Collectible loading and shared assembly identity            | [PluginLoader](../src/WSGM/Shell/Plugins/PluginLoader.cs)                                                                                                                                       |
+| Lifecycle serialization, generations and retained ownership | [PluginHost / PluginRegistration](../src/WSGM/Shell/Plugins/PluginHost.cs)                                                                                                                      |
+| Desired configuration and effective state                   | [CommonPluginSettings](../src/WSGM/Shell/Plugins/CommonPluginSettings.cs) and the registration's publication handlers                                                                           |
+| Named actions and session sequences                         | [CommonPluginActions](../src/WSGM/Shell/Plugins/CommonPluginActions.cs), [PluginActionSequence](../src/WSGM/Shell/Plugins/PluginActionSequence.cs)                                              |
+| Overlay and Steam projections                               | [CommonPluginOverlaySource](../src/WSGM/Shell/Plugins/CommonPluginOverlaySource.cs), [CommonPluginSteamUiSource](../src/WSGM/Shell/Plugins/CommonPluginSteamUiSource.cs)                        |
+| GPU capability admission and profile routing                | [PluginCapabilityChannel](../src/WSGM/Shell/Plugins/PluginCapabilityChannel.cs), [GpuCoordinator](../src/WSGM/Shell/Graphics/GpuCoordinator.cs)                                                 |
+| Built-in vendor driver library                              | [LibGPUDriverInteract](../external/libgpu-driver-interact/README.md), [public API](../external/libgpu-driver-interact/API.md), [WSGM adapter](../src/WSGM/Shell/Graphics/GpuDriverPublisher.cs) |
 
 The common host serializes an instance's lifecycle/actions. Capability channels delegate hardware
 serialization to each GPU runtime; the AMD/NVIDIA shared runtime and Intel runtime keep their own

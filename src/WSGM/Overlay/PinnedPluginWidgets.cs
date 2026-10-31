@@ -11,8 +11,14 @@ using WSGM.Shell;
 namespace WSGM.Overlay;
 
 /// <summary>Retains pinned plugin controls on the front page, including missing-provider placeholders.</summary>
+/// <remarks>
+///     Reads on attach; the owning window calls <see cref="Refresh" /> when Quick access shows and when the
+///     device or the plugin host reports a change.
+/// </remarks>
 internal sealed class PinnedPluginWidgets : StackPanel
 {
+    private readonly Func<Task> _readPins;
+    private readonly ICommonPluginOverlaySource _source;
     private bool _closed;
     private PluginWidgetPin[] _previous = [];
     private bool _reading;
@@ -20,14 +26,19 @@ internal sealed class PinnedPluginWidgets : StackPanel
     internal PinnedPluginWidgets(ICommonPluginOverlaySource source, Action<PluginWidgetPin, string> navigate,
         PluginWidgetPreferences preferences)
     {
+        _source = source;
         Spacing = 20;
         HorizontalAlignment = HorizontalAlignment.Stretch;
         Focusable = true;
         (PluginWidgetPin? Pin, string Label, int Index)? pendingFocus = null;
         TextBlock error = new() { IsVisible = false, Classes = { "caption" } };
-        // Reopen before the poll's first read: a re-parented widget must come back alive.
-        AttachedToVisualTree += (_, _) => _closed = false;
-        VisiblePoll.Attach(this, TimeSpan.FromSeconds(1), async () => await RefreshAsync());
+        _readPins = RefreshAsync;
+        // Reopen before the first read: a re-parented widget must come back alive.
+        AttachedToVisualTree += (_, _) =>
+        {
+            _closed = false;
+            _ = RefreshAsync();
+        };
         DetachedFromVisualTree += (_, _) => _closed = true;
         return;
 
@@ -169,6 +180,23 @@ internal sealed class PinnedPluginWidgets : StackPanel
                     destination.Focus();
                 }
             }
+        }
+    }
+
+    /// <summary>Reads the pin list again and refreshes every pinned widget from one read of the instances.</summary>
+    internal void Refresh()
+    {
+        _ = _readPins();
+        var panels = this.GetLogicalDescendants().OfType<CommonPluginPanel>().ToArray();
+        if (panels.Length == 0)
+        {
+            return;
+        }
+
+        var instances = _source.Snapshot();
+        foreach (var panel in panels)
+        {
+            panel.Refresh(instances);
         }
     }
 }

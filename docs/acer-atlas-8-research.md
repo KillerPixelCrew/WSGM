@@ -16,11 +16,13 @@ W floor is below the firmware's advertised 10 W and was confirmed on the device.
 Overlay and Steam descriptor/control paths consume these capabilities.
 
 WSGM's existing Full-mode manager takeover now includes the measured Acer services/tasks, the two
-exact Predator Sense package families, and only the dedicated controller keyboard leaf. It records
-original states before changes, restores its changes on uninstall, propagates restart-required
-status and rechecks accepted takeover at session start and every five minutes. No shared keyboard
-driver or composite USB parent is disabled. Package processes are asked to close; a still-running
-blocked helper requires a restart rather than termination. Re-running setup with takeover accepted
+exact Predator Sense package families, and only the dedicated controller keyboard leaf, which
+LibHandheld's Acer family publishes through `HandheldDevice.ManagerApps`; the Atlas fan curve
+presets and their smoothing are likewise the definition's `FanCurvePresets`. It records original
+states before changes, restores its changes on uninstall, propagates restart-required status and
+rechecks accepted takeover at session start and every five minutes. No shared keyboard driver or
+composite USB parent is disabled. Package processes are asked to close; a still-running blocked
+helper requires a restart rather than termination. Re-running setup with takeover accepted
 reconciles it again. Minimal mode leaves this policy unaccepted.
 
 The local maintenance task used during bring-up is independent of WSGM's install recovery records.

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
@@ -77,6 +78,33 @@ public sealed class CollapsibleSection : Grid
         _expander.AttachedToVisualTree += (_, _) => _expander.ApplyTemplate();
         Children.Add(_expander);
         UpdateExpansion();
+    }
+
+    /// <summary>Creates a section whose expansion is kept in the owner's set of expanded keys.</summary>
+    /// <param name="title">The accessible section title.</param>
+    /// <param name="body">Mounted controls retained while collapsed.</param>
+    /// <param name="expanded">The owner's expanded keys; the section adds and removes its own.</param>
+    /// <param name="key">The persisted expansion key.</param>
+    /// <param name="headingTag">The heading's semantic focus tag.</param>
+    /// <param name="action">An optional independent header action.</param>
+    /// <returns>The section, expanded when its key is in the set.</returns>
+    public static CollapsibleSection Persisted(string title, Control body, ISet<string> expanded, string key,
+        string headingTag, Control? action = null)
+    {
+        var section = new CollapsibleSection(title, body, action) { IsExpanded = expanded.Contains(key) };
+        section.Heading.Tag = headingTag;
+        section.ExpansionChanged += isExpanded =>
+        {
+            if (isExpanded)
+            {
+                expanded.Add(key);
+            }
+            else
+            {
+                expanded.Remove(key);
+            }
+        };
+        return section;
     }
 
     /// <summary>Whether the section is expanded. Changing it preserves focus before hiding children.</summary>

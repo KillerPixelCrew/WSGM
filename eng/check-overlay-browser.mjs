@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import {
+  declarations,
   fragment,
   instantiate,
   loadAsset,
@@ -12,7 +13,11 @@ const asset = loadAsset(
   process.argv[2] ??
     fileURLToPath(new URL("../src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js", import.meta.url)),
 );
-const source = fragment(asset, "overlay-browser.ts");
+// The helper reads Steam's route-table tokens from the shared gate helpers.
+const source =
+  declarations(asset, "gate-helpers.ts", ["RouteTableTokens"]) +
+  "\n" +
+  fragment(asset, "overlay-browser.ts");
 const route = "/native-external-browser";
 const makeHistory = () => {
   const listeners = new Set();
@@ -333,23 +338,34 @@ for (const state of [
     const page = instantiate(
       {
         registerSteamPage: (options) => ({ ...options, state: () => state }),
-        resolveSteamSettingsComponents: () => ui,
         resolveSteamOverlayBrowser: () => native,
-        steamUiKitStyle: () => null,
         renderSteamUiLevel: (_ui, _options, ...children) => children,
-        renderSteamUiActions: (_ui, actions) => actions,
+        renderSteamUiEmpty: (_ui, props) => props,
       },
       pageSource,
       "browserGuidePage",
     );
     assert.equal(page.prepare(ui, {}), null);
-    const rendered = page.Page({ context: { ui: () => ui, state: () => state } });
-    assert.equal(rendered.props.className, "steam-ui-kit-page");
+    // The frame draws the chrome; the page is its content, with no state guard of its own.
+    assert.equal(page.title, "Browser");
+    assert.equal(page.banner, false, "a handoff failure is said on the page, not in a banner");
+    const rendered = page.Page({ context: { ui: () => ui, state: () => state }, state });
+    assert.equal(rendered.at(-1).kind, "loading", "the page says it is opening Steam's browser");
     assert.deepEqual(opened, [], "render does not navigate during React reconciliation");
     effects.forEach((effect) => effect());
     if (kind === "unavailable") {
       assert.equal(opened.length, 0);
       assert.ok(errors.some((error) => error.includes("unavailable")));
+      // The retry is the unavailable state's own action.
+      const failedUi = {
+        ...ui,
+        react: { ...ui.react, useState: () => ["Steam's browser is unavailable", () => {}] },
+      };
+      const shown = page
+        .Page({ context: { ui: () => failedUi, state: () => state }, state })
+        .at(-1);
+      assert.equal(shown.kind, "unavailable");
+      assert.equal(shown.action.label, "Try again");
     } else {
       assert.deepEqual(opened, [{ url: undefined, home: "about:blank", replace: true }]);
       assert.equal(returned, kind === "desktop" ? 1 : 0);

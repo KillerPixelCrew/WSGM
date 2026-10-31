@@ -63,7 +63,7 @@ public sealed class CollapsibleSectionTests
         using var fixture = new UiFixture();
         var window = fixture.Overlay();
         await using var service = new SoundPackService(new SoundPackLibrary(root), () => "", _ => { },
-            () => null, _ => { });
+            () => null, new ThemeStoreClient(), _ => { });
         await service.RefreshAsync(CancellationToken.None);
         var view = UiFixture.Named<SoundsView>(window, "SoundsHost");
         view.Attach(service, new HashSet<string>());

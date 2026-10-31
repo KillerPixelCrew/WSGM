@@ -1,8 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Avalonia.Controls;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Shell;
@@ -60,9 +60,9 @@ public sealed partial class GameLibraryView : ServiceSubView
 
         if (state.Loading)
         {
-            stack.Children.Add(Tagged(Row("Stop", "Stops after the title in progress; nothing is rolled back",
-                Icons.Close, () => Run(_service.CancelAsync)), "stop"));
-            SetContent(stack);
+            // While working the home level shows only the sources read and the status, whose Stop is the
+            // progress element's own, so the saved titles update it in place.
+            SetLibraryContent(stack, state, static (shown, next) => shown.Reading.SequenceEqual(next.Reading));
             return;
         }
 
@@ -168,7 +168,7 @@ public sealed partial class GameLibraryView : ServiceSubView
         stack.Children.Add(Tagged(Row(collections ? "Steam collections: on" : "Steam collections: off",
             "One collection per launcher and folder, holding its imported games", Icons.ListLines,
             () => Run(token => _service.SetCollectionsAsync(!collections, token))), "collections"));
-        SetContent(stack);
+        SetLibraryContent(stack, state, SameSources);
     }
 
     private void RenderReview(bool importedOnly)
@@ -181,24 +181,25 @@ public sealed partial class GameLibraryView : ServiceSubView
         }
 
         RenderReviewInto(stack, state, importedOnly);
-        SetContent(stack);
+        SetLibraryContent(stack, state, SameReview);
     }
 
     private void RenderEntry(string id)
     {
-        if (_service?.ReadState() is not { } state)
+        if (ReadEntry(id) is not { } shown || _service is null)
         {
             RenderMessage("Review", "The Game Library is not available in this session.");
             return;
         }
 
-        if (state.Entries.FirstOrDefault(entry => entry.Id == id) is not { } entry)
+        var state = shown.State;
+        if (shown.Entry is not { } entry)
         {
             // A scan or apply in progress may be replacing the list, so the title can return when
             // it settles; only a settled list that lacks it means the title is gone.
             if (state.Loading)
             {
-                RenderEntryPending(state);
+                RenderEntryPending(id, shown);
                 return;
             }
 
@@ -261,18 +262,23 @@ public sealed partial class GameLibraryView : ServiceSubView
 
             if (entry.Packaged)
             {
-                stack.Children.Add(ChoiceRow("Input mode",
-                    new[]
-                    {
-                        (nameof(ImportMode.ControllerOnly), "Controller only"),
-                        (nameof(ImportMode.SteamIntegration), "Steam integration")
-                    }, entry.Mode,
-                    mode => ChooseMode(entry, mode)));
+                // The same options the Steam page offers: the overlay route only where one is validated.
+                List<(string, string)> modes =
+                [
+                    (nameof(ImportMode.ControllerOnly), GameLibraryProjection.ModeLabel(ImportMode.ControllerOnly))
+                ];
+                if (entry.CanUseSteamIntegration)
+                {
+                    modes.Add((nameof(ImportMode.SteamIntegration),
+                        GameLibraryProjection.ModeLabel(ImportMode.SteamIntegration)));
+                }
+
+                stack.Children.Add(ChoiceRow("Input mode", modes, entry.Mode, mode => ChooseMode(entry, mode)));
             }
         }
 
         stack.Children.Add(SectionLabel("DETAILS"));
-        if (_service.ReadDetails(id) is { } details)
+        if (shown.Details is { } details)
         {
             stack.Children.Add(Caption($"{entry.LaunchLabel}: {details.LaunchEvidence}"));
             stack.Children.Add(Caption($"Multiplayer: {details.Multiplayer}. {details.MultiplayerEvidence}"));
@@ -286,7 +292,7 @@ public sealed partial class GameLibraryView : ServiceSubView
         stack.Children.Add(Caption(entry.MatchName.Length > 0
             ? $"Artwork matched to {entry.MatchName}."
             : "Artwork not matched to a game yet."));
-        SetContent(stack);
+        SetEntryContent(stack, id, shown);
     }
 
     /// <summary>Moves a title to its next launch mode or route; the service says when the risk has to be accepted first.</summary>
@@ -328,27 +334,7 @@ public sealed partial class GameLibraryView : ServiceSubView
                 Run(token => _service!.SetModeAsync(id, nameof(ImportMode.SteamIntegration), true, token));
                 Back();
             }), "accept"));
-        SetContent(stack);
-    }
-
-    private void AddStatus(StackPanel stack, GameLibraryState state)
-    {
-        if (state.Phase == GameLibraryPhases.Scanning)
-        {
-            stack.Children.Add(Caption("Scanning…"));
-        }
-        else if (state.Phase == GameLibraryPhases.Applying)
-        {
-            stack.Children.Add(Caption($"Applying {state.Progress} of {state.ProgressTotal}…"));
-        }
-
-        if (state.Error is { Length: > 0 } error)
-        {
-            stack.Children.Add(Caption(error));
-        }
-        else if (state.Notice is { Length: > 0 } notice)
-        {
-            stack.Children.Add(Caption(notice));
-        }
+        // A fixed question: the library's publications must not redraw it under the user.
+        SetStaticContent(stack);
     }
 }

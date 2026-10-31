@@ -10,11 +10,11 @@ and the splash engine with its import limits. What the overlay does and how it i
 | Area                       | Sources                                                                                                                                                                                                                                      | State and lifetime                                                                                                                                      |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Application UI composition | [`App.axaml.cs`](../src/WSGM/App.axaml.cs), [`App.axaml`](../src/WSGM/App.axaml)                                                                                                                                                             | Select the Settings, resident-session or preview composition after `Program` has handled early recovery and one-shot modes.                             |
-| Settings window            | [`SettingsWindow.axaml.cs`](../src/WSGM/Settings/SettingsWindow.axaml.cs), `SettingsWindowServices.cs`, `Shell/SettingsSurface.cs`, `Shell/SettingsActivation.cs`                                                                            | Keep page controls mounted, own window input/capture, and route secondary launches to the resident process when available.                              |
+| Settings window            | [`SettingsWindow.axaml.cs`](../src/WSGM/Settings/SettingsWindow.axaml.cs), `SettingsWindowServices.cs`, `Shell/Session/SettingsSurface.cs`, `Shell/Session/SettingsActivation.cs`                                                            | Keep page controls mounted, own window input/capture, and route secondary launches to the resident process when available.                              |
 | Settings state and save    | [`SettingsViewModel.cs`](../src/WSGM/Settings/SettingsViewModel.cs) and feature partials, [`SettingsViewModel.Save.cs`](../src/WSGM/Settings/SettingsViewModel.Save.cs), [`SettingsSaveMerge.cs`](../src/WSGM/Settings/SettingsSaveMerge.cs) | Load an editing baseline, capture on the dispatcher, merge on the save worker, acknowledge only the captured edits.                                     |
 | Settings pages             | [`Settings/Pages`](../src/WSGM/Settings/Pages), profile/plugin rows and display/splash editors in `Settings/`                                                                                                                                | Present WSGM configuration and editing workflows; runtime Windows controls are on the overlay or Steam surfaces.                                        |
 | Shared presentation        | [`Controls`](../src/WSGM/Controls), [`Themes`](../src/WSGM/Themes)                                                                                                                                                                           | Focus, colors, glyph rendering, committed choices, folds, curves, keyboard and command controls shared by production views.                             |
-| Boot splash                | [`Shell/BootSplash.cs`](../src/WSGM/Shell/BootSplash.cs), `BootSplashWindow`, `SplashPolicy`, `SplashStyle`, `SplashDecode`                                                                                                                  | Own the boot-window lifetime and bounded asset decode; Core's `Splash*` files own configuration, import/export and asset promotion.                     |
+| Boot splash                | [`Shell/Boot/BootSplash.cs`](../src/WSGM/Shell/Boot/BootSplash.cs), `BootSplashWindow`, `SplashPolicy`, `SplashStyle`, `SplashDecode`                                                                                                        | Own the boot-window lifetime and bounded asset decode; Core's `Splash*` files own configuration, import/export and asset promotion.                     |
 | Overlay previews and media | [`OverlayPreviewImage.cs`](../src/WSGM/Overlay/OverlayPreviewImage.cs), [`OverlayMediaPreview.cs`](../src/WSGM/Overlay/OverlayMediaPreview.cs), [`OverlayFilePicker.cs`](../src/WSGM/Overlay/OverlayFilePicker.cs)                           | Bound image work, explicitly start/release WebView2 playback, and discard stale directory results. These are separate from the native desktop backdrop. |
 | Render verification        | [`tests/WSGM.UiTests`](../tests/WSGM.UiTests), [`tools/OverlayPreview`](../tools/OverlayPreview/README.md)                                                                                                                                   | Load the production themes and windows with explicit service fakes; write image evidence without opening a resident session.                            |
 
@@ -45,11 +45,11 @@ onto that fresh object. Runtime state, including Themes, Sounds, Animations and 
 restore record, stays fresh. Splash asset staging and the configuration transaction keep their
 existing order.
 
-`Core/WsgmSharedSettings` is the one read/write table for fields shared with Steam or the overlay.
-Settings writes those fields only when edited against the window's last loaded or captured baseline;
-save completion acknowledges the captured values and leaves later edits pending. Steam rows use the
-same entries. Plugin settings and device profiles use one merge path on the fresh scope, and
-deleting a fan profile clears fresh profile references to it.
+`Core/Config/WsgmSharedSettings` is the one read/write table for fields shared with Steam or the
+overlay. Settings writes those fields only when edited against the window's last loaded or captured
+baseline; save completion acknowledges the captured values and leaves later edits pending. Steam
+rows use the same entries. Plugin settings and device profiles use one merge path on the fresh
+scope, and deleting a fan profile clears fresh profile references to it.
 
 ## Overlay design and production preview
 
@@ -117,11 +117,11 @@ Shared controls live under `Controls\`: `TabStrip` (the destination bar), `Actio
 and `Icons` (stroke-style `StreamGeometry`). Stroke icons use `Fill={x:Null}` so their interior
 detail stays visible.
 
-Descriptor rows keep semantic ids independent of placement. The performance projection renders both
-as the Device → Profiles workflow and, for its value controls, beside Device power; the window adds
-a placement-specific focus prefix when it creates each `DescriptorControlView`. Do not clone state
-or command logic to place the same control twice: the descriptor and its bridge stay the one owner,
-and each rendered row keeps a stable focus key.
+Descriptor rows keep semantic ids independent of placement. The performance projection renders its
+per-application toggle at the top of the Device overview and its value controls beside Device power;
+the window adds a placement-specific focus prefix when it creates each `DescriptorControlView`. Do
+not clone state or command logic to place the same control twice: the descriptor and its bridge stay
+the one owner, and each rendered row keeps a stable focus key.
 
 Settings keeps its page controls alive and switches `IsVisible`, which preserves scroll position and
 recorder lifetime.

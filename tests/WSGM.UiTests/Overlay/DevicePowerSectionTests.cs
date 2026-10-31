@@ -4,7 +4,6 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
-using WSGM.Overlay;
 using WSGM.Shell;
 using WSGM.UiTests.Fakes;
 using WSGM.UiTests.Infrastructure;

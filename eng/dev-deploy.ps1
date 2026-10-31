@@ -268,7 +268,8 @@ foreach ($file in @(Get-ChildItem -LiteralPath $screensaverPublish -File -Recurs
     $copies.Add(@{ Source = $file.FullName; Name = $name; Process = '' })
 }
 
-foreach ($name in 'Resources\InpOut\inpoutx64.dll', 'Resources\InpOut\LICENSE.txt', 'Resources\InpOut\inpout.lock.json',
+foreach ($name in 'Resources\Intel\KX\KX.exe', 'Resources\Intel\KX\kx.lock.json',
+    'Resources\InpOut\inpoutx64.dll', 'Resources\InpOut\LICENSE.txt', 'Resources\InpOut\inpout.lock.json',
     'Resources\InpOut\UPSTREAM-README.txt') {
     $source = Join-Path $appPublish $name
     if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "Missing handheld dependency $source" }

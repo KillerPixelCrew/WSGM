@@ -7,22 +7,6 @@ using WSGM.Interop;
 
 namespace WSGM.Overlay;
 
-/// <summary>A screen edge from which WSGM recognizes an inward swipe.</summary>
-internal enum ScreenEdge
-{
-    /// <summary>The bottom edge of the primary display.</summary>
-    Bottom,
-
-    /// <summary>The right edge of the primary display.</summary>
-    Right,
-
-    /// <summary>The left edge of the primary display.</summary>
-    Left,
-
-    /// <summary>The top edge of the primary display.</summary>
-    Top
-}
-
 /// <summary>
 ///     Turns inward swipes from enabled screen edges into <see cref="Triggered" />
 ///     events by subscribing to the process's raw touch input (<see cref="RawTouchInput" />,
@@ -121,7 +105,7 @@ internal sealed class TouchSwipeMonitor : IDisposable
         // Reset the one-shot so every arm cycle proves whether raw reports
         // still flow — swipes reportedly die when specific apps take focus.
         RawTouchInput.LogNextArrival();
-        Log.Info($"Touch edge swipes armed (foreground {RawTouchInput.DescribeForeground()}).");
+        Log.Info($"Touch edge swipes armed (foreground {WindowFinder.DescribeForeground()}).");
     }
 
     /// <summary>Suspend gesture detection (overlay open).</summary>

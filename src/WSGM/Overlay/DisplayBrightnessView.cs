@@ -2,57 +2,46 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
-using Avalonia.Layout;
-using Avalonia.Media;
 using Avalonia.Threading;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
 /// <summary>Projects the session brightness owner without a second hardware poll or write path.</summary>
+/// <remarks>
+///     The shared slider row settles a drag or a held press before it writes, and its description carries
+///     an unavailable display or a refused change.
+/// </remarks>
 internal sealed class DisplayBrightnessView : Border
 {
-    private readonly StackPanel _body = new() { Spacing = 4 };
     private readonly CancellationTokenSource _closed = new();
-
-    private readonly TextBlock _percent = new() { Classes = { "setting-title" } };
     private readonly NativeQamBrightnessService _service;
-
-    private readonly Slider _slider = new()
-        { Minimum = 0, Maximum = 100, TickFrequency = 1, IsSnapToTickEnabled = true };
-
-    private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, IsVisible = false };
+    private readonly DeviceSliderRow _slider;
+    private string _failure = string.Empty;
     private int? _pending;
     private int? _requested;
-    private bool _synchronizing;
     private bool _writing;
 
     internal DisplayBrightnessView(NativeQamBrightnessService service)
     {
         _service = service;
-        Classes.Add("tile");
-        Child = _body;
-        var heading = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
-        heading.Children.Add(new TextBlock { Text = "Display brightness", Classes = { "setting-title" } });
-        Grid.SetColumn(_percent, 1);
-        _percent.VerticalAlignment = VerticalAlignment.Center;
-        heading.Children.Add(_percent);
-        _body.Children.Add(heading);
-        _body.Children.Add(_slider);
-        _body.Children.Add(_status);
-        _slider.ValueChanged += async (_, _) =>
-        {
-            if (_synchronizing || _closed.IsCancellationRequested)
+        var current = service.Current;
+        _slider = new DeviceSliderRow("display.brightness", "Display brightness", string.Empty, 0, 100, 1,
+            CapabilityUnit.Percent, current?.Percent, current is not null, value =>
             {
-                return;
-            }
+                if (_closed.IsCancellationRequested)
+                {
+                    return;
+                }
 
-            _pending = (int)Math.Round(_slider.Value);
-            _requested = _pending;
-            _percent.Text = $"{_pending}%";
-            _status.IsVisible = false;
-            await WriteAsync();
-        };
+                _pending = value;
+                _requested = value;
+                _failure = string.Empty;
+                _slider!.RefreshDescription(string.Empty);
+                _ = WriteAsync();
+            });
+        Child = _slider;
         AttachedToVisualTree += async (_, _) =>
         {
             _service.Changed += OnChanged;
@@ -64,9 +53,9 @@ internal sealed class DisplayBrightnessView : Border
             }
             catch (Exception ex)
             {
-                _status.Text = "Brightness unavailable: " + ex.Message;
-                _status.IsVisible = true;
-                _slider.IsEnabled = false;
+                _failure = "Brightness unavailable: " + ex.Message;
+                _slider.RefreshReadback(0, 100, 1, null, false);
+                _slider.RefreshDescription(_failure);
             }
         };
         DetachedFromVisualTree += (_, _) =>
@@ -89,29 +78,19 @@ internal sealed class DisplayBrightnessView : Border
         }
 
         var current = _service.Current;
-        _synchronizing = true;
-        try
+        _slider.RefreshReadback(0, 100, 1, current?.Percent, current is not null);
+        if (current is null)
         {
-            _slider.IsEnabled = current is not null;
-            if (current is not null)
-            {
-                _slider.Value = current.Percent;
-            }
-
-            _percent.Text = current is null ? "--" : $"{current.Percent}%";
-            if (current is null)
-            {
-                _status.Text = "Brightness unavailable for this display";
-                _status.IsVisible = true;
-            }
-            else if (_requested is null || current.Percent == _requested)
-            {
-                _status.IsVisible = false;
-            }
+            _slider.RefreshDescription("Brightness unavailable for this display");
         }
-        finally
+        else if (_requested is null || current.Percent == _requested)
         {
-            _synchronizing = false;
+            _failure = string.Empty;
+            _slider.RefreshDescription(string.Empty);
+        }
+        else
+        {
+            _slider.RefreshDescription(_failure);
         }
     }
 
@@ -151,12 +130,12 @@ internal sealed class DisplayBrightnessView : Border
         finally
         {
             _writing = false;
-            Refresh();
             if (failure is not null && !_closed.IsCancellationRequested)
             {
-                _status.Text = failure;
-                _status.IsVisible = true;
+                _failure = failure;
             }
+
+            Refresh();
         }
     }
 }

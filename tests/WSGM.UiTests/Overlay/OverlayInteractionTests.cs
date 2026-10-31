@@ -7,6 +7,7 @@ using Avalonia.Input;
 using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using FluentAvalonia.UI.Controls;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
@@ -177,15 +178,25 @@ public sealed class OverlayInteractionTests
         DevicePowerPresetView view = new();
         view.Attach(model);
         await model.RefreshAsync();
-        var choices = view.GetLogicalDescendants().OfType<ComboBox>().ToArray();
-        foreach (var choice in choices)
+        Window window = new() { Content = view, Width = 600, Height = 400 };
+        try
         {
-            var isAc = Equals(choice.Tag, "device.power-assignment.ac");
-            Assert.Equal(isAc == ac ? "custom" : "balanced", Assert.IsType<DevicePowerPreset>(choice.SelectedItem).Id);
-            Assert.Equal(isAc == ac, choice.Items.Cast<DevicePowerPreset>().Any(item => item.Id == "custom"));
-        }
+            window.Show();
+            var choices = view.GetLogicalDescendants().OfType<ComboBox>().ToArray();
+            foreach (var choice in choices)
+            {
+                // The unset entry, Balanced, and Custom only where an assignment holds it.
+                var holdsCustom = Equals(choice.Tag, "device.power-assignment.ac") == ac;
+                Assert.Equal(holdsCustom ? 3 : 2, choice.ItemCount);
+                Assert.Equal(holdsCustom ? 2 : 1, choice.SelectedIndex);
+            }
 
-        Assert.Equal(2, choices.Length);
+            Assert.Equal(2, choices.Length);
+        }
+        finally
+        {
+            window.Close();
+        }
 
         return;
 
@@ -225,8 +236,7 @@ public sealed class OverlayInteractionTests
     [AvaloniaFact]
     public void LosingIntegrationKeepsWindowsPlansOnTheOpenPowerPage()
     {
-        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower()),
-            _ => throw new InvalidOperationException("Unexpected power scheme write")));
+        using var schemes = UiFixture.PowerProfiles(new FakePower());
         using FakeDevice device = new();
         device.State = device.State with
         {
@@ -249,7 +259,7 @@ public sealed class OverlayInteractionTests
         device.Notify();
         Dispatcher.UIThread.RunJobs();
         Assert.True(plans.IsVisible);
-        Assert.True(UiFixture.Named<PowerSchemeView>(window, "DevicePowerSchemeHost").IsEffectivelyVisible);
+        Assert.True(UiFixture.Named<ChoiceRowView>(window, "DevicePowerSchemeHost").IsEffectivelyVisible);
     }
 
     [AvaloniaFact]
@@ -557,8 +567,7 @@ public sealed class OverlayInteractionTests
     {
         using FakeDevice device = new();
         using UiFixture fixture = new();
-        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower()),
-            _ => throw new InvalidOperationException("Unexpected power scheme write")));
+        using var schemes = UiFixture.PowerProfiles(new FakePower());
         DevicePowerPresets service = new(() => [],
             (_, _, _, _) => throw new InvalidOperationException("Unexpected preset write"),
             new WindowsPowerModes(new PowerSchemes(new FakePower()), new UnusedPowerModeApi()));
@@ -621,11 +630,11 @@ public sealed class OverlayInteractionTests
     }
 
     [AvaloniaFact]
-    public async Task CorePowerSelectionStagesThenAppliesAndShowsFailureWithoutAPlugin()
+    public async Task CorePowerSelectionAppliesTheSettledChoiceAndShowsFailureWithoutAPlugin()
     {
         using UiFixture fixture = new();
         FakePower api = new();
-        using PowerSchemeSelection selection = new(new NativeQamPowerProfileService(new PowerSchemes(api), _ => { }));
+        using var selection = UiFixture.PowerProfiles(api);
         await selection.RefreshAsync();
         var window = fixture.Overlay();
         window.AttachPowerSchemes(selection);
@@ -634,15 +643,6 @@ public sealed class OverlayInteractionTests
         UiFixture.OpenSections(window);
         var combo = window.GetVisualDescendants().OfType<ComboBox>()
             .Single(control => Equals(control.Tag, "system.power-profile.choice"));
-        combo.Focus();
-        UiFixture.Key(window, Key.Down);
-        UiFixture.Key(window, Key.Enter);
-        UiFixture.Key(window, Key.Escape);
-        Assert.False(combo.IsDropDownOpen);
-        Assert.Equal(1, combo.SelectedIndex);
-        Assert.Equal(0, api.Writes);
-        var apply = window.GetVisualDescendants().OfType<Button>()
-            .Single(control => Equals(control.Tag, "system.power-profile.apply"));
         TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         api.BeforeWrite = () =>
@@ -661,11 +661,12 @@ public sealed class OverlayInteractionTests
         };
         try
         {
-            UiFixture.Click(window, apply);
+            combo.Focus();
+            UiFixture.Key(window, Key.Down);
+            UiFixture.Key(window, Key.Enter);
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.True(selection.Busy);
             Assert.False(combo.IsEnabled);
-            Assert.False(apply.IsEnabled);
         }
         finally
         {
@@ -673,10 +674,11 @@ public sealed class OverlayInteractionTests
         }
 
         await finished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Dispatcher.UIThread.RunJobs();
         Assert.Equal(1, api.Writes);
-        Assert.Contains("Choose again", selection.Status);
+        Assert.Contains("failed", selection.Status, StringComparison.Ordinal);
         Assert.True(combo.IsEnabled);
-        Assert.True(apply.IsEnabled);
-        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == selection.Status);
+        Assert.Contains(window.GetVisualDescendants().OfType<FASettingsExpanderItem>(),
+            row => Equals(row.Tag, "system.power-profile.choice") && Equals(row.Description, selection.Status));
     }
 }

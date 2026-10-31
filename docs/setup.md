@@ -81,7 +81,7 @@ take over Steam's autostart. Customize is a separate following step in installs,
 repairs, with a description for each integration switch. A fresh install starts with Full when a
 native handheld integration is selected and Minimal without it, until the user explicitly chooses a
 level or edits a switch. Setup passes the choices as setup answers (`--setup --answers=<file>`,
-`Core\SetupAnswers.cs`). An update or repair starts from the values WSGM exports
+`Core\Setup\SetupAnswers.cs`). An update or repair starts from the values WSGM exports
 (`--export-setup-answers`), so it never silently undoes Settings. A quiet fresh install never takes
 over Steam's autostart; a quiet update keeps an accepted takeover. Quick Setup is retired, and WSGM
 Settings changes the choices afterwards.
@@ -103,18 +103,18 @@ in.
 ## The Steam autostart takeover
 
 WSGM starts Steam so the client inherits WSGM's integrity, and a Steam that Windows started first
-takes that away without saying so. `Core\SteamAutostart` therefore looks for the places Windows
-would start it: `Run` values in HKCU and HKLM including the 32-bit view, shortcuts in either Startup
-folder resolved through `Interop\ShellLink`, and scheduled tasks with a logon trigger. Tasks are
-read as language-neutral XML from `schtasks /Query /XML`, because the table output is localized.
+takes that away without saying so. `Core\Steam\SteamAutostartScanner` therefore looks for the places
+Windows would start it: `Run` values in HKCU and HKLM including the 32-bit view, shortcuts in either
+Startup folder resolved through `Interop\ShellLink`, and scheduled tasks with a logon trigger. Tasks
+are read as language-neutral XML from `schtasks /Query /XML`, because the table output is localized.
 Matching compares the resolved executable against Steam's own path, and an unquoted command is
 resolved the way Windows resolves it, by successive prefixes rather than the first space.
 
-`Core\SteamAutostartTakeover` disables an entry the way Task Manager's Startup tab does, by writing
-Windows' own `StartupApproved` bytes, or by disabling the task. Nothing is deleted. The previous
-state is recorded in `SteamAutostartDisabled` before the write, so an interrupted takeover is still
-undoable. A recording failure refuses the write. Task disable trusts the command's exit code;
-approval writes record their exact marker bytes once and trust the accepted write, with no
+`Core\Steam\SteamAutostartTakeover` disables an entry the way Task Manager's Startup tab does, by
+writing Windows' own `StartupApproved` bytes, or by disabling the task. Nothing is deleted. The
+previous state is recorded in `SteamAutostartDisabled` before the write, so an interrupted takeover
+is still undoable. A recording failure refuses the write. Task disable trusts the command's exit
+code; approval writes record their exact marker bytes once and trust the accepted write, with no
 confirming read. Recording or write failures stay pending. Restore only undoes an entry that still
 carries WSGM's own value, so a decision the user made afterwards always wins. HKLM and task changes
 need elevation and go through the `--disable-steam-autostart` one-shot, which rescans and takes no
@@ -133,13 +133,15 @@ operation finishes.
 ## The other handheld managers
 
 Full mode also turns off the other handheld managers, so WSGM is the only one driving the device:
-Handheld Companion, found by the logon task that runs it, and the maker's apps from Handheld
-Companion's own OEM lists, which are MSI Center M, Armoury Crate, Legion Space and the Zotac
-launcher (`Core\OtherManagers`). Their services are set to disabled and stopped, their tasks
-disabled, and a running window is asked to close but never ended. Each change is recorded in
-`config.json` before it is made, and `--uninstall-restore` puts back the exact start types and
-tasks. The profile page names what was found, Customize has the switch, Minimal leaves them alone,
-and a quiet fresh install never turns them off.
+Handheld Companion, found by the logon task that runs it, and the makers' own apps, which are MSI
+Center M, Armoury Crate, Legion Space and the Zotac launcher. WSGM's policy lives in
+`Core\Applications\OtherManagers`; each maker's app and its process, service, task, package and
+keyboard identities come from its LibHandheld family through the static `HandheldDevice.ManagerApps`
+catalog, so setup and Settings list them whether or not a device is detected. Their services are set
+to disabled and stopped, their tasks disabled, and a running window is asked to close but never
+ended. Each change is recorded in `config.json` before it is made, and `--uninstall-restore` puts
+back the exact start types and tasks. The profile page names what was found, Customize has the
+switch, Minimal leaves them alone, and a quiet fresh install never turns them off.
 
 On the exact Predator Atlas 8 PA08-I51 definition, takeover also handles Predator Sense for
 Handheld: the ten measured Acer services, three tasks, desktop/widget package activation and only
@@ -167,17 +169,17 @@ takeover accepted applies it again, like the Steam autostart takeover.
 ## Native handheld support without the controller prerequisites
 
 The directly linked library can recognize a handheld on a Minimal or Desktop install even when the
-controller stack was not installed. `Core\DevicePrerequisites` checks native handheld availability,
-Device Integration, `libviiper.dll` beside WSGM and the HidHide control device. When something is
-missing, the overlay's Device page carries a banner naming it: the overlay because it is the surface
-a person opens, and the Device page because that is where someone whose device is not working goes.
+controller stack was not installed. `Core\Device\DevicePrerequisites` checks native handheld
+availability, Device Integration, `libviiper.dll` beside WSGM and the HidHide control device. When
+Device Integration is on and something is missing, the overlay's Device page carries a banner naming
+it: the overlay because it is the surface a person opens, and the Device page because that is where
+someone whose device is not working goes. With Device Integration off the banner stays quiet.
 
-The banner offers **Enable Device Integration** and nothing else, and the split is not cosmetic.
-Device Integration is WSGM's own setting. The virtual controller needs a kernel driver, and INV-020
+The banner explains and offers no action. The virtual controller needs a kernel driver, and INV-020
 forbids the runtime from installing one whatever its provenance: the USB/IP install restarts every
 USB 3.0 hub, which drops the built-in controller, the touch digitiser and the keyboard. Underneath a
 running Game Mode that leaves a person with no input and no way back, so it happens only while setup
-is on screen. For that half the banner says to re-run setup and warns that a reboot follows.
+is on screen. The banner says to re-run setup and warns that a reboot follows.
 
 The USB/IP driver itself cannot be upgraded in a boot where anything has attached to it, so its
 install and upgrade take two setup runs and a restart; the mechanism and the evidence are in
@@ -257,11 +259,11 @@ installed; only a fresh install or explicit package choice supplies a new activa
 
 ## Updates
 
-While the session runs, `Shell\UpdateMonitor` asks GitHub for the latest WSGM release once a day
-(`Core\UpdateChecker`), two minutes after start at the earliest, and only when **Check for updates**
-is on in Settings > System. The latest-release endpoint never returns a prerelease, and a failed or
-offline check changes nothing. The result is kept in `%LOCALAPPDATA%\WSGM\update.json`, which
-Settings reads; nothing is downloaded until the user asks.
+While the session runs, `Shell\Session\UpdateMonitor` asks GitHub for the latest WSGM release once a
+day (`Core\Setup\UpdateChecker`), two minutes after start at the earliest, and only when **Check for
+updates** is on in Settings > System. The latest-release endpoint never returns a prerelease, and a
+failed or offline check changes nothing. The result is kept in `%LOCALAPPDATA%\WSGM\update.json`,
+which Settings reads; nothing is downloaded until the user asks.
 
 Before offering a release, the check reads its `bundle.json`. An installed community plugin the new
 bundle does not carry, because its pinned commit did not build against the new SDK, is named with
@@ -312,9 +314,9 @@ Windows would neither delete nor schedule fails the step and is named in its not
 
 A newer setup must still release an older running build. The event names, their access grant (user
 SID plus Administrators `EVENT_MODIFY_STATE | SYNCHRONIZE`, `0x00100002`), the medium mandatory
-label and the startup reset therefore stay compatible (`Core\UpdateExitWatcher.cs`). The unelevated
-Settings instance needs the same grant to wait and reset, so narrowing it breaks ordinary update
-shutdown.
+label and the startup reset therefore stay compatible (`Core\Setup\UpdateExitWatcher.cs`). The
+unelevated Settings instance needs the same grant to wait and reset, so narrowing it breaks ordinary
+update shutdown.
 
 Session end is a separate path. The resident shell holds a shared `WTSRegisterSessionNotification`
 lease, and `WTS_SESSION_LOGOFF` requests the five-second session-end shutdown before Avalonia exits.
@@ -414,7 +416,7 @@ step without undoing the successful application transaction. A quiet `/update` f
 | [`Engine/RtssInstaller.cs`](../src/WSGM.Setup/Engine/RtssInstaller.cs), [`Engine/WebViewRuntimeInstaller.cs`](../src/WSGM.Setup/Engine/WebViewRuntimeInstaller.cs), [`Install-UsbipDriver.ps1`](../src/WSGM.Setup/Install-UsbipDriver.ps1) | Component-specific presence/version checks, pinned payload validation and installer execution                               |
 | [`WSGM.Install`](../src/WSGM.Install)                                                                                                                                                                                                      | Shared bundle schema, machine/display inventory, ranked offers, component roles, account identity and update-failure record |
 | [`Shared/Install/InstallLayout.cs`](../src/Shared/Install/InstallLayout.cs)                                                                                                                                                                | Product roots and pending-transaction admission shared with the logon service                                               |
-| [`Core/SetupAnswers.cs`](../src/WSGM/Core/SetupAnswers.cs), [`Core/Installer.cs`](../src/WSGM/Core/Installer.cs) and [`Program.cs`](../src/WSGM/Program.cs)                                                                                | Export/apply user choices and runtime-owned restoration one-shots                                                           |
+| [`Core/Setup/SetupAnswers.cs`](../src/WSGM/Core/Setup/SetupAnswers.cs), [`Core/Setup/Installer.cs`](../src/WSGM/Core/Setup/Installer.cs) and [`Program.cs`](../src/WSGM/Program.cs)                                                        | Export/apply user choices and runtime-owned restoration one-shots                                                           |
 | [`build.ps1`](../build.ps1) and [`eng/build-bundle.ps1`](../eng/build-bundle.ps1)                                                                                                                                                          | Explicit payload allowlist, source-built native components, curated packages and final setup executable                     |
 
 See [development](development.md) for building the payload and [logging](logging.md) for the

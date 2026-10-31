@@ -6,14 +6,17 @@ Independent extensions use the [common plugin host](plugin-system.md).
 
 ## Ownership
 
-| Owner                    | Responsibility                                                                                               |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------ |
-| LibHandheld              | Exact detection, family protocols, native services, physical input, motion, haptics and hardware restoration |
-| `DeviceCoordinator`      | One machine-wide owner, application policy, profiles, AutoTDP, lifecycle admission and cleanup               |
-| `HandheldDeviceRuntime`  | Borrowed observer and adaptation between native contracts and WSGM publications                              |
-| `DeviceCapabilityRouter` | Validated descriptors, detached state, command admission and UI projections                                  |
-| `ControllerManager`      | HidHide, VIIPER targets, forwarding, UI capture and controller handoff                                       |
-| `DeviceOemActionRouter`  | Configured OEM actions and default Steam/Quick Access behavior                                               |
+| Owner                                       | Responsibility                                                                                               |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| LibHandheld                                 | Exact detection, family protocols, native services, physical input, motion, haptics and hardware restoration |
+| `DeviceCoordinator`                         | One machine-wide owner, application policy, profiles, lifecycle admission and cleanup                        |
+| `DevicePowerPolicy`                         | The power lane, manual TDP, presets, AC/DC assignments, per-application limits and AutoTDP                   |
+| `DeviceCapabilityCommands`                  | The one command route: power-lane serialization, user-value persistence and desired-value restore            |
+| `DeviceFanCurves`, `DeviceLightingProfiles` | Software fan curve and authored fan profiles; lighting profiles and lighting restore                         |
+| `HandheldDeviceRuntime`                     | Borrowed observer and adaptation between native contracts and WSGM publications                              |
+| `DeviceCapabilityRouter`                    | Validated descriptors, detached state, command admission and UI projections                                  |
+| `ControllerManager`, `ControllerForwarding` | HidHide, VIIPER targets and controller handoff; sample forwarding, UI capture and synthetic presses          |
+| `DeviceOemActionRouter`                     | Configured OEM actions and default Steam/Quick Access behavior                                               |
 
 The machine-wide `Global\WSGM.DeviceOwner` marker prevents another WSGM session or setup from
 starting a competing production hardware cycle. Device Integration off starts none of these device
@@ -72,16 +75,18 @@ control, and uncertain writes are not automatically replayed.
 Unreadable numeric controls display **Unknown** until a value is supplied by an observation, saved
 preference or explicit edit. Opening or refreshing a slider does not write its minimum. **Reset
 processor tuning**, available on both surfaces, clears that device's processor overrides from Global
-and every game, including disabled games, before requesting native restoration. Lighting, fan and
-power preferences are preserved. Selecting **Automatic GPU clock** also clears saved fixed clocks.
-The library restores documented automatic clock modes, neutral curve/undervolt offsets and captured
+and every game, including disabled games, before requesting native restoration. The row's caption is
+the action's `CapabilityDisplay.Description` as the library publishes it; every action row shows its
+published description while no failure or unavailable reason needs saying. Lighting, fan and power
+preferences are preserved. Selecting **Automatic GPU clock** also clears saved fixed clocks. The
+library restores documented automatic clock modes, neutral curve/undervolt offsets and captured
 thermal originals. Where firmware provides no documented live restore and no original was readable,
 the reset reports the affected controls and asks for a Windows restart; it never invents thermal
 defaults or reports a minimum clock as automatic. Live device and game performance still require
 testing on the affected handheld.
 
 [Profiles](profiles.md) resolve Global and per-application values. AC/DC assignments and supported
-power presets use the coordinator's existing power lane alongside manual power and AutoTDP writes.
+power presets use the power lane of `DevicePowerPolicy` alongside manual power and AutoTDP writes.
 Software fan and charge policy remain WSGM services; supported firmware curves and protection modes
 are native library controls. Competing software owners yield when a native mode owns the operation.
 
@@ -118,7 +123,7 @@ labels still say `package`; they identify the native family, not a loaded plugin
 - [Handheld contributions](handheld-contributions.md): adding exact definitions, protocols and
   fixtures.
 - [Device integration](device-integration.md): product settings and integration boundaries.
-- `Shell/DeviceCoordinator`, `HandheldDeviceRuntime` and `HandheldUiProjection`: application
+- `Shell/Device/DeviceCoordinator`, `HandheldDeviceRuntime` and `HandheldUiProjection`: application
   ownership and adaptation.
 
 Source coverage and regression fixtures do not establish physical validation of every model.

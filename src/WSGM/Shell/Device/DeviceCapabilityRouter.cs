@@ -1,0 +1,945 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using WSGM.Core;
+using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Lifecycle;
+
+namespace WSGM.Shell;
+
+/// <summary>
+///     Validates and projects the semantic capability stream owned by one active publisher.
+/// </summary>
+/// <remarks>
+///     One router per publisher: the device package has one, and so does each graphics package. They are
+///     never merged, because consumers that select a capability by role expect exactly one match within
+///     the publisher they read.
+/// </remarks>
+internal sealed class DeviceCapabilityRouter : IAsyncDisposable
+{
+    /// <summary>Last logged availability per capability, so only changes are written.</summary>
+
+    private readonly Dictionary<DeviceCapabilityKey, SemaphoreSlim> _commandGates = [];
+
+    /// <summary>What each capability's latest command left behind; read and written under <c>_gate</c>.</summary>
+    private readonly CapabilityCommandLedger _commands = new();
+
+    private readonly Dictionary<DeviceCapabilityKey, CapabilityDescriptor> _descriptors = [];
+    private readonly Lock _gate = new();
+
+    /// <summary>The name log lines carry: "Device", or the graphics publisher's profile key.</summary>
+    private readonly string _label;
+
+    /// <summary>Observers of late command completions, joined by <see cref="DisposeAsync" />.</summary>
+    private readonly HashSet<Task> _lateObservers = [];
+
+    /// <summary>Stops waiting for late completions once the router is disposed.</summary>
+    /// <remarks>
+    ///     Never disposed: an admitted command still in flight at disposal may read its token. It owns
+    ///     no timer, so leaving it to the collector releases nothing late.
+    /// </remarks>
+    private readonly CancellationTokenSource _lifetime = new();
+
+    private readonly Action<Action> _postToUi;
+
+    private readonly Action _publishPosted;
+
+    /// <summary>The publisher's profile key, or null for the device package.</summary>
+    private readonly string? _publisher;
+
+    /// <summary>Latest accepted state per capability.</summary>
+    /// <remarks>
+    ///     The high-rate state channel does not promise ordering, and a delayed older sample overwriting
+    ///     a newer one is not cosmetic: it can restore a "fresh" reading the device has already moved
+    ///     past, and the UI would then command against it. Sequence numbers order observations from
+    ///     the currently attached publisher; detaching clears its observations.
+    /// </remarks>
+    private readonly Dictionary<DeviceCapabilityKey, CapabilityStateDelta> _states = [];
+
+    private readonly Func<DateTimeOffset> _utcNow;
+
+    private ICapabilityPublisher? _client;
+    private bool _connected;
+    private bool _disposed;
+
+    /// <summary>The stored profile values desired state resolves from, replaced with each desired context.</summary>
+    private CapabilityDesiredLayers _desired = CapabilityDesiredLayers.Empty;
+
+    private bool _onAcPower = true;
+
+    // The same descriptors in snapshot order, sorted once per descriptor set rather than on every
+    // snapshot a state delta builds.
+    private KeyValuePair<DeviceCapabilityKey, CapabilityDescriptor>[] _orderedDescriptors = [];
+    private bool _publishPending;
+
+    /// <summary>Overlay sections of the accepted descriptor set, replaced with each set.</summary>
+    private IReadOnlyList<CapabilitySection> _sections = [];
+
+    /// <summary>Creates the projection owner for one device or graphics capability publisher.</summary>
+    /// <param name="postToUi">Posts the projection build to the UI dispatcher.</param>
+    /// <param name="publisher">A graphics publisher's profile key, or null for the device package.</param>
+    /// <param name="utcNow">Observation clock, or the current UTC time.</param>
+    internal DeviceCapabilityRouter(Action<Action> postToUi, string? publisher = null,
+        Func<DateTimeOffset>? utcNow = null)
+    {
+        ArgumentNullException.ThrowIfNull(postToUi);
+        _postToUi = postToUi;
+        _publisher = publisher;
+        _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
+        _label = publisher ?? "Device";
+        _publishPosted = PublishPosted;
+    }
+
+    /// <summary>The declared overlay sections of the accepted descriptor set.</summary>
+    internal IReadOnlyList<CapabilitySection> Sections
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _sections;
+            }
+        }
+    }
+
+    /// <summary>Completion of the late-result observers currently owned by this router.</summary>
+    internal Task LateCommandCompletion
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return Task.WhenAll(_lateObservers);
+            }
+        }
+    }
+
+    /// <summary>Detaches the publisher and cancels and joins late-result observers.</summary>
+    /// <returns>Observer cleanup completion; it does not wait for or dispose underlying plugin calls.</returns>
+    /// <remarks>In-flight commands retain their own gates until they return; disposal cannot abort their native effects.</remarks>
+    public async ValueTask DisposeAsync()
+    {
+        Task[] observers;
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            DetachUnderGate();
+            // An admitted ExecuteAsync releases its local gate in finally. Clearing the index
+            // blocks reuse without disposing a semaphore an in-flight command still owns.
+            _commandGates.Clear();
+            observers = [.. _lateObservers];
+            _lateObservers.Clear();
+        }
+
+        // A late result after detaching would be ignored anyway, so the observers stop waiting
+        // for the plugin and the join below cannot outlast a hung command.
+        await _lifetime.CancelAsync().ConfigureAwait(false);
+        await Task.WhenAll(observers).ConfigureAwait(false);
+    }
+
+    /// <summary>Raised on the UI dispatcher with a complete immutable projection.</summary>
+    internal event Action<IReadOnlyList<DeviceCapabilityView>>? Changed;
+
+    /// <summary>
+    ///     Raised on the publishing thread after a complete descriptor set was accepted.
+    /// </summary>
+    internal event Action? DescriptorsAccepted;
+
+    /// <summary>Replaces the borrowed publisher and clears all descriptors, observations, and command projections.</summary>
+    /// <param name="client">Publisher whose events are subscribed until detach or disposal; ownership is not transferred.</param>
+    /// <exception cref="ObjectDisposedException">The router has been disposed.</exception>
+    internal void Attach(ICapabilityPublisher client)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            DetachUnderGate();
+            _client = client;
+            _descriptors.Clear();
+            _orderedDescriptors = [];
+            _states.Clear();
+            _commands.Clear();
+            _commandGates.Clear();
+            _sections = [];
+            _connected = true;
+            client.DescriptorSetReceived += OnDescriptorSet;
+            client.CapabilityStateReceived += OnStateDelta;
+        }
+
+        Publish();
+    }
+
+    /// <summary>Whether the publisher has reported a state for a capability of the accepted descriptor set.</summary>
+    /// <param name="descriptor">The capability.</param>
+    /// <returns>True once a state for it was accepted in the current descriptor set.</returns>
+    internal bool HasState(CapabilityDescriptor descriptor)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        lock (_gate)
+        {
+            return _states.ContainsKey(Key(descriptor));
+        }
+    }
+
+    /// <summary>Whether every capability of one descriptor set has reported a state.</summary>
+    /// <returns>False while that set is not the accepted one or any of its capabilities has no state yet.</returns>
+    internal bool HasStateForEveryDescriptor()
+    {
+        lock (_gate)
+        {
+            if (!_connected || _client is not { IsActive: true })
+            {
+                return false;
+            }
+
+            foreach (var (key, _) in _orderedDescriptors)
+            {
+                if (!_states.ContainsKey(key))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+    }
+
+    /// <summary>Replaces the profile values desired state resolves from.</summary>
+    /// <param name="deviceIdentityKey">The device the values were stored for, or null before it is known.</param>
+    /// <param name="layers">Global and the running game's layer.</param>
+    /// <param name="onAcPower">Current power source, for descriptors that differ by source.</param>
+    internal void UpdateDesiredContext(string? deviceIdentityKey, ProfileLayers layers, bool onAcPower)
+    {
+        var desired = CapabilityDesiredLayers.From(deviceIdentityKey, layers);
+        lock (_gate)
+        {
+            _desired = desired;
+            _onAcPower = onAcPower;
+        }
+
+        Publish();
+    }
+
+    /// <summary>Serializes one capability request, validates its current descriptor/state, and dispatches once.</summary>
+    /// <param name="capabilityId">Semantic identifier in the accepted descriptor set.</param>
+    /// <param name="instanceId">Exact instance identifier, or null for an uninstanced capability.</param>
+    /// <param name="value">Requested value, or null for an action-only capability.</param>
+    /// <param name="timeout">Budget assigned after per-capability admission; nonpositive values use five seconds.</param>
+    /// <param name="applyPowerPair">Whether to carry the host-computed paired power value with this request.</param>
+    /// <param name="cancellationToken">
+    ///     Cancels lane waiting or dispatch; cancellation after dispatch can mean uncertain
+    ///     effects.
+    /// </param>
+    /// <returns>
+    ///     Immediate rejection, completion, or uncertainty. Late completion updates the projection separately;
+    ///     neither this method nor late observation automatically retries a write.
+    /// </returns>
+    internal async Task<CapabilityCommandResult> ExecuteAsync(
+        string capabilityId,
+        string? instanceId,
+        CapabilityValue? value,
+        TimeSpan timeout,
+        bool applyPowerPair = false,
+        CancellationToken cancellationToken = default)
+    {
+        DeviceCapabilityKey key = new(capabilityId, instanceId);
+        SemaphoreSlim commandGate;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!_commandGates.TryGetValue(key, out commandGate!))
+            {
+                commandGate = new SemaphoreSlim(1, 1);
+                _commandGates.Add(key, commandGate);
+            }
+        }
+
+        await commandGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var refusal = PrepareCommand(key, value, timeout, out var command, out var client, applyPowerPair);
+            if (refusal is not null)
+            {
+                ReconcileResult(key, refusal);
+                return refusal;
+            }
+
+            Publish();
+            CapabilityCommandResult result;
+            var terminal = true;
+            try
+            {
+                var dispatch = await client.ExecuteCommandAsync(
+                    command,
+                    cancellationToken).ConfigureAwait(false);
+                result = dispatch.Immediate;
+                if (result.CommandId != command.CommandId)
+                {
+                    result = Uncertain(command, "The plugin returned a different command ID.");
+                }
+                else if (dispatch.LateCompletion is not null)
+                {
+                    terminal = false;
+                    TrackLateObserver(ObserveLateCommandAsync(
+                        key,
+                        command.CommandId,
+                        client,
+                        dispatch.LateCompletion));
+                }
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                result = Uncertain(command, ex.Message);
+            }
+
+            ReconcileResult(key, result, terminal);
+            return result;
+        }
+        finally
+        {
+            commandGate.Release();
+        }
+    }
+
+    /// <summary>Builds a complete projection using the current descriptors, desired layers, and observation age.</summary>
+    /// <returns>A captured capability list; taking a snapshot does not dispatch or persist values.</returns>
+    internal IReadOnlyList<DeviceCapabilityView> Snapshot()
+    {
+        lock (_gate)
+        {
+            return BuildSnapshotUnderGate(_utcNow());
+        }
+    }
+
+    /// <summary>Marks this publisher disconnected so queued/new requests cannot dispatch.</summary>
+    /// <remarks>Existing native work is not canceled or rolled back by this projection change.</remarks>
+    internal void CloseCommandAdmission()
+    {
+        lock (_gate)
+        {
+            _connected = false;
+        }
+
+        Publish();
+    }
+
+    /// <summary>Unsubscribes the publisher and clears pending commands and section presentation.</summary>
+    /// <remarks>The publisher is borrowed and is not stopped or disposed here.</remarks>
+    internal void Detach()
+    {
+        lock (_gate)
+        {
+            DetachUnderGate();
+            _commands.ForgetInFlight();
+            _sections = [];
+        }
+
+        Publish();
+    }
+
+    private CapabilityCommandResult? PrepareCommand(
+        DeviceCapabilityKey key,
+        CapabilityValue? value,
+        TimeSpan timeout,
+        out CapabilityCommand command,
+        out ICapabilityPublisher client,
+        bool applyPowerPair = false)
+    {
+        var now = _utcNow();
+        var commandId = Guid.NewGuid();
+        lock (_gate)
+        {
+            command = new CapabilityCommand
+            {
+                CommandId = commandId,
+                CapabilityId = key.CapabilityId,
+                InstanceId = key.InstanceId,
+                RequestedValue = value,
+                Deadline = Deadline.After(timeout > TimeSpan.Zero ? timeout : TimeSpan.FromSeconds(5))
+            };
+            _commands.Begin(key, commandId);
+
+            if (!_connected || _client is not { IsActive: true })
+            {
+                client = null!;
+                return Reject(command, CapabilityReasonCode.HostUnavailable,
+                    _publisher is null
+                        ? "The device plugin runtime is not connected."
+                        : "The graphics plugin is not connected.", true);
+            }
+
+            client = _client;
+            if (!_descriptors.TryGetValue(key, out var descriptor))
+            {
+                return Reject(command, CapabilityReasonCode.Unsupported,
+                    "The capability is not present in the current descriptor set.");
+            }
+
+            if (applyPowerPair && descriptor.PairedPowerLimitId is null)
+            {
+                return Reject(command, CapabilityReasonCode.Unsupported,
+                    "This capability does not declare a power pair.");
+            }
+
+            if (value?.IntegerValue is { } watts && key.InstanceId is null
+                                                 && DevicePowerPair.Peer([.. _descriptors.Values], key.CapabilityId)
+                                                     is { } peerDescriptor)
+            {
+                if (!_states.TryGetValue(Key(peerDescriptor), out var peer)
+                    || !CapabilityFreshness.CanCommand(CapabilityFreshness.Evaluate(peer.State,
+                        peerDescriptor.Role, now)))
+                {
+                    return Reject(command, CapabilityReasonCode.ObservationExpired,
+                        "The paired power limit is not available.");
+                }
+
+                command = command with
+                {
+                    ApplyUniformPowerTarget = applyPowerPair,
+                    PairedPowerLimitWatts = PairedWatts(descriptor, peerDescriptor, watts,
+                        peer.State.ObservedValue?.IntegerValue, applyPowerPair)
+                };
+            }
+
+            if (!_states.TryGetValue(key, out var rawState))
+            {
+                return Reject(command, CapabilityReasonCode.ObservationExpired,
+                    "No current capability state has been observed.", true);
+            }
+
+            var state = CapabilityFreshness.Evaluate(
+                rawState.State,
+                descriptor.Role,
+                now);
+            if (!CapabilityFreshness.CanCommand(state))
+            {
+                return Reject(
+                    command,
+                    state.Reason?.Code ?? CapabilityReasonCode.ObservationExpired,
+                    state.Reason?.Detail ?? "Capability state is not current.",
+                    state.Reason?.Retryable ?? true);
+            }
+
+            CapabilityReason? refusal = null;
+            if (_onAcPower ? !descriptor.AvailableOnAc : !descriptor.AvailableOnDc)
+            {
+                refusal = new CapabilityReason(
+                    CapabilityReasonCode.UnavailableOnPowerSource,
+                    _onAcPower
+                        ? "Capability is not available on AC power."
+                        : "Capability is not available on battery.");
+            }
+            else if (value is null && !descriptor.SupportsAction)
+            {
+                refusal = new CapabilityReason(
+                    CapabilityReasonCode.Unsupported,
+                    "Capability does not support being invoked as an action.");
+            }
+            else if (value is not null && !descriptor.SupportsWrite)
+            {
+                refusal = new CapabilityReason(CapabilityReasonCode.Unsupported, "Capability is read-only.");
+            }
+            else if (value is not null
+                     && !CapabilityValueValidation.ValueMatches(value, descriptor, out var error))
+            {
+                refusal = new CapabilityReason(
+                    CapabilityReasonCode.ValueOutOfRange,
+                    error ?? "Capability value violates its descriptor.");
+            }
+
+            if (refusal is not null)
+            {
+                return Reject(
+                    command,
+                    refusal.Code,
+                    refusal.Detail ?? "Command preflight failed.",
+                    refusal.Retryable);
+            }
+
+            _commands.Admit(key, value);
+            return null;
+        }
+    }
+
+    private void OnDescriptorSet(CapabilityDescriptorSet descriptors)
+    {
+        string? error;
+        bool accepted;
+        lock (_gate)
+        {
+            accepted = AcceptDescriptorSetUnderGate(descriptors, out error);
+        }
+
+        if (!accepted)
+        {
+            Log.Warn($"{_label} descriptor set rejected: {error}");
+            return;
+        }
+
+        Publish();
+        DescriptorsAccepted?.Invoke();
+    }
+
+    private bool AcceptDescriptorSetUnderGate(CapabilityDescriptorSet descriptors,
+        out string? error)
+    {
+        error = null;
+        if (!DeviceCapabilityValidation.TryValidateDescriptorSet(
+                descriptors,
+                out error))
+        {
+            return false;
+        }
+
+        // The manifest's capability list is what setup installed components for, so a role it
+        // does not declare is a package defect, not a capability to show.
+        if (_client is { } declaring
+            && descriptors.Descriptors.FirstOrDefault(descriptor =>
+                !declaring.DeclaredCapabilities.Contains(descriptor.Role)) is { } undeclared)
+        {
+            error = $"capability {undeclared.CapabilityId} uses role "
+                    + $"{undeclared.Role}, which the package manifest does not declare.";
+            return false;
+        }
+
+
+        _sections = DeviceSectionLayout.IncludePredefined(descriptors.Sections);
+        _descriptors.Clear();
+        foreach (var descriptor in descriptors.Descriptors)
+        {
+            _descriptors.Add(Key(descriptor), descriptor);
+        }
+
+        _orderedDescriptors = [.. _descriptors];
+        Array.Sort(_orderedDescriptors, static (left, right) =>
+        {
+            var order = string.CompareOrdinal(left.Key.CapabilityId, right.Key.CapabilityId);
+            return order != 0 ? order : string.CompareOrdinal(left.Key.InstanceId, right.Key.InstanceId);
+        });
+
+        _states.Clear();
+        _commands.Clear();
+
+        return true;
+    }
+
+    private void OnStateDelta(CapabilityStateDelta delta)
+    {
+        var key = Key(delta.State);
+        string? rejected = null;
+        var outOfOrder = false;
+        var availabilityChanged = false;
+        var stateChanged = false;
+        lock (_gate)
+        {
+            string? error = null;
+            if (delta.Sequence <= 0
+                || !_descriptors.TryGetValue(key, out var descriptor)
+                || !DeviceCapabilityValidation.TryValidateState(
+                    delta.State,
+                    descriptor,
+                    out error))
+            {
+                rejected = error ?? "invalid sequence or key";
+            }
+            else if (_states.TryGetValue(key, out var existing)
+                     && delta.Sequence <= existing.Sequence)
+            {
+                outOfOrder = true;
+            }
+            else
+            {
+                stateChanged = existing is null || !SameState(existing.State, delta.State);
+                availabilityChanged = existing is null || existing.State.Available != delta.State.Available;
+                _states[key] = delta;
+            }
+        }
+
+        if (rejected is not null)
+        {
+            Log.Change($"{ChangeKey("capability-state-rejected")}/{key}",
+                $"{_label} capability state rejected: key={key}, {rejected}");
+            return;
+        }
+
+        if (outOfOrder)
+        {
+            Log.Change($"{ChangeKey("capability-delta-rejected")}/{key}",
+                $"{_label} capability delta rejected: key={key}, reason=OutOfOrder.");
+            return;
+        }
+
+        if (availabilityChanged)
+        {
+            LogAvailabilityChange(key, delta.State);
+        }
+
+        if (stateChanged)
+        {
+            Publish();
+        }
+    }
+
+    private static bool SameState(CapabilityState left, CapabilityState right)
+    {
+        return left.CapabilityId == right.CapabilityId && left.InstanceId == right.InstanceId
+                                                       && left.Available == right.Available &&
+                                                       left.Quality == right.Quality
+                                                       && left.Reason == right.Reason &&
+                                                       left.ObservedAt == right.ObservedAt
+                                                       && (left.ObservedValue == right.ObservedValue
+                                                           || (left.ObservedValue is { } previous &&
+                                                               right.ObservedValue is { } current
+                                                               && CapabilityValues.Same(previous, current)));
+    }
+
+    /// <summary>Logs a capability becoming available or unavailable, with the plugin's own reason.</summary>
+    /// <param name="key">The capability that changed.</param>
+    /// <param name="state">The state just applied.</param>
+    /// <remarks>
+    ///     The plugin already says exactly why a capability is unavailable — a gated firmware revision,
+    ///     a missing prerequisite, a topology it could not match — and WSGM was throwing every one of
+    ///     those away. A device reporting itself "partly available" with no record of which parts or
+    ///     why cannot be diagnosed from a pasted log, which is the only way most of these devices are
+    ///     reachable. Logged on change so a capability that is simply unavailable does not repeat.
+    ///     <para>
+    ///         The change is captured under <c>_gate</c> after accepting the delta; logging runs outside it.
+    ///     </para>
+    /// </remarks>
+    private void LogAvailabilityChange(DeviceCapabilityKey key, CapabilityState state)
+    {
+        if (state.Available)
+        {
+            Log.Info($"{_label} capability available: {key}.");
+            return;
+        }
+
+        var reason = state.Reason?.Detail is { Length: > 0 } detail
+            ? $"{state.Reason.Code}: {detail}"
+            : state.Reason?.Code.ToString() ?? "no reason given";
+        Log.Warn($"{_label} capability unavailable: {key} — {reason}");
+    }
+
+    /// <summary>A change key namespaced by publisher, so two publishers never share one.</summary>
+    private string ChangeKey(string name)
+    {
+        return _publisher is null ? $"device-{name}" : $"{_publisher}/{name}";
+    }
+
+    /// <summary>Keeps a late-completion observer until disposal joins it.</summary>
+    /// <param name="observer">The observer task.</param>
+    private void TrackLateObserver(Task observer)
+    {
+        lock (_gate)
+        {
+            _lateObservers.RemoveWhere(static task => task.IsCompleted);
+            if (!_disposed && !observer.IsCompleted)
+            {
+                _lateObservers.Add(observer);
+            }
+        }
+    }
+
+    private async Task ObserveLateCommandAsync(
+        DeviceCapabilityKey key,
+        Guid commandId,
+        ICapabilityPublisher client,
+        Task<CapabilityCommandResult> completion)
+    {
+        CapabilityCommandResult result;
+        try
+        {
+            result = await completion.WaitAsync(_lifetime.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        {
+            Log.Info($"Late {_label} command result dropped: capability={key}, command={commandId}; "
+                     + "the router was disposed.");
+            return;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error($"Late {_label} command failed: capability={key}, command={commandId}", ex);
+            return;
+        }
+
+        bool ignore;
+        lock (_gate)
+        {
+            ignore = !_connected
+                     || !ReferenceEquals(_client, client)
+                     || result.CommandId != commandId;
+        }
+
+        if (ignore)
+        {
+            Log.Warn($"Late {_label} command result ignored: command={result.CommandId}, expected={commandId}; "
+                     + "the active publisher or control layout changed.");
+            return;
+        }
+
+        ReconcileResult(key, result);
+    }
+
+    private void ReconcileResult(
+        DeviceCapabilityKey key,
+        CapabilityCommandResult result,
+        bool terminal = true)
+    {
+        lock (_gate)
+        {
+            if (!_commands.Complete(key, result, terminal))
+            {
+                return;
+            }
+        }
+
+        // Keyed on the capability so a run of identical outcomes collapses: the interesting event
+        // is an outcome changing, not the hundreds of times a limit reapplied exactly as before.
+        // The command id is deliberately out of the deduplicated text — it is unique per call, so
+        // including it would defeat the key and it correlates nothing anyone reads later.
+        Log.Change(
+            $"{ChangeKey("command")}/{key}",
+            $"{_label} command: capability={key}, outcome={result.Outcome}, "
+            + $"rollback={result.Rollback}.",
+            result.Outcome.IsApplied() || result.Outcome == CommandOutcome.Accepted ? LogLevel.Info : LogLevel.Warn);
+        Publish();
+    }
+
+    /// <summary>Whether the accepted descriptor set holds a capability matching a condition.</summary>
+    /// <param name="match">The condition on the descriptor.</param>
+    /// <returns>True when any accepted descriptor matches.</returns>
+    /// <remarks>Reads descriptors only, so it builds no view and resolves no desired value.</remarks>
+    internal bool HasDescriptor(Func<CapabilityDescriptor, bool> match)
+    {
+        ArgumentNullException.ThrowIfNull(match);
+        lock (_gate)
+        {
+            foreach (var (_, descriptor) in _orderedDescriptors)
+            {
+                if (match(descriptor))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+    }
+
+    internal DeviceCapabilityView? TryGetView(DeviceCapabilityKey key)
+    {
+        lock (_gate)
+        {
+            return _descriptors.TryGetValue(key, out var descriptor)
+                ? BuildViewUnderGate(key, descriptor, _utcNow())
+                : null;
+        }
+    }
+
+    private List<DeviceCapabilityView> BuildSnapshotUnderGate(DateTimeOffset now)
+    {
+        List<DeviceCapabilityView> views = [];
+        foreach (var (key, descriptor) in _orderedDescriptors)
+        {
+            views.Add(BuildViewUnderGate(key, descriptor, now));
+        }
+
+        return views;
+    }
+
+    private DeviceCapabilityView BuildViewUnderGate(DeviceCapabilityKey key,
+        CapabilityDescriptor descriptor, DateTimeOffset now)
+    {
+        var state = _states.TryGetValue(key, out var latest)
+            ? latest.State
+            : UnknownState(key);
+        if (!_connected)
+        {
+            state = state with
+            {
+                Available = false,
+                Quality = HardwareStateQuality.Stale,
+                Reason = new CapabilityReason(
+                    CapabilityReasonCode.HostUnavailable,
+                    _publisher is null
+                        ? "The device plugin is disconnected."
+                        : "The graphics plugin is disconnected.",
+                    true)
+            };
+        }
+        else
+        {
+            state = CapabilityFreshness.Evaluate(
+                state,
+                descriptor.Role,
+                now);
+        }
+
+        var desired = _desired.Resolve(key, descriptor.ProfileScope);
+        var global = _desired.Global(key);
+        var outOfRange = (desired.Value is not null
+                          && !CapabilityValueValidation.ValueMatches(desired.Value, descriptor, out _))
+                         || (global is not null
+                             && descriptor.ProfileScope is not CapabilityProfileScope.Switched
+                             && !CapabilityValueValidation.ValueMatches(global, descriptor, out _));
+        var (pending, result, commanded) = _commands.Read(key);
+        return new DeviceCapabilityView(
+            descriptor,
+            new CapabilityProjection
+            {
+                State = state,
+                DesiredValue = desired.Value,
+                DesiredSource = desired.Source,
+                GlobalDesiredValue = global,
+                ProfileScope = descriptor.ProfileScope,
+                ApplyTiming = descriptor.ApplyTiming,
+                PendingValue = pending,
+                Progress = CapabilityCommandLedger.Progress(pending, result),
+                DesiredValueOutOfRange = outOfRange
+            },
+            result,
+            commanded) { Publisher = _publisher };
+    }
+
+    private CapabilityState UnknownState(DeviceCapabilityKey key)
+    {
+        return new CapabilityState
+        {
+            CapabilityId = key.CapabilityId,
+            InstanceId = key.InstanceId,
+            Available = false,
+            Quality = HardwareStateQuality.Unknown,
+            Reason = new CapabilityReason(
+                CapabilityReasonCode.ObservationExpired,
+                "No state has been published for this descriptor.",
+                true)
+        };
+    }
+
+    private void DetachUnderGate()
+    {
+        if (_client is not null)
+        {
+            _client.DescriptorSetReceived -= OnDescriptorSet;
+            _client.CapabilityStateReceived -= OnStateDelta;
+        }
+
+        _client = null;
+        _connected = false;
+        _commandGates.Clear();
+    }
+
+    private void Publish()
+    {
+        // One posted build per burst of changes. It builds when the post runs, so it carries
+        // everything that arrived in between instead of a snapshot per change that only the last
+        // of was ever delivered.
+        lock (_gate)
+        {
+            if (_publishPending)
+            {
+                return;
+            }
+
+            _publishPending = true;
+        }
+
+        _postToUi(_publishPosted);
+    }
+
+    private void PublishPosted()
+    {
+        IReadOnlyList<DeviceCapabilityView> snapshot;
+        lock (_gate)
+        {
+            _publishPending = false;
+            if (_disposed)
+            {
+                return;
+            }
+
+            snapshot = BuildSnapshotUnderGate(_utcNow());
+        }
+
+        Changed?.Invoke(snapshot);
+    }
+
+    private static CapabilityCommandResult Reject(
+        CapabilityCommand command,
+        CapabilityReasonCode code,
+        string detail,
+        bool retryable = false)
+    {
+        return new CapabilityCommandResult
+        {
+            CommandId = command.CommandId,
+            Outcome = CommandOutcome.Rejected,
+            Reason = new CapabilityReason(code, detail, retryable),
+            CompletedAt = DateTimeOffset.UtcNow
+        };
+    }
+
+    private static CapabilityCommandResult Uncertain(CapabilityCommand command, string detail)
+    {
+        return new CapabilityCommandResult
+        {
+            CommandId = command.CommandId,
+            Outcome = CommandOutcome.Indeterminate,
+            Reason = new CapabilityReason(CapabilityReasonCode.HostUnavailable, detail, true),
+            CompletedAt = DateTimeOffset.UtcNow
+        };
+    }
+
+    /// <summary>The wattage the other limit of a declared power pair takes when one of them is written.</summary>
+    /// <remarks>
+    ///     Pair policy is the host's, where Handheld Companion keeps it too (its performance page couples
+    ///     PL1 and PL2; no device class does): the sustained limit never asks to exceed the boost limit.
+    ///     Raising the sustained limit past the boost limit carries the boost limit up with it, a boost
+    ///     ceiling below the sustained limit carries that limit down ("cap this app here"), and a unified
+    ///     target moves both to it. A paired limit the plugin cannot observe yet counts as the commanded
+    ///     wattage. The result stays inside the paired descriptor's range; a step it misses is refused by
+    ///     the plugin, never rounded.
+    /// </remarks>
+    /// <param name="commanded">The limit being written.</param>
+    /// <param name="paired">The other limit of its pair.</param>
+    /// <param name="watts">The commanded wattage.</param>
+    /// <param name="pairedWatts">The other limit's observed wattage, or null when it is unknown.</param>
+    /// <param name="unified">Whether both limits move to <paramref name="watts" />.</param>
+    /// <returns>The wattage the command carries for the other limit.</returns>
+    internal static int PairedWatts(
+        CapabilityDescriptor commanded,
+        CapabilityDescriptor paired,
+        int watts,
+        int? pairedWatts,
+        bool unified)
+    {
+        var current = pairedWatts ?? watts;
+        var target = unified
+            ? watts
+            : commanded.Role == CapabilityRole.PowerSustainedLimit
+                ? Math.Max(current, watts)
+                : Math.Min(current, watts);
+        return paired is { Minimum: { } minimum, Maximum: { } maximum }
+            ? Math.Clamp(target, minimum, maximum)
+            : target;
+    }
+
+    private static DeviceCapabilityKey Key(CapabilityDescriptor descriptor)
+    {
+        return new DeviceCapabilityKey(descriptor.CapabilityId, descriptor.InstanceId);
+    }
+
+    private static DeviceCapabilityKey Key(CapabilityState state)
+    {
+        return new DeviceCapabilityKey(state.CapabilityId, state.InstanceId);
+    }
+}

@@ -1,8 +1,8 @@
 using System;
 using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.Net.Http;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
@@ -97,18 +97,21 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
 
     internal sealed class MediaViewport : OverlayNativeWebViewHost
     {
+        private const string Host = "wsgm-preview.local";
         private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(60) };
         private readonly UserDataContext _context;
         private readonly bool _image;
         private readonly string _source;
         private CoreWebView2Controller? _controller;
         private bool _covered;
-        private string? _folder;
+        private string? _download;
         private IntPtr _handle;
         private CancellationTokenSource? _load;
-        private string? _media;
         private bool _mediaFailed;
         private bool _ready;
+        private double? _seek;
+        private double? _volume;
+        private bool _setting;
 
         internal MediaViewport(UserDataContext context, string source, bool image)
         {
@@ -135,6 +138,8 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
             _controller?.Close();
             _controller = null;
             _ready = false;
+            _seek = null;
+            _volume = null;
             _handle = IntPtr.Zero;
             ClearMedia();
         }
@@ -170,10 +175,27 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
                 return;
             }
 
-            _ = ExecuteAsync(command, value);
+            if (command == "seek")
+            {
+                _seek = value;
+            }
+            else if (command == "volume")
+            {
+                _volume = value;
+            }
+            else
+            {
+                _ = ExecuteAsync(command);
+                return;
+            }
+
+            if (!_setting)
+            {
+                _ = SetValuesAsync();
+            }
         }
 
-        private async Task ExecuteAsync(string command, double value)
+        private async Task ExecuteAsync(string command)
         {
             try
             {
@@ -187,11 +209,6 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
                         "(()=>{const v=document.querySelector('video');if(v)v.currentTime=Math.max(0,v.currentTime-10);})()",
                     "forward" =>
                         "(()=>{const v=document.querySelector('video');if(v)v.currentTime=Math.min(v.duration||0,v.currentTime+10);})()",
-                    "seek" =>
-                        "(()=>{const v=document.querySelector('video');if(v&&Number.isFinite(v.duration))v.currentTime=v.duration*" +
-                        JsonSerializer.Serialize(Math.Clamp(value / 1000, 0, 1)) + ";})()",
-                    "volume" => "(()=>{const v=document.querySelector('video');if(v)v.volume=" +
-                                JsonSerializer.Serialize(Math.Clamp(value / 100, 0, 1)) + ";})()",
                     _ => null
                 };
                 if (script is not null && _controller is { } controller)
@@ -205,38 +222,83 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
             }
         }
 
+        /// <summary>
+        ///     Sends the latest seek and volume values with one script in flight, so a slider drag
+        ///     sends what it last reached rather than one call per step.
+        /// </summary>
+        private async Task SetValuesAsync()
+        {
+            _setting = true;
+            try
+            {
+                while (_controller is { } controller)
+                {
+                    string script;
+                    if (_seek is { } seek)
+                    {
+                        _seek = null;
+                        script =
+                            "(()=>{const v=document.querySelector('video');if(v&&Number.isFinite(v.duration))v.currentTime=v.duration*" +
+                            Fraction(seek / 1000) + ";})()";
+                    }
+                    else if (_volume is { } volume)
+                    {
+                        _volume = null;
+                        script = "(()=>{const v=document.querySelector('video');if(v)v.volume=" + Fraction(volume / 100) +
+                                 ";})()";
+                    }
+                    else
+                    {
+                        return;
+                    }
+
+                    await controller.CoreWebView2.ExecuteScriptAsync(script);
+                }
+            }
+            catch (Exception ex)
+            {
+                Status?.Invoke("Playback failed: " + ex.Message);
+            }
+            finally
+            {
+                _setting = false;
+            }
+        }
+
+        private static string Fraction(double value)
+        {
+            return Math.Clamp(value, 0, 1).ToString(CultureInfo.InvariantCulture);
+        }
+
         private async Task InitializeAsync(CancellationToken token)
         {
             var handle = _handle;
-            var folder = Path.Combine(FilesRoot(_context.Root), Guid.NewGuid().ToString("N"));
-            var media = Path.Combine(folder, _image ? "preview.image" : "preview.webm");
+            string? download = null;
             try
             {
                 Status?.Invoke("Loading preview…");
-                Directory.CreateDirectory(folder);
-                await DownloadAsync(media, token);
+                var media = LocalPath(_source);
+                if (media is null)
+                {
+                    download = Path.Combine(FilesRoot(_context.Root), Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(download);
+                    media = Path.Combine(download, _image ? "preview.image" : "preview.webm");
+                    await DownloadAsync(media, token);
+                }
+                else if (!File.Exists(media))
+                {
+                    throw new FileNotFoundException("The preview file no longer exists.", media);
+                }
+
                 if (_image)
                 {
-                    using var input = File.OpenRead(media);
-                    using var codec = SKCodec.Create(input) ??
-                                      throw new InvalidDataException("Unsupported animated artwork format.");
-                    if ((long)codec.Info.Width * codec.Info.Height > 64 * 1024 * 1024)
+                    var extension = ImageExtension(media);
+                    if (download is not null)
                     {
-                        throw new InvalidDataException("The image dimensions are too large.");
+                        var named = Path.ChangeExtension(media, extension);
+                        File.Move(media, named);
+                        media = named;
                     }
-
-                    var extension = codec.EncodedFormat switch
-                    {
-                        SKEncodedImageFormat.Gif => ".gif",
-                        SKEncodedImageFormat.Webp => ".webp",
-                        SKEncodedImageFormat.Png => ".png",
-                        SKEncodedImageFormat.Jpeg => ".jpg",
-                        _ => throw new InvalidDataException("Unsupported animated artwork format.")
-                    };
-                    input.Close();
-                    var named = Path.ChangeExtension(media, extension);
-                    File.Move(media, named);
-                    media = named;
                 }
 
                 token.ThrowIfCancellationRequested();
@@ -247,13 +309,12 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
                 if (token.IsCancellationRequested || _handle != handle)
                 {
                     controller.Close();
-                    ClearFiles(folder, media);
+                    DeleteDownload(download);
                     return;
                 }
 
                 _controller = controller;
-                _folder = folder;
-                _media = media;
+                _download = download;
                 var web = controller.CoreWebView2;
                 web.Settings.AreDevToolsEnabled = false;
                 web.Settings.AreDefaultContextMenusEnabled = false;
@@ -291,12 +352,15 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
                 web.NewWindowRequested += (_, e) => e.Handled = true;
                 web.DownloadStarting += (_, e) => e.Cancel = true;
                 web.NavigationStarting += (_, e) => e.Cancel = e.Uri != "about:blank";
-                web.SetVirtualHostNameToFolderMapping("wsgm-preview.local", _folder,
+                // The page reads the file in place: the virtual host maps the folder that holds it and
+                // the generated page references only that file name. Every other request is refused.
+                var src = "https://" + Host + "/" + Uri.EscapeDataString(Path.GetFileName(media));
+                web.SetVirtualHostNameToFolderMapping(Host, Path.GetDirectoryName(Path.GetFullPath(media))!,
                     CoreWebView2HostResourceAccessKind.DenyCors);
                 web.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
                 web.WebResourceRequested += (_, e) =>
                 {
-                    if (!e.Request.Uri.StartsWith("https://wsgm-preview.local/", StringComparison.Ordinal))
+                    if (e.Request.Uri != src)
                     {
                         e.Response = environment.CreateWebResourceResponse(null, 403, "Forbidden", "");
                     }
@@ -312,7 +376,6 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
                 };
                 Resize();
                 controller.IsVisible = !_covered;
-                var src = "https://wsgm-preview.local/" + Path.GetFileName(_media);
                 web.NavigateToString(
                     "<!doctype html><html><head><style>html,body{margin:0;height:100%;background:#171b20}video,img{width:100%;height:100%;object-fit:contain;pointer-events:none}</style></head><body>" +
                     (_image
@@ -322,11 +385,11 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
-                ClearFiles(folder, media);
+                DeleteDownload(download);
             }
             catch (Exception ex)
             {
-                ClearFiles(folder, media);
+                DeleteDownload(download);
                 if (token.IsCancellationRequested)
                 {
                     return;
@@ -341,33 +404,57 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
             }
         }
 
+        /// <summary>The user's own file, read in place, or null when the source must be downloaded.</summary>
+        private static string? LocalPath(string source)
+        {
+            if (HttpUrls.IsHttps(source) || source.StartsWith("data:image/", StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            return Uri.TryCreate(source, UriKind.Absolute, out var uri) && uri.IsFile ? uri.LocalPath : source;
+        }
+
+        /// <summary>Streams a remote source, or decodes an image data URI, into the preview's own folder.</summary>
         private async Task DownloadAsync(string path, CancellationToken token)
         {
-            if (_image)
+            await using var output = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None,
+                81920, true);
+            if (!HttpUrls.IsHttps(_source))
             {
-                await File.WriteAllBytesAsync(path, await OverlayPreviewImage.ReadAsync(_source, token), token);
+                await using var data = await OverlayPreviewImage.OpenAsync(_source, token);
+                await data.CopyToAsync(output, token);
                 return;
             }
 
-            if (Uri.TryCreate(_source, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps)
+            using var response = await Http.GetAsync(_source, HttpCompletionOption.ResponseHeadersRead, token);
+            response.EnsureSuccessStatusCode();
+            await BoundedHttp.CopyAsync(response.Content, output,
+                _image ? ArtworkDownload.MaximumBytes : AnimationRepoClient.MaximumMovieBytes,
+                () => new InvalidDataException(_image
+                    ? "The animated image is larger than 16 MB."
+                    : "The movie is larger than 64 MB."), token);
+        }
+
+        /// <summary>Checks an animated image's format and dimensions and returns its file extension.</summary>
+        private static string ImageExtension(string path)
+        {
+            using var input = File.OpenRead(path);
+            using var codec = SKCodec.Create(input) ??
+                              throw new InvalidDataException("Unsupported animated artwork format.");
+            if ((long)codec.Info.Width * codec.Info.Height > 64 * 1024 * 1024)
             {
-                using var response = await Http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, token);
-                response.EnsureSuccessStatusCode();
-                await using var output = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None,
-                    81920, true);
-                await BoundedHttp.CopyAsync(response.Content, output, AnimationRepoClient.MaximumMovieBytes,
-                    () => new InvalidDataException("The movie is larger than 64 MB."), token);
+                throw new InvalidDataException("The image dimensions are too large.");
             }
-            else
+
+            return codec.EncodedFormat switch
             {
-                // The user's own movie, already in WSGM's library: copied whole, as the import copied it.
-                var local = Uri.TryCreate(_source, UriKind.Absolute, out uri) && uri.IsFile ? uri.LocalPath : _source;
-                await using var input =
-                    new FileStream(local, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);
-                await using var output = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None,
-                    81920, true);
-                await input.CopyToAsync(output, token);
-            }
+                SKEncodedImageFormat.Gif => ".gif",
+                SKEncodedImageFormat.Webp => ".webp",
+                SKEncodedImageFormat.Png => ".png",
+                SKEncodedImageFormat.Jpeg => ".jpg",
+                _ => throw new InvalidDataException("Unsupported animated artwork format.")
+            };
         }
 
         private void Resize()
@@ -384,23 +471,18 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
 
         private void ClearMedia()
         {
-            ClearFiles(_folder, _media);
-            _folder = null;
-            _media = null;
+            DeleteDownload(_download);
+            _download = null;
         }
 
-        private static void ClearFiles(string? folder, string? media)
+        /// <summary>Deletes a downloaded source's own folder; the user's file read in place is never touched.</summary>
+        private static void DeleteDownload(string? folder)
         {
             try
             {
-                if (media is not null && File.Exists(media))
-                {
-                    File.Delete(media);
-                }
-
                 if (folder is not null && Directory.Exists(folder))
                 {
-                    Directory.Delete(folder);
+                    Directory.Delete(folder, true);
                 }
             }
             catch (IOException)

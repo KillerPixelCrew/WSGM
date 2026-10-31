@@ -25,11 +25,8 @@ public partial class OverlayWindow : Window
     private const int DeviceLiveRefresh = 1;
     private const int PerformanceLiveRefresh = 2;
     private const int GraphicsLiveRefresh = 4;
-    private const int DeviceRenderAwaitingOpen = 1;
-    private const int PerformanceRenderAwaitingOpen = 2;
-
-    private const int PinsRenderAwaitingOpen = 4;
-    private const int GraphicsRenderAwaitingOpen = 8;
+    private const int ProgramsLiveRefresh = 8;
+    private const int PluginsLiveRefresh = 16;
 
     private readonly Dictionary<string, (string Title, Func<Control> Create)> _controlPinFactories = [];
     private readonly CancellationTokenSource _deviceLifetime = new();
@@ -69,7 +66,12 @@ public partial class OverlayWindow : Window
 
     private DispatcherTimer? _confirmResetTimer;
     private IDeviceOverlaySource? _deviceBridge;
+    // Set while the Device panel is hidden and a refresh was asked for; it renders when shown again.
+    private bool _devicePanelStale;
     private DevicePrerequisiteSource? _devicePrerequisites;
+
+    // The integration switch and device the banner was last read for; nothing else changes its answer.
+    private (bool Enabled, string Device)? _devicePrerequisitesFor;
     private bool _devicePrerequisitesReading;
     private bool _devicePrerequisitesStale;
 
@@ -78,20 +80,20 @@ public partial class OverlayWindow : Window
 
     private long _glyphInputKey;
     private IDisposable? _glyphInputObservation;
-    private HybridCoreSelection? _hybridCoreSelection;
+    private ChoiceRowSelection? _hybridCoreSelection;
     private int _liveRefreshScheduled;
 
-    // Renders asked for before the window first opens are held and run once in OnOpened. Each
-    // source attached while the sheet is being built otherwise rebuilt the Device page or the pins.
+    // Renders wait for the window to open, and OnOpened runs each once. Each source attached while
+    // the sheet is being built otherwise rebuilt the Device page or the pins.
     private bool _opened;
     private int _pendingLiveRefreshes;
     private FormatTargetEntry? _pendingTarget;
 
     private PerformanceOverlayBridge? _performanceSource;
-    private PowerSchemeSelection? _powerSchemeSelection;
+    private CommonPluginOverlaySource? _pluginSource;
+    private ChoiceRowSelection? _powerSchemeSelection;
     private OverlayPage? _renderedDevicePage;
     private string? _renderedDeviceSection;
-    private int _rendersAwaitingOpen;
 
     private PixelPoint _slideEnd;
     private PixelPoint _slideStart;
@@ -185,18 +187,14 @@ public partial class OverlayWindow : Window
 
             host.Steam = steam;
             var page = view.Page;
-            var leave = () => LeaveSubView(page);
-            host.CloseRequested += leave;
-            _subViewCloseHandlers.Add((host, leave));
-            var changed = () =>
+            host.CloseRequested += () => LeaveSubView(page);
+            host.LevelChanged += () =>
             {
                 if (ReferenceEquals(ActiveSubView?.Host, host))
                 {
                     ContentScroller.Offset = default;
                 }
             };
-            host.LevelChanged += changed;
-            _subViewLevelHandlers.Add((host, changed));
         }
 
         GameLibraryHost.ArtworkRequested += OpenImportedArtwork;
@@ -314,7 +312,15 @@ public partial class OverlayWindow : Window
         // Before the warm-up return: rendering is part of what the warm pass exercises.
         _opened = true;
         FoldStaticSections();
-        RunRendersAwaitingOpen();
+        var performance = _performanceSource?.Snapshot();
+        var device = DeviceSnapshotOrOff();
+        RefreshNavigationHints();
+        RefreshPerformancePanel(performance, device);
+        // Drawn even while the panel is hidden: the warm pass exercises it, and the first Device
+        // visit then only refreshes values.
+        RefreshDevicePanel(device, performance);
+        RefreshGraphicsPanel();
+        RenderPins(device, performance);
         if (WarmingUp)
         {
             return;
@@ -326,31 +332,6 @@ public partial class OverlayWindow : Window
         OnGlassBackdropChanged(_glassBackdrop, EventArgs.Empty);
         SelectDestination(_session.Destination);
         RestoreDestinationState(true);
-    }
-
-    private void RunRendersAwaitingOpen()
-    {
-        var pending = _rendersAwaitingOpen;
-        _rendersAwaitingOpen = 0;
-        if ((pending & PerformanceRenderAwaitingOpen) != 0)
-        {
-            RefreshPerformancePanel();
-        }
-
-        if ((pending & DeviceRenderAwaitingOpen) != 0)
-        {
-            RefreshDevicePanel();
-        }
-
-        if ((pending & GraphicsRenderAwaitingOpen) != 0)
-        {
-            RefreshGraphicsPanel();
-        }
-
-        if ((pending & PinsRenderAwaitingOpen) != 0)
-        {
-            RenderPins();
-        }
     }
 
     /// <summary>Returns an already open sheet to its selected section when summoned again.</summary>
@@ -391,15 +372,17 @@ public partial class OverlayWindow : Window
         _pinToastTimer = null;
         DevicePowerSchemeHost.Attach(null);
         GameLibraryHost.Attach(null);
-        AttachLibraryManager(null);
+        LibraryTabsHost.Attach(null);
+        CardManagerHost.Attach(null);
         DetachPrograms();
         AttachNotes(null);
-        AttachScreensavers(null);
+        ScreensaversHost.Attach(null);
         EmulatorManagerHost.Attach(null);
         ThemesHost.Attach(null);
         AnimationsHost.Attach(null);
         SoundsHost.Attach(null);
         ArtworkHost.Attach(null);
+        GameToolsHost.Attach(null);
         DeviceHybridCoreHost.Attach(null);
         DevicePowerPresetHost.Attach(null);
         _deviceLifetime.Cancel();
@@ -409,37 +392,16 @@ public partial class OverlayWindow : Window
         }
 
         DetachGraphicsSource();
+        DetachCommonPlugins();
         if (_performanceSource is not null)
         {
             _performanceSource.Changed -= OnPerformanceChanged;
         }
 
-
-        // These page controls are window-owned. Detach every cross-control callback and
-        // invalidate asynchronous artwork loads at the same lifetime boundary.
-        Tabs.SelectionChanged -= OnTabSelectionChanged;
-        RemoveHandler(PointerPressedEvent, OnPointerPressedForLiveRefresh);
-        RemoveHandler(PointerReleasedEvent, OnPointerReleasedForLiveRefresh);
-        PointerCaptureLost -= OnPointerCaptureLostForLiveRefresh;
+        // Handlers between this window and its own controls die with the window; only pending
+        // work is dropped here.
         _pressedPointers.Clear();
         Interlocked.Exchange(ref _pendingLiveRefreshes, 0);
-        foreach (var (host, leave) in _subViewCloseHandlers)
-        {
-            host.CloseRequested -= leave;
-        }
-
-        foreach (var (host, changed) in _subViewLevelHandlers)
-        {
-            host.LevelChanged -= changed;
-        }
-
-        GameLibraryHost.ArtworkRequested -= OpenImportedArtwork;
-        GameLibraryHost.EmulatorsRequested -= OpenEmulators;
-        LaunchWrapperHost.Picked -= OnLaunchFixGamePicked;
-        LaunchWrapperHost.CustomPicked -= OnCustomLaunchGamePicked;
-        KeyDown -= OnKeyDown;
-        Opened -= OnOpened;
-        Closed -= OnClosed;
         StopSlide();
         ResetConfirms();
         ReleasePinMirrors();

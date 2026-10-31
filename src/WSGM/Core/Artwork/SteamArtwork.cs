@@ -9,14 +9,6 @@ using SteamUiToolkit;
 
 namespace WSGM.Core;
 
-/// <summary>Outcome of an artwork change.</summary>
-/// <param name="Detail">
-///     A user-facing note (why it failed, or a follow-up such as
-///     "restart Steam").
-/// </param>
-/// <param name="Succeeded">Whether Steam accepted the requested change.</param>
-internal readonly record struct ArtworkResult(string Detail, bool Succeeded = false);
-
 /// <summary>
 ///     WSGM's artwork changer. Grid/Hero/Logo/Wide go to the live client through
 ///     <see cref="SteamApps" />, so Steam persists and renders them with no restart. Icons are the
@@ -172,7 +164,7 @@ internal static class SteamArtwork
             return new ArtworkResult("The image was empty.");
         }
 
-        if (ImageFormat(imageBytes) is not { } format)
+        if (ImageHeader.Format(imageBytes) is not { } format)
         {
             return new ArtworkResult("The image is not a PNG, JPEG, WEBP or ICO file.");
         }
@@ -226,34 +218,6 @@ internal static class SteamArtwork
         return interpreted;
     }
 
-    /// <summary>Which of the formats Steam takes for artwork an image's first bytes declare.</summary>
-    /// <param name="bytes">The image.</param>
-    /// <returns><c>png</c>, <c>jpg</c>, <c>webp</c> or <c>ico</c>, or null for anything else.</returns>
-    /// <remarks>
-    ///     The bytes decide, never the address they came from. A provider's media endpoint answers
-    ///     every format under one URL, and Steam files an image under the extension it is told, so a
-    ///     JPEG named as a PNG shows as a blank tile.
-    /// </remarks>
-    internal static string? ImageFormat(ReadOnlySpan<byte> bytes)
-    {
-        if (bytes.StartsWith((ReadOnlySpan<byte>)[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))
-        {
-            return "png";
-        }
-
-        if (bytes.StartsWith((ReadOnlySpan<byte>)[0xFF, 0xD8, 0xFF]))
-        {
-            return "jpg";
-        }
-
-        if (bytes.Length >= 12 && bytes.StartsWith("RIFF"u8) && bytes[8..12].SequenceEqual("WEBP"u8))
-        {
-            return "webp";
-        }
-
-        return bytes.StartsWith((ReadOnlySpan<byte>)[0x00, 0x00, 0x01, 0x00]) ? "ico" : null;
-    }
-
     /// <summary>Resets an artwork slot back to Steam's official art.</summary>
     /// <param name="steam">The session's Steam client.</param>
     /// <param name="appId">The Steam app id.</param>
@@ -300,18 +264,17 @@ internal static class SteamArtwork
     {
         try
         {
-            var steamExe = Steam.ExePath;
-            if (steamExe is null)
+            var steamRoot = Steam.InstallDirectory;
+            if (steamRoot is null)
             {
                 return null;
             }
 
-            var userdata = Path.Combine(Path.GetDirectoryName(steamExe)!, "userdata");
+            var userdata = Path.Combine(steamRoot, "userdata");
             var normalized = SteamApps.NormalizeAppId(appId);
             if (asset == ArtworkAsset.Icon && !SteamApps.IsShortcutAppId(normalized))
             {
-                var storeIcon = Path.Combine(
-                    Path.GetDirectoryName(steamExe)!, "appcache", "librarycache", $"{normalized}_icon.jpg");
+                var storeIcon = Path.Combine(steamRoot, "appcache", "librarycache", $"{normalized}_icon.jpg");
                 return File.Exists(storeIcon) ? storeIcon : null;
             }
 
@@ -380,13 +343,12 @@ internal static class SteamArtwork
     private static async Task<ArtworkResult> ApplyIconAsync(
         SteamClient steam, uint appId, byte[] imageBytes, string format, CancellationToken cancellationToken)
     {
-        var steamExe = Steam.ExePath;
-        if (steamExe is null)
+        var steamRoot = Steam.InstallDirectory;
+        if (steamRoot is null)
         {
             return new ArtworkResult("Steam's installation directory is unavailable.");
         }
 
-        var steamRoot = Path.GetDirectoryName(steamExe)!;
         if (SteamApps.IsShortcutAppId(appId))
         {
             var accountId = await steam.Apps.ReadAccountIdAsync(cancellationToken).ConfigureAwait(false);
@@ -426,9 +388,9 @@ internal static class SteamArtwork
                 await steam.Apps.ClearShortcutIconAsync(appId, cancellationToken).ConfigureAwait(false),
                 "Shortcut icon reset.");
             if (result.Succeeded && accountId is { Succeeded: true, Value: var account }
-                                 && Steam.ExePath is { } steamExe)
+                                 && Steam.InstallDirectory is { } steamRoot)
             {
-                var directory = Path.Combine(Path.GetDirectoryName(steamExe)!, "userdata",
+                var directory = Path.Combine(steamRoot, "userdata",
                     account.ToString(CultureInfo.InvariantCulture), "config", "grid");
                 foreach (var extension in GridExtensions)
                 {
@@ -462,7 +424,7 @@ internal static class SteamArtwork
             return new ArtworkResult(ex.Message);
         }
 
-        return ImageFormat(bytes) is { } format
+        return ImageHeader.Format(bytes) is { } format
             ? await ApplyIconAsync(steam, appId, bytes, format, cancellationToken).ConfigureAwait(false)
             : new ArtworkResult("Steam's official icon was not an image WSGM can apply.");
     }

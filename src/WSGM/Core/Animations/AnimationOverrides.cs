@@ -130,7 +130,7 @@ public static class AnimationOverrides
             }
 
             var owned = Owned(target, markerText);
-            if (owned && Same(source, target) && RecordedVolume(marker) == volume)
+            if (owned && Same(source, target) && RecordedVolume(markerText!) == volume)
             {
                 return new AnimationApplyReport(false, null);
             }
@@ -245,11 +245,11 @@ public static class AnimationOverrides
     }
 
     /// <summary>The volume the marker records the copy was written at.</summary>
-    private static int? RecordedVolume(string marker)
+    /// <param name="markerText">The marker's validated text.</param>
+    private static int? RecordedVolume(string markerText)
     {
-        var text = File.ReadAllText(marker).Trim();
-        return int.TryParse(text.AsSpan(text.LastIndexOf('|') + 1), NumberStyles.None, CultureInfo.InvariantCulture,
-            out var volume)
+        return int.TryParse(markerText.AsSpan(markerText.LastIndexOf('|') + 1), NumberStyles.None,
+            CultureInfo.InvariantCulture, out var volume)
             ? volume
             : null;
     }
@@ -303,9 +303,3 @@ public static class AnimationOverrides
         return to.Exists && from.Length == to.Length && from.LastWriteTimeUtc == to.LastWriteTimeUtc;
     }
 }
-
-/// <summary>What applying a choice did.</summary>
-/// <param name="Changed">Whether the override was written, removed or given back.</param>
-/// <param name="Error">Why it could not be brought in step, or null.</param>
-/// <param name="Note">Something about the written movie worth saying, such as a volume that could not be set.</param>
-public sealed record AnimationApplyReport(bool Changed, string? Error, string? Note = null);

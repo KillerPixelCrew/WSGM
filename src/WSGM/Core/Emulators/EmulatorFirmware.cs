@@ -11,6 +11,14 @@ namespace WSGM.Core;
 /// <summary>Installs local Eden firmware into its native NAND layout with an atomic directory swap.</summary>
 internal static class EmulatorFirmware
 {
+    /// <summary>Whether an emulator takes Switch firmware through <see cref="InstallEden" />.</summary>
+    /// <param name="definitionId">The catalog definition id.</param>
+    /// <returns>Whether its native firmware installer is the shared NAND copy.</returns>
+    internal static bool InstallsSwitchFirmware(string definitionId)
+    {
+        return definitionId is "eden" or "citron" or "suyu" or "ryujinx";
+    }
+
     internal static void InstallEden(EmulatorInstallation installed, EmulatorPrerequisite requirement, string source,
         CancellationToken token)
     {

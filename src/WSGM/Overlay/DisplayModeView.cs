@@ -6,7 +6,9 @@ using Avalonia.Controls;
 using Avalonia.Controls.Templates;
 using Avalonia.Layout;
 using WindowsDeviceControl;
+using WSGM.Controls;
 using WSGM.Core;
+using WSGM.Interop;
 
 namespace WSGM.Overlay;
 
@@ -24,6 +26,7 @@ internal sealed class DisplayModeView : StackPanel
     private readonly TextBlock _status = new();
     private int _attachmentGeneration;
     private bool _busy;
+    private bool _changedWhileOpen;
     private bool _closed;
     private bool _readPending;
     private DisplayModeSnapshot? _snapshot;
@@ -36,9 +39,12 @@ internal sealed class DisplayModeView : StackPanel
     /// </param>
     /// <param name="apply">Applies a mode to the display a snapshot was read from.</param>
     /// <param name="display">The sheet's current GDI display name, resolved again on every read.</param>
+    /// <param name="changes">
+    ///     Raises when the displays or their modes may have changed; null reads only on attach.
+    /// </param>
     internal DisplayModeView(Func<string?, Task<DisplayModeSnapshot?>> read,
         Func<DisplayModeSnapshot, DisplayMode, Task<DisplayModeResult>> apply,
-        Func<string?> display)
+        Func<string?> display, DisplayChangeWindow? changes = null)
     {
         _display = display;
         _read = read;
@@ -50,44 +56,62 @@ internal sealed class DisplayModeView : StackPanel
         Children.Add(Selector("Resolution", _resolution));
         Children.Add(Selector("Refresh rate", _refresh));
         _refresh.ItemTemplate = new FuncDataTemplate<int>((hz, _) => new TextBlock { Text = $"{hz} Hz" });
-        _resolution.SelectionChanged += async (_, _) =>
+        // Browsing resolutions shows each one's rates; before the commit rule, so a settled resolution applies
+        // with the rate it lists.
+        _resolution.SelectionChanged += (_, _) =>
         {
             if (!_synchronizing)
             {
                 UpdateRates();
-                if (!_resolution.IsDropDownOpen)
-                {
-                    await ApplyAsync();
-                }
             }
         };
-        _refresh.SelectionChanged += async (_, _) =>
-        {
-            if (!_synchronizing && !_refresh.IsDropDownOpen)
-            {
-                await ApplyAsync();
-            }
-        };
-        _resolution.DropDownClosed += async (_, _) => await ApplyAsync();
-        _refresh.DropDownClosed += async (_, _) => await ApplyAsync();
+        ComboCommit.Attach<string>(_resolution, () => _synchronizing, chosen => _ = ApplyAsync());
+        ComboCommit.Attach<object>(_refresh, () => _synchronizing, chosen => _ = ApplyAsync());
+        // After the commit rule, so a closing dropdown applies before a deferred re-read.
+        _resolution.DropDownClosed += async (_, _) => await OnDropDownClosedAsync();
+        _refresh.DropDownClosed += async (_, _) => await OnDropDownClosedAsync();
         AttachedToVisualTree += (_, _) =>
         {
             _closed = false;
             _attachmentGeneration++;
-        };
-        // An open selector is mid-choice; a re-read would replace the list under it.
-        VisiblePoll.Attach(this, TimeSpan.FromSeconds(5), async () =>
-        {
-            if (!_resolution.IsDropDownOpen && !_refresh.IsDropDownOpen)
+            if (changes is not null)
             {
-                await ReadAsync();
+                changes.DisplaysChanged += OnDisplaysChanged;
             }
-        });
+
+            _ = ReadAsync();
+        };
         DetachedFromVisualTree += (_, _) =>
         {
             _closed = true;
             _attachmentGeneration++;
+            if (changes is not null)
+            {
+                changes.DisplaysChanged -= OnDisplaysChanged;
+            }
         };
+    }
+
+    // Raised on the UI thread for a mode change, a display arriving or leaving, and device churn.
+    private void OnDisplaysChanged()
+    {
+        // An open selector is mid-choice; a re-read would replace the list under it, so it waits.
+        if (_resolution.IsDropDownOpen || _refresh.IsDropDownOpen)
+        {
+            _changedWhileOpen = true;
+            return;
+        }
+
+        _ = ReadAsync();
+    }
+
+    private async Task OnDropDownClosedAsync()
+    {
+        if (_changedWhileOpen && !_resolution.IsDropDownOpen && !_refresh.IsDropDownOpen)
+        {
+            _changedWhileOpen = false;
+            await ReadAsync();
+        }
     }
 
     private static Border Selector(string label, ComboBox selector)

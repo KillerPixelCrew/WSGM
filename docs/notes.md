@@ -3,8 +3,8 @@
 Notes is a small game notebook available in WSGM's Overlay (Tools > Notes, pinnable to Quick access)
 and in Steam's Big Picture and in-game overlay (Quick Access > Extensions > Notes, route
 `/wsgm/notes`). Both surfaces read and write the same WSGM-owned pages through one session service,
-`Shell/NotesService`. Notes stay on this PC: nothing is uploaded, synchronized or sent to a search
-provider.
+`Shell/Notes/NotesService`. Notes stay on this PC: nothing is uploaded, synchronized or sent to a
+search provider.
 
 The notebook chooser keeps the current game or Global scope visible. Pages appear as preview cards
 with their first text, content types, edited date and pin/read-only status. A blank notebook
@@ -44,7 +44,7 @@ cannot be resolved (Steam unavailable, two games running), both surfaces say so 
 explicitly; nothing is written to a game notebook, or to Global, on the strength of a failed
 resolution.
 
-A page (`Core/Notes/NoteDocument.cs`) is a structured document, never HTML:
+A page (`Core/Notes/NotePage.cs`) is a structured document, never HTML:
 
 - text blocks and images, each with an id, position, size and back-to-front order;
 - a vector ink layer of strokes (tool, `#RRGGBB` color, width, x/y points, optional pen pressure)
@@ -58,7 +58,7 @@ The store (`Core/Notes/NoteStore.cs`) lives under `%LOCALAPPDATA%\WSGM\notes`:
   never rewrites a screenshot and the same image is stored once;
 - `notes.json`, the screenshot countdown preference and the last known game names.
 
-A page that does not parse is moved aside as `*.bad.<time>.json` and never overwritten. A page
+A page that does not parse is moved aside as `*.json.corrupt-<time>` and never overwritten. A page
 written by a newer format is shown read-only. Images that no page refers to are deleted only when
 the store first loads, before any editor exists, so an undo or a conflict copy can never point at an
 image that cleanup already removed. Content is never length-limited; validation checks types,
@@ -109,7 +109,7 @@ open.
 
 ## Steam
 
-`Shell/NotesSteamSurface.cs` registers the page with the toolkit's `SteamPagePatch`, a typed
+`Shell/Notes/NotesSteamSurface.cs` registers the page with the toolkit's `SteamPagePatch`, a typed
 publication and a closed command vocabulary; `Core/SteamUiAssets/Source/notes.ts` draws it with
 Steam's own components and the toolkit UI kit. The page:
 
@@ -145,7 +145,7 @@ Notes, it captures the display the Overlay was on. The Overlay and countdown clo
 capture, and the same page reopens with the image. This works without a running game; application
 captures still keep their original process and foreground checks.
 
-`Shell/NotesCaptureTransaction.cs` runs **Armed → Countdown → Capturing → Restoring → Idle**:
+`Shell/Notes/NotesCaptureTransaction.cs` runs **Armed → Countdown → Capturing → Restoring → Idle**:
 
 1. The page and its exact location are already saved. The player chooses 5 to 10 seconds; the choice
    is remembered.
@@ -156,7 +156,7 @@ captures still keep their original process and foreground checks.
 3. A small top-center, non-activating, click-through countdown shows the seconds over the game
    (`Overlay/NotesCountdownWindow.cs`). Over a confirmed exclusive-fullscreen game it is not shown.
 4. At expiry the application's foreground window or the selected desktop display is captured
-   (`Shell/NotesGameCapture.cs`).
+   (`Shell/Notes/NotesGameCapture.cs`).
 5. The image is stored as an asset and inserted below the page's content, selected and ready for
    ink.
 6. The same Notes surface reopens on the same page: the Overlay's Notes section, or Steam's

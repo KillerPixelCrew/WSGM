@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using Avalonia.Threading;
@@ -8,19 +7,6 @@ using WSGM.Core;
 using WSGM.Interop;
 
 namespace WSGM.Overlay;
-
-/// <summary>One decoded touch report: the primary contact of a digitizer frame.</summary>
-/// <param name="Digitizer">The digitizer that sent it, with its logical and physical ranges.</param>
-/// <param name="Contacts">How many contacts the frame reports; at least 1.</param>
-/// <param name="TipDown">Whether the primary contact touches the panel.</param>
-/// <param name="RawX">The primary contact's raw X, or 0 when the tip is up.</param>
-/// <param name="RawY">The primary contact's raw Y, or 0 when the tip is up.</param>
-internal readonly record struct TouchContactReport(
-    TouchDigitizer Digitizer,
-    uint Contacts,
-    bool TipDown,
-    uint RawX,
-    uint RawY);
 
 /// <summary>
 ///     The process's raw touch-screen input: one message-only window holding the HID digitizer
@@ -68,27 +54,6 @@ internal static unsafe class RawTouchInput
         _loggedFirstReport = false;
     }
 
-    /// <summary>Describes the foreground window for the touch diagnostics.</summary>
-    /// <returns>The window handle and its process name, or <c>none</c>.</returns>
-    internal static string DescribeForeground()
-    {
-        var hwnd = NativeMethods.GetForegroundWindow();
-        if (hwnd == 0)
-        {
-            return "none";
-        }
-
-        NativeMethods.GetWindowThreadProcessId(hwnd, out var pid);
-        try
-        {
-            return $"0x{hwnd:X} ({Process.GetProcessById((int)pid).ProcessName})";
-        }
-        catch
-        {
-            return $"0x{hwnd:X}";
-        }
-    }
-
     private static void Unsubscribe(Subscription subscription)
     {
         var index = Array.IndexOf(_subscribers, subscription);
@@ -130,7 +95,7 @@ internal static unsafe class RawTouchInput
         }
         else
         {
-            Log.Info($"Raw touch input registered (HID digitizer sink, foreground {DescribeForeground()}).");
+            Log.Info($"Raw touch input registered (HID digitizer sink, foreground {WindowFinder.DescribeForeground()}).");
         }
     }
 
@@ -280,7 +245,7 @@ internal static unsafe class RawTouchInput
         if (!_loggedFirstReport)
         {
             _loggedFirstReport = true;
-            Log.Info($"Raw touch reports arriving (foreground {DescribeForeground()}).");
+            Log.Info($"Raw touch reports arriving (foreground {WindowFinder.DescribeForeground()}).");
         }
 
         var digitizer = GetDigitizer(header.hDevice);
@@ -567,29 +532,4 @@ internal static unsafe class RawTouchInput
             }
         }
     }
-}
-
-/// <summary>A touch digitizer as raw input decodes it: its HID layout and its coordinate ranges.</summary>
-internal sealed class TouchDigitizer
-{
-    public ushort ContactCountCollection;
-    public bool HasContactCount;
-    public ushort LinkCollection;
-    public nint PreparsedData;
-    public bool Usable;
-
-    /// <summary>
-    ///     Usage-list capacity for HidP_GetUsages, from HidP_GetCaps
-    ///     (NumberInputDataIndices bounds the usages one input report can carry).
-    /// </summary>
-    public int UsageListLength = 16;
-
-    public bool WarnedBadReport;
-    public bool WarnedUsagesFailed;
-    public int XMax;
-    public int XMin;
-    public double XSpanMm;
-    public int YMax;
-    public int YMin;
-    public double YSpanMm;
 }

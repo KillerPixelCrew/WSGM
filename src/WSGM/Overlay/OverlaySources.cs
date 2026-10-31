@@ -1,6 +1,3 @@
-using System;
-using System.Threading.Tasks;
-using WindowsDeviceControl;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -27,6 +24,8 @@ namespace WSGM.Overlay;
 /// <param name="Notes">Structured game notebooks shared with Steam.</param>
 /// <param name="Browser">The session-owned browser, initialized only on explicit opening.</param>
 /// <param name="Screensavers">Local screensaver sources shared with Steam.</param>
+/// <param name="GameTools">Per-game Game Tools shared with the Steam page, outside overlay-test.</param>
+/// <param name="HybridCores">The session's shared processor core-preference workflow, which Steam's row also uses.</param>
 internal sealed record OverlaySources(
     IDeviceOverlaySource? Device = null,
     PerformanceOverlayBridge? Performance = null,
@@ -39,7 +38,7 @@ internal sealed record OverlaySources(
     AnimationService? Animations = null,
     IGraphicsOverlaySource? Graphics = null,
     SoundPackService? Sounds = null,
-    SteamArtworkBrowserSource? Artwork = null,
+    ArtworkBrowser? Artwork = null,
     DisplayModeAccess? DisplayModes = null,
     NativeQamPowerProfileService? PowerProfiles = null,
     IEmulatorBackend? Emulators = null,
@@ -48,16 +47,6 @@ internal sealed record OverlaySources(
     LibraryManagerService? LibraryManager = null,
     NotesService? Notes = null,
     BrowserSession? Browser = null,
-    ScreensaverService? Screensavers = null);
-
-/// <summary>The display-mode operations supplied by the composition, also used by pinned controls.</summary>
-/// <param name="Read">Reads modes for the sheet's current display source.</param>
-/// <param name="Apply">Applies a committed choice to its observed display.</param>
-internal sealed record DisplayModeAccess(
-    Func<string?, Task<DisplayModeSnapshot?>> Read,
-    Func<DisplayModeSnapshot, DisplayMode, Task<DisplayModeResult>> Apply)
-{
-    internal static DisplayModeAccess Unavailable { get; } = new(
-        _ => Task.FromResult<DisplayModeSnapshot?>(null),
-        (_, _) => Task.FromResult(new DisplayModeResult(DisplayModeOutcome.Refused, 0, false, false)));
-}
+    ScreensaverService? Screensavers = null,
+    IGameToolsSource? GameTools = null,
+    NativeQamHybridCoreService? HybridCores = null);

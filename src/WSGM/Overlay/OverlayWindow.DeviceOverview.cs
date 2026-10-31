@@ -8,16 +8,23 @@ namespace WSGM.Overlay;
 
 public partial class OverlayWindow
 {
-    private void RefreshDeviceSectionPins(DeviceOverlaySnapshot snapshot)
+    /// <summary>Lists every group the Device page offers to pin, with its pin action.</summary>
+    /// <param name="snapshot">The Device snapshot.</param>
+    /// <param name="pinSections">The Device groups derived from it for this render.</param>
+    /// <param name="performance">The performance snapshot, or null without a performance source.</param>
+    /// <param name="graphicsSnapshot">The graphics snapshot, or null to read it here.</param>
+    private void RefreshDeviceSectionPins(DeviceOverlaySnapshot snapshot, DevicePinSection[] pinSections,
+        PerformanceOverlaySnapshot? performance, GraphicsOverlaySnapshot? graphicsSnapshot)
     {
         // Preserve the focused pin button when only telemetry changes. Graphics groups follow the graphics
         // packages, so they are offered here with device integration off too.
-        GraphicsPinSection[] graphics = [.. GraphicsSectionPins.Build(_graphicsSource?.Snapshot())];
+        GraphicsPinSection[] graphics =
+            [.. GraphicsSectionPins.Build(graphicsSnapshot ?? _graphicsSource?.Snapshot())];
         var ids = _controlPinFactories.Keys
-            .Where(id => (id == "section.system.power-profile" && _powerSchemeSelection is { Offered: true })
+            .Where(id => (id == "section.system.power-profile" && _powerSchemeSelection is { State.Options.Count: > 0 })
                          || (snapshot.Visible && id.StartsWith("section.device.", StringComparison.Ordinal)))
-            .Concat(_performanceSource?.Snapshot().Visible is true ? ["section.performance"] : [])
-            .Concat(DevicePinSections(snapshot).Where(section => section.Capabilities.Count > 0
+            .Concat(performance?.Visible is true ? ["section.performance"] : [])
+            .Concat(pinSections.Where(section => section.Capabilities.Count > 0
                                                                  || (section.Owned == DeviceOverlaySection
                                                                          .ControllerAndMotion &&
                                                                      snapshot.GlyphSelection is not null))
@@ -35,12 +42,13 @@ public partial class OverlayWindow
             var title = _controlPinFactories.TryGetValue(id, out var host) ? host.Title
                 : id == "section.performance" ? "Performance"
                 : graphics.FirstOrDefault(section => section.Id == id) is { } pin ? pin.PinTitle
-                : DevicePinSections(snapshot).First(section => section.Id == id).Title;
+                : pinSections.First(section => section.Id == id).Title;
             DeviceSectionPinsHost.Children.Add(CreateSectionHeader(id, title));
         }
     }
 
-    private Control? RenderControllerPage(DeviceOverlaySnapshot snapshot, string? focusedKey, string pinId)
+    private Control? RenderControllerPage(DeviceOverlaySnapshot snapshot, DevicePinSection[] pinSections,
+        string? focusedKey, string pinId)
     {
         var glyphs = CreateSection(pinId, "Button glyphs");
         var output = new StackPanel { Spacing = 8 };
@@ -63,7 +71,7 @@ public partial class OverlayWindow
             });
         }
 
-        foreach (var section in DevicePinSections(snapshot).Where(section => section.Capabilities.Count > 0
+        foreach (var section in pinSections.Where(section => section.Capabilities.Count > 0
                                                                              && (section.PluginSectionId is { } id
                                                                                  ? DeviceOverlaySectionPages
                                                                                      .SectionAbsorbedInto(snapshot,

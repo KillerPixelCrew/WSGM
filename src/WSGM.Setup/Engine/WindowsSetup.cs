@@ -56,7 +56,7 @@ internal static class WindowsSetup
     internal const int UpdateGraceIterations = 44;
     internal const int UninstallGraceIterations = 40;
 
-    /// <summary>Mirrors Core\Steam.cs: HKCU SteamExe, then the machine-wide install path.</summary>
+    /// <summary>Mirrors Core\Steam\Steam.cs: HKCU SteamExe, then the machine-wide install path.</summary>
     /// <returns>True when a recorded Steam executable exists; does not check running state.</returns>
     public static bool SteamInstalled()
     {

@@ -50,15 +50,19 @@ public sealed partial class GameLibraryView
     }
 
     /// <summary>Holds a title's level while a scan or apply has taken it out of the list for now.</summary>
-    /// <remarks>The next published state renders the level again, with the title or without it.</remarks>
-    /// <param name="state">The current state.</param>
-    private void RenderEntryPending(GameLibraryState state)
+    /// <remarks>
+    ///     The progress updates in place; a published state that brings the title back or ends the work renders the
+    ///     title's level again, with the title or without it.
+    /// </remarks>
+    /// <param name="id">The title.</param>
+    /// <param name="shown">The reading without the title.</param>
+    private void RenderEntryPending(string id, EntryShown shown)
     {
         var stack = NewStack(_openEntryName.Length > 0 ? _openEntryName : "Title");
-        AddStatus(stack, state);
+        AddStatus(stack, shown.State);
         stack.Children.Add(Caption("The library is being updated. This title returns when the update "
                                    + "finishes, unless it was removed."));
-        SetContent(stack);
+        SetEntryContent(stack, id, shown);
     }
 
     /// <summary>
@@ -91,7 +95,7 @@ public sealed partial class GameLibraryView
             stack.Children.Add(Caption(state.StorageChecked
                 ? "No shortcut in Steam has its files on this device's storage, and no game library card is known."
                 : "Shortcuts are listed here once Steam has been checked."));
-            SetContent(stack);
+            SetLibraryContent(stack, state, SameStorage);
             return;
         }
 
@@ -145,15 +149,14 @@ public sealed partial class GameLibraryView
         if (more is { } next)
         {
             var total = shortcuts.Count;
-            stack.Children.Add(Tagged(Row("Load more", $"{shown} of {total}", Icons.ArrowDown, () =>
+            stack.Children.Add(PagedRows.More(this, "storage.more", $"{shown} of {total}", next, () =>
             {
                 _storageShown += 48;
                 RenderStorage();
-                PagedRows.FocusAdded(this, next);
-            }), "storage.more"));
+            }));
         }
 
-        SetContent(stack);
+        SetLibraryContent(stack, state, SameStorage);
     }
 
     /// <summary>A card library's status and, when it has one, its immediate action.</summary>

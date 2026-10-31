@@ -158,11 +158,35 @@ function createWsgmControllerCaps() {
     return { ok: true, removed: true };
   };
 
+  // The standard probe answer: the controller-list service module, unique, answered from the claim
+  // while it holds.
+  const probe = () => {
+    if (installed) return { ok: true, outcome: "ready", installed: true, facts: { service: 1 } };
+    let runtime;
+    try {
+      runtime = getWebpackRuntime("controller-caps");
+    } catch (error) {
+      return { ok: false, outcome: "notReady", reason: `Steam modules unavailable: ${String(error)}` };
+    }
+    const count = runtime.count(ServiceTokens);
+    return count === 1
+      ? { ok: true, outcome: "ready", facts: { service: count } }
+      : {
+          ok: false,
+          outcome: "incompatible",
+          reason: `controller list service module was ${count ? "ambiguous" : "absent"}`,
+          facts: { service: count },
+        };
+  };
+
   const status = () => ({
     ok: true,
     installed,
     hooked: memberClaimed(service, "GetControllerList", claimKeys),
     subscribed: !!unsubscribe,
+    // The standard status: the claim and the subscription are what this gate holds.
+    held: installed && memberClaimed(service, "GetControllerList", claimKeys) && !!unsubscribe,
+    claims: (memberClaimed(service, "GetControllerList", claimKeys) ? 1 : 0) + (unsubscribe ? 1 : 0),
     mask: mask.toString(),
     vendorId,
     productId,
@@ -171,7 +195,7 @@ function createWsgmControllerCaps() {
     lastError,
   });
 
-  return { install, remove, status };
+  return { install, remove, status, probe };
 }
 
 registerGate("wsgmControllerCaps", createWsgmControllerCaps());

@@ -380,7 +380,7 @@ public sealed partial class SettingsViewModel : ObservableObject
                 StartSetupRepair,
                 // Core Audio, off the dispatcher. A test supplies its own so it reads a fixture
                 // rather than whatever this machine has plugged in.
-                AudioDiscovery.Read,
+                new AudioProfileService(new CoreAudioProfileOperations()).Discover,
                 // The last update check, from the user's profile.
                 () => UpdateChecker.ReadState(UpdateChecker.StatePath(store.Context)),
                 () => OtherManagers.Detect(),

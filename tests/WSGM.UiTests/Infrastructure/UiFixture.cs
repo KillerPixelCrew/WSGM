@@ -12,6 +12,7 @@ using WindowsDeviceControl;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Input;
+using WSGM.Interop;
 using WSGM.Overlay;
 using WSGM.Settings;
 using WSGM.Shell;
@@ -230,6 +231,16 @@ internal sealed class UiFixture : IDisposable
         {
             visual.Transitions = null;
         }
+    }
+
+    /// <summary>The overlay's Windows power-profile row over a Steam row service reading the given fake.</summary>
+    /// <param name="api">The fake Windows scheme API.</param>
+    /// <returns>A selection the caller disposes.</returns>
+    internal static ChoiceRowSelection PowerProfiles(IPowerSchemeApi api)
+    {
+        NativeQamPowerProfileService profiles = new(new PowerSchemes(api));
+        return new ChoiceRowSelection("system.power-profile.choice", "Windows power profile", profiles.ReadAsync,
+            profiles.SetPowerProfileAsync);
     }
 
     internal static DisplayModeAccess ReadOnlyDisplayModes(DisplayModeSnapshot snapshot)

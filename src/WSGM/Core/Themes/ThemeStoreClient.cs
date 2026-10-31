@@ -12,82 +12,6 @@ using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
-/// <summary>The theme store could not answer, with a message for the page.</summary>
-/// <param name="message">What went wrong.</param>
-public sealed class ThemeStoreException(string message) : Exception(message);
-
-/// <summary>What the store lists about a theme.</summary>
-/// <param name="Id">The store id.</param>
-/// <param name="Name">The theme's name, which is its identity once installed.</param>
-/// <param name="DisplayName">What the store shows.</param>
-/// <param name="Version">The version text.</param>
-/// <param name="Target">The part of Steam the theme restyles.</param>
-/// <param name="Targets">Every target the store tags it with.</param>
-/// <param name="ManifestVersion">The manifest version it needs.</param>
-/// <param name="SpecifiedAuthor">The author as the theme names them.</param>
-/// <param name="AuthorName">The uploading account's name.</param>
-/// <param name="ImageIds">The screenshots, as blob ids.</param>
-/// <param name="DownloadId">The package, as a blob id, or null when the store lists none.</param>
-/// <param name="DownloadCount">How often it was downloaded.</param>
-/// <param name="StarCount">How often it was starred.</param>
-/// <param name="Updated">When it was last updated, or null.</param>
-public sealed record ThemeStoreSummary(
-    string Id,
-    string Name,
-    string DisplayName,
-    string Version,
-    string Target,
-    IReadOnlyList<string> Targets,
-    int ManifestVersion,
-    string SpecifiedAuthor,
-    string AuthorName,
-    IReadOnlyList<string> ImageIds,
-    string? DownloadId,
-    int DownloadCount,
-    int StarCount,
-    DateTimeOffset? Updated);
-
-/// <summary>A theme the store lists as another's dependency.</summary>
-/// <param name="Id">The store id.</param>
-/// <param name="Name">The theme's name.</param>
-/// <param name="DisplayName">What the store shows.</param>
-/// <param name="Version">The version text.</param>
-public sealed record ThemeStoreDependency(string Id, string Name, string DisplayName, string Version);
-
-/// <summary>Everything the store says about one theme.</summary>
-/// <param name="Summary">The listing.</param>
-/// <param name="Description">The author's description, or empty.</param>
-/// <param name="Dependencies">The themes it needs.</param>
-/// <param name="Source">Where its source lives, or null.</param>
-public sealed record ThemeStoreDetails(
-    ThemeStoreSummary Summary,
-    string Description,
-    IReadOnlyList<ThemeStoreDependency> Dependencies,
-    string? Source);
-
-/// <summary>One page of the store, as asked for.</summary>
-/// <param name="Page">The page, from one.</param>
-/// <param name="PerPage">How many themes a page holds.</param>
-/// <param name="Filter">The target to show, or <c>All</c>.</param>
-/// <param name="Order">The order the store lists in, one of its own names.</param>
-/// <param name="Search">The search text, or empty.</param>
-public sealed record ThemeStoreQuery(int Page, int PerPage, string Filter, string Order, string Search)
-{
-    /// <summary>The filter that shows every target.</summary>
-    public const string AllFilter = "All";
-
-    /// <summary>The order CSS Loader opens on.</summary>
-    public const string DefaultOrder = "Last Updated";
-
-    /// <summary>The first page of everything, newest first.</summary>
-    public static ThemeStoreQuery Default { get; } = new(1, 50, AllFilter, DefaultOrder, string.Empty);
-}
-
-/// <summary>The targets the store can filter by, each with its count, and the orders it offers.</summary>
-/// <param name="Filters">Each target and how many themes carry it.</param>
-/// <param name="Orders">The order names, as the store spells them.</param>
-public sealed record ThemeStoreFilters(IReadOnlyDictionary<string, int> Filters, IReadOnlyList<string> Orders);
-
 /// <summary>Read-only client for DeckThemes, the store CSS Loader browses and installs from.</summary>
 /// <remarks>
 ///     <para>
@@ -547,8 +471,3 @@ public sealed class ThemeStoreClient
         }
     }
 }
-
-/// <summary>One page of listings and how many there are in all.</summary>
-/// <param name="Total">How many themes match, across every page.</param>
-/// <param name="Items">This page's listings.</param>
-public sealed record ThemePage(int Total, IReadOnlyList<ThemeStoreSummary> Items);

@@ -16,9 +16,16 @@ Related:
 
 ## What WSGM owns
 
-`Shell\RadioManager.cs` is the single owner of radio state for the game-mode UI: the observable
-collections, the refresh timer, the scan and pairing lifecycles, and the wording. The library
-returns outcomes; the wording that reaches the user is WSGM's.
+`Shell\Network\RadioManager.cs` is the single owner of radio state for the game-mode UI: radio
+power, the Bluetooth device list, scanning demand, the shared status line and the refresh. It
+composes two focused parts that the Overlay and Steam reach through it. `WifiController` owns the
+Wi-Fi connection state, the network list, the live Wi-Fi watch and the join, disconnect and forget
+actions. `BluetoothPairing` owns the one pairing attempt, its questions, cancellation and outcome.
+The library returns outcomes; the wording that reaches the user is WSGM's.
+
+The live Wi-Fi and Bluetooth feeds run while the panel or Steam scans and carry every change. The
+refresh timer is only a safety net for a driver that stops reporting: it re-reads radio power, the
+Wi-Fi status and the connected Bluetooth count every 10 s for the whole session.
 
 `BluetoothDeviceCatalog` keeps Windows watcher endpoint records and merges them by normalized,
 non-empty container GUID into the logical collection shared by Overlay and Steam. Missing container
@@ -46,15 +53,19 @@ or automatic write retry is used. Steam transport replies preserve backend failu
   most often wants, and the log records the raw kind so a device that needs another ceremony is
   still diagnosable.
 
-These wording rules are covered by `tests\WSGM.Tests\Shell\RadioManagerTests.cs`; the library
-contracts they sit on are tested in the library's own repository.
+These wording rules are covered by `RadioManagerTests`, `WifiControllerTests` and
+`BluetoothPairingTests` in `tests\WSGM.Tests\Shell\Network`; the library contracts they sit on are
+tested in the library's own repository.
 
-`Shell\AudioManager.cs` owns the session's default render and capture endpoint state. The library's
-direction-aware `CoreAudio.GetVolume`/`SetVolume` calls are the only Windows edge; WSGM polls the
-two directions independently and coalesces each slider's writes separately. The Steam QAM projection
-does not copy speaker volume into the microphone field: a missing capture endpoint publishes a null
-input volume so Steam leaves that direction unavailable, while a present one receives its own 0-100
-value and routes writes back with `AudioDirection.Capture`.
+`Shell\Audio\AudioManager.cs` owns the session's default render and capture endpoint state. The
+library's direction-aware `CoreAudio.GetVolume`/`SetVolume` calls are the only Windows edge; WSGM
+reads the two directions independently (`AudioSnapshot`) and coalesces each slider's writes
+separately (`CoalescingVolumeWrite`). `AudioChangeWatch` owns the Core Audio notifications, with a
+10 s safety poll behind them, and `AudioEndpointSelection` serializes each direction's
+default-endpoint writes so only the newest choice publishes. The Steam QAM projection does not copy
+speaker volume into the microphone field: a missing capture endpoint publishes a null input volume
+so Steam leaves that direction unavailable, while a present one receives its own 0-100 value and
+routes writes back with `AudioDirection.Capture`.
 
 ## Touch keyboard boundary
 
@@ -74,18 +85,28 @@ on the reference handheld.
 
 ## Source routes
 
-[RadioManager](../src/WSGM/Shell/RadioManager.cs) owns radio observations and operations;
-[RadioEntries](../src/WSGM/Shell/RadioEntries.cs) holds UI-facing entries;
-[BluetoothDeviceCatalog](../src/WSGM/Shell/BluetoothDeviceCatalog.cs) merges endpoint identity and
-rejects stale discovery callbacks. The pairing state belongs to the manager, so closing one panel
-does not make another consumer's discovery request disappear.
+[RadioManager](../src/WSGM/Shell/Network/RadioManager.cs) owns radio power, discovery and the
+refresh; [WifiController](../src/WSGM/Shell/Network/WifiController.cs) owns Wi-Fi state and actions;
+[BluetoothPairing](../src/WSGM/Shell/Network/BluetoothPairing.cs) owns the pairing attempt and
+[PairingPrompt](../src/WSGM/Shell/Network/PairingPrompt.cs) describes its questions;
+[WifiNetworkEntry](../src/WSGM/Shell/Network/WifiNetworkEntry.cs) and
+[BluetoothDeviceEntry](../src/WSGM/Shell/Network/BluetoothDeviceEntry.cs) hold UI-facing entries;
+[BluetoothDeviceCatalog](../src/WSGM/Shell/Network/BluetoothDeviceCatalog.cs) merges endpoint
+identity and rejects stale discovery callbacks. The pairing attempt belongs to the manager, so
+closing one panel does not make another consumer's discovery request disappear.
 
-[AudioManager](../src/WSGM/Shell/AudioManager.cs) owns live volume/mute and endpoints;
-[AudioDiscovery](../src/WSGM/Shell/AudioDiscovery.cs) coordinates discovery;
-[AudioPlaybackChoices](../src/WSGM/Shell/AudioPlaybackChoices.cs) and
-[AudioEndpointText](../src/WSGM/Shell/AudioEndpointText.cs) project choices and wording.
-[NativeQamAudioService](../src/WSGM/Shell/NativeQamAudioService.cs) and
-[NativeQamAudioFormatService](../src/WSGM/Shell/NativeQamAudioFormatService.cs) expose the same
-state to Steam. Saved Game Mode audio policy is owned separately by
-[AudioProfileService](../src/WSGM/Shell/AudioProfileService.cs), described in
+[AudioManager](../src/WSGM/Shell/Audio/AudioManager.cs) owns live volume/mute and endpoints, with
+[AudioEndpointEntry](../src/WSGM/Shell/Audio/AudioEndpointEntry.cs) rows,
+[AudioSnapshot](../src/WSGM/Shell/Audio/AudioSnapshot.cs) reads,
+[AudioChangeWatch](../src/WSGM/Shell/Audio/AudioChangeWatch.cs) notifications,
+[AudioEndpointSelection](../src/WSGM/Shell/Audio/AudioEndpointSelection.cs) and
+[EndpointSelectionTracker](../src/WSGM/Shell/Audio/EndpointSelectionTracker.cs) default-device
+writes, and [CoalescingVolumeWrite](../src/WSGM/Shell/Audio/CoalescingVolumeWrite.cs) volume writes;
+[AudioDiscovery](../src/WSGM/Shell/Audio/AudioDiscovery.cs) coordinates discovery;
+[AudioPlaybackChoices](../src/WSGM/Shell/Audio/AudioPlaybackChoices.cs) and
+[AudioEndpointText](../src/WSGM/Shell/Audio/AudioEndpointText.cs) project choices and wording.
+[AudioManagerNativeQamAudioService](../src/WSGM/Shell/Audio/AudioManagerNativeQamAudioService.cs)
+and [NativeQamAudioFormatService](../src/WSGM/Shell/Audio/NativeQamAudioFormatService.cs) expose the
+same state to Steam. Saved Game Mode audio policy is owned separately by
+[AudioProfileService](../src/WSGM/Shell/Audio/AudioProfileService.cs), described in
 [power and display](power-and-display.md#game-mode-audio-profiles).

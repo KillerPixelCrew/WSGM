@@ -11,40 +11,6 @@ using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
-internal sealed record EmulatorBiosFile(string Path, string Status, string Md5, bool Optional);
-
-internal sealed record EmulatorBiosSystem(
-    string Id,
-    string Name,
-    string Status,
-    string[] Emulators,
-    EmulatorBiosFile[] Files,
-    string[] Links);
-
-internal sealed record EmulatorBiosState(string Folder, bool Checked, EmulatorBiosSystem[] Systems);
-
-internal sealed record BiosCatalog
-{
-    public BiosSystemDefinition[] Systems { get; init; } = [];
-}
-
-internal sealed record BiosSystemDefinition
-{
-    public string Id { get; init; } = "";
-    public string Name { get; init; } = "";
-    public bool Any { get; init; }
-    public bool Optional { get; init; }
-    public BiosFileDefinition[] Files { get; init; } = [];
-}
-
-internal sealed record BiosFileDefinition
-{
-    public string Path { get; init; } = "";
-    public string[] Md5 { get; init; } = [];
-    public bool Optional { get; init; }
-    public bool Directory { get; init; }
-}
-
 /// <summary>The emulator manager's shared local BIOS catalogue, verification and native path configuration.</summary>
 public sealed partial class EmulatorManager
 {
@@ -204,16 +170,23 @@ public sealed partial class EmulatorManager
                 }
             }
 
-            VerifyBios(token);
             if (copied == 0)
             {
                 throw new InvalidDataException(
                     "No recognized BIOS files were found. Preserve the EmuDeck folder layout.");
             }
 
-            RelinkBios(token, systemId, installFirmware: firmwareAdded);
-            Mutate(store => store with { BiosFolder = folder }, false);
-            VerifyBios(token);
+            // The copied files are shown verified even when linking them to an emulator fails.
+            try
+            {
+                RelinkBios(token, systemId, installFirmware: firmwareAdded);
+                Mutate(store => store with { BiosFolder = folder }, false);
+            }
+            finally
+            {
+                VerifyBios(token);
+            }
+
             SetStatus(
                 $"Added {copied} BIOS files and linked installed emulators. Firmware packages use Install firmware.");
             return Task.CompletedTask;
@@ -388,7 +361,7 @@ public sealed partial class EmulatorManager
                     {
                         "rpcs3" => Path.Combine(folder, "PS3UPDAT.PUP"),
                         "vita3k" => Path.Combine(folder, "PSP2UPDAT.PUP"),
-                        "eden" or "citron" or "suyu" or "ryujinx" =>
+                        var id when EmulatorFirmware.InstallsSwitchFirmware(id) =>
                             File.Exists(Path.Combine(folder, "switch", "firmware.zip"))
                                 ? Path.Combine(folder, "switch", "firmware.zip")
                                 : Path.Combine(folder, "switch", "firmware"),

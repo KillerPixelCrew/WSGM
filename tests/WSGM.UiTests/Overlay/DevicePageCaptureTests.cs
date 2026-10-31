@@ -51,7 +51,7 @@ public sealed class DevicePageCaptureTests
         if (page == "AutoTDP")
         {
             // Switched on, so the Power page carries the target slider under the switch.
-            await hostControls.ToggleAutoTdpAsync();
+            await hostControls.SetHostSelectionAsync(DeviceHostRowIds.AutoTdp, "on");
         }
 
         // Variable refresh is the graphics package's now; Power and thermals shows it as the bridge does.
@@ -62,11 +62,15 @@ public sealed class DevicePageCaptureTests
             Detail = "Device integration active",
             Capabilities =
             [
-                .. views.Select(view => DeviceOverlayBridge.ToOverlayCapability(view, ids)),
+                .. views.Select(view => CapabilityRowProjection.ToOverlayCapability(view, ids,
+                    FanCurvePresetTable.HandheldCompanion)),
                 graphics.VariableRefreshRow(ids)
             ],
-            PluginSections = DeviceOverlayBridge.ProjectSections(sections),
-            Recovery = null
+            PluginSections = CapabilityRowProjection.ProjectSections(sections),
+            Recovery = null,
+            // The bridge publishes the temperature the fan loop follows; here, the handheld's own sensor.
+            FanTemperature = views.FirstOrDefault(view => view.Descriptor.CapabilityId == CapabilityIds.Temperature)
+                ?.Projection.State.ObservedValue?.IntegerValue
         };
         using FakeDevice device = new();
         device.SampleSource = hostControls;
@@ -97,8 +101,7 @@ public sealed class DevicePageCaptureTests
             (_, _, _) => throw new InvalidOperationException("Unexpected assignment save"));
         using DevicePowerPresetSelection selection = new(presets, false, assignments);
         await selection.RefreshAsync();
-        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower()),
-            _ => throw new InvalidOperationException("Unexpected power plan write")));
+        using var schemes = UiFixture.PowerProfiles(new FakePower());
         await schemes.RefreshAsync();
         var window = fixture.Overlay(width, height);
         window.AttachDeviceBridge(device);

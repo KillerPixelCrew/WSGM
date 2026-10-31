@@ -71,15 +71,15 @@ dotnet test tests/WSGM.Tests/WSGM.Tests.csproj --configuration Release --filter 
 For reload, overlay publication, tray/Explorer, and shutdown ownership, start with these concrete
 files:
 
-- `tests/WSGM.Tests/Core/ConfigurationTests.cs`
+- `tests/WSGM.Tests/Core/Config/ConfigurationTests.cs`
 - `tests/WSGM.Tests/App/ModeSelectionTests.cs`
 - `tests/WSGM.Tests/Overlay/QuickAccessSheetTests.cs`
-- `tests/WSGM.Tests/Shell/SessionModesTests.cs`
-- `tests/WSGM.Tests/Core/ApplicationShutdownTests.cs`
-- `tests/WSGM.Tests/Shell/SessionShutdownTests.cs`
-- `tests/WSGM.Tests/Core/TrayProtocolTests.cs`
-- `tests/WSGM.Tests/Shell/ExplorerReadinessTests.cs`
-- `tests/WSGM.Tests/Core/ExplorerShellPolicyTests.cs`
+- `tests/WSGM.Tests/Shell/Session/SessionModesTests.cs`
+- `tests/WSGM.Tests/Core/Session/ApplicationShutdownTests.cs`
+- `tests/WSGM.Tests/Shell/Session/SessionShutdownTests.cs`
+- `tests/WSGM.Tests/Core/Desktop/TrayProtocolTests.cs`
+- `tests/WSGM.Tests/Shell/Desktop/ExplorerReadinessTests.cs`
+- `tests/WSGM.Tests/Core/Desktop/ExplorerShellPolicyTests.cs`
 
 Use the existing tests to identify what a behavioral change actually leaves uncovered. Relevant
 cases include repeated watcher initialization, stale reload after dispose, dispatcher-only

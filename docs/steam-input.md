@@ -13,16 +13,16 @@ Related:
 
 ## Host code map
 
-| Layer                     | Source                                                                                                                                  | Contract                                                                                                                                                                             |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Process owner             | [`Program.cs`](../src/WSGM/Program.cs)                                                                                                  | Creates one `SteamInputBlocker` for the UI process and releases it on exit/panic. Early recovery processes never acquire it.                                                         |
-| Claims and reconciliation | [`SteamInputBlocker.cs`](../src/WSGM/Core/SteamInputBlocker.cs)                                                                         | Maintains owner names separately from the acquired lease. `Hold` and `Drop` queue serialized work; a missing shim or failed acquisition leaves the surface usable and is logged.     |
-| Managed client adapter    | [`SteamInputLeaseHandle.cs`](../src/WSGM/Core/SteamInputLeaseHandle.cs)                                                                 | Adapts the pinned `SteamInterop` client to `ISteamInputLeaseHandle`. `SteamInputPipeLease.Connector` explicitly sets `AllowInjection = false`.                                       |
-| Proxy deployment          | [`SteamInputShim.cs`](../src/WSGM/Core/SteamInputShim.cs), [`SteamInputManagement.cs`](../src/WSGM/Core/SteamInputManagement.cs)        | Proves file ownership from bytes, stages/parks the proxy, and reconciles persisted management policy. `UpdatePending` remains connectable; the pipe handshake decides compatibility. |
-| Overlay claim             | [`OverlayController.Lease.cs`](../src/WSGM/Overlay/OverlayController.Lease.cs)                                                          | Pairs one controller instance's claim with its surfaces; remembers the release task for application-focus handoff.                                                                   |
-| Settings claim            | [`SettingsWindow.axaml.cs`](../src/WSGM/Settings/SettingsWindow.axaml.cs), [`SettingsSurface.cs`](../src/WSGM/Shell/SettingsSurface.cs) | Follows active/minimized/child-surface state and shares the process owner in a resident session.                                                                                     |
-| Per-game wrapper          | [`WSGM.Launch/SteamInputLeaseHost.cs`](../src/WSGM.Launch/SteamInputLeaseHost.cs), [elevation](elevation.md)                            | Holds the wrapper's independent lease for the controlled game lifetime.                                                                                                              |
-| Native protocol and hooks | [`external/steam-input-lease`](../external/steam-input-lease/README.md)                                                                 | Owns the pipe protocol, native lease count, controller hooks, forwarding and recovery. WSGM does not duplicate them.                                                                 |
+| Layer                     | Source                                                                                                                                          | Contract                                                                                                                                                                             |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Process owner             | [`Program.cs`](../src/WSGM/Program.cs)                                                                                                          | Creates one `SteamInputBlocker` for the UI process and releases it on exit/panic. Early recovery processes never acquire it.                                                         |
+| Claims and reconciliation | [`SteamInputBlocker.cs`](../src/WSGM/Core/Steam/SteamInputBlocker.cs)                                                                           | Maintains owner names separately from the acquired lease. `Hold` and `Drop` queue serialized work; a missing shim or failed acquisition leaves the surface usable and is logged.     |
+| Managed client adapter    | [`SteamInputPipeLease.cs`](../src/WSGM/Core/Steam/SteamInputPipeLease.cs)                                                                       | Holds one acquired lease over the pinned `SteamInterop` pipe client. `SteamInputPipeLease.Connector` explicitly sets `AllowInjection = false`.                                       |
+| Proxy deployment          | [`SteamInputShim.cs`](../src/WSGM/Core/Steam/SteamInputShim.cs), [`SteamInputManagement.cs`](../src/WSGM/Core/Steam/SteamInputManagement.cs)    | Proves file ownership from bytes, stages/parks the proxy, and reconciles persisted management policy. `UpdatePending` remains connectable; the pipe handshake decides compatibility. |
+| Overlay claim             | [`OverlayController.Lease.cs`](../src/WSGM/Overlay/OverlayController.Lease.cs)                                                                  | Pairs one controller instance's claim with its surfaces; remembers the release task for application-focus handoff.                                                                   |
+| Settings claim            | [`SettingsWindow.axaml.cs`](../src/WSGM/Settings/SettingsWindow.axaml.cs), [`SettingsSurface.cs`](../src/WSGM/Shell/Session/SettingsSurface.cs) | Follows active/minimized/child-surface state and shares the process owner in a resident session.                                                                                     |
+| Per-game wrapper          | [`WSGM.Launch/SteamInputLeaseHost.cs`](../src/WSGM.Launch/SteamInputLeaseHost.cs), [elevation](elevation.md)                                    | Holds the wrapper's independent lease for the controlled game lifetime.                                                                                                              |
+| Native protocol and hooks | [`external/steam-input-lease`](../external/steam-input-lease/README.md)                                                                         | Owns the pipe protocol, native lease count, controller hooks, forwarding and recovery. WSGM does not duplicate them.                                                                 |
 
 A surface claim is a request, not proof that Steam is already blocked: pipe acquisition runs on the
 worker. `IsApplied` reports an acquired process lease, not which surface owns it. Always drop the
@@ -68,7 +68,7 @@ detected the controller again.
 
 For the ordinary WSGM.exe UI lease, the gate is a proxy DLL that Steam loads itself; the host never
 injects. The managed client's `AllowInjection` defaults to false and `SteamInputPipeLease.Connector`
-sets it explicitly, so this is a property of the code. `Core\SteamInputShim.cs` copies
+sets it explicitly, so this is a property of the code. `Core\Steam\SteamInputShim.cs` copies
 `steam_input_gate.dll` into Steam's install directory as `XInput1_4.dll` (ValvePlug proves that
 vector loads), or as `dinput8.dll` when that name is taken. Steam maps it on its next cold start.
 
@@ -164,7 +164,7 @@ process.
 ## Steam surfaces from OEM buttons
 
 The OEM Quick Access and Overlay actions never hand the physical controller to Steam.
-`ShellSession.ToggleSteamSurfaceAsync` presses Steam's own button on the virtual pad while
+`SessionCommands.ToggleSteamSurfaceAsync` presses Steam's own button on the virtual pad while
 controller management is Active (`ControllerManager.PressSteamButtonAsync`): Guide for the Steam
 menu, and for Quick Access the Quick Access button on the Steam Deck target or Guide + A on the
 others. The press is held for 200 ms and then released, also when the action is cancelled, and Steam

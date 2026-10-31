@@ -1,8 +1,6 @@
 using LibHandheld.Contracts;
 using WSGM.Controls;
-using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
-using WSGM.Overlay;
 using WSGM.Shell;
 
 namespace WSGM.UiTests.Fakes;
@@ -21,7 +19,7 @@ internal sealed class FakeDevice : IDeviceOverlaySource
     ]);
 
     internal Func<DeviceOverlayCapability, CancellationToken, Task>? Invoke { get; set; }
-    internal Func<DeviceGlyphSelection, Task>? SelectGlyphs { get; set; }
+    internal Func<string, string?, Task>? SelectHost { get; set; }
 
     public event Action? Changed
     {
@@ -59,17 +57,6 @@ internal sealed class FakeDevice : IDeviceOverlaySource
                throw new InvalidOperationException("Unexpected device write");
     }
 
-    public Task SetPhysicalGlyphSelectionAsync(DeviceGlyphSelection selection,
-        CancellationToken cancellationToken = default)
-    {
-        return SelectGlyphs?.Invoke(selection) ?? throw new InvalidOperationException("Unexpected glyph write");
-    }
-
-    public Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default)
-    {
-        throw new InvalidOperationException("Unexpected AutoTDP write");
-    }
-
     public Task SetAutoTdpTargetAsync(int fps, CancellationToken cancellationToken = default)
     {
         throw new InvalidOperationException("Unexpected AutoTDP target write");
@@ -77,12 +64,8 @@ internal sealed class FakeDevice : IDeviceOverlaySource
 
     public Task SetHostSelectionAsync(string rowId, string? value, CancellationToken cancellationToken = default)
     {
-        return Task.FromException(new NotSupportedException("Explicit host selection is not available."));
-    }
-
-    public Task CycleControllerTargetAsync(CancellationToken cancellationToken = default)
-    {
-        throw new InvalidOperationException("Unexpected controller write");
+        return SelectHost?.Invoke(rowId, value)
+               ?? Task.FromException(new NotSupportedException("Explicit host selection is not available."));
     }
 
     public Task UseGlobalAsync(string overrideId, CancellationToken cancellationToken = default)
@@ -93,11 +76,6 @@ internal sealed class FakeDevice : IDeviceOverlaySource
     public Task RetryDeviceCycleAsync(CancellationToken cancellationToken = default)
     {
         throw new InvalidOperationException("Unexpected device retry");
-    }
-
-    public Task CycleAuthoredProfileAsync(CancellationToken cancellationToken = default)
-    {
-        throw new InvalidOperationException("Unexpected authored profile write");
     }
 
     public void Dispose()

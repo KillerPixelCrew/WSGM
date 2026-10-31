@@ -44,7 +44,7 @@ public sealed class ScreensaversLayoutTests
         {
             Destination = OverlayDestination.System
         });
-        window.AttachScreensavers(service);
+        UiFixture.Named<ScreensaversView>(window, "ScreensaversHost").Attach(service);
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.Screensavers));
         Dispatcher.UIThread.RunJobs();
         var page = UiFixture.Named<ScreensaversView>(window, "ScreensaversHost");
@@ -71,7 +71,7 @@ public sealed class ScreensaversLayoutTests
         Assert.Same(detailCover, page.GetVisualDescendants().OfType<OverlayPreviewImage>().First());
         Assert.Same(rendered, detailCover.Child);
         Assert.Equal(height < 740 ? 190 : 130, detailCover.Height);
-        window.AttachScreensavers(null);
+        UiFixture.Named<ScreensaversView>(window, "ScreensaversHost").Attach(null);
     }
 
     [AvaloniaTheory]
@@ -83,7 +83,7 @@ public sealed class ScreensaversLayoutTests
         var config = new ScreensaverConfig();
         await using var service = new ScreensaverService(fixture.Store.Context, () => config, change => change(config), () => false);
         var window = fixture.Overlay(width, height, session: new OverlayWindow.SessionState { Destination = OverlayDestination.System });
-        window.AttachScreensavers(service);
+        UiFixture.Named<ScreensaversView>(window, "ScreensaversHost").Attach(service);
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.Screensavers));
         Dispatcher.UIThread.RunJobs();
         var page = UiFixture.Named<ScreensaversView>(window, "ScreensaversHost");
@@ -92,7 +92,7 @@ public sealed class ScreensaversLayoutTests
         var directory = Path.Combine(RepositoryFiles.Root, "TestResults", "ui", $"screensavers-{width}x{height}");
         Directory.CreateDirectory(directory);
         DevicePageCaptureTests.Capture(window, Path.Combine(directory, "empty.png"));
-        window.AttachScreensavers(null);
+        UiFixture.Named<ScreensaversView>(window, "ScreensaversHost").Attach(null);
     }
 
     private static async Task Decoded(OverlayPreviewImage preview)

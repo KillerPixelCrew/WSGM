@@ -6,9 +6,6 @@ namespace WSGM.Overlay;
 /// <summary>State for the overlay, recomputed every time it is shown.</summary>
 public sealed class OverlayViewModel : ObservableObject
 {
-    /// <summary>What a display-off row says when nothing bounds it.</summary>
-    public const string DisplayTimeoutDescription = "Idle time before the display turns off";
-
     private string _warningText = "";
 
     /// <summary>Whether the independent emulator tool is available in this session.</summary>
@@ -152,7 +149,6 @@ public sealed class OverlayViewModel : ObservableObject
             }
 
             Raise(nameof(KeepAwakeDescription));
-            Raise(nameof(KeepAwakeTrailing));
         }
     } = ManualWakeMode.Off;
 
@@ -168,7 +164,6 @@ public sealed class OverlayViewModel : ObservableObject
             }
 
             Raise(nameof(KeepAwakeDescription));
-            Raise(nameof(KeepAwakeTrailing));
         }
     }
 
@@ -201,62 +196,6 @@ public sealed class OverlayViewModel : ObservableObject
         _ when WakeLockSummary.Length > 0 => WakeLockSummary,
         _ => "Off"
     };
-
-    /// <summary>
-    ///     Gets the trailing badge for the keep-awake row ("ON" for a standby
-    ///     hold, "ON+" when the display is pinned too, empty otherwise).
-    /// </summary>
-    public string KeepAwakeTrailing => KeepAwakeManualMode switch
-    {
-        ManualWakeMode.StandbyAndDisplay => "ON+",
-        ManualWakeMode.Standby => "ON",
-        _ => KeepAwakeDownloadActive ? "ON" : ""
-    };
-
-    /// <summary>
-    ///     Current display-off timeout on battery, as a trailing badge ("5 min",
-    ///     "Never", "—" when the power API gave no answer).
-    /// </summary>
-    public string DisplayDcTimeout
-    {
-        get;
-        set => SetFieldIfChanged(ref field, value, nameof(DisplayDcTimeout));
-    } = "—";
-
-    /// <summary>Current display-off timeout when plugged in.</summary>
-    public string DisplayAcTimeout
-    {
-        get;
-        set => SetFieldIfChanged(ref field, value, nameof(DisplayAcTimeout));
-    } = "—";
-
-    /// <summary>The battery display-off row's description, naming Steam's screensaver bound when there is one.</summary>
-    public string DisplayDcDescription
-    {
-        get;
-        set => SetFieldIfChanged(ref field, value, nameof(DisplayDcDescription));
-    } = DisplayTimeoutDescription;
-
-    /// <summary>The plugged-in display-off row's description, naming Steam's screensaver bound when there is one.</summary>
-    public string DisplayAcDescription
-    {
-        get;
-        set => SetFieldIfChanged(ref field, value, nameof(DisplayAcDescription));
-    } = DisplayTimeoutDescription;
-
-    /// <summary>Current standby timeout on battery.</summary>
-    public string SleepDcTimeout
-    {
-        get;
-        set => SetFieldIfChanged(ref field, value, nameof(SleepDcTimeout));
-    } = "—";
-
-    /// <summary>Current standby timeout when plugged in.</summary>
-    public string SleepAcTimeout
-    {
-        get;
-        set => SetFieldIfChanged(ref field, value, nameof(SleepAcTimeout));
-    } = "—";
 
     // Settable, not init-only: a config saved from another process while the panel
     // is open must be able to hide a feature the user just turned off, instead of
@@ -330,6 +269,13 @@ public sealed class OverlayViewModel : ObservableObject
     {
         get;
         set => SetFieldIfChanged(ref field, value, nameof(ShowGameLibrary));
+    }
+
+    /// <summary>Whether Steam > Game Tools is offered: CEF is on and this session has the Game Tools owner.</summary>
+    public bool ShowGameTools
+    {
+        get;
+        set => SetFieldIfChanged(ref field, value, nameof(ShowGameTools));
     }
 
     /// <summary>Whether the session offers the Artwork tool.</summary>

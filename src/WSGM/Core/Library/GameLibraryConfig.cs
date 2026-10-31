@@ -3,48 +3,6 @@ using System.Linq;
 
 namespace WSGM.Core;
 
-/// <summary>Which artwork a title starts on before the user picks anything.</summary>
-public enum ArtworkPreference
-{
-    /// <summary>The source's own catalog first, such as the Microsoft Store for Xbox titles.</summary>
-    Catalog,
-
-    /// <summary>SteamGridDB and the other artwork providers first.</summary>
-    Providers
-}
-
-/// <summary>A folder whose shortcuts the Game Library offers as titles.</summary>
-public sealed class ShortcutFolderConfig
-{
-    /// <summary>The file types a shortcuts folder can offer, each with its dot: all a shortcut can be.</summary>
-    public static IReadOnlyList<string> AllowedExtensions { get; } = [".lnk", ".url", ".exe"];
-
-    /// <summary>Stable identity of the folder source, <c>folder:</c> and a short token. Never reused.</summary>
-    public string Id { get; set; } = "";
-
-    /// <summary>The configured folder bound to its expected volume.</summary>
-    public ManagedContentPath Root { get; set; } = new() { Directory = true };
-
-    /// <summary>Whether folders inside it are read too.</summary>
-    public bool IncludeSubfolders { get; set; } = true;
-
-    /// <summary>
-    ///     The file types offered, each with its dot, such as <c>.lnk</c>; a subset of
-    ///     <see cref="AllowedExtensions" />.
-    /// </summary>
-    public List<string> Extensions { get; set; } = [.. AllowedExtensions];
-
-    /// <summary>Copies the folder configuration and its mutable extension list.</summary>
-    /// <returns>A detached draft suitable for editing without mutating the current configuration.</returns>
-    internal ShortcutFolderConfig Copy()
-    {
-        var copy = (ShortcutFolderConfig)MemberwiseClone();
-        copy.Root = Root.Copy();
-        copy.Extensions = [.. Extensions];
-        return copy;
-    }
-}
-
 /// <summary>How the Game Library treats titles it has not been told anything specific about.</summary>
 /// <remarks>
 ///     Persisted as <see cref="AppConfig.GameLibrary" />. The defaults are edited on Settings' Steam

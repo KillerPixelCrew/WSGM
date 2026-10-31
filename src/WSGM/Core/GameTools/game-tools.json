@@ -1,0 +1,153 @@
+{
+  "schemaVersion": 1,
+  "tools": [
+    {
+      "id": "optiscaler",
+      "name": "OptiScaler",
+      "description": "Swaps a game's DLSS, FSR or XeSS upscaler for another one and can add frame generation. Open its in-game menu with the Insert key.",
+      "homepage": "https://github.com/optiscaler/OptiScaler",
+      "license": "GPL-3.0",
+      "notice": "WSGM is not affiliated with OptiScaler; report problems to WSGM.",
+      "antiCheatWarning": "Do not use with online games. Anti-cheat may ban accounts.",
+      "source": {
+        "provider": "GitHub",
+        "baseUrl": "https://api.github.com/",
+        "repository": "optiscaler/OptiScaler",
+        "assetPattern": "(?i)^optiscaler_.*[.]7z$",
+        "channel": "stable",
+        "packageType": "7z"
+      },
+      "architectures": ["x64"],
+      "primaryFile": "OptiScaler.dll",
+      "identity": {
+        "originalFilename": "OptiScaler.dll",
+        "vetoTokens": ["reshade"],
+        "otherTools": [
+          { "token": "reshade", "name": "ReShade" },
+          { "token": "special k", "name": "Special K" },
+          { "token": "specialk", "name": "Special K" }
+        ]
+      },
+      "proxy": {
+        "default": "dxgi.dll",
+        "options": [
+          { "name": "dxgi.dll", "hint": "Most compatible. Try this first." },
+          { "name": "winmm.dll", "hint": "Use for Vulkan games. Also worth trying for Xbox and Microsoft Store games." },
+          { "name": "version.dll", "hint": "Often works better for Xbox and Microsoft Store games." },
+          { "name": "dbghelp.dll", "hint": "An alternative when the others do not load." },
+          { "name": "d3d12.dll", "hint": "Try this when DLSS crashes with the other names." },
+          { "name": "wininet.dll", "hint": "An alternative when the others do not load." },
+          { "name": "winhttp.dll", "hint": "An alternative when the others do not load." },
+          {
+            "name": "OptiScaler.asi",
+            "hint": "Only with an ASI loader already installed in this game.",
+            "suggest": false
+          }
+        ],
+        "intro": "OptiScaler loads by taking the name of a Windows library the game loads. Try the first one first.",
+        "renameIntro": "WSGM renames the installed file. Try another name when the game ignores OptiScaler or crashes.",
+        "detectionNames": [
+          "OptiScaler.asi",
+          "OptiScaler.dll",
+          "dxgi.dll",
+          "winmm.dll",
+          "d3d12.dll",
+          "dbghelp.dll",
+          "version.dll",
+          "wininet.dll",
+          "winhttp.dll"
+        ],
+        "detectionPatterns": ["*.dll", "*.asi", "plugins/*.dll"]
+      },
+      "payload": {
+        "required": ["OptiScaler.dll", "OptiScaler.ini"],
+        "familyDirectories": { "v10": ["OptiScaler"] },
+        "exclude": ["setup_windows.bat", "setup_linux.sh", "!! *"],
+        "neverExclude": ["OptiScaler.ini", "plugins/OptiPatcher.asi", "OptiScaler/plugins/OptiPatcher.asi"]
+      },
+      "configFiles": ["OptiScaler.ini"],
+      "replaceable": [
+        "libxess*.dll",
+        "libxell.dll",
+        "amd_fidelityfx_*.dll",
+        "fakenvapi.dll",
+        "fakenvapi.ini",
+        "dlssg_to_fsr3_amd_is_better.dll",
+        "nvngx.dll",
+        "nvapi64.dll",
+        "D3D12_Optiscaler/*",
+        "Licenses/*"
+      ],
+      "legacyFiles": [
+        "OptiScaler.ini",
+        "dxgi.ini",
+        "nvngx.dll",
+        "nvapi64.dll",
+        "fakenvapi.*",
+        "!! README*"
+      ],
+      "runtimeArtifacts": [
+        "OptiScaler.log",
+        "fakenvapi.log",
+        "dlssg_to_fsr3.log",
+        "OptiScaler/OptiScaler.log"
+      ],
+      "requiresUpscaler": [
+        { "family": "dlss", "label": "DLSS" },
+        { "family": "fsr", "label": "FSR" },
+        { "family": "xess", "label": "XeSS" }
+      ],
+      "families": [
+        { "id": "v09", "pattern": "^0[.]9([.]|$)" },
+        { "id": "v10", "pattern": "^(0[.]10|10)([.]|$)" }
+      ],
+      "settings": [
+        {
+          "id": "dlssInputs",
+          "label": "DLSS inputs on AMD and Intel",
+          "description": "Lets the game offer DLSS so OptiScaler can replace it. Turn off if the game misbehaves.",
+          "section": "Spoofing",
+          "key": "Dxgi",
+          "default": "on",
+          "options": [
+            { "value": "on", "label": "On", "ini": "auto" },
+            { "value": "off", "label": "Off", "ini": "false" }
+          ],
+          "vendorNotes": { "nvidia": "Not needed on NVIDIA graphics." }
+        },
+        {
+          "id": "menuScale",
+          "label": "Menu scale",
+          "description": "Size of OptiScaler's in-game menu. About 1.2 suits handheld screens.",
+          "section": "Menu",
+          "key": "Scale",
+          "default": "auto",
+          "options": [
+            { "value": "auto", "label": "Auto", "ini": "auto" },
+            { "value": "0.8", "label": "0.8", "ini": "0.8" },
+            { "value": "0.9", "label": "0.9", "ini": "0.9" },
+            { "value": "1.0", "label": "1.0", "ini": "1.0" },
+            { "value": "1.1", "label": "1.1", "ini": "1.1" },
+            { "value": "1.2", "label": "1.2", "ini": "1.2" },
+            { "value": "1.3", "label": "1.3", "ini": "1.3" },
+            { "value": "1.4", "label": "1.4", "ini": "1.4" },
+            { "value": "1.5", "label": "1.5", "ini": "1.5" },
+            { "value": "1.6", "label": "1.6", "ini": "1.6" }
+          ]
+        },
+        {
+          "id": "hideSplash",
+          "label": "Hide startup message",
+          "description": "Skips the message OptiScaler shows when the game starts.",
+          "section": "Menu",
+          "key": "DisableSplash",
+          "default": "off",
+          "options": [
+            { "value": "off", "label": "Off", "ini": "auto" },
+            { "value": "on", "label": "On", "ini": "true" }
+          ]
+        }
+      ]
+    }
+  ]
+}

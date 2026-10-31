@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -30,6 +29,7 @@ public sealed class BrowserView : OverlaySubView
     private readonly TextBlock _zoom = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly OverlayChoice<BrowserMemoryBehavior> _memory;
     private BrowserSession? _session;
+    private ScrollViewer? _scroller;
     private readonly StackPanel _stack;
     private bool _entered;
     private bool _covered;
@@ -107,7 +107,9 @@ public sealed class BrowserView : OverlaySubView
         _stack.Children.Add(memoryRow);
         _stack.Children.Add(Caption("Page: D-pad scrolls, LB/RB selects links, Confirm activates, Y opens the keyboard. Back / Escape returns to browser controls. Downloads and application links are disabled."));
         Content = _stack;
-        LayoutUpdated += FitViewport;
+        // The frame's effective viewport changes exactly when the scroller's viewport or the frame's
+        // place in it does, the two inputs of the fit; a tree-wide layout pass adds nothing.
+        _viewportFrame.EffectiveViewportChanged += OnFrameViewportChanged;
         Refresh();
     }
 
@@ -160,6 +162,25 @@ public sealed class BrowserView : OverlaySubView
         _entered = true;
         _session?.Open();
         Refresh();
+        // Changes while the page was hidden or not entered were skipped, and showing it again
+        // need not move the frame. A fresh registration reports the next layout's viewport.
+        _viewportFrame.EffectiveViewportChanged -= OnFrameViewportChanged;
+        _viewportFrame.EffectiveViewportChanged += OnFrameViewportChanged;
+        FitViewport();
+    }
+
+    /// <inheritdoc />
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        _scroller = this.FindAncestorOfType<ScrollViewer>();
+    }
+
+    /// <inheritdoc />
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        _scroller = null;
+        base.OnDetachedFromVisualTree(e);
     }
 
     internal override void Leave()
@@ -284,14 +305,16 @@ public sealed class BrowserView : OverlaySubView
 
     internal void PageText(string text) => _session?.InsertText(text);
 
-    private void FitViewport(object? sender, EventArgs e)
+    private void OnFrameViewportChanged(object? sender, EffectiveViewportChangedEventArgs e) => FitViewport();
+
+    private void FitViewport()
     {
         if (!_entered || !IsEffectivelyVisible)
         {
             return;
         }
 
-        var scroller = this.GetVisualAncestors().OfType<ScrollViewer>().FirstOrDefault();
+        var scroller = _scroller;
         if (scroller is null || scroller.Viewport.Height <= 0
             || _viewportFrame.TranslatePoint(default, scroller) is not { } origin)
         {

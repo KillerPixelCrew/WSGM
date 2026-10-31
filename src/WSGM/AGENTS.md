@@ -14,9 +14,11 @@ recovery one-shots, and application-wide lifetime. Use the nearer subsystem guid
   marshal UI state through the dispatcher.
 - Keep policy in Core, Shell, Settings, or Overlay rather than App.axaml.cs. Keep native declarations in Interop and
   presentation-only primitives in Controls and Themes.
+- Core and Shell are grouped into feature folders with one top-level type per file; their own guides describe the
+  layout and docs/source-map.md lists the folders. The other layers stay flat apart from Settings/Pages.
 - Reference SDK and reusable libraries as projects or pinned submodules. Do not copy their source into this project.
 - SkipNativeArtifacts is a compile-only escape hatch. It does not prove a package or installer is complete.
 - Route user-facing behavior documentation through docs/README.md and add focused regression tests under
-  tests/WSGM.Tests.
+  tests/WSGM.Tests, in the folder that mirrors the code they cover.
 
 Validate a narrow change with a filtered test. Follow the root validation policy for full gate runs.

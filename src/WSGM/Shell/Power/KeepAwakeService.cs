@@ -1,0 +1,450 @@
+using System;
+using System.ComponentModel;
+using System.Threading;
+using System.Threading.Tasks;
+using SteamUiToolkit;
+using WindowsDeviceControl;
+using WSGM.Core;
+
+namespace WSGM.Shell;
+
+/// <summary>
+///     Session-lifetime keep-awake coordinator ("standby wake lock"): a manual
+///     hold selected from the quick-access Power tab, plus an automatic hold while the
+///     running Steam client reports an active download (polled over the CEF bridge, so a
+///     disabled CEF integration simply leaves the automatic side inert). Each hold is its
+///     own Windows power request, so <c>powercfg /requests</c> attributes them separately
+///     on a device. Deliberately survives desktop/game mode switches — a download should
+///     keep the handheld awake in both modes.
+/// </summary>
+public sealed class KeepAwakeService : IDisposable
+{
+    /// <summary>How many consecutive inactive polls it takes to drop the download hold.</summary>
+    internal const int ReleaseAfterInactivePolls = 2;
+
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(30);
+    private readonly Func<bool> _automaticCefReady;
+
+    private readonly CancellationTokenSource _cts = new();
+
+    // Guards every download-hold transition together with _autoEnabled and the
+    // streak, so a config change and an in-flight poll cannot interleave.
+    private readonly Lock _downloadGate = new();
+    private readonly WindowsPowerRequest _downloadLock = new("WSGM keep-awake (Steam download in progress)");
+
+    private readonly WindowsPowerRequest _manualDisplayLock =
+        new("WSGM keep-display-on (manual quick-access toggle)", WindowsPowerRequestKind.Display);
+
+    private readonly Lock _manualGate = new();
+
+    private readonly WindowsPowerRequest _manualStandbyLock =
+        new("WSGM keep-awake (manual quick-access toggle)");
+
+    private readonly SteamMonitor? _monitor;
+    private readonly Func<CancellationToken, Task<SteamDownloadOverview?>> _queryDownloads;
+    private bool _autoEnabled;
+    private bool _downloadActive;
+    private int _inactiveStreak;
+    private ManualWakeMode _manualMode = ManualWakeMode.Off;
+    private bool _monitorDownloads;
+    private bool _waitingForSteamUi;
+
+    internal KeepAwakeService(
+        SteamMonitor? monitor,
+        bool autoEnabled,
+        bool monitorDownloads,
+        Func<bool> automaticCefReady,
+        Func<CancellationToken, Task<SteamDownloadOverview?>> queryDownloads)
+    {
+        _monitor = monitor;
+        _autoEnabled = autoEnabled;
+        _monitorDownloads = monitorDownloads;
+        _automaticCefReady = automaticCefReady;
+        _queryDownloads = queryDownloads ?? throw new ArgumentNullException(nameof(queryDownloads));
+    }
+
+    /// <summary>The user's current manual wake mode.</summary>
+    public ManualWakeMode ManualMode
+    {
+        get
+        {
+            lock (_manualGate)
+            {
+                return _manualMode;
+            }
+        }
+    }
+
+    /// <summary>Whether the automatic download hold is active.</summary>
+    public bool DownloadHold => _downloadLock.IsHeld;
+
+    /// <summary>
+    ///     The last usable Steam download activity answer. A transient CEF
+    ///     failure does not clear it; a confirmed stopped Steam process does.
+    /// </summary>
+    public bool DownloadActive
+    {
+        get
+        {
+            lock (_downloadGate)
+            {
+                return _downloadActive;
+            }
+        }
+    }
+
+    private bool MonitorDownloads
+    {
+        get
+        {
+            lock (_downloadGate)
+            {
+                return _monitorDownloads;
+            }
+        }
+    }
+
+    /// <summary>Stops the poll loop and drops both holds.</summary>
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _manualStandbyLock.Dispose();
+        _manualDisplayLock.Dispose();
+        _downloadLock.Dispose();
+    }
+
+    /// <summary>Raised (on an arbitrary thread) whenever a hold engages or drops.</summary>
+    public event Action? StateChanged;
+
+    /// <summary>
+    ///     Raised on an arbitrary thread when a usable Steam sample changes
+    ///     whether a download is active.
+    /// </summary>
+    public event Action<bool>? DownloadActivityChanged;
+
+    /// <summary>Starts the poll loop and returns the running service.</summary>
+    /// <param name="monitor">
+    ///     The shared Steam lifecycle monitor; polls are skipped
+    ///     while it reports Steam dead. Null polls unconditionally.
+    /// </param>
+    /// <param name="autoEnabled">Initial <c>KeepAwakeDuringDownloads</c> setting.</param>
+    /// <param name="monitorDownloads">
+    ///     Whether any session feature currently needs
+    ///     Steam's download activity signal.
+    /// </param>
+    /// <param name="automaticCefReady">
+    ///     Whether an autonomous CEF query is safe in
+    ///     the current session state. Desktop mode may return true without Big Picture;
+    ///     game-mode startup waits for its window.
+    /// </param>
+    /// <param name="steam">
+    ///     The session's Steam client the download overview is read through, or null where there is
+    ///     none (overlay-test), which then never sees a download.
+    /// </param>
+    /// <returns>A running service owned by the caller; dispose it to cancel polling and release its power holds.</returns>
+    public static KeepAwakeService StartNew(
+        SteamMonitor? monitor,
+        bool autoEnabled,
+        bool monitorDownloads,
+        Func<bool> automaticCefReady,
+        SteamClient? steam)
+    {
+        ArgumentNullException.ThrowIfNull(automaticCefReady);
+        var service = new KeepAwakeService(
+            monitor, autoEnabled, monitorDownloads, automaticCefReady,
+            steam is null
+                ? static _ => Task.FromResult<SteamDownloadOverview?>(null)
+                : steam.Downloads.QueryAsync);
+        _ = Task.Run(service.RunAsync);
+        return service;
+    }
+
+    /// <summary>Applies an explicit manual wake mode and publishes the resulting held state.</summary>
+    /// <param name="mode">The desired mode.</param>
+    internal void SetManualMode(ManualWakeMode mode)
+    {
+        lock (_manualGate)
+        {
+            if (mode != _manualMode)
+            {
+                // Acquire before release. After a refusal, publish the locks actually
+                // held, including partial success; never retry a native write here.
+                if (mode == ManualWakeMode.Off || TryAcquire(_manualStandbyLock))
+                {
+                    if (mode == ManualWakeMode.StandbyAndDisplay)
+                    {
+                        TryAcquire(_manualDisplayLock);
+                    }
+                    else
+                    {
+                        Release(_manualDisplayLock);
+                    }
+
+                    if (mode == ManualWakeMode.Off)
+                    {
+                        Release(_manualStandbyLock);
+                    }
+                }
+
+                _manualMode = _manualDisplayLock.IsHeld ? ManualWakeMode.StandbyAndDisplay
+                    : _manualStandbyLock.IsHeld ? ManualWakeMode.Standby : ManualWakeMode.Off;
+                Log.Info($"Keep awake: manual mode {_manualMode} (quick access).");
+            }
+        }
+
+        StateChanged?.Invoke();
+    }
+
+    /// <summary>
+    ///     Applies a reloaded configuration. Turning the automatic side off drops
+    ///     an engaged download hold immediately; turning all download consumers off also
+    ///     publishes an inactive state. The manual hold is unaffected.
+    /// </summary>
+    /// <param name="autoEnabled">The new <c>KeepAwakeDuringDownloads</c> setting.</param>
+    /// <param name="monitorDownloads">
+    ///     Whether any enabled feature still consumes
+    ///     Steam download activity.
+    /// </param>
+    public void ApplyConfig(bool autoEnabled, bool monitorDownloads)
+    {
+        bool released;
+        bool activityCleared;
+        // Same gate as the poll's own decision: the flag write and the release must
+        // not interleave with an in-flight poll's acquire, or a poll that started
+        // before the disable could re-engage the hold behind it — and with the loop
+        // then skipping polls entirely, nothing would ever release it again.
+        lock (_downloadGate)
+        {
+            _autoEnabled = autoEnabled;
+            _monitorDownloads = monitorDownloads;
+            released = !autoEnabled && _downloadLock.IsHeld;
+            if (released)
+            {
+                Release(_downloadLock);
+                _inactiveStreak = 0;
+            }
+
+            activityCleared = !monitorDownloads && _downloadActive;
+            if (activityCleared)
+            {
+                _downloadActive = false;
+            }
+        }
+
+        if (released)
+        {
+            Log.Info("Keep awake: download hold released (disabled in settings).");
+            StateChanged?.Invoke();
+        }
+
+        if (activityCleared)
+        {
+            DownloadActivityChanged?.Invoke(false);
+        }
+    }
+
+    private async Task RunAsync()
+    {
+        var token = _cts.Token;
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                if (MonitorDownloads)
+                {
+                    await PollOnceAsync(token).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Keep awake poll failed: {ex.Message}");
+            }
+
+            try
+            {
+                await Task.Delay(PollInterval, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Updates the last known download activity without turning a transient CEF failure into a
+    ///     false completion. A confirmed dead Steam process is idle; a live but temporarily
+    ///     unreachable client leaves the prior answer intact.
+    /// </summary>
+    /// <param name="currentActive">The last usable activity answer.</param>
+    /// <param name="steamAlive">Whether the shared lifecycle monitor sees Steam.</param>
+    /// <param name="overview">The latest usable snapshot, or null when unavailable.</param>
+    /// <returns>The activity state consumers should publish.</returns>
+    internal static bool ResolveActivity(
+        bool currentActive,
+        bool steamAlive,
+        SteamDownloadOverview? overview)
+    {
+        if (!steamAlive)
+        {
+            return false;
+        }
+
+        return overview?.Active ?? currentActive;
+    }
+
+    private async Task PollOnceAsync(CancellationToken token)
+    {
+        var steamAlive = _monitor is null || _monitor.IsAlive;
+        SteamDownloadOverview? overview = null;
+        var detail = "Steam not running";
+        if (steamAlive)
+        {
+            if (!_automaticCefReady())
+            {
+                // This is not an inactive sample. Preserve the prior download state
+                // and wake lock across a Steam restart while its UI is rebuilding.
+                if (_waitingForSteamUi)
+                {
+                    return;
+                }
+
+                _waitingForSteamUi = true;
+                Log.Info("Steam downloads: waiting for the Big Picture window before CEF polling.");
+                return;
+            }
+
+            if (_waitingForSteamUi)
+            {
+                _waitingForSteamUi = false;
+                Log.Info("Steam downloads: Big Picture is ready; starting CEF polling.");
+            }
+
+            overview = await _queryDownloads(token).ConfigureAwait(false);
+            if (overview is { } o)
+            {
+                detail = o.Active
+                    ? $"{o.State}, appid {o.AppId}, {o.NetworkBytesPerSecond / 1_000_000.0:0.0} MB/s"
+                    : o.Paused
+                        ? $"{o.State}, paused"
+                        : o.State;
+            }
+            else
+            {
+                // Unreachable counts as an inactive sample: after the release streak
+                // a closed/dead Steam drops the hold instead of pinning the device
+                // awake forever.
+                detail = "Steam client unreachable";
+            }
+        }
+
+        // The whole decision runs under the gate ApplyConfig also takes, and
+        // re-reads _autoEnabled inside it: the CEF query above can take seconds,
+        // and a disable that lands during it must win over this (now stale) sample.
+        string? change = null;
+        bool? activityChange = null;
+        lock (_downloadGate)
+        {
+            var activity = _monitorDownloads
+                           && ResolveActivity(_downloadActive, steamAlive, overview);
+            if (activity != _downloadActive)
+            {
+                _downloadActive = activity;
+                activityChange = activity;
+            }
+
+            var hadHold = _downloadLock.IsHeld;
+            var sampleActive = overview?.Active == true && _autoEnabled;
+            var (hold, streak) = NextDownloadHold(hadHold, _inactiveStreak, sampleActive);
+            _inactiveStreak = streak;
+            switch (hold)
+            {
+                case true when !hadHold:
+                    if (TryAcquire(_downloadLock))
+                    {
+                        change = $"acquired ({detail})";
+                    }
+
+                    break;
+                case false when hadHold:
+                    Release(_downloadLock);
+                    change = $"released ({detail})";
+                    break;
+            }
+        }
+
+        if (change is not null)
+        {
+            Log.Info($"Keep awake: download hold {change}.");
+            StateChanged?.Invoke();
+        }
+
+        if (activityChange is { } active)
+        {
+            Log.Info($"Steam downloads: {(active ? "active" : "inactive")} ({detail}).");
+            DownloadActivityChanged?.Invoke(active);
+        }
+    }
+
+    /// <summary>
+    ///     Pure hold/release policy for the automatic download wake lock: acquire on
+    ///     the first active sample, release only after a run of consecutive inactive polls so
+    ///     a brief gap between queued items (or one unreachable poll during a Steam client
+    ///     restart) does not flap the hold.
+    /// </summary>
+    /// <param name="currentHold">Whether the download hold is currently active.</param>
+    /// <param name="inactiveStreak">Consecutive inactive polls seen so far.</param>
+    /// <param name="sampleActive">
+    ///     Whether this poll saw an active transfer; an
+    ///     unreachable poll counts as inactive.
+    /// </param>
+    /// <returns>The desired hold state and the updated streak.</returns>
+    internal static (bool Hold, int InactiveStreak) NextDownloadHold(
+        bool currentHold, int inactiveStreak, bool sampleActive)
+    {
+        if (sampleActive)
+        {
+            return (true, 0);
+        }
+
+        var streak = Math.Min(inactiveStreak + 1, ReleaseAfterInactivePolls);
+        return (currentHold && streak < ReleaseAfterInactivePolls, streak);
+    }
+
+    /// <summary>Acquires once, logging a refusal without interrupting the owning feature.</summary>
+    /// <returns>True when the request is held, including an existing hold; false on native refusal or a disposed owner.</returns>
+    private static bool TryAcquire(WindowsPowerRequest request)
+    {
+        try
+        {
+            request.Acquire();
+            return true;
+        }
+        catch (Win32Exception ex)
+        {
+            Log.Warn($"Keep awake: acquire failed (error {ex.NativeErrorCode}).");
+            return false;
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Releases once. A failed clear remains held until explicit retry or disposal.</summary>
+    private static void Release(WindowsPowerRequest request)
+    {
+        try
+        {
+            request.Release();
+        }
+        catch (Win32Exception ex)
+        {
+            Log.Warn($"Keep awake: release failed (error {ex.NativeErrorCode}).");
+        }
+    }
+}

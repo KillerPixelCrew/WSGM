@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -7,57 +6,6 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace WSGM.Core;
-
-internal sealed record EmulatorSource
-{
-    public string Provider { get; init; } = "";
-    public string BaseUrl { get; init; } = "";
-    public string Repository { get; init; } = "";
-    public string Manifest { get; init; } = "";
-    public Dictionary<string, string> Repositories { get; init; } = new(StringComparer.Ordinal);
-    public bool BodyAssets { get; init; }
-    public string ChecksumFile { get; init; } = "";
-    public string AssetPattern { get; init; } = "";
-    public Dictionary<string, string> AssetArchitectureNames { get; init; } = new(StringComparer.Ordinal);
-    public Dictionary<string, string> AssetVariants { get; init; } = new(StringComparer.Ordinal);
-    public Dictionary<string, string> PlatformNames { get; init; } = new(StringComparer.Ordinal);
-    public string PackageName { get; init; } = "";
-    public string PackagePattern { get; init; } = "";
-    public string CorePath { get; init; } = "";
-    public string AssetPath { get; init; } = "";
-}
-
-internal sealed record EmulatorPackageDefinition
-{
-    public int? SteamGridDbId { get; init; }
-    public string Id { get; init; } = "";
-    public string Name { get; init; } = "";
-    public string[] Systems { get; init; } = [];
-    public string[] Architectures { get; init; } = [];
-    public string[] ExecutableNames { get; init; } = [];
-    public string[] LaunchArguments { get; init; } = [];
-    public EmulatorDataPolicy DataPolicy { get; init; } = new();
-    public string PackageType { get; init; } = "";
-    public string[] ValidationArguments { get; init; } = [];
-    public int[] ValidationExitCodes { get; init; } = [0];
-    public string ValidationOutput { get; init; } = "";
-    public Dictionary<string, EmulatorSource> Sources { get; init; } = new(StringComparer.Ordinal);
-
-    public EmulatorDefinition View()
-    {
-        return new EmulatorDefinition
-        {
-            Id = Id,
-            SteamGridDbId = SteamGridDbId,
-            Name = Name,
-            Systems = [.. Systems],
-            Channels = [.. Sources.Keys],
-            DataPolicy = DataPolicy,
-            Source = string.Join(" / ", Sources.Values.Select(source => source.BaseUrl).Distinct()),
-            Prerequisites = DataPolicy.Prerequisites
-        };
-    }
-}
 
 internal sealed record EmulatorCatalog
 {
@@ -97,8 +45,9 @@ internal sealed record EmulatorCatalog
 
             foreach (var source in definition.Sources.Values)
             {
-                EmulatorNetwork.Https(source.BaseUrl);
-                if (source.Provider is not ("GitHub" or "Forgejo" or "Scoop" or "Buildbot" or "Dolphin" or "WebPage"))
+                DownloadClient.Https(source.BaseUrl);
+                if (!HostedReleases.Providers.Contains(source.Provider)
+                    && source.Provider is not ("Scoop" or "Buildbot" or "Dolphin" or "WebPage"))
                 {
                     throw new InvalidDataException("Unsupported emulator release provider: " + source.Provider);
                 }

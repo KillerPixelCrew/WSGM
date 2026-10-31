@@ -5,9 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Input;
 using Avalonia.Layout;
-using Avalonia.Threading;
 using SteamUiToolkit;
 using WSGM.Controls;
 using WSGM.Core;
@@ -25,14 +23,17 @@ namespace WSGM.Overlay;
 ///     in-memory collection — no Steam collection is ever created, and user/SRM ones are never
 ///     touched. Card libraries are managed by the separate <see cref="CardManagerView" />.
 /// </summary>
-public sealed class LibraryTabsView : OverlaySubView
+public sealed class LibraryTabsView : ServiceSubView
 {
+    // How many entries a tag or game picker adds per Load more.
+    private const int MultiSelectChunk = 200;
+
     // ---- Level: filter type picker ----
 
     // The service's table, so both surfaces offer the same kinds in the same order.
     private static readonly (FilterKind Kind, string Label, string Desc)[] FilterKinds =
     [
-        .. LibraryManagerService.FilterKinds.Select(kind =>
+        .. LibraryTabFilterKind.All.Select(kind =>
             (Enum.Parse<FilterKind>(kind.Kind), kind.Label, kind.Description))
     ];
 
@@ -43,7 +44,9 @@ public sealed class LibraryTabsView : OverlaySubView
     // ---- Level: tab editor ----
 
     private CustomTabConfig? _editingOriginal;
-    private bool _listShown;
+
+    // The entries the open tag or game picker shows, kept while a toggle redraws it.
+    private int _multiSelectShown;
 
     private FilterNode? _replacingFilter;
     private LibraryManagerService? _service;
@@ -67,17 +70,9 @@ public sealed class LibraryTabsView : OverlaySubView
             return;
         }
 
-        if (_service is not null)
-        {
-            _service.Changed -= OnServiceChanged;
-        }
-
         _service = service;
-        if (service is not null)
-        {
-            service.Changed += OnServiceChanged;
-        }
-        else
+        AttachSource(service);
+        if (service is null)
         {
             Leave();
         }
@@ -87,10 +82,11 @@ public sealed class LibraryTabsView : OverlaySubView
     ///     Loads config and renders the root tab list. Called by the overlay when
     ///     the sub-view opens.
     /// </summary>
-    public void Open()
+    public override void Open()
     {
         NavigationStack.Clear();
         CurrentLevel = null;
+        var generation = ++NavigationGeneration;
         if (_service is null)
         {
             RenderMessage("Library Tabs", "Library tab management is unavailable in this session.");
@@ -99,16 +95,8 @@ public sealed class LibraryTabsView : OverlaySubView
 
         _tags = null;
         _collections = null;
-        var generation = ++NavigationGeneration;
         RenderLoading("Library Tabs");
         _ = RunSafelyAsync(LoadAndRenderAsync(generation), "open");
-    }
-
-    /// <inheritdoc />
-    internal override void Leave()
-    {
-        _listShown = false;
-        base.Leave();
     }
 
     private async Task LoadAndRenderAsync(int generation)
@@ -129,39 +117,15 @@ public sealed class LibraryTabsView : OverlaySubView
             return;
         }
 
-        Navigate(RenderTabList);
-    }
-
-    // A change from Steam's page or from a sync: the list redraws in place, keeping the finger on
-    // the same tab. Deeper levels redraw after their own operation.
-    private void OnServiceChanged()
-    {
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (_service is not null && _listShown && IsVisible && Content is not null)
-            {
-                RenderTabList(FocusedTag());
-            }
-        });
-    }
-
-    private string? FocusedTag()
-    {
-        return TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is ActionButton { Tag: string tag }
-            ? tag
-            : null;
+        Navigate(RenderHome);
     }
 
     // ---- Level: tab list ----
 
-    private void RenderTabList()
+    // A change from Steam's page or from a sync redraws the current level in place, keeping the
+    // finger on the same tab or row; an editor redraws from its draft.
+    private protected override void RenderHome()
     {
-        RenderTabList(null);
-    }
-
-    private void RenderTabList(string? focusTag)
-    {
-        _listShown = true;
         var state = State;
         var stack = NewStack("Library Tabs");
         stack.Children.Add(Caption("Tabs appear in Steam's library and update automatically as "
@@ -191,28 +155,10 @@ public sealed class LibraryTabsView : OverlaySubView
         }
 
         SetContent(stack);
-        if (focusTag is null)
-        {
-            return;
-        }
-
-        // Posted after SetContent's own first-row focus post, so it wins.
-        Dispatcher.UIThread.Post(() =>
-        {
-            foreach (var child in stack.Children)
-            {
-                if (child is ActionButton { Tag: string tag } button && tag == focusTag)
-                {
-                    button.Focus(NavigationMethod.Directional);
-                    return;
-                }
-            }
-        });
     }
 
     private void OpenTabOrder()
     {
-        _listShown = false;
         Navigate(RenderTabOrder);
     }
 
@@ -242,7 +188,7 @@ public sealed class LibraryTabsView : OverlaySubView
         };
     }
 
-    private void RenderTabOrderActions(string key, string? focusTitle = null)
+    private void RenderTabOrderActions(string key)
     {
         var order = State.Order;
         var index = order.ToList().FindIndex(e => string.Equals(e.Key, key, StringComparison.Ordinal));
@@ -271,43 +217,21 @@ public sealed class LibraryTabsView : OverlaySubView
 
         stack.Children.Add(Row("Done", "Back to the list", Icons.ExitFullscreen, () => Back()));
         SetContent(stack);
-        if (focusTitle is not null)
-        {
-            // Posted after SetContent's own first-row focus post, so it wins — repeated
-            // move presses keep the finger on the same action instead of jumping to the
-            // top row every re-render.
-            Dispatcher.UIThread.Post(() =>
-            {
-                foreach (var child in stack.Children)
-                {
-                    if (child is not ActionButton { IsEffectivelyEnabled: true } button
-                        || button.Title != focusTitle)
-                    {
-                        continue;
-                    }
-
-                    button.Focus(NavigationMethod.Directional);
-                    return;
-                }
-            });
-        }
     }
 
-    // The service applies a move at once and writes it in press order, so repeated presses keep
-    // the finger on the same action while Steam's strip follows.
+    // The service applies a move at once and writes it in press order. The level redraws in place,
+    // so repeated presses keep the finger on the same action while Steam's strip follows.
     private void MoveOrderEntry(string key, int delta)
     {
-        _ = RunSafelyAsync(ApplyOrderChangeAsync(
-            Service.MoveTabAsync(key, delta), key, delta < 0 ? "Move up" : "Move down"), "move");
+        _ = RunSafelyAsync(ApplyOrderChangeAsync(Service.MoveTabAsync(key, delta)), "move");
     }
 
     private void SetNativeHidden(string key, bool hidden)
     {
-        _ = RunSafelyAsync(ApplyOrderChangeAsync(
-            Service.SetNativeTabHiddenAsync(key, hidden), key, hidden ? "Show tab" : "Hide tab"), "hide");
+        _ = RunSafelyAsync(ApplyOrderChangeAsync(Service.SetNativeTabHiddenAsync(key, hidden)), "hide");
     }
 
-    private async Task ApplyOrderChangeAsync(Task<SteamUiCommandResult> change, string key, string focusTitle)
+    private async Task ApplyOrderChangeAsync(Task<SteamUiCommandResult> change)
     {
         var result = await change;
         if (!result.Succeeded)
@@ -316,14 +240,13 @@ public sealed class LibraryTabsView : OverlaySubView
             return;
         }
 
-        Replace(() => RenderTabOrderActions(key, focusTitle));
+        CurrentLevel?.Invoke();
     }
 
     private void OpenTabEditor(CustomTabConfig? existing)
     {
-        _listShown = false;
         _editingOriginal = existing;
-        _editing = existing is null ? new CustomTabConfig { Id = Guid.NewGuid().ToString("N") } : Clone(existing);
+        _editing = existing is null ? new CustomTabConfig { Id = Guid.NewGuid().ToString("N") } : existing.Copy();
         Navigate(RenderTabEditor);
     }
 
@@ -390,9 +313,10 @@ public sealed class LibraryTabsView : OverlaySubView
             return;
         }
 
-        // Drop back to the list, then materialize in the background.
+        // Drop back to a freshly drawn list, then materialize in the background.
         NavigationStack.Clear();
-        Replace(RenderTabList);
+        NavigationGeneration++;
+        Replace(RenderHome);
     }
 
     private void DeleteTab()
@@ -414,7 +338,8 @@ public sealed class LibraryTabsView : OverlaySubView
         }
 
         NavigationStack.Clear();
-        Replace(RenderTabList);
+        NavigationGeneration++;
+        Replace(RenderHome);
     }
 
     private void OpenFilterPicker(FilterNode? replacing)
@@ -459,9 +384,9 @@ public sealed class LibraryTabsView : OverlaySubView
             _editing.FilterTree.Children.Add(node);
         }
 
-        // Replace the picker level with the editor for the new node.
-        CurrentLevel = () => RenderFilterEditor(node);
-        RenderFilterEditor(node);
+        // Replace the picker level with a freshly drawn editor for the new node.
+        NavigationGeneration++;
+        Replace(() => RenderFilterEditor(node));
     }
 
     // ---- Level: filter editor ----
@@ -553,7 +478,7 @@ public sealed class LibraryTabsView : OverlaySubView
                     v =>
                     {
                         node.Threshold = v;
-                        Replace(() => RenderFilterEditor(node));
+                        CurrentLevel?.Invoke();
                     });
                 break;
 
@@ -566,7 +491,7 @@ public sealed class LibraryTabsView : OverlaySubView
                     v =>
                     {
                         node.Threshold = v;
-                        Replace(() => RenderFilterEditor(node));
+                        CurrentLevel?.Invoke();
                     });
                 break;
 
@@ -576,7 +501,7 @@ public sealed class LibraryTabsView : OverlaySubView
                     v =>
                     {
                         node.Threshold = v;
-                        Replace(() => RenderFilterEditor(node));
+                        CurrentLevel?.Invoke();
                     });
                 break;
 
@@ -588,7 +513,7 @@ public sealed class LibraryTabsView : OverlaySubView
                     {
                         node.DaysAgo = (int)v;
                         node.Year = 0;
-                        Replace(() => RenderFilterEditor(node));
+                        CurrentLevel?.Invoke();
                     });
                 stack.Children.Add(Caption("0 days = use no date. (Absolute dates: edit config.)"));
                 break;
@@ -640,8 +565,8 @@ public sealed class LibraryTabsView : OverlaySubView
                 {
                     var child = new FilterNode { Kind = k };
                     group.Children.Add(child);
-                    CurrentLevel = () => RenderChildEditor(group, child);
-                    RenderChildEditor(group, child);
+                    NavigationGeneration++;
+                    Replace(() => RenderChildEditor(group, child));
                 }));
             }
 
@@ -704,6 +629,9 @@ public sealed class LibraryTabsView : OverlaySubView
         }
 
         var selected = new HashSet<long>(node.TagIds.Select(static id => (long)id));
+        // A new level over the loading message, drawn afresh rather than reconciled into it.
+        NavigationGeneration++;
+        _multiSelectShown = MultiSelectChunk;
         Replace(() => RenderMultiSelect("Tags", tags.Select(t => ((long)t.TagId, $"{t.Name} ({t.Count})")),
             selected, () =>
             {
@@ -736,6 +664,8 @@ public sealed class LibraryTabsView : OverlaySubView
         var games = picker.Items;
         // Ids compare unsigned, so a shortcut saved signed by an older build still shows as selected.
         var selected = new HashSet<long>(node.AppIds.Select(static id => (long)SteamApps.NormalizeAppId(id)));
+        NavigationGeneration++;
+        _multiSelectShown = MultiSelectChunk;
         Replace(() => RenderMultiSelect("Games", games.Select(g => (g.AppId, g.Name)), selected, () =>
         {
             node.AppIds = [.. selected];
@@ -770,6 +700,7 @@ public sealed class LibraryTabsView : OverlaySubView
             _collections = collections;
         }
 
+        NavigationGeneration++;
         Replace(() =>
         {
             var stack = NewStack("Collection");
@@ -793,44 +724,35 @@ public sealed class LibraryTabsView : OverlaySubView
     }
 
     private void RenderMultiSelect(string title, IEnumerable<(long Id, string Label)> items,
-        HashSet<long> selected, Action onDone, int page = 0)
+        HashSet<long> selected, Action onDone)
     {
-        const int pageSize = 200;
         var all = items.ToList();
-        var pageCount = Math.Max(1, (all.Count + pageSize - 1) / pageSize);
-        page = Math.Clamp(page, 0, pageCount - 1);
         var stack = NewStack(title);
         stack.Children.Add(PrimaryRow("Done", $"{selected.Count} selected", Icons.Play, onDone));
-        if (pageCount > 1)
-        {
-            var currentPage = page;
-            stack.Children.Add(Row($"Page {page + 1} of {pageCount}", $"{all.Count} entries · previous",
-                Icons.Restart, page > 0
-                    ? () => Replace(() => RenderMultiSelect(title, all, selected, onDone, currentPage - 1))
-                    : null));
-            if (page + 1 < pageCount)
-            {
-                stack.Children.Add(Row("Next page",
-                    $"Entries {(page + 1) * pageSize + 1}–{Math.Min(all.Count, (page + 2) * pageSize)}",
-                    Icons.Play, () => Replace(() => RenderMultiSelect(title, all, selected, onDone, currentPage + 1))));
-            }
-        }
-
-        foreach (var (id, label) in all.Skip(page * pageSize).Take(pageSize))
+        foreach (var (id, label) in all.Take(_multiSelectShown))
         {
             var itemId = id;
             var check = selected.Contains(itemId) ? "✓ " : "";
-            var row = Row(check + label, "", null, null);
-            row.Click += (_, _) =>
+            // The level redraws in place, so the row and the Done count show the new selection.
+            stack.Children.Add(Tagged(Row(check + label, "", null, () =>
             {
                 if (!selected.Add(itemId))
                 {
                     selected.Remove(itemId);
                 }
 
-                row.Title = (selected.Contains(itemId) ? "✓ " : "") + label;
-            };
-            stack.Children.Add(row);
+                CurrentLevel?.Invoke();
+            }), "select:" + itemId));
+        }
+
+        if (all.Count > _multiSelectShown)
+        {
+            stack.Children.Add(PagedRows.More(this, "select.more", $"{_multiSelectShown} of {all.Count}",
+                "select:" + all[_multiSelectShown].Id, () =>
+                {
+                    _multiSelectShown += MultiSelectChunk;
+                    CurrentLevel?.Invoke();
+                }));
         }
 
         SetContent(stack);
@@ -849,10 +771,14 @@ public sealed class LibraryTabsView : OverlaySubView
             Margin = new Thickness(4, 0, 0, 0)
         };
         Grid.SetColumn(text, 0);
-        var minus = new Button { Content = "−", Width = 46, Margin = new Thickness(4, 0, 4, 0) };
+        // Tagged so focus stays on the pressed button when the editor redraws in place.
+        var minus = new Button
+        {
+            Content = "−", Width = 46, Margin = new Thickness(4, 0, 4, 0), Tag = "step-down:" + label
+        };
         Grid.SetColumn(minus, 1);
         minus.Click += (_, _) => onChange(Math.Clamp(value - step, min, max));
-        var plus = new Button { Content = "+", Width = 46 };
+        var plus = new Button { Content = "+", Width = 46, Tag = "step-up:" + label };
         Grid.SetColumn(plus, 2);
         plus.Click += (_, _) => onChange(Math.Clamp(value + step, min, max));
         row.Children.Add(text);
@@ -886,37 +812,37 @@ public sealed class LibraryTabsView : OverlaySubView
 
     private static IReadOnlyList<(int Value, string Label)> CategoryChoices(int current)
     {
-        var games = (int)LibraryFilter.Categories.Games;
-        var software = games | (int)LibraryFilter.Categories.Software;
-        var hidden = software | (int)LibraryFilter.Categories.Hidden;
+        var games = (int)LibraryFilterCategories.Games;
+        var software = games | (int)LibraryFilterCategories.Software;
+        var hidden = software | (int)LibraryFilterCategories.Hidden;
         var choices = new List<(int Value, string Label)>
         {
-            (games, CategoriesLabel((LibraryFilter.Categories)games)),
-            (software, CategoriesLabel((LibraryFilter.Categories)software)),
-            (hidden, CategoriesLabel((LibraryFilter.Categories)hidden))
+            (games, CategoriesLabel((LibraryFilterCategories)games)),
+            (software, CategoriesLabel((LibraryFilterCategories)software)),
+            (hidden, CategoriesLabel((LibraryFilterCategories)hidden))
         };
         if (choices.All(choice => choice.Value != current))
         {
-            choices.Add((current, CategoriesLabel((LibraryFilter.Categories)current)));
+            choices.Add((current, CategoriesLabel((LibraryFilterCategories)current)));
         }
 
         return choices;
     }
 
-    private static string CategoriesLabel(LibraryFilter.Categories c)
+    private static string CategoriesLabel(LibraryFilterCategories c)
     {
         var parts = new List<string>();
-        if (c.HasFlag(LibraryFilter.Categories.Games))
+        if (c.HasFlag(LibraryFilterCategories.Games))
         {
             parts.Add("Games");
         }
 
-        if (c.HasFlag(LibraryFilter.Categories.Software))
+        if (c.HasFlag(LibraryFilterCategories.Software))
         {
             parts.Add("Software");
         }
 
-        if (c.HasFlag(LibraryFilter.Categories.Music))
+        if (c.HasFlag(LibraryFilterCategories.Music))
         {
             parts.Add("Music");
         }
@@ -926,7 +852,7 @@ public sealed class LibraryTabsView : OverlaySubView
             parts.Add("Games");
         }
 
-        if (c.HasFlag(LibraryFilter.Categories.Hidden))
+        if (c.HasFlag(LibraryFilterCategories.Hidden))
         {
             parts.Add("+Hidden");
         }
@@ -982,18 +908,5 @@ public sealed class LibraryTabsView : OverlaySubView
     private static string Cond(FilterNode node)
     {
         return node.Condition == ThresholdCondition.Above ? "≥" : "<";
-    }
-
-    private static CustomTabConfig Clone(CustomTabConfig t)
-    {
-        return new CustomTabConfig
-        {
-            Id = t.Id,
-            Name = t.Name,
-            Enabled = t.Enabled,
-            Position = t.Position,
-            Categories = t.Categories,
-            FilterTree = t.FilterTree.Clone()
-        };
     }
 }

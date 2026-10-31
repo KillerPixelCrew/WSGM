@@ -11,17 +11,17 @@ integration boundaries.
 All paths below are under [`src/WSGM`](../src/WSGM). The [repository source map](source-map.md)
 covers the other executables and libraries.
 
-| Owner                            | Entry files                                                                                                                                 | Responsibility                                                                                                                                                                                                |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Resident composition             | `Shell/ShellSession.cs`, `Overlay/OverlaySources.cs`                                                                                        | Supply the session's services; the window borrows them. `SimulatedDeviceOverlaySource` and `SimulatedGraphicsOverlaySource` provide preview publications.                                                     |
-| Overlay lifetime                 | `Overlay/OverlayController.cs` and `.Lease`, `.Apps`, `.Gestures`, `.Keyboard`, `.Power` partials                                           | Activation, capture claims, Steam Input claims, close deferral, focus return and pending-operation cancellation.                                                                                              |
-| Window and routes                | `Overlay/OverlayWindow.axaml`, `.axaml.cs`, `.Navigation`, `.Workspace`, `.Rail`, `.Placement`, `.Surfaces`                                 | Build the visual tree, select the display, fit scaling, remember sections and confine in-window surfaces. `OverlayNavigation.cs` holds route identities; the `SubViews` table declares parent/leave behavior. |
-| Capability presentation          | `Overlay/OverlayWindow.Device*`, `.Graphics`, `.Performance`, `.Pins`, `CapabilityRowRenderer.cs`, `DescriptorControlView.cs`               | Reconcile descriptor rows and pinned sections; report user intent through the supplied device, graphics or performance bridge.                                                                                |
-| Utility and content presentation | `Overlay/StatusPanel.cs`, `RadioPanel`, `AudioPanel`, `EjectPanel`, `KeyboardPanel`, `ServiceSubView.cs`, `OverlaySubView.cs`               | Own transient presentation, nested navigation and subscriptions. `ThemesView`, `AnimationsView`, `SoundsView`, `ArtworkView` and `GameLibraryView` borrow durable services.                                   |
-| UI input                         | `Input/SdlGamepads.cs`, `GamepadService.cs`, `GamepadNavigation.cs`, `FocusSearch.cs`, `Overlay/OverlayInput.cs`                            | One SDL owner, UI sampling, edge/repeat decisions, focused-control dispatch and navigation.                                                                                                                   |
-| Managed input                    | `Shell/ControllerManager.cs`, `Shell/UiCaptureState.cs`, `Input/ManagedControllerRouter.cs`, `ManagedUiPad.cs`, `ControllerOutputRouter.cs` | Publish managed pad state to UI and suspend/resume game forwarding around capture. Physical transport and firmware interpretation belong to LibHandheld.                                                      |
-| Touch activation                 | `Overlay/RawTouchInput.cs`, `TouchSwipeMonitor.cs`, `EdgeSwipeRecognizer.cs`                                                                | Observe digitizer reports, recognize one gesture, and request an action without intercepting the desktop input stream.                                                                                        |
-| Rendering support                | `Controls/`, `Themes/`, `Avalonia.LiveBackdrop`                                                                                             | Shared editors, focus and color tokens; one native backdrop per overlay window. See [UI](ui.md) and the [backdrop API](../src/Avalonia.LiveBackdrop/README.md).                                               |
+| Owner                            | Entry files                                                                                                                                                                 | Responsibility                                                                                                                                                                                                                                                                                                                                                                                              |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Resident composition             | `Shell/Session/ShellSession.cs`, `Overlay/OverlaySources.cs`                                                                                                                | Supply the session's services; the window borrows them. `SimulatedDeviceOverlaySource` and `SimulatedGraphicsOverlaySource` provide preview publications.                                                                                                                                                                                                                                                   |
+| Overlay lifetime                 | `Overlay/OverlayController.cs` and `.Lease`, `.Apps`, `.Gestures`, `.Keyboard`, `.Power` partials                                                                           | Activation, capture claims, Steam Input claims, close deferral, focus return and pending-operation cancellation.                                                                                                                                                                                                                                                                                            |
+| Window and routes                | `Overlay/OverlayWindow.axaml`, `.axaml.cs`, `.Navigation`, `.Workspace`, `.Rail`, `.Placement`, `.Surfaces`                                                                 | Build the visual tree, select the display, fit scaling, remember sections and confine in-window surfaces. `OverlayPage.cs` holds stable page identities; the `SubViews` table declares parent/leave behavior.                                                                                                                                                                                               |
+| Capability presentation          | `Overlay/OverlayWindow.Device*`, `.Graphics`, `.Performance`, `.Pins`, `CapabilityRowRenderer.cs`, `DescriptorControlView.cs`                                               | Reconcile descriptor rows and pinned sections; report user intent through the supplied device, graphics or performance bridge.                                                                                                                                                                                                                                                                              |
+| Utility and content presentation | `Overlay/StatusPanel.cs`, `RadioPanel`, `AudioPanel`, `EjectPanel`, `KeyboardPanel`, `ServiceSubView.cs`, `OverlaySubView.cs`, `OverlayProgress.cs`                         | Own transient presentation, nested navigation and subscriptions. `ThemesView`, `AnimationsView`, `SoundsView`, `ArtworkView` and `GameLibraryView` borrow durable services. A level that shows running work registers it with `ServiceSubView.SetLiveContent`, so a publication that changes only the progress updates its `OverlayProgress` in place and only a change to what the level draws redraws it. |
+| UI input                         | `Input/SdlGamepads.cs`, `GamepadService.cs`, `GamepadNavigation.cs`, `FocusSearch.cs`, `Overlay/OverlayInput.cs`                                                            | One SDL owner, UI sampling, edge/repeat decisions, focused-control dispatch and navigation.                                                                                                                                                                                                                                                                                                                 |
+| Managed input                    | `Shell/Controller/ControllerManager.cs`, `ControllerForwarding.cs`, `UiCaptureState.cs`, `Input/ManagedControllerRouter.cs`, `ManagedUiPad.cs`, `ControllerOutputRouter.cs` | Publish managed pad state to UI and suspend/resume game forwarding around capture. Physical transport and firmware interpretation belong to LibHandheld.                                                                                                                                                                                                                                                    |
+| Touch activation                 | `Overlay/RawTouchInput.cs`, `TouchSwipeMonitor.cs`, `EdgeSwipeRecognizer.cs`                                                                                                | Observe digitizer reports, recognize one gesture, and request an action without intercepting the desktop input stream.                                                                                                                                                                                                                                                                                      |
+| Rendering support                | `Controls/`, `Themes/`, `Avalonia.LiveBackdrop`                                                                                                                             | Shared editors, focus and color tokens; one native backdrop per overlay window. See [UI](ui.md) and the [backdrop API](../src/Avalonia.LiveBackdrop/README.md).                                                                                                                                                                                                                                             |
 
 An activation reaches `OverlayController.ShowOverlay`, which cancels any obsolete close/return,
 records the foreground target, requests the applicable Steam Input claim, and opens the window over
@@ -163,14 +163,13 @@ Graphics section and Built-in display section with a game override, a Global-onl
 after restart, a row that applies at the next game start, the frame rate limit and a row unavailable
 until variable refresh is on. Its writes change only that object.
 
-Per-application performance profiles belong to Device → Profiles. They are not a second detector and
-not a device-plugin feature: `PerformanceOverlayBridge` projects the session's one
-`PerformanceService` into closed rows. The value rows also sit beside the power controls on Device →
-Power and thermals, including when Device Integration is off. An identity-only Steam game stays
-visible as "executable pending", with its edits stored for that AppID until foreground observation
-supplies the RTSS profile. Descriptor and layout identity changes rebuild the affected rows; value
-publications update retained editors and readings in place. Profiles stays available whenever WSGM
-has profile rows.
+Per-application performance profiles are switched on at the top of the Device overview. They are not
+a second detector and not a device-plugin feature: `PerformanceOverlayBridge` projects the session's
+one `PerformanceService` into closed rows. The value rows sit beside the power controls on the
+Device overview and Power page, and under Tools → Performance while Device is unavailable. An
+identity-only Steam game stays visible as "executable pending", with its edits stored for that AppID
+until foreground observation supplies the RTSS profile. Descriptor and layout identity changes
+rebuild the affected rows; value publications update retained editors and readings in place.
 
 Device lighting color opens `DeviceColorView` rather than cycling an opaque integer in the row. The
 hue field, RGB sliders and exact `#RRGGBB` entry are staged locally, and only the explicit Apply row
@@ -397,7 +396,7 @@ that window's claim and navigation owner. The first claim neutralizes the virtua
 claims keep capture active, and the last close resumes game forwarding only after every control the
 UI used is released. Sleep, session lock, controller release and source faults share one
 forwarding-blocked state, cleared by a successfully created or replaced target, or by
-`ControllerManager.ResumeForwardingAsync` on wake and unlock. There is no parallel enum of
+`ControllerForwarding.ResumeForwardingAsync` on wake and unlock. There is no parallel enum of
 hypothetical zero reasons: capture, routing admission and target state decide delivery.
 
 WSGM's own navigation reads the managed controller as one more pad. Every sample the plugin
@@ -501,11 +500,12 @@ stays in place during updates, disables when readback is unavailable, and works 
 The same page shows resolution and refresh for the display the overlay sheet is on. Pickers hold
 driver-validated modes, and changing resolution updates the offered refresh rates. A committed
 dropdown selection applies the mode and saves it, as Windows Settings does; browsing an open popup
-does not. Fresh observations every five seconds while open replace stale choices after a reconnect,
-resume or profile change. Windows Device Control rechecks target identity and driver validation
-before applying and writes once. A write Windows accepts is the result and is not read back; a
-refused one gets one write-back of the original mode, never a retry. Ambiguous clone sources are
-unavailable. None of this establishes physical visibility.
+does not. A fresh observation on every display change Windows announces replaces stale choices after
+a reconnect, resume or profile change; a change while a popup is open is read once it closes.
+Windows Device Control rechecks target identity and driver validation before applying and writes
+once. A write Windows accepts is the result and is not read back; a refused one gets one write-back
+of the original mode, never a retry. Ambiguous clone sources are unavailable. None of this
+establishes physical visibility.
 
 Device provides a manual TDP mode selector when a paired capability is available. Selecting Unified
 saves the active global or per-game preference without writing hardware, and later sustained-slider
@@ -572,12 +572,13 @@ directories. WebM import, local artwork, shortcut folders and sound-pack ZIP imp
 frontends borrow the toolkit's file-listing rules; reads run off the UI thread and canceled/stale
 results are discarded.
 
-Preview images load near the visible viewport, reuse a bounded byte cache, validate dimensions and
-decode at a bounded size. Movie and animated-image details use one explicit WebView2 viewport; all
-controls stay Avalonia. Playback starts only on Play and stops when the page leaves. Native content
-is hidden and paused behind modal surfaces. A failed decode has a visible error. Setup carries the
-pinned, Microsoft-signed Evergreen offline runtime and installs it only when missing; no feature
-view installs software and uninstall leaves the shared runtime alone.
+Preview images load near the visible viewport, decode straight from the file or bounded download,
+validate dimensions and decode at a bounded size; nothing is cached. Movie and animated-image
+details use one explicit WebView2 viewport; all controls stay Avalonia. Playback starts only on Play
+and stops when the page leaves. Native content is hidden and paused behind modal surfaces. A failed
+decode has a visible error. Setup carries the pinned, Microsoft-signed Evergreen offline runtime and
+installs it only when missing; no feature view installs software and uninstall leaves the shared
+runtime alone.
 
 Service publications reconcile keyed commands and editors in place. Dropdowns, color drafts, sliders
 and focus survive updates. Nested tool levels consume Back before section-rail/home rules; config

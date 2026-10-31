@@ -11,12 +11,15 @@
 // more than one.
 //
 // The bundle on disk carries every module the client ships and the live registry only those loaded
-// so far, so a unique match here is unique there and a missing match here is missing there. Export
-// shapes, rendered trees and whether a row actually draws remain questions for the running client.
+// so far, so a unique match here is unique there and a missing match here is missing there. Steam
+// leaves the chunks of earlier builds in steamui, so only the scripts the current client can load
+// count: the entry scripts index.html names and every chunk its webpack runtime maps a file name
+// to. Its localization chunks hold string tables, not code, and are skipped. Export shapes,
+// rendered trees and whether a row actually draws remain questions for the running client.
 // Additional emitted JavaScript files may follow the Steam directory argument, for standalone
 // probes or plugin scripts. C# and TypeScript sources are never scraped here.
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as meriyah from "prettier/plugins/meriyah";
@@ -41,16 +44,94 @@ const steamDirectory = () => {
   return "C:/Program Files (x86)/Steam";
 };
 
-// Every webpack factory in the installed bundle, by module id, as source text. A factory is a
-// function-valued property with a numeric key; the files are parsed, never evaluated.
+const children = (node) =>
+  Object.entries(node)
+    .filter(
+      ([name, child]) => name !== "loc" && name !== "range" && child && typeof child === "object",
+    )
+    .map(([, child]) => child);
+
+// The chunk file names the webpack runtime can request: `__webpack_require__.u` maps a chunk id
+// to `(names[id] || id) + ".js?contenthash=" + hashes[id]`, so its objects' keys are every chunk
+// and the object read through `||` names the ones not called by their id.
+const chunkFiles = (program) => {
+  const files = new Set();
+  const stack = [program];
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || typeof node !== "object") continue;
+    if (Array.isArray(node)) {
+      stack.push(...node);
+      continue;
+    }
+    const isChunkFileName =
+      node.type === "AssignmentExpression" &&
+      node.left.type === "MemberExpression" &&
+      !node.left.computed &&
+      node.left.property.name === "u" &&
+      /^(?:ArrowFunctionExpression|FunctionExpression)$/u.test(node.right.type);
+    if (!isChunkFileName) {
+      stack.push(...children(node));
+      continue;
+    }
+    const ids = new Set();
+    const names = new Map();
+    const inner = [node.right.body];
+    while (inner.length) {
+      const child = inner.pop();
+      if (!child || typeof child !== "object") continue;
+      if (Array.isArray(child)) {
+        inner.push(...child);
+        continue;
+      }
+      if (child.type === "ObjectExpression") {
+        for (const property of child.properties) {
+          if (typeof property.key?.value === "number") ids.add(property.key.value);
+        }
+      }
+      if (
+        child.type === "LogicalExpression" &&
+        child.operator === "||" &&
+        child.left.type === "MemberExpression" &&
+        child.left.object.type === "ObjectExpression"
+      ) {
+        for (const property of child.left.object.properties) {
+          if (typeof property.key?.value === "number" && typeof property.value.value === "string") {
+            names.set(property.key.value, property.value.value);
+          }
+        }
+      }
+      inner.push(...children(child));
+    }
+    for (const id of ids) files.add(`${names.get(id) ?? id}.js`);
+  }
+  return files;
+};
+
+// The scripts the installed client loads: index.html's entry scripts and their runtime's chunks.
+const loadableScripts = (steamui) => {
+  const html = readFileSync(join(steamui, "index.html"), "utf8");
+  const entries = [...html.matchAll(/<script\b[^>]*\bsrc="\/?([^"?#]+\.js)/gu)].map(
+    (match) => match[1],
+  );
+  const files = new Set(entries);
+  for (const entry of entries) {
+    const text = readFileSync(join(steamui, entry), "utf8");
+    for (const file of chunkFiles(parser.parse(text, {}))) files.add(file);
+  }
+  if (files.size === entries.length) {
+    throw new Error(`No webpack chunk map found in the entry scripts of ${steamui}/index.html.`);
+  }
+  return [...files]
+    .filter((file) => !file.startsWith("localization/") && existsSync(join(steamui, file)))
+    .map((file) => join(steamui, file));
+};
+
+// Every webpack factory the installed client can load, by module id, as source text. A factory is
+// a function-valued property with a numeric key; the files are parsed, never evaluated.
 const readBundle = (steamui) => {
   const modules = new Map();
-  const files = [steamui, join(steamui, "libraries")].flatMap((directory) =>
-    readdirSync(directory)
-      .filter((name) => name.endsWith(".js"))
-      .map((name) => join(directory, name)),
-  );
-  for (const file of files) {
+  for (const file of loadableScripts(steamui)) {
     const text = readFileSync(file, "utf8");
     if (!text.includes("webpackChunksteamui")) continue;
     const stack = [parser.parse(text, {})];

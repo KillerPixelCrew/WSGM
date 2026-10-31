@@ -1,0 +1,211 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using WSGM.Core;
+using WSGM.Device.Sdk.Capabilities;
+using WSGM.Plugin.Sdk;
+
+namespace WSGM.Shell;
+
+/// <summary>Projects Device capabilities into the common widget vocabulary without owning hardware.</summary>
+/// <param name="coordinator">Borrowed device owner used for admitted capability observations and explicit actions.</param>
+/// <param name="overlay">Borrowed device presentation source; widgets reuse its visible controls and routing.</param>
+internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceOverlaySource overlay)
+    : ICommonPluginOverlaySource
+{
+    private readonly Dictionary<string, DeviceCapabilityView> _views = new(StringComparer.Ordinal);
+    private long _generation;
+    private PluginInstanceIdentity? _identity;
+    private IReadOnlyList<DeviceOverlayCapability> _rows = [];
+    private string _scope = "";
+    private long _sequence;
+
+    /// <inheritdoc />
+    public PluginOverlayInstance[] Snapshot()
+    {
+        var snapshot = overlay.Snapshot();
+        var plugin = coordinator.DeviceDefinition?.FamilyId;
+        var views = coordinator.Capabilities.Snapshot();
+        if (!snapshot.Visible || plugin is null || views.Count == 0)
+        {
+            _views.Clear();
+            _scope = "";
+            _rows = [];
+            return [];
+        }
+
+        var scope = $"{plugin}:{coordinator.Power.ManualTdpUnified}";
+        if (_scope != scope || !DeviceOverlayCapability.SameLayouts(_rows, snapshot.Capabilities))
+        {
+            _scope = scope;
+            _generation++;
+        }
+
+        _rows = snapshot.Capabilities;
+
+        _identity = new PluginInstanceIdentity(plugin, "device");
+        List<PluginAction> actions = [];
+        List<PluginUiContribution> controls = [];
+        List<PluginWidget> widgets = [];
+        _views.Clear();
+        // Write-only capabilities get widgets too: the Ally's lighting and fan mode cannot be read at all.
+        foreach (var view in views.Where(item => item.Descriptor.SupportsRead || item.Descriptor.SupportsWrite))
+        {
+            var descriptor = view.Descriptor;
+            var row = snapshot.Capabilities.FirstOrDefault(item => item.CapabilityId == descriptor.CapabilityId
+                                                                   && item.InstanceId == descriptor.InstanceId);
+            if (row is null)
+            {
+                continue;
+            }
+
+            var key = KeyFor(descriptor.CapabilityId, descriptor.InstanceId);
+            _views[key] = view;
+            var value = Value(Shown(row, descriptor));
+            var kind = PluginUiKind.Status;
+            PluginSetting? argument = null;
+            // ReSharper disable once SwitchStatementMissingSomeEnumCasesNoDefault
+            switch (descriptor.ValueKind)
+            {
+                case CapabilityValueKind.Integer when row.Writable && value.Number is not null
+                                                                   && descriptor is
+                                                                       { Minimum: { } min, Maximum: { } max } &&
+                                                                   min < max:
+                    kind = PluginUiKind.Slider;
+                    argument = new PluginSetting("value", row.Title, PluginSettingKind.Number, value, min, max);
+                    break;
+                case CapabilityValueKind.Boolean when row.Writable && value.Boolean is not null:
+                    kind = PluginUiKind.Toggle;
+                    argument = new PluginSetting("value", row.Title, PluginSettingKind.Boolean, value);
+                    break;
+                case CapabilityValueKind.Choice
+                    when row.Writable && value.Text is not null && descriptor.Choices.Count > 0:
+                    argument = new PluginSetting("value", row.Title, PluginSettingKind.Text, value,
+                        Choices: [.. descriptor.Choices.Select(choice => choice.Value)]);
+                    break;
+            }
+
+            if (argument is not null)
+            {
+                actions.Add(new PluginAction(key, row.Title, [argument]));
+            }
+
+            var choiceControl = argument?.Choices is not null;
+            controls.Add(new PluginUiContribution(key, row.Title, "device", kind, key, argument is null ? null : key,
+                argument is null ? null : "value"));
+            if (choiceControl)
+            {
+                controls[^1] = new PluginUiContribution(key, row.Title, "device", PluginUiKind.Status, key);
+                controls.Add(new PluginUiContribution(key + ".edit", "Change " + row.Title, "device",
+                    PluginUiKind.Action, ActionId: key));
+            }
+
+            widgets.Add(new PluginWidget(key, row.Title, choiceControl ? [key, key + ".edit"] : [key],
+                EnabledStateKey: "enabled." + key, NavigationCategory: "device"));
+        }
+
+        return
+        [
+            new PluginOverlayInstance(_identity, plugin, _generation,
+                new PluginOverlayControls(actions, controls, widgets), snapshot.Status, true, null)
+            {
+                Category = PluginCategories.Device
+            }
+        ];
+    }
+
+    /// <inheritdoc />
+    public PluginStatePublication[] State(PluginInstanceIdentity identity)
+    {
+        if (_identity != identity)
+        {
+            return [];
+        }
+
+        var current = coordinator.Capabilities.Snapshot();
+        var presentation = overlay.Snapshot();
+        List<PluginStatePublication> states = [];
+        foreach (var (key, original) in _views)
+        {
+            var view = current.FirstOrDefault(item => item.Descriptor.CapabilityId == original.Descriptor.CapabilityId
+                                                      && item.Descriptor.InstanceId == original.Descriptor.InstanceId);
+            if (view is null)
+            {
+                continue;
+            }
+
+            var row = presentation.Capabilities.FirstOrDefault(item =>
+                item.CapabilityId == view.Descriptor.CapabilityId && item.InstanceId == view.Descriptor.InstanceId);
+            states.Add(new PluginStatePublication(identity, _generation, ++_sequence, key,
+                Value(Shown(row, view.Descriptor)), PluginStateOrigin.HardwareReadback));
+            var enabled = row?.CanInvoke == true;
+            states.Add(new PluginStatePublication(identity, _generation, ++_sequence, "enabled." + key,
+                new PluginValue(enabled), PluginStateOrigin.HardwareReadback));
+        }
+
+        return [.. states];
+    }
+
+    /// <inheritdoc />
+    public async Task<PluginActionResult> InvokeAsync(PluginInstanceIdentity identity, long generation,
+        string action, IReadOnlyDictionary<string, PluginValue> arguments, CancellationToken cancellationToken)
+    {
+        var operation = Guid.NewGuid();
+        Snapshot();
+        if (_identity != identity || generation != _generation || !_views.TryGetValue(action, out var view)
+            || arguments.Count != 1 || !arguments.TryGetValue("value", out var value))
+        {
+            return new PluginActionResult(operation, PluginActionOutcome.Rejected,
+                "The Device widget changed. Select it again.");
+        }
+
+        var requested = CapabilityValues.FromPluginValue(value, view.Descriptor);
+        if (requested is null)
+        {
+            return new PluginActionResult(operation, PluginActionOutcome.Rejected, "Invalid Device widget value.");
+        }
+
+        var result = await coordinator.Commands.ExecuteAsync(view.Descriptor.CapabilityId, view.Descriptor.InstanceId,
+            requested, TimeSpan.FromSeconds(5), cancellationToken: cancellationToken).ConfigureAwait(false);
+        return new PluginActionResult(operation, result.Outcome switch
+        {
+            CommandOutcome.AppliedVerified => PluginActionOutcome.AppliedVerified,
+            CommandOutcome.Applied or CommandOutcome.AppliedUnverified => PluginActionOutcome.Dispatched,
+            CommandOutcome.Rejected => PluginActionOutcome.Rejected,
+            _ => PluginActionOutcome.Unconfirmed
+        }, result.Reason?.Detail);
+    }
+
+    internal static string KeyFor(string capabilityId, string? instanceId)
+    {
+        return Convert
+            .ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{capabilityId.Length}:{capabilityId}{instanceId}")))
+            .ToLowerInvariant();
+    }
+
+    /// <summary>What a widget shows: the overlay row's value, else a start value.</summary>
+    /// <param name="row">The overlay's row for the capability, or null when it shows none.</param>
+    /// <param name="descriptor">The capability's descriptor, for the start value.</param>
+    /// <remarks>A control is never withheld for want of a readback.</remarks>
+    private static CapabilityValue? Shown(DeviceOverlayCapability? row, CapabilityDescriptor descriptor)
+    {
+        return row?.CurrentValue ?? descriptor.ValueKind switch
+        {
+            CapabilityValueKind.Integer when descriptor.Minimum is { } minimum => CapabilityValue.Integer(minimum),
+            CapabilityValueKind.Boolean => CapabilityValue.Boolean(false),
+            CapabilityValueKind.Choice when descriptor.Choices.Count > 0 =>
+                CapabilityValue.Choice(descriptor.Choices[0].Value),
+            _ => null
+        };
+    }
+
+    /// <summary>The widget primitive for a value; anything without one shows its text, else "Unavailable".</summary>
+    internal static PluginValue Value(CapabilityValue? value)
+    {
+        return CapabilityValues.ToPluginValue(value) ?? new PluginValue(Text: value?.TextValue ?? "Unavailable");
+    }
+}

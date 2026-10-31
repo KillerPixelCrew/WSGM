@@ -45,11 +45,11 @@ public sealed partial class OverlayController
         // read touches inside its header as top-edge swipes.
         if (_overlay is not null)
         {
-            HideTouchEdges();
+            _touchSwipes.Disarm();
         }
         else
         {
-            ShowTouchEdges();
+            _touchSwipes.Arm();
         }
     }
 
@@ -95,16 +95,6 @@ public sealed partial class OverlayController
             ScreenEdge.Top => SwipeAction.QuickAccess,
             _ => explorerRunning ? SwipeAction.None : SwipeAction.QuickAccessApps
         };
-    }
-
-    private void HideTouchEdges()
-    {
-        _touchSwipes?.Disarm();
-    }
-
-    private void ShowTouchEdges()
-    {
-        _touchSwipes?.Arm();
     }
 
     private void DisposeTouchEdges()

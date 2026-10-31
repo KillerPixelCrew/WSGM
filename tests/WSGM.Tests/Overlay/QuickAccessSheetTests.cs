@@ -66,12 +66,12 @@ public sealed class QuickAccessSheetTests
         Assert.Equal(expected, OverlayWindow.ComputeContentScale(requested, renderScale, width, height), 4);
     }
 
-    private static WindowFinder.AppWindow Window(nint hwnd, string title, bool minimized = false)
+    private static AppWindow Window(nint hwnd, string title, bool minimized = false)
     {
-        return new WindowFinder.AppWindow(hwnd, title, (uint)hwnd) { IsMinimized = minimized };
+        return new AppWindow(hwnd, title, (uint)hwnd) { IsMinimized = minimized };
     }
 
-    private static AppSwitcherEntry Create(WindowFinder.AppWindow window)
+    private static AppSwitcherEntry Create(AppWindow window)
     {
         return new AppSwitcherEntry(window.Hwnd, window.Title, false, null);
     }

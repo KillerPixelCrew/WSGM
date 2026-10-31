@@ -397,34 +397,25 @@ public sealed class CommonPluginPanelTests
     public void ActionTextDraftUsesControllerKeyboardAndChangesOnlyOnAcceptance()
     {
         using UiFixture fixture = new();
-        Action<string>? accept = null;
-        Func<string, string, int, Action<string>, bool> requestText = (prompt, initial, maximum, callback) =>
-        {
-            Assert.Equal("Command name", prompt);
-            Assert.Equal("Power", initial);
-            Assert.Equal(0, maximum);
-            accept = callback;
-            return true;
-        };
-        Window window = new() { Width = 500, Height = 200 };
-        try
-        {
-            var (editor, read) = CommonPluginPanel.CreateTextArgumentEditor(
-                new PluginSetting("name", "Command name", PluginSettingKind.Text, new PluginValue(Text: "Power")),
-                requestText);
-            window.Content = editor;
-            window.Show();
-            UiFixture.Click(window, editor);
-            Assert.NotNull(accept);
-            Assert.Equal("Power", read().Text);
-            accept("HDMI 1");
-            Assert.Equal("HDMI 1", read().Text);
-            Assert.Equal("HDMI 1", editor.Content);
-        }
-        finally
-        {
-            window.Close();
-        }
+        var window = fixture.Overlay();
+        var (editor, read) = CommonPluginPanel.CreateTextArgumentEditor(
+            new PluginSetting("name", "Command name", PluginSettingKind.Text, new PluginValue(Text: "Power")));
+        UiFixture.Named<StackPanel>(window, "PinnedSectionsGrid").Children.Add(editor);
+        Dispatcher.UIThread.RunJobs();
+
+        UiFixture.Click(window, editor);
+        Dispatcher.UIThread.RunJobs();
+        var keyboard = window.GetVisualDescendants().OfType<KeyboardPanel>().Single();
+        var text = keyboard.GetVisualDescendants().OfType<TextBox>().Single();
+        Assert.Equal("Power", text.Text);
+        Assert.Equal("Power", read().Text);
+        text.Text = "HDMI 1";
+        Assert.Equal("Power", read().Text);
+        UiFixture.Click(window, keyboard.GetVisualDescendants().OfType<Button>()
+            .First(button => button.IsEffectivelyVisible && Equals(button.Tag, Key.Enter)));
+
+        Assert.Equal("HDMI 1", read().Text);
+        Assert.Equal("HDMI 1", editor.Content);
     }
 
     private sealed class TokenCheckingSource : ICommonPluginOverlaySource

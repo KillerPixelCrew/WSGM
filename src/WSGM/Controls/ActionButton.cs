@@ -40,16 +40,24 @@ public class ActionButton : Button
     private readonly PhysicalGlyphImage _glyph = new() { Width = 18, Height = 18 };
     private readonly TextBlock _hint = new() { VerticalAlignment = VerticalAlignment.Center };
 
+    private readonly StackPanel _labels = new() { Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+
     private readonly Path _icon = new()
     {
-        Width = 20, Stretch = Stretch.Uniform, StrokeThickness = 1.6,
-        StrokeLineCap = PenLineCap.Round, StrokeJoin = PenLineJoin.Round,
+        Width = 20,
+        Stretch = Stretch.Uniform,
+        StrokeThickness = 1.6,
+        StrokeLineCap = PenLineCap.Round,
+        StrokeJoin = PenLineJoin.Round,
         VerticalAlignment = VerticalAlignment.Center
     };
 
     private readonly Path _pin = new()
     {
-        Data = Icons.Pin, Width = 16, Stretch = Stretch.Uniform, StrokeThickness = 1.6,
+        Data = Icons.Pin,
+        Width = 16,
+        Stretch = Stretch.Uniform,
+        StrokeThickness = 1.6,
         VerticalAlignment = VerticalAlignment.Center
     };
 
@@ -59,18 +67,17 @@ public class ActionButton : Button
     public ActionButton()
     {
         Classes.Add("deck-action");
-        var labels = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
-        labels.Children.Add(_title);
-        labels.Children.Add(_description);
+        _labels.Children.Add(_title);
+        _labels.Children.Add(_description);
         var hints = new StackPanel
-            { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+        { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
         hints.Children.Add(_pin);
         hints.Children.Add(_glyph);
         hints.Children.Add(_hint);
         var layout = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 12 };
         layout.Children.Add(_icon);
-        Grid.SetColumn(labels, 1);
-        layout.Children.Add(labels);
+        Grid.SetColumn(_labels, 1);
+        layout.Children.Add(_labels);
         Grid.SetColumn(hints, 2);
         layout.Children.Add(hints);
         Content = layout;
@@ -115,11 +122,50 @@ public class ActionButton : Button
         set => SetValue(IsPinnedProperty, value);
     }
 
+    /// <summary>
+    ///     An optional control under the description, inside the command's own surface, such as a capacity meter
+    ///     that belongs to this row; null removes it. The footer is presentation only and takes no focus.
+    /// </summary>
+    internal Control? Footer
+    {
+        get;
+        set
+        {
+            if (ReferenceEquals(field, value))
+            {
+                return;
+            }
+
+            if (field is not null)
+            {
+                _labels.Children.Remove(field);
+            }
+
+            field = value;
+            if (value is not null)
+            {
+                value.Focusable = false;
+                _labels.Children.Add(value);
+            }
+        }
+    }
+
     /// <summary>Optional physical-controller render plan; null restores the textual activation hint.</summary>
     internal PhysicalGlyphRenderPlan? TrailingGlyph
     {
         get => GetValue(TrailingGlyphProperty);
         set => SetValue(TrailingGlyphProperty, value);
+    }
+
+    /// <summary>Copies the visible content of another row: title, description, icon and trailing hint.</summary>
+    /// <param name="source">The row to copy from; its state and callbacks are not copied.</param>
+    internal void CopyContentFrom(ActionButton source)
+    {
+        Title = source.Title;
+        Description = source.Description;
+        IconGeometry = source.IconGeometry;
+        TrailingText = source.TrailingText;
+        TrailingGlyph = source.TrailingGlyph;
     }
 
     /// <inheritdoc />

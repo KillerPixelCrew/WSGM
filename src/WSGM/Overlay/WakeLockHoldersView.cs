@@ -23,7 +23,7 @@ public sealed class WakeLockHoldersView : OverlaySubView
     protected override string LogScope => "Wake locks";
 
     /// <summary>Queries the current power requests and renders them.</summary>
-    public void Open()
+    public override void Open()
     {
         NavigationStack.Clear();
         CurrentLevel = null;

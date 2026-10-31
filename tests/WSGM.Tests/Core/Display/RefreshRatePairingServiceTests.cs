@@ -1,0 +1,395 @@
+using WindowsDeviceControl;
+using WSGM.Core;
+
+namespace WSGM.Tests.Core;
+
+public sealed class RefreshRatePairingServiceTests
+{
+    private static readonly int[] Advertised = [60, 120];
+    private static readonly int[] Accepted = [30, 48, 60, 75, 100, 120];
+
+    [Fact]
+    public void ApplyForCap_UnderCapOnly_TouchesTheDisplayAtAll()
+    {
+        Harness harness = new();
+
+        Assert.Null(harness.Service.ApplyForCap(30));
+
+        Assert.Empty(harness.Applied);
+    }
+
+    [Fact]
+    public void ApplyForCap_UnderFrameDoubling_AppliesTheLowestExactMultiple()
+    {
+        Harness harness = new();
+        harness.Service.SetStrategy(FrameLimitStrategy.FrameDoubling);
+
+        Assert.Equal(48, harness.Service.ApplyForCap(24));
+
+        Assert.Equal([48], harness.Applied);
+    }
+
+    [Fact]
+    public void ApplyForCap_UnderNativeModes_IgnoresASynthesizedMode()
+    {
+        Harness harness = new();
+        harness.Service.SetStrategy(FrameLimitStrategy.NativeModes);
+
+        // 48 divides only the synthesized 48 Hz, which this strategy may not use. It still gets an
+        // advertised mode that can present the cap — what it must not do is reach for the 48 Hz
+        // the driver merely accepts.
+        Assert.Equal(60, harness.Service.ApplyForCap(48));
+
+        Assert.Equal([60], harness.Applied);
+    }
+
+    [Fact]
+    public void ApplyForCap_DriverRefusingTheRate_ReportsNothingApplied()
+    {
+        Harness harness = new() { ApplySucceeds = false };
+        harness.Service.SetStrategy(FrameLimitStrategy.FrameDoubling);
+
+        Assert.Null(harness.Service.ApplyForCap(30));
+    }
+
+    [Fact]
+    public void Restore_PutsBackTheRateFoundBeforeTheFirstChange()
+    {
+        Harness harness = new();
+        harness.Service.SetStrategy(FrameLimitStrategy.FrameDoubling);
+        harness.Service.ApplyForCap(30);
+        harness.Service.ApplyForCap(24);
+
+        Assert.True(harness.Service.Restore());
+
+        // The original is captured once, so two cap changes still restore 120 rather than 60.
+        Assert.Equal([60, 48, 120], harness.Applied);
+    }
+
+    [Fact]
+    public void Restore_WithoutHavingChangedAnything_DoesNotTouchTheDisplay()
+    {
+        Harness harness = new();
+
+        Assert.True(harness.Service.Restore());
+
+        Assert.Empty(harness.Applied);
+    }
+
+    [Fact]
+    public void FailedRestoreRetainsTheOriginalForARetry()
+    {
+        Harness harness = new();
+        harness.Service.SetStrategy(FrameLimitStrategy.FrameDoubling);
+        harness.Service.ApplyForCap(30);
+        harness.ApplySucceeds = false;
+
+        Assert.False(harness.Service.Restore());
+        harness.ApplySucceeds = true;
+        Assert.True(harness.Service.Restore());
+
+        Assert.Equal([60, 120], harness.Applied);
+    }
+
+    [Fact]
+    public void SetStrategy_BackToCapOnly_HandsTheDisplayBackImmediately()
+    {
+        Harness harness = new();
+        harness.Service.SetStrategy(FrameLimitStrategy.FrameDoubling);
+        harness.Service.ApplyForCap(30);
+
+        harness.Service.SetStrategy(FrameLimitStrategy.FrameLimitOnly);
+
+        Assert.Equal([60, 120], harness.Applied);
+    }
+
+    [Fact]
+    public void Discovery_IsCachedAcrossCalls_BecauseEachRateCostsADriverRoundTrip()
+    {
+        Harness harness = new();
+        harness.Service.SetStrategy(FrameLimitStrategy.FrameDoubling);
+
+        harness.Service.ApplyForCap(30);
+        harness.Service.ApplyForCap(60);
+        _ = harness.Service.FrameLimitChoices();
+        _ = harness.Service.AcceptedRates();
+        harness.Service.TryApplyManual(60, 0);
+
+        Assert.Equal(1, harness.AcceptedReads);
+    }
+
+    [Fact]
+    public void WarmStateReadsDoNotQueryDisplayTopologyOrRediscoverRates()
+    {
+        Harness harness = new();
+        harness.Service.SetStrategy(FrameLimitStrategy.FrameDoubling);
+        var options = harness.Service.FrameLimitChoices().Options;
+        var reads = harness.OperatingPointReads;
+
+        for (var publication = 0; publication < 10; publication++)
+        {
+            _ = harness.Service.OperatingPointRevision;
+            _ = harness.Service.AcceptedRates();
+            _ = harness.Service.FrameLimitRange();
+            Assert.Equal(options, harness.Service.FrameLimitChoices().Options);
+        }
+
+        Assert.Equal(reads, harness.OperatingPointReads);
+        Assert.Equal(1, harness.AcceptedReads);
+        Assert.Equal(1, harness.AdvertisedReads);
+    }
+
+    [Fact]
+    public void InvalidationDoesNotReadTheDriverAndNextPublicationRefreshesTheSnapshot()
+    {
+        Harness harness = new();
+        _ = harness.Service.FrameLimitChoices();
+        var reads = harness.OperatingPointReads;
+
+        harness.Service.Invalidate();
+        Assert.Equal(reads, harness.OperatingPointReads);
+        _ = harness.Service.FrameLimitChoices();
+
+        Assert.True(harness.OperatingPointReads > reads);
+        Assert.Equal(2, harness.AcceptedReads);
+        Assert.Equal(2, harness.AdvertisedReads);
+    }
+
+    [Fact]
+    public void ConcurrentPublishersShareOneDiscovery()
+    {
+        var acceptedReads = 0;
+        var advertisedReads = 0;
+        RefreshRatePairingService service = new(
+            () =>
+            {
+                Interlocked.Increment(ref acceptedReads);
+                return Accepted;
+            },
+            () =>
+            {
+                Interlocked.Increment(ref advertisedReads);
+                return Advertised;
+            },
+            () => Point("display", 1920), (_, _) => true, _ => 120);
+
+        Parallel.For(0, 20, _ => service.FrameLimitChoices());
+
+        Assert.Equal(1, acceptedReads);
+        Assert.Equal(1, advertisedReads);
+    }
+
+    [Fact]
+    public void UnreadableDisplayIsCachedUntilANotificationInvalidatesIt()
+    {
+        DisplayOperatingPoint? point = null;
+        var reads = 0;
+        RefreshRatePairingService service = new(() => Accepted, () => Advertised,
+            () =>
+            {
+                reads++;
+                return point;
+            }, (_, _) => true, _ => 120);
+
+        Assert.Empty(service.AcceptedRates());
+        point = Point("connected", 1920);
+        Assert.Empty(service.AcceptedRates());
+        Assert.Equal(1, reads);
+
+        service.Invalidate();
+        Assert.Equal(Accepted, service.AcceptedRates());
+    }
+
+    [Fact]
+    public void WriteRevalidatesTheDisplayEvenWithoutANotification()
+    {
+        var point = Point("first", 1920);
+        List<string> writes = [];
+        RefreshRatePairingService service = new(
+            () => point.Target.DevicePath == "first" ? new[] { 60, 120 } : new[] { 72, 144 },
+            () => [], () => point,
+            (target, _) =>
+            {
+                writes.Add(target.DevicePath);
+                return true;
+            }, _ => 120);
+        Assert.Equal(new[] { 60, 120 }, service.AcceptedRates());
+        point = Point("second", 2560);
+
+        Assert.False(service.TryApplyManual(60, 0));
+        Assert.True(service.TryApplyManual(72, 0));
+        Assert.Equal(new[] { "second" }, writes);
+    }
+
+    [Fact]
+    public void NotificationDuringDiscoveryDiscardsResultsEvenWhenDisplayIdentityIsUnchanged()
+    {
+        var reads = 0;
+        RefreshRatePairingService service = null!;
+        service = new RefreshRatePairingService(
+            () =>
+            {
+                if (++reads == 1)
+                {
+                    service.Invalidate();
+                    return new[] { 60, 120 };
+                }
+
+                return new[] { 72, 144 };
+            }, () => [], () => Point("display", 1920), (_, _) => true, _ => 144);
+
+        Assert.Equal(new[] { 72, 144 }, service.AcceptedRates());
+        Assert.Equal(new[] { 72, 144 }, service.AcceptedRates());
+        Assert.Equal(2, reads);
+    }
+
+    [Fact]
+    public void TryApplyManual_UnderAPairingStrategyWithACap_IsRefused()
+    {
+        // The cap owns the refresh rate there; honouring the write would let the next cap change
+        // silently revert it.
+        Harness harness = new();
+        harness.Service.SetStrategy(FrameLimitStrategy.FrameDoubling);
+
+        Assert.False(harness.Service.TryApplyManual(60, 30));
+        Assert.Empty(harness.Applied);
+    }
+
+    [Fact]
+    public void TryApplyManual_WithNoCapInForce_AppliesEvenUnderAPairingStrategy()
+    {
+        // With the frame limit off there is no cadence to pair to, so the unified row's slider is
+        // the rate itself.
+        Harness harness = new();
+        harness.Service.SetStrategy(FrameLimitStrategy.FrameDoubling);
+
+        Assert.True(harness.Service.TryApplyManual(60, 0));
+        Assert.Equal([60], harness.Applied);
+    }
+
+    [Fact]
+    public void TryApplyManual_ARateDiscoveryDidNotAccept_NeverReachesTheDriver()
+    {
+        Harness harness = new();
+
+        Assert.False(harness.Service.TryApplyManual(59, 0));
+        Assert.Empty(harness.Applied);
+    }
+
+    [Fact]
+    public void TryApplyManual_IsUserOwned_SoRestoreDoesNotUndoIt()
+    {
+        Harness harness = new();
+
+        Assert.True(harness.Service.TryApplyManual(60, 0));
+        Assert.True(harness.Service.Restore());
+
+        Assert.Equal([60], harness.Applied);
+    }
+
+    [Fact]
+    public void DiscoveryDiscardedDuringDisplayChangeCannotBecomeTheNewDisplaysCache()
+    {
+        var first = Point("first", 1920);
+        var second = Point("second", 2560);
+        var current = first;
+        var reads = 0;
+        RefreshRatePairingService service = new(
+            () =>
+            {
+                if (++reads == 1)
+                {
+                    current = second;
+                    return new[] { 60, 120 };
+                }
+
+                return new[] { 72, 144 };
+            }, () => [], () => current, (_, _) => true, _ => 144);
+        Assert.Equal(new[] { 72, 144 }, service.AcceptedRates());
+        Assert.Equal(new[] { 72, 144 }, service.AcceptedRates());
+        Assert.Equal(2, reads);
+        current = second with { Width = 1920 };
+        service.Invalidate();
+        service.AcceptedRates();
+        Assert.Equal(3, reads);
+    }
+
+    [Fact]
+    public void OriginalsAreReadAndRestoredForTheirCapturedTargets()
+    {
+        var first = Point("first", 1920);
+        var second = Point("second", 2560);
+        var point = first;
+        List<(string Target, int Rate)> writes = [];
+        RefreshRatePairingService service = new(() => new[] { 60, 120 }, () => new[] { 60, 120 },
+            () => point,
+            (target, rate) =>
+            {
+                writes.Add((target.DevicePath, rate));
+                return true;
+            },
+            target => target.DevicePath == "first" ? 120 : 60);
+        service.SetStrategy(FrameLimitStrategy.FrameDoubling);
+        Assert.Equal(60, service.ApplyForCap(30));
+        point = second;
+        Assert.Equal(120, service.ApplyForCap(60));
+        Assert.True(service.Restore());
+        Assert.Contains(("first", 120), writes);
+        Assert.Contains(("second", 60), writes);
+    }
+
+    private static DisplayOperatingPoint Point(string path, int width)
+    {
+        return new DisplayOperatingPoint(
+            new DisplayTargetIdentity(path, null, null, path, 0, 0, 1), width, 1080, 32);
+    }
+
+    private sealed class Harness
+    {
+        public Harness()
+        {
+            Service = new RefreshRatePairingService(
+                () =>
+                {
+                    AcceptedReads++;
+                    return Accepted;
+                },
+                () =>
+                {
+                    AdvertisedReads++;
+                    return Advertised;
+                },
+                () =>
+                {
+                    OperatingPointReads++;
+                    return Point("display", 1920);
+                },
+                (_, rate) =>
+                {
+                    if (!ApplySucceeds)
+                    {
+                        return false;
+                    }
+
+                    Applied.Add(rate);
+                    Current = rate;
+                    return true;
+                },
+                _ => Current);
+        }
+
+        public RefreshRatePairingService Service { get; }
+
+        public List<int> Applied { get; } = [];
+
+        public int AcceptedReads { get; private set; }
+
+        public int AdvertisedReads { get; private set; }
+
+        public int OperatingPointReads { get; private set; }
+
+        public bool ApplySucceeds { get; set; } = true;
+
+        private int Current { get; set; } = 120;
+    }
+}

@@ -57,48 +57,6 @@ public sealed class DeviceOverlaySectionPagesTests
     }
 
     [Fact]
-    public void ASectionCardShowsTheMostSeriousStatusInside()
-    {
-        var snapshot = Snapshot(
-            Capability("ok", DeviceOverlaySection.PowerAndThermals),
-            Capability("bad", DeviceOverlaySection.PowerAndThermals, DescriptorStatus.Faulted),
-            Capability("warn", DeviceOverlaySection.PowerAndThermals, DescriptorStatus.Warning));
-
-        // A fault must not hide behind a healthy row on a page the user has not opened.
-        Assert.Equal(
-            DescriptorStatus.Faulted,
-            Assert.Single(DeviceOverlaySectionPages.Build(snapshot)).Status);
-    }
-
-    [Fact]
-    public void SeverityOrderIsStable()
-    {
-        // Worst first. Each is more serious than everything after it, in both argument orders.
-        DescriptorStatus[] descending =
-        [
-            DescriptorStatus.Faulted,
-            DescriptorStatus.ExternallyOwned,
-            DescriptorStatus.Warning,
-            DescriptorStatus.Stale,
-            DescriptorStatus.Unsupported,
-            DescriptorStatus.Available
-        ];
-
-        for (var worse = 0; worse < descending.Length; worse++)
-        {
-            for (var better = worse + 1; better < descending.Length; better++)
-            {
-                Assert.Equal(
-                    descending[worse],
-                    DeviceOverlaySectionPages.MoreSerious(descending[better], descending[worse]));
-                Assert.Equal(
-                    descending[worse],
-                    DeviceOverlaySectionPages.MoreSerious(descending[worse], descending[better]));
-            }
-        }
-    }
-
-    [Fact]
     public void GlyphSelectionGivesTheGlyphsSectionAPageOfItsOwn()
     {
         var snapshot = Snapshot() with
@@ -159,7 +117,7 @@ public sealed class DeviceOverlaySectionPagesTests
             Assert.True(navigation.Push(DeviceOverlaySectionPages.PageFor(section), "key"));
             Assert.Equal(OverlayDestination.Device, navigation.Destination);
             Assert.Equal(OverlayBackAction.LeaveNestedPage,
-                navigation.BackAction(new OverlayBackContext(false, false)));
+                navigation.BackAction(new OverlayBackContext(false)));
             Assert.Equal("key", navigation.Pop());
         }
     }
@@ -221,7 +179,7 @@ public sealed class DeviceOverlaySectionPagesTests
     }
 
     [Fact]
-    public void APluginSectionCardAggregatesItsRowsAndWorstStatus()
+    public void APluginSectionCardAggregatesItsRows()
     {
         var snapshot = Snapshot(
                 Placed("a", "power"),
@@ -234,7 +192,6 @@ public sealed class DeviceOverlaySectionPagesTests
             Assert.Single(DeviceOverlaySectionPages.Build(snapshot));
 
         Assert.Equal(3, entry.Count);
-        Assert.Equal(DescriptorStatus.Faulted, entry.Status);
     }
 
     [Fact]
@@ -278,9 +235,7 @@ public sealed class DeviceOverlaySectionPagesTests
             DeviceOverlaySection.Overview,
             OverlayPage.DevicePluginSection,
             "Power",
-            "",
-            1,
-            DescriptorStatus.Available)
+            1)
         {
             PluginSectionId = "power"
         };

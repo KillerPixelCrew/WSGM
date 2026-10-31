@@ -289,11 +289,11 @@ public sealed class DisplayPageViewsTests
             }, Timeout.InfiniteTimeSpan);
         await service.ReadAsync();
         DisplayBrightnessView view = new(service);
-        var slider = view.GetLogicalDescendants().OfType<Slider>().Single();
         Window window = new() { Content = view, Width = 500, Height = 200 };
         try
         {
             window.Show();
+            var slider = view.GetLogicalDescendants().OfType<Slider>().Single();
             Assert.Equal(43, slider.Value);
             brightness = 61;
             await service.ReadAsync();

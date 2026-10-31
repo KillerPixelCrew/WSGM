@@ -53,6 +53,13 @@ device detection, protocols and physical input; LibGPUDriverInteract owns vendor
 The common Plugin SDK is the extension contract. There is no separate Device SDK or device-package
 loader.
 
+Inside the application, `Core` holds nonvisual policy, configuration, persistence and recovery
+primitives, and `Shell` holds the live session, its managers and their integration adapters. Both
+are grouped into one folder per feature (`Device`, `Steam`, `Library`, `Performance`, `Session` and
+so on), and each top-level type has its own file. The folders do not change namespaces: everything
+under `Core` is `WSGM.Core` and everything under `Shell` is `WSGM.Shell`. The
+[source map](source-map.md#core-and-shell-feature-folders) lists the folders and the owners in them.
+
 ## Entry and recovery
 
 [`Program.Main`](../src/WSGM/Program.cs) is deliberately synchronous and marked `[STAThread]`.
@@ -79,12 +86,12 @@ crash-loop breaker and recovery checks are in [boot and shell](boot-and-shell.md
 
 ## Session composition
 
-[`ShellSession`](../src/WSGM/Shell/ShellSession.cs) starts admission and package work off the UI
-thread, then adopts live owners on the Avalonia dispatcher. Startup first attempts any recorded
-desktop restoration. It applies pending package removals before loading installed packages, starts
-the graphics capability owner and common plugin manager, and admits the optional device runtime.
-Partial startup is owned too: a coordinator created after shutdown was requested is shut down rather
-than abandoned.
+[`ShellSession`](../src/WSGM/Shell/Session/ShellSession.cs) starts admission and package work off
+the UI thread, then adopts live owners on the Avalonia dispatcher. Startup first attempts any
+recorded desktop restoration. It applies pending package removals before loading installed packages,
+starts the graphics capability owner and common plugin manager, and admits the optional device
+runtime. Partial startup is owned too: a coordinator created after shutdown was requested is shut
+down rather than abandoned.
 
 Device Integration off is a complete supported mode. It runs no native handheld lifecycle,
 controller target, device hardware writes or AutoTDP. Independent shell, overlay, Windows controls,
@@ -92,10 +99,23 @@ RTSS and admitted common plugins and built-in GPU drivers can still run. Common-
 and exact handheld detection are separate; see [device runtime](device-runtime.md) and
 [common plugins](plugin-system.md).
 
-The session constructs and owns the long-lived managers. A view receives a projection or service
-interface and reports user intent. It does not construct a second radio manager, CDP connection,
-device runtime or RTSS owner. There are intentional surface lifetimes: `OverlayController` owns
-capture/focus and overlay input claims, and a focused Settings window owns its input claim.
+`ShellSession` is the composition root, not the home of every manager. Its constructor builds
+focused parts over one shared `SessionState` (the configuration in force, the shell mode, shutdown
+admission and the session's cancellation): `IntegrationServices` for plugins, GPU and the device,
+`DevicePowerQueue` and `SessionPowerEvents` for suspend and resume, `PerformanceServices`,
+`SteamUiServices`, `StorageServices`, `LibraryServices`, `OverlayTools`, `SystemServices`,
+`GameModeSurfaces`, `SessionBoot`, `DesktopLifecycleActions`, `SessionCommands` and
+`GameModeEntryBackend`. Each part constructs and disposes its own services, wires its own events and
+supplies its slice of the shutdown. The session starts the parts in one fixed order, wires the
+events that cross them and applies a reloaded configuration to each in one fixed order.
+`SessionModes` keeps the transition gate; `SteamLifecycle`, `GameModeEntry` and `DesktopReturn` own
+Steam start and close, the entry attempts and the desktop return.
+
+The session constructs and owns the long-lived managers through those parts. A view receives a
+projection or service interface and reports user intent. It does not construct a second radio
+manager, CDP connection, device runtime or RTSS owner. There are intentional surface lifetimes:
+`OverlayController` owns capture/focus and overlay input claims, and a focused Settings window owns
+its input claim.
 
 Game Mode and Desktop Mode are two postures of this resident session. Desktop Mode is not a stopped
 native device or common-plugin runtime. Explorer remains the registered Windows shell; Game Mode
@@ -138,7 +158,7 @@ toolkit elements, styling and completion checks for both surfaces.
 
 ## Steam attachment and frontend code
 
-[`ShellSession.SteamUi.cs`](../src/WSGM/Shell/ShellSession.SteamUi.cs) owns the product gate:
+[`SteamUiServices`](../src/WSGM/Shell/Session/SteamUiServices.cs) owns the product gate:
 
 ```text
 master && holds ⊆ {BigPictureRequest} && ((!inGameMode && holds == ∅) || bigPictureReady)
@@ -176,10 +196,10 @@ above; the current runtime does not parse Steam logs for readiness. Follow the d
 
 ## State, threads and shutdown
 
-[`ConfigStore`](../src/WSGM/Core/ConfigStore.cs) owns serialized, fresh-state writer transactions
-and atomic publication. Startup may display defaults after an unreadable configuration; mutations
-must refuse that state. A reload replaces the configuration object and dispatches it to existing
-owners. Do not keep a mutable reference into the previous document. The
+[`ConfigStore`](../src/WSGM/Core/Config/ConfigStore.cs) owns serialized, fresh-state writer
+transactions and atomic publication. Startup may display defaults after an unreadable configuration;
+mutations must refuse that state. A reload replaces the configuration object and dispatches it to
+existing owners. Do not keep a mutable reference into the previous document. The
 [configuration guide](configuration.md) explains reads, migration, recovery copies and boot
 projection.
 
@@ -192,14 +212,17 @@ a native write that already began. High-rate controller, sensor and frametime pa
 logging and allocation. Diagnostics record decisions and transitions instead; see
 [logging](logging.md).
 
-[`ApplicationRuntime`](../src/WSGM/Core/ApplicationShutdown.cs) and
-[`ShellSession.Shutdown`](../src/WSGM/Shell/ShellSession.Shutdown.cs) converge normal exit, update,
-uninstall, startup failure and OS session end on one shutdown operation. The sequence first rejects
-new work, closes command/profile/import admission, cancels watchers and mode transitions, and
-disposes the overlay. It joins startup and in-flight owners before tearing down their dependencies,
-releases controller/HidHide ownership, stops integrations and restores desktop state where the exit
-reason requires it. Individual cleanup failures are collected so they cannot skip later cleanup. An
-OS session end prevents a competing Explorer restart. This is ordered restoration of WSGM's own
+[`ApplicationRuntime`](../src/WSGM/Core/Session/ApplicationRuntime.cs) and
+[`ShellSession`](../src/WSGM/Shell/Session/ShellSession.cs) converge normal exit, update, uninstall,
+startup failure and OS session end on one shutdown operation. `ShellSession.RunShutdownAsync` drives
+the order and hands each part its slice;
+[`ShutdownSteps`](../src/WSGM/Shell/Session/ShutdownSteps.cs) runs every step under the shared
+deadline and collects what failed. The sequence first rejects new work, closes
+command/profile/import admission, cancels watchers and mode transitions, and disposes the overlay.
+It joins startup and in-flight owners before tearing down their dependencies, releases
+controller/HidHide ownership, stops integrations and restores desktop state where the exit reason
+requires it. Individual cleanup failures are collected so they cannot skip later cleanup. An OS
+session end prevents a competing Explorer restart. This is ordered restoration of WSGM's own
 changes, not a promise that an unavailable device or Windows call can always be reversed.
 
 `ApplicationShutdownCoordinator.BudgetFor` allows 15 seconds for normal exit or startup failure, 10

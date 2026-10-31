@@ -175,10 +175,7 @@ public sealed class SettingsSaveMergeTests
         values.Profiles.Global.ControllerTarget = ManagedControllerTarget.Xbox360;
         values.DeviceIntegration.GlyphSelection = DeviceGlyphSelection.NativeSteam;
 
-        var fresh = AppConfigRules.Normalize(new AppConfig
-        {
-            LastSelectedPowerSchemeId = Guid.NewGuid()
-        }).Value;
+        var fresh = AppConfigRules.Normalize(new AppConfig()).Value;
         // Written by the running shell while the window was open: the entry it is still inside
         // owes the desktop this layout, and a save must not drop it.
         fresh.GameModeLaunchRecovery.PendingReturnLayout = new DisplayLayout([
@@ -208,9 +205,7 @@ public sealed class SettingsSaveMergeTests
             SharedEdits = ["SteamStorageFormatEnabled"]
         };
 
-        var savedPowerScheme = fresh.LastSelectedPowerSchemeId;
         var (merged, _) = SettingsSaveMerge.Apply(fresh, request, values.Splash);
-        Assert.Equal(savedPowerScheme, merged.LastSelectedPowerSchemeId);
 
         Assert.True(merged.SteamAutoRelaunch);
         Assert.Equal("#123456", merged.AccentColor);

@@ -8,6 +8,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Controls;
+using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Overlay;
 using WSGM.Shell;
@@ -72,10 +73,11 @@ public static class PreviewExports
                 Status = deviceName ?? "MSI Claw 8 AI+", Detail = "Device integration active",
                 Capabilities =
                 [
-                    .. capabilities.Select(view => DeviceOverlayBridge.ToOverlayCapability(view, ids)),
+                    .. capabilities.Select(view => CapabilityRowProjection.ToOverlayCapability(view, ids,
+                        FanCurvePresetTable.HandheldCompanion)),
                     graphics.VariableRefreshRow(ids)
                 ],
-                PluginSections = DeviceOverlayBridge.ProjectSections(sections), Recovery = null
+                PluginSections = CapabilityRowProjection.ProjectSections(sections), Recovery = null
             };
             var window = fixture.Overlay(width, height, scale);
             window.AttachDeviceBridge(device);

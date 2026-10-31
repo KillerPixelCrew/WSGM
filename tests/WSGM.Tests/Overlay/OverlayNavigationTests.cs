@@ -5,20 +5,19 @@ namespace WSGM.Tests.Overlay;
 public sealed class OverlayNavigationTests
 {
     [Theory]
-    [InlineData(true, true, true, true, false, true, (int)OverlayBackAction.ClosePopup)]
-    [InlineData(false, true, true, true, false, true, (int)OverlayBackAction.CloseSurface)]
-    [InlineData(false, true, false, true, false, true, (int)OverlayBackAction.NestedBack)]
-    [InlineData(false, true, false, false, false, true, (int)OverlayBackAction.CloseDialog)]
-    [InlineData(false, false, false, false, false, true, (int)OverlayBackAction.FocusRail)]
-    [InlineData(false, false, false, false, true, true, (int)OverlayBackAction.ReturnHome)]
-    [InlineData(false, false, false, false, false, false, (int)OverlayBackAction.LeaveNestedPage)]
-    public void BackUsesSurfaceAndRailContext(bool popup, bool dialog, bool surface, bool nested,
+    [InlineData(true, true, true, false, true, (int)OverlayBackAction.CloseSurface)]
+    [InlineData(true, false, true, false, true, (int)OverlayBackAction.NestedBack)]
+    [InlineData(true, false, false, false, true, (int)OverlayBackAction.CloseDialog)]
+    [InlineData(false, false, false, false, true, (int)OverlayBackAction.FocusRail)]
+    [InlineData(false, false, false, true, true, (int)OverlayBackAction.ReturnHome)]
+    [InlineData(false, false, false, false, false, (int)OverlayBackAction.LeaveNestedPage)]
+    public void BackUsesSurfaceAndRailContext(bool dialog, bool surface, bool nested,
         bool focusInRail, bool railCanTakeFocus, int expected)
     {
         OverlayNavigation navigation = new();
         navigation.Select(OverlayDestination.Steam);
         navigation.Push(OverlayPage.SteamLibraryTabs, "steam.library");
-        Assert.Equal((OverlayBackAction)expected, navigation.BackAction(new OverlayBackContext(popup, dialog, surface,
+        Assert.Equal((OverlayBackAction)expected, navigation.BackAction(new OverlayBackContext(dialog, surface,
             nested,
             focusInRail, railCanTakeFocus)));
     }
@@ -176,26 +175,25 @@ public sealed class OverlayNavigationTests
     }
 
     [Fact]
-    public void BackPriorityIsPopupThenDialogThenNestedThenQuickAccessThenOverlay()
+    public void BackPriorityIsDialogThenNestedThenQuickAccessThenOverlay()
     {
         OverlayNavigation navigation = new();
         navigation.Select(OverlayDestination.Steam);
         navigation.Push(OverlayPage.SteamCardManager, "steam.cards");
 
-        Assert.Equal(OverlayBackAction.ClosePopup, navigation.BackAction(new OverlayBackContext(true, true)));
-        Assert.Equal(OverlayBackAction.CloseDialog, navigation.BackAction(new OverlayBackContext(false, true)));
-        Assert.Equal(OverlayBackAction.LeaveNestedPage, navigation.BackAction(new OverlayBackContext(false, false)));
+        Assert.Equal(OverlayBackAction.CloseDialog, navigation.BackAction(new OverlayBackContext(true)));
+        Assert.Equal(OverlayBackAction.LeaveNestedPage, navigation.BackAction(new OverlayBackContext(false)));
 
         Assert.Equal("steam.cards", navigation.Pop());
-        Assert.Equal(OverlayBackAction.ReturnHome, navigation.BackAction(new OverlayBackContext(false, false)));
+        Assert.Equal(OverlayBackAction.ReturnHome, navigation.BackAction(new OverlayBackContext(false)));
 
         // Every other root behaves the same: Back returns to Quick access from it, and only
         // Quick access itself closes the sheet.
         navigation.Select(OverlayDestination.Steam);
-        Assert.Equal(OverlayBackAction.ReturnHome, navigation.BackAction(new OverlayBackContext(false, false)));
+        Assert.Equal(OverlayBackAction.ReturnHome, navigation.BackAction(new OverlayBackContext(false)));
 
         navigation.Select(OverlayDestination.QuickAccess);
-        Assert.Equal(OverlayBackAction.CloseOverlay, navigation.BackAction(new OverlayBackContext(false, false)));
+        Assert.Equal(OverlayBackAction.CloseOverlay, navigation.BackAction(new OverlayBackContext(false)));
     }
 
     [Fact]
@@ -237,7 +235,7 @@ public sealed class OverlayNavigationTests
 
         Assert.True(navigation.Push(OverlayPage.PowerSession, "power.session"));
         Assert.Equal(OverlayPage.PowerSession, navigation.Page);
-        Assert.Equal(OverlayBackAction.LeaveNestedPage, navigation.BackAction(new OverlayBackContext(false, false)));
+        Assert.Equal(OverlayBackAction.LeaveNestedPage, navigation.BackAction(new OverlayBackContext(false)));
         Assert.Equal("power.session", navigation.Pop());
         Assert.Equal(OverlayPage.Power, navigation.Page);
 

@@ -17,9 +17,8 @@ public sealed partial class OverlayController
     private Task _windowsReads = Task.CompletedTask;
 
     /// <summary>
-    ///     Reads the idle timeouts from the active power scheme into the
-    ///     Power tab's badges ("—" when the power API gives no answer), and says when Steam's
-    ///     screensaver holds a display timeout up.
+    ///     Reads the idle timeouts from the active power scheme into the Power tab's editors, with the
+    ///     bounds Steam's screensaver sets on the display timeouts.
     /// </summary>
     private void RefreshPowerTimeouts(OverlayViewModel vm)
     {
@@ -48,23 +47,10 @@ public sealed partial class OverlayController
             return;
         }
 
-        vm.DisplayDcTimeout = Format(timeouts.GetValueOrDefault(PowerTimeoutKind.DisplayDc));
-        vm.DisplayAcTimeout = Format(timeouts.GetValueOrDefault(PowerTimeoutKind.DisplayAc));
-        vm.DisplayDcDescription = DisplayTimeoutDescription(PowerTimeoutKind.DisplayDc);
-        vm.DisplayAcDescription = DisplayTimeoutDescription(PowerTimeoutKind.DisplayAc);
-        vm.SleepDcTimeout = Format(timeouts.GetValueOrDefault(PowerTimeoutKind.SleepDc));
-        vm.SleepAcTimeout = Format(timeouts.GetValueOrDefault(PowerTimeoutKind.SleepAc));
-        vm.PowerTimeoutMinimums = Enum.GetValues<PowerTimeoutKind>().ToDictionary(kind => kind,
-            kind => _displayTimeouts?.Minimum(kind));
-        vm.PowerTimeoutValues = Enum.GetValues<PowerTimeoutKind>().ToDictionary(kind => kind,
-            kind => timeouts.GetValueOrDefault(kind));
+        // Every kind is published, so a value the read did not return replaces the old one with null.
+        PublishPowerTimeouts(vm, Enum.GetValues<PowerTimeoutKind>().ToDictionary(kind => kind,
+            kind => timeouts.GetValueOrDefault(kind)));
         _displayTimeouts?.Observe(vm.PowerTimeoutValues);
-        return;
-
-        static string Format(int? seconds)
-        {
-            return seconds is null ? "—" : PowerTimeouts.Describe(seconds.Value);
-        }
     }
 
     /// <summary>
@@ -151,35 +137,17 @@ public sealed partial class OverlayController
         foreach (var (kind, seconds) in observed)
         {
             values[kind] = seconds;
-            var label = seconds is { } value ? PowerTimeouts.Describe(value) : "—";
-            switch (kind)
-            {
-                case PowerTimeoutKind.DisplayDc: vm.DisplayDcTimeout = label; break;
-                case PowerTimeoutKind.DisplayAc: vm.DisplayAcTimeout = label; break;
-                case PowerTimeoutKind.SleepDc: vm.SleepDcTimeout = label; break;
-                case PowerTimeoutKind.SleepAc: vm.SleepAcTimeout = label; break;
-            }
         }
 
-        vm.DisplayDcDescription = DisplayTimeoutDescription(PowerTimeoutKind.DisplayDc);
-        vm.DisplayAcDescription = DisplayTimeoutDescription(PowerTimeoutKind.DisplayAc);
         // The minimums do not notify: they are set first, and the values' change refreshes the editors.
         vm.PowerTimeoutMinimums = Enum.GetValues<PowerTimeoutKind>().ToDictionary(kind => kind,
             kind => _displayTimeouts?.Minimum(kind));
         vm.PowerTimeoutValues = values;
     }
 
-    /// <summary>The display row's description: the plain one, or the bound Steam's screensaver sets.</summary>
-    private string DisplayTimeoutDescription(PowerTimeoutKind kind)
-    {
-        return _displayTimeouts?.Minimum(kind) is { } minimum
-            ? $"Idle time before the display turns off; at least {PowerTimeouts.Describe(minimum)} for Steam's screensaver"
-            : OverlayViewModel.DisplayTimeoutDescription;
-    }
-
     /// <summary>
     ///     Polls the system-wide power-request list into the Keep Awake row's
-    ///     WakeWatch-style dot while the panel is open (~65 µs syscall, WakeWatch runs
+    ///     WakeWatch-style dot while the Wake page shows (~65 µs syscall, WakeWatch runs
     ///     it at 1 Hz permanently). Started per ShowOverlay, stopped with the panel.
     /// </summary>
     private void StartWakeLockRefresh()
@@ -197,7 +165,14 @@ public sealed partial class OverlayController
             {
                 Interval = TimeSpan.FromMilliseconds(1500)
             };
-            _wakeLockRefresh.Tick += (_, _) => RefreshWakeLockIndicator();
+            // Only the Wake page shows the indicator, so a tick while it is hidden reads nothing.
+            _wakeLockRefresh.Tick += (_, _) =>
+            {
+                if (_overlay?.KeepAwakeShowing == true)
+                {
+                    RefreshWakeLockIndicator();
+                }
+            };
         }
 
         _wakeLockRefresh.Start();

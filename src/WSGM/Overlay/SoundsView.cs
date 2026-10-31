@@ -167,7 +167,7 @@ public sealed class SoundsView : ServiceSubView
                 "Missing or incompatible sounds keep Steam defaults", Icons.Play,
                 () => Run(token => service.SelectAsync(id, token), "activate")), "sounds.activate"));
             var previews = new StackPanel { Spacing = 8 };
-            foreach (var asset in service.PreviewAssets(pack))
+            foreach (var asset in pack.Assets)
             {
                 var file = asset;
                 previews.Children.Add(Tagged(Row(file, "Preview this pack asset", Icons.Play,
@@ -276,19 +276,6 @@ public sealed class SoundsView : ServiceSubView
 
     private CollapsibleSection Section(string key, string title, Control body)
     {
-        var section = new CollapsibleSection(title, body) { IsExpanded = _expanded.Contains(key) };
-        section.Heading.Tag = key + ".expand";
-        section.ExpansionChanged += expanded =>
-        {
-            if (expanded)
-            {
-                _expanded.Add(key);
-            }
-            else
-            {
-                _expanded.Remove(key);
-            }
-        };
-        return section;
+        return CollapsibleSection.Persisted(title, body, _expanded, key, key + ".expand");
     }
 }

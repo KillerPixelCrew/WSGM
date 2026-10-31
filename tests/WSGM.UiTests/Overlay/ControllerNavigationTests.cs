@@ -137,20 +137,20 @@ public sealed class ControllerNavigationTests
             Visible = false,
             Capabilities = [],
             Controller = null,
-            PluginSections = DeviceOverlayBridge.ProjectSections(DeviceSectionLayout.IncludePredefined([]))
+            PluginSections = CapabilityRowProjection.ProjectSections(DeviceSectionLayout.IncludePredefined([]))
         };
         using FakeDevice device = new();
         device.SampleSource = source;
         device.State = state;
         using UiFixture fixture = new();
-        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower()),
-            _ => throw new InvalidOperationException("Unexpected power write")));
+        using var schemes = UiFixture.PowerProfiles(new FakePower());
         await schemes.RefreshAsync();
         var window = fixture.Overlay();
-        DeviceGlyphSelection? requested = null;
-        device.SelectGlyphs = selection =>
+        string? requested = null;
+        device.SelectHost = (row, value) =>
         {
-            requested = selection;
+            Assert.Equal(DeviceHostRowIds.GlyphSelection, row);
+            requested = value;
             return Task.CompletedTask;
         };
         window.AttachDeviceBridge(device);
@@ -172,7 +172,7 @@ public sealed class ControllerNavigationTests
         UiFixture.Click(window, glyphs);
         UiFixture.Key(window, Key.Down);
         UiFixture.Key(window, Key.Enter);
-        Assert.Equal(DeviceGlyphSelection.NativeSteam, requested);
+        Assert.Equal(nameof(DeviceGlyphSelection.NativeSteam), requested);
         UiFixture.Key(window, Key.Escape);
         Assert.True(controller.IsFocused);
         Assert.Contains("selected", controller.Classes);

@@ -194,6 +194,14 @@
   <Style Selector="Window.command-deck TextBlock.caption">
     <Setter Property="Foreground" Value="{StaticResource DeckSecondaryBrush}" />
   </Style>
+  <!-- A sub-view's progress or usage bar: accent fill on the deck surface, 6 DIP like Steam's meter. -->
+  <Style Selector="Window.command-deck ProgressBar.overlay-progress">
+    <Setter Property="MinHeight" Value="6" />
+    <Setter Property="Height" Value="6" />
+    <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="Foreground" Value="{DynamicResource HcAccentBrush}" />
+    <Setter Property="Background" Value="{StaticResource DeckSurfaceBrush}" />
+  </Style>
   <Style Selector="Window.command-deck Button.primary TextBlock.caption">
     <Setter Property="Foreground" Value="{DynamicResource HcOnAccentCaptionBrush}" />
   </Style>

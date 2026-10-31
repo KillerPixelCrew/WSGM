@@ -19,8 +19,8 @@ captures active paths in Windows priority order, identifies monitors by EDID man
 and serial when available, and skips a display whose name cannot be read rather than failing the
 rest. Friendly names and GDI `DISPLAY1` numbering are presentation metadata; adapter LUID and target
 ID are current route coordinates and are refreshed after hotplug. Enumeration is read-only. The
-library has no wait of its own: WSGM's `Shell\DisplayArrivalWaiter.cs` is the one display wait,
-settling on two equal `DisplayLayouts.Observe` fingerprints. That fingerprint covers target
+library has no wait of its own: WSGM's `Shell\Display\DisplayArrivalWaiter.cs` is the one display
+wait, settling on two equal `DisplayLayouts.Observe` fingerprints. That fingerprint covers target
 identity, availability, active status, placement, dimensions and refresh rate; it does not establish
 that rotation, HDR or scaling has settled. `DisplayTopology` captures topology for observation and
 diagnostics; its public API does not replay a captured native path array. `DisplayLayouts` holds the
@@ -31,10 +31,10 @@ acceptance as the result without reading it back; a refused application gets one
 snapshot, scaling and colour included. A failed rollback reports its own status, never a claim that
 the prior desktop was restored. `AlreadyActive` skips the topology write but still applies requested
 HDR and scaling. Every display write (layout, mode, scaling, HDR) shares one gate in the library,
-and its results are codes and native statuses; `Core\DisplayText.cs` words them for Settings, the
-overlay and the log. A layout output with rotation 0 keeps the display's current rotation. The
-design uses DisplayMagician as behavioral reference while the MIT library implementation comes from
-documented Windows CCD contracts rather than copied GPL source.
+and its results are codes and native statuses; `Core\Display\DisplayText.cs` words them for
+Settings, the overlay and the log. A layout output with rotation 0 keeps the display's current
+rotation. The design uses DisplayMagician as behavioral reference while the MIT library
+implementation comes from documented Windows CCD contracts rather than copied GPL source.
 
 ## Windows power schemes
 
@@ -64,9 +64,9 @@ takes.
 
 ### Sleeping again after an unexplained wake
 
-`Core\ModernStandbyPolicy` decides, and `Shell\ModernStandbyGuard` owns the subscriptions, the timer
-and the attempt count. Off by default and switched on from Settings > System > Power: it decides on
-its own to suspend the machine, so it is the user's to enable.
+`Core\Power\ModernStandbyPolicy` decides, and `Shell\Power\ModernStandbyGuard` owns the
+subscriptions, the timer and the attempt count. Off by default and switched on from Settings >
+System > Power: it decides on its own to suspend the machine, so it is the user's to enable.
 
 WSGM changes no power settings and arms no wake sources for it. The machine wakes normally and the
 guard only decides whether to put it back, so nothing global is left altered and nothing needs
@@ -95,8 +95,8 @@ escape.
 
 #### What the settings page reports
 
-`Core\ModernStandbyDiagnostics` reads Windows' own account for the row under the toggle. It reports
-three things and refuses a fourth:
+`Core\Power\ModernStandbyDiagnostics` reads Windows' own account for the row under the toggle. It
+reports three things and refuses a fourth:
 
 - whether the machine does S0 low-power idle at all, so a machine that cannot use the feature is
   told plainly instead of being offered it;
@@ -120,10 +120,10 @@ an attended measurement nobody has done yet.
 
 ### Processor core preference
 
-`Core\HybridCores` offers the same class of control for a hybrid CPU, on the Device Power page
-beside the energy plan and as a second dropdown on Steam's Performance tab. Both surfaces drive the
-one policy, so a change from either is the same write and the next read on the other reports it.
-Neither caches: activating a power scheme can carry a different preference with it.
+`Core\Performance\HybridCores` offers the same class of control for a hybrid CPU, on the Device
+Power page beside the energy plan and as a second dropdown on Steam's Performance tab. Both surfaces
+drive the one policy, so a change from either is the same write and the next read on the other
+reports it. Neither caches: activating a power scheme can carry a different preference with it.
 
 WSGM writes only Windows' thread scheduling policy for ordinary and short-running threads, which
 Windows itself names: performant processors, prefer performant, efficient, prefer efficient,
@@ -144,30 +144,29 @@ accepts it. No read follows the write, and a failed write never triggers a retry
 Windows remains authoritative through independent refreshes, including subsequent changes made by
 Settings or OEM tools. Native failures retain their error codes.
 
-Overlay → Device → Power offers a Windows power-profile dropdown, Apply and Refresh inside the
-Windows energy plan card, shown only once Windows has been read and enumerates more than one plan; a
-single plan is nothing to choose, and the card and its pin stay hidden. It stays available with
-Device Integration off. Choosing an entry stages it; only Apply writes Windows. The current scheme
-is read when the sheet opens, when Device is selected and on Refresh. Apply publishes its written
-selection. Duplicate names include their GUIDs. An unknown active scheme leaves the picker
-unselected; an empty or failed read disables Apply. A failed write keeps the published options
-available for another explicit attempt. QAM validates against its published option list and has no
-refresh-required write latch. Its first publication after an accepted write uses that value; later
-independent refreshes read Windows. Explicit display-timeout selections also write without a prior
-read and publish the accepted value. Preview mode allows reads only. Native calls and persistence
+Overlay → Device → Power offers a Windows power-profile dropdown inside the Windows energy plan
+card, shown only once Windows has been read and enumerates more than one plan; a single plan is
+nothing to choose, and the card and its pin stay hidden. It stays available with Device Integration
+off. It draws the same row Steam's Quick Access does, from `NativeQamPowerProfileService`: the same
+options, selection and status line. A settled choice writes Windows at once, as on Steam; browsing
+an open dropdown commits nothing. The current scheme is read when the sheet opens and when Device is
+selected. The write publishes its selection. Duplicate names include their GUIDs. An unknown active
+scheme leaves the picker unselected; an empty or failed read disables it. A failed write keeps the
+published options available for another explicit attempt. QAM validates against its published option
+list and has no refresh-required write latch. Its first publication after an accepted write uses
+that value; later independent refreshes read Windows. Explicit display-timeout selections also write
+without a prior read and publish the accepted value. Preview mode allows reads only. Native calls
 run off the UI thread, and closing the overlay discards late UI updates. Idle-timeout selectors
 refresh after the active scheme is read.
 
-The last accepted manual selection is saved as `LastSelectedPowerSchemeId`, a GUID in Core config.
-It is a reference, not an instruction to reapply at startup, config reload or a session transition.
-A failed save reports that Windows applied the scheme but WSGM could not save the reference; it does
-not undo or repeat the write. Timeout edits and scheme selection share one mutation gate so an
-idle-timeout edit cannot reactivate a stale scheme during selection.
+WSGM saves no copy of the selection: Windows keeps the active scheme, and WSGM never reapplies one
+at startup, config reload or a session transition. Timeout edits and scheme selection share one
+mutation gate so an idle-timeout edit cannot reactivate a stale scheme during selection.
 
-Synthetic tests cover the backend, selection workflow, persistence and Core-only Device navigation.
-No live power settings were changed for validation. No session-mode or per-application scheme policy
-is installed, and the selector has no device-plugin dependency. WSGM Settings configures WSGM
-itself; this Windows control belongs in the overlay and Steam QAM.
+Synthetic tests cover the backend, selection workflow and Core-only Device navigation. No live power
+settings were changed for validation. No session-mode or per-application scheme policy is installed,
+and the selector has no device-plugin dependency. WSGM Settings configures WSGM itself; this Windows
+control belongs in the overlay and Steam QAM.
 
 Steam QAM → Performance offers a Windows power profile dropdown, built on Valve's dropdown field,
 when Windows enumerates more than one plan; with one plan the row publishes no options and is not
@@ -181,9 +180,9 @@ validation; WSGM owns Windows access.
 
 ### Processor boost mode
 
-`Core\CpuBoost` is Handheld Companion's "CPU boost mode" as a per-game profile value, ported because
-some games run better with boost off (Doom: The Dark Ages) and others with it on (Sonic Frontiers).
-It writes Windows' `PERFBOOSTMODE` processor setting exactly as HC does
+`Core\Performance\CpuBoost` is Handheld Companion's "CPU boost mode" as a per-game profile value,
+ported because some games run better with boost off (Doom: The Dark Ages) and others with it on
+(Sonic Frontiers). It writes Windows' `PERFBOOSTMODE` processor setting exactly as HC does
 (`PerformanceManager.RequestPerfBoostMode`, `PowerScheme.WritePowerCfg`): HC's five choices,
 Disabled, Enabled, Aggressive, Efficient enabled and Efficient aggressive, as values 0 to 4; the
 setting revealed in Windows' own power options; plugged-in and battery written to the same value on
@@ -313,10 +312,10 @@ Custom values:
 `AppConfig.GameModeLaunch` says what entering and leaving Game Mode do to displays. It has two
 kinds, not four modes:
 
-- **Default** is the scaling posture in `Core\DisplayScale.cs`: capture every display's scaling,
-  drop them all to 100% so DPI-unaware games render 1:1, and restore on the way back. Nothing else
-  about the desktop changes. This is what the four retired modes collapse into, including the old
-  Off, which left a handheld running desktop scaling inside Big Picture.
+- **Default** is the scaling posture in `Core\Display\DisplayScale.cs`: capture every display's
+  scaling, drop them all to 100% so DPI-unaware games render 1:1, and restore on the way back.
+  Nothing else about the desktop changes. This is what the four retired modes collapse into,
+  including the old Off, which left a handheld running desktop scaling inside Big Picture.
 - **Custom** applies a saved `DisplayLayout`: which displays are on, which is primary, where each
   sits, its resolution, refresh rate, scaling and advanced-colour state. Settings edits these values
   directly. Copy current desktop is an optional starting point, not a prerequisite.
@@ -397,7 +396,7 @@ and spatial sound format. An endpoint is stored by its Core Audio ID with the fr
 had, so a profile keeps naming a device that is currently off or unplugged. Saving a profile never
 changes Windows audio.
 
-`Shell\AudioProfileService.cs` performs every Core Audio read and write off the dispatcher and
+`Shell\Audio\AudioProfileService.cs` performs every Core Audio read and write off the dispatcher and
 serializes them behind one gate, so the overlay, Steam Quick Access and a mode transition cannot
 interleave writes. Apply order is render endpoint, capture endpoint, volume and mute, device format,
 then spatial format; the format and spatial writes target the endpoint the profile selected, after
@@ -439,8 +438,8 @@ an observed refresh.
 ## Mute during screen-off downloads
 
 Keep-awake (below) lets the display time out while downloads continue, and Steam then plays a sound
-for every finished download into a dark room. `Shell\DisplayOffMuteService.cs` mutes for exactly
-that case. Config `MuteWhileDisplayOff`, default off, Settings → System → Power.
+for every finished download into a dark room. `Shell\Display\DisplayOffMuteService.cs` mutes for
+exactly that case. Config `MuteWhileDisplayOff`, default off, Settings → System → Power.
 
 The condition is the conjunction of three facts: the setting is enabled, this session's display is
 off, and Steam is actively downloading. Screen-off alone never mutes. A download that starts while
@@ -481,12 +480,13 @@ depends entirely on the notifications.
 ### A face button wakes a dark display
 
 Windows does not count gamepad input as activity, so a display the idle timeout switched off came
-back only for the power button. `Shell\ControllerDisplayWake` follows the same session display
-signal and, while it reports off, turns an A, B, X or Y press on the managed controller into one
-injected zero-distance mouse move, which Windows does count. The press itself is withheld from the
-game until released, so waking Big Picture does not also activate the focused item. It needs Device
-Integration and an unlocked session: a lock suspends the device cycle, and the lock screen does not
-accept injected input. The log records `Display off: a controller face button woke the display.`
+back only for the power button. `Shell\Controller\ControllerDisplayWake` follows the same session
+display signal and, while it reports off, turns an A, B, X or Y press on the managed controller into
+one injected zero-distance mouse move, which Windows does count. The press itself is withheld from
+the game until released, so waking Big Picture does not also activate the focused item. It needs
+Device Integration and an unlocked session: a lock suspends the device cycle, and the lock screen
+does not accept injected input. The log records
+`Display off: a controller face button woke the display.`
 
 ### The mute claim keeps the endpoint it muted
 
@@ -522,16 +522,16 @@ These are the remote test surface; keep their shape.
 
 ## Keep-awake wake lock
 
-`Core\WakeLock.cs` adapts Windows Device Control's `WindowsPowerRequest`, which owns the native
-handle and reason buffer. A system request blocks standby while held. The display still times out,
-but Wi-Fi and Steam keep running, which is what lets downloads survive "screen off" on a Modern
-Standby handheld. Downloads during real Modern Standby sleep are impossible for a Win32 application
-(DAM suspends every desktop process, no opt-out), so keep-awake is the whole feature, the same model
-as SteamOS "Display-Off Downloads". Windows limits it: indefinite on AC; on battery the request is
-force-terminated about 5 min after the sleep timeout expires; the power button always wins.
-Historical Claw evidence from 2026-08-12 covered the download hold across screen-off, the
-then-current manual cycle, indicator and idle-timeout rows. It does not validate the redesigned
-selectors introduced for #114.
+`Shell\Power\KeepAwakeService.cs` holds Windows Device Control's `WindowsPowerRequest` directly, one
+request per hold; the library owns the native handle and reason buffer. A system request blocks
+standby while held. The display still times out, but Wi-Fi and Steam keep running, which is what
+lets downloads survive "screen off" on a Modern Standby handheld. Downloads during real Modern
+Standby sleep are impossible for a Win32 application (DAM suspends every desktop process, no
+opt-out), so keep-awake is the whole feature, the same model as SteamOS "Display-Off Downloads".
+Windows limits it: indefinite on AC; on battery the request is force-terminated about 5 min after
+the sleep timeout expires; the power button always wins. Historical Claw evidence from 2026-08-12
+covered the download hold across screen-off, the then-current manual cycle, indicator and
+idle-timeout rows. It does not validate the redesigned selectors introduced for #114.
 
 There are two independent holds, each its own request so `powercfg /requests` attributes them.
 
@@ -542,11 +542,11 @@ Readback preserves an open draft and reconciles the resulting held state after t
 including partial or refused native changes. Acquisitions precede releases, and failed requests are
 not retried automatically.
 
-The automatic download hold (`Shell\KeepAwakeService.cs`, toolkit `SteamDownloadActivity`) polls
-`SteamClient.Downloads.RegisterForDownloadOverview` over the CEF bridge every 30 s as a one-shot
-subscribe/unsubscribe; it fires immediately with a snapshot (live Steam client). Active means
-`update_state != "None" && !paused`; the Windows client's active string is `Downloading`, not the
-`Updating` decky documents for Linux. Release is debounced by two consecutive inactive polls
+The automatic download hold (`Shell\Power\KeepAwakeService.cs`, toolkit `SteamDownloadActivity`)
+polls `SteamClient.Downloads.RegisterForDownloadOverview` over the CEF bridge every 30 s as a
+one-shot subscribe/unsubscribe; it fires immediately with a snapshot (live Steam client). Active
+means `update_state != "None" && !paused`; the Windows client's active string is `Downloading`, not
+the `Updating` decky documents for Linux. Release is debounced by two consecutive inactive polls
 (`KeepAwakeService.NextDownloadHold`) so queue gaps do not flap the hold, and an unreachable poll
 counts as inactive so a dead Steam cannot pin the device awake. The activity answer consumed by
 muting is stricter: an unreachable client preserves the prior answer, and only a usable idle
@@ -562,8 +562,8 @@ to the stale sample, or the hold sticks for the session.
 
 The Power tab row shows an indicator computed from the system-wide power-request list: green free,
 yellow standby-blocked, red display-pinned, grey unknown, WakeWatch's colour vocabulary on purpose.
-`Core\WakeLockStatus.cs` maps the list to a state plus a collapsed holder summary; WSGM's own pid
-colours the state but is excluded from the summary.
+`Core\Power\WakeLockStatus.cs` maps the list to a state plus a collapsed holder summary; WSGM's own
+pid colours the state but is excluded from the summary.
 
 A "What's keeping this awake" row opens `Overlay\WakeLockHoldersView.cs`, a Power-tab sub-view
 listing every requester, deduplicated on (label, detail, reason) so thirty identical Steam requests
@@ -583,9 +583,9 @@ panel is open.
 ### Idle-timeout rows
 
 The two screen-off rows never turn the display off before Steam's Big Picture screensaver may start.
-They select values through `Shell\DisplayTimeouts.cs`, the owner Steam's Screensaver settings rows
-share, which excludes presets below Steam's reported screensaver timeout and names that bound in the
-row's description. The bound and how it is enforced are in
+They select values through `Shell\Display\DisplayTimeouts.cs`, the owner Steam's Screensaver
+settings rows share, which excludes presets below Steam's reported screensaver timeout and names
+that bound in the row's description. The bound and how it is enforced are in
 [the Steam CEF system](steam-cef-system.md#screensaver-settings).
 
 Six selectors (screen-off, standby and hibernate, each for battery and plugged-in) offer 1, 3, 5,
@@ -596,15 +596,15 @@ hibernate; the hibernate rows are hidden while it cannot (hibernation off, or a 
 file), because the value would do nothing. On Modern Standby the hibernate timeout counts time spent
 in standby, not idle time, so it starts after the standby timeout. A popup stages browsing until it
 closes; confirmed choices enter an ordered background queue and re-read the active scheme before one
-write through `Core\PowerTimeouts.cs`, using Windows Device Control's policy-value API. Parsing
-`powercfg /q` was rejected: its output is localized, the same trap as netstat. The rows are a
-convenience over the active scheme, deliberately not snapshotted or restored.
+write through `Core\Power\PowerTimeouts.cs`, using Windows Device Control's policy-value API.
+Parsing `powercfg /q` was rejected: its output is localized, the same trap as netstat. The rows are
+a convenience over the active scheme, deliberately not snapshotted or restored.
 
 Every machine-wide power change, from scheme selection and these timeouts to processor boost, core
-placement and the power mode, takes the lock of the session's one `Core\PowerSchemes.cs` instance.
-`Core\WindowsPowerPolicy.cs` builds that instance and the owners that share it, and the session
-hands them to the overlay, Steam's Quick Access and the device presets, so a scheme switch cannot
-land between another owner's read of the active scheme and its write.
+placement and the power mode, takes the lock of the session's one `Core\Power\PowerSchemes.cs`
+instance. `Core\Power\WindowsPowerPolicy.cs` builds that instance and the owners that share it, and
+the session hands them to the overlay, Steam's Quick Access and the device presets, so a scheme
+switch cannot land between another owner's read of the active scheme and its write.
 
 ### Log lines
 
@@ -642,8 +642,8 @@ Both writes were dynamic before, with the menu restoring the mode found before i
 WSGM exited. An Ally X with 1120x630 saved came back at 1120x630 on every boot, and WSGM's exit put
 1120x630 back over the 1920x1080 the user had just picked (2026-10-20).
 
-Consequences encoded in `Core\FrameLimitPairing.cs`, `Core\PrimaryDisplayModes.cs` and
-`Core\RefreshRatePairingService.cs`:
+Consequences encoded in `Core\Display\FrameLimitPairing.cs`, `Core\Display\PrimaryDisplayModes.cs`
+and `Core\Display\RefreshRatePairingService.cs`:
 
 - Enumeration alone cannot tell an advertised mode from a synthesized one, so the native-modes
   strategy needs the EDID. Without it that strategy would silently equal full frame doubling.
@@ -754,16 +754,16 @@ write is verified; the split itself is not.
 
 ## Source routes
 
-| Concern                                    | WSGM policy and lifecycle                                                                                                                                                                                             |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Windows scheme, mode and processor policy  | [WindowsPowerPolicy](../src/WSGM/Core/WindowsPowerPolicy.cs), [PowerSchemes](../src/WSGM/Core/PowerSchemes.cs), [WindowsPowerModes](../src/WSGM/Core/WindowsPowerModes.cs)                                            |
-| Device presets and AC/DC assignments       | [DevicePowerPresets](../src/WSGM/Shell/DevicePowerPresets.cs), [DevicePowerAssignments](../src/WSGM/Shell/DevicePowerAssignments.cs), [PowerLimitProjection](../src/WSGM/Shell/PowerLimitProjection.cs)               |
-| Display entry and return                   | [GameModeEntryTransaction](../src/WSGM/Shell/GameModeEntryTransaction.cs), [DesktopReturnSequence](../src/WSGM/Shell/DesktopReturnSequence.cs), [GameModeReturnRecovery](../src/WSGM/Shell/GameModeReturnRecovery.cs) |
-| Connected-display settling and diagnostics | [DisplayArrivalWaiter](../src/WSGM/Shell/DisplayArrivalWaiter.cs), [DisplayLayoutDiagnostics](../src/WSGM/Shell/DisplayLayoutDiagnostics.cs)                                                                          |
-| Resolution, cadence and scaling            | [DisplayResolutionService](../src/WSGM/Core/DisplayResolutionService.cs), [RefreshRatePairingService](../src/WSGM/Core/RefreshRatePairingService.cs), [DisplayScale](../src/WSGM/Core/DisplayScale.cs)                |
-| Audio profile capture/apply                | [AudioProfileService](../src/WSGM/Shell/AudioProfileService.cs)                                                                                                                                                       |
-| Session display signals and download mute  | [ShellDisplaySignals](../src/WSGM/Shell/ShellDisplaySignals.cs), [DisplayPowerSignal](../src/WSGM/Shell/DisplayPowerSignal.cs), [DisplayOffMuteService](../src/WSGM/Shell/DisplayOffMuteService.cs)                   |
-| Keep awake and timeout choices             | [KeepAwakeService](../src/WSGM/Shell/KeepAwakeService.cs), [WakeLock](../src/WSGM/Core/WakeLock.cs), [DisplayTimeouts](../src/WSGM/Shell/DisplayTimeouts.cs)                                                          |
+| Concern                                    | WSGM policy and lifecycle                                                                                                                                                                                                                                                                                        |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Windows scheme, mode and processor policy  | [WindowsPowerPolicy](../src/WSGM/Core/Power/WindowsPowerPolicy.cs), [PowerSchemes](../src/WSGM/Core/Power/PowerSchemes.cs), [WindowsPowerModes](../src/WSGM/Core/Power/WindowsPowerModes.cs)                                                                                                                     |
+| Device presets and AC/DC assignments       | [DevicePowerPolicy](../src/WSGM/Shell/Device/DevicePowerPolicy.cs), [DevicePowerPresets](../src/WSGM/Shell/Device/DevicePowerPresets.cs), [DevicePowerAssignments](../src/WSGM/Shell/Device/DevicePowerAssignments.cs), [IntegerRangeProjection](../src/WSGM/Shell/Device/IntegerRangeProjection.cs)             |
+| Display entry and return                   | [GameModeEntryTransaction](../src/WSGM/Shell/Desktop/GameModeEntryTransaction.cs), [DesktopReturnSequence](../src/WSGM/Shell/Desktop/DesktopReturnSequence.cs), [GameModeReturnRecovery](../src/WSGM/Shell/Desktop/GameModeReturnRecovery.cs)                                                                    |
+| Connected-display settling and diagnostics | [DisplayArrivalWaiter](../src/WSGM/Shell/Display/DisplayArrivalWaiter.cs), [DisplayLayoutDiagnostics](../src/WSGM/Shell/Display/DisplayLayoutDiagnostics.cs)                                                                                                                                                     |
+| Resolution, cadence and scaling            | [DisplayResolutionService](../src/WSGM/Core/Display/DisplayResolutionService.cs), [RefreshRatePairingService](../src/WSGM/Core/Display/RefreshRatePairingService.cs), [DisplayScale](../src/WSGM/Core/Display/DisplayScale.cs)                                                                                   |
+| Audio profile capture/apply                | [AudioProfileService](../src/WSGM/Shell/Audio/AudioProfileService.cs)                                                                                                                                                                                                                                            |
+| Session display signals and download mute  | [ShellDisplayPresence](../src/WSGM/Shell/Display/ShellDisplayPresence.cs), [ShellDisplayChangeSignal](../src/WSGM/Shell/Display/ShellDisplayChangeSignal.cs), [DisplayPowerSignal](../src/WSGM/Shell/Display/DisplayPowerSignal.cs), [DisplayOffMuteService](../src/WSGM/Shell/Display/DisplayOffMuteService.cs) |
+| Keep awake and timeout choices             | [KeepAwakeService](../src/WSGM/Shell/Power/KeepAwakeService.cs), [WakeLockHolders](../src/WSGM/Core/Power/WakeLockHolders.cs), [DisplayTimeouts](../src/WSGM/Shell/Display/DisplayTimeouts.cs)                                                                                                                   |
 
 Reusable Windows calls and their result contracts are documented in the
 [Windows Device Control reference](../external/windows-device-control/README.md). GPU-specific

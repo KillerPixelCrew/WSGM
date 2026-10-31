@@ -29,13 +29,13 @@ commands through the host; they do not attach their own CDP clients.
 
 ## Layer ownership
 
-| Owner                | Responsibilities                                                                                                                                                                                              | Primary locations                                                                           |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| WSGM shell           | Readiness, feature policy, module registration, state publication, command routing, WSGM backends                                                                                                             | `src/WSGM/Shell/SteamUi*`, `src/WSGM/Shell/NativeQam*`                                      |
-| WSGM core            | WSGM-only policy on top of those calls: library tabs, card badge, download sort, which artwork slot, which launch wrapper, which card's library, glyph delivery                                               | `src/WSGM/Core/Steam*.cs`, `src/WSGM/Core/Library*.cs`, `src/WSGM/Core/SteamUiAssets`       |
-| SteamUiToolkit       | CDP discovery/transport, generations, bridge, patch lifecycle, ownership primitives, Steam module contracts, reusable Valve-backed surfaces and rows, and the client layer that reads and drives Steam itself | `external/steam-ui-toolkit/src`, `external/steam-ui-toolkit/tests`                          |
-| WindowsDeviceControl | Reusable Windows audio, radio, brightness, and related OS device primitives below WSGM policy                                                                                                                 | `external/windows-device-control/src`, `external/windows-device-control/tests`              |
-| Generated boundary   | One composed runtime asset, hashed by the catalog when it loads                                                                                                                                               | `src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js`, `src/WSGM/Core/SteamUiAssetCatalog.cs` |
+| Owner                | Responsibilities                                                                                                                                                                                              | Primary locations                                                                                                                                                                                                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| WSGM shell           | Readiness, feature policy, module registration, state publication, command routing, WSGM backends                                                                                                             | `src/WSGM/Shell/Steam/` (`SteamUiSessionHost`, `SteamUiModuleCatalog`, `SteamUiPatchSwitches`, `SteamUiBackends`), `src/WSGM/Shell/Session/SteamUiServices.cs`, each feature's `Steam*Surface` and `NativeQam*` adapters in its `src/WSGM/Shell/<Feature>/` folder |
+| WSGM core            | WSGM-only policy on top of those calls: library tabs, card badge, download sort, which artwork slot, which launch wrapper, which card's library, glyph delivery                                               | `src/WSGM/Core/Steam/`, `src/WSGM/Core/Library/`, `src/WSGM/Core/SteamUiAssets`                                                                                                                                                                                    |
+| SteamUiToolkit       | CDP discovery/transport, generations, bridge, patch lifecycle, ownership primitives, Steam module contracts, reusable Valve-backed surfaces and rows, and the client layer that reads and drives Steam itself | `external/steam-ui-toolkit/src`, `external/steam-ui-toolkit/tests`                                                                                                                                                                                                 |
+| WindowsDeviceControl | Reusable Windows audio, radio, brightness, and related OS device primitives below WSGM policy                                                                                                                 | `external/windows-device-control/src`, `external/windows-device-control/tests`                                                                                                                                                                                     |
+| Generated boundary   | One composed runtime asset, hashed by the catalog when it loads                                                                                                                                               | `src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js`, `src/WSGM/Core/Steam/SteamUiAssetCatalog.cs`                                                                                                                                                                  |
 
 The toolkit is a pinned submodule dependency, not a source staging folder. If behavior is reusable
 by another host, implement it in the toolkit and make WSGM a thin adapter. If behavior is
@@ -166,11 +166,12 @@ the game page in view, and the running-app observer `SteamRunningAppsProbe` read
 patches; nothing is installed in the page except that one observer, which its lease removes.
 
 A new call against `SteamClient.*` or a Steam store belongs there, not in WSGM. WSGM keeps the
-policy above it: `Core\SteamLibraryFolders.cs` resolves a card's content id to one library path and
-refuses an ambiguous one, `Core\SteamLaunchConfig.cs` owns the launch wrapper,
-`Core\SteamArtwork.cs` owns slot rules and local art lookup, `Shell\KeepAwakeService.cs` owns what a
-download sample means for the wake lock, and `Shell\RunningApplicationTarget.cs` owns RTSS pairing
-and the projection.
+policy above it: `Core\Library\SteamLibraryFolders.cs` resolves a card's content id to one library
+path and refuses an ambiguous one, `Core\Steam\SteamLaunchConfig.cs` owns the launch wrapper,
+`Core\Artwork\SteamArtwork.cs` owns slot rules and local art lookup,
+`Shell\Power\KeepAwakeService.cs` owns what a download sample means for the wake lock, and
+`Shell\Applications\RunningApplicationMonitor.cs` with `RunningApplicationTargetProjection.cs` owns
+RTSS pairing and the projection.
 
 ## UI ownership and required Overlay parity
 

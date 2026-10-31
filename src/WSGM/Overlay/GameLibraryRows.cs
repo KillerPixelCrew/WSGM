@@ -20,7 +20,7 @@ internal static class GameLibraryRows
     internal static string Describe(GameLibraryEntry entry)
     {
         List<string> parts = [entry.ActionLabel, entry.LaunchLabel];
-        if (IsUnavailable(entry))
+        if (entry.Unavailable)
         {
             parts.Add(entry.AvailabilityLabel);
         }
@@ -31,11 +31,6 @@ internal static class GameLibraryRows
         }
 
         return string.Join(" · ", parts);
-    }
-
-    internal static bool IsUnavailable(GameLibraryEntry entry)
-    {
-        return entry.Unavailable;
     }
 
     /// <summary>Whether a title is already in Steam as an entry the library manages.</summary>
@@ -243,9 +238,3 @@ internal static class GameLibraryRows
         }
     }
 }
-
-/// <summary>One location on the Storage page: a card library, a disk or a drive, and its shortcuts.</summary>
-/// <param name="Name">The location's name.</param>
-/// <param name="Library">The card library this group is, or null for a disk or drive.</param>
-/// <param name="Shortcuts">Its shortcuts, by name.</param>
-internal sealed record StorageGroup(string Name, GameLibraryStorage? Library, IReadOnlyList<ShortcutStatus> Shortcuts);

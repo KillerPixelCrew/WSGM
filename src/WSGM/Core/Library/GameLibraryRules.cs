@@ -27,8 +27,7 @@ internal static class GameLibraryRules
     ///     of the document by <see cref="AppConfigRules" />.
     /// </summary>
     /// <param name="library">The section to repair in place.</param>
-    /// <returns>An empty diagnostic list; these repairs do not produce warning entries.</returns>
-    internal static IReadOnlyList<string> Normalize(GameLibraryConfig library)
+    internal static void Normalize(GameLibraryConfig library)
     {
         library.DisabledSources =
         [
@@ -84,7 +83,5 @@ internal static class GameLibraryRules
                 && (source.RomPath is { AbsolutePath.Length: > 0 } || Path.IsPathFullyQualified(source.Target))
                 && ids.Add(source.Id))
         ];
-
-        return [];
     }
 }

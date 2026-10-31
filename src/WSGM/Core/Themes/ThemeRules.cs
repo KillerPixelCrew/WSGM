@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 
 namespace WSGM.Core;
@@ -9,8 +8,7 @@ internal static class ThemeRules
 {
     /// <summary>Repairs the themes section: a known translation branch and a clean hidden list.</summary>
     /// <param name="themes">The section.</param>
-    /// <returns>An empty diagnostic list; these repairs do not produce warning entries.</returns>
-    internal static IReadOnlyList<string> Normalize(ThemesConfig themes)
+    internal static void Normalize(ThemesConfig themes)
     {
         themes.TranslationsBranch = themes.TranslationsBranch?.Trim().ToLowerInvariant() switch
         {
@@ -25,6 +23,5 @@ internal static class ThemeRules
             .Select(static name => name.Trim())
             .Distinct(StringComparer.Ordinal)
         ];
-        return [];
     }
 }

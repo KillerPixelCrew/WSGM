@@ -12,10 +12,11 @@ the logon service, setup, the IR package host and the Steam UI toolkit.
 - Do not initialize the production Log singleton. Capture diagnostics through injected sinks or test-local abstractions.
 - Name tests for the observable contract and cover success, rejection, cancellation, partial failure, repetition, and
   cleanup where relevant.
-- Test files sit in the folder of the production type they cover (Core, Shell, Overlay and so on), and tests for one
-  type share one class. Keep test-only helpers in this project: in Fakes and Builders once more than one test class
-  needs them. Helpers several test projects need live in tests/Shared, linked as source, with an MIT SPDX header and no
-  xUnit API. Do not add production branches solely to make a test convenient.
+- Test files sit in the folder of the production type they cover (Core, Shell, Overlay and so on); Core and Shell tests
+  mirror the feature folders, so a test of `src/WSGM/Shell/Device/DeviceCoordinator.cs` lives in Shell/Device. Tests
+  for one type share one class. Keep test-only helpers in this project: in Fakes and Builders once more than one test
+  class needs them. Helpers several test projects need live in tests/Shared, linked as source, with an MIT SPDX header
+  and no xUnit API. Do not add production branches solely to make a test convenient.
 - A test of an owner's lifecycle awaits the completion the owner exposes (its `StopAsync`, a tracked work task, or a
   `TaskCompletionSource` a fake signals) or advances a fake clock. `AsyncConditions.WaitForAsync` only observes
   eventual state; never use it to wait for order or call counts. Replace an existing polling call when the change that

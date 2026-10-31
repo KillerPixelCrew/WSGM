@@ -1,70 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 
 namespace WSGM.Core;
-
-/// <summary>Image asset identities and formats.</summary>
-/// <remarks>
-///     An asset is named by the SHA-256 of its bytes and its format, so the same screenshot inserted twice is
-///     one file, and a name can never point at different content.
-/// </remarks>
-public static partial class NoteAssets
-{
-    /// <summary>Whether a value is a well-formed asset id.</summary>
-    /// <param name="asset">The candidate.</param>
-    /// <returns>True for 64 lowercase hexadecimal digits and a <c>.jpg</c> or <c>.png</c> extension.</returns>
-    public static bool IsAssetId(string? asset)
-    {
-        return asset is not null && AssetPattern().IsMatch(asset);
-    }
-
-    /// <summary>The image format declared by an image's first bytes.</summary>
-    /// <param name="bytes">The encoded image.</param>
-    /// <returns><c>jpg</c>, <c>png</c>, or null for anything else.</returns>
-    public static string? FormatOf(ReadOnlySpan<byte> bytes)
-    {
-        if (bytes.Length >= 8 && bytes[0] == 0x89 && bytes[1] == (byte)'P' && bytes[2] == (byte)'N'
-            && bytes[3] == (byte)'G' && bytes[4] == 0x0D && bytes[5] == 0x0A && bytes[6] == 0x1A && bytes[7] == 0x0A)
-        {
-            return "png";
-        }
-
-        return bytes.Length >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF ? "jpg" : null;
-    }
-
-    /// <summary>The MIME type for an asset id.</summary>
-    /// <param name="asset">A well-formed asset id.</param>
-    /// <returns><c>image/png</c> or <c>image/jpeg</c>.</returns>
-    public static string MimeOf(string asset)
-    {
-        return asset.EndsWith(".png", StringComparison.Ordinal) ? "image/png" : "image/jpeg";
-    }
-
-    [GeneratedRegex("^[0-9a-f]{64}\\.(jpg|png)$", RegexOptions.CultureInvariant)]
-    private static partial Regex AssetPattern();
-}
-
-/// <summary>What <see cref="NoteStore.Load" /> found.</summary>
-/// <param name="Pages">Every readable page.</param>
-/// <param name="Settings">The settings, or defaults when there were none.</param>
-/// <param name="SetAside">Files that did not parse and were moved aside, for the log.</param>
-/// <param name="ReadOnlyPages">Pages written by a newer WSGM; listed but never rewritten.</param>
-public sealed record NoteStoreSnapshot(
-    IReadOnlyList<NotePage> Pages,
-    NoteSettings Settings,
-    IReadOnlyList<string> SetAside,
-    IReadOnlySet<string> ReadOnlyPages);
-
-/// <summary>A Notes file could not be read or written; nothing was changed on its account.</summary>
-/// <param name="message">What went wrong, in words a page can show.</param>
-/// <param name="inner">The underlying failure.</param>
-public sealed class NoteStoreException(string message, Exception? inner = null) : Exception(message, inner);
 
 /// <summary>The Notes files on disk: one small file per page, one file per image, and the settings.</summary>
 /// <remarks>
@@ -182,8 +123,12 @@ public sealed class NoteStore
     /// <exception cref="NoteStoreException">The bytes are not a PNG or JPEG, or could not be written.</exception>
     public string AddAsset(byte[] bytes)
     {
-        var format = NoteAssets.FormatOf(bytes)
-                     ?? throw new NoteStoreException("Only PNG and JPEG images can be added to a note.");
+        var format = ImageHeader.Format(bytes);
+        if (format is not ("png" or "jpg"))
+        {
+            throw new NoteStoreException("Only PNG and JPEG images can be added to a note.");
+        }
+
         var asset = Convert.ToHexStringLower(SHA256.HashData(bytes)) + "." + format;
         var path = AssetPath(asset);
         if (File.Exists(path))
@@ -308,8 +253,7 @@ public sealed class NoteStore
             var settings = JsonSerializer.Deserialize(File.ReadAllBytes(SettingsPath),
                 NoteJsonContext.Default.NoteSettings) ?? new NoteSettings();
             settings.NotebookTitles ??= new Dictionary<string, string>(StringComparer.Ordinal);
-            settings.CaptureCountdownSeconds = Math.Clamp(settings.CaptureCountdownSeconds,
-                NoteSettings.MinimumCountdown, NoteSettings.MaximumCountdown);
+            settings.CaptureCountdownSeconds = NoteSettings.ClampCountdown(settings.CaptureCountdownSeconds);
             return settings;
         }
         catch (JsonException ex)
@@ -367,11 +311,9 @@ public sealed class NoteStore
 
     private static string? SetAside(string file)
     {
-        var aside = file + ".bad." + DateTime.UtcNow.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture)
-                    + Path.GetExtension(file);
         try
         {
-            File.Move(file, aside, false);
+            var aside = AtomicFile.SetAside(file);
             Log.Warn($"Notes: kept the unreadable file as {Path.GetFileName(aside)}.");
             return aside;
         }

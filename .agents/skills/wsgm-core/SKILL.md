@@ -41,7 +41,11 @@ build.
 - `Core` owns nonvisual policy, strict configuration, recovery primitives, package policy, and
   integration-independent services.
 - `Shell` owns the live session, manager composition, session transitions, reconciliation, and
-  deterministic teardown.
+  deterministic teardown. `Shell/Session/ShellSession` composes focused session parts; it does not
+  hold every manager itself.
+- Both are grouped into feature folders (`Core/<Feature>/`, `Shell/<Feature>/`) with one top-level
+  type per file and unchanged `WSGM.Core`/`WSGM.Shell` namespaces. A new file goes into its owner's
+  folder and its tests into the mirrored test folder; the source map lists the folders.
 - Settings/Overlay views report user intent and project state. Their owning windows/controllers may
   hold a bounded surface lifetime: `SettingsWindow` has a focused Steam Input lease, and
   `OverlayController` owns overlay capture, focus, cursor, and lease transitions. Feature controls

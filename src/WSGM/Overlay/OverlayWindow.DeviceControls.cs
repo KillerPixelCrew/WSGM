@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
@@ -62,7 +61,8 @@ public partial class OverlayWindow
             (source, token) => source.InvokeAsync(current with { NextValue = value }, token));
     }
 
-    private DeviceCapabilityControl CreateDeviceCapabilityRow(DeviceOverlayCapability capability, string key)
+    private DeviceCapabilityControl CreateDeviceCapabilityRow(DeviceOverlayCapability capability, string key,
+        int? temperature)
     {
         return new DeviceCapabilityControl(capability, key, WriteDeviceValue, async seen =>
         {
@@ -81,31 +81,6 @@ public partial class OverlayWindow
 
             await RunCommandAsync(bridge, "Device capability action",
                 (source, token) => source.InvokeAsync(current, token));
-        }, DeviceTemperature(), id => RunCommandAsync(_deviceBridge, "Use global",
-            (source, token) => source.UseGlobalAsync(id, token)));
-    }
-
-    private int? DeviceTemperature()
-    {
-        return _deviceBridge?.Snapshot().Capabilities.FirstOrDefault(capability =>
-                capability.Role == CapabilityRole.Telemetry && capability.Unit == CapabilityUnit.Celsius)?.CurrentValue
-            ?.IntegerValue;
-    }
-
-    private DeviceSettingRow CreateGlyphSelectionRow(DescriptorRow descriptor, DeviceGlyphSelection selected)
-    {
-        return DeviceControlRows.Choice(descriptor.Id, descriptor.Title, descriptor.Description,
-            Enum.GetValues<DeviceGlyphSelection>().Select(value => new CapabilityChoice(((int)value).ToString(),
-                new CapabilityDisplay
-                {
-                    Key = DisplayKey.Custom, CustomLabel = value switch
-                    {
-                        DeviceGlyphSelection.Automatic => "Automatic",
-                        DeviceGlyphSelection.NativeSteam => "Steam native",
-                        _ => "Reviewed device profile"
-                    }
-                })).ToArray(), ((int)selected).ToString(), descriptor.CanInvoke,
-            value => _ = RunCommandAsync(_deviceBridge, "Glyph selection", (source, token) =>
-                source.SetPhysicalGlyphSelectionAsync((DeviceGlyphSelection)int.Parse(value), token)));
+        }, temperature, UseGlobalOnDevice);
     }
 }

@@ -1,0 +1,266 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using SteamUiToolkit;
+using WSGM.Device.Sdk.Capabilities;
+
+namespace WSGM.Shell;
+
+/// <summary>The GPU capability projection shared by Quick Access and Steam's Display settings.</summary>
+/// <remarks>
+///     <para>
+///         The graphics packages' controls, drawn with Steam's own Settings components by the toolkit's
+///         renderer: one sidebar page per adapter and per display, as Intel Graphics Software has a tab
+///         for each, and one Steam section per category the package declares. It reads the same
+///         projection as the overlay's Device GPU section, so the two cannot disagree about a row.
+///     </para>
+///     <para>
+///         A row the running game overrides carries the shared override marker. A row that applies later says when, and an
+///         unavailable row says why and cannot be changed.
+///     </para>
+/// </remarks>
+internal sealed class SteamGraphicsService : IDisposable
+{
+    /// <summary>A graphics chip with its pins, in Steam's menu convention: one solid shape, holes even-odd.</summary>
+    internal const string Glyph =
+        "M7 7h10v10H7ZM9 9v6h6V9ZM9 3h2v3H9ZM13 3h2v3h-2ZM9 18h2v3H9ZM13 18h2v3h-2ZM3 9h3v2H3ZM3 13h3v2H3Z"
+        + "M18 9h3v2h-3ZM18 13h3v2h-3Z";
+
+    /// <summary>A display, for a display's sidebar page.</summary>
+    private const string DisplayGlyph = "M2 4h20v13H2ZM4 6v9h16V6ZM9 19h6v2H9Z";
+
+    private readonly Lock _gate = new();
+    private readonly IGraphicsOverlaySource _source;
+    private GraphicsPagesState? _quickAccessState;
+    private long _revision = 1;
+    private GraphicsOverlaySnapshot? _snapshot;
+    private GraphicsPagesState? _state;
+
+    /// <summary>Creates the page's backend over the overlay's graphics source.</summary>
+    /// <param name="source">The graphics projection; its owner disposes it after this.</param>
+    internal SteamGraphicsService(IGraphicsOverlaySource source)
+    {
+        _source = source ?? throw new ArgumentNullException(nameof(source));
+        _source.Changed += Refresh;
+    }
+
+    /// <summary>Whether the page has anything to show: at least one graphics package runs.</summary>
+    internal bool Visible
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return CurrentSnapshot().Visible;
+            }
+        }
+    }
+
+    /// <summary>The current graphics projection revision, without reading or rebuilding its rows.</summary>
+    internal long Revision
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _revision;
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>Detaches change notifications; the graphics source stays with its owner.</remarks>
+    public void Dispose()
+    {
+        _source.Changed -= Refresh;
+        Changed = null;
+    }
+
+    /// <summary>Writes one published graphics row through the graphics projection.</summary>
+    /// <param name="key">The row's <see cref="RowKey" />.</param>
+    /// <param name="value">The renderer's value.</param>
+    /// <param name="cancellationToken">Cancels the driver write.</param>
+    /// <returns>Applied, or the refusal with its reason.</returns>
+    internal async Task<SteamUiCommandResult> SetAsync(string key, JsonElement value,
+        CancellationToken cancellationToken)
+    {
+        if (Find(key) is not { } capability)
+        {
+            return new SteamUiCommandResult(false, "This graphics setting is no longer available.");
+        }
+
+        if (!capability.CanInvoke)
+        {
+            return new SteamUiCommandResult(false,
+                capability.Description is { Length: > 0 } reason ? reason : "This setting cannot be changed now.");
+        }
+
+        if (!SteamCapabilityRows.TryValue(capability, value, out var candidate))
+        {
+            return new SteamUiCommandResult(false, "The graphics setting value is invalid.");
+        }
+
+        var result = await _source.WriteAsync(capability, candidate, cancellationToken).ConfigureAwait(false);
+        Refresh();
+        return result switch
+        {
+            null => new SteamUiCommandResult(false, "The setting changed while you were choosing. Try again."),
+            _ when result.Outcome.IsApplied() || result.Outcome is CommandOutcome.Accepted =>
+                SteamUiCommandResult.Applied,
+            _ => new SteamUiCommandResult(false, result.Reason?.Detail ?? "The graphics driver refused the setting.")
+        };
+    }
+
+    /// <summary>Raised when what the page shows may have changed.</summary>
+    internal event Action? Changed;
+
+    /// <summary>The page as it should be drawn now.</summary>
+    /// <returns>The page model.</returns>
+    internal GraphicsPagesState ReadState()
+    {
+        lock (_gate)
+        {
+            return _state ??= new GraphicsPagesState(Pages(CurrentSnapshot()), _revision);
+        }
+    }
+
+    /// <summary>Projects the current graphics snapshot into vendor groups for Quick Access.</summary>
+    /// <returns>A state snapshot with the current revision and one grouped page per publisher.</returns>
+    internal GraphicsPagesState ReadQuickAccessState()
+    {
+        lock (_gate)
+        {
+            return _quickAccessState ??=
+                new GraphicsPagesState(QuickAccessPages(CurrentSnapshot()), _revision);
+        }
+    }
+
+    /// <summary>Tells the page something it shows changed.</summary>
+    internal void Refresh()
+    {
+        lock (_gate)
+        {
+            _revision++;
+            _snapshot = null;
+            _state = null;
+            _quickAccessState = null;
+        }
+
+        Changed?.Invoke();
+    }
+
+    // Called under _gate, so both Steam projections share one snapshot of this revision.
+    private GraphicsOverlaySnapshot CurrentSnapshot()
+    {
+        return _snapshot ??= _source.Snapshot();
+    }
+
+    /// <summary>The sidebar's pages for a graphics snapshot.</summary>
+    /// <param name="snapshot">The graphics projection.</param>
+    /// <returns>One page per section, in the snapshot's order.</returns>
+    internal static IReadOnlyList<SteamSettingsPage> Pages(GraphicsOverlaySnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        List<SteamSettingsPage> pages = [];
+        HashSet<string> ids = new(StringComparer.Ordinal);
+        foreach (var section in snapshot.Sections)
+        {
+            var id = PageId(section.Key);
+            for (var suffix = 2; !ids.Add(id); suffix++)
+            {
+                id = $"{PageId(section.Key)}-{suffix}";
+            }
+
+            List<SteamSettingsSection> sections = [];
+            if (snapshot.Publishers.FirstOrDefault(publisher => publisher.PluginId == section.PluginId) is
+                { Note: { } note })
+            {
+                sections.Add(new SteamSettingsSection(null,
+                [
+                    new SteamSettingsRow(id + ".status", SteamSettingsRowKind.Note, "Status", Text: note)
+                ], "status"));
+            }
+
+            var lead = section.Capabilities.Where(capability =>
+                capability.CategoryId is null
+                || section.Categories.All(category => category.Id != capability.CategoryId)).ToArray();
+            if (lead.Length > 0)
+            {
+                sections.Add(new SteamSettingsSection(null, [.. lead.Select(Row)], "main"));
+            }
+
+            foreach (var category in section.Categories)
+            {
+                var rows = section.Capabilities.Where(capability => capability.CategoryId == category.Id).ToArray();
+                if (rows.Length > 0)
+                {
+                    sections.Add(new SteamSettingsSection(category.Title, [.. rows.Select(Row)], category.Id));
+                }
+            }
+
+            pages.Add(new SteamSettingsPage(id, section.Title, sections,
+                section.Icon is SectionIcon.Display ? DisplayGlyph : Glyph));
+        }
+
+        return pages;
+    }
+
+    /// <summary>One vendor dropdown in Quick Access, retaining the adapter and display category headings.</summary>
+    /// <param name="snapshot">Current graphics publishers, sections and capability rows.</param>
+    /// <returns>One page per publisher, preserving adapter/display category headings and source order.</returns>
+    internal static IReadOnlyList<SteamSettingsPage> QuickAccessPages(GraphicsOverlaySnapshot snapshot)
+    {
+        return snapshot.Publishers.Select(publisher =>
+        {
+            var pages = Pages(snapshot with
+            {
+                Publishers = [publisher],
+                Sections = [.. snapshot.Sections.Where(section => section.PluginId == publisher.PluginId)]
+            });
+            var sections = pages.SelectMany(page => page.Sections.Select(section => section with
+            {
+                Title = section.Title is null ? page.Title : page.Title + ": " + section.Title,
+                Id = page.Id + "." + section.Id
+            })).ToArray();
+            return new SteamSettingsPage(PageId(publisher.PluginId),
+                GraphicsCapabilityText.PublisherTitle(publisher.Name), sections, Glyph);
+        }).ToArray();
+    }
+
+    /// <summary>A row's key: the plugin, the capability and its instance.</summary>
+    /// <param name="capability">The projected row.</param>
+    /// <returns><c>&lt;pluginId&gt;/&lt;capabilityId&gt;</c>, followed by <c>#&lt;instanceId&gt;</c> when it has one.</returns>
+    internal static string RowKey(DeviceOverlayCapability capability)
+    {
+        return capability.GpuPluginId + "/" + capability.CapabilityId
+               + (capability.InstanceId is { } instance ? "#" + instance : string.Empty);
+    }
+
+    private static SteamSettingsRow Row(DeviceOverlayCapability capability)
+    {
+        return SteamCapabilityRows.Row(capability, RowKey(capability));
+    }
+
+    private DeviceOverlayCapability? Find(string key)
+    {
+        return _source.Snapshot().Sections
+            .SelectMany(section => section.Capabilities)
+            .FirstOrDefault(capability => string.Equals(RowKey(capability), key, StringComparison.Ordinal));
+    }
+
+    /// <summary>A URL-safe sidebar path segment for a section key.</summary>
+    private static string PageId(string key)
+    {
+        StringBuilder id = new(key.Length);
+        foreach (var character in key)
+        {
+            id.Append(char.IsAsciiLetterOrDigit(character) ? char.ToLowerInvariant(character) : '-');
+        }
+
+        return id.ToString().Trim('-') is { Length: > 0 } trimmed ? trimmed : "graphics";
+    }
+}

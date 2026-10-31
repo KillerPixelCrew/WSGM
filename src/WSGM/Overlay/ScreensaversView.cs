@@ -1,4 +1,3 @@
-using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -93,10 +92,12 @@ public sealed class ScreensaversView : ServiceSubView
                 Action = "select", Id = state.Sources.FirstOrDefault(source => source.SelectorId == choice)?.Id ?? choice
             })));
         stack.Children.Add(Caption("Choose a source to see its preview and settings. Steam controls idle timing."));
-        var actions = new WrapPanel { Orientation = Orientation.Horizontal, Tag = "sources.actions" };
-        AddAction(actions, "Add image folder", () => _ = RunSafelyAsync(AddAsync(pack: false), "add folder"), "source.images", primary: true);
-        AddAction(actions, "Import pack", () => _ = RunSafelyAsync(AddAsync(pack: true), "import pack"), "source.pack");
-        AddAction(actions, "Refresh", () => Send(new SteamScreensaverContentCommand { Action = "refresh" }), "source.refresh");
+        var actions = CommandStrip(
+            Command("source.images", "Add image folder", () => _ = RunSafelyAsync(AddAsync(pack: false), "add folder"),
+                selected: true),
+            Command("source.pack", "Import pack", () => _ = RunSafelyAsync(AddAsync(pack: true), "import pack")),
+            Command("source.refresh", "Refresh", () => Send(new SteamScreensaverContentCommand { Action = "refresh" })));
+        actions.Tag = "sources.actions";
         stack.Children.Add(actions);
         if (state.Error is { Length: > 0 })
         {
@@ -120,7 +121,7 @@ public sealed class ScreensaversView : ServiceSubView
                 card.Children.Add(Cover(source, height: _compact ? 110 : 170, fill: true));
                 var selected = state.SelectedId == id;
                 var button = Tagged(Row(source.Name,
-                    !source.Available ? source.Detail : (selected ? "Selected · " : "") + Description(source),
+                    !source.Available ? source.Detail : (selected ? "Selected · " : "") + source.Summary,
                     null, () => Navigate(() => RenderSource(id))), "source:" + id);
                 button.Classes.Set("primary", selected);
                 ToolTip.SetTip(button, source.Folder);
@@ -173,9 +174,9 @@ public sealed class ScreensaversView : ServiceSubView
         var summary = new StackPanel { Spacing = 10, VerticalAlignment = VerticalAlignment.Center };
         if (!_compact)
         {
-            summary.Children.Add(SectionLabel(state.SelectedId == id ? "SELECTED SCREENSAVER" : SourceKind(source).ToUpperInvariant()));
+            summary.Children.Add(SectionLabel(state.SelectedId == id ? "SELECTED SCREENSAVER" : source.Kind.ToUpperInvariant()));
         }
-        summary.Children.Add(Caption(source.Available ? Description(source) : source.Detail));
+        summary.Children.Add(Caption(source.Available ? source.Summary : source.Detail));
         summary.Children.Add(Tagged(PrimaryRow(state.SelectedId == id ? "Selected" : "Use screensaver", "", Icons.Monitor,
             source.Available ? () => Send(new SteamScreensaverContentCommand { Action = "select", Id = id }) : null), "source.use"));
         summary.Children.Add(Tagged(Row("Preview fullscreen", _compact ? "" : "Move or press a key to return", Icons.Play,
@@ -268,21 +269,8 @@ public sealed class ScreensaversView : ServiceSubView
 
     private static Border Group(Control child)
     {
-        var border = new Border { Child = child, CornerRadius = new CornerRadius(8) };
-        border.Bind(Border.BackgroundProperty, border.GetResourceObservable("DeckGroupBrush"));
-        return border;
+        return new Border { Child = child, Classes = { "device-group" } };
     }
 
-    private static void AddAction(Panel panel, string title, Action action, string tag, bool primary = false)
-    {
-        var button = primary ? PrimaryRow(title, "", null, action) : Row(title, "", null, action);
-        button.Tag = tag;
-        button.Margin = new Thickness(0, 0, 8, 8);
-        panel.Children.Add(button);
-    }
-
-    private static string SourceKind(SteamScreensaverSource source) => source.Type == "scene" ? "Scene pack" : source.Pack ? "Image pack" : "Image folder";
-    private static string Description(SteamScreensaverSource source) => source.Type == "scene" ? source.FramesPerSecond + " fps animation"
-        : source.ImageCount + (source.ImageCount == 1 ? " image" : " images") + " · " + (source.Shuffle ? "Shuffle" : "Filename order") + " · " + Interval(source.IntervalSeconds);
     private static string Interval(int seconds) => seconds < 60 ? seconds + " seconds" : seconds < 3600 ? seconds / 60d + " minutes" : "1 hour";
 }

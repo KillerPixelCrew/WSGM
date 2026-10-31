@@ -2,10 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
-using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Layout;
-using FluentAvalonia.UI.Controls;
 using WSGM.Controls;
 using WSGM.Core;
 
@@ -13,7 +11,7 @@ namespace WSGM.Overlay;
 
 public partial class OverlayWindow
 {
-    private readonly Dictionary<PowerTimeoutKind, FASettingsExpanderItem> _hibernateRows = [];
+    private readonly Dictionary<PowerTimeoutKind, DeviceSettingRow> _hibernateRows = [];
     private readonly Dictionary<PowerTimeoutKind, ComboBox> _timeoutEditors = [];
     private bool _refreshingPowerEditors;
     private ComboBox? _wakeEditor;
@@ -31,34 +29,19 @@ public partial class OverlayWindow
             new WakeChoice(ManualWakeMode.StandbyAndDisplay, "Keep screen on")
         };
         ObservePowerChoice<WakeChoice>(_wakeEditor, selected => KeepAwakeSelected?.Invoke(selected.Mode));
-        AutomationProperties.SetName(_wakeEditor, "Keep awake");
-        KeepAwakeHost.Children.Add(new FASettingsExpanderItem
-        {
-            Content = "Keep awake", Description = "Choose the manual wake hold", Footer = _wakeEditor,
-            HorizontalAlignment = HorizontalAlignment.Stretch, Focusable = false
-        });
+        KeepAwakeHost.Children.Add(new DeviceSettingRow("power.keep-awake", "Keep awake",
+            "Choose the manual wake hold", _wakeEditor, _ => { }));
 
         foreach (var kind in Enum.GetValues<PowerTimeoutKind>())
         {
-            var title = kind switch
-            {
-                PowerTimeoutKind.DisplayDc => "Screen off · battery",
-                PowerTimeoutKind.DisplayAc => "Screen off · plugged in",
-                PowerTimeoutKind.SleepDc => "Standby · battery",
-                PowerTimeoutKind.SleepAc => "Standby · plugged in",
-                PowerTimeoutKind.HibernateDc => "Hibernate · battery",
-                _ => "Hibernate · plugged in"
-            };
+            var title = PowerTimeouts.Label(kind);
             var hibernate = kind is PowerTimeoutKind.HibernateDc or PowerTimeoutKind.HibernateAc;
             var editor = new ComboBox { MinWidth = 150, HorizontalAlignment = HorizontalAlignment.Stretch };
             _timeoutEditors.Add(kind, editor);
-            AutomationProperties.SetName(editor, title);
             ObservePowerChoice<TimeoutChoice>(editor, selected => PowerTimeoutSelected?.Invoke(kind, selected.Seconds));
-            FASettingsExpanderItem row = new()
+            DeviceSettingRow row = new("power.timeout." + kind, title,
+                hibernate ? "Time in standby before the device hibernates" : string.Empty, editor, _ => { })
             {
-                Content = title, Footer = editor, HorizontalAlignment = HorizontalAlignment.Stretch,
-                Focusable = false,
-                Description = hibernate ? "Time in standby before the device hibernates" : null,
                 // Shown once a reading says the machine can hibernate.
                 IsVisible = !hibernate
             };

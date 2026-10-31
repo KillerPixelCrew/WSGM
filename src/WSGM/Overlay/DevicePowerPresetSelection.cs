@@ -1,27 +1,45 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Threading;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
 /// <summary>UI-thread projection of the shared preset service for one open overlay.</summary>
-/// <param name="service">Borrowed session preset owner.</param>
-/// <param name="readOnly">True for a preview that must not write assignments.</param>
-/// <param name="assignments">Optional shared AC/battery assignment owner; null disables assignment.</param>
-internal sealed class DevicePowerPresetSelection(
-    DevicePowerPresets service,
-    bool readOnly,
-    DevicePowerAssignments? assignments = null) : IDisposable
+internal sealed class DevicePowerPresetSelection : IDisposable
 {
+    private readonly DevicePowerAssignments? _assignments;
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly bool _readOnly;
+    private readonly DevicePowerPresets _service;
     private bool _disposed;
     private bool _refreshing;
     private long _revision;
-    internal DevicePowerPresetState State { get; private set; } = new([], false, string.Empty, string.Empty);
+
+    /// <summary>The row projection Steam's Device performance rows draw, read through <see cref="PowerPresetRows" />.</summary>
+    internal PowerPresetRowState State { get; private set; } = new(false, [], string.Empty, string.Empty,
+        string.Empty, string.Empty, string.Empty, "Manual selection");
+
     internal bool Busy { get; private set; }
-    internal bool CanAssign => !_disposed && !readOnly && !Busy && State.Presets.Count > 0 && assignments is not null;
-    internal DevicePowerAssignmentState? Assignments { get; private set; }
+
+    /// <summary>Projects the shared preset service and follows the assignment owner's changes.</summary>
+    /// <param name="service">Borrowed session preset owner.</param>
+    /// <param name="readOnly">True for a preview that must not write assignments.</param>
+    /// <param name="assignments">Optional shared AC/battery assignment owner; null disables assignment.</param>
+    internal DevicePowerPresetSelection(DevicePowerPresets service, bool readOnly,
+        DevicePowerAssignments? assignments = null)
+    {
+        _service = service;
+        _readOnly = readOnly;
+        _assignments = assignments;
+        if (assignments is not null)
+        {
+            assignments.Changed += OnAssignmentsChanged;
+        }
+    }
+
+    internal bool CanAssign => !_disposed && !_readOnly && !Busy && State is { Available: true, Options.Count: > 0 };
 
     /// <summary>Cancels this UI projection's lifetime and prevents later publication; borrowed session owners remain alive.</summary>
     public void Dispose()
@@ -33,8 +51,19 @@ internal sealed class DevicePowerPresetSelection(
 
         // The source has no timer, so it needs no disposal; in-flight work keeps its cancelled token.
         _disposed = true;
+        if (_assignments is not null)
+        {
+            _assignments.Changed -= OnAssignmentsChanged;
+        }
+
         _lifetime.Cancel();
         Changed = null;
+    }
+
+    // Raised on the assignment owner's working thread; the projection lives on the UI thread.
+    private void OnAssignmentsChanged()
+    {
+        Dispatcher.UIThread.Post(() => _ = RefreshAsync());
     }
 
     /// <summary>Raised on the captured UI context when projected state or busy status changes.</summary>
@@ -57,12 +86,13 @@ internal sealed class DevicePowerPresetSelection(
         var token = _lifetime.Token;
         try
         {
-            await assignments!.AssignAsync(ac, id, token);
-            var state = await service.ReadAsync(token);
+            var result = await PowerPresetRows.AssignAsync(_assignments, ac, id, token);
+            var state = await PowerPresetRows.ReadAsync(_service, _assignments);
             if (!_disposed)
             {
-                State = state;
-                Assignments = assignments.Snapshot();
+                State = result.Succeeded || string.IsNullOrEmpty(result.Error)
+                    ? state
+                    : state with { StatusText = result.Error };
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -72,7 +102,7 @@ internal sealed class DevicePowerPresetSelection(
         {
             if (!_disposed)
             {
-                State = State with { Status = ex.Message };
+                State = State with { StatusText = ex.Message };
             }
         }
         finally
@@ -96,19 +126,14 @@ internal sealed class DevicePowerPresetSelection(
 
         _refreshing = true;
         var revision = _revision;
-        var token = _lifetime.Token;
         try
         {
-            var state = await service.ReadAsync(token);
+            var state = await PowerPresetRows.ReadAsync(_service, _assignments);
             if (!_disposed && !Busy && revision == _revision)
             {
                 State = state;
-                Assignments = assignments?.Snapshot();
                 Changed?.Invoke();
             }
-        }
-        catch (OperationCanceledException) when (token.IsCancellationRequested)
-        {
         }
         finally
         {

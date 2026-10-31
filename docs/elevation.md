@@ -23,8 +23,8 @@ Related:
 The naive route, `TokenLinkedToken` to a primary token, fails with error 1346 because it needs
 `SeTcbPrivilege`. The working mechanism is a one-shot scheduled task whose principal has `LogonType`
 `InteractiveToken` and no `RunLevel` element, so Task Scheduler runs it with the user's limited
-token (`Core\UnelevatedLauncher.cs`, `WSGM.Launch\ScheduledTaskLauncher.cs`). The task XML must be
-written as UTF-16. Do not ship `/NoUACCheck`; EDRs flag it.
+token (`Core\Desktop\UnelevatedLauncher.cs`, `WSGM.Launch\ScheduledTaskLauncher.cs`). The task XML
+must be written as UTF-16. Do not ship `/NoUACCheck`; EDRs flag it.
 
 Windows 11 Explorer usually de-elevates itself. After an elevated WSGM starts Explorer,
 `ExplorerControl` waits, bounded, for the desktop shell and checks the taskbar owner's elevation. It
@@ -238,8 +238,8 @@ Without it a target with a RUNASADMIN flag or an admin manifest fails a medium `
 
 For a non-Steam (custom) shortcut Steam ignores an exe-replacing `%command%` launch option and runs
 the original target anyway. The wrapper goes in the shortcut's Target and the real program in its
-Launch Arguments. `Core\SteamLaunchConfig.cs` writes this into the running client so the user never
-has to; the mechanism is in [steam-cef.md](steam-cef.md).
+Launch Arguments. `Core\Steam\SteamLaunchConfig.cs` writes this into the running client so the user
+never has to; the mechanism is in [steam-cef.md](steam-cef.md).
 
 The same rule is why an imported packaged game carries `WSGM.PackagedLaunch.exe` in its Target and
 its AUMID in the arguments. `Core\Library\PackagedLauncherShortcut.cs` composes those fields and
@@ -259,11 +259,12 @@ medium-integrity Steam.
 
 Every cold start goes through one `Steam.ColdStart`, whether it asks for Big Picture
 (`LaunchBigPicture`, from game mode and the auto-relaunch) or the windowed client (`LaunchDesktop`,
-from a Desktop session's `SessionModes.EnsureSteamDesktop`), so the shim reconcile, the debug port
-and the integrity choice cannot apply to one and not the other. Every launch logs
-`Steam launch integrity: …`, including the case where de-elevation was requested but unavailable, so
-a pasted log settles which one happened. The scheduled-task route returns no process handle, so the
-Steam Input shim startup-trace line is only logged on the integrity-matched path that has one.
+from a Desktop session's `SteamLifecycle.EnsureDesktop`), so the shim reconcile and the integrity
+choice cannot apply to one and not the other. Both launchers enable the debug port before they
+branch. Every launch logs `Steam launch integrity: …`, including the case where de-elevation was
+requested but unavailable, so a pasted log settles which one happened. The scheduled-task route
+returns no process handle, so the Steam Input shim startup-trace line is only logged on the
+integrity-matched path that has one.
 
 Turning Windows' own Steam startup entries off is what makes that ownership real, and the HKLM and
 scheduled-task parts of it need elevation. They go through the `--disable-steam-autostart` one-shot,
@@ -272,28 +273,28 @@ rescans rather than trusting a name from its command line. A sign-in never promp
 route is only taken from setup, which is already elevated, or the Settings button, where a prompt is
 expected. The uninstaller's existing elevated `--uninstall-restore` puts the entries back.
 
-Because WSGM owns the Steam start, `Core\ElevationPolicy` treats "WSGM starts Steam at its own
-integrity" as a reason to run elevated, alongside an already-elevated Steam, elevated startup apps
-and device integration. Both `SelfElevation` and the boot manifest's `Elevate` read that one rule,
-so a shortcut start and a sign-in start of the same configuration land at the same integrity.
+Because WSGM owns the Steam start, `Core\Desktop\ElevationPolicy` treats "WSGM starts Steam at its
+own integrity" as a reason to run elevated, alongside an already-elevated Steam, elevated startup
+apps and device integration. Both `SelfElevation` and the boot manifest's `Elevate` read that one
+rule, so a shortcut start and a sign-in start of the same configuration land at the same integrity.
 Setting `SteamLaunchUnelevated` removes that reason.
 
 `WSGM.Launch` is unaffected and keeps de-elevating individual games independently.
 
 ## Source and handoff map
 
-| Source                                                                                                                                                                                       | Responsibility                                                                                                            |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| [`Core/ElevationPolicy.cs`](../src/WSGM/Core/ElevationPolicy.cs), [`SelfElevation.cs`](../src/WSGM/Core/SelfElevation.cs), [`BootManifestWriter.cs`](../src/WSGM/Core/BootManifestWriter.cs) | Shared reason for resident elevation, interactive relaunch and precomputed service-token preference                       |
-| [`Core/UnelevatedLauncher.cs`](../src/WSGM/Core/UnelevatedLauncher.cs)                                                                                                                       | Bounded scheduled-task dispatch for Steam, external links and recovery; distinguish failed dispatch from unknown dispatch |
-| [`WSGM.Launch/CommandLine.cs`](../src/WSGM.Launch/CommandLine.cs)                                                                                                                            | Behavior flags, diagnostics and argument-boundary validation                                                              |
-| [`WSGM.Launch/Program.cs`](../src/WSGM.Launch/Program.cs)                                                                                                                                    | Native lease-only route, elevated-parent/medium-child protocol, token-gated fallback and target result                    |
-| [`LaunchPayload.cs`](../src/WSGM.Launch/LaunchPayload.cs)                                                                                                                                    | Versioned, length-bounded pipe payload carrying working directory, individual arguments and sanitized environment         |
-| [`ScheduledTaskLauncher.cs`](../src/WSGM.Launch/ScheduledTaskLauncher.cs)                                                                                                                    | Temporary task/XML lifetime and absolute System32 `schtasks.exe` invocation                                               |
-| [`SuspendedProcess.cs`](../src/WSGM.Launch/SuspendedProcess.cs) and [`JobObject.cs`](../src/WSGM.Launch/JobObject.cs)                                                                        | Create suspended, capture identity, assign before resume, supervise descendants and kill-on-close ownership               |
-| [`SteamInputLeaseHost.cs`](../src/WSGM.Launch/SteamInputLeaseHost.cs) and [`Elevation.cs`](../src/WSGM.Launch/Elevation.cs)                                                                  | Lease acquisition/release and local-token observations                                                                    |
-| [`Shared/Process/ScheduledTaskXml.cs`](../src/Shared/Process/ScheduledTaskXml.cs) and [`WindowsCommandLine.cs`](../src/Shared/Process/WindowsCommandLine.cs)                                 | One task principal/XML vocabulary and Windows argument quoting shared with the resident application                       |
-| [`Shared/Process/SteamControllerExclusion.cs`](../src/Shared/Process/SteamControllerExclusion.cs)                                                                                            | Case-insensitive exclusion-name match shared with the packaged launcher                                                   |
+| Source                                                                                                                                                                                                                       | Responsibility                                                                                                            |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| [`Core/Desktop/ElevationPolicy.cs`](../src/WSGM/Core/Desktop/ElevationPolicy.cs), [`SelfElevation.cs`](../src/WSGM/Core/Desktop/SelfElevation.cs), [`BootManifestWriter.cs`](../src/WSGM/Core/Session/BootManifestWriter.cs) | Shared reason for resident elevation, interactive relaunch and precomputed service-token preference                       |
+| [`Core/Desktop/UnelevatedLauncher.cs`](../src/WSGM/Core/Desktop/UnelevatedLauncher.cs)                                                                                                                                       | Bounded scheduled-task dispatch for Steam, external links and recovery; distinguish failed dispatch from unknown dispatch |
+| [`WSGM.Launch/CommandLine.cs`](../src/WSGM.Launch/CommandLine.cs)                                                                                                                                                            | Behavior flags, diagnostics and argument-boundary validation                                                              |
+| [`WSGM.Launch/Program.cs`](../src/WSGM.Launch/Program.cs)                                                                                                                                                                    | Native lease-only route, elevated-parent/medium-child protocol, token-gated fallback and target result                    |
+| [`LaunchPayload.cs`](../src/WSGM.Launch/LaunchPayload.cs)                                                                                                                                                                    | Versioned, length-bounded pipe payload carrying working directory, individual arguments and sanitized environment         |
+| [`ScheduledTaskLauncher.cs`](../src/WSGM.Launch/ScheduledTaskLauncher.cs)                                                                                                                                                    | Temporary task/XML lifetime and absolute System32 `schtasks.exe` invocation                                               |
+| [`SuspendedProcess.cs`](../src/WSGM.Launch/SuspendedProcess.cs) and [`JobObject.cs`](../src/WSGM.Launch/JobObject.cs)                                                                                                        | Create suspended, capture identity, assign before resume, supervise descendants and kill-on-close ownership               |
+| [`SteamInputLeaseHost.cs`](../src/WSGM.Launch/SteamInputLeaseHost.cs) and [`Elevation.cs`](../src/WSGM.Launch/Elevation.cs)                                                                                                  | Lease acquisition/release and local-token observations                                                                    |
+| [`Shared/Process/ScheduledTaskXml.cs`](../src/Shared/Process/ScheduledTaskXml.cs) and [`WindowsCommandLine.cs`](../src/Shared/Process/WindowsCommandLine.cs)                                                                 | One task principal/XML vocabulary and Windows argument quoting shared with the resident application                       |
+| [`Shared/Process/SteamControllerExclusion.cs`](../src/Shared/Process/SteamControllerExclusion.cs)                                                                                                                            | Case-insensitive exclusion-name match shared with the packaged launcher                                                   |
 
 For fallback de-elevation, the parent creates the user-SID-accessible pipe and schedules the same
 executable with the internal `--medium-child <pipe>` command. After the child connects, the parent
@@ -304,10 +305,10 @@ minutes. Once the target runs, the session follows the job rather than applying 
 game-duration timeout.
 
 The wrapper's `ScheduledTaskLauncher` has a 15-second wait per `schtasks` invocation, with a bounded
-termination wait for a stuck utility. This is separate from `Core/UnelevatedLauncher`'s shared
-absolute deadline described above; the shared XML file does not make the two orchestration paths
-identical. Task deletion, pipe disconnection, job disposal and lease release belong to the owning
-launch path and must survive exceptions.
+termination wait for a stuck utility. This is separate from `Core/Desktop/UnelevatedLauncher`'s
+shared absolute deadline described above; the shared XML file does not make the two orchestration
+paths identical. Task deletion, pipe disconnection, job disposal and lease release belong to the
+owning launch path and must survive exceptions.
 
 The canonical Steam Input bindings are linked from the `external/steam-input-lease` submodule into
 both consumers; no copied local binding defines a competing ABI. [`development`](development.md)

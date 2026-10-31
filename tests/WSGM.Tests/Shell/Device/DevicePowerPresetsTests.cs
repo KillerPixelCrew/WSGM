@@ -1,0 +1,480 @@
+using WSGM.Core;
+using WSGM.Device.Sdk.Capabilities;
+using WSGM.Overlay;
+using WSGM.Shell;
+using WSGM.Tests.Builders;
+
+namespace WSGM.Tests.Shell;
+
+public sealed class DevicePowerPresetsTests
+{
+    [Fact]
+    public async Task IndependentFastTargetIsAppliedAndMatchedByBothSurfaces()
+    {
+        DevicePowerPresetRig rig = new();
+        rig.AddFast();
+        var service = rig.Create();
+        Assert.True((await service.ApplyAsync("balanced", CancellationToken.None)).Succeeded);
+        Assert.Equal(("PowerFastLimit", 25), rig.Calls.Last());
+        var state = await service.ReadAsync();
+        Assert.Equal("balanced", state.Current);
+        Assert.Equal(25, state.Values?.FastWatts);
+        Assert.Equal(25, state.Values?.ToPreset().FastWatts);
+        rig.Views[2] = DevicePowerPresetRig.View(CapabilityRole.PowerFastLimit, 24);
+        Assert.Equal("custom", (await service.ReadAsync()).Current);
+        Assert.Equal("Custom", (await PowerPresetRows.ReadAsync(service, null))!.Current);
+    }
+
+    [Fact]
+    public async Task UncertainFastWriteStopsBeforeWindowsModeAndIsNotRetried()
+    {
+        DevicePowerPresetRig rig = new() { FailAt = 3 };
+        rig.AddFast();
+        var service = rig.Create();
+        Assert.False((await service.ApplyAsync("balanced", CancellationToken.None)).Succeeded);
+        Assert.Equal(3, rig.Calls.Count);
+        Assert.Equal(0, rig.Api.Writes);
+        await service.ReadAsync();
+        Assert.Equal(3, rig.Calls.Count);
+    }
+
+    [Fact]
+    public async Task LegacyPresetOnThreeLimitProviderWritesTheDeclaredFastLimitToo()
+    {
+        DevicePowerPresetRig rig = new();
+        rig.Views = [.. rig.Views, DevicePowerPresetRig.View(CapabilityRole.PowerFastLimit, 20)];
+        Assert.True((await rig.Create().ApplyAsync("balanced", CancellationToken.None)).Succeeded);
+        Assert.Equal(("PowerFastLimit", 18), rig.Calls.Last());
+    }
+
+    [Fact]
+    public void AutoTdpOwnershipShowsCustomEvenWhenReadbackMatchesTheConfiguredPreset()
+    {
+        DeviceCapabilityView[] views =
+        [
+            DevicePowerPresetRig.View(CapabilityRole.PowerSustainedLimit, 17),
+            DevicePowerPresetRig.View(CapabilityRole.PowerSlowLimit, 18)
+        ];
+        var mode = WindowsPowerModes.Id(DevicePowerMode.Balanced);
+        Assert.Equal("balanced", DevicePowerPresets.Project(views, mode).Current);
+        var automatic = DevicePowerPresets.Project(views, mode, automaticPowerOwner: true);
+        Assert.Equal("custom", automatic.Current);
+        Assert.Equal(17, automatic.Values?.SustainedWatts);
+        Assert.Equal(18, automatic.Values?.SlowWatts);
+        Assert.Equal("balanced", DevicePowerPresets.Project(views, mode).Current);
+    }
+
+    private static DevicePowerPresetSelection Selection(DevicePowerPresets service, bool readOnly)
+    {
+        ProfileConfig config = new();
+        long generation = 1;
+        DevicePowerAssignments assignments = new(service,
+            () => new DevicePowerAssignmentContext(new ProfileSnapshot(config, ActiveProfile.None, generation),
+                "fixture",
+                true, true),
+            (_, ac, reference) =>
+            {
+                generation++;
+                if (ac)
+                {
+                    config.Global.AcPowerPreset = reference;
+                }
+                else
+                {
+                    config.Global.BatteryPowerPreset = reference;
+                }
+
+                return Task.CompletedTask;
+            });
+        return new DevicePowerPresetSelection(service, readOnly, assignments);
+    }
+
+    [Theory]
+    [InlineData(17, 18, 1, "balanced")]
+    [InlineData(16, 18, 1, "custom")]
+    [InlineData(17, 19, 1, "custom")]
+    [InlineData(17, 18, 2, "custom")]
+    [InlineData(8, 9, 0, "battery")]
+    [InlineData(30, 31, 2, "extreme")]
+    public void CurrentPresetComesFromEveryObservedValue(int sustained, int slow, int mode, string expected)
+    {
+        var state = DevicePowerPresets.Project([
+            DevicePowerPresetRig.View(CapabilityRole.PowerSustainedLimit, sustained),
+            DevicePowerPresetRig.View(CapabilityRole.PowerSlowLimit, slow)
+        ], WindowsPowerModes.Id((DevicePowerMode)mode));
+        Assert.Equal(expected, state.Current);
+        Assert.True(state.Available);
+    }
+
+    [Theory]
+    [InlineData("battery", "PowerSustainedLimit", 8, 9)]
+    [InlineData("extreme", "PowerSlowLimit", 30, 31)]
+    public async Task AppliesThePairInSafeOrderThenWindowsMode(string preset, string first, int sustained, int slow)
+    {
+        DevicePowerPresetRig rig = new();
+        var service = rig.Create();
+        Assert.True((await service.ApplyAsync(preset, CancellationToken.None)).Succeeded);
+        Assert.Equal(first, rig.Calls[0].Id);
+        Assert.Equal(sustained, rig.Views[0].Projection.State.ObservedValue!.IntegerValue);
+        Assert.Equal(slow, rig.Views[1].Projection.State.ObservedValue!.IntegerValue);
+        Assert.Equal(preset, (await service.ReadAsync()).Current);
+        Assert.Equal(1, rig.Api.Writes);
+    }
+
+    [Fact]
+    public async Task ExternalChangesSwitchBothSurfacesToCustomWithoutAnyWrites()
+    {
+        DevicePowerPresetRig rig = new();
+        var service = rig.Create();
+        var qamPresets = service;
+        DevicePowerAssignments? qamAssignments = null;
+        using var overlay = Selection(service, false);
+        await overlay.RefreshAsync();
+        Assert.Equal("Balanced", overlay.State.Current);
+        rig.Views[0] = DevicePowerPresetRig.View(CapabilityRole.PowerSustainedLimit, 16);
+        await overlay.RefreshAsync();
+        Assert.Equal("Custom", overlay.State.Current);
+        Assert.Equal("Custom", (await PowerPresetRows.ReadAsync(qamPresets, qamAssignments))!.Current);
+        rig.Views[0] = DevicePowerPresetRig.View(CapabilityRole.PowerSustainedLimit, 17);
+        rig.Api.Mode = WindowsPowerModes.Id(DevicePowerMode.BestPerformance);
+        Assert.Equal("Custom", (await PowerPresetRows.ReadAsync(qamPresets, qamAssignments))!.Current);
+        Assert.Empty(rig.Calls);
+        Assert.Equal(0, rig.Api.Writes);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task UncertainDeviceWriteStopsThePresetWithoutRetryOrWindowsWrite(int failAt)
+    {
+        DevicePowerPresetRig rig = new() { FailAt = failAt };
+        var service = rig.Create();
+        var result = await service.ApplyAsync("extreme", CancellationToken.None);
+        Assert.False(result.Succeeded);
+        Assert.Contains("some values may have changed", result.Error);
+        Assert.Equal(failAt, rig.Calls.Count);
+        Assert.Equal(0, rig.Api.Writes);
+        await service.ReadAsync();
+        Assert.Equal(failAt, rig.Calls.Count);
+    }
+
+    [Fact]
+    public async Task WindowsFailureLeavesHonestCustomStateAndDoesNotUndoDeviceWrites()
+    {
+        DevicePowerPresetRig rig = new() { Api = { FailWrite = true } };
+        var service = rig.Create();
+        Assert.False((await service.ApplyAsync("extreme", CancellationToken.None)).Succeeded);
+        Assert.Equal(2, rig.Calls.Count);
+        Assert.Equal("custom", (await service.ReadAsync()).Current);
+        Assert.Equal(1, rig.Api.Writes);
+    }
+
+    [Fact]
+    public async Task LossOfTheCurrentCapabilitiesStopsBeforeAnotherWrite()
+    {
+        DevicePowerPresetRig rig = new();
+        rig.AfterDeviceWrite = _ => rig.Views = [];
+        Assert.False((await rig.Create().ApplyAsync("battery", CancellationToken.None)).Succeeded);
+        Assert.Single(rig.Calls);
+        Assert.Equal(0, rig.Api.Writes);
+    }
+
+    [Fact]
+    public async Task MissingStaleAndAmbiguousCapabilitiesDisableSelection()
+    {
+        DevicePowerPresetRig rig = new();
+        var stale = rig.Views[0] with
+        {
+            Projection = rig.Views[0].Projection with
+            {
+                State = rig.Views[0].Projection.State with { Quality = HardwareStateQuality.Stale }
+            }
+        };
+        Assert.False(DevicePowerPresets.Project([stale, rig.Views[1]], Guid.Empty).Available);
+        Assert.False(DevicePowerPresets.Project([.. rig.Views, rig.Views[0]], Guid.Empty).Available);
+        rig.Views = [];
+        Assert.Empty((await rig.Create().ReadAsync()).Presets);
+        Assert.False((await rig.Create().ApplyAsync("battery", CancellationToken.None)).Succeeded);
+        Assert.Empty(rig.Calls);
+    }
+
+    [Fact]
+    public async Task CustomUnknownAndPreviewSelectionsNeverWrite()
+    {
+        DevicePowerPresetRig rig = new();
+        var service = rig.Create();
+        Assert.False((await service.ApplyAsync("custom", CancellationToken.None)).Succeeded);
+        Assert.False((await service.ApplyAsync("unknown", CancellationToken.None)).Succeeded);
+        using var overlay = Selection(service, true);
+        await overlay.RefreshAsync();
+        await overlay.AssignAsync(true, "battery");
+        Assert.Empty(rig.Calls);
+    }
+
+    [Theory]
+    [InlineData(DevicePowerMode.BetterBattery, "961cc777-2547-4f9d-8174-7d86181b8a7a")]
+    [InlineData(DevicePowerMode.Balanced, "00000000-0000-0000-0000-000000000000")]
+    [InlineData(DevicePowerMode.BestPerformance, "ded574b5-45a0-4f42-8737-46345c09c238")]
+    public void WindowsModesUseHCsOverlayGuids(DevicePowerMode mode, string expected)
+    {
+        Assert.Equal(Guid.Parse(expected), WindowsPowerModes.Id(mode));
+    }
+
+    [Fact]
+    public async Task WindowsReadFailureDisablesBothSurfacesAndPreventsDeviceWrites()
+    {
+        DevicePowerPresetRig rig = new() { Api = { FailRead = true } };
+        var service = rig.Create();
+        Assert.False((await service.ReadAsync()).Available);
+        Assert.False((await PowerPresetRows.ReadAsync(service, null))!.Available);
+        Assert.False((await service.ApplyAsync("battery", CancellationToken.None)).Succeeded);
+        Assert.Empty(rig.Calls);
+    }
+
+    [Fact]
+    public async Task WindowsModeIsWrittenOnceAndNotConfirmedByReadback()
+    {
+        // Windows took the write without complaint, so the preset is applied; a later state read shows
+        // whatever Windows reports, and nothing writes the mode again.
+        DevicePowerPresetRig rig = new() { Api = { IgnoreWrite = true } };
+        var service = rig.Create();
+        Assert.True((await service.ApplyAsync("battery", CancellationToken.None)).Succeeded);
+        Assert.Equal("custom", (await service.ReadAsync()).Current);
+        Assert.Equal(1, rig.Api.Writes);
+    }
+
+    [Fact]
+    public async Task AChangeAfterThePresetIsWrittenIsNeitherConfirmedNorFought()
+    {
+        // No confirmation pass reads the device back: the preset is written once, and a value that
+        // moves afterwards shows as custom without being written again.
+        DevicePowerPresetRig rig = new();
+        rig.Api.AfterWrite = () => rig.Views[0] = DevicePowerPresetRig.View(CapabilityRole.PowerSustainedLimit, 20);
+        var service = rig.Create();
+        Assert.True((await service.ApplyAsync("extreme", CancellationToken.None)).Succeeded);
+        Assert.Equal("custom", (await service.ReadAsync()).Current);
+        Assert.Equal(1, rig.Api.Writes);
+    }
+
+    [Fact]
+    public async Task WithdrawalRemovesThePresetChoicesFromBothSurfaces()
+    {
+        DevicePowerPresetRig rig = new();
+        var service = rig.Create();
+        using var overlay = Selection(service, false);
+        await overlay.RefreshAsync();
+        Assert.NotEmpty(overlay.State.Options);
+        rig.Views = [];
+        await overlay.RefreshAsync();
+        Assert.Empty(overlay.State.Options);
+        Assert.Empty((await PowerPresetRows.ReadAsync(service, null))!.Options);
+        await overlay.AssignAsync(true, "battery");
+        Assert.Empty(rig.Calls);
+    }
+
+    [Fact]
+    public async Task ClosingOverlayCancelsRemainingWritesAndSuppressesLatePublication()
+    {
+        DevicePowerPresetRig rig = new()
+        {
+            WaitForWrite = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
+        };
+        var overlay = Selection(rig.Create(), false);
+        await overlay.RefreshAsync();
+        var apply = overlay.AssignAsync(true, "battery");
+        await rig.Entered.Task;
+        overlay.Dispose();
+        var changed = false;
+        overlay.Changed += () => changed = true;
+        await apply;
+        Assert.False(changed);
+        Assert.Single(rig.Calls);
+        Assert.Equal(0, rig.Api.Writes);
+    }
+
+    [Fact]
+    public async Task SelectionDuringBackgroundReadIsAcceptedAndWinsOverOldObservation()
+    {
+        DevicePowerPresetRig rig = new();
+        using var overlay = Selection(rig.Create(), false);
+        await overlay.RefreshAsync();
+        using ManualResetEventSlim release = new(false);
+        TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Api.AfterRead = () =>
+        {
+            rig.Api.AfterRead = null;
+            entered.TrySetResult();
+            Assert.True(release.Wait(TimeSpan.FromSeconds(5)));
+        };
+        var refresh = overlay.RefreshAsync();
+        await entered.Task;
+        Task apply;
+        try
+        {
+            Assert.True(overlay.CanAssign);
+            apply = overlay.AssignAsync(true, "battery");
+            Assert.True(overlay.Busy);
+        }
+        finally
+        {
+            release.Set();
+        }
+
+        await Task.WhenAll(refresh, apply);
+        Assert.Equal("Battery", overlay.State.Current);
+        Assert.Equal(2, rig.Calls.Count);
+    }
+
+    [Fact]
+    public async Task CancellationAfterPreflightPropagatesWithoutReportingAnUnstartedMutation()
+    {
+        DevicePowerPresetRig rig = new();
+        using CancellationTokenSource cancellation = new();
+        rig.Api.AfterRead = cancellation.Cancel;
+        var service = rig.Create();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            service.ApplyAsync("battery", cancellation.Token));
+        Assert.Empty(rig.Calls);
+        Assert.Equal(0, rig.Api.Writes);
+        rig.Api.AfterRead = null;
+        Assert.DoesNotContain("some values", (await service.ReadAsync()).Status);
+    }
+
+    [Theory]
+    [InlineData("battery", true, "eco")]
+    [InlineData("balanced", true, "green")]
+    [InlineData("extreme", true, "sport")]
+    [InlineData("battery", false, "comfort")]
+    [InlineData("balanced", false, "comfort")]
+    [InlineData("extreme", false, "comfort")]
+    public async Task PresetsApplyTheAuthoredScenarioForTheCurrentPowerSource(string preset, bool ac, string expected)
+    {
+        DevicePowerPresetRig rig = new() { OnAc = ac };
+        rig.AddScenarios();
+        var service = rig.Create();
+        Assert.True((await service.ApplyAsync(preset, CancellationToken.None)).Succeeded);
+        Assert.Equal("ScenarioMode", rig.Calls[0].Id);
+        Assert.Equal([false, true, true], rig.Persistence);
+        Assert.Equal(expected, rig.LastScenario);
+        Assert.Equal(3, rig.Calls.Count);
+        Assert.Equal(preset, (await service.ReadAsync()).Current);
+    }
+
+    [Fact]
+    public async Task ScenarioResetOfPowerLimitsChangesTheRequiredWriteOrder()
+    {
+        DevicePowerPresetRig rig = new();
+        rig.AddScenarios();
+        rig.AfterDeviceWrite = id =>
+        {
+            if (id != "ScenarioMode")
+            {
+                return;
+            }
+
+            for (var i = 0; i < 2; i++)
+            {
+                rig.Views[i] = rig.Views[i] with
+                {
+                    Projection = rig.Views[i].Projection with
+                    {
+                        State = rig.Views[i].Projection.State with
+                        {
+                            ObservedValue = new CapabilityValue
+                                { Kind = CapabilityValueKind.Integer, IntegerValue = 8 }
+                        }
+                    }
+                };
+            }
+        };
+        Assert.True((await rig.Create().ApplyAsync("balanced", CancellationToken.None)).Succeeded);
+        Assert.Equal("PowerSlowLimit", rig.Calls[1].Id);
+    }
+
+    [Fact]
+    public async Task ScenarioFailureStopsBeforeWattsAndWindowsWithoutRetry()
+    {
+        DevicePowerPresetRig rig = new() { FailAt = 1 };
+        rig.AddScenarios();
+        var service = rig.Create();
+        Assert.False((await service.ApplyAsync("extreme", CancellationToken.None)).Succeeded);
+        await service.ReadAsync();
+        Assert.Single(rig.Calls);
+        Assert.Equal(0, rig.Api.Writes);
+    }
+
+    [Fact]
+    public async Task UnknownPowerSourcePreventsScenarioPresetWrites()
+    {
+        DevicePowerPresetRig rig = new() { OnAc = null };
+        rig.AddScenarios();
+        var service = rig.Create();
+        Assert.False((await service.ReadAsync()).Available);
+        Assert.False((await service.ApplyAsync("extreme", CancellationToken.None)).Succeeded);
+        Assert.Empty(rig.Calls);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PowerSourceChangeDuringWriteStopsRemainingSteps(bool scenarios)
+    {
+        DevicePowerPresetRig rig = new();
+        if (scenarios)
+        {
+            rig.AddScenarios();
+        }
+
+        rig.AfterDeviceWrite = _ => rig.OnAc = false;
+        Assert.False((await rig.Create().ApplyAsync("extreme", CancellationToken.None)).Succeeded);
+        Assert.Single(rig.Calls);
+        Assert.Equal(0, rig.Api.Writes);
+    }
+
+    [Fact]
+    public async Task ScenarioDriftShowsCustomWithoutReapplying()
+    {
+        DevicePowerPresetRig rig = new();
+        rig.AddScenarios();
+        var service = rig.Create();
+        Assert.Equal("balanced", (await service.ReadAsync()).Current);
+        rig.OnAc = false;
+        Assert.Equal("custom", (await service.ReadAsync()).Current);
+        Assert.Empty(rig.Calls);
+        rig.Views[2] = rig.Views[2] with
+        {
+            Projection = rig.Views[2].Projection with
+            {
+                State = rig.Views[2].Projection.State with { Quality = HardwareStateQuality.Stale }
+            }
+        };
+        Assert.False((await service.ReadAsync()).Available);
+        Assert.False((await service.ApplyAsync("battery", CancellationToken.None)).Succeeded);
+        Assert.Empty(rig.Calls);
+    }
+
+    [Fact]
+    public async Task AssignmentSourceChangedBeforeApplyRejectsWithoutWriting()
+    {
+        DevicePowerPresetRig rig = new() { OnAc = false };
+        Assert.False((await rig.Create().ApplyAsync("extreme", CancellationToken.None, false, true)).Succeeded);
+        Assert.Empty(rig.Calls);
+        Assert.Equal(0, rig.Api.Writes);
+    }
+
+    [Fact]
+    public void ProductionValidationAcceptsScenarioPresetsAndRejectsWithdrawnTargets()
+    {
+        DevicePowerPresetRig rig = new();
+        rig.AddScenarios();
+        CapabilityDescriptorSet set = new()
+        {
+            Descriptors = [.. rig.Views.Select(view => view.Descriptor)]
+        };
+        Assert.True(DeviceCapabilityValidation.TryValidateDescriptorSet(set, out var error), error);
+        Assert.False(DeviceCapabilityValidation.TryValidateDescriptorSet(set with
+        {
+            Descriptors = [.. set.Descriptors.Take(2)]
+        }, out _));
+    }
+}

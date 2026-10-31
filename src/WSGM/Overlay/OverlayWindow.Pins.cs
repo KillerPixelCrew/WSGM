@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -10,6 +11,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Core;
+using WSGM.Input;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -69,6 +71,8 @@ public partial class OverlayWindow
         var previous = _pinsInitialized ? _pins : null;
         _pins = ids;
         _pinsInitialized = true;
+        // The markers sit on the source rows, which show while Quick access is hidden.
+        UpdatePinnedIndicators();
         RenderPins();
         if (previous is not null && ids.Count != previous.Count)
         {
@@ -102,17 +106,35 @@ public partial class OverlayWindow
         _pinToastTimer.Start();
     }
 
-    private void RenderPins()
+    /// <summary>Draws the Quick access root while it shows; it is drawn again whenever it is shown.</summary>
+    /// <param name="device">The Device snapshot of this pass, or null to read it when a pin needs it.</param>
+    /// <param name="performance">The performance snapshot of this pass, or null to read it when pinned.</param>
+    /// <param name="graphics">The graphics snapshot of this pass, or null to read it when pinned.</param>
+    private void RenderPins(DeviceOverlaySnapshot? device = null, PerformanceOverlaySnapshot? performance = null,
+        GraphicsOverlaySnapshot? graphics = null)
     {
-        if (_closed)
+        // The first render runs when the window opens.
+        if (_closed || !_opened || !PanelQuickAccess.IsVisible)
         {
             return;
         }
 
-        if (!_opened)
+        // Each source is read at most once for the whole list, and only when a pin draws from it.
+        (DeviceOverlaySnapshot Snapshot, DevicePinSection[] Sections)? pinnedDevice = null;
+        if (_deviceBridge is { } bridge && _pins.Any(IsDevicePin))
         {
-            _rendersAwaitingOpen |= PinsRenderAwaitingOpen;
-            return;
+            device ??= bridge.Snapshot();
+            pinnedDevice = (device, DevicePinSections(device));
+        }
+
+        if (performance is null && _pins.Contains("section.performance"))
+        {
+            performance = _performanceSource?.Snapshot();
+        }
+
+        if (graphics is null && _pins.Any(id => id.StartsWith(GraphicsSectionPins.Prefix, StringComparison.Ordinal)))
+        {
+            graphics = _graphicsSource?.Snapshot();
         }
 
         var focusedKey = CurrentSemanticFocusKey();
@@ -146,7 +168,7 @@ public partial class OverlayWindow
             }
             else
             {
-                row = CreatePinnedSection(id);
+                row = CreatePinnedSection(id, pinnedDevice, performance, graphics);
                 if (row is null)
                 {
                     continue;
@@ -183,11 +205,9 @@ public partial class OverlayWindow
         }
 
         PinnedGrid.IsVisible = PinnedGrid.Children.Count > 0;
-        UpdatePinnedIndicators();
         if (restoreFocus is null && PanelQuickAccess.IsVisible && !AnySubView && focusedKey is not null)
         {
-            restoreFocus = PinnedSectionsGrid.GetVisualDescendants().OfType<Control>()
-                .FirstOrDefault(control => control.Focusable && Equals(control.Tag, focusedKey));
+            restoreFocus = FocusSearch.Keyed(PinnedSectionsGrid, focusedKey);
         }
 
         var rendered = PinnedGrid.Children.Count + PinnedSectionsGrid.Children.Count -
@@ -257,10 +277,7 @@ public partial class OverlayWindow
 
         foreach (var (id, button) in _pinnable)
         {
-            if (button is not PluginWidgetPinControls)
-            {
-                button.IsPinned = IsOriginalPinnedRow(id, pinned);
-            }
+            button.IsPinned = IsOriginalPinnedRow(id, pinned);
         }
     }
 
@@ -326,13 +343,7 @@ public partial class OverlayWindow
 
     private static void MirrorPinnedRow(ActionButton clone, ActionButton source)
     {
-        clone.Title = source.Title;
-        clone.Description = source.Description;
-        clone.IconGeometry = source.IconGeometry;
-        clone.TrailingText = source.TrailingText;
-        clone.TrailingGlyph = source.TrailingGlyph;
-
-
+        clone.CopyContentFrom(source);
         // The source's OWN IsVisible (bound to a feature flag), not its effective one —
         // the source panel is hidden whenever the Quick access root shows.
         clone.IsVisible = source.IsVisible;
@@ -341,13 +352,22 @@ public partial class OverlayWindow
 
     private static string DeviceRowKey(DeviceOverlayCapability capability)
     {
-        return capability.InstanceId is { Length: > 0 }
-            ? $"{capability.CapabilityId}#{capability.InstanceId}"
-            : capability.CapabilityId;
+        return new DeviceCapabilityKey(capability.CapabilityId, capability.InstanceId).ToString();
+    }
+
+    /// <summary>Whether a pin id names a Device group, the one kind drawn from the Device snapshot.</summary>
+    private bool IsDevicePin(string id)
+    {
+        return id.StartsWith("section.", StringComparison.Ordinal)
+               && id != "section.performance"
+               && !id.StartsWith(GraphicsSectionPins.Prefix, StringComparison.Ordinal)
+               && !_pinnable.ContainsKey(id)
+               && !_controlPinFactories.ContainsKey(id);
     }
 
     /// <summary>Static actions and whole Device and Graphics sections are the pin targets.</summary>
-    private bool IsPinnable(string id, Func<DeviceOverlaySnapshot?> deviceSnapshot)
+    private bool IsPinnable(string id, Lazy<DevicePinSection[]?> deviceSections,
+        Lazy<GraphicsOverlaySnapshot?> graphics)
     {
         return id.StartsWith(ProgramsService.PinPrefix, StringComparison.Ordinal)
                || _pinnable.ContainsKey(id) || _controlPinFactories.ContainsKey(id)
@@ -355,18 +375,18 @@ public partial class OverlayWindow
                                              _performanceSource?.Snapshot().Visible is true)
                                          || (_pins.Contains(id) && id.StartsWith("section.", StringComparison.Ordinal))
                                          || (id.StartsWith(GraphicsSectionPins.Prefix, StringComparison.Ordinal)
-                                             && GraphicsSectionPins.Resolve(_graphicsSource?.Snapshot(), id)
-                                                 is not null)
-                                         || (deviceSnapshot() is { } snapshot && DevicePinSections(snapshot)
-                                             .Any(section => section.Id == id));
+                                             && GraphicsSectionPins.Resolve(graphics.Value, id) is not null)
+                                         || deviceSections.Value?.Any(section => section.Id == id) is true;
     }
 
     /// <summary>Resolves the row id a row or its Quick access mirror stands for.</summary>
     private bool TryGetPinId(Control? control, out string id)
     {
-        // One device snapshot for the whole ancestor walk instead of one per node.
-        DeviceOverlaySnapshot? snapshot = null;
-        var snapshotRead = false;
+        // One read of each source for the whole ancestor walk instead of one per node.
+        Lazy<DevicePinSection[]?> deviceSections = new(
+            () => _deviceBridge?.Snapshot() is { } snapshot ? DevicePinSections(snapshot) : null,
+            LazyThreadSafetyMode.None);
+        Lazy<GraphicsOverlaySnapshot?> graphics = new(() => _graphicsSource?.Snapshot(), LazyThreadSafetyMode.None);
         for (Visual? node = control; node is not null; node = node.GetVisualParent())
         {
             if (node is not Control { Tag: string tag })
@@ -375,7 +395,7 @@ public partial class OverlayWindow
             }
 
             id = tag.StartsWith(PinTagPrefix, StringComparison.Ordinal) ? tag[PinTagPrefix.Length..] : tag;
-            if (IsPinnable(id, DeviceSnapshot))
+            if (IsPinnable(id, deviceSections, graphics))
             {
                 return true;
             }
@@ -383,18 +403,6 @@ public partial class OverlayWindow
 
         id = "";
         return false;
-
-        DeviceOverlaySnapshot? DeviceSnapshot()
-        {
-            if (snapshotRead)
-            {
-                return snapshot;
-            }
-
-            snapshot = _deviceBridge?.Snapshot();
-            snapshotRead = true;
-            return snapshot;
-        }
     }
 
     /// <summary>

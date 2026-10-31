@@ -1,16 +1,13 @@
 using System;
-using Avalonia.Automation;
 using Avalonia.Controls;
-using Avalonia.Layout;
-using FluentAvalonia.UI.Controls;
 
 namespace WSGM.Overlay;
 
 public partial class OverlayWindow
 {
-    private ToggleSwitch? _lockOnWakeToggle;
+    private DeviceSettingRow? _lockOnWakeRow;
     private bool _refreshingWindowsPolicies;
-    private ToggleSwitch? _uacToggle;
+    private DeviceSettingRow? _uacRow;
 
     /// <summary>Raised with true to turn the machine's UAC consent prompts off, false to restore them.</summary>
     internal event Action<bool>? UacPromptsRequested;
@@ -20,10 +17,11 @@ public partial class OverlayWindow
 
     private void InitializeWindowsPolicies()
     {
-        _uacToggle = AddWindowsPolicyRow(UacPolicyHost, "Never show UAC prompts on this PC",
+        _uacRow = AddWindowsPolicyRow(UacPolicyHost, "system.uac-prompts", "Never show UAC prompts on this PC",
             "Applies to every administrator account. Enable only on a personal device you trust.",
             disable => UacPromptsRequested?.Invoke(disable));
-        _lockOnWakeToggle = AddWindowsPolicyRow(LockOnWakePolicyHost, "No lock screen after standby",
+        _lockOnWakeRow = AddWindowsPolicyRow(LockOnWakePolicyHost, "system.lock-on-wake",
+            "No lock screen after standby",
             "Keep a personal handheld ready after it wakes. Anyone with the device can use the current session.",
             disable => LockOnWakeRequested?.Invoke(disable));
     }
@@ -37,53 +35,45 @@ public partial class OverlayWindow
         _refreshingWindowsPolicies = true;
         try
         {
-            Show(_uacToggle, uacPromptsDisabled);
-            Show(_lockOnWakeToggle, lockOnWakeDisabled);
+            Show(_uacRow, uacPromptsDisabled);
+            Show(_lockOnWakeRow, lockOnWakeDisabled);
         }
         finally
         {
             _refreshingWindowsPolicies = false;
         }
 
-        void Show(ToggleSwitch? toggle, bool disabled)
+        void Show(DeviceSettingRow? row, bool disabled)
         {
-            if (toggle is null)
+            if (row is null)
             {
                 return;
             }
 
-            toggle.IsChecked = disabled;
-            toggle.IsEnabled = editable;
+            // Set directly rather than through the row's refresh, which leaves a focused editor alone: a
+            // declined elevation must put the pressed switch back.
+            ((ToggleSwitch)row.Editor).IsChecked = disabled;
+            row.Editor.IsEnabled = editable;
         }
     }
 
-    private ToggleSwitch AddWindowsPolicyRow(Panel host, string title, string description, Action<bool> requested)
+    private DeviceSettingRow AddWindowsPolicyRow(Panel host, string key, string title, string description,
+        Action<bool> requested)
     {
         // Disabled until Windows has been read, and again while a change runs, so a second
         // press cannot queue a second elevation prompt.
-        var toggle = new ToggleSwitch
-        {
-            IsEnabled = false,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            OffContent = null,
-            OnContent = null
-        };
-        AutomationProperties.SetName(toggle, title);
-        toggle.IsCheckedChanged += (_, _) =>
+        DeviceSettingRow? row = null;
+        row = DeviceControlRows.Toggle(key, title, description, false, false, disable =>
         {
             if (_refreshingWindowsPolicies)
             {
                 return;
             }
 
-            toggle.IsEnabled = false;
-            requested(toggle.IsChecked == true);
-        };
-        host.Children.Add(new FASettingsExpanderItem
-        {
-            Content = title, Description = description, Footer = toggle,
-            HorizontalAlignment = HorizontalAlignment.Stretch, Focusable = false
+            row!.Editor.IsEnabled = false;
+            requested(disable);
         });
-        return toggle;
+        host.Children.Add(row);
+        return row;
     }
 }

@@ -69,7 +69,8 @@ public sealed partial class GameLibraryView
             })), "folder.types"));
         body.Children.Add(Tagged(PrimaryRow("Add folder", "Titles are offered at the next scan", Icons.Grid4,
             _folderPath.Length == 0 ? null : () => _ = RunSafelyAsync(AddAsync(), "add folder")), "folder.add"));
-        SetContent(body);
+        // The form shows only its own draft, so the library's publications leave it as drawn.
+        SetStaticContent(body);
         return;
 
         async Task ChooseAsync()
@@ -176,7 +177,7 @@ public sealed partial class GameLibraryView
                 var card = PreviewCard(id, slot?.Thumb, entry.Name, description,
                     () => OpenEntry(id, order));
                 card.Tag = "card:" + id;
-                card.Opacity = GameLibraryRows.IsUnavailable(entry) ? 0.55 : 1;
+                card.Opacity = entry.Unavailable ? 0.55 : 1;
                 cards.Children.Add(card);
             }
             else
@@ -194,12 +195,11 @@ public sealed partial class GameLibraryView
         if (entries.Length > _shown)
         {
             var added = (_grid ? "item:" : "entry:") + entries[_shown].Id;
-            body.Children.Add(Tagged(Row("Load more", $"{_shown} of {entries.Length}", Icons.ArrowDown, () =>
+            body.Children.Add(PagedRows.More(this, "review.more", $"{_shown} of {entries.Length}", added, () =>
             {
                 _shown += 48;
                 RenderReview(importedOnly);
-                PagedRows.FocusAdded(this, added);
-            }), "review.more"));
+            }));
         }
 
         if (entries.Length == 0)
@@ -210,12 +210,14 @@ public sealed partial class GameLibraryView
 
     private void RenderTitleArtwork(string id, string asset)
     {
-        if (_service?.ReadState() is not { } state || state.Entries.FirstOrDefault(entry => entry.Id == id) is not
-                { } entry)
+        if (ReadArtwork(id, asset) is not { } shown || _service is null)
         {
             Back();
             return;
         }
+
+        var state = shown.State;
+        var entry = shown.Entry;
 
         var body = NewStack(entry.Name + " · Staged artwork");
         AddStatus(body, state);
@@ -228,7 +230,7 @@ public sealed partial class GameLibraryView
         {
             body.Children.Add(Caption($"Current: {slot.Kind} · {slot.Provider} · {slot.Index}/{slot.Count}"));
             body.Children.Add(new OverlayPreviewImage(slot.Thumb, 220)
-                { Tag = "chosen:" + id + ":" + asset + ":" + slot.Thumb });
+            { Tag = "chosen:" + id + ":" + asset + ":" + slot.Thumb });
         }
 
         body.Children.Add(Tagged(
@@ -245,8 +247,7 @@ public sealed partial class GameLibraryView
         body.Children.Add(Tagged(
             Row("Search game match", entry.MatchName, Icons.ListLines, () => Navigate(() => RenderMatch(id))),
             "match"));
-        var answer = _service.ReadArtworkOptions(id, asset);
-        if (answer is not null)
+        if (shown.Options is { } answer)
         {
             body.Children.Add(Caption(answer.Status + (answer.Detail.Length == 0 ? "" : ": " + answer.Detail)));
             var cards = new WrapPanel();
@@ -267,7 +268,8 @@ public sealed partial class GameLibraryView
                 () => ArtworkRequested?.Invoke(entry.AppId, entry.Name)), "art.current"));
         }
 
-        SetContent(body);
+        SetLibraryContent(body, shown, () => ReadArtwork(id, asset), static reading => reading.State,
+            static (a, b) => SameEntry(a.Entry, b.Entry) && SameOptions(a.Options, b.Options));
     }
 
     private void RenderMatch(string id)
@@ -304,7 +306,9 @@ public sealed partial class GameLibraryView
             }
         }
 
-        SetContent(body);
+        // Only the title's name and match come from the library; the search results are the view's own.
+        SetLiveContent(body, entry, () => _service?.ReadState().Entries.FirstOrDefault(item => item.Id == id),
+            static (a, b) => a.Name == b.Name && a.MatchName == b.MatchName, null);
         return;
 
         async Task SearchAsync(string query)
@@ -376,16 +380,15 @@ public sealed partial class GameLibraryView
         if (state.Entries.Where(entry => entry.Selected).Skip(_shown).FirstOrDefault() is { } next)
         {
             var added = "item:" + next.Id + ":" + Assets[0].Id;
-            body.Children.Add(Tagged(Row("Load more titles", "", Icons.ArrowDown, () =>
+            body.Children.Add(PagedRows.More(this, "all.more", "", added, () =>
             {
                 _shown += 48;
                 RenderAllArtwork();
-                PagedRows.FocusAdded(this, added);
-            }), "all.more"));
+            }, title: "Load more titles"));
         }
 
         body.Children.Add(Tagged(PrimaryRow($"Apply {state.SelectedCount}", "Save selected changes", Icons.Play,
             state.Loading || state.SelectedCount == 0 ? null : () => Run(_service.ApplyAsync)), "apply"));
-        SetContent(body);
+        SetLibraryContent(body, state, SameSelectedArtwork);
     }
 }
