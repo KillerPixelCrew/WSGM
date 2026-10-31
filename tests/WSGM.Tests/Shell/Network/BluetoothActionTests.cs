@@ -59,11 +59,11 @@ public sealed class BluetoothActionTests
             },
             (_, _) => throw new InvalidOperationException());
         BluetoothDeviceEntry entry = new("logical") { PairingEndpointId = "pairable-le", CanPair = true };
-        Assert.True(manager.BeginPairing(entry));
+        Assert.True(manager.Pairing.Begin(entry));
         Assert.True(entry.Busy);
-        Assert.False(manager.BeginPairing(entry));
+        Assert.False(manager.Pairing.Begin(entry));
         Assert.Equal(["pairable-le"], writes);
-        Assert.True(manager.CancelPairing(entry));
+        Assert.True(manager.Pairing.Cancel(entry));
         Assert.True(entry.Busy);
     }
 
@@ -73,7 +73,7 @@ public sealed class BluetoothActionTests
         using RadioManager manager = new((_, _, _) => throw new InvalidOperationException("radio unavailable"),
             (_, _) => { });
         BluetoothDeviceEntry entry = new("endpoint") { CanPair = true };
-        Assert.False(manager.BeginPairing(entry));
+        Assert.False(manager.Pairing.Begin(entry));
         Assert.False(entry.Busy);
         Assert.NotEmpty(manager.StatusText);
     }

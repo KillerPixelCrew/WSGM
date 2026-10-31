@@ -161,21 +161,21 @@ public sealed class ControllerManagerTests
         Harness harness = new();
         await using var manager = harness.Manager;
         await StartActiveAsync(manager);
-        Assert.True(await manager.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None));
+        Assert.True(await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None));
         if (throws)
         {
             harness.Backend.NextPublishFailure = new InvalidOperationException("route refused");
             await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                manager.PulseRearButtonAsync(1, CancellationToken.None));
+                manager.Forwarding.PulseRearButtonAsync(1, CancellationToken.None));
         }
         else
         {
             harness.Backend.RejectNextPublish = true;
-            Assert.False(await manager.PulseRearButtonAsync(1, CancellationToken.None));
+            Assert.False(await manager.Forwarding.PulseRearButtonAsync(1, CancellationToken.None));
         }
 
         await StartActiveAsync(manager);
-        Assert.True(await manager.RouteAsync(Sample(CanonicalButtons.B), CancellationToken.None));
+        Assert.True(await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.B), CancellationToken.None));
 
         Assert.Equal(CanonicalButtons.B, harness.Backend.LastPublished?.Buttons);
     }
@@ -195,7 +195,7 @@ public sealed class ControllerManagerTests
 
         Assert.Equal(ControllerManagementState.Off, status.State);
         Assert.Equal("Controller management is off.", status.Detail);
-        Assert.False(manager.UiPad.IsActive);
+        Assert.False(manager.Forwarding.UiPad.IsActive);
         Assert.Null(status.Target);
         Assert.Empty(harness.Backend.Operations);
         Assert.Equal(0, harness.HidHide.Reads);
@@ -219,7 +219,7 @@ public sealed class ControllerManagerTests
         Assert.Equal(ControllerManagementState.Active, status.State);
         Assert.Equal(ManagedControllerTarget.Xbox360, status.Target);
         Assert.Equal(ProfileSource.Global, status.TargetSource);
-        Assert.True(manager.UiPad.IsActive);
+        Assert.True(manager.Forwarding.UiPad.IsActive);
         Assert.Contains("create:1:neutral", harness.Backend.Operations);
         Assert.Equal([ProcessPriorityClass.High], harness.PriorityWrites);
         Assert.Contains(HostApplication, harness.HidHide.Applications);
@@ -268,7 +268,7 @@ public sealed class ControllerManagerTests
 
         Assert.Equal(ControllerManagementState.Unavailable, status.State);
         Assert.Equal(unavailableDetail, status.Detail);
-        Assert.False(manager.UiPad.IsActive);
+        Assert.False(manager.Forwarding.UiPad.IsActive);
         Assert.Empty(harness.HidHide.Devices);
         Assert.False(harness.HidHide.Active);
         Assert.DoesNotContain(harness.Backend.Operations, operation => operation.StartsWith("create"));
@@ -394,7 +394,7 @@ public sealed class ControllerManagerTests
         Assert.Single(harness.Backend.Operations, operation => operation.StartsWith("create:"));
         Assert.DoesNotContain(harness.Backend.Operations, operation => operation.StartsWith("remove:"));
         Assert.Equal(hideWrites, harness.HidHide.ListWrites);
-        Assert.True(await manager.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None));
+        Assert.True(await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None));
     }
 
     [Fact]
@@ -404,7 +404,7 @@ public sealed class ControllerManagerTests
         await using var manager = harness.Manager;
         await StartActiveAsync(manager);
 
-        Assert.True(await manager.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None));
+        Assert.True(await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None));
         Assert.Contains("publish:1:live", harness.Backend.Operations);
     }
 
@@ -415,12 +415,12 @@ public sealed class ControllerManagerTests
         await using var manager = harness.Manager;
         await StartActiveAsync(manager);
 
-        await manager.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None);
-        Assert.Equal(GamepadButtons.A, manager.UiPad.Buttons);
+        await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None);
+        Assert.Equal(GamepadButtons.A, manager.Forwarding.UiPad.Buttons);
 
-        await manager.ClaimUiAsync("overlay", CancellationToken.None);
-        await manager.RouteAsync(Sample(CanonicalButtons.QuickAccess), CancellationToken.None);
-        Assert.Equal(GamepadButtons.QuickAccess, manager.UiPad.Buttons);
+        await manager.Forwarding.ClaimUiAsync("overlay", CancellationToken.None);
+        await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.QuickAccess), CancellationToken.None);
+        Assert.Equal(GamepadButtons.QuickAccess, manager.Forwarding.UiPad.Buttons);
     }
 
     [Fact]
@@ -430,9 +430,9 @@ public sealed class ControllerManagerTests
         await using var manager = harness.Manager;
         await StartActiveAsync(manager);
 
-        await manager.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None);
-        await manager.ClaimUiAsync("overlay", CancellationToken.None);
-        var routed = await manager.RouteAsync(Sample(CanonicalButtons.Y), CancellationToken.None);
+        await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None);
+        await manager.Forwarding.ClaimUiAsync("overlay", CancellationToken.None);
+        var routed = await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.Y), CancellationToken.None);
 
         Assert.False(routed);
         List<string> operations = [.. harness.Backend.Operations];
@@ -446,12 +446,12 @@ public sealed class ControllerManagerTests
         await using var manager = harness.Manager;
         await StartActiveAsync(manager);
 
-        await manager.RouteAsync(Sample(CanonicalButtons.Guide), CancellationToken.None);
-        await manager.ClaimUiAsync("overlay", CancellationToken.None);
-        manager.ReleaseUi("overlay");
+        await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.Guide), CancellationToken.None);
+        await manager.Forwarding.ClaimUiAsync("overlay", CancellationToken.None);
+        manager.Forwarding.ReleaseUi("overlay");
 
-        Assert.False(await manager.RouteAsync(Sample(CanonicalButtons.Guide), CancellationToken.None));
-        Assert.True(await manager.RouteAsync(Sample(CanonicalButtons.None), CancellationToken.None));
+        Assert.False(await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.Guide), CancellationToken.None));
+        Assert.True(await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.None), CancellationToken.None));
     }
 
     [Fact]
@@ -461,12 +461,12 @@ public sealed class ControllerManagerTests
         await using var manager = harness.Manager;
         await StartActiveAsync(manager);
 
-        await manager.ClaimUiAsync("overlay", CancellationToken.None);
-        Assert.False(await manager.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None));
-        manager.ReleaseUi("overlay");
+        await manager.Forwarding.ClaimUiAsync("overlay", CancellationToken.None);
+        Assert.False(await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None));
+        manager.Forwarding.ReleaseUi("overlay");
 
-        Assert.False(await manager.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None));
-        Assert.True(await manager.RouteAsync(Sample(CanonicalButtons.None), CancellationToken.None));
+        Assert.False(await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None));
+        Assert.True(await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.None), CancellationToken.None));
     }
 
     [Fact]
@@ -476,13 +476,13 @@ public sealed class ControllerManagerTests
         await using var manager = harness.Manager;
         await StartActiveAsync(manager);
 
-        await manager.ClaimUiAsync("overlay", CancellationToken.None);
-        await manager.ClaimUiAsync("taskbar", CancellationToken.None);
-        manager.ReleaseUi("taskbar");
+        await manager.Forwarding.ClaimUiAsync("overlay", CancellationToken.None);
+        await manager.Forwarding.ClaimUiAsync("taskbar", CancellationToken.None);
+        manager.Forwarding.ReleaseUi("taskbar");
 
-        Assert.False(await manager.RouteAsync(Sample(CanonicalButtons.None), CancellationToken.None));
-        manager.ReleaseUi("overlay");
-        Assert.True(await manager.RouteAsync(Sample(CanonicalButtons.None), CancellationToken.None));
+        Assert.False(await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.None), CancellationToken.None));
+        manager.Forwarding.ReleaseUi("overlay");
+        Assert.True(await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.None), CancellationToken.None));
     }
 
     [Fact]
@@ -491,11 +491,11 @@ public sealed class ControllerManagerTests
         Harness harness = new();
         await using var manager = harness.Manager;
         await StartActiveAsync(manager);
-        await manager.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None);
+        await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None);
 
-        await manager.BlockForwardingAsync("system sleep", CancellationToken.None);
+        await manager.Forwarding.BlockForwardingAsync("system sleep", CancellationToken.None);
 
-        Assert.False(await manager.RouteAsync(Sample(CanonicalButtons.None), CancellationToken.None));
+        Assert.False(await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.None), CancellationToken.None));
         Assert.Single(harness.Backend.Operations, operation => operation == "publish:1:neutral");
         Assert.DoesNotContain(harness.Backend.Operations, operation => operation.StartsWith("remove:"));
         Assert.Contains(Device().InstancePath, harness.HidHide.Devices);
@@ -510,11 +510,11 @@ public sealed class ControllerManagerTests
         Harness harness = new();
         await using var manager = harness.Manager;
         await StartActiveAsync(manager);
-        await manager.BlockForwardingAsync("system sleep", CancellationToken.None);
+        await manager.Forwarding.BlockForwardingAsync("system sleep", CancellationToken.None);
 
-        await manager.ResumeForwardingAsync("system wake", CancellationToken.None);
+        await manager.Forwarding.ResumeForwardingAsync("system wake", CancellationToken.None);
 
-        Assert.True(await manager.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None));
+        Assert.True(await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None));
         Assert.Single(harness.Backend.Operations, operation => operation.StartsWith("create:"));
     }
 
@@ -524,11 +524,11 @@ public sealed class ControllerManagerTests
         Harness harness = new();
         await using var manager = harness.Manager;
         await StartActiveAsync(manager);
-        await manager.BlockForwardingAsync("system sleep", CancellationToken.None);
+        await manager.Forwarding.BlockForwardingAsync("system sleep", CancellationToken.None);
 
         await StartActiveAsync(manager);
 
-        Assert.True(await manager.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None));
+        Assert.True(await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None));
     }
 
     [Fact]
@@ -563,7 +563,7 @@ public sealed class ControllerManagerTests
         Assert.False(harness.HidHide.Active);
         Assert.Null(harness.Store.Ledger);
         Assert.Equal(ControllerManagementState.Idle, manager.State);
-        Assert.False(manager.UiPad.IsActive);
+        Assert.False(manager.Forwarding.UiPad.IsActive);
     }
 
     [Fact]
@@ -611,11 +611,11 @@ public sealed class ControllerManagerTests
         await manager.ReleaseAsync(HandoffScope.ControllerOnly, _ => Task.CompletedTask, Deadline.Never,
             CancellationToken.None);
 
-        Assert.False(await manager.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None));
+        Assert.False(await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None));
         Assert.Equal([ProcessPriorityClass.High, ProcessPriorityClass.Normal], harness.PriorityWrites);
 
         await StartActiveAsync(manager);
-        Assert.True(await manager.RouteAsync(Sample(CanonicalButtons.None), CancellationToken.None));
+        Assert.True(await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.None), CancellationToken.None));
         Assert.Equal(
             [ProcessPriorityClass.High, ProcessPriorityClass.Normal, ProcessPriorityClass.High],
             harness.PriorityWrites);
@@ -661,7 +661,7 @@ public sealed class ControllerManagerTests
         harness.Backend.LoseTarget();
 
         Assert.Equal(ControllerManagementState.Faulted, manager.State);
-        Assert.False(manager.UiPad.IsActive);
+        Assert.False(manager.Forwarding.UiPad.IsActive);
         Assert.Equal([ProcessPriorityClass.High, ProcessPriorityClass.Normal], harness.PriorityWrites);
     }
 
@@ -686,7 +686,7 @@ public sealed class ControllerManagerTests
         Assert.Equal(ControllerManager.NativeDetail, status.Detail);
         Assert.DoesNotContain(harness.Backend.Operations, operation => operation.StartsWith("create:", StringComparison.Ordinal));
         Assert.DoesNotContain(Device().InstancePath, harness.HidHide.Devices);
-        Assert.False(manager.UiPad.IsActive);
+        Assert.False(manager.Forwarding.UiPad.IsActive);
         Assert.Empty(harness.PriorityWrites);
         Assert.Contains(ManagedControllerTarget.Xbox360, manager.SupportedTargets);
     }

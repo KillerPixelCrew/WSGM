@@ -15,7 +15,7 @@ Independent extensions use the [common plugin host](plugin-system.md).
 | `DeviceFanCurves`, `DeviceLightingProfiles` | Software fan curve and authored fan profiles; lighting profiles and lighting restore                         |
 | `HandheldDeviceRuntime`                     | Borrowed observer and adaptation between native contracts and WSGM publications                              |
 | `DeviceCapabilityRouter`                    | Validated descriptors, detached state, command admission and UI projections                                  |
-| `ControllerManager`                         | HidHide, VIIPER targets, forwarding, UI capture and controller handoff                                       |
+| `ControllerManager`, `ControllerForwarding` | HidHide, VIIPER targets and controller handoff; sample forwarding, UI capture and synthetic presses          |
 | `DeviceOemActionRouter`                     | Configured OEM actions and default Steam/Quick Access behavior                                               |
 
 The machine-wide `Global\WSGM.DeviceOwner` marker prevents another WSGM session or setup from

@@ -72,10 +72,11 @@ reads a ten-second average, waits for 3 °C and ramps 5 points up or 2 down per 
 
 ## Controllers and OEM buttons
 
-LibHandheld produces canonical physical input. ControllerManager owns HidHide, VIIPER targets,
-forwarding and UI capture. Steam Input leases keep capture and wrapped-game ownership separate from
-native device acquisition. Explicit OEM action assignments override defaults; Guide and Quick Access
-actions remain available through wrapper leases.
+LibHandheld produces canonical physical input. ControllerManager owns HidHide, VIIPER targets and
+the controller handoff; its ControllerForwarding owns sample forwarding and UI capture. Steam Input
+leases keep capture and wrapped-game ownership separate from native device acquisition. Explicit OEM
+action assignments override defaults; Guide and Quick Access actions remain available through
+wrapper leases.
 
 The Xbox Ally Armoury Crate button declares the companion-application default and opens WSGM without
 a recorded keyboard shortcut. OEM release edges still reach the host during suspend, stop and fault

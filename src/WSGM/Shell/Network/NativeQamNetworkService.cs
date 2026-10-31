@@ -56,7 +56,7 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
         // Direct unsubscribe first so a session that ends while Steam's network page is open does
         // not leave this service subscribed to a collection it no longer publishes; the sweep stop
         // still marshals to the UI thread that owns it.
-        _radios.Networks.CollectionChanged -= OnScannedNetworksChanged;
+        _radios.Wifi.Networks.CollectionChanged -= OnScannedNetworksChanged;
         // ReSharper disable MethodHasAsyncOverload
         _poll.Dispose();
         _publishDebounce.Dispose();
@@ -69,8 +69,8 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
     {
         await NativeQamUi.RunAsync(() =>
         {
-            _radios.Networks.CollectionChanged -= OnScannedNetworksChanged;
-            _radios.Networks.CollectionChanged += OnScannedNetworksChanged;
+            _radios.Wifi.Networks.CollectionChanged -= OnScannedNetworksChanged;
+            _radios.Wifi.Networks.CollectionChanged += OnScannedNetworksChanged;
             _radios.StartScanning();
         }, cancellationToken).ConfigureAwait(false);
         QueuePublication();
@@ -119,7 +119,7 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
     public async Task<SteamUiCommandResult> DisconnectAsync(CancellationToken cancellationToken)
     {
         Task? operation = null;
-        await NativeQamUi.RunAsync(() => operation = _radios.DisconnectAsync(), cancellationToken)
+        await NativeQamUi.RunAsync(() => operation = _radios.Wifi.DisconnectAsync(), cancellationToken)
             .ConfigureAwait(false);
         await operation!.ConfigureAwait(false);
         return await CompletedAsync().ConfigureAwait(false);
@@ -133,7 +133,7 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
         {
             if (FindNetwork(ssid) is { } network)
             {
-                operation = _radios.ForgetAsync(network);
+                operation = _radios.Wifi.ForgetAsync(network);
             }
         }, cancellationToken).ConfigureAwait(false);
         if (operation is null)
@@ -160,7 +160,7 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
 
     private void StopScanningCore()
     {
-        _radios.Networks.CollectionChanged -= OnScannedNetworksChanged;
+        _radios.Wifi.Networks.CollectionChanged -= OnScannedNetworksChanged;
         _radios.StopScanning();
     }
 
@@ -172,7 +172,7 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
         // A connected network may not be present in the latest scan results.
         if (indicatorEnabled)
         {
-            await _radios.RefreshWifiStatusAsync().ConfigureAwait(false);
+            await _radios.Wifi.RefreshStatusAsync().ConfigureAwait(false);
         }
 
         List<WindowsRadio.WifiNetworkKey> keys = [];
@@ -181,7 +181,7 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
         var connectedSignal = 0;
         await NativeQamUi.RunAsync(() =>
         {
-            foreach (var entry in _radios.Networks.Where(entry => !string.IsNullOrWhiteSpace(entry.Ssid)))
+            foreach (var entry in _radios.Wifi.Networks.Where(entry => !string.IsNullOrWhiteSpace(entry.Ssid)))
             {
                 keys.Add(entry.Key);
                 networks.Add(new SteamNetworkAccessPoint(
@@ -191,10 +191,10 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
                     entry.Connected));
             }
 
-            if (_radios.WifiConnected)
+            if (_radios.Wifi.Connected)
             {
-                connected = _radios.ConnectedNetwork;
-                connectedSignal = _radios.WifiSignal;
+                connected = _radios.Wifi.ConnectedNetwork;
+                connectedSignal = _radios.Wifi.Signal;
             }
         }).ConfigureAwait(false);
 
@@ -240,14 +240,14 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
         try
         {
             Task<bool>? operation = null;
-            await NativeQamUi.RunAsync(() => operation = _radios.ConnectAsync(network, password))
+            await NativeQamUi.RunAsync(() => operation = _radios.Wifi.ConnectAsync(network, password))
                 .ConfigureAwait(false);
             joined = await operation!.ConfigureAwait(false);
             if (joined)
             {
                 // Steam's connecting dialog closes only when the joined row reads connected, so the
                 // status is current before the outcome is published.
-                await _radios.RefreshWifiStatusAsync().ConfigureAwait(false);
+                await _radios.Wifi.RefreshStatusAsync().ConfigureAwait(false);
             }
             else
             {
@@ -289,13 +289,13 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
     /// <summary>The listed network with this name, or the connected one when the scan has not listed it.</summary>
     private WindowsRadio.WifiNetworkKey? FindNetwork(string ssid)
     {
-        if (_radios.Networks.FirstOrDefault(entry => string.Equals(entry.Ssid, ssid, StringComparison.Ordinal))
+        if (_radios.Wifi.Networks.FirstOrDefault(entry => string.Equals(entry.Ssid, ssid, StringComparison.Ordinal))
             is { } entry)
         {
             return entry.Key;
         }
 
-        return _radios.ConnectedNetwork is { } connected
+        return _radios.Wifi.ConnectedNetwork is { } connected
                && string.Equals(connected.DisplayText, ssid, StringComparison.Ordinal)
             ? connected
             : null;

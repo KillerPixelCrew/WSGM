@@ -330,7 +330,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         {
             if (_sampleObservers++ == 0)
             {
-                _coordinator.Controllers.PhysicalSampleObserved += OnPhysicalSample;
+                _coordinator.Controllers.Forwarding.PhysicalSampleObserved += OnPhysicalSample;
                 _coordinator.PhysicalOemEventReceived += OnPhysicalOemEvent;
                 _coordinator.Controllers.StatusChanged += OnPhysicalControllerStatus;
             }
@@ -366,7 +366,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         {
             if (_sampleObservers > 0)
             {
-                _coordinator.Controllers.PhysicalSampleObserved -= OnPhysicalSample;
+                _coordinator.Controllers.Forwarding.PhysicalSampleObserved -= OnPhysicalSample;
                 _coordinator.PhysicalOemEventReceived -= OnPhysicalOemEvent;
                 _coordinator.Controllers.StatusChanged -= OnPhysicalControllerStatus;
                 _sampleObservers = 0;
@@ -404,7 +404,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 return;
             }
 
-            _coordinator.Controllers.PhysicalSampleObserved -= OnPhysicalSample;
+            _coordinator.Controllers.Forwarding.PhysicalSampleObserved -= OnPhysicalSample;
             _coordinator.PhysicalOemEventReceived -= OnPhysicalOemEvent;
             _coordinator.Controllers.StatusChanged -= OnPhysicalControllerStatus;
         }

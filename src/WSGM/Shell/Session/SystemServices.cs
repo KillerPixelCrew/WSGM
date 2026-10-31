@@ -171,7 +171,7 @@ internal sealed class SystemServices(SessionState state)
         if (device is { } wakeCoordinator)
         {
             ShellSession.TryStart("controller display wake",
-                () => _controllerWake = new ControllerDisplayWake(messageWindow, wakeCoordinator.Controllers));
+                () => _controllerWake = new ControllerDisplayWake(messageWindow, wakeCoordinator.Controllers.Forwarding));
         }
 
         // Reads the flag on every wakeup, like the standby guard, so a config reload needs no rebuild.

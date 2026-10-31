@@ -1,10 +1,5 @@
-using WindowsDeviceControl;
 using WSGM.Shell;
-using PairingOutcome = WindowsDeviceControl.WindowsRadio.PairingOutcome;
 using RadioPower = WindowsDeviceControl.WindowsRadio.Power;
-using WifiConnectOutcome = WindowsDeviceControl.WindowsRadio.WifiConnectOutcome;
-using WifiConnectRefusal = WindowsDeviceControl.WindowsRadio.WifiConnectRefusal;
-using WifiFailureKind = WindowsDeviceControl.WindowsRadio.WifiFailureKind;
 using WifiNetworkKey = WindowsDeviceControl.WindowsRadio.WifiNetworkKey;
 using WifiSecurity = WindowsDeviceControl.WindowsRadio.WifiSecurity;
 
@@ -22,115 +17,6 @@ public class RadioManagerTests
         // "Off" for a policy-blocked or missing adapter leaves the user
         // pressing a switch that cannot do anything.
         Assert.Contains(expected, RadioManager.DescribeUnavailable(power, "Wi-Fi"));
-    }
-
-    [Fact]
-    public void OnlyARejectedKeyAsksTheUserToRetypeThePassword()
-    {
-        Assert.Contains(
-            "password",
-            RadioManager.DescribeConnectFailure(WifiFailureKind.KeyRejected, 0, ""));
-    }
-
-    [Fact]
-    public void AnUnreachableNetworkNeverBlamesThePassword()
-    {
-        // Re-prompting here would make the user retype a password that was never
-        // even tried, which is worse than saying the network was not reachable.
-        var message = RadioManager.DescribeConnectFailure(WifiFailureKind.Unreachable, 0, "");
-        Assert.DoesNotContain("password", message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("range", message);
-    }
-
-    [Fact]
-    public void AnUnknownFailureFallsBackToWindowsMessage()
-    {
-        Assert.Equal(
-            "boom",
-            RadioManager.DescribeConnectFailure(WifiFailureKind.Unknown, 0, "boom"));
-        // ...and still says something when there is no message at all.
-        Assert.False(string.IsNullOrWhiteSpace(
-            RadioManager.DescribeConnectFailure(WifiFailureKind.Unknown, 0, "")));
-    }
-
-    [Fact]
-    public void TheLocationConsentGateIsNamedRatherThanShownAsARawError()
-    {
-        // ERROR_ACCESS_DENIED from a scan is the 24H2 consent gate, not something elevating or
-        // retrying can fix, so it must not read as a generic failure.
-        Assert.Equal(
-            "Windows is blocking the Wi-Fi scan until location access is allowed "
-            + "(Settings > Privacy & security > Location).",
-            RadioManager.DescribeScanFailure(5, "WlanGetAvailableNetworkList failed (Win32 5)."));
-    }
-
-    [Theory]
-    [InlineData(50)]
-    [InlineData(5023)]
-    [InlineData(1168)]
-    [InlineData(0)]
-    public void EveryOtherScanFailureKeepsItsOwnMessage(int status)
-    {
-        // A status that merely starts with 5 is not the consent gate.
-        var message = $"WlanGetAvailableNetworkList failed (Win32 {status}).";
-        Assert.Equal($"Wi-Fi scan failed: {message}", RadioManager.DescribeScanFailure(status, message));
-    }
-
-    [Theory]
-    [InlineData(WifiConnectRefusal.InvalidPassphrase,
-        "The password must be 8-63 printable ASCII characters, or 64 hex digits. (Parameter 'passphrase')")]
-    [InlineData(WifiConnectRefusal.UnsupportedAuthentication,
-        "This network does not advertise a supported personal-key authentication method.")]
-    [InlineData(WifiConnectRefusal.NeedsPassword, "This network needs a password and has no saved profile.")]
-    [InlineData(WifiConnectRefusal.UnsupportedSecurity, "This network's authentication method is not supported.")]
-    public void ARefusedJoinReadsAsItAlwaysHas(WifiConnectRefusal refusal, string expected)
-    {
-        Assert.Equal(expected, RadioManager.DescribeConnectResult(
-            new WindowsRadio.WifiConnectResult(WifiConnectOutcome.Refused, 0, refusal)));
-    }
-
-    [Fact]
-    public void AJoinWithoutAVerdictReadsAsItAlwaysHas()
-    {
-        Assert.Equal(
-            "The Wi-Fi connection attempt did not complete.",
-            RadioManager.DescribeConnectResult(
-                new WindowsRadio.WifiConnectResult(WifiConnectOutcome.Pending, 0, null)));
-    }
-
-    [Fact]
-    public void AFailedJoinKeepsTheReasonWording()
-    {
-        // MSMSEC_PSK_MISMATCH_SUSPECTED: a rejected key, so the password is named.
-        Assert.Equal(
-            RadioManager.DescribeConnectFailure(WifiFailureKind.KeyRejected, 294932u, ""),
-            RadioManager.DescribeConnectResult(
-                new WindowsRadio.WifiConnectResult(WifiConnectOutcome.Failed, 294932u, null)));
-    }
-
-    [Theory]
-    [InlineData(PairingOutcome.Paired, "Pad is paired.")]
-    [InlineData(PairingOutcome.AlreadyPaired, "Pad was already paired.")]
-    [InlineData(PairingOutcome.Cancelled, "Pairing with Pad was cancelled.")]
-    public void PairOutcomeWordingNamesTheDevice(PairingOutcome outcome, string expected)
-    {
-        Assert.Equal(expected, RadioManager.DescribePairOutcome(outcome, "Pad", ""));
-    }
-
-    [Fact]
-    public void AFailedPairingSuggestsPairingMode()
-    {
-        Assert.Contains(
-            "pairing mode",
-            RadioManager.DescribePairOutcome(PairingOutcome.Failed, "Pad", ""));
-    }
-
-    [Fact]
-    public void AStartupErrorUsesTheWindowsMessageWhenThereIsOne()
-    {
-        // A null outcome is the attempt that threw before Windows produced one.
-        Assert.Equal("no such device", RadioManager.DescribePairOutcome(null, "Pad", "no such device"));
-        Assert.Contains("Pad", RadioManager.DescribePairOutcome(null, "Pad", ""));
     }
 }
 

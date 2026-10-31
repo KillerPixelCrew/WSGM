@@ -11,40 +11,6 @@ using WSGM.Core;
 
 namespace WSGM.Shell;
 
-/// <summary>One active Core Audio endpoint shown by the quick access sheet's audio panel.</summary>
-public sealed class AudioEndpointEntry : ObservableObject
-{
-    private string _name;
-
-    /// <summary>Creates a visible endpoint row.</summary>
-    /// <param name="id">The opaque Windows endpoint identifier.</param>
-    /// <param name="name">The friendly device name.</param>
-    internal AudioEndpointEntry(string id, string name)
-    {
-        Id = id;
-        _name = name;
-    }
-
-    /// <summary>Gets the opaque Windows endpoint identifier.</summary>
-    internal string Id { get; }
-
-    /// <summary>Gets the friendly device name.</summary>
-    public string Name
-    {
-        get => _name;
-        internal set
-        {
-            if (_name == value)
-            {
-                return;
-            }
-
-            _name = value;
-            Raise(nameof(Name));
-        }
-    }
-}
-
 /// <summary>
 ///     Live master-volume and default audio-device state for the quick access
 ///     sheet. Potentially slow Core Audio enumeration runs away from the Avalonia
@@ -53,34 +19,27 @@ public sealed class AudioEndpointEntry : ObservableObject
 public sealed class AudioManager : ObservableObject, IDisposable
 {
     /// <summary>How often the state is re-read without a notification.</summary>
-    private static readonly TimeSpan SafetyPollInterval = TimeSpan.FromSeconds(10);
+    internal static readonly TimeSpan SafetyPollInterval = TimeSpan.FromSeconds(10);
 
-    private readonly SemaphoreSlim _inputSelectionGate = new(1, 1);
+    private readonly AudioChangeWatch _changes;
+    private readonly AudioEndpointSelection _inputSelection;
     private readonly CoalescingVolumeWrite _inputVolumeWrite = new("Microphone volume");
-    private readonly SemaphoreSlim _outputSelectionGate = new(1, 1);
+    private readonly AudioEndpointSelection _outputSelection;
     private readonly CoalescingVolumeWrite _volumeWrite = new("Volume");
-    private IDisposable? _captureVolumeWatch;
     private bool _disposed;
     private string _endpointSummary = "";
-
-    // Core Audio pushes changes; the timer is only a safety net. Each watch is bound to the
-    // endpoint that was the default when it started, so a default change restarts the volume watches.
-    private IDisposable? _endpointWatch;
     private bool _hasOutputSnapshot;
 
     private bool _inputMuted;
-    private EndpointSelectionTracker _inputSelection;
 
     private double? _inputVolumePercent;
     private int _inputVolumeRevision;
-    private EndpointSelectionTracker _outputSelection;
 
     // A change notified while a refresh is running would be lost with the one-flight guard alone;
     // the pending flags make the running refresh queue one more.
     private bool _refreshPending;
     private bool _refreshPendingEndpoints;
     private int _refreshing;
-    private IDisposable? _renderVolumeWatch;
 
     private AudioEndpointEntry? _selectedInput;
 
@@ -88,11 +47,27 @@ public sealed class AudioManager : ObservableObject, IDisposable
     private bool _stickyError;
     private int _ticks;
 
+    // Core Audio pushes changes through _changes; the timer is only a safety net.
     private DispatcherTimer? _timer;
 
     private double _volumePercent;
     private int _volumeRevision;
-    private int _volumeWatchGeneration;
+
+    /// <summary>Creates an inert manager; <see cref="Start" /> begins reading and watching Core Audio.</summary>
+    public AudioManager()
+    {
+        _changes = new AudioChangeWatch(() => QueueRefresh(false), () => QueueRefresh(true));
+        _outputSelection = new AudioEndpointSelection(
+            output: true,
+            () => _disposed,
+            result => OnSelectionSettled("output", result),
+            message => PostFailure(message, sticky: true));
+        _inputSelection = new AudioEndpointSelection(
+            output: false,
+            () => _disposed,
+            result => OnSelectionSettled("input", result),
+            message => PostFailure(message, sticky: true));
+    }
 
     /// <summary>Gets the active playback endpoints.</summary>
     public ObservableCollection<AudioEndpointEntry> OutputEndpoints { get; } = [];
@@ -233,8 +208,8 @@ public sealed class AudioManager : ObservableObject, IDisposable
     {
         _disposed = true;
         // Invalidate every in-flight selection so its completion cannot publish.
-        _outputSelection.Begin();
-        _inputSelection.Begin();
+        _outputSelection.Invalidate();
+        _inputSelection.Invalidate();
         if (_timer is not null)
         {
             _timer.Stop();
@@ -244,123 +219,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
 
         _volumeWrite.Clear();
         _inputVolumeWrite.Clear();
-        StopWatches();
-    }
-
-    private void StopWatches()
-    {
-        Interlocked.Increment(ref _volumeWatchGeneration);
-        var watches = new[] { _endpointWatch, _renderVolumeWatch, _captureVolumeWatch };
-        _endpointWatch = null;
-        _renderVolumeWatch = null;
-        _captureVolumeWatch = null;
-        // Unregistering waits for an in-flight callback, and the callbacks post to this thread, so
-        // the disposal must not run on it.
-        _ = Task.Run(() =>
-        {
-            foreach (var watch in watches)
-            {
-                try
-                {
-                    watch?.Dispose();
-                }
-                catch (Exception ex)
-                {
-                    Log.Warn($"Audio watch disposal failed: {ex.Message}");
-                }
-            }
-        });
-    }
-
-    /// <summary>Registers for Core Audio change notifications, replacing the volume watches.</summary>
-    /// <param name="endpoints">Whether the endpoint watch is (re)registered as well.</param>
-    private void StartWatches(bool endpoints)
-    {
-        var generation = Interlocked.Increment(ref _volumeWatchGeneration);
-        var previous = new[] { _renderVolumeWatch, _captureVolumeWatch };
-        _renderVolumeWatch = null;
-        _captureVolumeWatch = null;
-        _ = Task.Run(() =>
-        {
-            foreach (var watch in previous)
-            {
-                watch?.Dispose();
-            }
-
-            if (_disposed || Volatile.Read(ref _volumeWatchGeneration) != generation)
-            {
-                return;
-            }
-
-            var render =
-                CoreAudio.StartVolumeWatch(CoreAudio.AudioDirection.Render, OnVolumeNotified, out var renderWatch);
-            var capture = CoreAudio.StartVolumeWatch(CoreAudio.AudioDirection.Capture, OnVolumeNotified,
-                out var captureWatch);
-            IDisposable? endpointWatch = null;
-            var endpointResult = 0;
-            if (endpoints)
-            {
-                endpointResult = CoreAudio.StartEndpointWatch(OnEndpointNotified, out endpointWatch);
-            }
-
-            Dispatcher.UIThread.Post(() =>
-            {
-                if (_disposed || Volatile.Read(ref _volumeWatchGeneration) != generation)
-                {
-                    _ = Task.Run(() =>
-                    {
-                        renderWatch?.Dispose();
-                        captureWatch?.Dispose();
-                        endpointWatch?.Dispose();
-                    });
-                    return;
-                }
-
-                _renderVolumeWatch = renderWatch;
-                _captureVolumeWatch = captureWatch;
-                if (endpoints)
-                {
-                    _endpointWatch = endpointWatch;
-                }
-
-                if (render < 0 || capture < 0 || endpointResult < 0)
-                {
-                    Log.Change(
-                        "audio-watch",
-                        $"Audio change notifications unavailable (render=0x{render:X8}, capture=0x{capture:X8}, "
-                        + $"endpoints=0x{endpointResult:X8}); falling back to the {SafetyPollInterval.TotalSeconds:F0} s poll.");
-                }
-            });
-        });
-    }
-
-    private void OnVolumeNotified()
-    {
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (!_disposed)
-            {
-                QueueRefresh(false);
-            }
-        });
-    }
-
-    private void OnEndpointNotified(CoreAudio.AudioEndpointWatchEvent change)
-    {
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            if (change.Change is CoreAudio.AudioEndpointChange.DefaultChanged)
-            {
-                StartWatches(false);
-            }
-
-            QueueRefresh(true);
-        });
+        _changes.Dispose();
     }
 
     /// <summary>
@@ -376,7 +235,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
 
         VolumeFeedback.Initialize();
         QueueRefresh(true);
-        StartWatches(true);
+        _changes.Start();
         // Core Audio reports every change; this only catches a notification that never arrived.
         // Polling once a second for the whole session was two COM round trips per second and an
         // endpoint enumeration every five, with the overlay closed and a game in the foreground.
@@ -424,7 +283,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
         {
             try
             {
-                var snapshot = ReadSnapshot(includeEndpoints, volumeRevision, inputVolumeRevision);
+                var snapshot = AudioSnapshot.Read(includeEndpoints, volumeRevision, inputVolumeRevision);
                 Dispatcher.UIThread.Post(() =>
                 {
                     if (!_disposed)
@@ -458,53 +317,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
         QueueRefresh(includeEndpoints);
     }
 
-    private static Snapshot ReadSnapshot(
-        bool includeEndpoints,
-        int volumeRevision,
-        int inputVolumeRevision)
-    {
-        var volumeResult = CoreAudio.GetVolume(out var volume, out var muted);
-        var inputVolumeResult = CoreAudio.GetVolume(
-            CoreAudio.AudioDirection.Capture,
-            out var inputVolume,
-            out var inputMuted);
-        if (!includeEndpoints)
-        {
-            return new Snapshot(
-                volumeResult,
-                volume,
-                muted != 0,
-                volumeRevision,
-                inputVolumeResult,
-                inputVolume,
-                inputMuted != 0,
-                inputVolumeRevision,
-                false,
-                0,
-                [],
-                0,
-                []);
-        }
-
-        var outputResult = CoreAudio.ListEndpoints(CoreAudio.AudioDirection.Render, out var outputs);
-        var inputResult = CoreAudio.ListEndpoints(CoreAudio.AudioDirection.Capture, out var inputs);
-        return new Snapshot(
-            volumeResult,
-            volume,
-            muted != 0,
-            volumeRevision,
-            inputVolumeResult,
-            inputVolume,
-            inputMuted != 0,
-            inputVolumeRevision,
-            true,
-            outputResult,
-            outputs,
-            inputResult,
-            inputs);
-    }
-
-    private void Apply(Snapshot snapshot)
+    private void Apply(AudioSnapshot snapshot)
     {
         if (snapshot.VolumeResult >= 0)
         {
@@ -710,77 +523,27 @@ public sealed class AudioManager : ObservableObject, IDisposable
         }
 
         SetSelected(output, value);
-        var kind = output ? "output" : "input";
-        var revision = Tracker(output).Begin();
-        Log.Info($"Audio {kind} selected: '{value.Name}'.");
-        _ = Task.Run(() => ApplyEndpointSelectionAsync(value.Id, output, kind, revision));
+        (output ? _outputSelection : _inputSelection).Select(value);
     }
 
-    /// <summary>
-    ///     Serializes default-device writes for one data flow. A stale
-    ///     queued request is skipped, and an already-running stale request cannot
-    ///     publish UI state after the user's newer choice.
-    /// </summary>
-    private async Task ApplyEndpointSelectionAsync(string endpointId, bool output, string kind, int revision)
+    /// <summary>Publishes the newest selection's outcome. UI thread, while still current.</summary>
+    /// <param name="kind">The direction whose write settled, for the failure text.</param>
+    /// <param name="result">The write's HRESULT.</param>
+    private void OnSelectionSettled(string kind, int result)
     {
-        var gate = output ? _outputSelectionGate : _inputSelectionGate;
-        await gate.WaitAsync().ConfigureAwait(false);
-        try
+        if (result < 0)
         {
-            if (_disposed || !Tracker(output).IsCurrent(revision))
-            {
-                return;
-            }
-
-            try
-            {
-                var result = CoreAudio.SetDefaultEndpoint(endpointId);
-                if (result >= 0 && output)
-                {
-                    VolumeFeedback.Reinitialize();
-                }
-
-                Tracker(output).Complete(revision);
-                Dispatcher.UIThread.Post(() =>
-                {
-                    if (_disposed || !Tracker(output).IsCurrent(revision))
-                    {
-                        return;
-                    }
-
-                    if (result < 0)
-                    {
-                        PostFailure(
-                            $"Could not select audio {kind} (HRESULT 0x{result:X8}).",
-                            true);
-                    }
-                    else
-                    {
-                        _stickyError = false;
-                        ErrorText = "";
-                    }
-
-                    QueueRefresh(true);
-                });
-            }
-            catch (Exception ex)
-            {
-                if (Tracker(output).IsCurrent(revision))
-                {
-                    Tracker(output).Complete(revision);
-                    PostFailure($"Audio {kind} selection failed: {ex.Message}", true);
-                }
-            }
+            PostFailure(
+                $"Could not select audio {kind} (HRESULT 0x{result:X8}).",
+                sticky: true);
         }
-        finally
+        else
         {
-            gate.Release();
+            _stickyError = false;
+            ErrorText = "";
         }
-    }
 
-    private ref EndpointSelectionTracker Tracker(bool output)
-    {
-        return ref output ? ref _outputSelection : ref _inputSelection;
+        QueueRefresh(true);
     }
 
     private void SetSelected(bool output, AudioEndpointEntry? value)
@@ -901,148 +664,5 @@ public sealed class AudioManager : ObservableObject, IDisposable
             _stickyError |= sticky;
             ErrorText = message;
         });
-    }
-
-    /// <summary>
-    ///     Revision bookkeeping for one data flow's default-endpoint writes:
-    ///     rapid selections each take a revision, only the newest may publish UI
-    ///     state, and the flow counts as pending until that newest revision
-    ///     completes. Pure, so the latest-wins rule is testable without Core Audio;
-    ///     the writes themselves are additionally serialized by a per-flow gate.
-    /// </summary>
-    internal struct EndpointSelectionTracker
-    {
-        private int _requested;
-        private int _completed;
-
-        /// <summary>Claims the next revision for a new selection.</summary>
-        /// <returns>The revision to carry through this selection's write and completion.</returns>
-        internal int Begin()
-        {
-            return Interlocked.Increment(ref _requested);
-        }
-
-        /// <summary>Whether this revision is still the newest selection.</summary>
-        /// <param name="revision">Revision returned by <see cref="Begin" /> for the write being checked.</param>
-        /// <returns>True if no later selection has been requested; completion does not retire the revision.</returns>
-        internal bool IsCurrent(int revision)
-        {
-            return revision == Volatile.Read(ref _requested);
-        }
-
-        /// <summary>
-        ///     Whether a selection is still in flight — the refresh path must
-        ///     not overwrite the user's choice with a stale default meanwhile.
-        /// </summary>
-        internal bool Pending =>
-            Volatile.Read(ref _requested) != Volatile.Read(ref _completed);
-
-        /// <summary>
-        ///     Records this revision's write as finished. A stale revision is
-        ///     ignored: the newer selection it lost to is still pending.
-        /// </summary>
-        /// <param name="revision">Revision whose write settled; an older revision cannot clear a newer pending selection.</param>
-        internal void Complete(int revision)
-        {
-            if (IsCurrent(revision))
-            {
-                Volatile.Write(ref _completed, revision);
-            }
-        }
-    }
-
-    private sealed record Snapshot(
-        int VolumeResult,
-        int Volume,
-        bool Muted,
-        int VolumeRevision,
-        int InputVolumeResult,
-        int InputVolume,
-        bool InputMuted,
-        int InputVolumeRevision,
-        bool IncludedEndpoints,
-        int OutputResult,
-        IReadOnlyList<CoreAudio.AudioEndpoint> Outputs,
-        int InputResult,
-        IReadOnlyList<CoreAudio.AudioEndpoint> Inputs);
-
-    /// <summary>
-    ///     Runs one direction's volume writes on a worker, collapsing a burst of slider moves
-    ///     into the latest value.
-    /// </summary>
-    /// <param name="label">What is written, for the failure messages.</param>
-    private sealed class CoalescingVolumeWrite(string label)
-    {
-        private readonly Lock _gate = new();
-        private int? _pending;
-        private bool _running;
-
-        /// <summary>Records the latest value and starts a worker unless one is already running.</summary>
-        internal void Queue(int percentage, Func<bool> stopped, Action<int> write, Action<string> fail)
-        {
-            lock (_gate)
-            {
-                _pending = percentage;
-                if (_running)
-                {
-                    return;
-                }
-
-                _running = true;
-            }
-
-            _ = Task.Run(() =>
-            {
-                try
-                {
-                    while (true)
-                    {
-                        int requested;
-                        lock (_gate)
-                        {
-                            if (_pending is not { } pending || stopped())
-                            {
-                                _running = false;
-                                return;
-                            }
-
-                            requested = pending;
-                            _pending = null;
-                        }
-
-                        try
-                        {
-                            write(requested);
-                        }
-                        catch (Exception ex)
-                        {
-                            // Report and carry on: unwinding the loop would strand _running at
-                            // true and silently drop every later slider move.
-                            fail($"{label} write failed: {ex.Message}");
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    // The flag is the only thing that lets a later write start a worker at all,
-                    // so it must be cleared on the abnormal exit too.
-                    lock (_gate)
-                    {
-                        _running = false;
-                    }
-
-                    Log.Warn($"{label} write worker stopped: {ex.Message}");
-                }
-            });
-        }
-
-        /// <summary>Drops a value that has not been written yet.</summary>
-        internal void Clear()
-        {
-            lock (_gate)
-            {
-                _pending = null;
-            }
-        }
     }
 }

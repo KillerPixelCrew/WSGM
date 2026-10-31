@@ -67,7 +67,7 @@ internal sealed class NativeQamBluetoothService : ISteamBluetoothBackend
                 return;
             }
 
-            started = _radios.BeginPairing(device);
+            started = _radios.Pairing.Begin(device);
         }, cancellationToken).ConfigureAwait(false);
         return new SteamUiCommandResult(started, started ? null : _radios.StatusText);
     }
@@ -81,7 +81,7 @@ internal sealed class NativeQamBluetoothService : ISteamBluetoothBackend
         }
 
         var cancelled = false;
-        await NativeQamUi.RunAsync(() => cancelled = _radios.CancelPairing(device), cancellationToken)
+        await NativeQamUi.RunAsync(() => cancelled = _radios.Pairing.Cancel(device), cancellationToken)
             .ConfigureAwait(false);
         return new SteamUiCommandResult(cancelled, cancelled ? null : "That device has no active pairing attempt.");
     }

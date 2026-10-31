@@ -37,19 +37,6 @@ public sealed class AudioManagerTests
     }
 
     [Fact]
-    public void EndpointRowsOnlyNotifyWhenTheirFriendlyNameChanges()
-    {
-        var endpoint = new AudioEndpointEntry("id", "Speakers");
-        var changes = new List<string>();
-        endpoint.PropertyChanged += (_, e) => changes.Add(e.PropertyName ?? "");
-
-        endpoint.Name = "Speakers";
-        endpoint.Name = "Headset";
-
-        Assert.Equal([nameof(AudioEndpointEntry.Name)], changes);
-    }
-
-    [Fact]
     public void EndpointRefreshesKeepSurvivingRowsAndUpdateThemInPlace()
     {
         var entries = new ObservableCollection<AudioEndpointEntry>
@@ -70,31 +57,5 @@ public sealed class AudioManagerTests
         Assert.Same(survivor, entries[0]);
         Assert.Equal("New name", survivor.Name);
         Assert.Equal("Dock speakers", entries[1].Name);
-    }
-
-    [Fact]
-    public void RapidEndpointSelectionsFinishWithTheLatestChoice()
-    {
-        // The revision bookkeeping behind rapid default-endpoint changes: a stale
-        // selection may neither publish UI state nor settle the flow — only the
-        // newest revision does. (The writes themselves are serialized by the
-        // per-flow gate in AudioManager.ApplyEndpointSelection.)
-        var tracker = default(AudioManager.EndpointSelectionTracker);
-        Assert.False(tracker.Pending);
-
-        var first = tracker.Begin();
-        Assert.True(tracker.Pending);
-        Assert.True(tracker.IsCurrent(first));
-
-        var second = tracker.Begin();
-        Assert.False(tracker.IsCurrent(first));
-        Assert.True(tracker.IsCurrent(second));
-
-        tracker.Complete(first);
-        Assert.True(tracker.Pending);
-
-        tracker.Complete(second);
-        Assert.False(tracker.Pending);
-        Assert.True(tracker.IsCurrent(second));
     }
 }

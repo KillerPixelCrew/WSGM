@@ -183,8 +183,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         Capabilities.Changed += Power.OnControlsChanged;
         _hapticSink = new PluginHapticSink(ApplyHapticOutputAsync);
         Controllers = createControllers(_hapticSink);
-        Controllers.FilterOemButtons = _oemActions.FilterControllerButtons;
-        Controllers.ApplyRumbleCalibration(config.RumbleCalibration);
+        Controllers.Forwarding.FilterOemButtons = _oemActions.FilterControllerButtons;
+        Controllers.Rumble.ApplyCalibration(config.RumbleCalibration);
         Controllers.TargetLost += OnControllerTargetLost;
         // Last: it starts serving at once, and nothing after it may fail and leave it running.
         _diagnostics = createDiagnostics(sessionId, DiagnosticsSnapshot);
@@ -295,7 +295,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     internal RumbleCalibrationConfig RumbleCalibration => _config.RumbleCalibration;
 
     /// <summary>Whether integration and the current controller state permit a rumble preview.</summary>
-    internal bool CanPreviewRumble => IntegrationEnabled && Controllers.CanPreviewRumble;
+    internal bool CanPreviewRumble => IntegrationEnabled && Controllers.Rumble.CanPreview;
 
     /// <summary>The catalog holding the installed package's glyph profiles.</summary>
     /// <remarks>
@@ -333,14 +333,14 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     {
         using var transition = await EnterTransitionAsync(token).ConfigureAwait(false);
         return !_disposed && CanPreviewRumble
-                          && await Controllers.PreviewRumbleAsync(testFloor, token).ConfigureAwait(false);
+                          && await Controllers.Rumble.PreviewAsync(testFloor, token).ConfigureAwait(false);
     }
 
     /// <summary>Requests an explicit stop for any physical rumble preview.</summary>
     /// <returns>Completion of the controller manager's stop attempt.</returns>
     internal Task StopRumblePreviewAsync()
     {
-        return Controllers.StopRumblePreviewAsync();
+        return Controllers.Rumble.StopPreviewAsync();
     }
 
     /// <summary>Validates and persists one calibration value, then updates the controller manager.</summary>
@@ -366,7 +366,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
                 default: throw new ArgumentOutOfRangeException(nameof(value));
             }
         }, token).ConfigureAwait(false);
-        Controllers.ApplyRumbleCalibration(saved.RumbleCalibration);
+        Controllers.Rumble.ApplyCalibration(saved.RumbleCalibration);
     }
 
     private Task ApplyHapticOutputAsync(HapticOutputFrame frame, CancellationToken cancellationToken)
@@ -563,7 +563,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         var previousConfig = _config;
         var wasEnabled = _config.DeviceIntegration.Enabled;
         _config = config;
-        Controllers.ApplyRumbleCalibration(config.RumbleCalibration);
+        Controllers.Rumble.ApplyCalibration(config.RumbleCalibration);
         ConfigurationChanged?.Invoke();
 
         // Stored settings live in the configuration, so a reload can change what the handheld
@@ -669,7 +669,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             // As HC does: the virtual controller and the hidden pad stay exactly as they are across
             // a sleep, and only forwarding stops. The handheld closes its own device below and opens it
             // again on wake, and the kept target then resumes forwarding.
-            await Controllers.BlockForwardingAsync("system sleep", cancellationToken).ConfigureAwait(false);
+            await Controllers.Forwarding.BlockForwardingAsync("system sleep", cancellationToken).ConfigureAwait(false);
             Log.Info("Controller forwarding paused for suspend; the virtual controller is kept.");
         }
 
@@ -751,7 +751,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         await FanCurves.Controller.ResumeAsync().ConfigureAwait(false);
         await ReconcileChargeLimitAsync().ConfigureAwait(false);
         Lighting.ReplayAfterTransition(afterSystemSleep ? "system wake" : "session unlock");
-        await Controllers.ResumeForwardingAsync(afterSystemSleep ? "system wake" : "session unlock",
+        await Controllers.Forwarding.ResumeForwardingAsync(afterSystemSleep ? "system wake" : "session unlock",
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -1784,7 +1784,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         _lifecycleHandler = state => OnLifecycleState(client, state);
         client.LifecycleStateReceived += _lifecycleHandler;
         client.PhysicalIdentitiesReceived += OnPhysicalIdentities;
-        client.ControllerSampleReceived += Controllers.Submit;
+        client.ControllerSampleReceived += Controllers.Forwarding.Submit;
         _glyphOemHandler = input =>
         {
             if (ReferenceEquals(_client, client))
@@ -1803,7 +1803,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         }
 
         client.PhysicalIdentitiesReceived -= OnPhysicalIdentities;
-        client.ControllerSampleReceived -= Controllers.Submit;
+        client.ControllerSampleReceived -= Controllers.Forwarding.Submit;
         if (_glyphOemHandler is { } oemHandler)
         {
             client.OemEventReceived -= oemHandler;
@@ -2103,7 +2103,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         using var admission = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
-        await Controllers.ClaimUiAsync(surfaceId, admission.Token).ConfigureAwait(false);
+        await Controllers.Forwarding.ClaimUiAsync(surfaceId, admission.Token).ConfigureAwait(false);
     }
 
     /// <summary>Releases one visible WSGM surface's managed controller claim.</summary>
@@ -2111,7 +2111,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     /// <remarks>Forwarding resumes only after every captured control is released in a subsequent sample.</remarks>
     internal void ReleaseUi(string surfaceId)
     {
-        Controllers.ReleaseUi(surfaceId);
+        Controllers.Forwarding.ReleaseUi(surfaceId);
     }
 
     /// <summary>Sends a bounded rear-button pulse through the managed virtual target.</summary>
@@ -2128,7 +2128,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         }
 
         using var admission = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
-        return await Controllers.PulseRearButtonAsync(button, admission.Token).ConfigureAwait(false);
+        return await Controllers.Forwarding.PulseRearButtonAsync(button, admission.Token).ConfigureAwait(false);
     }
 
     /// <summary>Changes the managed-controller target in the layer in force and persists the choice.</summary>

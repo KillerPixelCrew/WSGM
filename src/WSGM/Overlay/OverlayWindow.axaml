@@ -68,18 +68,18 @@
                   <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
                     <c:RadioIcon Width="18" Height="18"
                                  State="{Binding Radios.WifiIconState}"
-                                 Signal="{Binding Radios.WifiSignal}"
+                                 Signal="{Binding Radios.Wifi.Signal}"
                                  Accent="{DynamicResource HcAccentBrush}"
                                  Muted="{StaticResource HcTextPrimaryBrush}"
                                  VerticalAlignment="Center" />
                     <Border Classes="header-detail">
-                    <TextBlock x:Name="WifiLabel" Text="{Binding Radios.ConnectedSsid}"
+                    <TextBlock x:Name="WifiLabel" Text="{Binding Radios.Wifi.ConnectedSsid}"
                                FontSize="12"
                                FontWeight="SemiBold"
                                MaxWidth="90"
                                TextTrimming="CharacterEllipsis"
                                VerticalAlignment="Center"
-                               IsVisible="{Binding Radios.WifiConnected}" />
+                               IsVisible="{Binding Radios.Wifi.Connected}" />
                     </Border>
                   </StackPanel>
                 </Button>

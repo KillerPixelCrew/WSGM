@@ -612,7 +612,7 @@ public sealed class ShellSession
             _state.Store,
             _steamInput,
             () => _state.InGameMode,
-            () => _integrations.Device?.Controllers.UiPad);
+            () => _integrations.Device?.Controllers.Forwarding.UiPad);
         overlay.OpenSettings = settings.OpenAsync;
         if (!_state.OverlayTestOnly)
         {
@@ -679,7 +679,7 @@ public sealed class ShellSession
 
         // WSGM's own navigation reads the managed controller while management is active and SDL
         // otherwise; the overlay's gamepad poll switches by itself.
-        overlay.UseManagedPad(controllers.Controllers.UiPad);
+        overlay.UseManagedPad(controllers.Controllers.Forwarding.UiPad);
         _system.FollowControllers(controllers.Controllers);
         return overlay;
     }

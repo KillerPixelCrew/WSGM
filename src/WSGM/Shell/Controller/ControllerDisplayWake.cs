@@ -20,7 +20,7 @@ internal sealed class ControllerDisplayWake : IDisposable
     private const CanonicalButtons FaceButtons =
         CanonicalButtons.A | CanonicalButtons.B | CanonicalButtons.X | CanonicalButtons.Y;
 
-    private readonly ControllerManager _controllers;
+    private readonly ControllerForwarding _controllers;
     private readonly MessageWindow _messages;
     private volatile bool _dark;
     private bool _disposed;
@@ -30,8 +30,8 @@ internal sealed class ControllerDisplayWake : IDisposable
 
     /// <summary>Subscribes to the session's display state and the managed controller's physical samples.</summary>
     /// <param name="messages">The session's message window; not owned or disposed here.</param>
-    /// <param name="controllers">The device coordinator's controller manager; not owned here.</param>
-    internal ControllerDisplayWake(MessageWindow messages, ControllerManager controllers)
+    /// <param name="controllers">The device coordinator's controller forwarding; not owned here.</param>
+    internal ControllerDisplayWake(MessageWindow messages, ControllerForwarding controllers)
     {
         _messages = messages ?? throw new ArgumentNullException(nameof(messages));
         _controllers = controllers ?? throw new ArgumentNullException(nameof(controllers));

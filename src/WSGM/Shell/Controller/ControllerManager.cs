@@ -2,65 +2,25 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
-using System.Threading.Channels;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Input;
 using WSGM.Interop;
 using CanonicalButtons = LibHandheld.Contracts.CanonicalButtons;
-using CanonicalControllerSample = LibHandheld.Contracts.CanonicalControllerSample;
 using PhysicalDeviceIdentity = LibHandheld.Contracts.PhysicalDeviceIdentity;
 
 namespace WSGM.Shell;
-
-/// <summary>Truthful state of WSGM's controller management for one session.</summary>
-internal enum ControllerManagementState
-{
-    /// <summary>The user has not enabled controller management, or the release gate is closed.</summary>
-    Off,
-
-    /// <summary>Enabled, but no usable backend exists on this machine.</summary>
-    Unavailable,
-
-    /// <summary>Enabled and ready, with no virtual target present.</summary>
-    Idle,
-
-    /// <summary>A virtual target exists and canonical samples reach it.</summary>
-    Active,
-
-    /// <summary>The chosen target is the physical controller itself; Steam drives it and WSGM owns nothing.</summary>
-    Native,
-
-    /// <summary>Management faulted for this run; input falls back to SDL and the Steam lease.</summary>
-    Faulted
-}
-
-/// <summary>The complete controller-management projection consumed by the overlay and diagnostics.</summary>
-/// <param name="State">Current management lifecycle state.</param>
-/// <param name="Target">
-///     Resolved target type, possibly retained while idle, and the physical pad's own kind while native; null when
-///     off, unavailable or faulted.
-/// </param>
-/// <param name="TargetSource">Profile layer supplying the target; None also covers the built-in default.</param>
-/// <param name="ApplicationId">Canonical identity when the target comes from a game profile; otherwise null.</param>
-/// <param name="Detail">Displayable lifecycle, availability or failure detail.</param>
-internal sealed record ControllerManagerStatus(
-    ControllerManagementState State,
-    ManagedControllerTarget? Target,
-    ProfileSource TargetSource,
-    string? ApplicationId,
-    string Detail);
 
 /// <summary>
 ///     The one owner of WSGM's controller management for a session.
 /// </summary>
 /// <remarks>
 ///     Everything WSGM does to the controller happens here: the virtual target and its replacement, the
-///     haptic return path, hiding the physical pad, the local UI capture, the source WSGM's own surfaces
-///     navigate from, and the release. There is deliberately no second policy layer between a setting
-///     and this object: the overlay, Settings, and the shared running-application monitor all call it
-///     directly.
+///     haptic return path, hiding the physical pad and the release. <see cref="Forwarding" /> carries the
+///     samples, the local UI capture and the source WSGM's own surfaces navigate from. There is
+///     deliberately no second policy layer between a setting and this object: the overlay, Settings, and
+///     the shared running-application monitor all call it directly.
 ///     <para>
 ///         <see cref="DeviceCoordinator" /> owns the plugin lifecycle; this object owns WSGM's virtual
 ///         controller half, the way HC's <c>ControllerManager</c> and <c>VirtualManager</c> split it.
@@ -73,40 +33,17 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <summary>What the controller target row says while the physical pad is the target.</summary>
     internal const string NativeDetail = "Steam drives the Steam Deck controller directly.";
 
-    /// <summary>How long a synthetic press is held: HC's <c>KeyPressDelay</c>.</summary>
-    private static readonly TimeSpan SyntheticPressInterval = TimeSpan.FromMilliseconds(200);
-
     private readonly IControllerTargetBackend _backend;
     private readonly string _controllerReaderApplication;
     private readonly HidHideOwnership _hidHide;
     private readonly ControllerProcessPriority _processPriority;
 
-    /// <summary>Serializes routing a sample against the neutralizations that must precede it.</summary>
-    /// <remarks>
-    ///     A lock cannot do this: the publication it protects is asynchronous, and a route decided
-    ///     under <see cref="_stateGate" /> but published outside it can land a stale live sample on top
-    ///     of the neutral packet a capture claim just wrote.
-    /// </remarks>
-    private readonly SemaphoreSlim _routeGate = new(1, 1);
-
     private readonly ManagedControllerRouter _router;
-    private readonly Task _sampleDrain;
-
-    private readonly Channel<CanonicalControllerSample> _samples = Channel.CreateBounded<CanonicalControllerSample>(
-        new BoundedChannelOptions(1)
-            { FullMode = BoundedChannelFullMode.DropOldest, AllowSynchronousContinuations = false });
-
     private readonly Lock _stateGate = new();
     private readonly SemaphoreSlim _transition = new(1, 1);
-    private readonly UiCaptureState _uiCapture = new();
 
-    // Written under the transition gate but read from the sample path, which must not take it.
+    // Written under the transition gate but read from the plugin's callbacks, which must not take it.
     private volatile bool _disposed;
-    private bool _forwardingBlocked;
-    private bool _gameLive;
-
-    private CanonicalButtons _lastButtons;
-    private CanonicalControllerSample? _lastSample;
 
     private IReadOnlyList<PhysicalDeviceIdentity> _physicalDevices = [];
 
@@ -126,8 +63,6 @@ internal sealed class ControllerManager : IAsyncDisposable
         null,
         "Controller management has not started.");
 
-    private CanonicalButtons _syntheticButtons;
-
     internal ControllerManager(
         IControllerTargetBackend backend,
         IPhysicalHapticSink hapticSink,
@@ -146,20 +81,17 @@ internal sealed class ControllerManager : IAsyncDisposable
         _controllerReaderApplication = controllerReaderApplication;
         _router = new ManagedControllerRouter(backend, hapticSink, timeProvider);
         _router.TargetFaulted += OnRouterTargetFaulted;
-        _sampleDrain = DrainSamplesAsync();
+        Forwarding = new ControllerForwarding(_router, () => State);
     }
 
-    /// <summary>The managed controller as WSGM's own surfaces read it.</summary>
-    /// <remarks>
-    ///     Active only while a target is being driven; in every other state the UI reads SDL with the
-    ///     Steam Input lease, which is why that path stays a permanent capability.
-    /// </remarks>
-    internal ManagedUiPad UiPad { get; } = new();
+    /// <summary>The route from the plugin's samples to WSGM's own surfaces and the virtual target.</summary>
+    internal ControllerForwarding Forwarding { get; }
 
     /// <summary>Current state of controller management.</summary>
     internal ControllerManagementState State => Volatile.Read(ref _status).State;
 
-    internal bool CanPreviewRumble => _router.Output.CanPreview;
+    /// <summary>The haptic return path, its calibration and the calibration preview.</summary>
+    internal ControllerOutputRouter Rumble => _router.Output;
 
     /// <summary>Targets the backend on this machine can create, once it has been discovered.</summary>
     /// <remarks>
@@ -173,21 +105,6 @@ internal sealed class ControllerManager : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await DisposeAsync(Deadline.Never).ConfigureAwait(false);
-    }
-
-    internal void ApplyRumbleCalibration(RumbleCalibrationConfig config)
-    {
-        _router.Output.ApplyCalibration(config);
-    }
-
-    internal Task<bool> PreviewRumbleAsync(bool testFloor, CancellationToken token)
-    {
-        return _router.Output.PreviewAsync(testFloor, token);
-    }
-
-    internal Task StopRumblePreviewAsync()
-    {
-        return _router.Output.StopPreviewAsync();
     }
 
     internal static ControllerManager CreateProduction(string root, IPhysicalHapticSink hapticSink)
@@ -221,11 +138,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         var entered = false;
         try
         {
-            lock (_stateGate)
-            {
-                _forwardingBlocked = true;
-                _gameLive = false;
-            }
+            Forwarding.CloseAdmission();
 
             try
             {
@@ -253,10 +166,10 @@ internal sealed class ControllerManager : IAsyncDisposable
             {
                 _disposed = true;
                 _processPriority.SetActive(false);
+                Forwarding.Close();
             }
 
             _router.TargetFaulted -= OnRouterTargetFaulted;
-            _samples.Writer.TryComplete();
             if (!entered)
             {
                 return;
@@ -264,7 +177,7 @@ internal sealed class ControllerManager : IAsyncDisposable
 
             try
             {
-                await _sampleDrain.WaitAsync(bounded.Token).ConfigureAwait(false);
+                await Forwarding.Drain.WaitAsync(bounded.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (bounded.Token.IsCancellationRequested)
             {
@@ -289,11 +202,12 @@ internal sealed class ControllerManager : IAsyncDisposable
                     _disposed = true;
                     _processPriority.SetActive(false);
                 }
+
+                Forwarding.Close();
             }
 
             try
             {
-                _samples.Writer.TryComplete();
                 await ShowPhysicalUnderGateAsync(CancellationToken.None).ConfigureAwait(false);
                 SetState(ControllerManagementState.Off, "Controller management disposed.");
             }
@@ -323,14 +237,10 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// </remarks>
     private void OnRouterTargetFaulted(string detail)
     {
-        lock (_stateGate)
-        {
-            _gameLive = false;
-        }
-
+        Forwarding.MarkGameIdle();
         SetState(ControllerManagementState.Faulted, detail);
         Log.Observe(
-            BlockForwardingAsync("source-faulted", CancellationToken.None),
+            Forwarding.BlockForwardingAsync("source-faulted", CancellationToken.None),
             "Controller source-fault neutralization");
         TargetLost?.Invoke(detail);
     }
@@ -340,13 +250,6 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <summary>Raised when the projection changes, for the overlay and Settings.</summary>
     /// <remarks>Raised on any thread; handlers must not touch UI state directly.</remarks>
     internal event Action<ControllerManagerStatus>? StatusChanged;
-
-    /// <summary>Every physical sample, for diagnostics only.</summary>
-    /// <remarks>Raised before routing and never used to drive input.</remarks>
-    internal event Action<CanonicalControllerSample>? PhysicalSampleObserved;
-
-    /// <summary>Optional owner-provided OEM translation; physical/UI observers retain the original sample.</summary>
-    internal Func<CanonicalControllerSample, CanonicalButtons>? FilterOemButtons { get; set; }
 
     /// <summary>Returns the current projection.</summary>
     /// <returns>The controller-management projection.</returns>
@@ -409,7 +312,7 @@ internal sealed class ControllerManager : IAsyncDisposable
     {
         _physicalDevices = physicalDevices;
         _selection = selection;
-        _samples.Reader.TryRead(out _);
+        Forwarding.DropPendingSample();
 
         if (!selection.Enabled)
         {
@@ -564,256 +467,6 @@ internal sealed class ControllerManager : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    ///     Forwards one canonical sample published by the plugin.
-    /// </summary>
-    /// <param name="sample">The sample the plugin published.</param>
-    /// <remarks>
-    ///     A captured sample never reaches the virtual target. WSGM's own surfaces read every sample
-    ///     through <see cref="UiPad" />, whose edge detection keeps the chord that opened the overlay
-    ///     from activating whatever now has focus underneath it.
-    /// </remarks>
-    internal void Submit(CanonicalControllerSample sample)
-    {
-        if (!_disposed)
-        {
-            // Only the newest full state matters. Observers run on the drain, never the HID reader.
-            _samples.Writer.TryWrite(sample);
-        }
-    }
-
-    private static void LogRouteFault(Exception ex)
-    {
-        Log.Change(
-            "controller-sample-route-fault",
-            $"Controller sample route recovered after {ex.GetType().Name}: {ex.Message}");
-    }
-
-    private async Task DrainSamplesAsync()
-    {
-        while (await _samples.Reader.WaitToReadAsync().ConfigureAwait(false))
-        {
-            if (!_samples.Reader.TryRead(out var sample))
-            {
-                continue;
-            }
-
-            try
-            {
-                await RouteAsync(sample, CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                LogRouteFault(ex);
-            }
-        }
-    }
-
-    /// <summary>Routes one canonical sample and reports whether it reached the virtual target.</summary>
-    /// <param name="sample">The sample the plugin published.</param>
-    /// <param name="cancellationToken">Cancels the route.</param>
-    /// <returns><see langword="true" /> when the sample reached the virtual target.</returns>
-    internal async Task<bool> RouteAsync(
-        CanonicalControllerSample sample,
-        CancellationToken cancellationToken)
-    {
-        // Raised before any routing decision, because this is what the plugin reported. Read-only: an
-        // observer cannot change what is routed, so it is not a second input path.
-        PhysicalSampleObserved?.Invoke(sample);
-        UiPad.Publish(sample);
-
-        // Held across the decision and the publication it authorizes. Every neutralization takes
-        // the same gate, so a live sample can no longer be written after the neutral packet that
-        // was meant to replace it.
-        await _routeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            bool toUi;
-            CanonicalButtons synthetic;
-            lock (_stateGate)
-            {
-                if (_disposed)
-                {
-                    return false;
-                }
-
-                // Synthetic presses change only under the route gate held here, so this read stays current.
-                synthetic = _syntheticButtons;
-                _lastButtons = sample.Buttons;
-                _lastSample = sample;
-                // Forwarding resumes only on a clean boundary: every control the UI used has to be
-                // released first, or the game sees a press whose start it never saw.
-                toUi = _uiCapture.Withholds(sample.Buttons) || _forwardingBlocked;
-                _gameLive = !toUi;
-            }
-
-            if (toUi)
-            {
-                return false;
-            }
-
-            var buttons = FilterOemButtons?.Invoke(sample) ?? sample.Buttons;
-            var routed = synthetic is CanonicalButtons.None && buttons == sample.Buttons
-                ? sample
-                : sample with { Buttons = buttons | synthetic };
-            return await _router.RouteAsync(routed, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _routeGate.Release();
-        }
-    }
-
-    /// <summary>Claims controller input for one WSGM surface.</summary>
-    /// <param name="surfaceId">Identifier of the claiming surface.</param>
-    /// <param name="cancellationToken">Cancels the claim.</param>
-    /// <returns>A task completing once the target has been left neutral.</returns>
-    internal Task ClaimUiAsync(string surfaceId, CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(surfaceId);
-        bool started;
-        lock (_stateGate)
-        {
-            started = _uiCapture.Claim(surfaceId, _lastButtons);
-            if (started)
-            {
-                _gameLive = false;
-            }
-        }
-
-        return started
-            ? NeutralizeForUiCaptureAsync(cancellationToken)
-            : Task.CompletedTask;
-    }
-
-    /// <summary>Releases one surface's claim on controller input.</summary>
-    /// <param name="surfaceId">Identifier of the releasing surface.</param>
-    /// <remarks>
-    ///     Releasing the last claim does not resume forwarding by itself. Forwarding resumes on the
-    ///     first sample in which every control the UI used is up, so the press that closed the surface
-    ///     never arrives in the game as a fresh input.
-    /// </remarks>
-    internal void ReleaseUi(string surfaceId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(surfaceId);
-        lock (_stateGate)
-        {
-            _uiCapture.Release(surfaceId);
-        }
-    }
-
-    /// <summary>Keeps controls from the game until each is released, as the controls of a closed surface are.</summary>
-    /// <param name="buttons">Controls to withhold.</param>
-    /// <remarks>Called from <see cref="PhysicalSampleObserved" />, it withholds the sample being routed.</remarks>
-    internal void WithholdUntilReleased(CanonicalButtons buttons)
-    {
-        lock (_stateGate)
-        {
-            _uiCapture.WithholdUntilReleased(buttons);
-        }
-    }
-
-    /// <summary>Stops game forwarding until a target is successfully created or replaced.</summary>
-    /// <param name="reason">Diagnostic reason recorded with the neutral report.</param>
-    /// <param name="cancellationToken">Cancels the neutralization.</param>
-    /// <returns>A task completing once the target has been left neutral.</returns>
-    internal Task BlockForwardingAsync(string reason, CancellationToken cancellationToken)
-    {
-        return NeutralizeRoutingAsync(reason, true, cancellationToken);
-    }
-
-    /// <summary>Lets samples reach the kept target again after a sleep or a session lock.</summary>
-    /// <param name="reason">Why, for the log.</param>
-    /// <param name="cancellationToken">Cancels waiting for the route gate.</param>
-    /// <returns>A task completing once forwarding is open.</returns>
-    /// <remarks>
-    ///     HC's <c>SetSystemSleepState(false)</c>: the wake itself reopens forwarding, whether or not the
-    ///     plugin republished its pad. The first sample then re-arms the neutral target, and a control
-    ///     the UI still holds is withheld until it is released as usual.
-    /// </remarks>
-    internal async Task ResumeForwardingAsync(string reason, CancellationToken cancellationToken)
-    {
-        await _routeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            lock (_stateGate)
-            {
-                if (!_forwardingBlocked || State is not ControllerManagementState.Active)
-                {
-                    return;
-                }
-
-                _forwardingBlocked = false;
-            }
-
-            Log.Info($"Controller forwarding resumed: {reason}.");
-        }
-        finally
-        {
-            _routeGate.Release();
-        }
-    }
-
-    private Task NeutralizeForUiCaptureAsync(CancellationToken cancellationToken)
-    {
-        return NeutralizeRoutingAsync("ui-capture", false, cancellationToken);
-    }
-
-    private async Task NeutralizeRoutingAsync(
-        string reason,
-        bool blockForwarding,
-        CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
-        // Under the route gate so forwarding closes and the target is neutralized without a sample
-        // decided a moment earlier landing between the two.
-        await _routeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            bool neutralize;
-            lock (_stateGate)
-            {
-                var newlyBlocked = blockForwarding && !_forwardingBlocked;
-                _forwardingBlocked |= blockForwarding;
-                _gameLive = false;
-                neutralize = State is ControllerManagementState.Active
-                             && (newlyBlocked || !blockForwarding);
-            }
-
-            if (neutralize)
-            {
-                await _router.NeutralizeAsync(reason, cancellationToken).ConfigureAwait(false);
-            }
-        }
-        finally
-        {
-            _routeGate.Release();
-        }
-    }
-
-    /// <summary>Sends one bounded rear-button pulse through the active virtual target.</summary>
-    /// <param name="button">One-based rear-button number.</param>
-    /// <param name="cancellationToken">Cancels the press interval.</param>
-    /// <returns>Whether an active target and source sample accepted the pulse.</returns>
-    internal Task<bool> PulseRearButtonAsync(
-        int button,
-        CancellationToken cancellationToken)
-    {
-        var pressed = button switch
-        {
-            1 => CanonicalButtons.RearPaddle1,
-            2 => CanonicalButtons.RearPaddle2,
-            _ => CanonicalButtons.None
-        };
-        if (pressed is CanonicalButtons.None)
-        {
-            Log.Warn($"Virtual rear-button pulse refused: unsupported button={button}.");
-            return Task.FromResult(false);
-        }
-
-        return PulseButtonsAsync(pressed, cancellationToken);
-    }
-
     /// <summary>Presses Steam's own button on the virtual pad, so Steam opens its menu or Quick Access.</summary>
     /// <param name="quickAccess">Quick Access rather than the Steam menu.</param>
     /// <param name="cancellationToken">Cancels the press interval.</param>
@@ -829,83 +482,7 @@ internal sealed class ControllerManager : IAsyncDisposable
             : Snapshot().Target is ManagedControllerTarget.SteamDeckComposite
                 ? CanonicalButtons.QuickAccess
                 : CanonicalButtons.Guide | CanonicalButtons.A;
-        return PulseButtonsAsync(buttons, cancellationToken);
-    }
-
-    /// <summary>Holds buttons on the virtual pad for HC's key press interval, then releases them.</summary>
-    private async Task<bool> PulseButtonsAsync(CanonicalButtons pressed, CancellationToken cancellationToken)
-    {
-        try
-        {
-            if (!await SetSyntheticButtonAsync(pressed, true, cancellationToken).ConfigureAwait(false))
-            {
-                return false;
-            }
-
-            await Task.Delay(SyntheticPressInterval, cancellationToken).ConfigureAwait(false);
-            return true;
-        }
-        finally
-        {
-            // A cancelled action must still publish the release; otherwise the virtual target keeps
-            // the button held until the next physical sample happens to arrive.
-            await SetSyntheticButtonAsync(pressed, false, CancellationToken.None)
-                .ConfigureAwait(false);
-        }
-    }
-
-    private async Task<bool> SetSyntheticButtonAsync(
-        CanonicalButtons button,
-        bool enabled,
-        CancellationToken cancellationToken)
-    {
-        await _routeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            CanonicalControllerSample sample;
-            lock (_stateGate)
-            {
-                if (!enabled)
-                {
-                    _syntheticButtons &= ~button;
-                }
-
-                if (_disposed || State is not ControllerManagementState.Active)
-                {
-                    Log.Warn(
-                        $"Virtual button {(enabled ? "press" : "release")} refused: "
-                        + $"controllerState={State}.");
-                    return false;
-                }
-
-                if (!_gameLive || _forwardingBlocked || _uiCapture.IsCaptured)
-                {
-                    Log.Warn("Virtual button refused: reason=forwarding-closed.");
-                    return false;
-                }
-
-                if (_lastSample is not { } last)
-                {
-                    Log.Warn(
-                        $"Virtual button {(enabled ? "press" : "release")} refused: "
-                        + "no canonical controller sample has arrived.");
-                    return false;
-                }
-
-                if (enabled)
-                {
-                    _syntheticButtons |= button;
-                }
-
-                sample = last with { Buttons = last.Buttons | _syntheticButtons };
-            }
-
-            return await _router.RouteAsync(sample, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _routeGate.Release();
-        }
+        return Forwarding.PulseAsync(buttons, cancellationToken);
     }
 
     /// <summary>Lets go of the controller: WSGM's virtual pad goes, and the physical one comes back.</summary>
@@ -940,11 +517,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         var entered = false;
         try
         {
-            lock (_stateGate)
-            {
-                _forwardingBlocked = true;
-                _gameLive = false;
-            }
+            Forwarding.CloseAdmission();
 
             try
             {
@@ -964,27 +537,17 @@ internal sealed class ControllerManager : IAsyncDisposable
                 return;
             }
 
-            _samples.Reader.TryRead(out _);
+            Forwarding.DropPendingSample();
 
             // Admission closes before the target is quietened, not after: a sample arriving once the
             // router reaches Neutral would re-activate the source and publish a live report again.
-            var routeEntered = false;
             try
             {
-                await _routeGate.WaitAsync(bounded.Token).ConfigureAwait(false);
-                routeEntered = true;
-                await _router.NeutralizeAsync("release", bounded.Token).WaitAsync(bounded.Token).ConfigureAwait(false);
+                await Forwarding.NeutralizeTargetAsync("release", bounded.Token).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 Log.Warn($"Controller release: the virtual pad could not be silenced: {ex.Message}");
-            }
-            finally
-            {
-                if (routeEntered)
-                {
-                    _routeGate.Release();
-                }
             }
 
             try
@@ -1189,55 +752,19 @@ internal sealed class ControllerManager : IAsyncDisposable
         bool replace,
         CancellationToken cancellationToken)
     {
-        await _routeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            // A target of the right kind is kept, as HC keeps its virtual controller across sleep and
-            // reconnects: recreating it made Steam see the pad unplug and re-attach on every wake.
-            var kept = _router.Target is { } existing && existing.Kind == resolved.Target;
-            if (replace && !kept)
-            {
-                lock (_stateGate)
-                {
-                    _forwardingBlocked = true;
-                }
-            }
-
-            var target = kept
-                ? _router.Target!
-                : replace
-                    ? await _router.ReplaceAsync(resolved.Target, cancellationToken)
-                        .ConfigureAwait(false)
-                    : await _router.CreateAsync(resolved.Target, cancellationToken)
-                        .ConfigureAwait(false);
-            SetEffective(resolved);
-            bool captured;
-            lock (_stateGate)
-            {
-                _forwardingBlocked = false;
-                captured = _uiCapture.IsCaptured;
-                _gameLive = !captured;
-            }
-
-            if (captured)
-            {
-                await _router.NeutralizeAsync("ui-capture", cancellationToken)
-                    .ConfigureAwait(false);
-            }
-
-            Log.Info(kept
-                ? $"Managed controller target kept: {resolved.Target} ({resolved.Source}), "
+        var (target, kept) = await Forwarding.ApplyTargetAsync(
+            resolved.Target,
+            replace,
+            () => SetEffective(resolved),
+            cancellationToken).ConfigureAwait(false);
+        Log.Info(kept
+            ? $"Managed controller target kept: {resolved.Target} ({resolved.Source}), "
+              + $"generation={target.Generation}."
+            : replace
+                ? $"Managed controller target replaced: {resolved.Target} ({resolved.Source}), "
                   + $"generation={target.Generation}."
-                : replace
-                    ? $"Managed controller target replaced: {resolved.Target} ({resolved.Source}), "
-                      + $"generation={target.Generation}."
-                    : $"Managed controller target created: {resolved.Target} ({resolved.Source}), "
-                      + $"generation={target.Generation}, devices={_physicalDevices.Count}.");
-        }
-        finally
-        {
-            _routeGate.Release();
-        }
+                : $"Managed controller target created: {resolved.Target} ({resolved.Source}), "
+                  + $"generation={target.Generation}, devices={_physicalDevices.Count}.");
     }
 
     /// <summary>Records the target in effect and the layer that chose it, without raising <see cref="StatusChanged" />.</summary>
@@ -1261,7 +788,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         lock (_stateGate)
         {
             _processPriority.SetActive(!_disposed && state is ControllerManagementState.Active);
-            UiPad.SetActive(!_disposed && state is ControllerManagementState.Active);
+            Forwarding.UiPad.SetActive(!_disposed && state is ControllerManagementState.Active);
             status = state is ControllerManagementState.Active or ControllerManagementState.Idle
                 or ControllerManagementState.Native
                 ? _status with { State = state, Detail = detail }
