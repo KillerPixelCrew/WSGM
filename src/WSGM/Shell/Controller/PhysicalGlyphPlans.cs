@@ -86,19 +86,6 @@ internal sealed class PhysicalGlyphPlans : IDisposable
         }
     }
 
-    internal PhysicalGlyphRenderPlan ResolveOem(
-        PhysicalGlyphSelectionResult selection,
-        string oemControlId,
-        PhysicalGlyphSurface surface,
-        bool activeInputSourceIsManagedHandheld)
-    {
-        return TryGetOemControl(selection, oemControlId, out var control)
-            ? Resolve(selection, control, surface, activeInputSourceIsManagedHandheld)
-            : FallbackPlan(selection.Profile is null
-                ? selection.FallbackReason
-                : PhysicalGlyphFallbackReason.ArtworkMissing);
-    }
-
     internal static bool TryGetOemControl(PhysicalGlyphSelectionResult selection, string oemControlId,
         out GlyphControlId control)
     {

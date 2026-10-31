@@ -20,7 +20,6 @@ namespace WSGM.Shell;
 internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 {
     /// <summary>Last logged availability per capability, so only changes are written.</summary>
-    private readonly Dictionary<DeviceCapabilityKey, bool> _availability = [];
 
     private readonly Dictionary<DeviceCapabilityKey, SemaphoreSlim> _commandGates = [];
 
@@ -92,9 +91,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         _label = publisher ?? "Device";
         _publishPosted = PublishPosted;
     }
-
-    /// <summary>The publisher's profile key, or null for the device package.</summary>
-    internal string? Publisher => _publisher;
 
     /// <summary>The declared overlay sections of the accepted descriptor set.</summary>
     internal IReadOnlyList<CapabilitySection> Sections
@@ -171,7 +167,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             _orderedDescriptors = [];
             _states.Clear();
             _commands.Clear();
-            _availability.Clear();
             _commandGates.Clear();
             _sections = [];
             _connected = true;
@@ -532,7 +527,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 
         _states.Clear();
         _commands.Clear();
-        _availability.Clear();
 
         return true;
     }
@@ -564,10 +558,8 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             else
             {
                 stateChanged = existing is null || !SameState(existing.State, delta.State);
+                availabilityChanged = existing is null || existing.State.Available != delta.State.Available;
                 _states[key] = delta;
-                availabilityChanged = !_availability.TryGetValue(key, out var previous)
-                                      || previous != delta.State.Available;
-                _availability[key] = delta.State.Available;
             }
         }
 
@@ -843,7 +835,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 
         _client = null;
         _connected = false;
-        _availability.Clear();
         _commandGates.Clear();
     }
 

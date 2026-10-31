@@ -633,10 +633,10 @@ public sealed partial class NativeQamSemanticServicesTests
     {
         // No device platform in this session: the service is constructed without a coordinator,
         // which is how a session with device integration off projects this row.
-        using DeviceCoordinatorNativeQamAutoTdpService service = new(null, null);
+        using DeviceCoordinatorNativeQamAutoTdpService service = new(null);
 
         Assert.False(service.Current.Available);
-        var result = await service.SetEnabledAsync(true, CancellationToken.None);
+        var result = await service.SetAutoTdpAsync(true, CancellationToken.None);
 
         Assert.False(result.Succeeded);
         Assert.Equal(service.Current.StatusText, result.Error);

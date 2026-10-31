@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 
@@ -30,7 +29,7 @@ public static partial class NoteScope
     /// <returns>The scope.</returns>
     public static string ForSteamApp(uint appId)
     {
-        return "steam:" + appId.ToString(CultureInfo.InvariantCulture);
+        return ProfileResolver.SteamId(appId);
     }
 
     /// <summary>The notebook of a Game Library title.</summary>
@@ -56,7 +55,8 @@ public static partial class NoteScope
                || SteamPattern().IsMatch(scope)
                || (scope.StartsWith("library:", StringComparison.Ordinal) && scope.IndexOf(':', 8) > 8
                                                                          && !scope.EndsWith(':'))
-               || (scope.StartsWith("process:", StringComparison.Ordinal) && scope.Length > 8);
+               || (scope.StartsWith(ProfileResolver.ProcessIdPrefix, StringComparison.Ordinal)
+                   && scope.Length > ProfileResolver.ProcessIdPrefix.Length);
     }
 
     [GeneratedRegex("^steam:[1-9][0-9]{0,9}$", RegexOptions.CultureInvariant)]

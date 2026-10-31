@@ -9,6 +9,7 @@ namespace WSGM.Shell;
 /// <summary>What one publisher's reconciliation pass needs from its owner.</summary>
 /// <param name="Label">The publisher's name in the log, such as "Device".</param>
 /// <param name="Snapshot">Reads the router's current views.</param>
+/// <param name="ReadCurrent">Reads one candidate fresh without rebuilding every view.</param>
 /// <param name="ExecuteAsync">
 ///     Writes one admitted value and returns the result, or null when the owner skipped it on its own
 ///     terms, such as a lighting zone that used up its attempts.
@@ -16,11 +17,9 @@ namespace WSGM.Shell;
 internal sealed record CapabilityReconcilePass(
     string Label,
     Func<IReadOnlyList<DeviceCapabilityView>> Snapshot,
+    Func<DeviceCapabilityKey, DeviceCapabilityView?> ReadCurrent,
     Func<DeviceCapabilityView, CapabilityValue, CancellationToken, Task<CapabilityCommandResult?>> ExecuteAsync)
 {
-    /// <summary>Reads one candidate fresh without rebuilding every view.</summary>
-    public Func<DeviceCapabilityKey, DeviceCapabilityView?>? ReadCurrent { get; init; }
-
     /// <summary>Orders the writes; lower values go first.</summary>
     public Func<DeviceCapabilityView, int> Priority { get; init; } = static _ => 0;
 

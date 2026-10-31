@@ -79,19 +79,14 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService :
         }
     }
 
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> SetControllerTargetAsync(
-        string target,
-        CancellationToken cancellationToken)
-    {
-        return SetTargetAsync(target, cancellationToken);
-    }
-
     /// <summary>Raised when the projected state changes.</summary>
     public event Action? StateChanged;
 
     /// <summary>Stores and applies the chosen managed-controller target.</summary>
-    private async Task<SteamUiCommandResult> SetTargetAsync(
+    /// <param name="target">The target's enum name.</param>
+    /// <param name="cancellationToken">Cancels the change.</param>
+    /// <returns>Whether the target was stored and came up, or why not.</returns>
+    public async Task<SteamUiCommandResult> SetControllerTargetAsync(
         string target,
         CancellationToken cancellationToken)
     {
@@ -152,13 +147,7 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService :
         // reported itself unavailable until the user found their way back to the setting.
         SteamControllerTargetOption[] targets =
         [
-            .. new[]
-                {
-                    (Target: ManagedControllerTarget.SteamDeckComposite, Label: "Steam Deck"),
-                    (Target: ManagedControllerTarget.Xbox360, Label: "Xbox 360"),
-                    (Target: ManagedControllerTarget.DualShock4, Label: "DualShock 4")
-                }
-                .Where(option => supportedTargets.Contains(option.Target))
+            .. DeviceHostRows.TargetChoices(supportedTargets)
                 .Select(option => new SteamControllerTargetOption(
                     option.Target.ToString(),
                     option.Label,

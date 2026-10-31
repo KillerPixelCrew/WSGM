@@ -103,8 +103,7 @@ internal sealed class CapabilityCommandLedger
 
         return result?.Outcome switch
         {
-            CommandOutcome.Applied or CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified =>
-                CommandProgress.Completed,
+            { } outcome when outcome.IsApplied() => CommandProgress.Completed,
             CommandOutcome.TimedOut or CommandOutcome.Indeterminate => CommandProgress.Uncertain,
             CommandOutcome.Rejected => CommandProgress.Failed,
             _ => CommandProgress.Idle

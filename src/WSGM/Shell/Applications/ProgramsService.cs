@@ -180,7 +180,8 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
                         ?? throw new InvalidOperationException("This program was removed.");
             var processes = CaptureProcesses([entry]);
             var matched = Match(entry, processes);
-            var window = FindWindow(entry.Id, matched);
+            var window = FindWindow(entry.Id, matched, WindowFinder.ListSwitchableWindows(),
+                NativeMethods.GetForegroundWindow());
             if (window is not null)
             {
                 return await FocusAsync(entry.Id, window, token).ConfigureAwait(false);
@@ -203,7 +204,8 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
                 for (var attempt = 0; attempt < 6; attempt++)
                 {
                     await Task.Delay(250, token).ConfigureAwait(false);
-                    window = FindWindow(entry.Id, Match(entry, CaptureProcesses([entry])));
+                    window = FindWindow(entry.Id, Match(entry, CaptureProcesses([entry])),
+                        WindowFinder.ListSwitchableWindows(), NativeMethods.GetForegroundWindow());
                     if (window is not null)
                     {
                         return await FocusAsync(entry.Id, window, token).ConfigureAwait(false);
@@ -269,7 +271,8 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
             {
                 await Task.Delay(250, token).ConfigureAwait(false);
                 matched = Match(entry, CaptureProcesses([entry]));
-                window = FindWindow(entry.Id, matched);
+                window = FindWindow(entry.Id, matched, WindowFinder.ListSwitchableWindows(),
+                    NativeMethods.GetForegroundWindow());
                 if (window is not null)
                 {
                     return await FocusAsync(entry.Id, window, token).ConfigureAwait(false);
@@ -322,11 +325,17 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         return "Application focused.";
     }
 
-    private AppWindow? FindWindow(string id, IReadOnlyList<ProgramProcess> processes)
+    /// <summary>Picks a program's window from one window pass.</summary>
+    /// <param name="id">The program.</param>
+    /// <param name="processes">Its matched processes.</param>
+    /// <param name="switchable">Every switchable window of this pass, in top-level Z order.</param>
+    /// <param name="foreground">The foreground window of this pass.</param>
+    /// <returns>The foreground window, then the last one focused, then the topmost, or null.</returns>
+    private AppWindow? FindWindow(string id, IReadOnlyList<ProgramProcess> processes,
+        IReadOnlyList<AppWindow> switchable, nint foreground)
     {
         var ids = processes.Select(process => process.Id).ToHashSet();
-        var windows = WindowFinder.ListSwitchableWindows().Where(window => ids.Contains(window.ProcessId)).ToArray();
-        var foreground = NativeMethods.GetForegroundWindow();
+        var windows = switchable.Where(window => ids.Contains(window.ProcessId)).ToArray();
         _lastWindows.TryGetValue(id, out var last);
         var active = windows.FirstOrDefault(window => window.Hwnd == foreground);
         if (active is not null)
@@ -418,6 +427,9 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         }
 
         var processes = definitions.Length == 0 ? [] : CaptureProcesses(definitions);
+        // One window pass for every running program, taken only once one is running.
+        List<AppWindow>? switchable = null;
+        nint foreground = 0;
         var states = definitions.Select(entry =>
         {
             var available = Approved(entry.Executable, entry.ExecutableHash, fresh: false);
@@ -425,7 +437,13 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
                               Approved(entry.UiExecutable, entry.UiExecutableHash, fresh: false);
             var matched = Match(entry, processes);
             var running = matched.Count > 0;
-            var window = running ? FindWindow(entry.Id, matched) : null;
+            if (running && switchable is null)
+            {
+                switchable = WindowFinder.ListSwitchableWindows();
+                foreground = NativeMethods.GetForegroundWindow();
+            }
+
+            var window = running ? FindWindow(entry.Id, matched, switchable!, foreground) : null;
             if (window is not null)
             {
                 _pending.Remove(entry.Id);

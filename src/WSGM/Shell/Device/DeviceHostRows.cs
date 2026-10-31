@@ -316,6 +316,37 @@ internal static class DeviceHostRows
             DescriptorStatus.Warning);
     }
 
+    /// <summary>
+    ///     Every controller target in the order both surfaces offer it, with the label its choice
+    ///     carries.
+    /// </summary>
+    /// <remarks>
+    ///     Steam Deck first, because it is the target that carries every control the canonical model
+    ///     defines; the other two exist for compatibility with software that does not understand it.
+    /// </remarks>
+    internal static readonly IReadOnlyList<(ManagedControllerTarget Target, string Label)> Targets =
+    [
+        (ManagedControllerTarget.SteamDeckComposite, "Steam Deck"),
+        (ManagedControllerTarget.Xbox360, "Xbox 360"),
+        (ManagedControllerTarget.DualShock4, "DualShock 4")
+    ];
+
+    /// <summary>The controller-target choices the backend can build, in <see cref="Targets" /> order.</summary>
+    /// <param name="supported">Targets the backend can build.</param>
+    /// <returns>The offered targets with their labels.</returns>
+    /// <remarks>
+    ///     Unsupported targets are left out rather than offered: selecting one persists a target the
+    ///     backend then refuses to create, which leaves controller management unavailable.
+    /// </remarks>
+    internal static (ManagedControllerTarget Target, string Label)[] TargetChoices(
+        IReadOnlyList<ManagedControllerTarget> supported)
+    {
+        return [.. Targets.Where(option => supported.Contains(option.Target))];
+    }
+
+    /// <summary>The short badge the controller row shows for its target.</summary>
+    /// <param name="target">The target in effect.</param>
+    /// <returns>The badge text.</returns>
     internal static string TargetLabel(ManagedControllerTarget target)
     {
         return target switch
@@ -403,52 +434,25 @@ internal static class DeviceHostRows
             : null;
     }
 
-    /// <summary>The next target in the cycle order.</summary>
-    /// <param name="current">The target in effect, or null when none is.</param>
-    /// <param name="supported">
-    ///     Targets the backend can build. An empty list means nothing has been discovered yet and the
-    ///     full order is used, which is also the order the tests pin.
-    /// </param>
-    /// <returns>The target the row moves to.</returns>
-    /// <remarks>
-    ///     Steam Deck first from nothing, because it is the target that carries every control the
-    ///     canonical model defines; the other two exist for compatibility with software that does not
-    ///     understand it. Unsupported targets are skipped rather than offered: selecting one persists a
-    ///     target the backend then refuses to create, which leaves controller management unavailable.
-    /// </remarks>
-    internal static ManagedControllerTarget NextTarget(
-        ManagedControllerTarget? current,
-        IReadOnlyList<ManagedControllerTarget>? supported = null)
+    /// <summary>The short badge the physical-glyph row shows for its policy.</summary>
+    /// <param name="mode">The persisted glyph policy.</param>
+    /// <returns>The badge text.</returns>
+    internal static string GlyphModeLabel(DeviceGlyphSelection mode)
     {
-        ManagedControllerTarget[] order =
-        [
-            ManagedControllerTarget.SteamDeckComposite,
-            ManagedControllerTarget.Xbox360,
-            ManagedControllerTarget.DualShock4
-        ];
-        var offered = supported is { Count: > 0 }
-            ? [.. order.Where(supported.Contains)]
-            : order;
-        if (offered.Length == 0)
-        {
-            return current ?? ManagedControllerTarget.SteamDeckComposite;
-        }
-
-        var index = current is { } target ? Array.IndexOf(offered, target) : -1;
-        return offered[(index + 1) % offered.Length];
-    }
-
-    internal static DescriptorRow PhysicalGlyphSelectionView(
-        DeviceGlyphSelection mode,
-        PhysicalGlyphSelectionResult selection)
-    {
-        var trailing = mode switch
+        return mode switch
         {
             DeviceGlyphSelection.Automatic => "AUTO",
             DeviceGlyphSelection.NativeSteam => "STEAM",
             DeviceGlyphSelection.ManualReviewedProfile => "REVIEWED",
             _ => "AUTO"
         };
+    }
+
+    internal static DescriptorRow PhysicalGlyphSelectionView(
+        DeviceGlyphSelection mode,
+        PhysicalGlyphSelectionResult selection)
+    {
+        var trailing = GlyphModeLabel(mode);
         string description;
         DescriptorStatus status;
         if (selection.Profile is { } profile)

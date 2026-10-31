@@ -1,8 +1,8 @@
 using SteamUiToolkit;
 using WSGM.Core;
-using WSGM.Overlay;
+using WSGM.Shell;
 
-namespace WSGM.Tests.Overlay;
+namespace WSGM.Tests.Shell;
 
 public sealed class LaunchFixRecoveryTests
 {
@@ -19,7 +19,7 @@ public sealed class LaunchFixRecoveryTests
                 @"D:\Games", "")
             : new SteamAppDetails(LaunchWrapperCommand.SteamLaunchOptions(Helper, LaunchWrapperMode.Both, "-windowed"),
                 "", "", "", "");
-        var snapshot = OverlayWindow.CaptureLaunchSnapshot(42, shortcut, details, null);
+        var snapshot = LaunchActionService.CaptureSnapshot(42, shortcut, details, null);
         Assert.NotNull(snapshot);
         Assert.Equal("-windowed", snapshot.OriginalLaunchOptions);
         if (shortcut)
@@ -35,7 +35,7 @@ public sealed class LaunchFixRecoveryTests
         var arguments = LaunchWrapperCommand.ShortcutArguments(LaunchWrapperMode.Both, "game.exe", "");
         arguments = arguments[..arguments.IndexOf(" -- ", StringComparison.Ordinal)] + " -- ";
         var details = new SteamAppDetails("", LaunchWrapperCommand.ShortcutTarget(Helper), arguments, "", "");
-        Assert.Null(OverlayWindow.CaptureLaunchSnapshot(42, true, details, null));
+        Assert.Null(LaunchActionService.CaptureSnapshot(42, true, details, null));
     }
 
     [Fact]
@@ -46,8 +46,9 @@ public sealed class LaunchFixRecoveryTests
             AppId = 42, IsShortcut = true, OriginalTarget = "original.exe", OriginalLaunchOptions = "-original"
         };
         var current = new SteamAppDetails("", "custom.exe", "-custom", "", "");
-        Assert.Same(original, OverlayWindow.CaptureLaunchSnapshot(42, true, current, original));
-        Assert.Equal("original.exe", original.OriginalTarget);
-        Assert.Equal("-original", original.OriginalLaunchOptions);
+        var snapshot = LaunchActionService.CaptureSnapshot(42, true, current, original);
+        Assert.NotNull(snapshot);
+        Assert.Equal("original.exe", snapshot.OriginalTarget);
+        Assert.Equal("-original", snapshot.OriginalLaunchOptions);
     }
 }

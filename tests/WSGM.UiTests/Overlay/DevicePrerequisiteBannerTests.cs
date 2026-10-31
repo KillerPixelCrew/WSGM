@@ -39,7 +39,7 @@ public sealed class DevicePrerequisiteBannerTests
     public async Task AnEnabledSupportedHandheldWithNoControllerSupportIsExplainedOnTheDevicePage()
     {
         using UiFixture fixture = new();
-        DevicePrerequisiteSource source = new(() => State(), () => Task.CompletedTask);
+        DevicePrerequisiteSource source = new(() => State());
 
         var window = await DeviceAsync(fixture, source);
 
@@ -49,39 +49,28 @@ public sealed class DevicePrerequisiteBannerTests
         Assert.Contains("neither the virtual controller library nor the HidHide driver", detail.Text!,
             StringComparison.Ordinal);
         Assert.Contains("Run Repair", detail.Text!, StringComparison.Ordinal);
-        Assert.False(UiFixture.Named<Button>(window, "DevicePrerequisiteEnable").IsVisible);
         Assert.DoesNotContain(
             window.GetVisualDescendants().OfType<Button>(),
             button => button.Content is string text && text.Contains("driver", StringComparison.OrdinalIgnoreCase));
     }
 
     [AvaloniaFact]
-    public async Task DisabledIntegrationStaysQuietAndOffersNoEnableAction()
+    public async Task DisabledIntegrationStaysQuiet()
     {
         // Declining the optional integration must not nag about its missing dependencies.
         using UiFixture fixture = new();
-        var enabled = false;
-        DevicePrerequisiteSource source = new(
-            () => State(integration: enabled),
-            () =>
-            {
-                enabled = true;
-                return Task.CompletedTask;
-            });
+        DevicePrerequisiteSource source = new(() => State(integration: false));
 
         var window = await DeviceAsync(fixture, source);
-        var enable = UiFixture.Named<Button>(window, "DevicePrerequisiteEnable");
+
         Assert.False(UiFixture.Named<Border>(window, "DevicePrerequisiteBanner").IsVisible);
-        Assert.False(enable.IsVisible);
-        Assert.False(enabled);
     }
 
     [AvaloniaFact]
     public async Task AnUnsupportedHandheldShowsNothing()
     {
         using UiFixture fixture = new();
-        DevicePrerequisiteSource source = new(
-            () => State(false), () => Task.CompletedTask);
+        DevicePrerequisiteSource source = new(() => State(false));
 
         var window = await DeviceAsync(fixture, source);
 
@@ -92,8 +81,7 @@ public sealed class DevicePrerequisiteBannerTests
     public async Task ACompleteInstallShowsNothing()
     {
         using UiFixture fixture = new();
-        DevicePrerequisiteSource source = new(
-            () => State(integration: true, library: true, hidHide: true), () => Task.CompletedTask);
+        DevicePrerequisiteSource source = new(() => State(integration: true, library: true, hidHide: true));
 
         var window = await DeviceAsync(fixture, source);
 
@@ -105,9 +93,7 @@ public sealed class DevicePrerequisiteBannerTests
     {
         // A banner is not worth failing an overlay open over.
         using UiFixture fixture = new();
-        DevicePrerequisiteSource source = new(
-            () => throw new InvalidOperationException("the slot is unreadable"),
-            () => Task.CompletedTask);
+        DevicePrerequisiteSource source = new(() => throw new InvalidOperationException("the slot is unreadable"));
 
         var window = await DeviceAsync(fixture, source);
 

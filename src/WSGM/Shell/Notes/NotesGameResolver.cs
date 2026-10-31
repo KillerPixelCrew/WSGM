@@ -63,10 +63,10 @@ internal sealed class NotesGameResolver
         }
 
         if (snapshot.ApplicationId is { } application
-            && application.StartsWith("process:", StringComparison.Ordinal)
+            && application.StartsWith(ProfileResolver.ProcessIdPrefix, StringComparison.Ordinal)
             && NoteScope.IsValid(application))
         {
-            var title = snapshot.RtssProfileName ?? application["process:".Length..];
+            var title = snapshot.RtssProfileName ?? application[ProfileResolver.ProcessIdPrefix.Length..];
             _notes.RememberTitle(application, title);
             return new NotesCurrentGame(NotesGameState.Game, application, _notes.NotebookTitle(application));
         }

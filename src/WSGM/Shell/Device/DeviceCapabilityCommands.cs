@@ -125,11 +125,11 @@ internal sealed class DeviceCapabilityCommands
             ? null
             : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime);
         cancellationToken = admission?.Token ?? cancellationToken;
-        var power = FindDescriptor(capabilityId, instanceId)?.Role is
+        var role = FindDescriptor(capabilityId, instanceId)?.Role;
+        var power = role is
             CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit or CapabilityRole.PowerFastLimit
                 or CapabilityRole.PowerPeakLimit or CapabilityRole.ScenarioMode;
-        if (origin == CapabilityCommandOrigin.User
-            && FindDescriptor(capabilityId, instanceId)?.Role == CapabilityRole.PowerSustainedLimit)
+        if (origin == CapabilityCommandOrigin.User && role == CapabilityRole.PowerSustainedLimit)
         {
             applyPowerPair |= _profiles.Current.Layers.ManualTdp()?.Unified == true;
         }
@@ -314,9 +314,9 @@ internal sealed class DeviceCapabilityCommands
                 new CapabilityReconcilePass(
                     "Device",
                     _capabilities.Snapshot,
+                    _capabilities.TryGetView,
                     (view, desired, token) => RestoreDesiredValueAsync(view, desired, reason, token))
                 {
-                    ReadCurrent = _capabilities.TryGetView,
                     Priority = ReconciliationPriority,
                     Include = view => !_lighting.OwnsProfile(view)
                                       && (!lightingOnly || DeviceLightingRestore.IsLighting(view.Descriptor.Role))

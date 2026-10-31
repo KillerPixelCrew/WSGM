@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Threading.Tasks;
 using Microsoft.Win32;
 using WSGM.Core;
 using WSGM.Interop;
@@ -12,10 +11,7 @@ namespace WSGM.Shell;
 ///     Dependency advice is quiet when Device Integration is disabled. Only Setup installs drivers.
 /// </summary>
 /// <param name="readState">Reads the machine's current state.</param>
-/// <param name="enableIntegration">Switches Device Integration on.</param>
-internal sealed class DevicePrerequisiteSource(
-    Func<DevicePrerequisiteState> readState,
-    Func<Task> enableIntegration)
+internal sealed class DevicePrerequisiteSource(Func<DevicePrerequisiteState> readState)
 {
     /// <summary>Describes what is missing, or nothing when the install is complete.</summary>
     /// <returns>The advice to render.</returns>
@@ -29,15 +25,8 @@ internal sealed class DevicePrerequisiteSource(
         {
             // A banner is not worth failing an overlay open over.
             Log.Warn("Reading the device prerequisites failed: " + ex.Message);
-            return new DevicePrerequisiteAdvice("", false, false);
+            return new DevicePrerequisiteAdvice("");
         }
-    }
-
-    /// <summary>Switches Device Integration on and persists it.</summary>
-    /// <returns>A task that completes once the change is saved.</returns>
-    internal Task EnableAsync()
-    {
-        return enableIntegration();
     }
 
     /// <summary>

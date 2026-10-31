@@ -413,14 +413,6 @@ internal sealed class GameLibraryApplier(
         }
     }
 
-    /// <summary>The canonical profile identity of a Steam app id.</summary>
-    /// <param name="appId">The app id.</param>
-    /// <returns>The identity the running-application target reports for it when running.</returns>
-    private static string Identity(uint appId)
-    {
-        return RunningApplicationTargetProjection.SteamIdentity(appId);
-    }
-
     /// <summary>Removes one entry's shortcut, then its record, override and card listing.</summary>
     /// <remarks>Marks the run stopped when Steam did not confirm the removal.</remarks>
     private async Task RemoveEntryAsync(GameLibraryApplyRun run, GameLibraryEntryState entry, ImportPlanEntry current,
@@ -686,7 +678,7 @@ internal sealed class GameLibraryApplier(
         try
         {
             return ownsProfile | await setControllerTarget(
-                    Identity(appId), entry.Plan.Name,
+                    ProfileResolver.SteamId(appId), entry.Plan.Name,
                     entry.Mode is ImportMode.ControllerOnly ? ManagedControllerTarget.Xbox360 : null,
                     ownsProfile, CancellationToken.None)
                 .ConfigureAwait(false);
@@ -781,7 +773,7 @@ internal sealed class GameLibraryApplier(
 
         try
         {
-            await setControllerTarget(Identity(appId), string.Empty, null, ownsProfile, CancellationToken.None)
+            await setControllerTarget(ProfileResolver.SteamId(appId), string.Empty, null, ownsProfile, CancellationToken.None)
                 .ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)

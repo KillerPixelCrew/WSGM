@@ -390,38 +390,6 @@ public sealed class DeviceOverlayBridgeTests
         Assert.True(row.CanInvoke);
     }
 
-    [Theory]
-    [InlineData(null, ManagedControllerTarget.SteamDeckComposite)]
-    [InlineData(ManagedControllerTarget.SteamDeckComposite, ManagedControllerTarget.Xbox360)]
-    [InlineData(ManagedControllerTarget.Xbox360, ManagedControllerTarget.DualShock4)]
-    [InlineData(ManagedControllerTarget.DualShock4, ManagedControllerTarget.SteamDeckComposite)]
-    public void CyclingVisitsEveryTargetAndReturns(
-        ManagedControllerTarget? current,
-        ManagedControllerTarget expected)
-    {
-        Assert.Equal(expected, DeviceHostRows.NextTarget(current));
-    }
-
-    [Fact]
-    public void CyclingSkipsTargetsTheBackendCannotBuild()
-    {
-        // With one supported target the row is a no-op rather than a way to persist a selection
-        // the backend refuses, which would leave controller management unavailable.
-        ManagedControllerTarget[] supported = [ManagedControllerTarget.SteamDeckComposite];
-
-        Assert.Equal(
-            ManagedControllerTarget.SteamDeckComposite,
-            DeviceHostRows.NextTarget(ManagedControllerTarget.SteamDeckComposite, supported));
-        Assert.Equal(
-            ManagedControllerTarget.SteamDeckComposite,
-            DeviceHostRows.NextTarget(ManagedControllerTarget.DualShock4, supported));
-        Assert.Equal(
-            ManagedControllerTarget.DualShock4,
-            DeviceHostRows.NextTarget(
-                ManagedControllerTarget.SteamDeckComposite,
-                [ManagedControllerTarget.SteamDeckComposite, ManagedControllerTarget.DualShock4]));
-    }
-
     [Fact]
     public void AHealthyCycleOffersNoRecoveryRow()
     {
@@ -493,31 +461,6 @@ public sealed class DeviceOverlayBridgeTests
                 DeviceOverlaySection.Diagnostics
             ],
             DeviceOverlaySectionPages.Build(snapshot).Select(entry => entry.Section));
-    }
-
-    [Theory]
-    [InlineData(null, "docked")]
-    [InlineData("docked", "handheld")]
-    [InlineData("handheld", null)]
-    public void CyclingProfilesPassesThroughNoneSoDefaultsAreAlwaysReachable(
-        string? selected,
-        string? expected)
-    {
-        // None is a position in the cycle rather than a separate control, so the same button that
-        // applied a profile can always get back to unmodified defaults.
-        Assert.Equal(expected, ProfileEdits.NextAuthoredProfile(["docked", "handheld"], selected));
-    }
-
-    [Fact]
-    public void CyclingFromAnUnknownSelectionLandsOnTheFirstProfileRatherThanStalling()
-    {
-        Assert.Equal("docked", ProfileEdits.NextAuthoredProfile(["docked", "handheld"], "deleted"));
-    }
-
-    [Fact]
-    public void CyclingWithNoProfilesStaysAtNone()
-    {
-        Assert.Null(ProfileEdits.NextAuthoredProfile([], "anything"));
     }
 
     private static DeviceAuthoredProfile Profile(
@@ -642,16 +585,6 @@ public sealed class DeviceOverlayBridgeTests
     }
 
     [Fact]
-    public void CyclingWrapsThroughNoneSoAProfileCanBeTurnedOffWithoutSettings()
-    {
-        // The same wrap the hardware-profile row already offers: past the last profile is "none",
-        // so a user can turn one off mid-game without opening Settings.
-        Assert.Equal("loud", ProfileEdits.NextAuthoredProfile(["quiet", "loud"], "quiet"));
-        Assert.Null(ProfileEdits.NextAuthoredProfile(["quiet", "loud"], "loud"));
-        Assert.Equal("quiet", ProfileEdits.NextAuthoredProfile(["quiet", "loud"], null));
-    }
-
-    [Fact]
     public void SwitchedOffReadsAsOffAndStaysToggleable()
     {
         var row = DeviceHostRows.AutoTdpView(false, null);
@@ -749,7 +682,7 @@ public sealed class DeviceOverlayBridgeTests
         using SimulatedDeviceOverlaySource source = new();
 
         Assert.Equal("OFF", source.Snapshot().AutoTdp!.TrailingText);
-        await source.ToggleAutoTdpAsync();
+        await source.SetHostSelectionAsync(DeviceHostRowIds.AutoTdp, "on");
 
         var row = source.Snapshot().AutoTdp!;
         Assert.Equal("15 W", row.TrailingText);

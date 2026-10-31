@@ -65,11 +65,6 @@ internal sealed class FakeDevice : IDeviceOverlaySource
         return SelectGlyphs?.Invoke(selection) ?? throw new InvalidOperationException("Unexpected glyph write");
     }
 
-    public Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default)
-    {
-        throw new InvalidOperationException("Unexpected AutoTDP write");
-    }
-
     public Task SetAutoTdpTargetAsync(int fps, CancellationToken cancellationToken = default)
     {
         throw new InvalidOperationException("Unexpected AutoTDP target write");
@@ -80,11 +75,6 @@ internal sealed class FakeDevice : IDeviceOverlaySource
         return Task.FromException(new NotSupportedException("Explicit host selection is not available."));
     }
 
-    public Task CycleControllerTargetAsync(CancellationToken cancellationToken = default)
-    {
-        throw new InvalidOperationException("Unexpected controller write");
-    }
-
     public Task UseGlobalAsync(string overrideId, CancellationToken cancellationToken = default)
     {
         return Task.CompletedTask;
@@ -93,11 +83,6 @@ internal sealed class FakeDevice : IDeviceOverlaySource
     public Task RetryDeviceCycleAsync(CancellationToken cancellationToken = default)
     {
         throw new InvalidOperationException("Unexpected device retry");
-    }
-
-    public Task CycleAuthoredProfileAsync(CancellationToken cancellationToken = default)
-    {
-        throw new InvalidOperationException("Unexpected authored profile write");
     }
 
     public void Dispose()

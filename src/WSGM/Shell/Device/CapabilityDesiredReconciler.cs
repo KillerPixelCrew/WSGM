@@ -46,13 +46,8 @@ internal static class CapabilityDesiredReconciler
 
             // A preceding command can take seconds. Resolve the current layer again instead
             // of replaying the remainder of an obsolete application/profile snapshot.
-            var view = pass.ReadCurrent is { } read
-                ? read(new DeviceCapabilityKey(candidate.Descriptor.CapabilityId, candidate.Descriptor.InstanceId))
-                : pass.Snapshot().FirstOrDefault(current =>
-                    string.Equals(current.Descriptor.CapabilityId, candidate.Descriptor.CapabilityId,
-                        StringComparison.Ordinal)
-                    && string.Equals(current.Descriptor.InstanceId, candidate.Descriptor.InstanceId,
-                        StringComparison.Ordinal));
+            var view = pass.ReadCurrent(
+                new DeviceCapabilityKey(candidate.Descriptor.CapabilityId, candidate.Descriptor.InstanceId));
             if (view is null || !pass.Include(view))
             {
                 continue;

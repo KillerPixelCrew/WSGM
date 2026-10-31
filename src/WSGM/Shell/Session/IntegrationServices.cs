@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Avalonia.Threading;
 using WSGM.Core;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Install;
@@ -155,7 +154,7 @@ internal sealed class IntegrationServices
         // is restored before the device stops.
         AutoTdp = deviceCoordinator.Power.AutoTdp;
         AutoTdp.SetTraceEnabled(_state.Config.AutoTdpTraceEnabled);
-        DeviceOverlay = new DeviceOverlayBridge(deviceCoordinator, AutoTdp, Gpu);
+        DeviceOverlay = new DeviceOverlayBridge(deviceCoordinator, Gpu);
     }
 
     /// <summary>Creates the overlay's Graphics source over the graphics packages, or the simulated one.</summary>
@@ -236,21 +235,6 @@ internal sealed class IntegrationServices
             device is null ? [] : SetupComponents.Required(device),
             DevicePrerequisiteSource.HardwareDriverInstalled("PawnIO"),
             DevicePrerequisiteSource.HardwareDriverInstalled("inpoutx64"));
-    }
-
-    /// <summary>Turns Device Integration on from the overlay's prerequisites banner.</summary>
-    /// <returns>Completion once the store and the live configuration both say enabled.</returns>
-    internal async Task EnableDeviceIntegrationAsync()
-    {
-        await Task.Run(() => _state.Store.Update(fresh =>
-        {
-            fresh.DeviceIntegration.Enabled = true;
-            return true;
-        })).ConfigureAwait(false);
-        // The live configuration belongs to the UI thread. The banner reads the flag right after the
-        // click, so it is set here rather than left to the reload that follows the write.
-        await Dispatcher.UIThread.InvokeAsync(() => _state.Config.DeviceIntegration.Enabled = true);
-        Log.Info("Device Integration enabled from the overlay's prerequisites banner.");
     }
 
     /// <summary>The profile keys of the device and every graphics package running now.</summary>

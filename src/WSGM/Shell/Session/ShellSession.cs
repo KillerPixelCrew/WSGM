@@ -557,8 +557,7 @@ public sealed class ShellSession
                 _integrations.StartPluginOverlay(),
                 _state.OverlayTestOnly
                     ? null
-                    : new DevicePrerequisiteSource(
-                        _integrations.ReadDevicePrerequisiteState, _integrations.EnableDeviceIntegrationAsync),
+                    : new DevicePrerequisiteSource(_integrations.ReadDevicePrerequisiteState),
                 _system.Brightness,
                 _integrations.Device,
                 _library.GameLibrary,
@@ -765,7 +764,6 @@ public sealed class ShellSession
             PowerProfiles = _powerProfiles,
             HybridCores = new NativeQamHybridCoreService(_power.HybridCores),
             DeviceCoordinator = _integrations.Device,
-            AutoTdp = _integrations.AutoTdp,
             PerfSupport = _performance.ReadNativeQamPerfSupport,
             ApplyRefreshRate = _performance.ApplyManualRefreshRate,
             // Null when nothing can publish VRR, which is also when the projection omits

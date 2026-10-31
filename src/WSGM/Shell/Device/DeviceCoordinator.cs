@@ -1227,7 +1227,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
                         .ConfigureAwait(false);
                 }
 
-                await DetachAsync(client).ConfigureAwait(false);
+                Detach(client);
                 var passiveDeadline = NormalShutdownDeadline();
                 await client.StopAsync(passiveDeadline, cancellationToken)
                     .ConfigureAwait(false);
@@ -1611,7 +1611,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         {
             try
             {
-                await DetachAsync(client).ConfigureAwait(false);
+                Detach(client);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -1786,7 +1786,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         client.OemEventReceived += _glyphOemHandler;
     }
 
-    private ValueTask DetachAsync(HandheldDeviceRuntime client)
+    private void Detach(HandheldDeviceRuntime client)
     {
         if (_lifecycleHandler is { } lifecycleHandler)
         {
@@ -1804,7 +1804,6 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         _hapticSink.Withdraw();
         Capabilities.Detach();
         _oemActions.Detach();
-        return ValueTask.CompletedTask;
     }
 
     /// <summary>
@@ -2232,8 +2231,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         _oemActions.UpdateConfiguration(
             _config.DeviceIntegration.OemAssignments,
             ControllerManagementEnabled,
-            ControllerTargetSelection.Resolve(Profiles.Current.Config, _runningApplicationId,
-                _runningExecutable).Target);
+            ChosenControllerTarget());
     }
 
     private void LoadPhysicalGlyphProfiles(HandheldDeviceRuntime runtime)

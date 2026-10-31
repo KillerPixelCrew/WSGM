@@ -16,7 +16,7 @@ namespace WSGM.Core;
 /// </summary>
 public static class DevicePrerequisites
 {
-    /// <summary>Describes what is missing and which half the user can fix from here.</summary>
+    /// <summary>Describes what is missing and how setup adds it.</summary>
     /// <param name="state">What this machine has.</param>
     /// <returns>The advice, which may be empty.</returns>
     public static DevicePrerequisiteAdvice Describe(DevicePrerequisiteState state)
@@ -25,7 +25,7 @@ public static class DevicePrerequisites
         // A disabled integration has no missing dependency to report.
         if (!state.HandheldSupported || !state.IntegrationEnabled)
         {
-            return new DevicePrerequisiteAdvice("", false, false);
+            return new DevicePrerequisiteAdvice("");
         }
 
         var controllerMissing = state.RequiredComponents.Contains(SetupComponent.ControllerStack)
@@ -34,7 +34,7 @@ public static class DevicePrerequisites
         var inpOutMissing = state.RequiredComponents.Contains(SetupComponent.InpOut) && !state.InpOutInstalled;
         if (!controllerMissing && !pawnIoMissing && !inpOutMissing)
         {
-            return new DevicePrerequisiteAdvice("", false, false);
+            return new DevicePrerequisiteAdvice("");
         }
 
         List<string> lines = [];
@@ -54,7 +54,7 @@ public static class DevicePrerequisites
                 $"{missing} hardware access is missing. Run Setup Repair to add the selected handheld components.");
         }
 
-        return new DevicePrerequisiteAdvice(string.Join(" ", lines), false, true);
+        return new DevicePrerequisiteAdvice(string.Join(" ", lines));
     }
 
     private static string Missing(DevicePrerequisiteState state)

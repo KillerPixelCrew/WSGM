@@ -944,10 +944,10 @@ internal sealed class NotesService : IChangeSource, IAsyncDisposable
             return title;
         }
 
-        return scope.StartsWith("steam:", StringComparison.Ordinal)
-            ? "Steam app " + scope["steam:".Length..]
-            : scope.StartsWith("process:", StringComparison.Ordinal)
-                ? scope["process:".Length..]
+        return scope.StartsWith(ProfileResolver.SteamIdPrefix, StringComparison.Ordinal)
+            ? "Steam app " + scope[ProfileResolver.SteamIdPrefix.Length..]
+            : scope.StartsWith(ProfileResolver.ProcessIdPrefix, StringComparison.Ordinal)
+                ? scope[ProfileResolver.ProcessIdPrefix.Length..]
                 : "Imported game";
     }
 

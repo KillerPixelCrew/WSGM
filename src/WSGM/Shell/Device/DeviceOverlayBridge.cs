@@ -17,7 +17,6 @@ namespace WSGM.Shell;
 /// </summary>
 internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 {
-    private readonly AutoTdpService? _autoTdp;
     private readonly DeviceCoordinator _coordinator;
     private readonly PhysicalGlyphPlans _glyphs;
     private readonly GpuCoordinator? _gpu;
@@ -27,16 +26,14 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
     /// <summary>Subscribes a presentation adapter to existing device, glyph, power, and optional graphics owners.</summary>
     /// <param name="coordinator">The borrowed device coordinator; disposal removes subscriptions without stopping it.</param>
-    /// <param name="autoTdp">AutoTDP, or null when it is not running.</param>
     /// <param name="gpu">
     ///     The graphics coordinator, whose variable-refresh capability the Power and thermals section shows
     ///     when the device publishes none; null without one.
     /// </param>
-    internal DeviceOverlayBridge(DeviceCoordinator coordinator, AutoTdpService? autoTdp, GpuCoordinator? gpu = null)
+    internal DeviceOverlayBridge(DeviceCoordinator coordinator, GpuCoordinator? gpu = null)
     {
         ArgumentNullException.ThrowIfNull(coordinator);
         _coordinator = coordinator;
-        _autoTdp = autoTdp;
         _gpu = gpu;
         if (_gpu is not null)
         {
@@ -49,12 +46,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         _coordinator.StateChanged += OnStateChanged;
         _coordinator.Capabilities.Changed += OnCapabilityViewsChanged;
         _coordinator.ConfigurationChanged += OnConfigurationChanged;
-        if (_autoTdp is not null)
-        {
-            // The AutoTDP row renders live state, not the stored setting, and that state changes
-            // with no capability view and no configuration change behind it.
-            _autoTdp.StatusChanged += OnAutoTdpStatusChanged;
-        }
+        // The AutoTDP row renders live state, not the stored setting, and that state changes
+        // with no capability view and no configuration change behind it.
+        _coordinator.Power.AutoTdp.StatusChanged += OnAutoTdpStatusChanged;
 
         // The AutoTDP target is a profile value: a game switch or Use global moves it and its marker
         // without touching the device.
@@ -63,12 +57,6 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
     /// <inheritdoc />
     public event Action? Changed;
-
-    /// <inheritdoc />
-    public Task CycleAuthoredProfileAsync(CancellationToken cancellationToken = default)
-    {
-        return _coordinator.FanCurves.CycleAuthoredProfileAsync(cancellationToken);
-    }
 
     /// <inheritdoc />
     public DeviceOverlaySnapshot Snapshot()
@@ -113,10 +101,10 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         var glyphSelection = DeviceHostRows.PhysicalGlyphSelectionView(
             _coordinator.PhysicalGlyphSelection,
             glyphSelectionState);
-        var autoTdpAvailability = _autoTdp?.Availability;
+        var autoTdpAvailability = _coordinator.Power.AutoTdp.Availability;
         var autoTdp = DeviceHostRows.AutoTdpView(
             _coordinator.Power.AutoTdpEnabled,
-            _autoTdp?.Status,
+            _coordinator.Power.AutoTdp.Status,
             autoTdpAvailability);
         var recovery = DeviceHostRows.RecoveryView(state);
         var controller = DeviceHostRows.ControllerView(
@@ -173,9 +161,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                     [DeviceHostRows.HostChoice("off", "Off"), DeviceHostRows.HostChoice("on", "On")]),
                 [DeviceHostRowIds.ControllerTarget] = new(
                     (controllerStatus.Target ?? _coordinator.ChosenControllerTarget()).ToString(),
-                    _coordinator.Controllers.SupportedTargets
-                        .Select(target => DeviceHostRows.HostChoice(target.ToString(),
-                            DeviceHostRows.TargetLabel(target)))
+                    DeviceHostRows.TargetChoices(_coordinator.Controllers.SupportedTargets)
+                        .Select(option => DeviceHostRows.HostChoice(option.Target.ToString(), option.Label))
                         .ToArray()),
                 [DeviceHostRowIds.AuthoredProfile] = new(authored?.Selected.Value ?? "",
                     DeviceHostRows.ProfileChoices(authored?.Profiles, "None")),
@@ -212,9 +199,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             return;
         }
 
-        var current = _coordinator.Capabilities.Snapshot().FirstOrDefault(view =>
-            view.Descriptor.CapabilityId == capability.CapabilityId &&
-            view.Descriptor.InstanceId == capability.InstanceId);
+        var current = _coordinator.Capabilities.TryGetView(
+            new DeviceCapabilityKey(capability.CapabilityId, capability.InstanceId));
         if (current is null)
         {
             // A deferred editor callback belongs to the descriptor the user actually saw.
@@ -256,25 +242,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     }
 
     /// <inheritdoc />
-    public Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default)
-    {
-        return _coordinator.Power.ToggleAutoTdpAsync(cancellationToken);
-    }
-
-    /// <inheritdoc />
     public Task SetAutoTdpTargetAsync(int fps, CancellationToken cancellationToken = default)
     {
         return _coordinator.Power.SetAutoTdpTargetAsync(fps, cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task CycleControllerTargetAsync(CancellationToken cancellationToken = default)
-    {
-        return _coordinator.SetControllerTargetAsync(
-            DeviceHostRows.NextTarget(
-                _coordinator.Controllers.Snapshot().Target,
-                _coordinator.Controllers.SupportedTargets),
-            cancellationToken);
     }
 
     /// <inheritdoc />
@@ -357,10 +327,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         _coordinator.Capabilities.Changed -= OnCapabilityViewsChanged;
         _coordinator.ConfigurationChanged -= OnConfigurationChanged;
         _coordinator.Profiles.Changed -= OnProfilesChanged;
-        if (_autoTdp is not null)
-        {
-            _autoTdp.StatusChanged -= OnAutoTdpStatusChanged;
-        }
+        _coordinator.Power.AutoTdp.StatusChanged -= OnAutoTdpStatusChanged;
 
         lock (_sampleGate)
         {

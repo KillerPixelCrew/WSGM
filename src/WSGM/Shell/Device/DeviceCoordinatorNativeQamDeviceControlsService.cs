@@ -115,8 +115,10 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDe
         {
             return _activeProfile == _coordinator?.Profiles.Current.Active
                    && _controls.TryGetValue(key, out var descriptor)
-                ? _coordinator?.Capabilities.Snapshot().SingleOrDefault(view =>
-                    ReferenceEquals(view.Descriptor, descriptor))
+                   && _coordinator?.Capabilities.TryGetView(
+                       new DeviceCapabilityKey(descriptor.CapabilityId, descriptor.InstanceId)) is { } view
+                   && ReferenceEquals(view.Descriptor, descriptor)
+                ? view
                 : null;
         }
     }

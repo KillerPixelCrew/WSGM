@@ -22,8 +22,6 @@ public sealed class DevicePrerequisitesTests
             State(false, false, false, false));
 
         Assert.False(advice.HasAdvice);
-        Assert.False(advice.CanEnableIntegration);
-        Assert.False(advice.NeedsSetup);
     }
 
     [Fact]
@@ -37,8 +35,6 @@ public sealed class DevicePrerequisitesTests
     {
         var advice = DevicePrerequisites.Describe(State(integration: false, library: false, hidHide: false));
         Assert.False(advice.HasAdvice);
-        Assert.False(advice.CanEnableIntegration);
-        Assert.False(advice.NeedsSetup);
     }
 
     [Fact]
@@ -48,7 +44,6 @@ public sealed class DevicePrerequisitesTests
         // hub, which under a running Game Mode would leave the user with no input.
         var advice = DevicePrerequisites.Describe(State(library: false));
 
-        Assert.True(advice.NeedsSetup);
         Assert.Contains("Run Repair", advice.Detail, StringComparison.Ordinal);
         Assert.Contains("needs a reboot", advice.Detail, StringComparison.Ordinal);
     }
@@ -58,8 +53,7 @@ public sealed class DevicePrerequisitesTests
     {
         var advice = DevicePrerequisites.Describe(State(integration: false));
 
-        Assert.False(advice.CanEnableIntegration);
-        Assert.False(advice.NeedsSetup);
+        Assert.False(advice.HasAdvice);
         Assert.DoesNotContain("Run Repair", advice.Detail, StringComparison.Ordinal);
     }
 
@@ -81,7 +75,6 @@ public sealed class DevicePrerequisitesTests
         var advice = DevicePrerequisites.Describe(State(hidHide: false));
 
         Assert.True(advice.HasAdvice);
-        Assert.False(advice.CanEnableIntegration);
         Assert.DoesNotContain("switched off", advice.Detail, StringComparison.Ordinal);
     }
 
@@ -102,7 +95,7 @@ public sealed class DevicePrerequisitesTests
     {
         var advice = DevicePrerequisites.Describe(new DevicePrerequisiteState(true, true, true, true,
             [component], pawnIo, inpOut));
-        Assert.True(advice.NeedsSetup);
+        Assert.Contains("Setup Repair", advice.Detail, StringComparison.Ordinal);
         Assert.Contains(expected, advice.Detail);
     }
 }

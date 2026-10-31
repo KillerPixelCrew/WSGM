@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
-using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.LogicalTree;
 using Avalonia.Media;
@@ -57,7 +56,7 @@ public partial class OverlayWindow
         // more after it.
         if (_devicePrerequisites is not { } source)
         {
-            ShowDevicePrerequisites(new DevicePrerequisiteAdvice("", false, false));
+            ShowDevicePrerequisites(new DevicePrerequisiteAdvice(""));
             return;
         }
 
@@ -99,39 +98,10 @@ public partial class OverlayWindow
         // the gate. It stays up on the Device sub-pages too, which is where someone hunting a dead
         // device most likely ends up.
         DevicePrerequisiteBanner.IsVisible = advice.HasAdvice;
+        // The banner only explains: INV-020 keeps driver installation in setup, because the USB/IP
+        // install restarts every USB 3.0 hub and would take the pad, the touch digitiser and the
+        // keyboard away from whoever is holding the machine.
         DevicePrerequisiteDetail.Text = advice.Detail;
-        // The driver half is deliberately not offered here: INV-020 keeps driver installation in
-        // setup, because the USB/IP install restarts every USB 3.0 hub and would take the pad, the
-        // touch digitiser and the keyboard away from whoever is holding the machine.
-        DevicePrerequisiteEnable.IsVisible = advice.CanEnableIntegration;
-    }
-
-    private void OnEnableDeviceIntegration(object? sender, RoutedEventArgs e)
-    {
-        _ = EnableDeviceIntegrationAsync();
-    }
-
-    private async Task EnableDeviceIntegrationAsync()
-    {
-        if (_devicePrerequisites is not { } prerequisites)
-        {
-            return;
-        }
-
-        DevicePrerequisiteEnable.IsEnabled = false;
-        try
-        {
-            await prerequisites.EnableAsync();
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Enabling Device Integration from the overlay failed", ex);
-        }
-        finally
-        {
-            DevicePrerequisiteEnable.IsEnabled = true;
-            RefreshDevicePrerequisites();
-        }
     }
 
     private void RefreshNavigationHints()

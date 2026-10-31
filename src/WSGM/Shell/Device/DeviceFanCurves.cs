@@ -97,7 +97,7 @@ internal sealed class DeviceFanCurves
                 }
 
                 var mode = FanModeView(_capabilities.Snapshot(), instance);
-                var automatic = mode?.Descriptor.Choices.FirstOrDefault(choice => choice.Value == "automatic");
+                var automatic = mode?.Descriptor.Choices.FirstOrDefault(choice => choice.Value == FanControlModes.Firmware);
                 if (mode is not null && automatic is not null)
                 {
                     var restored = await execute(mode.Descriptor.CapabilityId,
@@ -219,18 +219,6 @@ internal sealed class DeviceFanCurves
             : (profiles, _profiles.Current.Layers.Reference(values => values.FanCurveProfileId));
     }
 
-    /// <summary>Selects the next authored fan profile, wrapping back to none.</summary>
-    /// <param name="cancellationToken">Cancels the save.</param>
-    /// <returns>Completion once the selection is saved and applied.</returns>
-    internal Task CycleAuthoredProfileAsync(CancellationToken cancellationToken = default)
-    {
-        var selection = AuthoredProfileSelection();
-        return SelectAuthoredProfileAsync(selection is { } current
-            ? ProfileEdits.NextAuthoredProfile(current.Profiles.Select(profile => profile.ProfileId).ToArray(),
-                current.Selected.Value)
-            : null, cancellationToken);
-    }
-
     /// <summary>Saves an authored fan profile selection in the layer in force and applies it.</summary>
     /// <param name="next">The profile to select, or null for none.</param>
     /// <param name="cancellationToken">Cancels the save; coordinator shutdown also cancels it.</param>
@@ -268,18 +256,14 @@ internal sealed class DeviceFanCurves
         var profile = _activeProfileScope()?.Profiles.FirstOrDefault(item => item.ProfileId == selected.Value
                                                                             && item.CapabilityId ==
                                                                             CapabilityIds.FanCurve);
-        var descriptor = _capabilities.Snapshot().FirstOrDefault(view =>
-            view.Descriptor.CapabilityId == CapabilityIds.FanCurve
-            && view.Descriptor.InstanceId is null)?.Descriptor;
         // Every WSGM authored curve uses duty control. Native firmware curves remain library operations.
         if (profile is null)
         {
-            var desired = _capabilities.TryGetView(new DeviceCapabilityKey(CapabilityIds.FanCurve, null))?.Projection
-                .DesiredValue;
-            await ConfigureAsync(desired?.CurveValue, explicitSelection).ConfigureAwait(false);
+            await ConfigureAsync(SavedSoftwareCurve(), explicitSelection).ConfigureAwait(false);
             return;
         }
 
+        var descriptor = _capabilities.TryGetView(new DeviceCapabilityKey(CapabilityIds.FanCurve, null))?.Descriptor;
         if (DeviceProfileValidation.Validate(profile, descriptor, out var reason) != DeviceProfileRejection.None)
         {
             Log.Warn($"Fan profile '{profile.ProfileId}' refused: {reason}.");

@@ -86,12 +86,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 DeviceHostRowIds.GlyphSelection,
                 "Physical glyphs",
                 "Preview-only physical presentation selection",
-                _glyphSelection switch
-                {
-                    0 => "AUTO",
-                    1 => "STEAM",
-                    _ => "REVIEWED"
-                },
+                DeviceHostRows.GlyphModeLabel((DeviceGlyphSelection)_glyphSelection),
                 true,
                 DescriptorStatus.Available),
             AutoTdp: DeviceHostRows.AutoTdpView(
@@ -192,7 +187,11 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 {
                     Role = CapabilityRole.FanMode,
                     ValueKind = CapabilityValueKind.Choice, Writable = true,
-                    Choices = [Choice("Automatic", "Automatic"), Choice("Sport", "Sport")],
+                    Choices =
+                    [
+                        DeviceHostRows.HostChoice("Automatic", "Automatic"),
+                        DeviceHostRows.HostChoice("Sport", "Sport")
+                    ],
                     PluginSectionId = "cooling",
                     CategoryId = "control"
                 },
@@ -317,10 +316,11 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
             HostSelections = new Dictionary<string, DeviceHostSelection>
             {
                 [DeviceHostRowIds.AutoTdp] = new(_autoTdp ? "on" : "off",
-                    [Choice("off", "Off"), Choice("on", "On")]),
-                [DeviceHostRowIds.ControllerTarget] = new(_controllerTarget.ToString(), Enum
-                    .GetValues<ManagedControllerTarget>()
-                    .Select(value => Choice(value.ToString(), value.ToString())).ToArray())
+                    [DeviceHostRows.HostChoice("off", "Off"), DeviceHostRows.HostChoice("on", "On")]),
+                [DeviceHostRowIds.ControllerTarget] = new(_controllerTarget.ToString(),
+                    DeviceHostRows.Targets
+                        .Select(option => DeviceHostRows.HostChoice(option.Target.ToString(), option.Label))
+                        .ToArray())
             },
             GlyphMode = (DeviceGlyphSelection)_glyphSelection,
             PluginSections = PreviewSections,
@@ -397,15 +397,6 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
     }
 
     /// <inheritdoc />
-    public Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        _autoTdp = !_autoTdp;
-        Changed?.Invoke();
-        return Task.CompletedTask;
-    }
-
-    /// <inheritdoc />
     public Task SetPhysicalGlyphSelectionAsync(DeviceGlyphSelection selection,
         CancellationToken cancellationToken = default)
     {
@@ -417,26 +408,6 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
 
         _glyphSelection = (int)selection;
         Changed?.Invoke();
-        return Task.CompletedTask;
-    }
-
-    /// <inheritdoc />
-    public Task CycleControllerTargetAsync(CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        _controllerTarget = DeviceHostRows.NextTarget(_controllerTarget);
-        Changed?.Invoke();
-        return Task.CompletedTask;
-    }
-
-    /// <inheritdoc />
-    /// <remarks>
-    ///     Nothing to cycle: the simulated source has no configuration, so it publishes no authored
-    ///     profile row and there is no selection for this to advance.
-    /// </remarks>
-    public Task CycleAuthoredProfileAsync(CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
         return Task.CompletedTask;
     }
 
@@ -490,12 +461,6 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
     /// <inheritdoc />
     public void Dispose()
     {
-    }
-
-    private static CapabilityChoice Choice(string value, string label)
-    {
-        return new CapabilityChoice(value,
-            new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = label });
     }
 
     private sealed class EmptyLease : IDisposable

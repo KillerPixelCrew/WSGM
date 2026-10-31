@@ -32,7 +32,6 @@ internal sealed class DeviceOemActionRouter : IDisposable
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Dictionary<string, DateTimeOffset> _recentEvents = new(StringComparer.Ordinal);
     private readonly Func<bool, bool> _setSecondaryButton;
-    private long _actionGeneration;
     private DeviceOemActionServices? _actions;
     private CanonicalButtons _keyboardSteamButtons;
     private DateTimeOffset _keyboardSteamButtonsAt;
@@ -115,7 +114,6 @@ internal sealed class DeviceOemActionRouter : IDisposable
             _assignments = assignments;
             _controllerManagementEnabled = controllerManagementEnabled;
             _targetHasRearButtons = target is ManagedControllerTarget.SteamDeckComposite;
-            _actionGeneration++;
             ResetUnderGate();
         }
     }
@@ -155,7 +153,6 @@ internal sealed class DeviceOemActionRouter : IDisposable
                 _controls.Add(control.ControlId, control);
             }
 
-            _actionGeneration++;
             ResetUnderGate();
         }
     }
@@ -203,8 +200,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
                 return;
             }
 
-            var deduplicationKey =
-                $"{_actionGeneration}:{input.ControlId}:{input.Press}:{input.Edge}:{input.DeduplicationId}";
+            var deduplicationKey = $"{input.ControlId}:{input.Press}:{input.Edge}:{input.DeduplicationId}";
             ExpireDeduplicationUnderGate(DateTimeOffset.UtcNow);
             if (!_recentEvents.TryAdd(deduplicationKey, input.Timestamp))
             {

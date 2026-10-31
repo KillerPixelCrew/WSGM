@@ -131,13 +131,9 @@ internal sealed class PerformanceServices(
         _foregroundWindows.ApplicationChanged += OnForegroundApplicationChanged;
         _runningApplicationTargets = new RunningApplicationCoordinator(
             runningApplications,
-            (target, _) =>
-            {
-                // The profile store decides what runs and which layer is in force; its change drives
-                // RTSS, the device, power and refresh through the fan-out.
-                profiles.SetRunningApplication(target);
-                return Task.CompletedTask;
-            },
+            // The profile store decides what runs and which layer is in force; its change drives
+            // RTSS, the device, power and refresh through the fan-out.
+            target => profiles.SetRunningApplication(target),
             integrations.Device is null
                 ? null
                 : ApplyRunningApplicationTargetAsync);

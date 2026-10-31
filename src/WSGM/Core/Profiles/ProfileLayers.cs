@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Core;
 
@@ -45,16 +44,6 @@ public readonly record struct ProfileLayers(ProfileValues Global, ProfileValues?
         return Game is not null && read(Game) is { } game ? new Resolved<T?>(game, ProfileSource.Game)
             : read(Global) is { } global ? new Resolved<T?>(global, ProfileSource.Global)
             : new Resolved<T?>(null, ProfileSource.None);
-    }
-
-    /// <summary>Resolves one device capability value.</summary>
-    /// <param name="deviceIdentityKey">Stable local device identity.</param>
-    /// <param name="capabilityId">The capability.</param>
-    /// <param name="instanceId">Its instance, or null.</param>
-    /// <returns>The value and its source.</returns>
-    public Resolved<CapabilityValue?> Device(string deviceIdentityKey, string capabilityId, string? instanceId)
-    {
-        return Reference(values => values.FindDevice(deviceIdentityKey, capabilityId, instanceId)?.Value);
     }
 
     /// <summary>Resolves the layer supplying one setting.</summary>

@@ -5,25 +5,26 @@ namespace WSGM.Tests.Shell;
 public sealed class RunningApplicationCoordinatorTests
 {
     [Fact]
-    public async Task AQueuedSnapshotCancelsTheOldApplyAndOnlyDispatchesTheNewestControllerTarget()
+    public async Task ASnapshotQueuedDuringTheProfileApplyOnlyDispatchesTheNewestControllerTarget()
     {
         var first = Snapshot(
             RunningApplicationTargetState.Active,
             "steam:41",
             "old.exe");
         FakeSource source = new(first);
-        var rtssEntered = NewSignal();
+        var profileEntered = NewSignal();
+        using ManualResetEventSlim releaseProfile = new(false);
         var newestControllerApplied = NewSignal();
         List<long> controllerGenerations = [];
 
         await using RunningApplicationCoordinator coordinator = new(
             source,
-            async (target, cancellationToken) =>
+            target =>
             {
                 if (target?.ApplicationId is "steam:41")
                 {
-                    rtssEntered.TrySetResult();
-                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                    profileEntered.TrySetResult();
+                    releaseProfile.Wait(TimeSpan.FromSeconds(5));
                 }
             },
             (snapshot, _) =>
@@ -41,7 +42,7 @@ public sealed class RunningApplicationCoordinatorTests
                 return Task.CompletedTask;
             });
 
-        await rtssEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await profileEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
         source.Publish(Snapshot(
                 RunningApplicationTargetState.Active,
                 "steam:42",
@@ -49,6 +50,7 @@ public sealed class RunningApplicationCoordinatorTests
             {
                 Generation = 2
             });
+        releaseProfile.Set();
         await newestControllerApplied.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
         lock (controllerGenerations)
@@ -71,7 +73,7 @@ public sealed class RunningApplicationCoordinatorTests
 
         await using RunningApplicationCoordinator coordinator = new(
             source,
-            (_, _) => Task.CompletedTask,
+            _ => { },
             async (snapshot, cancellationToken) =>
             {
                 switch (snapshot.Generation)

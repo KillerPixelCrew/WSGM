@@ -323,9 +323,8 @@ internal sealed partial class SteamNativeSettingsService(
         CancellationToken cancellationToken)
     {
         if (coordinator is not { IntegrationEnabled: true }
-            || coordinator.Capabilities.Snapshot().FirstOrDefault(view =>
-                view.Descriptor.CapabilityId == seen.CapabilityId
-                && view.Descriptor.InstanceId == seen.InstanceId) is not { } current)
+            || coordinator.Capabilities.TryGetView(new DeviceCapabilityKey(seen.CapabilityId, seen.InstanceId))
+                is not { } current)
         {
             return new SteamUiCommandResult(false, "The device capability changed while you were choosing.");
         }

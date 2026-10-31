@@ -394,12 +394,7 @@
                              person goes when their device is not working. -->
               <Border x:Name="DevicePrerequisiteBanner" Classes="device-group"
                       IsVisible="False" Margin="2,0,2,8">
-                <StackPanel Spacing="8">
-                  <TextBlock x:Name="DevicePrerequisiteDetail" TextWrapping="Wrap" />
-                  <Button x:Name="DevicePrerequisiteEnable" Content="Enable Device Integration"
-                          IsVisible="False" HorizontalAlignment="Stretch"
-                          Click="OnEnableDeviceIntegration" />
-                </StackPanel>
+                <TextBlock x:Name="DevicePrerequisiteDetail" TextWrapping="Wrap" />
               </Border>
               <StackPanel x:Name="DevicePowerOverview" Spacing="12" IsVisible="False">
                 <!-- The Overview's headline: the per-application profile switch, above what it scopes. -->

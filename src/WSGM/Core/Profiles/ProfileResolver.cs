@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 
 namespace WSGM.Core;
@@ -7,8 +8,31 @@ namespace WSGM.Core;
 /// <summary>Matches the running application to a game profile and resolves the layers.</summary>
 public static class ProfileResolver
 {
+    /// <summary>The identity prefix of a Steam app.</summary>
+    public const string SteamIdPrefix = "steam:";
+
     /// <summary>The identity prefix of an application known only by its executable.</summary>
-    private const string ProcessIdPrefix = "process:";
+    public const string ProcessIdPrefix = "process:";
+
+    /// <summary>The identity a running Steam app, and every per-game profile and notebook for it, is known by.</summary>
+    /// <param name="appId">The app id, a shortcut's included.</param>
+    /// <returns><c>steam:</c> and the unsigned id.</returns>
+    /// <remarks>
+    ///     One spelling for every side: a profile written under another would never match the running
+    ///     title it was written for.
+    /// </remarks>
+    public static string SteamId(uint appId)
+    {
+        return SteamIdPrefix + appId.ToString(CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>The identity of an application known only by its executable.</summary>
+    /// <param name="executable">The executable's file name.</param>
+    /// <returns><c>process:</c> and the lower-case file name.</returns>
+    public static string ProcessId(string executable)
+    {
+        return ProcessIdPrefix + executable.ToLowerInvariant();
+    }
 
     /// <summary>Matches a running application against the game profiles.</summary>
     /// <param name="config">The profile store.</param>

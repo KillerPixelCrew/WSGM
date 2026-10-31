@@ -35,14 +35,11 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
     private bool _disposed;
 
     /// <summary>Creates the projection over a running coordinator, or the unavailable one.</summary>
-    /// <param name="coordinator">The coordinator owning the AutoTDP setting, or null.</param>
-    /// <param name="autoTdp">The session's AutoTDP service, or null when it is not running.</param>
-    internal DeviceCoordinatorNativeQamAutoTdpService(
-        DeviceCoordinator? coordinator,
-        AutoTdpService? autoTdp)
+    /// <param name="coordinator">The coordinator owning the AutoTDP setting and service, or null.</param>
+    internal DeviceCoordinatorNativeQamAutoTdpService(DeviceCoordinator? coordinator)
     {
         _coordinator = coordinator;
-        _autoTdp = autoTdp;
+        _autoTdp = coordinator?.Power.AutoTdp;
         if (_autoTdp is not null)
         {
             // The setting is not the state: AutoTDP moves between idle, controlling and paused, and
@@ -88,12 +85,6 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
     }
 
     /// <inheritdoc />
-    public Task<SteamUiCommandResult> SetAutoTdpAsync(bool enabled, CancellationToken cancellationToken)
-    {
-        return SetEnabledAsync(enabled, cancellationToken);
-    }
-
-    /// <inheritdoc />
     public async Task<SteamUiCommandResult> SetAutoTdpTargetAsync(int fps, CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -123,7 +114,7 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
     /// <param name="cancellationToken">Cancels the coordinator's serialized setting transition.</param>
     /// <returns>Whether the setting was accepted, or the authoritative availability refusal.</returns>
     /// <exception cref="ObjectDisposedException">This adapter has been disposed.</exception>
-    public async Task<SteamUiCommandResult> SetEnabledAsync(
+    public async Task<SteamUiCommandResult> SetAutoTdpAsync(
         bool enabled,
         CancellationToken cancellationToken)
     {

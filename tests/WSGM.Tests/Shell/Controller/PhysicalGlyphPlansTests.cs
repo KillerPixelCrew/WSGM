@@ -302,7 +302,8 @@ public sealed class PhysicalGlyphPlansTests
 
                 if (mapping.OemControlId is { } nativeId)
                 {
-                    Assert.Same(plan, plans.ResolveOem(selected, nativeId,
+                    Assert.True(PhysicalGlyphPlans.TryGetOemControl(selected, nativeId, out var oemControl));
+                    Assert.Same(plan, plans.Resolve(selected, oemControl,
                         PhysicalGlyphSurface.DeviceDescription, true));
                 }
             }
@@ -337,10 +338,10 @@ public sealed class PhysicalGlyphPlansTests
         Assert.Equal(GlyphControlId.FaceSouth, control);
         Assert.False(PhysicalGlyphPlans.TryGetOemControl(selected, "NATIVE-FRONT", out _));
         Assert.False(PhysicalGlyphPlans.TryGetOemControl(selected, "FaceSouth", out _));
-        Assert.True(plans.ResolveOem(selected, "native-front",
+        Assert.True(plans.Resolve(selected, control,
             PhysicalGlyphSurface.DeviceDescription, false).UsesDeviceArtwork);
         Assert.Equal(PhysicalGlyphFallbackReason.SourceNotHandheld,
-            plans.ResolveOem(selected, "native-front", PhysicalGlyphSurface.NavigationHint, false).FallbackReason);
+            plans.Resolve(selected, control, PhysicalGlyphSurface.NavigationHint, false).FallbackReason);
     }
 
     private sealed class EmbeddedProfileSource(string manifestResource) : IGlyphPackageSource

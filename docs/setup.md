@@ -171,16 +171,15 @@ takeover accepted applies it again, like the Steam autostart takeover.
 The directly linked library can recognize a handheld on a Minimal or Desktop install even when the
 controller stack was not installed. `Core\Device\DevicePrerequisites` checks native handheld
 availability, Device Integration, `libviiper.dll` beside WSGM and the HidHide control device. When
-something is missing, the overlay's Device page carries a banner naming it: the overlay because it
-is the surface a person opens, and the Device page because that is where someone whose device is not
-working goes.
+Device Integration is on and something is missing, the overlay's Device page carries a banner naming
+it: the overlay because it is the surface a person opens, and the Device page because that is where
+someone whose device is not working goes. With Device Integration off the banner stays quiet.
 
-The banner offers **Enable Device Integration** and nothing else, and the split is not cosmetic.
-Device Integration is WSGM's own setting. The virtual controller needs a kernel driver, and INV-020
+The banner explains and offers no action. The virtual controller needs a kernel driver, and INV-020
 forbids the runtime from installing one whatever its provenance: the USB/IP install restarts every
 USB 3.0 hub, which drops the built-in controller, the touch digitiser and the keyboard. Underneath a
 running Game Mode that leaves a person with no input and no way back, so it happens only while setup
-is on screen. For that half the banner says to re-run setup and warns that a reboot follows.
+is on screen. The banner says to re-run setup and warns that a reboot follows.
 
 The USB/IP driver itself cannot be upgraded in a boot where anything has attached to it, so its
 install and upgrade take two setup runs and a restart; the mechanism and the evidence are in

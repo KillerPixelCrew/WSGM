@@ -24,14 +24,20 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
     private readonly Lock _workGate = new();
     private Task? _dispose;
     private bool _disposed;
-    // Capability ids by fan role, taken from the last descriptor set so state callbacks avoid a control scan.
+    // Capability ids by fan and charging role, taken from the last descriptor set so state callbacks
+    // avoid a control scan.
+    private volatile HashSet<string> _chargeBypassIds = [];
     private volatile HashSet<string> _fanDutyIds = [];
     private volatile HashSet<string> _fanModeIds = [];
     private volatile HashSet<string> _firmwareFanCurveIds = [];
     private bool _hasSoftwareFanCurve;
     private int? _softwareChargeLimit;
+    // When each software value was set. Republishing an unchanged value keeps its time, so the
+    // router sees an equal state and posts nothing.
+    private DateTimeOffset? _softwareChargeLimitAt;
     private bool _softwareChargeSuspended;
     private IReadOnlyList<CurvePoint> _softwareFanCurve = [];
+    private DateTimeOffset? _softwareFanCurveAt;
     // Fan instances the software curve drives; replaced whole, read by the observer callbacks.
     private volatile string[] _softwareFans = [];
     private string? _softwareFanReason;
@@ -39,10 +45,14 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
     private long _stateSequence;
     private Task<HandheldRuntimeState>? _stop;
 
-    internal HandheldDeviceRuntime(HandheldDevice device, string stateDirectory)
+    internal HandheldDeviceRuntime(HandheldDevice device)
     {
         Device = device;
-        StateDirectory = stateDirectory;
+        DeclaredCapabilities =
+        [
+            .. device.Definition.DeclaredRoles.Select(role => (CapabilityRole)role)
+                .Append(CapabilityRole.FanCurve).Append(CapabilityRole.ChargeLimit).Distinct()
+        ];
         device.Observer = this;
     }
 
@@ -50,7 +60,6 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
     internal Func<int, CancellationToken, Task>? ApplySoftwareChargeLimitAsync { get; set; }
     internal bool UsesSoftwareChargeLimit { get; private set; }
 
-    internal string StateDirectory { get; }
     internal HandheldDevice Device { get; }
 
     internal DeviceCycleState LifecycleState => _state;
@@ -71,9 +80,7 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
 
     public bool IsActive => !_disposed && _state is DeviceCycleState.Active or DeviceCycleState.Degraded;
 
-    public IReadOnlyList<CapabilityRole> DeclaredCapabilities => Device.Definition.DeclaredRoles
-        .Select(role => (CapabilityRole)role).Append(CapabilityRole.FanCurve).Append(CapabilityRole.ChargeLimit)
-        .Distinct().ToArray();
+    public IReadOnlyList<CapabilityRole> DeclaredCapabilities { get; }
 
     public event Action<CapabilityDescriptorSet>? DescriptorSetReceived;
     public event Action<CapabilityStateDelta>? CapabilityStateReceived;
@@ -217,7 +224,7 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
                 PublishSoftwareFanCurve();
             }
 
-            if (UsesSoftwareChargeLimit)
+            if (UsesSoftwareChargeLimit && _chargeBypassIds.Contains(state.CapabilityId))
             {
                 PublishSoftwareChargeLimit();
             }
@@ -231,6 +238,7 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
         var firmwareFanCurves = new HashSet<string>(StringComparer.Ordinal);
         var fanModes = new HashSet<string>(StringComparer.Ordinal);
         var fanDuties = new HashSet<string>(StringComparer.Ordinal);
+        var chargeBypasses = new HashSet<string>(StringComparer.Ordinal);
         foreach (var item in descriptors.Descriptors)
         {
             switch (item.Role)
@@ -244,12 +252,16 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
                 case P.CapabilityRole.FanDuty:
                     fanDuties.Add(item.CapabilityId);
                     break;
+                case P.CapabilityRole.ChargeBypass:
+                    chargeBypasses.Add(item.CapabilityId);
+                    break;
             }
         }
 
         _firmwareFanCurveIds = firmwareFanCurves;
         _fanModeIds = fanModes;
         _fanDutyIds = fanDuties;
+        _chargeBypassIds = chargeBypasses;
     }
 
     ValueTask P.IHandheldObserver.PhysicalDevicesChangedAsync(IReadOnlyList<P.PhysicalDeviceIdentity> devices,
@@ -321,7 +333,7 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
         });
         Log.Info($"Handheld selected: model={definition.Id}, family={definition.FamilyId}, source={SourceVersion}, "
                  + $"bios={identity.BiosVersion ?? "unknown"}, hardwareVerified={definition.HardwareVerified}.");
-        return Task.FromResult(new HandheldDeviceRuntime(device, directory));
+        return Task.FromResult(new HandheldDeviceRuntime(device));
     }
 
     internal Task<HandheldRuntimeState> StartAsync(bool controllerManagementEnabled, CancellationToken token)
@@ -403,6 +415,7 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
         {
             await ApplySoftwareFanCurveAsync!(curve.CurveValue, token).ConfigureAwait(false);
             _softwareFanCurve = curve.CurveValue.ToArray();
+            _softwareFanCurveAt = DateTimeOffset.UtcNow;
             PublishSoftwareFanCurve();
             return new CapabilityCommandResult
             {
@@ -427,6 +440,7 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
         {
             await ApplySoftwareChargeLimitAsync!(percent, token).ConfigureAwait(false);
             _softwareChargeLimit = percent;
+            _softwareChargeLimitAt = DateTimeOffset.UtcNow;
             _softwareChargeSuspended = false;
             PublishSoftwareChargeLimit();
             return new CapabilityCommandResult
@@ -711,6 +725,7 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
 
         _softwareFans = [.. fans];
         _softwareFanCurve = curve;
+        _softwareFanCurveAt = DateTimeOffset.UtcNow;
         PublishSoftwareFanCurve();
         foreach (var control in Device.Controls.Controls.Where(item => item.Role == P.CapabilityRole.FanMode))
         {
@@ -743,7 +758,7 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
                     ? null
                     : new CapabilityValue { Kind = CapabilityValueKind.Curve, CurveValue = _softwareFanCurve },
                 Quality = _softwareFanCurve.Count == 0 ? HardwareStateQuality.Unknown : HardwareStateQuality.Observed,
-                ObservedAt = _softwareFanCurve.Count == 0 ? null : DateTimeOffset.UtcNow
+                ObservedAt = _softwareFanCurve.Count == 0 ? null : _softwareFanCurveAt
             }));
     }
 
@@ -766,7 +781,7 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
                     : null,
                 ObservedValue = _softwareChargeLimit is { } limit ? CapabilityValue.Integer(limit) : null,
                 Quality = _softwareChargeLimit is null ? HardwareStateQuality.Unknown : HardwareStateQuality.Observed,
-                ObservedAt = _softwareChargeLimit is null ? null : DateTimeOffset.UtcNow
+                ObservedAt = _softwareChargeLimit is null ? null : _softwareChargeLimitAt
             }));
     }
 

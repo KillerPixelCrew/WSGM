@@ -551,7 +551,7 @@ public sealed class DeviceCoordinatorTests
                     var engine = new NativeRuntimeEngine(Calls,
                         (call, ct) => Hook?.Invoke(call, ct) ?? Task.CompletedTask);
                     var device = new HandheldDevice(definition, identity, directory, null, engine);
-                    Runtime = new HandheldDeviceRuntime(device, directory);
+                    Runtime = new HandheldDeviceRuntime(device);
                     return Task.FromResult(Runtime);
                 },
                 _ =>

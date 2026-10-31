@@ -160,7 +160,7 @@ internal sealed class SteamUiModuleCatalog
             ApplyRefreshRate = backends.ApplyRefreshRate,
             ApplyVariableRefreshRate = backends.ApplyVariableRefreshRate
         };
-        AutoTdp = new DeviceCoordinatorNativeQamAutoTdpService(deviceCoordinator, backends.AutoTdp);
+        AutoTdp = new DeviceCoordinatorNativeQamAutoTdpService(deviceCoordinator);
         ControllerTarget = new DeviceCoordinatorNativeQamControllerTargetService(deviceCoordinator);
         Audio = backends.Audio is { } audio ? new AudioManagerNativeQamAudioService(audio) : null;
         AudioFormat = backends.Audio is { } formatAudio && backends.AudioProfiles is { } audioProfiles

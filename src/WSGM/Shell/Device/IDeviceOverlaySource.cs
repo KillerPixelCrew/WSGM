@@ -64,11 +64,6 @@ internal interface IDeviceOverlaySource : IDisposable
     /// <returns>Completion after the requested host setting is applied; no device firmware is written.</returns>
     Task SetPhysicalGlyphSelectionAsync(DeviceGlyphSelection selection, CancellationToken cancellationToken = default);
 
-    /// <summary>Turns AutoTDP on or off and persists the choice.</summary>
-    /// <param name="cancellationToken">Cancels the change.</param>
-    /// <returns>A task completing once the new setting is persisted.</returns>
-    Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default);
-
     /// <summary>Stores AutoTDP's frame-rate target in the layer in force.</summary>
     /// <param name="fps">The target the slider settled on.</param>
     /// <param name="cancellationToken">Cancels the save.</param>
@@ -82,11 +77,6 @@ internal interface IDeviceOverlaySource : IDisposable
     /// <returns>Completion after the selection attempt; downstream ownership changes retain their own outcome semantics.</returns>
     Task SetHostSelectionAsync(string rowId, string? value, CancellationToken cancellationToken = default);
 
-    /// <summary>Moves the controller target to the next one in the layer in force and persists it.</summary>
-    /// <param name="cancellationToken">Cancels the change.</param>
-    /// <returns>A task completing once the new target is persisted and applied.</returns>
-    Task CycleControllerTargetAsync(CancellationToken cancellationToken = default);
-
     /// <summary>Removes the running game's value for one setting, so it falls back to Global.</summary>
     /// <param name="overrideId">The id a row carried in its <c>OverrideId</c>.</param>
     /// <param name="cancellationToken">Cancels the save.</param>
@@ -97,13 +87,4 @@ internal interface IDeviceOverlaySource : IDisposable
     /// <param name="cancellationToken">Cancels the attempt.</param>
     /// <returns>A task completing once the attempt has been made.</returns>
     Task RetryDeviceCycleAsync(CancellationToken cancellationToken = default);
-
-    /// <summary>Moves to the next authored fan profile, or to none, and applies it.</summary>
-    /// <param name="cancellationToken">Cancels the change.</param>
-    /// <returns>A task completing once the new selection is persisted and applied.</returns>
-    /// <remarks>
-    ///     Saved to the running game's profile while it is on, and to Global otherwise, like every
-    ///     other per-game value.
-    /// </remarks>
-    Task CycleAuthoredProfileAsync(CancellationToken cancellationToken = default);
 }

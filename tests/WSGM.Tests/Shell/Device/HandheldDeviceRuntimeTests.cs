@@ -34,14 +34,13 @@ public sealed class HandheldDeviceRuntimeTests
     }
 
     [Fact]
-    public async Task CreationUsesTheSuppliedIdentityAndOneFamilyDirectory()
+    public async Task CreationDeclaresTheDefinitionRolesAndStartsInactive()
     {
         using TemporaryDirectory temporary = new();
         var identity = ClawIdentity();
         var definition = HandheldDevice.Detect(identity)!;
         await using var runtime = await HandheldDeviceRuntime.CreateAsync(definition, identity,
             CancellationToken.None, temporary.Root);
-        Assert.Equal(Path.Combine(temporary.Root, definition.FamilyId), runtime.StateDirectory);
         Assert.Equal(definition.DeclaredRoles.Select(role => (CapabilityRole)role), runtime.DeclaredCapabilities);
         Assert.False(runtime.IsActive);
     }
@@ -61,7 +60,8 @@ public sealed class HandheldDeviceRuntimeTests
     {
         using TemporaryDirectory temporary = new();
         var identity = ClawIdentity();
-        var runtime = await HandheldDeviceRuntime.CreateAsync(HandheldDevice.Detect(identity)!, identity,
+        var definition = HandheldDevice.Detect(identity)!;
+        var runtime = await HandheldDeviceRuntime.CreateAsync(definition, identity,
             CancellationToken.None, temporary.Root);
         var dispatch = await runtime.ExecuteCommandAsync(new CapabilityCommand
         {
@@ -72,7 +72,7 @@ public sealed class HandheldDeviceRuntimeTests
         Assert.Null(dispatch.LateCompletion);
         await runtime.DisposeAsync();
         Assert.Equal(DeviceRuntimeExitReason.Intentional, (await runtime.Completion).Reason);
-        Assert.False(File.Exists(Path.Combine(runtime.StateDirectory, "recovery.json")));
+        Assert.False(File.Exists(Path.Combine(temporary.Root, definition.FamilyId, "recovery.json")));
     }
 
     [Fact]

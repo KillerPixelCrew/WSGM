@@ -51,7 +51,7 @@ public sealed class DevicePageCaptureTests
         if (page == "AutoTDP")
         {
             // Switched on, so the Power page carries the target slider under the switch.
-            await hostControls.ToggleAutoTdpAsync();
+            await hostControls.SetHostSelectionAsync(DeviceHostRowIds.AutoTdp, "on");
         }
 
         // Variable refresh is the graphics package's now; Power and thermals shows it as the bridge does.

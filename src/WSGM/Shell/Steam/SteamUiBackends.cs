@@ -41,9 +41,6 @@ internal sealed record SteamUiBackends
     /// <summary>The device platform, or null when device integration is off.</summary>
     internal DeviceCoordinator? DeviceCoordinator { get; init; }
 
-    /// <summary>The session's AutoTDP service, or null when it is not running.</summary>
-    internal AutoTdpService? AutoTdp { get; init; }
-
     /// <summary>
     ///     What the device can back, for the reactivated performance panel. Null hides every
     ///     performance control.

@@ -167,9 +167,8 @@ internal sealed partial class GpuCoordinator
 
                 UpdateContext(snapshot);
                 await CapabilityDesiredReconciler.RunAsync(
-                    new CapabilityReconcilePass(ProfileKey, Router.Snapshot, RestoreAsync)
+                    new CapabilityReconcilePass(ProfileKey, Router.Snapshot, Router.TryGetView, RestoreAsync)
                     {
-                        ReadCurrent = Router.TryGetView,
                         Priority = GraphicsPrerequisites.Priority,
                         // A capability the plugin has not reported yet is waiting, not unavailable; the
                         // pass that follows its first state restores it.

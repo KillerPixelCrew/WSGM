@@ -240,34 +240,22 @@ internal sealed class DevicePowerPolicy
             cancellationToken: _lifetime).ConfigureAwait(false);
     }
 
-    /// <summary>Turns AutoTDP on or off and persists the choice.</summary>
-    /// <param name="cancellationToken">Cancels the change.</param>
-    /// <returns>A task completing once the new setting is persisted.</returns>
-    /// <remarks>
-    ///     Persisted rather than session-only, and applied by the ordinary configuration reload, so the
-    ///     overlay switch and the Settings checkbox are the same setting reached two ways.
-    /// </remarks>
-    internal Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default)
-    {
-        return SetAutoTdpEnabledAsync(null, cancellationToken);
-    }
-
-    /// <summary>Sets AutoTDP to an explicit state, or flips it, and persists the choice.</summary>
-    /// <param name="requested">The state the caller asked for, or null to flip the persisted state.</param>
+    /// <summary>Sets AutoTDP to an explicit state and persists the choice.</summary>
+    /// <param name="enabled">The state the caller asked for.</param>
     /// <param name="cancellationToken">Cancels the change.</param>
     /// <returns>A task completing once the setting is persisted.</returns>
     /// <remarks>
-    ///     The current state is read inside the transition gate, so concurrent surfaces cannot invert a
-    ///     newer persisted choice and two quick toggles are both applied.
+    ///     Persisted rather than session-only, and applied by the ordinary configuration reload, so the
+    ///     overlay switch and the Settings checkbox are the same setting reached two ways. The current
+    ///     state is read inside the transition gate, so concurrent surfaces apply their choices in order.
     /// </remarks>
     internal async Task SetAutoTdpEnabledAsync(
-        bool? requested,
+        bool enabled,
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_closed(), typeof(DeviceCoordinator));
         using var transition = await _enterTransition(cancellationToken).ConfigureAwait(false);
         ObjectDisposedException.ThrowIf(_closed(), typeof(DeviceCoordinator));
-        var enabled = requested ?? !AutoTdpEnabled;
         if (enabled && AutoTdp.Availability is { Available: false } availability)
         {
             throw new InvalidOperationException(availability.Detail);
@@ -582,10 +570,10 @@ internal sealed class DevicePowerPolicy
             && string.Equals(view.Descriptor.InstanceId, instanceId, StringComparison.Ordinal));
         if (!primaryPowerLimit)
         {
+            var role = FindDescriptor(capabilityId, instanceId)?.Role;
             var primary = views.FirstOrDefault(view =>
                 (view.Descriptor.PairedPowerLimitId == capabilityId
-                 || (FindDescriptor(capabilityId, instanceId)?.Role is CapabilityRole.PowerFastLimit
-                     or CapabilityRole.PowerPeakLimit
+                 || (role is CapabilityRole.PowerFastLimit or CapabilityRole.PowerPeakLimit
                      && view.Descriptor.Role == CapabilityRole.PowerSustainedLimit)) && instanceId is null);
             if (primary?.Projection.State.ObservedValue?.IntegerValue is { } sustained)
             {
