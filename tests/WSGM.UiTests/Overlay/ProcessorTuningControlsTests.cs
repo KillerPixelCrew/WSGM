@@ -36,8 +36,7 @@ public sealed class ProcessorTuningControlsTests
             Display = new CapabilityDisplay
             {
                 Key = DisplayKey.Custom, CustomLabel = "Reset processor tuning",
-                Description = "Clears processor tuning for this device in Global and every game. Restores supported "
-                              + "values; a Windows restart may be needed for firmware defaults."
+                Description = "Restores supported values; a Windows restart may be needed for firmware defaults."
             },
             ValueKind = CapabilityValueKind.None, SupportsAction = true, Persistence = CapabilityPersistence.Volatile
         };

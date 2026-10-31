@@ -77,8 +77,8 @@ internal static class CapabilityRowProjection
             _ when projection.DesiredValueOutOfRange =>
                 "Saved value is outside the current firmware range",
             _ when state.Reason is not null => state.Reason.Detail,
-            // What the action does, as its publisher explains it, while nothing more urgent needs saying.
-            _ when descriptor is { SupportsAction: true, Display.Description: { Length: > 0 } explanation } =>
+            // What the action does, as WSGM and its publisher explain it, while nothing more urgent needs saying.
+            _ when descriptor.SupportsAction && ActionExplanation(descriptor) is { Length: > 0 } explanation =>
                 explanation,
             _ when actionOnlyReady => "Ready",
             // A healthy value has nothing to explain; the row shows it without a caption.
@@ -122,6 +122,32 @@ internal static class CapabilityRowProjection
             MaximumLength = descriptor.MaximumLength,
             Presets = descriptor.Role == CapabilityRole.FanCurve ? presets : null
         };
+    }
+
+    /// <summary>What invoking an action does: WSGM's own step first, then the publisher's explanation.</summary>
+    /// <remarks>
+    ///     A processor reset and the automatic GPU clock first remove WSGM's saved layers for the device
+    ///     (see <see cref="DeviceCapabilityCommands" />). The library cannot know that, so WSGM says it here
+    ///     and every surface shows the same caption.
+    /// </remarks>
+    /// <param name="descriptor">An action descriptor.</param>
+    /// <returns>The caption, or null when neither WSGM nor the publisher explains the action.</returns>
+    private static string? ActionExplanation(CapabilityDescriptor descriptor)
+    {
+        var host = descriptor.CapabilityId switch
+        {
+            CapabilityIds.ProcessorReset => "Clears processor tuning for this device in Global and every game.",
+            CapabilityIds.ProcessorGpuClockAutomatic =>
+                "Clears GPU clock tuning for this device in Global and every game.",
+            _ => null
+        };
+        var publisher = descriptor.Display.Description is { Length: > 0 } text ? text : null;
+        if (host is null)
+        {
+            return publisher;
+        }
+
+        return publisher is null ? host : $"{host} {publisher}";
     }
 
     /// <summary>The setting id while the running game's own profile supplies a capability's value.</summary>

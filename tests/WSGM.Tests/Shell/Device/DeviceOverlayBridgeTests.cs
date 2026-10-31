@@ -229,6 +229,39 @@ public sealed class DeviceOverlayBridgeTests
         Assert.Equal("Restart Windows first.", blocked.Description);
     }
 
+    /// WSGM clears the saved processor layers itself before both actions run, so it says so ahead of the
+    /// library's own explanation, and Steam's rows read the same caption as the overlay.
+    [Theory]
+    [InlineData(CapabilityIds.ProcessorReset, "Restores supported values.",
+        "Clears processor tuning for this device in Global and every game. Restores supported values.")]
+    [InlineData(CapabilityIds.ProcessorGpuClockAutomatic, null,
+        "Clears GPU clock tuning for this device in Global and every game.")]
+    public void ProcessorActionsExplainThatWsgmClearsGlobalAndEveryGame(string capabilityId, string? published,
+        string expected)
+    {
+        var descriptor = new CapabilityDescriptor
+        {
+            CapabilityId = capabilityId, Role = CapabilityRole.GenericAction,
+            ValueKind = CapabilityValueKind.None, SupportsAction = true,
+            Display = new CapabilityDisplay
+            {
+                Key = DisplayKey.Custom, CustomLabel = "Processor action", Description = published
+            },
+            Persistence = CapabilityPersistence.Volatile
+        };
+        CapabilityState state = new()
+        {
+            CapabilityId = descriptor.CapabilityId, Available = true, Quality = HardwareStateQuality.Unknown
+        };
+        var view = new DeviceCapabilityView(descriptor, new CapabilityProjection { State = state }, null);
+        var row = CapabilityRowProjection.ToOverlayCapability(view, new HashSet<string>(),
+            FanCurvePresetTable.HandheldCompanion);
+        Assert.Equal(expected, row.Description);
+        var steamRow = Assert.Single(SteamNativeSettingsService.DeviceQuickAccessRows([view],
+            FanCurvePresetTable.HandheldCompanion)).Row;
+        Assert.Equal(expected, steamRow.Description);
+    }
+
     [Fact]
     public async Task SimulatedDeviceMutationRaisesOneSharedChangeAndUpdatesReadback()
     {
