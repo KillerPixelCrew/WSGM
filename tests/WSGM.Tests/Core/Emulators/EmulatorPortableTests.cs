@@ -11,7 +11,7 @@ public sealed class EmulatorPortableTests
     {
         using var temporary = new TemporaryDirectory();
         var previous = Installation(temporary.Root, "retroarch", "previous");
-        EmulatorManager.ConfigureData(previous);
+        EmulatorDataBinding.Configure(previous);
         var config = Path.Combine(previous.DataPath, "retroarch.cfg");
         IniFile.SetValue(config, "savefiles_in_content_dir", "true");
         IniFile.SetValue(config, "sort_savefiles_enable", "false");
@@ -39,7 +39,7 @@ public sealed class EmulatorPortableTests
         Directory.Move(offline, previous.DataPath);
         var installed = EmulatorPortableSetup.Prepare(candidate, previous.DataPath, previous,
             CancellationToken.None, true, () => new[] { rom });
-        EmulatorManager.ConfigureData(installed);
+        EmulatorDataBinding.Configure(installed);
         EmulatorPortable.Verify(installed);
         Assert.Equal("retained progress", File.ReadAllText(Path.Combine(installed.DataPath, "saves/user.srm")));
     }
@@ -129,7 +129,7 @@ public sealed class EmulatorPortableTests
             : Write(source, "retained.bin", "reconnected persistent data");
         var converted = EmulatorPortableSetup.Prepare(installed, installed.DataPath, previous,
             CancellationToken.None, true);
-        EmulatorManager.ConfigureData(converted);
+        EmulatorDataBinding.Configure(converted);
         EmulatorPortable.Verify(converted);
         var destination = Path.Combine(converted.DataPath, folder,
             fileSource && id != "retroarch" ? Path.GetFileName(source) : fileSource ? "" : "retained.bin");
@@ -162,7 +162,7 @@ public sealed class EmulatorPortableTests
         Assert.False(Directory.Exists(Path.Combine(installed.DataPath, folder)));
         var converted = EmulatorPortableSetup.Prepare(installed, installed.DataPath, null,
             CancellationToken.None, true);
-        EmulatorManager.ConfigureData(converted);
+        EmulatorDataBinding.Configure(converted);
         EmulatorPortable.Verify(converted);
     }
 
@@ -181,7 +181,7 @@ public sealed class EmulatorPortableTests
         var installed = Installation(temporary.Root, "retroarch", "replacement");
         var converted = EmulatorPortableSetup.Prepare(installed, installed.DataPath, previous,
             CancellationToken.None, true);
-        EmulatorManager.ConfigureData(converted);
+        EmulatorDataBinding.Configure(converted);
         EmulatorPortable.Verify(converted);
         Assert.False(File.Exists(Path.Combine(previous.DataPath, file)));
         Assert.False(File.Exists(Path.Combine(converted.DataPath, file)));
@@ -214,7 +214,7 @@ public sealed class EmulatorPortableTests
         Write(unavailable, "game.srm", "override save");
         var converted = EmulatorPortableSetup.Prepare(installed, installed.DataPath, null,
             CancellationToken.None, true);
-        EmulatorManager.ConfigureData(converted);
+        EmulatorDataBinding.Configure(converted);
         EmulatorPortable.Verify(converted);
         Assert.Equal("main save", File.ReadAllText(Path.Combine(installed.DataPath, "saves/main.srm")));
         Assert.Equal("override save",
@@ -281,7 +281,7 @@ public sealed class EmulatorPortableTests
         var installed = Installation(temporary.Root, id, "current") with { Channel = channel };
         var data = Path.Combine(temporary.Root, "EmulatorData", id);
         installed = EmulatorPortableSetup.Prepare(installed, data, null, CancellationToken.None, true);
-        EmulatorManager.ConfigureData(installed);
+        EmulatorDataBinding.Configure(installed);
         EmulatorPortable.Verify(installed);
         var arguments = installed.LaunchArguments.Select(value => value.Replace("{data}", installed.DataPath)
             .Replace("{config}", Path.Combine(installed.DataPath, installed.DataPolicy.ConfigFile))).ToArray();
@@ -361,7 +361,7 @@ public sealed class EmulatorPortableTests
         using var temporary = new TemporaryDirectory();
         var installed = Installation(temporary.Root, "retroarch", "current");
         installed = EmulatorPortableSetup.Prepare(installed, installed.DataPath, null, CancellationToken.None, true);
-        EmulatorManager.ConfigureData(installed);
+        EmulatorDataBinding.Configure(installed);
         var config = Path.Combine(installed.DataPath, "retroarch.cfg");
         Assert.Throws<InvalidDataException>(() => EmulatorPortable.VerifyArguments(installed,
             ["-c", config, "--config=" + Path.Combine(temporary.Root, "outside.cfg")]));
@@ -413,7 +413,7 @@ public sealed class EmulatorPortableTests
             Assert.False(EmulatorPortable.IsTrue(IniFile.ReadValue(coreConfig, overrideFlag)));
         }
 
-        EmulatorManager.ConfigureData(installed);
+        EmulatorDataBinding.Configure(installed);
         EmulatorPortable.Verify(installed);
     }
 
@@ -468,7 +468,7 @@ public sealed class EmulatorPortableTests
         var installed = Installation(temporary.Root, "retroarch", "replacement");
         installed = EmulatorPortableSetup.Prepare(installed, installed.DataPath, previous,
             CancellationToken.None, true, () => Array.Empty<string>());
-        EmulatorManager.ConfigureData(installed);
+        EmulatorDataBinding.Configure(installed);
         EmulatorPortable.Verify(installed);
         Assert.Equal("main configured save",
             File.ReadAllText(Path.Combine(installed.DataPath, "saves/configured.srm")));
@@ -529,7 +529,7 @@ public sealed class EmulatorPortableTests
         };
         installed = EmulatorPortableSetup.Prepare(installed, installed.DataPath, previous,
             CancellationToken.None, true, () => new[] { rom });
-        EmulatorManager.ConfigureData(installed);
+        EmulatorDataBinding.Configure(installed);
         EmulatorPortable.Verify(installed);
         var portableSaves = Path.Combine(installed.DataPath, "saves", suffix);
         var portableStates = Path.Combine(installed.DataPath, "states", suffix);
@@ -597,7 +597,7 @@ public sealed class EmulatorPortableTests
         var save = Write(temporary.Root, "roms/CoreLibrary/game.srm", "inherited sorted save");
         installed = EmulatorPortableSetup.Prepare(installed, installed.DataPath, null,
             CancellationToken.None, true, () => new[] { rom });
-        EmulatorManager.ConfigureData(installed);
+        EmulatorDataBinding.Configure(installed);
         EmulatorPortable.Verify(installed);
         var saves = IniFile.ReadValue(game, "savefile_directory")!.Trim('"');
         Assert.Equal("inherited sorted save", File.ReadAllText(Path.Combine(saves, "CoreLibrary/game.srm")));
@@ -641,7 +641,7 @@ public sealed class EmulatorPortableTests
         Write(media, "game.state", "reconnected content state");
         var converted = EmulatorPortableSetup.Prepare(installed, installed.DataPath, previous,
             CancellationToken.None, true, () => new[] { rom });
-        EmulatorManager.ConfigureData(converted);
+        EmulatorDataBinding.Configure(converted);
         EmulatorPortable.Verify(converted);
         Assert.Equal("reconnected content save", File.ReadAllText(Path.Combine(converted.DataPath, "saves/game.srm")));
         Assert.Equal("reconnected content state",
@@ -688,7 +688,7 @@ public sealed class EmulatorPortableTests
         Assert.False(Directory.Exists(Path.Combine(installed.DataPath, "system/other")));
         Assert.False(EmulatorPortable.IsTrue(IniFile.ReadValue(config, "systemfiles_in_content_dir")));
         Assert.Equal("declared firmware", File.ReadAllText(Path.Combine(temporary.Root, "roms/firmware/console.bin")));
-        EmulatorManager.ConfigureData(installed);
+        EmulatorDataBinding.Configure(installed);
         EmulatorPortable.Verify(installed);
     }
 
@@ -698,7 +698,7 @@ public sealed class EmulatorPortableTests
         using var temporary = new TemporaryDirectory();
         var installed = Installation(temporary.Root, "retroarch", "current");
         installed = EmulatorPortableSetup.Prepare(installed, installed.DataPath, null, CancellationToken.None, true);
-        EmulatorManager.ConfigureData(installed);
+        EmulatorDataBinding.Configure(installed);
         var program = Path.GetDirectoryName(installed.ExecutablePath)!;
         var config = Path.Combine(installed.DataPath, "retroarch.cfg");
         var appended = Write(installed.DataPath, "config/Core/game.cfg", "savefiles_in_content_dir = false\n");
@@ -729,7 +729,7 @@ public sealed class EmulatorPortableTests
         using var temporary = new TemporaryDirectory();
         var installed = Installation(temporary.Root, "retroarch", "current");
         installed = EmulatorPortableSetup.Prepare(installed, installed.DataPath, null, CancellationToken.None, true);
-        EmulatorManager.ConfigureData(installed);
+        EmulatorDataBinding.Configure(installed);
         var external = Directory.CreateDirectory(Path.Combine(temporary.Root, "external-user-data")).FullName;
         Write(external, "retained.srm", "external save");
         var link = Path.Combine(installed.DataPath, "saves", "linked-card");
@@ -1037,7 +1037,7 @@ public sealed class EmulatorPortableTests
         Write(Path.GetDirectoryName(retired.ExecutablePath)!, "savestates/old.state", "retired state");
         File.WriteAllText(EmulatorStorage.StorePath(temporary.Root), JsonSerializer.Serialize(
             new EmulatorStore { Installations = [installed] }, EmulatorStorage.JsonOptions));
-        manager.PruneVersions(installed, CancellationToken.None);
+        new EmulatorInstallFolders(temporary.Root).PruneVersions(installed, CancellationToken.None);
         var data = Path.Combine(temporary.Root, "EmulatorData", "duckstation");
         Assert.False(Directory.Exists(Path.GetDirectoryName(retired.ExecutablePath)));
         Assert.Equal("retired state",

@@ -237,11 +237,11 @@ watchdog crash recovery restores Explorer only.
 
 ### Explorer exit is graceful first, then enforced
 
-`ExplorerDesktopHost.ExitExplorerAndWaitAsync` posts `0x5B4` (`WM_USER+436`, the Ctrl+Shift-taskbar
-"Exit Explorer" command) to Explorer's verified taskbar owner. If it ignores the request for three
-seconds, WSGM terminates that exact held process with Task Manager's End Process status, `1`, rather
-than its restart status, `0`. A failed message dispatch goes directly to termination. Separate File
-Explorer folder processes are not swept.
+`ExplorerDesktopHost.ExitExplorerAndWaitAsync` has its `ExplorerShellExit` post `0x5B4`
+(`WM_USER+436`, the Ctrl+Shift-taskbar "Exit Explorer" command) to Explorer's verified taskbar
+owner. If it ignores the request for three seconds, WSGM terminates that exact held process with
+Task Manager's End Process status, `1`, rather than its restart status, `0`. A failed message
+dispatch goes directly to termination. Separate File Explorer folder processes are not swept.
 
 Success requires the captured shell process to finish and 1.5 seconds of stable shell absence before
 WSGM creates its own tray host. Disappearing taskbar and desktop windows alone are insufficient: a

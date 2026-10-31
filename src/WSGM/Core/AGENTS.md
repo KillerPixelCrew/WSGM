@@ -11,9 +11,9 @@ recovery primitives. Native ABI declarations remain in Interop; UI presentation 
   over its recovery snapshots.
 - Recovery operations must be idempotent and usable before normal application initialization.
 - ExplorerControl only ever asks Explorer to leave: the orderly `0x05B4` exit, then `WM_CLOSE` to a retired process's
-  remaining windows. ExplorerDesktopHost alone may then terminate the exact held shell owner that ignored the request,
-  with exit status 1, as docs/boot-and-shell.md describes; a lingering retired owner otherwise blocks every desktop
-  return. Never sweep folder processes. A non-zero exit code means
+  remaining windows. ExplorerDesktopHost alone, through its ExplorerShellExit, may then terminate the exact held shell
+  owner that ignored the request, with exit status 1, as docs/boot-and-shell.md describes; a lingering retired owner
+  otherwise blocks every desktop return. Never sweep folder processes. A non-zero exit code means
   Winlogon will respawn the shell: wait for the replacement, do not race it. Every failed exit uses verified desktop
   recovery. "Is the desktop up" is `IsDesktopShellRunning` (taskbar owned by explorer.exe), never a process count.
 - One owner creates and disposes each long-lived integration. Do not let views acquire hardware, Steam, RTSS, or input

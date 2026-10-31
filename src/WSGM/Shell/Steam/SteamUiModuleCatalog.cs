@@ -140,7 +140,7 @@ internal sealed class SteamUiModuleCatalog
                     backends.Animations is { } animations && AnimationsPage is { } animationsPage
                         ? new AnimationQuickAccessSection(animations, animationsPage)
                         : null,
-                    backends.Notes,
+                    backends.Notes is null ? null : new NotesExtensionsSection(),
                     new BrowserExtensionsSection()
                 }.OfType<IExtensionsTabSection>()
             ],

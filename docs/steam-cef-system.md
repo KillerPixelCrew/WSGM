@@ -454,13 +454,14 @@ starts afresh. Module fingerprints and protobuf/registry shapes must resolve uni
 activity integration is reported in the gate's `inputActivity` status while timeout rows remain
 usable.
 
-`Shell\ScreensaverService` is the shared owner for local image folders and manifest packs. The same
-surface publishes its catalogue and validated commands; the Overlay uses the same service.
-`screensaver-content.ts` appends source identities to native `GetLocalScreensavers` results while
-retaining stock entries. Native activation starts a separate medium-integrity renderer under an
-owned kill-on-close job. Pack HTML and JavaScript never enter Steam's execution context. Generation
-replacement, disabling the surface and host retirement stop the player. The existing publication
-also consumes folder-watch changes and detects a missing active root. See
+`Shell\ScreensaverService` is the shared owner for local image folders and manifest packs. Its
+`ScreensaverCatalog` scans and watches the sources, and its `ScreensaverPlayerProcess` runs the
+renderer. The same surface publishes the catalogue and validated commands; the Overlay uses the same
+service. `screensaver-content.ts` appends source identities to native `GetLocalScreensavers` results
+while retaining stock entries. Native activation starts a separate medium-integrity renderer under
+an owned kill-on-close job. Pack HTML and JavaScript never enter Steam's execution context.
+Generation replacement, disabling the surface and host retirement stop the player. The existing
+publication also consumes folder-watch changes and detects a missing active root. See
 [local screensavers and the scene boundary](screensavers.md) for the package model, limits, fallback
 and cleanup contracts.
 

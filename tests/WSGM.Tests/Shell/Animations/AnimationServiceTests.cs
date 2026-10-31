@@ -344,7 +344,7 @@ public sealed class AnimationServiceTests : IDisposable
         await fetched.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         var browse = page.ReadState().Browse;
-        Assert.Equal((AnimationService.BrowsePage, 100, 100), (browse.Items.Count, browse.Matched, browse.Total));
+        Assert.Equal((AnimationBrowseSession.BrowsePage, 100, 100), (browse.Items.Count, browse.Matched, browse.Total));
         Assert.Equal("Movie 99", browse.Items[0].Name);
         Assert.Equal(99, browse.Items[0].Likes);
 

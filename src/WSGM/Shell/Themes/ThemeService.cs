@@ -16,7 +16,8 @@ namespace WSGM.Shell;
 ///     Folder-only commands await completion. Store requests run in the background and publish progress
 ///     through <see cref="Changed" />; failures await an explicit retry. The toolkit consumes the revisioned
 ///     cascade from <see cref="ReadStyles" />. Store browsing belongs to each surface's
-///     <see cref="ThemeBrowseSession" />.
+///     <see cref="ThemeBrowseSession" />, and which installed themes have a newer store version to
+///     <see cref="ThemeUpdateCheck" />.
 /// </remarks>
 internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSource
 {
@@ -58,6 +59,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     // session joins them.
     private readonly ServiceOperation _operation;
     private readonly ThemeTranslations _translations;
+    private readonly ThemeUpdateCheck _updates;
     private readonly Action<Action<ThemesConfig>> _writeConfig;
     private ThemesConfig _config;
     private bool _disposed;
@@ -71,7 +73,6 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     private SteamThemeState? _styles;
     private bool _stylesDirty = true;
     private long _stylesRevision;
-    private Dictionary<string, (string Status, string? Latest, string? Id)> _updates = new(StringComparer.Ordinal);
 
     /// <summary>Creates the service.</summary>
     /// <param name="loader">The installed themes.</param>
@@ -95,6 +96,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         _config = readConfig();
         _operation = new ServiceOperation(_sync);
         _translations = new ThemeTranslations(client, loader.Root, WantsBetaTranslations, ApplyTranslations);
+        _updates = new ThemeUpdateCheck(client, () => Publish(false));
     }
 
     /// <summary>The revision of the state <see cref="ReadState" /> answers.</summary>
@@ -150,12 +152,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     /// <inheritdoc />
     public Task<SteamUiCommandResult> UpdateAsync(string name, CancellationToken cancellationToken)
     {
-        string? id;
-        lock (_sync)
-        {
-            id = _updates.TryGetValue(name, out var update) && update.Status == ThemeStates.Outdated ? update.Id : null;
-        }
-
+        var id = _updates.OutdatedId(name);
         if (id is null)
         {
             return Task.FromResult(new SteamUiCommandResult(false, "The store has no newer version of that theme."));
@@ -171,16 +168,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     /// <inheritdoc />
     public Task<SteamUiCommandResult> UpdateAllAsync(CancellationToken cancellationToken)
     {
-        List<(string Name, string Id)> outdated;
-        lock (_sync)
-        {
-            outdated =
-            [
-                .. _updates.Where(pair => pair.Value.Status == ThemeStates.Outdated && pair.Value.Id is not null)
-                    .Select(pair => (pair.Key, pair.Value.Id!))
-            ];
-        }
-
+        var outdated = _updates.Outdated();
         if (outdated.Count == 0)
         {
             return Task.FromResult(new SteamUiCommandResult(false, "Every installed theme is current."));
@@ -212,11 +200,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
             Capture();
         }
 
-        lock (_sync)
-        {
-            _updates.Remove(name);
-        }
-
+        _updates.Forget(name);
         if (error is not null)
         {
             return Task.FromResult(Refuse(error));
@@ -634,6 +618,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     /// </returns>
     internal SteamThemesState ReadState()
     {
+        var updates = _updates.Updates;
         lock (_sync)
         {
             var hidden = new HashSet<string>(_config.HiddenThemes, StringComparer.Ordinal);
@@ -641,7 +626,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
             List<SteamThemesInstalled> presets = [];
             foreach (var theme in _installed)
             {
-                var projected = Project(theme, hidden.Contains(theme.Name));
+                var projected = Project(theme, hidden.Contains(theme.Name), updates);
                 if (theme.IsPreset)
                 {
                     presets.Add(projected);
@@ -673,7 +658,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
                 _operation.Busy,
                 _operation.Notice,
                 _operation.Error,
-                _updates.Values.Count(update => update.Status == ThemeStates.Outdated),
+                updates.Values.Count(update => update.Status == ThemeStates.Outdated),
                 _revision);
         }
     }
@@ -784,7 +769,8 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         _operation.Track(Task.Run(() => CheckUpdatesAsync(_shutdown.Token)));
     }
 
-    private async Task CheckUpdatesAsync(CancellationToken cancellationToken)
+    /// <summary>Checks the store for newer versions of the themes installed now.</summary>
+    private Task CheckUpdatesAsync(CancellationToken cancellationToken)
     {
         List<(string Name, string Id, string Version)> installed;
         lock (_sync)
@@ -792,51 +778,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
             installed = [.. _installed.Select(theme => (theme.Name, theme.Id, theme.Version))];
         }
 
-        if (installed.Count == 0)
-        {
-            lock (_sync)
-            {
-                _updates = new Dictionary<string, (string, string?, string?)>(StringComparer.Ordinal);
-            }
-
-            Publish(false);
-            return;
-        }
-
-        IReadOnlyList<ThemeStoreSummary> remote;
-        try
-        {
-            remote = await _client.LookUpAsync(
-                    [.. installed.Select(theme => theme.Id).Distinct(StringComparer.Ordinal)], cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (ThemeStoreException ex)
-        {
-            Log.Warn($"Themes: the update check could not reach the store: {ex.Message}");
-            return;
-        }
-        catch (OperationCanceledException)
-        {
-            return;
-        }
-
-        Dictionary<string, (string Status, string? Latest, string? Id)> updates = new(StringComparer.Ordinal);
-        foreach (var (name, id, version) in installed)
-        {
-            var entry = remote.FirstOrDefault(candidate => candidate.Id == id || candidate.Name == id);
-            updates[name] = entry is null
-                ? (ThemeStates.Local, null, null)
-                : entry.Version == version
-                    ? (ThemeStates.Installed, null, entry.Id)
-                    : (ThemeStates.Outdated, entry.Version, entry.Id);
-        }
-
-        lock (_sync)
-        {
-            _updates = updates;
-        }
-
-        Publish(false);
+        return _updates.CheckAsync(installed, cancellationToken);
     }
 
     private bool WantsBetaTranslations()
@@ -862,9 +804,10 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         Publish(true);
     }
 
-    private SteamThemesInstalled Project(ThemeSnapshot snapshot, bool hidden)
+    private static SteamThemesInstalled Project(ThemeSnapshot snapshot, bool hidden,
+        IReadOnlyDictionary<string, (string Status, string? Latest, string? Id)> updates)
     {
-        var (status, latest, _) = _updates.TryGetValue(snapshot.Name, out var update)
+        var (status, latest, _) = updates.TryGetValue(snapshot.Name, out var update)
             ? update
             : (ThemeStates.Unknown, null, null);
         return new SteamThemesInstalled(

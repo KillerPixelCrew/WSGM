@@ -182,7 +182,7 @@ public sealed class NotesView : ServiceSubView
             return;
         }
 
-        _game = service.ResolveCurrentGame();
+        _game = service.Games.ResolveCurrentGame();
         var location = service.OverlayLocation;
         var scope = location.Scope ?? _game.Scope ?? NoteScope.Global;
         if (location.Scope is not null && _game is { State: NotesGameState.Game, Scope: { } current }

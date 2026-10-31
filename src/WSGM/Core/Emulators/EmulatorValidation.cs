@@ -20,7 +20,7 @@ internal static class EmulatorValidation
         try
         {
             var probe = EmulatorPortableSetup.Prepare(installed, temporary, null, cancellationToken, true);
-            EmulatorManager.ConfigureData(probe);
+            EmulatorDataBinding.Configure(probe);
             EmulatorPortable.Verify(probe);
 
             using (var input = File.OpenRead(installed.ExecutablePath))

@@ -206,7 +206,7 @@ internal static class NotesSteamSurface
         var capture = service.Capture.Status;
         var captureState = new NotesSteamCapture(Camel(capture.Phase.ToString()), Camel(capture.Origin.ToString()),
             capture.PageId, capture.Remaining, capture.Outcome, capture.OutcomeIsError, capture.InsertedElementId);
-        var game = view.AppId != 0 ? service.ResolveSteamApp(view.AppId) : service.ResolveCurrentGame();
+        var game = view.AppId != 0 ? service.Games.ResolveSteamApp(view.AppId) : service.Games.ResolveCurrentGame();
         var steamGame = new NotesSteamGame(Camel(game.State.ToString()), game.Scope, game.Title, game.Detail);
         if (!view.Opened || !service.Loaded)
         {
@@ -266,7 +266,7 @@ internal static class NotesSteamSurface
         {
             // A new window starts on its game's notebook. In a game overlay that is the overlay's own app;
             // in Big Picture's main window it is whatever the session reports as running.
-            var game = appId != 0 ? service.ResolveSteamApp(appId) : service.ResolveCurrentGame();
+            var game = appId != 0 ? service.Games.ResolveSteamApp(appId) : service.Games.ResolveCurrentGame();
             var current = service.SteamView.Read();
             var keepPage = current.PageId is { } page && service.ReadPage(page) is { } open
                                                       && (game.Scope is null || open.Scope == game.Scope);
@@ -401,7 +401,7 @@ internal static class NotesSteamSurface
                 "Screenshots are taken from a game's Steam overlay. Open Notes over the game first.");
         }
 
-        var game = service.ResolveSteamApp(view.AppId);
+        var game = service.Games.ResolveSteamApp(view.AppId);
         var target = new NotesCaptureTarget(view.ProcessId, 0, view.AppId, game.Title);
         return service.StartCapture(NotesCaptureOrigin.Steam, request.PageId!, seconds, target);
     }

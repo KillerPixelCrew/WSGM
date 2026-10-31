@@ -1,24 +1,28 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
-using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Win32;
 
 namespace WSGM.Core;
 
 /// <summary>One per-user owner for emulator releases, portable transactions and local installation state.</summary>
+/// <remarks>
+///     Operations are admitted one at a time. The program and data folders belong to
+///     <see cref="EmulatorInstallFolders" />, an external emulator's identification to
+///     <see cref="EmulatorExternalInstall" />, and the emulator's own configuration file to
+///     <see cref="EmulatorDataBinding" />.
+/// </remarks>
 public sealed partial class EmulatorManager : IDisposable
 {
     private readonly UserDataContext _context;
+    private readonly EmulatorInstallFolders _folders;
     private readonly ImportStateStore? _importState;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly EmulatorNetwork _network;
@@ -44,15 +48,13 @@ public sealed partial class EmulatorManager : IDisposable
     internal EmulatorManager(UserDataContext context, HttpMessageHandler? handler, ImportStateStore? importState)
     {
         _context = context;
+        _folders = new EmulatorInstallFolders(context.Root);
         _importState = importState;
         _network = new EmulatorNetwork(handler);
         _releases = new EmulatorReleases(_network);
         _packages = new EmulatorPackages(_network);
         Initialization = Task.Run(InitializeLocal);
     }
-
-    private string ProgramRoot => Path.Combine(_context.Root, "Emulators");
-    private string DataRoot => Path.Combine(_context.Root, "EmulatorData");
 
     internal bool Initialized
     {
@@ -308,7 +310,8 @@ public sealed partial class EmulatorManager : IDisposable
             await RegisterExternalAsync(Definition(definitionId), executable, token).ConfigureAwait(false);
             if (Directory.Exists(BiosFolder))
             {
-                RelinkBios(token, installationId: ExternalId(definitionId, Path.GetFullPath(executable)));
+                RelinkBios(token,
+                    installationId: EmulatorExternalInstall.Id(definitionId, Path.GetFullPath(executable)));
             }
 
             VerifyBios(token);
@@ -326,7 +329,7 @@ public sealed partial class EmulatorManager : IDisposable
                 if (installed.Managed)
                 {
                     EmulatorPrerequisites.EnsureStopped(installed);
-                    PreserveVersions(installed, token);
+                    _folders.PreserveVersions(installed, token);
                 }
 
                 Mutate(store => store with
@@ -338,7 +341,7 @@ public sealed partial class EmulatorManager : IDisposable
                 });
                 if (installed.Managed)
                 {
-                    DeleteRetired(installed.Root, ProgramRoot);
+                    _folders.DeleteProgram(installed);
                 }
             }), token).ConfigureAwait(false);
             SetStatus("Emulator removed. User data and imported titles are preserved.");
@@ -476,11 +479,11 @@ public sealed partial class EmulatorManager : IDisposable
                 "The upstream asset does not match this definition's reviewed package format.");
         }
 
-        var installRoot = Path.Combine(ProgramRoot, id);
+        var installRoot = Path.Combine(_folders.ProgramRoot, id);
         var stage = Path.Combine(installRoot, "staging-" + Guid.NewGuid().ToString("N"));
         var program = Path.Combine(stage, "program");
         var downloads = Path.Combine(stage, "downloads");
-        var data = Path.Combine(DataRoot, id);
+        var data = Path.Combine(_folders.DataRoot, id);
         const bool ownsData = true;
         var archive = Path.Combine(downloads, release.Asset.Name);
         try
@@ -602,7 +605,7 @@ public sealed partial class EmulatorManager : IDisposable
                     EmulatorValidation.ProbeAsync(definition, candidate, cancellationToken).GetAwaiter().GetResult();
                     if (previous is not null)
                     {
-                        PreserveLegacyRpcData(previous, data, cancellationToken);
+                        _folders.PreserveLegacyRpcData(previous, data, cancellationToken);
                     }
 
                     candidate = EmulatorPortableSetup.Prepare(candidate, data, previous, cancellationToken, true,
@@ -611,12 +614,8 @@ public sealed partial class EmulatorManager : IDisposable
                     {
                         candidate = candidate with
                         {
-                            ConfiguredPrerequisites = candidate.ConfiguredPrerequisites.ToDictionary(pair => pair.Key,
-                                pair => Path.IsPathFullyQualified(pair.Value) &&
-                                        StoragePaths.IsUnder(previous.DataPath, pair.Value)
-                                    ? Path.Combine(candidate.DataPath,
-                                        Path.GetRelativePath(previous.DataPath, pair.Value))
-                                    : pair.Value)
+                            ConfiguredPrerequisites = EmulatorDataBinding.Rebase(candidate.ConfiguredPrerequisites,
+                                previous.DataPath, candidate.DataPath)
                         };
                     }
 
@@ -629,7 +628,7 @@ public sealed partial class EmulatorManager : IDisposable
                         Directory.CreateDirectory(data);
                     }
 
-                    ConfigureData(candidate);
+                    EmulatorDataBinding.Configure(candidate);
                     EmulatorPortable.Verify(candidate);
 
                     candidate = EmulatorPrerequisites.RefreshState(candidate);
@@ -655,7 +654,7 @@ public sealed partial class EmulatorManager : IDisposable
                         });
                         if (previous is not null)
                         {
-                            ConfigureData(previous);
+                            EmulatorDataBinding.Configure(previous);
                         }
                     }
 
@@ -663,7 +662,7 @@ public sealed partial class EmulatorManager : IDisposable
                     throw;
                 }
 
-                PruneVersions(candidate, cancellationToken);
+                _folders.PruneVersions(candidate, cancellationToken);
             }), cancellationToken).ConfigureAwait(false);
             SetStatus(definition.Name + " " + release.Version + " installed"
                       + (cores.Length > 0 ? $" with all {cores.Length} published core packages." : ".")
@@ -687,43 +686,10 @@ public sealed partial class EmulatorManager : IDisposable
     {
         cancellationToken.ThrowIfCancellationRequested();
         executable = Path.GetFullPath(executable);
-        if (!File.Exists(executable) ||
-            !definition.ExecutableNames.Contains(Path.GetFileName(executable), StringComparer.OrdinalIgnoreCase))
-        {
-            throw new InvalidDataException("Choose the expected " + definition.Name + " executable.");
-        }
-
-        var architecture = PeArchitecture(executable);
-        if (!definition.Architectures.Contains(architecture, StringComparer.Ordinal))
-        {
-            throw new InvalidDataException("This external emulator architecture is not supported.");
-        }
-
-        var id = ExternalId(definition.Id, executable);
+        var architecture = EmulatorExternalInstall.Validate(definition, executable);
+        var id = EmulatorExternalInstall.Id(definition.Id, executable);
         var previous = EmulatorStorage.ReadStore(_context.Root).Installations.FirstOrDefault(item => item.Id == id);
-        var directory = Path.GetDirectoryName(executable)!;
-        var externalData = EmulatorPortable.ReadExternalData(definition.Id, directory);
-        var args = definition.DataPolicy.DataArguments.Concat(definition.LaunchArguments).ToArray();
-        var version = FileVersionInfo.GetVersionInfo(executable).ProductVersion ?? "External";
-        EmulatorInstallation installed = new()
-        {
-            Id = id, DefinitionId = definition.Id, Name = definition.Name, Managed = false,
-            SteamShortcutEnabled = previous?.SteamShortcutEnabled ?? true,
-            SteamShortcutLaunchMode = previous?.SteamShortcutLaunchMode ?? 2,
-            Channel = definition.Sources.Keys.First(), Architecture = architecture, Version = version,
-            Root = directory, ExecutablePath = executable, DataPath = externalData, OwnsData = false,
-            Source = "External", Systems = definition.Systems, LaunchArguments = [.. args],
-            DataPolicy = definition.DataPolicy,
-            Cores = definition.DataPolicy.HasCores && Directory.Exists(Path.Combine(directory, "cores"))
-                ? Directory.EnumerateFiles(Path.Combine(directory, "cores"), "*.dll").Select(path => new EmulatorCore
-                {
-                    Id = Path.GetFileNameWithoutExtension(path), Name = Path.GetFileNameWithoutExtension(path),
-                    Path = path, MetadataMissing = true
-                }).ToArray()
-                : []
-        };
-        EmulatorPortable.Verify(installed);
-        installed = EmulatorPrerequisites.RefreshState(installed);
+        var installed = EmulatorExternalInstall.Describe(definition, executable, architecture, previous);
         await Task.Run(() => Mutate(store => store with
         {
             Installations = [.. store.Installations.Where(item => item.Id != id), installed],
@@ -746,27 +712,9 @@ public sealed partial class EmulatorManager : IDisposable
 
             foreach (var executable in definition.ExecutableNames)
             {
-                var candidates = new[]
-                {
-                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs",
-                        definition.Name, executable),
-                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "emudeck",
-                        "Emulators", definition.Id, executable),
-                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "scoop", "apps",
-                        definition.Id, "current", executable)
-                }.ToList();
-                foreach (var hive in new[] { Registry.CurrentUser, Registry.LocalMachine })
-                {
-                    using var key =
-                        hive.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\" + executable);
-                    if (key?.GetValue(null) is string path)
-                    {
-                        candidates.Add(path.Trim('"'));
-                    }
-                }
-
+                var candidates = EmulatorExternalInstall.Candidates(definition, executable);
                 foreach (var found in candidates.Where(path =>
-                             File.Exists(path) && !forgotten.Contains(ExternalId(definition.Id, path))))
+                             File.Exists(path) && !forgotten.Contains(EmulatorExternalInstall.Id(definition.Id, path))))
                 {
                     try
                     {
@@ -786,57 +734,6 @@ public sealed partial class EmulatorManager : IDisposable
                     break;
                 }
             }
-        }
-    }
-
-    private static string ExternalId(string definitionId, string executable)
-    {
-        return definitionId + "-external-"
-                            + Convert.ToHexString(
-                                SHA256.HashData(
-                                    Encoding.UTF8.GetBytes(Path.GetFullPath(executable).ToUpperInvariant())))[..20];
-    }
-
-    internal static void ConfigureData(EmulatorInstallation installed)
-    {
-        if (!installed.Managed)
-        {
-            return;
-        }
-
-        if (installed.DataPolicy.ConfigPaths.Count == 0)
-        {
-            return;
-        }
-
-        var root = Path.GetDirectoryName(installed.ExecutablePath)!;
-        var fields = installed.DataPolicy.ConfigPaths.ToDictionary(pair => pair.Key, pair =>
-            pair.Value.Replace("{program}", root, StringComparison.Ordinal)
-                .Replace("{data}", installed.DataPath, StringComparison.Ordinal));
-        var configPath = Path.Combine(installed.DataPath, installed.DataPolicy.ConfigFile);
-        if (fields.Any(pair =>
-                IniFile.ReadValue(configPath, pair.Key)?.Trim('"').Replace('/', Path.DirectorySeparatorChar) !=
-                pair.Value) ||
-            (installed.DefinitionId == "retroarch" &&
-             EmulatorPortable.RetroArchFlags.Any(key => IniFile.ReadValue(configPath, key) != "false")))
-        {
-            EmulatorPrerequisites.EnsureStopped(installed);
-        }
-
-        foreach (var (key, value) in fields)
-        {
-            var fileSetting = key is "core_options_path" or "content_history_path" or "content_favorites_path"
-                or "content_image_history_path" or "content_music_history_path" or "content_video_history_path";
-            Directory.CreateDirectory(fileSetting ? Path.GetDirectoryName(value)! : value);
-        }
-
-        IniFile.SetValues(Path.Combine(installed.DataPath, installed.DataPolicy.ConfigFile), fields.ToDictionary(
-            pair => pair.Key, pair => string.Concat((char)34,
-                pair.Value.Replace(Path.DirectorySeparatorChar, '/'), (char)34)));
-        if (installed.DefinitionId == "retroarch")
-        {
-            IniFile.SetValues(Path.Combine(installed.DataPath, installed.DataPolicy.ConfigFile),
-                EmulatorPortable.RetroArchFlags.ToDictionary(key => key, _ => "false"));
         }
     }
 
@@ -961,25 +858,7 @@ public sealed partial class EmulatorManager : IDisposable
         }
 
         var installations = EmulatorStorage.ReadInstallations(_context.Root).Where(item => item.Managed).ToArray();
-        if (Directory.Exists(ProgramRoot))
-        {
-            foreach (var root in Directory.EnumerateDirectories(ProgramRoot))
-            {
-                if (!installations.Any(installed => installed.Root.Equals(root, StringComparison.OrdinalIgnoreCase)))
-                {
-                    EmulatorPortableSetup.CopyData(root,
-                        Path.Combine(DataRoot, Path.GetFileName(root), ".portable-snapshots", "removed-installation"),
-                        cancellationToken);
-                    DeleteRetired(root, ProgramRoot);
-                    continue;
-                }
-
-                foreach (var stage in Directory.EnumerateDirectories(root, "staging-*"))
-                {
-                    DeleteRetired(stage, ProgramRoot);
-                }
-            }
-        }
+        _folders.SweepOrphans(installations, cancellationToken);
 
         foreach (var installed in installations)
         {
@@ -1005,21 +884,18 @@ public sealed partial class EmulatorManager : IDisposable
 
                 if (!portable)
                 {
-                    PreserveLegacyRpcData(installed, Path.Combine(DataRoot, installed.Id), cancellationToken);
-                    normalized = EmulatorPortableSetup.Prepare(normalized, Path.Combine(DataRoot, installed.Id),
+                    var retained = Path.Combine(_folders.DataRoot, installed.Id);
+                    _folders.PreserveLegacyRpcData(installed, retained, cancellationToken);
+                    normalized = EmulatorPortableSetup.Prepare(normalized, retained,
                         installed, cancellationToken, false, () => KnownRomPaths(installed));
                     normalized = normalized with
                     {
-                        ConfiguredPrerequisites = installed.ConfiguredPrerequisites.ToDictionary(pair => pair.Key,
-                            pair => Path.IsPathFullyQualified(pair.Value) &&
-                                    StoragePaths.IsUnder(installed.DataPath, pair.Value)
-                                ? Path.Combine(normalized.DataPath,
-                                    Path.GetRelativePath(installed.DataPath, pair.Value))
-                                : pair.Value)
+                        ConfiguredPrerequisites = EmulatorDataBinding.Rebase(installed.ConfiguredPrerequisites,
+                            installed.DataPath, normalized.DataPath)
                     };
                 }
 
-                ConfigureData(normalized);
+                EmulatorDataBinding.Configure(normalized);
                 EmulatorPortable.Verify(normalized);
                 if (JsonSerializer.Serialize(normalized, EmulatorStorage.JsonOptions) !=
                     JsonSerializer.Serialize(installed, EmulatorStorage.JsonOptions))
@@ -1037,82 +913,7 @@ public sealed partial class EmulatorManager : IDisposable
                 SetStatus("Emulator data binding could not be repaired: " + exception.Message);
             }
 
-            PruneVersions(installed, cancellationToken);
-        }
-    }
-
-    internal void PruneVersions(EmulatorInstallation installed, CancellationToken token)
-    {
-        var versions = Path.Combine(installed.Root, "versions");
-        if (!Directory.Exists(versions))
-        {
-            return;
-        }
-
-        foreach (var directory in Directory.EnumerateDirectories(versions))
-        {
-            if (StoragePaths.IsUnder(directory, installed.ExecutablePath)
-                || (installed.PreviousExecutablePath.Length > 0 &&
-                    StoragePaths.IsUnder(directory, installed.PreviousExecutablePath)))
-            {
-                continue;
-            }
-
-            EmulatorPortableSetup.PreserveVersion(installed, directory, Path.Combine(DataRoot, installed.Id), token);
-            DeleteRetired(directory, installed.Root);
-        }
-    }
-
-    private void PreserveVersions(EmulatorInstallation installed, CancellationToken token)
-    {
-        var retained = Path.Combine(DataRoot, installed.Id);
-        EmulatorPortableSetup.CopyData(installed.DataPath, retained, token);
-        var versions = Path.Combine(installed.Root, "versions");
-        if (!Directory.Exists(versions))
-        {
-            return;
-        }
-
-        foreach (var version in Directory.EnumerateDirectories(versions))
-        {
-            EmulatorPortableSetup.PreserveVersion(installed, version, retained, token);
-        }
-    }
-
-    private void PreserveLegacyRpcData(EmulatorInstallation installed, string retained, CancellationToken token)
-    {
-        if (installed.DefinitionId != "rpcs3" ||
-            Directory.Exists(Path.Combine(Path.GetDirectoryName(installed.ExecutablePath)!, "portable")) ||
-            !installed.Environment.TryGetValue("RPCS3_CONFIG_DIR", out var setting))
-        {
-            return;
-        }
-
-        var expanded = setting.Replace("{data}", installed.DataPath, StringComparison.Ordinal);
-        var actual = Path.EndsInDirectorySeparator(expanded) ? expanded : Path.GetDirectoryName(expanded)!;
-        if (!Directory.Exists(actual) || !StoragePaths.IsUnder(DataRoot, actual) ||
-            !(File.Exists(Path.Combine(actual, "config.yml")) || Directory.Exists(Path.Combine(actual, "dev_hdd0"))))
-        {
-            return;
-        }
-
-        var otherRoots = EmulatorStorage.ReadInstallations(_context.Root)
-            .Where(item => !string.Equals(item.DataPath, actual, StringComparison.OrdinalIgnoreCase) &&
-                           StoragePaths.IsUnder(actual, item.DataPath))
-            .Select(item => Path.GetRelativePath(actual, item.DataPath).Split(Path.DirectorySeparatorChar)[0])
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        EmulatorPortableSetup.CopyData(actual, retained, token, excludedNames: otherRoots);
-    }
-
-    private static void DeleteRetired(string path, string root)
-    {
-        try
-        {
-            EmulatorPackages.DeleteOwned(path, root);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            Log.Warn("Emulator files remain for later cleanup: " + ex.Message);
+            _folders.PruneVersions(installed, cancellationToken);
         }
     }
 
@@ -1153,18 +954,5 @@ public sealed partial class EmulatorManager : IDisposable
             ? architecture
             : throw new InvalidOperationException(definition.Name +
                                                   " does not publish a supported native package for this Windows architecture.");
-    }
-
-    private static string PeArchitecture(string path)
-    {
-        using var stream = File.OpenRead(path);
-        using PEReader reader = new(stream);
-        return reader.PEHeaders.CoffHeader.Machine switch
-        {
-            Machine.Amd64 => "x64",
-            Machine.I386 => "x86",
-            Machine.Arm64 => "arm64",
-            _ => throw new InvalidDataException("This Windows emulator architecture is unsupported.")
-        };
     }
 }

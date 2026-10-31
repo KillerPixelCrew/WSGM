@@ -145,8 +145,8 @@ public sealed class NotesServiceTests : IDisposable
     {
         var service = Create(appId => appId is 3000000001u or 3000000002u ? ("xbox", "Game!App", "Forza") : null);
 
-        var before = service.ResolveSteamApp(3000000001u);
-        var after = service.ResolveSteamApp(3000000002u);
+        var before = service.Games.ResolveSteamApp(3000000001u);
+        var after = service.Games.ResolveSteamApp(3000000002u);
 
         Assert.Equal("library:xbox:Game!App", before.Scope);
         Assert.Equal(before.Scope, after.Scope);
@@ -159,11 +159,11 @@ public sealed class NotesServiceTests : IDisposable
         var service = Create();
 
         _running = Running(RunningApplicationTargetState.Ambiguous);
-        var ambiguous = service.ResolveCurrentGame();
+        var ambiguous = service.Games.ResolveCurrentGame();
         _running = Running(RunningApplicationTargetState.Global);
-        var none = service.ResolveCurrentGame();
+        var none = service.Games.ResolveCurrentGame();
         _running = Running(RunningApplicationTargetState.Active, 1145360);
-        var game = service.ResolveCurrentGame();
+        var game = service.Games.ResolveCurrentGame();
 
         Assert.Equal(NotesGameState.Unknown, ambiguous.State);
         Assert.Null(ambiguous.Scope);

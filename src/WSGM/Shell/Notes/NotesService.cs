@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
@@ -12,7 +11,7 @@ namespace WSGM.Shell;
 
 /// <summary>
 ///     The session's one Notes owner, shared by the WSGM overlay and Steam's overlay: the store, every edit with
-///     its revision check, the running game's notebook, both surfaces' places and the screenshot transaction.
+///     its revision check, the notebook titles, both surfaces' places and the screenshot transaction.
 /// </summary>
 /// <remarks>
 ///     <para>
@@ -26,26 +25,17 @@ namespace WSGM.Shell;
 ///         current revision: it only adds an element.
 ///     </para>
 ///     <para>
-///         A game's notebook is keyed by its stable identity, never its title. When the running game cannot be
-///         resolved, the surfaces say so and show Global explicitly; nothing is written to Global on the
-///         strength of a failed resolution.
+///         A game's notebook is keyed by its stable identity, never its title; <see cref="Games" /> resolves
+///         it. When the running game cannot be resolved, the surfaces say so and show Global explicitly;
+///         nothing is written to Global on the strength of a failed resolution.
 ///     </para>
 /// </remarks>
-internal sealed class NotesService : IChangeSource, IExtensionsTabSection, IAsyncDisposable
+internal sealed class NotesService : IChangeSource, IAsyncDisposable
 {
-    /// <summary>The Extensions item id.</summary>
-    internal const string SectionKey = "wsgm.notes";
-
-    /// <summary>The Extensions action that opens Notes.</summary>
-    internal const string OpenId = "wsgm.notes.open";
-
     private readonly Lock _gate = new();
-    private readonly Func<uint, (string Source, string Key, string Name)?>? _libraryTitle;
     private readonly Dictionary<string, NotePage> _pages = new(StringComparer.Ordinal);
     private readonly HashSet<string> _readOnly = new(StringComparer.Ordinal);
-    private readonly Func<RunningApplicationTargetSnapshot>? _runningTarget;
     private readonly CancellationTokenSource _shutdown = new();
-    private readonly Func<uint, CancellationToken, Task<string?>>? _steamName;
     private readonly NoteStore _store;
     private readonly TimeProvider _time;
     private Task _captureRun = Task.CompletedTask;
@@ -68,15 +58,16 @@ internal sealed class NotesService : IChangeSource, IExtensionsTabSection, IAsyn
         Func<uint, CancellationToken, Task<string?>>? steamName, TimeProvider? time = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
-        _runningTarget = runningTarget;
-        _libraryTitle = libraryTitle;
-        _steamName = steamName;
         _time = time ?? TimeProvider.System;
         Capture = new NotesCaptureTransaction(InsertCapturedImage, Publish);
+        Games = new NotesGameResolver(this, runningTarget, libraryTitle, steamName, _shutdown.Token);
     }
 
     /// <summary>Increases whenever anything either surface shows changed.</summary>
     internal long Revision => Interlocked.Read(ref _revision);
+
+    /// <summary>Finds the notebook of the running game or of a Steam app.</summary>
+    internal NotesGameResolver Games { get; }
 
     /// <summary>The screenshot transaction.</summary>
     internal NotesCaptureTransaction Capture { get; }
@@ -203,32 +194,6 @@ internal sealed class NotesService : IChangeSource, IExtensionsTabSection, IAsyn
     /// <inheritdoc />
     public event Action? Changed;
 
-    /// <inheritdoc />
-    public string SectionId => SectionKey;
-
-    /// <inheritdoc />
-    public SteamExtensionsTabItem? ReadExtensionsItem()
-    {
-        return new SteamExtensionsTabItem(SectionKey, "Notes", string.Empty, "Ready",
-            "Game notes with text, drawings and screenshots, shared with the WSGM overlay.",
-            [new SteamExtensionsTabAction(OpenId, "Open Notes")]);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> ActivateExtensionAsync(string id, CancellationToken cancellationToken)
-    {
-        return Task.FromResult(id == OpenId
-            ? SteamUiCommandResult.Route(NotesSteamSurface.Route)
-            : new SteamUiCommandResult(false, "That entry is no longer available."));
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> ConfigureExtensionAsync(string key, JsonElement value,
-        CancellationToken cancellationToken)
-    {
-        return Task.FromResult(new SteamUiCommandResult(false, "Notes has no settings here."));
-    }
-
     /// <summary>Reads the store the first time Notes is used; later calls return at once.</summary>
     /// <returns>Whether the store is readable.</returns>
     /// <remarks>Reads files: call it off the UI thread.</remarks>
@@ -347,61 +312,42 @@ internal sealed class NotesService : IChangeSource, IExtensionsTabSection, IAsyn
         }
     }
 
-    /// <summary>Resolves the running game to its notebook from the session's identity snapshot.</summary>
-    /// <returns>The game, no game, or unknown with the reason.</returns>
-    internal NotesCurrentGame ResolveCurrentGame()
+    /// <summary>Whether a notebook has a remembered title.</summary>
+    /// <param name="scope">The notebook.</param>
+    /// <returns>True once a name was learned for it.</returns>
+    internal bool HasNotebookTitle(string scope)
     {
-        if (_runningTarget is null)
+        lock (_gate)
         {
-            return NotesCurrentGame.NoGame;
+            return _settings.NotebookTitles.ContainsKey(scope);
         }
-
-        var snapshot = _runningTarget();
-        switch (snapshot.State)
-        {
-            case RunningApplicationTargetState.Global:
-                return NotesCurrentGame.NoGame;
-            case RunningApplicationTargetState.Ambiguous:
-                return Unknown("More than one game is running, so Notes cannot tell which one this is.");
-            case RunningApplicationTargetState.Unavailable:
-                return Unknown(snapshot.Diagnostic ?? "The running game is not known right now.");
-        }
-
-        if (snapshot.SteamAppId is { } appId)
-        {
-            return ResolveSteamApp(appId);
-        }
-
-        if (snapshot.ApplicationId is { } application
-            && application.StartsWith("process:", StringComparison.Ordinal)
-            && NoteScope.IsValid(application))
-        {
-            var title = snapshot.RtssProfileName ?? application["process:".Length..];
-            RememberTitle(application, title);
-            return new NotesCurrentGame(NotesGameState.Game, application, NotebookTitle(application));
-        }
-
-        return Unknown("The running game has no stable identity.");
     }
 
-    /// <summary>Resolves a Steam AppID, a shortcut's included, to its notebook.</summary>
-    /// <param name="appId">The app id.</param>
-    /// <returns>The game; a WSGM-imported shortcut maps to its durable library identity.</returns>
-    internal NotesCurrentGame ResolveSteamApp(uint appId)
+    /// <summary>Remembers a game's name as its notebook's title, saved with the settings once Notes is loaded.</summary>
+    /// <param name="scope">The notebook.</param>
+    /// <param name="title">The name; nothing changes for a blank one.</param>
+    internal void RememberTitle(string scope, string? title)
     {
-        string scope;
-        if (SteamApps.IsShortcutAppId(appId) && _libraryTitle?.Invoke(appId) is { } library)
+        if (string.IsNullOrWhiteSpace(title))
         {
-            scope = NoteScope.ForLibraryTitle(library.Source, library.Key);
-            RememberTitle(scope, library.Name);
-        }
-        else
-        {
-            scope = NoteScope.ForSteamApp(appId);
-            QueueSteamName(scope, appId);
+            return;
         }
 
-        return new NotesCurrentGame(NotesGameState.Game, scope, NotebookTitle(scope));
+        lock (_gate)
+        {
+            if (_settings.NotebookTitles.TryGetValue(scope, out var known) && known == title)
+            {
+                return;
+            }
+
+            _settings.NotebookTitles[scope] = title.Trim();
+            if (_loaded && _loadError is null)
+            {
+                TryWriteSettingsLocked();
+            }
+        }
+
+        Publish();
     }
 
     /// <summary>Creates an empty page at the top of a notebook.</summary>
@@ -1005,61 +951,6 @@ internal sealed class NotesService : IChangeSource, IExtensionsTabSection, IAsyn
                 : "Imported game";
     }
 
-    private void RememberTitle(string scope, string? title)
-    {
-        if (string.IsNullOrWhiteSpace(title))
-        {
-            return;
-        }
-
-        lock (_gate)
-        {
-            if (_settings.NotebookTitles.TryGetValue(scope, out var known) && known == title)
-            {
-                return;
-            }
-
-            _settings.NotebookTitles[scope] = title.Trim();
-            if (_loaded && _loadError is null)
-            {
-                TryWriteSettingsLocked();
-            }
-        }
-
-        Publish();
-    }
-
-    private void QueueSteamName(string scope, uint appId)
-    {
-        if (_steamName is null)
-        {
-            return;
-        }
-
-        lock (_gate)
-        {
-            if (_settings.NotebookTitles.ContainsKey(scope))
-            {
-                return;
-            }
-        }
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                RememberTitle(scope, await _steamName(appId, _shutdown.Token).ConfigureAwait(false));
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch (Exception ex)
-            {
-                Log.Info($"Notes: the name of Steam app {appId} could not be read: {ex.Message}");
-            }
-        });
-    }
-
     private bool SetCountdownLocked(int seconds)
     {
         seconds = NoteSettings.ClampCountdown(seconds);
@@ -1109,10 +1000,5 @@ internal sealed class NotesService : IChangeSource, IExtensionsTabSection, IAsyn
             Id = stroke.Id, Tool = stroke.Tool, Color = stroke.Color, Width = stroke.Width,
             Points = [.. stroke.Points], Pressure = [.. stroke.Pressure]
         };
-    }
-
-    private static NotesCurrentGame Unknown(string detail)
-    {
-        return new NotesCurrentGame(NotesGameState.Unknown, null, "Current game unknown", detail);
     }
 }

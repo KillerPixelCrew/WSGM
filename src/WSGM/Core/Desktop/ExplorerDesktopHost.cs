@@ -1,5 +1,4 @@
 using System;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,15 +11,16 @@ namespace WSGM.Core;
 ///     before each orderly exit and retains a medium fixed-purpose anchor across the exit.
 ///     A job-bound source may supply a job-bound anchor as explicitly degraded recovery.
 /// </summary>
+/// <remarks>The exit itself, and the retired owner it leaves, belong to <see cref="ExplorerShellExit" />.</remarks>
 internal sealed class ExplorerDesktopHost : IAsyncDisposable
 {
-    private const uint ExitExplorerMessage = 0x05B4;
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan ReadinessStability = TimeSpan.FromMilliseconds(500);
 
     private readonly UserDataContext _context;
 
     private readonly DesktopAppLifecycle _desktopApps;
+    private readonly ExplorerShellExit _exit;
 
     // Anchor replacement, Explorer dispatch, and disposal share one owner. Disposal closes
     // admission before waiting so no caller can pass a stale disposed check and publish an anchor
@@ -33,7 +33,6 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
     // failed restore keeps it, so the launch sequence never starts a listed integration meanwhile.
     private int _desktopAppsSuspended;
     private int _disposeState;
-    private Process? _retired;
     private bool _sourceWasJobBound;
     private uint _sourceDesktopPid;
 
@@ -44,9 +43,8 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
         _context = context;
         _desktopApps = new DesktopAppLifecycle(new DesktopAppProcessBackend(context), Log.Warn);
         _sessionId = ProcessLookup.CurrentSessionId;
+        _exit = new ExplorerShellExit(_sessionId);
     }
-
-    private static string ExplorerPath => ExplorerControl.ExplorerPath;
 
     /// <summary>Closes operation admission, retires the owned anchor, and releases captured process handles.</summary>
     /// <returns>A task completing after the serialized teardown; repeated calls return without awaiting the first.</returns>
@@ -70,8 +68,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
         }
         finally
         {
-            _retired?.Dispose();
-            _retired = null;
+            _exit.Dispose();
             Volatile.Write(ref _disposeState, 2);
             _operationGate.Release();
         }
@@ -297,7 +294,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
             var exited = false;
             try
             {
-                exited = await ExitShellUnderGateAsync(timeout, cancellationToken).ConfigureAwait(false);
+                exited = await _exit.ExitAsync(timeout, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -384,20 +381,20 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
                 var current = ExplorerDesktop.Observe(_sessionId, false);
                 if (current.Process.ProcessId != 0)
                 {
-                    using var owner = TryGetExitOwner(current.Process.ProcessId);
+                    using var owner = ExplorerShellExit.TryGetExitOwner(current.Process.ProcessId);
                     if (owner is not null)
                     {
-                        ForceStopExplorer(owner);
+                        _exit.ForceStop(owner);
                         await owner.WaitForExitAsync(cancellationToken).WaitAsync(Remaining(deadline), cancellationToken)
                             .ConfigureAwait(false);
                     }
                 }
                 else if (result.CreatedProcessId != 0)
                 {
-                    using var created = TryGetExitOwner(result.CreatedProcessId);
+                    using var created = ExplorerShellExit.TryGetExitOwner(result.CreatedProcessId);
                     if (created is not null)
                     {
-                        ForceStopExplorer(created);
+                        _exit.ForceStop(created);
                     }
                 }
 
@@ -454,7 +451,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
         var anchorError = "No anchor was captured.";
         // A retired shell can retain Explorer's singleton/mutex after its windows disappear.
         // Finish that exact owner before starting a replacement desktop.
-        await ReleaseRetiredOwnerAsync(deadline, cancellationToken).ConfigureAwait(false);
+        await _exit.ReleaseRetiredOwnerAsync(deadline, cancellationToken).ConfigureAwait(false);
 
         if (_anchor is not null)
         {
@@ -704,253 +701,6 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
         {
             Log.Warn(message);
         }
-    }
-
-    private async Task<bool> ExitShellUnderGateAsync(TimeSpan timeout, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        var deadline = DateTime.UtcNow + timeout;
-        while (DateTime.UtcNow < deadline)
-        {
-            var taskbar = NativeMethods.FindWindowW("Shell_TrayWnd", null);
-            if (taskbar == 0)
-            {
-                return await WaitForShellAbsenceAsync(deadline, cancellationToken).ConfigureAwait(false);
-            }
-
-            if (!ExplorerControl.IsCurrentSessionWindow(taskbar))
-            {
-                return false;
-            }
-
-            NativeMethods.GetWindowThreadProcessId(taskbar, out var owner);
-            using var original = TryGetExitOwner(owner);
-            if (original is null)
-            {
-                return await WaitForShellAbsenceAsync(deadline, cancellationToken).ConfigureAwait(false);
-            }
-
-            // Keep the handle, not merely the PID, so its exit is observed on the right process.
-            _ = original.Handle;
-            if (!string.Equals(NativeShellProcess.TryGetImagePath(checked((uint)original.Id)), ExplorerPath,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            cancellationToken.ThrowIfCancellationRequested();
-            Log.Info($"Requesting orderly Explorer exit (pid {owner}).");
-            var requested = Stopwatch.StartNew();
-            var forced = false;
-            if (!NativeMethods.PostMessageW(taskbar, ExitExplorerMessage, 0, 0))
-            {
-                ForceStopExplorer(original);
-                forced = true;
-            }
-
-            RememberRetired(original);
-            DateTime? absentSince = null;
-            var replacement = false;
-            var uncleanExit = false;
-            var exitSeen = false;
-            while (DateTime.UtcNow < deadline)
-            {
-                var currentTaskbar = NativeMethods.FindWindowW("Shell_TrayWnd", null);
-                var shell = NativeMethods.GetShellWindow();
-                var surfaces = currentTaskbar != 0 || shell != 0;
-                if (currentTaskbar != 0 && !IsWindowOwnedByProcess(currentTaskbar, owner))
-                {
-                    replacement = true;
-                    Log.Info("A replacement desktop appeared; enforcing the requested exit on its new owner.");
-                    break;
-                }
-
-                absentSince = surfaces ? null : absentSince ?? DateTime.UtcNow;
-                var absent = absentSince is { } since ? DateTime.UtcNow - since : TimeSpan.Zero;
-                var originalExited = original.HasExited;
-                if (originalExited && !exitSeen)
-                {
-                    exitSeen = true;
-                    uncleanExit = ExitedUncleanly(original, owner);
-                    if (uncleanExit || forced)
-                    {
-                        // Winlogon's replacement follows process exit, which may be later than
-                        // the old shell windows disappearing. Observe the full grace from here.
-                        absentSince = surfaces ? null : DateTime.UtcNow;
-                        absent = TimeSpan.Zero;
-                    }
-                }
-
-                var action = ExplorerExitPolicy.Decide(surfaces, originalExited, absent,
-                    uncleanExit, requested.Elapsed, forcedExit: forced);
-                // ReSharper disable once SwitchStatementHandlesSomeKnownEnumValuesWithDefault
-                switch (action)
-                {
-                    case ExplorerExitAction.Complete:
-                        Log.Info("Explorer desktop exited and remained absent.");
-                        return true;
-                    case ExplorerExitAction.Wait:
-                        break;
-                    case ExplorerExitAction.ForceStop:
-                        if (!forced)
-                        {
-                            cancellationToken.ThrowIfCancellationRequested();
-                            ForceStopExplorer(original);
-                            forced = true;
-                        }
-
-                        break;
-                }
-
-                await Task.Delay(100, cancellationToken).ConfigureAwait(false);
-            }
-
-            if (!replacement)
-            {
-                break;
-            }
-
-            await Task.Delay(300, cancellationToken).ConfigureAwait(false);
-        }
-
-        Log.Warn("Explorer desktop exit was not confirmed; desktop recovery is required.");
-        return false;
-    }
-
-    private void ForceStopExplorer(Process process)
-    {
-        // Retain the exact handle before identity inspection; never sweep Explorer folder processes.
-        _ = process.Handle;
-        if (process.HasExited)
-        {
-            return;
-        }
-
-        if (process.SessionId != _sessionId
-            || !string.Equals(NativeShellProcess.TryGetImagePath(checked((uint)process.Id)), ExplorerPath,
-                StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException("The blocking Explorer owner could not be identified.");
-        }
-
-        Log.Warn($"Enforcing the requested shell transition: terminating Explorer pid {process.Id}.");
-        NativeShellProcess.Terminate(process, ExplorerExitPolicy.ForcedExitCode);
-    }
-
-    private async Task ReleaseRetiredOwnerAsync(DateTimeOffset deadline, CancellationToken cancellationToken)
-    {
-        var retired = _retired;
-        if (retired is null)
-        {
-            return;
-        }
-
-        if (!retired.HasExited)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            Log.Info($"Finishing retired Explorer pid {retired.Id} before the requested desktop restart.");
-            ForceStopExplorer(retired);
-            var remaining = Remaining(deadline);
-            if (remaining <= TimeSpan.Zero)
-            {
-                throw new TimeoutException("The retired Explorer did not release the desktop before its deadline.");
-            }
-
-            await retired.WaitForExitAsync(cancellationToken).WaitAsync(remaining, cancellationToken)
-                .ConfigureAwait(false);
-        }
-
-        _retired = null;
-        retired.Dispose();
-    }
-
-    private void RememberRetired(Process original)
-    {
-        try
-        {
-            // A second handle to the same process, checked by start time so a reused PID never counts.
-            var copy = Process.GetProcessById(original.Id);
-            if (copy.StartTime == original.StartTime)
-            {
-                _retired?.Dispose();
-                _retired = copy;
-                return;
-            }
-
-            copy.Dispose();
-        }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or Win32Exception)
-        {
-            // It exited meanwhile, which is the outcome being waited for.
-        }
-    }
-
-    private static Process? TryGetExitOwner(uint processId)
-    {
-        Process? process = null;
-        try
-        {
-            process = Process.GetProcessById(checked((int)processId));
-            _ = process.Handle;
-            return process;
-        }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or Win32Exception)
-        {
-            process?.Dispose();
-            return null;
-        }
-    }
-
-    private static bool ExitedUncleanly(Process original, uint owner)
-    {
-        try
-        {
-            var code = original.ExitCode;
-            if (code == 0)
-            {
-                Log.Info($"Retired Explorer pid {owner} exited cleanly.");
-                return false;
-            }
-
-            Log.Warn($"Retired Explorer pid {owner} exited with code 0x{code:X8}; Winlogon may respawn the shell, "
-                     + "so the replacement is awaited before Game Mode continues.");
-            return true;
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
-        {
-            Log.Warn($"Retired Explorer pid {owner} exited; its exit code could not be read ({ex.Message}).");
-            return true;
-        }
-    }
-
-    private static async Task<bool> WaitForShellAbsenceAsync(DateTime deadline, CancellationToken cancellationToken)
-    {
-        DateTime? absentSince = null;
-        while (DateTime.UtcNow < deadline)
-        {
-            var present = NativeMethods.FindWindowW("Shell_TrayWnd", null) != 0
-                          || NativeMethods.GetShellWindow() != 0;
-            absentSince = present ? null : absentSince ?? DateTime.UtcNow;
-            if (absentSince is { } since && DateTime.UtcNow - since >= ExplorerExitPolicy.StableAbsence)
-            {
-                return true;
-            }
-
-            await Task.Delay(100, cancellationToken).ConfigureAwait(false);
-        }
-
-        return false;
-    }
-
-    private static bool IsWindowOwnedByProcess(nint window, uint processId)
-    {
-        if (window == 0 || !NativeMethods.IsWindow(window))
-        {
-            return false;
-        }
-
-        NativeMethods.GetWindowThreadProcessId(window, out var currentOwner);
-        return currentOwner == processId;
     }
 
     private static TimeSpan Remaining(DateTimeOffset deadline)

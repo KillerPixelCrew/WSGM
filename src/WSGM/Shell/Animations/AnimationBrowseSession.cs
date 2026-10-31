@@ -15,22 +15,28 @@ namespace WSGM.Shell;
 /// </remarks>
 internal sealed class AnimationBrowseSession : IAnimationBrowseSession
 {
+    /// <summary>How many cards the Browse tab adds at a time.</summary>
+    internal const int BrowsePage = 48;
+
     private readonly Lock _gate = new();
     private readonly AnimationService _owner;
+    private readonly AnimationRepoCatalog _repository;
     private string? _detailId;
     private IReadOnlyList<AnimationListing>? _order;
     private IReadOnlyList<AnimationListing>? _orderedCatalog;
     private long _revision;
     private string _search = string.Empty;
-    private int _shown = AnimationService.BrowsePage;
+    private int _shown = BrowsePage;
     private string _sort = SteamAnimationsSurface.Sorts[0].Id;
 
     /// <summary>Creates a session over the shared owner.</summary>
     /// <param name="owner">The boot-movie owner, whose changes this session republishes.</param>
+    /// <param name="repository">The owner's repository listings, which this session sorts and pages.</param>
     /// <param name="tab">The tab this surface opens on.</param>
-    internal AnimationBrowseSession(AnimationService owner, string tab)
+    internal AnimationBrowseSession(AnimationService owner, AnimationRepoCatalog repository, string tab)
     {
         _owner = owner;
+        _repository = repository;
         Tab = tab;
         owner.Changed += Publish;
     }
@@ -55,14 +61,14 @@ internal sealed class AnimationBrowseSession : IAnimationBrowseSession
     {
         var revision = Revision;
         var shared = _owner.ReadState();
-        var catalog = _owner.Catalog;
+        var catalog = _repository.Listings;
         lock (_gate)
         {
             if (_order is null || !ReferenceEquals(catalog, _orderedCatalog))
             {
                 if (!ReferenceEquals(catalog, _orderedCatalog))
                 {
-                    _shown = AnimationService.BrowsePage;
+                    _shown = BrowsePage;
                 }
 
                 _order = [.. Ordered(catalog)];
@@ -76,7 +82,7 @@ internal sealed class AnimationBrowseSession : IAnimationBrowseSession
                 _search,
                 [
                     .. _order.Take(_shown)
-                        .Select(listing => AnimationService.ProjectListing(listing, downloaded.Contains(listing.Id)))
+                        .Select(listing => AnimationRepoCatalog.Project(listing, downloaded.Contains(listing.Id)))
                 ],
                 _order.Count,
                 catalog.Count,
@@ -108,13 +114,13 @@ internal sealed class AnimationBrowseSession : IAnimationBrowseSession
             if (changed)
             {
                 _order = null;
-                _shown = AnimationService.BrowsePage;
+                _shown = BrowsePage;
             }
         }
 
         // Asking again for what is shown changes nothing, so a view that asks whenever the list is
         // empty cannot redraw itself in a loop. A first fetch publishes through the owner.
-        _owner.EnsureCatalog();
+        _repository.Ensure();
         if (changed)
         {
             Publish();
@@ -133,7 +139,7 @@ internal sealed class AnimationBrowseSession : IAnimationBrowseSession
                 return Task.FromResult(SteamUiCommandResult.Applied);
             }
 
-            _shown += AnimationService.BrowsePage;
+            _shown += BrowsePage;
         }
 
         Publish();
@@ -193,11 +199,11 @@ internal sealed class AnimationBrowseSession : IAnimationBrowseSession
 
         return _sort switch
         {
-            "oldest" => items.OrderBy(listing => AnimationService.When(listing.Updated)),
+            "oldest" => items.OrderBy(listing => AnimationRepoCatalog.When(listing.Updated)),
             "name" => items.OrderBy(listing => listing.Name, StringComparer.OrdinalIgnoreCase),
             "popular" => items.OrderByDescending(listing => listing.Downloads),
             "liked" => items.OrderByDescending(listing => listing.Likes),
-            _ => items.OrderByDescending(listing => AnimationService.When(listing.Updated))
+            _ => items.OrderByDescending(listing => AnimationRepoCatalog.When(listing.Updated))
         };
     }
 

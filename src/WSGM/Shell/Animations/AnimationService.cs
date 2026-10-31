@@ -1,6 +1,4 @@
 using System;
-using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -11,12 +9,13 @@ using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Shell;
 
-/// <summary>Owns the boot-movie catalog, installed content and selection for Steam and the overlay.</summary>
+/// <summary>Owns the installed boot movies and the selection for Steam and the overlay.</summary>
 /// <remarks>
 ///     Selection is stored separately from content; an empty choice restores Steam's movie. While a WSGM
 ///     movie is selected, Steam's own startup-movie choice is saved and temporarily cleared after readiness.
 ///     Override changes take effect on the next Steam start because Steam caches the lookup per document.
-///     Each surface's tab, sort, search and detail belong to its <see cref="AnimationBrowseSession" />.
+///     The repository's listings belong to <see cref="AnimationRepoCatalog" />, and each surface's tab, sort,
+///     search and detail to its <see cref="AnimationBrowseSession" />.
 /// </remarks>
 internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, IChangeSource
 {
@@ -27,9 +26,6 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
 
     private const string HandBackTooLate =
         "Animations: the shutdown deadline passed before Steam's own Startup Movie choice was given back.";
-
-    /// <summary>How many cards the Browse tab adds at a time.</summary>
-    internal const int BrowsePage = 48;
 
     private readonly Lock _applyGate = new();
     private readonly AnimationRepoClient _client;
@@ -54,13 +50,10 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     // The movie operation and every background task this service started and has not seen finish:
     // repository reads, movie downloads and copies, reloads and Steam choice work. The session joins them.
     private readonly ServiceOperation _operation;
+    private readonly AnimationRepoCatalog _repository;
     private readonly Action<Action<AnimationsConfig>> _writeConfig;
     private AnimationsConfig _config;
     private bool _disposed;
-    private IReadOnlyList<AnimationListing>? _repo;
-    private string? _repoError;
-    private bool _repoLoading;
-    private int _repoSequence;
     private bool _restartNeeded;
     private long _revision;
     private CancellationTokenSource? _steamChoiceWork;
@@ -100,22 +93,11 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         _steamChoice = steamChoice;
         _config = readConfig();
         _operation = new ServiceOperation(_sync);
+        _repository = new AnimationRepoCatalog(client, _operation, Publish, _shutdown.Token);
     }
 
     /// <summary>The revision of the state <see cref="ReadState" /> answers.</summary>
     internal long Revision => Interlocked.Read(ref _revision);
-
-    /// <summary>The repository's listings, the same instance until a fetch replaces them; empty before one.</summary>
-    internal IReadOnlyList<AnimationListing> Catalog
-    {
-        get
-        {
-            lock (_sync)
-            {
-                return _repo ?? [];
-            }
-        }
-    }
 
     /// <summary>Completes when every background task this service started has finished.</summary>
     /// <remarks>The session joins it after <see cref="Dispose" /> cancelled the work, within its deadline.</remarks>
@@ -141,22 +123,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     /// <inheritdoc />
     public Task<SteamUiCommandResult> RefreshAsync(CancellationToken cancellationToken)
     {
-        int sequence;
-        lock (_sync)
-        {
-            if (_repoLoading)
-            {
-                return Task.FromResult(new SteamUiCommandResult(false, "The repository is still answering."));
-            }
-
-            _repoLoading = true;
-            _repoError = null;
-            sequence = ++_repoSequence;
-        }
-
-        Publish();
-        _operation.Track(Task.Run(() => FetchRepoAsync(sequence, _shutdown.Token)));
-        return Task.FromResult(SteamUiCommandResult.Applied);
+        return Task.FromResult(_repository.Refresh());
     }
 
     /// <inheritdoc />
@@ -165,7 +132,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         AnimationListing? listing;
         lock (_sync)
         {
-            listing = FindListingLocked(id) ?? _library.Find(id)?.Listing;
+            listing = _repository.Find(id) ?? _library.Find(id)?.Listing;
         }
 
         if (listing is null)
@@ -440,15 +407,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
                 SelectedLocked(),
                 StockLabel,
                 [.. _library.Entries.Select(ProjectEntry)],
-                new SteamAnimationsBrowse(
-                    SteamAnimationsSurface.Sorts[0].Id,
-                    SteamAnimationsSurface.Sorts,
-                    string.Empty,
-                    [],
-                    0,
-                    _repo?.Count ?? 0,
-                    _repoLoading,
-                    _repoError),
+                _repository.ReadBrowse(),
                 null,
                 new SteamAnimationsSettings(
                     _config.ShuffleOnStart,
@@ -461,67 +420,6 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
                 _operation.Error ?? _library.LoadError,
                 Revision);
         }
-    }
-
-    private async Task FetchRepoAsync(int sequence, CancellationToken cancellationToken)
-    {
-        IReadOnlyList<AnimationListing>? list = null;
-        string? error = null;
-        try
-        {
-            list = await _client.ListAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (AnimationRepoException ex)
-        {
-            error = ex.Message;
-        }
-        catch (OperationCanceledException)
-        {
-            return;
-        }
-
-        lock (_sync)
-        {
-            if (sequence != _repoSequence)
-            {
-                return;
-            }
-
-            _repoLoading = false;
-            _repoError = error;
-            if (list is not null)
-            {
-                _repo = list;
-            }
-        }
-
-        Log.Change("animations.repository", error ?? $"{list!.Count} listed");
-        Publish();
-    }
-
-    /// <summary>Fetches the repository's list when it was never read and no fetch is running.</summary>
-    internal void EnsureCatalog()
-    {
-        int sequence;
-        lock (_sync)
-        {
-            if (_repo is not null || _repoLoading)
-            {
-                return;
-            }
-
-            _repoLoading = true;
-            _repoError = null;
-            sequence = ++_repoSequence;
-        }
-
-        Publish();
-        _operation.Track(Task.Run(() => FetchRepoAsync(sequence, _shutdown.Token)));
-    }
-
-    private AnimationListing? FindListingLocked(string id)
-    {
-        return _repo?.FirstOrDefault(candidate => candidate.Id == id);
     }
 
     /// <summary>The choice when the library still holds it, else Steam's own. Called under the lock.</summary>
@@ -537,24 +435,13 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     {
         lock (_sync)
         {
-            if (FindListingLocked(id) is { } listing)
+            if (_repository.Find(id) is { } listing)
             {
-                return ProjectListing(listing, _library.Find(id) is not null);
+                return AnimationRepoCatalog.Project(listing, _library.Find(id) is not null);
             }
 
             return _library.Find(id) is { } entry ? ProjectEntry(entry) : null;
         }
-    }
-
-    /// <summary>A listing's update time, read as UTC when it names no offset.</summary>
-    /// <param name="updated">The repository's date text.</param>
-    /// <returns>The time, or null when the text is not a date.</returns>
-    internal static DateTimeOffset? When(string updated)
-    {
-        return DateTimeOffset.TryParse(updated, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal,
-            out var when)
-            ? when
-            : null;
     }
 
     /// <summary>Creates one surface's tab, listing and detail over this service.</summary>
@@ -562,7 +449,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     /// <returns>A session the surface owns and disposes.</returns>
     internal AnimationBrowseSession CreateBrowserSession(string tab)
     {
-        return new AnimationBrowseSession(this, tab);
+        return new AnimationBrowseSession(this, _repository, tab);
     }
 
     /// <inheritdoc />
@@ -574,30 +461,10 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         }
     }
 
-    /// <summary>Projects one repository listing.</summary>
-    /// <param name="listing">The listing.</param>
-    /// <param name="downloaded">Whether the library holds it.</param>
-    /// <returns>The movie as the pages draw it.</returns>
-    internal static SteamAnimationsItem ProjectListing(AnimationListing listing, bool downloaded)
-    {
-        return new SteamAnimationsItem(
-            listing.Id,
-            listing.Name,
-            listing.Author,
-            listing.ThumbnailUrl.Length > 0 ? listing.ThumbnailUrl : null,
-            listing.PreviewUrl.Length > 0 ? listing.PreviewUrl : null,
-            listing.Description,
-            listing.Likes,
-            listing.Downloads,
-            When(listing.Updated)?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? listing.Updated,
-            downloaded,
-            false);
-    }
-
     private static SteamAnimationsItem ProjectEntry(AnimationEntry entry)
     {
         return entry.Listing is { } listing
-            ? ProjectListing(listing, true)
+            ? AnimationRepoCatalog.Project(listing, true)
             : new SteamAnimationsItem(entry.Id, entry.Name, string.Empty, null, null, string.Empty, 0, 0,
                 string.Empty, true, true);
     }
@@ -970,15 +837,3 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         Changed?.Invoke();
     }
 }
-
-/// <summary>How the boot movies reach Steam's own startup movie choice.</summary>
-/// <param name="SetAside">Puts Steam on its default movie and answers what it held.</param>
-/// <param name="Restore">Gives Steam back a choice set aside, unless the user has chosen anew since.</param>
-/// <param name="WhenReady">
-///     Runs one attempt once the Steam UI transport opens and again at each later ready edge while it
-///     answers false, as <see cref="SteamUiReadiness.RunWhenReadyAsync" /> does.
-/// </param>
-internal sealed record SteamStartupMovieAccess(
-    Func<CancellationToken, Task<SteamStartupMovieResult>> SetAside,
-    Func<SteamStartupMovieChoice, CancellationToken, Task<SteamStartupMovieResult>> Restore,
-    Func<string, Func<CancellationToken, Task<bool>>, CancellationToken, Task<bool>> WhenReady);
