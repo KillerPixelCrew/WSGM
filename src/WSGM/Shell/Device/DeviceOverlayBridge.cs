@@ -27,7 +27,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     /// <summary>Subscribes a presentation adapter to existing device, glyph, power, and optional graphics owners.</summary>
     /// <param name="coordinator">The borrowed device coordinator; disposal removes subscriptions without stopping it.</param>
     /// <param name="gpu">
-    ///     The graphics coordinator, whose variable-refresh capability the Power and thermals section shows
+    ///     The graphics coordinator, whose variable-refresh capability the Power page shows
     ///     when the device publishes none; null without one.
     /// </param>
     internal DeviceOverlayBridge(DeviceCoordinator coordinator, GpuCoordinator? gpu = null)
@@ -64,29 +64,23 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         var state = _coordinator.State;
         var device = _coordinator.DeviceDefinition;
         var controllerStatus = _coordinator.Controllers.Snapshot();
+        // The shared pages are always among them, so every row below lands on a page.
         var declaredSections = _coordinator.Capabilities.Sections;
-        HashSet<string> declaredSectionIds = new(
-            DeviceSectionLayout.IncludePredefined(declaredSections).Select(section => section.SectionId),
+        HashSet<string> declaredSectionIds = new(declaredSections.Select(section => section.SectionId),
             StringComparer.Ordinal);
         var deviceViews = _coordinator.PresentedCapabilities();
         var presets = _coordinator.FanPresets;
         var capabilities = deviceViews
-            .Select(view => CapabilityRowProjection.ToOverlayCapability(view, declaredSectionIds, presets,
+            .Select(view => CapabilityRowProjection.ToDeviceRow(view, declaredSectionIds, presets,
                 _coordinator.Profiles.Current.Layers))
             .ToList();
-        // Variable refresh moved to the graphics packages; the Power and thermals row stays where users
-        // look for it, backed by whichever package publishes the capability.
+        // Variable refresh moved to the graphics packages; the Power row stays where users look for it,
+        // backed by whichever package publishes the capability.
         if (deviceViews.All(view => view.Descriptor.Role is not CapabilityRole.VariableRefreshRate)
             && VariableRefreshCapabilities.Find(null, _gpu, false) is { GpuPluginId: { } vrrPlugin } vrr)
         {
-            capabilities.Add(CapabilityRowProjection.ToOverlayCapability(vrr.View, declaredSectionIds, presets,
-                    _coordinator.Profiles.Current.Layers)
-                with
-                {
-                    GpuPluginId = vrrPlugin,
-                    PluginSectionId = null,
-                    CategoryId = null
-                });
+            capabilities.Add(VariableRefreshRow(vrr.View, vrrPlugin, declaredSectionIds, presets,
+                _coordinator.Profiles.Current.Layers));
         }
 
         if (_coordinator.Power.ManualTdpUnified)
@@ -126,14 +120,12 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             // reaching WSGM. Offering it otherwise would show a map that can never light up.
             controllerStatus.State is ControllerManagementState.Active);
 
-        // OrderBy is stable, so rows keep their order within a section.
-        capabilities = [.. capabilities.OrderBy(capability => capability.Section)];
         var detail = device is null
             ? state is DeviceCycleState.Detected or DeviceCycleState.Passive
                 ? "No compatible handheld backend is active."
                 : "Device integration is waiting for a compatible handheld."
             : device.Name;
-        return new DeviceOverlaySnapshot(
+        var snapshot = new DeviceOverlaySnapshot(
             _coordinator.IntegrationEnabled,
             DeviceHostRows.LifecycleLabel(state),
             detail,
@@ -184,6 +176,35 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 _coordinator.Power.AutoTdpEnabled,
                 AutoTdpTargetView.Resolve(_coordinator.Profiles.Current.Layers, autoTdpAvailability))
         };
+
+        // With integration off there is no AutoTDP, device profile or recovery to offer. The controller
+        // page keeps its glyph and controller rows, which do not need a running device.
+        return snapshot.Visible
+            ? snapshot
+            : snapshot with
+            {
+                AutoTdp = null, AutoTdpTarget = null, AuthoredProfile = null, LightingProfile = null, Recovery = null
+            };
+    }
+
+    /// <summary>A graphics package's variable refresh capability as the Device page shows it.</summary>
+    /// <param name="view">The graphics capability.</param>
+    /// <param name="gpuPluginId">The graphics plugin that publishes it, which commands route to.</param>
+    /// <param name="declaredSections">The device publisher's sections.</param>
+    /// <param name="presets">The matched model's fan curve presets.</param>
+    /// <param name="layers">Current profile layers for the game-override marker, or null when unavailable.</param>
+    /// <returns>
+    ///     The row on the shared page of its role: the graphics package's own sections mean nothing on the
+    ///     Device page.
+    /// </returns>
+    internal static DeviceOverlayCapability VariableRefreshRow(DeviceCapabilityView view, string gpuPluginId,
+        IReadOnlySet<string> declaredSections, FanCurvePresetTable presets, ProfileLayers? layers = null)
+    {
+        return CapabilityRowProjection.OnDevicePage(
+            CapabilityRowProjection.ToOverlayCapability(view, declaredSections, presets, layers) with
+            {
+                GpuPluginId = gpuPluginId, PluginSectionId = null, CategoryId = null
+            });
     }
 
     /// <inheritdoc />

@@ -19,18 +19,12 @@ internal enum OverlayPage
     SteamLaunchConfiguration,
     SteamStorageFormat,
     Device,
-    DeviceOverview,
 
     /// <summary>Graphics controls supplied by common GPU plugins, independent of the device package.</summary>
     DeviceGpu,
-    DevicePowerAndThermals,
-    DeviceControllerAndMotion,
-    DeviceOem,
-    DeviceLightingAndFeatures,
     DeviceColor,
-    DeviceDiagnostics,
 
-    /// <summary>One plugin-declared Device section; the route carries which one.</summary>
+    /// <summary>One published Device section page; the route carries which one.</summary>
     DevicePluginSection,
 
     System,

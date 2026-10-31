@@ -1,4 +1,5 @@
 using WSGM.Core;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Overlay;
 using WSGM.Shell;
 using WSGM.Tests.Fakes;
@@ -98,17 +99,17 @@ public sealed class PerformanceOverlayBridgeTests
             row => Assert.Equal("reset-profile", row.Id));
         Assert.Equal("Steam 42", before.ProfileRows[0].TrailingText);
         Assert.Equal("Global", before.ProfileRows[1].TrailingText);
-        // The per-application detail rows and the shared frame-limit/overlay rows count into Power
-        // and thermals, where they render; the enable toggle is the headline on the Device root, so
-        // it is not counted into any section.
+        // The per-application detail rows and the shared frame-limit/overlay rows count into Power,
+        // where they render; the enable toggle is the headline on the Device root, so it is not
+        // counted into any section.
         DeviceOverlaySnapshot device = new(true, "Ready", string.Empty, null, []);
         var power = Assert.Single(
             DeviceOverlaySectionPages.Build(device, before));
-        Assert.Equal(DeviceOverlaySection.PowerAndThermals, power.Section);
+        Assert.Equal(DeviceSections.PowerId, power.SectionId);
         var toggleRows = before.ProfileRows.Count(row =>
             row.Id == DeviceOverlaySectionPages.ApplicationProfileRowId);
         Assert.Equal(1, toggleRows);
-        Assert.Equal(before.ProfileRows.Count - toggleRows + before.Rows.Count + 1, power.Count);
+        Assert.Equal(before.ProfileRows.Count - toggleRows + before.Rows.Count, power.Count);
 
         await bridge.SetValueAsync("application-profile", 1);
 

@@ -74,8 +74,11 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     private KeyValuePair<DeviceCapabilityKey, CapabilityDescriptor>[] _orderedDescriptors = [];
     private bool _publishPending;
 
-    /// <summary>Overlay sections of the accepted descriptor set, replaced with each set.</summary>
-    private IReadOnlyList<CapabilitySection> _sections = [];
+    /// <summary>
+    ///     Overlay sections of the accepted descriptor set, replaced with each set. The shared Device pages
+    ///     are always present, before any set is accepted too, so a row always has a page to go to.
+    /// </summary>
+    private IReadOnlyList<CapabilitySection> _sections = DeviceSections.All;
 
     /// <summary>Creates the projection owner for one device or graphics capability publisher.</summary>
     /// <param name="postToUi">Posts the projection build to the UI dispatcher.</param>
@@ -92,7 +95,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         _publishPosted = PublishPosted;
     }
 
-    /// <summary>The declared overlay sections of the accepted descriptor set.</summary>
+    /// <summary>The shared Device pages plus the overlay sections the accepted descriptor set declares.</summary>
     internal IReadOnlyList<CapabilitySection> Sections
     {
         get
@@ -168,7 +171,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             _states.Clear();
             _commands.Clear();
             _commandGates.Clear();
-            _sections = [];
+            _sections = DeviceSections.All;
             _connected = true;
             client.DescriptorSetReceived += OnDescriptorSet;
             client.CapabilityStateReceived += OnStateDelta;
@@ -339,7 +342,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         {
             DetachUnderGate();
             _commands.ForgetInFlight();
-            _sections = [];
+            _sections = DeviceSections.All;
         }
 
         Publish();

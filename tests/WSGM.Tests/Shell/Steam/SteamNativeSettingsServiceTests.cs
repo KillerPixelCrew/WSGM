@@ -57,8 +57,7 @@ public sealed partial class SteamNativeSettingsServiceTests
     [Fact]
     public void RangeReplacementRequiresRebuildingTheMountedEditor()
     {
-        var row = new DeviceOverlayCapability("limit", null, DeviceOverlaySection.PowerAndThermals,
-            DescriptorStatus.Available, "Limit", "", "", true, CapabilityValue.Integer(10))
+        var row = new DeviceOverlayCapability("limit", null, DescriptorStatus.Available, "Limit", "", "", true, CapabilityValue.Integer(10))
         {
             Role = CapabilityRole.GenericRange, Writable = true, ValueKind = CapabilityValueKind.Integer,
             Minimum = 0, Maximum = 40, Step = 1
@@ -72,8 +71,7 @@ public sealed partial class SteamNativeSettingsServiceTests
     [Fact]
     public void LightingEditorStagesOpaqueColorWithStableLogicalIdentity()
     {
-        var capability = new DeviceOverlayCapability("lighting.color", "left", DeviceOverlaySection.LightingAndFeatures,
-            DescriptorStatus.Available, "Left ring", string.Empty, string.Empty, true,
+        var capability = new DeviceOverlayCapability("lighting.color", "left", DescriptorStatus.Available, "Left ring", string.Empty, string.Empty, true,
             new CapabilityValue { Kind = CapabilityValueKind.Color, ColorValue = 0x123456 })
         {
             Writable = true,

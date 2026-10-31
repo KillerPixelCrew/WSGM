@@ -218,9 +218,9 @@ published category in Performance through `SteamQuickAccessRowsSurface`, using t
 command backend. Steam Display groups the sections by adapter, display and declared category.
 
 Variable refresh is published by a graphics package, per display. The Quick Access switch, the
-Device page's Power and thermals row and the per-application restore all use
-`VariableRefreshCapabilities`, which picks the only VRR capability when there is one, otherwise the
-built-in panel's (an instance id starting with `internal`), then the native handheld projection's.
+Device page's Power row and the per-application restore all use `VariableRefreshCapabilities`, which
+picks the only VRR capability when there is one, otherwise the built-in panel's (an instance id
+starting with `internal`), then the native handheld projection's.
 
 The initial execution model remains trusted in-process code. Collectible load contexts isolate
 dependencies, not security or crashes. A process boundary would require separately designed and

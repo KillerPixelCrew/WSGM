@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Shell;
@@ -8,7 +9,8 @@ namespace WSGM.Shell;
 ///     The direct rows are WSGM's own controls — AutoTDP moves the plugin's power limit rather than
 ///     being one, the controller target and glyph selection are WSGM settings, the profile rows are
 ///     stored configuration, and recovery is an action on the cycle itself. Each carries its stable
-///     focus key as the <see cref="DescriptorRow.Id" />, and a null row is simply not shown.
+///     focus key as the <see cref="DescriptorRow.Id" /> and its page as the <see cref="DescriptorRow.SectionId" />,
+///     and a null row is simply not shown.
 /// </remarks>
 /// <param name="Visible">Whether the surface currently exposes device content.</param>
 /// <param name="Status">Aggregate display status.</param>
@@ -44,10 +46,21 @@ internal sealed record DeviceOverlaySnapshot(
     /// </summary>
     public int? FanTemperature { get; init; }
 
-    /// <summary>Plugin-declared overlay sections in presentation order.</summary>
+    /// <summary>The Device pages in presentation order: the shared pages, then the sections the plugin declares.</summary>
     public IReadOnlyList<DeviceOverlayPluginSection> PluginSections { get; init; } =
         CapabilityRowProjection.ProjectSections(DeviceSections.All);
 
     /// <summary>AutoTDP's frame-rate target slider, or null while AutoTDP is off.</summary>
     public DescriptorRow? AutoTdpTarget { get; init; }
+
+    /// <summary>The host-owned rows that are present, in the order a page draws them.</summary>
+    public IEnumerable<DescriptorRow> HostRows
+    {
+        get
+        {
+            DescriptorRow?[] rows =
+                [AutoTdp, AutoTdpTarget, AuthoredProfile, LightingProfile, Controller, GlyphSelection, Recovery];
+            return rows.OfType<DescriptorRow>();
+        }
+    }
 }

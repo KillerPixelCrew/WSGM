@@ -74,8 +74,7 @@ public sealed class ControllerNavigationTests
         using FakeDevice device = new();
         using UiFixture fixture = new();
         var sensor = device.State.Capabilities[0];
-        var lighting = new DeviceOverlayCapability("fixture.lighting", null,
-            DeviceOverlaySection.LightingAndFeatures, DescriptorStatus.Available,
+        var lighting = new DeviceOverlayCapability("fixture.lighting", null, DescriptorStatus.Available,
             "Lighting", "", "Off", false) { PluginSectionId = DeviceSections.RgbId };
         device.State = device.State with { Capabilities = [sensor, lighting] };
         var window = fixture.Overlay();
@@ -95,7 +94,7 @@ public sealed class ControllerNavigationTests
         Assert.True(overview.IsFocused);
         Assert.DoesNotContain(UiFixture.Named<StackPanel>(window, "SectionRail").Children,
             control => Equals(control.Tag, "rail.device.section.plugin." + DeviceSections.RgbId));
-        Assert.NotNull(UiFixture.Rail(window, "device.section.overview"));
+        Assert.NotNull(UiFixture.Rail(window, "device.section.plugin.info"));
         Assert.True(UiFixture.Named<Control>(window, "PanelDevice").IsVisible);
     }
 
@@ -249,7 +248,7 @@ public sealed class ControllerNavigationTests
         var window = fixture.Overlay();
         window.AttachDeviceBridge(device);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
-        var rail = UiFixture.Rail(window, "device.section.overview");
+        var rail = UiFixture.Rail(window, "device.section.plugin.info");
         UiFixture.Click(window, rail);
         UiFixture.OpenSections(window);
         Assert.True(rail.Focus());
@@ -259,7 +258,7 @@ public sealed class ControllerNavigationTests
         };
         device.Notify();
         Dispatcher.UIThread.RunJobs();
-        Assert.Same(rail, UiFixture.Rail(window, "device.section.overview"));
+        Assert.Same(rail, UiFixture.Rail(window, "device.section.plugin.info"));
         Assert.True(rail.IsFocused);
         Assert.Contains("selected", rail.Classes);
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(),

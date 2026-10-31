@@ -224,7 +224,7 @@ public sealed partial class OverlayController : IDisposable
         }
 
         _config = config;
-        _pins = [.. config.QuickAccessPins];
+        _pins = [.. config.QuickAccessPins.Select(QuickAccessPins.CurrentId).Distinct(StringComparer.Ordinal)];
         _monitor = monitor;
         _modes = modes;
         _keepAwake = keepAwake;
@@ -423,7 +423,7 @@ public sealed partial class OverlayController : IDisposable
         // Keep that pending intent as the next toggle's baseline until the write chain has settled.
         if (PinWrites.IsCompleted)
         {
-            _pins = [.. config.QuickAccessPins];
+            _pins = [.. config.QuickAccessPins.Select(QuickAccessPins.CurrentId).Distinct(StringComparer.Ordinal)];
         }
 
         _overlay?.Placement.SetBlurRadius(config.OverlayBlurRadius);

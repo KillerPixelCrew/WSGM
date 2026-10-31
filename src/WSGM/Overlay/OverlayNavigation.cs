@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using WSGM.Core;
-using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Overlay;
 
@@ -40,14 +39,12 @@ internal sealed class OverlayNavigation
         .. Enum.GetValues<OverlayDestination>().Where(IsVisible)
     ];
 
-    /// <summary>Determines whether disappearance of plugin controls invalidates the current dynamic section.</summary>
-    /// <param name="pluginVisible">Whether device-plugin controls are available.</param>
-    /// <returns>True for a vanished plugin section other than the retained core Power and Controller sections.</returns>
-    internal bool NeedsDeviceRoot(bool pluginVisible)
+    /// <summary>Determines whether the open Device section page is still published.</summary>
+    /// <param name="publishedSections">The ids of the sections the Device snapshot publishes.</param>
+    /// <returns>True while a section page is open whose section the snapshot no longer publishes.</returns>
+    internal bool NeedsDeviceRoot(IEnumerable<string> publishedSections)
     {
-        return !pluginVisible && Page == OverlayPage.DevicePluginSection
-                              && SectionId != DeviceSections.PowerId
-                              && SectionId != DeviceSections.ControllerId;
+        return Page == OverlayPage.DevicePluginSection && !publishedSections.Contains(SectionId);
     }
 
     /// <summary>Evaluates destination availability without changing navigation.</summary>
@@ -219,10 +216,7 @@ internal sealed class OverlayNavigation
                 or OverlayPage.SteamLibraryTabs or OverlayPage.SteamCardManager
                 or OverlayPage.SteamLaunchConfiguration or OverlayPage.SteamGameTools
                 => OverlayDestination.Steam,
-            OverlayPage.Device or OverlayPage.DeviceOverview or OverlayPage.DeviceGpu
-                or OverlayPage.DevicePowerAndThermals or OverlayPage.DeviceControllerAndMotion
-                or OverlayPage.DeviceOem or OverlayPage.DeviceLightingAndFeatures
-                or OverlayPage.DeviceColor or OverlayPage.DeviceDiagnostics
+            OverlayPage.Device or OverlayPage.DeviceGpu or OverlayPage.DeviceColor
                 or OverlayPage.DevicePluginSection
                 => OverlayDestination.Device,
             OverlayPage.System or OverlayPage.SystemTools or OverlayPage.SystemPerformance

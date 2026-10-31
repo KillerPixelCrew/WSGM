@@ -29,12 +29,12 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
 
     /// <summary>
     ///     The layout a real plugin would declare, so --overlay-test exercises sections, categories,
-    ///     icons, and the mixed case where rows without a placement keep their WSGM fallback home.
+    ///     icons, and the mixed case where a row without a placement goes to the shared page of its role.
     /// </summary>
     private static readonly IReadOnlyList<DeviceOverlayPluginSection> PreviewSections =
     [
         new(
-            "power",
+            DeviceSections.PowerId,
             "Power",
             "Performance scenario, power limits, and charging",
             SectionIcon.Power,
@@ -56,7 +56,9 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
             "RGB",
             "Ring and button lighting",
             SectionIcon.Lighting,
-            [new DeviceOverlayCategory("zones", "Zones")]) { Key = SettingSectionKey.Lighting }
+            [new DeviceOverlayCategory("zones", "Zones")]) { Key = SettingSectionKey.Lighting },
+        // The shared pages are always published, declared or not.
+        .. CapabilityRowProjection.ProjectSections([DeviceSections.Controller, DeviceSections.Info])
     ];
 
     private bool _autoTdp;
@@ -87,7 +89,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 "Preview-only physical presentation selection",
                 DeviceHostRows.GlyphModeLabel((DeviceGlyphSelection)_glyphSelection),
                 true,
-                DescriptorStatus.Available),
+                DescriptorStatus.Available) { SectionId = DeviceSections.ControllerId },
             AutoTdp: DeviceHostRows.AutoTdpView(
                 _autoTdp,
                 _autoTdp
@@ -115,7 +117,6 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 new DeviceOverlayCapability(
                     "preview.power.tdp",
                     null,
-                    DeviceOverlaySection.PowerAndThermals,
                     DescriptorStatus.Available,
                     "TDP",
                     string.Empty,
@@ -141,7 +142,6 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 new DeviceOverlayCapability(
                     "preview.battery.charge-limit",
                     null,
-                    DeviceOverlaySection.PowerAndThermals,
                     DescriptorStatus.Available,
                     "Charge limit",
                     string.Empty,
@@ -167,7 +167,6 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 new DeviceOverlayCapability(
                     "preview.fan.mode",
                     null,
-                    DeviceOverlaySection.PowerAndThermals,
                     DescriptorStatus.Available,
                     "Fan mode",
                     string.Empty,
@@ -197,7 +196,6 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 new DeviceOverlayCapability(
                     "preview.fan.curve",
                     null,
-                    DeviceOverlaySection.PowerAndThermals,
                     DescriptorStatus.Available,
                     "Fan curve",
                     "Authored in Settings · both fans follow one curve",
@@ -217,7 +215,6 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 new DeviceOverlayCapability(
                     "preview.lighting",
                     null,
-                    DeviceOverlaySection.LightingAndFeatures,
                     DescriptorStatus.Available,
                     "Lighting",
                     string.Empty,
@@ -240,7 +237,6 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 new DeviceOverlayCapability(
                     "preview.lighting.brightness",
                     null,
-                    DeviceOverlaySection.LightingAndFeatures,
                     DescriptorStatus.Available,
                     "Brightness",
                     string.Empty,
@@ -265,7 +261,6 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 new DeviceOverlayCapability(
                     "preview.lighting.rings",
                     null,
-                    DeviceOverlaySection.LightingAndFeatures,
                     DescriptorStatus.Available,
                     "Rings",
                     "Both rings share one color · opens the color editor",
@@ -284,7 +279,6 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 new DeviceOverlayCapability(
                     "preview.temperature.cpu",
                     null,
-                    DeviceOverlaySection.PowerAndThermals,
                     DescriptorStatus.Available,
                     "CPU temperature",
                     string.Empty,
@@ -299,16 +293,16 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 new DeviceOverlayCapability(
                     "preview.rumble",
                     null,
-                    DeviceOverlaySection.ControllerAndMotion,
                     DescriptorStatus.Available,
                     "Rumble",
                     "Short bounded preview action",
                     "RUN",
                     true)
                 {
-                    // Deliberately unplaced: the row proves the WSGM fallback home still renders
-                    // beside a declared layout.
-                    Role = CapabilityRole.HapticSink, SupportsAction = true
+                    // Deliberately unplaced, as a plugin may publish it: the row goes to the shared
+                    // Controller page of its role.
+                    Role = CapabilityRole.HapticSink, SupportsAction = true,
+                    PluginSectionId = CapabilityRowProjection.DevicePageFor(CapabilityRole.HapticSink)
                 }
             ])
         {

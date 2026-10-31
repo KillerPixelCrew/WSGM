@@ -21,11 +21,11 @@ internal sealed record DeviceOverlayPluginSection(
     SectionIcon Icon,
     IReadOnlyList<DeviceOverlayCategory> Categories)
 {
-    /// <summary>The subject this section claims, which is how a WSGM-owned section finds its home.</summary>
+    /// <summary>The subject this section claims, which Steam's grouping reads.</summary>
     /// <remarks>
     ///     Carried through from the declaration rather than inferred from the title: a plugin may call
     ///     its power page anything, and the key is the only part of the declaration that means the same
-    ///     thing to WSGM. <see cref="SettingSectionKey.Custom" /> claims no subject and absorbs nothing.
+    ///     thing to WSGM. <see cref="SettingSectionKey.Custom" /> claims no subject.
     /// </remarks>
     public SettingSectionKey Key { get; init; } = SettingSectionKey.Custom;
 }

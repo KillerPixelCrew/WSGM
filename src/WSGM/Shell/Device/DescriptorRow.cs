@@ -32,4 +32,8 @@ internal sealed record DescriptorRow(
     ///     null. The row marks it and offers Use global.
     /// </summary>
     public string? OverrideId { get; init; }
+
+    /// <summary>The shared Device page a host-owned row is drawn on, or null for a row outside the Device pages.</summary>
+    /// <remarks>Shell sets it where it builds the row, from the <c>DeviceSections</c> ids.</remarks>
+    public string? SectionId { get; init; }
 }

@@ -11,234 +11,119 @@ public sealed class DeviceOverlaySectionPagesTests
     public void OnlySectionsWithSomethingInThemAreOffered()
     {
         var snapshot = Snapshot(
-            Capability("power.limit", DeviceOverlaySection.PowerAndThermals),
-            Capability("oem.button", DeviceOverlaySection.Oem));
+            Placed("power.limit", DeviceSections.PowerId),
+            Placed("oem.button", DeviceSections.ControllerId));
 
-        var entries =
-            DeviceOverlaySectionPages.Build(snapshot);
+        var entries = DeviceOverlaySectionPages.Build(snapshot);
 
-        // A handheld with no lighting shows no Lighting page rather than an empty one.
+        // A handheld with no lighting shows no RGB page rather than an empty one.
         Assert.Equal(
-            [DeviceOverlaySection.PowerAndThermals, DeviceOverlaySection.Oem],
-            entries.Select(entry => entry.Section));
+            [DeviceSections.PowerId, DeviceSections.ControllerId],
+            entries.Select(entry => entry.SectionId));
     }
 
     [Fact]
-    public void SectionsAreOfferedInReachOrderNotEnumOrder()
+    public void SectionsFollowThePublishedOrder()
     {
         var snapshot = Snapshot(
-            Capability("diag", DeviceOverlaySection.Diagnostics),
-            Capability("light", DeviceOverlaySection.LightingAndFeatures),
-            Capability("power", DeviceOverlaySection.PowerAndThermals),
-            Capability("overview", DeviceOverlaySection.Overview));
+                Placed("fan", "cooling"),
+                Placed("limit", "power")) with
+            {
+                PluginSections = [Section("cooling"), Section("power")]
+            };
 
-        var entries =
-            DeviceOverlaySectionPages.Build(snapshot);
-
-        Assert.Equal(
-            [
-                DeviceOverlaySection.PowerAndThermals,
-                DeviceOverlaySection.LightingAndFeatures,
-                DeviceOverlaySection.Diagnostics,
-                DeviceOverlaySection.Overview
-            ],
-            entries.Select(entry => entry.Section));
+        Assert.Equal(["cooling", "power"], DeviceOverlaySectionPages.Build(snapshot).Select(entry => entry.SectionId));
     }
 
     [Fact]
-    public void ASectionCardCountsItsRows()
+    public void ASectionCountsTheRowsItDraws()
     {
         var snapshot = Snapshot(
-            Capability("a", DeviceOverlaySection.PowerAndThermals),
-            Capability("b", DeviceOverlaySection.PowerAndThermals),
-            Capability("c", DeviceOverlaySection.PowerAndThermals));
+            Placed("a", DeviceSections.PowerId),
+            Placed("b", DeviceSections.PowerId, DescriptorStatus.Faulted),
+            Placed("c", DeviceSections.PowerId));
 
-        Assert.Equal(4, Assert.Single(DeviceOverlaySectionPages.Build(snapshot)).Count);
+        Assert.Equal(3, Assert.Single(DeviceOverlaySectionPages.Build(snapshot)).Count);
     }
 
     [Fact]
-    public void GlyphSelectionGivesTheGlyphsSectionAPageOfItsOwn()
+    public void PowerCountsTheWindowsPowerControlsItDraws()
+    {
+        var snapshot = Snapshot();
+
+        Assert.Empty(DeviceOverlaySectionPages.Build(snapshot));
+        var power = Assert.Single(DeviceOverlaySectionPages.Build(snapshot, powerControls: 2));
+        Assert.Equal(DeviceSections.PowerId, power.SectionId);
+        Assert.Equal(2, power.Count);
+    }
+
+    [Fact]
+    public void AHostRowCountsOnTheSectionShellGaveIt()
     {
         var snapshot = Snapshot() with
         {
             GlyphSelection = new DescriptorRow(
-                "device.glyph-selection",
+                DeviceHostRowIds.GlyphSelection,
                 "Glyphs",
                 "Automatic",
                 "AUTO",
                 true,
-                DescriptorStatus.Available)
+                DescriptorStatus.Available) { SectionId = DeviceSections.ControllerId }
         };
 
-        var entry = Assert.Single(DeviceOverlaySectionPages.Build(snapshot),
-            candidate => candidate.PluginSectionId == "controller");
+        var entry = Assert.Single(DeviceOverlaySectionPages.Build(snapshot));
 
-        // It is WSGM's own control, not a plugin capability, so it never reaches the capability
-        // list and has to be counted into its section explicitly. Glyphs is no longer a page of its
-        // own: the artwork belongs to the controller it draws.
-        Assert.Equal(DeviceOverlaySection.ControllerAndMotion, entry.Section);
+        Assert.Equal(DeviceSections.ControllerId, entry.SectionId);
         Assert.Equal(1, entry.Count);
+        Assert.Single(DeviceOverlaySectionPages.HostRowsIn(snapshot, DeviceSections.ControllerId));
+        Assert.Empty(DeviceOverlaySectionPages.HostRowsIn(snapshot, DeviceSections.PowerId));
     }
 
     [Fact]
-    public void ASectionPageShowsOnlyItsOwnRows()
+    public void PerformanceRowsCountOnTheirSectionExceptTheApplicationToggle()
+    {
+        PerformanceOverlaySnapshot performance = new(true, "Ready",
+            [new DescriptorRow("frame-limit", "Frame limit", string.Empty, "Off", true)],
+            [
+                new DescriptorRow(DeviceOverlaySectionPages.ApplicationProfileRowId, "Per-application", string.Empty,
+                    "Off", true),
+                new DescriptorRow("reset-profile", "Reset", string.Empty, "Reset", true)
+            ]);
+
+        var entry = Assert.Single(DeviceOverlaySectionPages.Build(Snapshot(), performance));
+
+        Assert.Equal(performance.SectionId, entry.SectionId);
+        Assert.Equal(2, entry.Count);
+    }
+
+    [Fact]
+    public void ASectionPageShowsOnlyItsOwnRowsInPlacementOrder()
     {
         var snapshot = Snapshot(
-            Capability("power", DeviceOverlaySection.PowerAndThermals),
-            Capability("oem", DeviceOverlaySection.Oem));
-
-        Assert.Equal(
-            "power",
-            Assert.Single(DeviceOverlaySectionPages.CapabilitiesIn(
-                snapshot,
-                DeviceOverlaySection.PowerAndThermals)).CapabilityId);
-    }
-
-    [Fact]
-    public void EverySectionRoundTripsThroughItsPage()
-    {
-        foreach (var section in Enum.GetValues<DeviceOverlaySection>())
-        {
-            var page = DeviceOverlaySectionPages.PageFor(section);
-
-            Assert.Equal(section, DeviceOverlaySectionPages.SectionFor(page));
-        }
-    }
-
-    [Fact]
-    public void EverySectionPageBelongsToTheDeviceDestination()
-    {
-        OverlayNavigation navigation = new();
-        navigation.SetDeviceVisible(true);
-
-        foreach (var section in Enum.GetValues<DeviceOverlaySection>())
-        {
-            Assert.True(navigation.Select(OverlayDestination.Device));
-            Assert.True(navigation.Push(DeviceOverlaySectionPages.PageFor(section), "key"));
-            Assert.Equal(OverlayDestination.Device, navigation.Destination);
-            Assert.Equal(OverlayBackAction.LeaveNestedPage,
-                navigation.BackAction(new OverlayBackContext(false)));
-            Assert.Equal("key", navigation.Pop());
-        }
-    }
-
-    [Fact]
-    public void APageThatIsNotADeviceSectionHasNoSection()
-    {
-        Assert.Null(DeviceOverlaySectionPages.SectionFor(OverlayPage.SteamLibraryTabs));
-    }
-
-    [Fact]
-    public void EverySectionHasADistinctFocusKey()
-    {
-        string[] keys =
-        [
-            .. Enum.GetValues<DeviceOverlaySection>()
-                .Select(DeviceOverlaySectionPages.FocusKey)
-        ];
-
-        Assert.Equal(keys.Length, keys.Distinct(StringComparer.Ordinal).Count());
-    }
-
-    [Fact]
-    public void PluginSectionsLeadTheMenuInDeclaredOrder()
-    {
-        var snapshot = Snapshot(
-                Capability("diag", DeviceOverlaySection.Diagnostics),
-                Placed("fan", "cooling"),
-                Placed("limit", "power")) with
-            {
-                PluginSections = [Section("power"), Section("cooling")]
-            };
-
-        var entries =
-            DeviceOverlaySectionPages.Build(snapshot);
-
-        // The declared layout is the device describing itself, so it leads; the WSGM-owned
-        // sections holding whatever remains follow it.
-        Assert.Equal(
-            ["power", "cooling", null],
-            entries.Select(entry => entry.PluginSectionId));
-        Assert.Equal(DeviceOverlaySection.Diagnostics, entries[^1].Section);
-        Assert.All(
-            entries.Where(entry => entry.PluginSectionId is not null),
-            entry => Assert.Equal(OverlayPage.DevicePluginSection, entry.Page));
-    }
-
-    [Fact]
-    public void AnEmptyDeclaredSectionIsDropped()
-    {
-        var snapshot = Snapshot(Placed("limit", "power")) with
-        {
-            PluginSections = [Section("power"), Section("cooling")]
-        };
-
-        Assert.Equal(
-            "power",
-            Assert.Single(DeviceOverlaySectionPages.Build(snapshot)).PluginSectionId);
-    }
-
-    [Fact]
-    public void APluginSectionCardAggregatesItsRows()
-    {
-        var snapshot = Snapshot(
-                Placed("a", "power"),
-                Placed("b", "power", DescriptorStatus.Faulted)) with
-            {
-                PluginSections = [Section("power")]
-            };
-
-        var entry =
-            Assert.Single(DeviceOverlaySectionPages.Build(snapshot));
-
-        Assert.Equal(3, entry.Count);
-    }
-
-    [Fact]
-    public void APluginSectionPageOrdersBySortOrderThenSnapshotOrder()
-    {
-        var snapshot = Snapshot(
-                Placed("late", "power") with { SortOrder = 1 },
-                Placed("leadA", "power"),
-                Placed("leadB", "power")) with
-            {
-                PluginSections = [Section("power")]
-            };
+            Placed("late", DeviceSections.PowerId) with { SortOrder = 1 },
+            Placed("oem", DeviceSections.ControllerId),
+            Placed("leadA", DeviceSections.PowerId),
+            Placed("leadB", DeviceSections.PowerId));
 
         Assert.Equal(
             ["leadA", "leadB", "late"],
-            DeviceOverlaySectionPages.CapabilitiesInPluginSection(snapshot, "power")
+            DeviceOverlaySectionPages.CapabilitiesIn(snapshot, DeviceSections.PowerId)
                 .Select(capability => capability.CapabilityId));
     }
 
     [Fact]
-    public void PlacedRowsNeverLeakIntoTheirFallbackSection()
+    public void NoCapabilityIsDrawnWhileIntegrationIsOff()
     {
-        var snapshot = Snapshot(
-                Placed("fan", "cooling"),
-                Capability("power", DeviceOverlaySection.PowerAndThermals)) with
-            {
-                PluginSections = [Section("cooling")]
-            };
+        var snapshot = Snapshot(Placed("limit", DeviceSections.PowerId)) with { Visible = false };
 
-        Assert.Equal(
-            "power",
-            Assert.Single(DeviceOverlaySectionPages.CapabilitiesIn(
-                snapshot,
-                DeviceOverlaySection.PowerAndThermals)).CapabilityId);
+        Assert.Empty(DeviceOverlaySectionPages.CapabilitiesIn(snapshot, DeviceSections.PowerId));
+        Assert.Empty(DeviceOverlaySectionPages.Build(snapshot));
     }
 
     [Fact]
-    public void PluginSectionFocusKeysAreDistinctFromTheFixedOnes()
+    public void ARailKeyNamesItsSection()
     {
-        DeviceOverlaySectionEntry entry = new(
-            DeviceOverlaySection.Overview,
-            OverlayPage.DevicePluginSection,
-            "Power",
-            1)
-        {
-            PluginSectionId = "power"
-        };
+        DeviceOverlaySectionEntry entry = new(DeviceSections.PowerId, "Power", SectionIcon.Power, 1);
 
         Assert.Equal("device.section.plugin.power", DeviceOverlaySectionPages.FocusKey(entry));
     }
@@ -248,28 +133,20 @@ public sealed class DeviceOverlaySectionPagesTests
         return new DeviceOverlaySnapshot(true, "Device", "Ready", null, capabilities);
     }
 
-    private static DeviceOverlayCapability Placed(
-        string id,
-        string sectionId,
-        DescriptorStatus status = DescriptorStatus.Available)
-    {
-        return Capability(id, DeviceOverlaySection.Overview, status) with
-        {
-            PluginSectionId = sectionId
-        };
-    }
-
     private static DeviceOverlayPluginSection Section(string id)
     {
         return new DeviceOverlayPluginSection(id, id, string.Empty, SectionIcon.None, [])
             { Key = id == "power" ? SettingSectionKey.Power : SettingSectionKey.Custom };
     }
 
-    private static DeviceOverlayCapability Capability(
+    private static DeviceOverlayCapability Placed(
         string id,
-        DeviceOverlaySection section,
+        string sectionId,
         DescriptorStatus status = DescriptorStatus.Available)
     {
-        return new DeviceOverlayCapability(id, null, section, status, id, id, string.Empty, true, NextValue: null);
+        return new DeviceOverlayCapability(id, null, status, id, id, string.Empty, true, NextValue: null)
+        {
+            PluginSectionId = sectionId
+        };
     }
 }

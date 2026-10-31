@@ -10,6 +10,19 @@ namespace WSGM.Tests.Overlay;
 /// </summary>
 public sealed class QuickAccessSheetTests
 {
+    [Theory]
+    [InlineData("section.device.power", "section.device.plugin.power.configuration")]
+    [InlineData("section.device.controller", "section.device.plugin.controller.configuration")]
+    [InlineData("section.device.controller-and-motion", "section.device.plugin.controller.configuration")]
+    [InlineData("section.device.lighting", "section.device.plugin.rgb.configuration")]
+    [InlineData("section.device.diagnostics", "section.device.plugin.info.configuration")]
+    [InlineData("section.device.plugin.power.main", "section.device.plugin.power.main")]
+    [InlineData("home.desktop", "home.desktop")]
+    public void APinSavedForAFormerDevicePageResolvesToItsSharedPageGroup(string stored, string current)
+    {
+        Assert.Equal(current, QuickAccessPins.CurrentId(stored));
+    }
+
     // The SteamOS map: left/right are Steam's, top/bottom are WSGM's. The bottom
     // edge is explorer's in desktop mode and stays ignored there.
     [Theory]

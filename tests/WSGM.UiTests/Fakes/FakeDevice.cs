@@ -1,5 +1,6 @@
 using LibHandheld.Contracts;
 using WSGM.Controls;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Shell;
 
@@ -13,9 +14,8 @@ internal sealed class FakeDevice : IDeviceOverlaySource
 
     internal DeviceOverlaySnapshot State { get; set; } = new(true, "Fixture handheld", "Ready", null,
     [
-        new DeviceOverlayCapability("fixture.temperature", null, DeviceOverlaySection.Overview,
-            DescriptorStatus.Available,
-            "Processor temperature", "Synthetic sensor", "45 °C", false)
+        new DeviceOverlayCapability("fixture.temperature", null, DescriptorStatus.Available,
+            "Processor temperature", "Synthetic sensor", "45 °C", false) { PluginSectionId = DeviceSections.InfoId }
     ]);
 
     internal Func<DeviceOverlayCapability, CancellationToken, Task>? Invoke { get; set; }

@@ -187,7 +187,7 @@ public sealed class OverlayLayoutTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         window.AttachDeviceBridge(device);
-        window.SetPins(["section.device.overview"]);
+        window.SetPins(["section.device.plugin.info.main"]);
         UiFixture.OpenSections(window);
         var panel = UiFixture.Named<Panel>(window, "PinnedSectionsGrid");
         Dispatcher.UIThread.RunJobs();
@@ -214,7 +214,7 @@ public sealed class OverlayLayoutTests
         var window = fixture.Overlay();
         window.AttachDeviceBridge(device);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
-        UiFixture.Click(window, UiFixture.Rail(window, "device.section.overview"));
+        UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.info"));
         UiFixture.OpenSections(window);
         var reading = window.GetVisualDescendants().OfType<DeviceStatisticRow>()
             .Single(row => row.IsEffectivelyVisible);
@@ -228,7 +228,7 @@ public sealed class OverlayLayoutTests
         Dispatcher.UIThread.RunJobs();
         Assert.True(Header().IsFocused);
         UiFixture.Click(window, Header());
-        Assert.Equal(["section.device.overview"], pins);
+        Assert.Equal(["section.device.plugin.info.main"], pins);
 
         return;
 
@@ -293,17 +293,17 @@ public sealed class OverlayLayoutTests
             Capabilities =
             [
                 device.State.Capabilities[0],
-                new DeviceOverlayCapability("fixture.other", null, DeviceOverlaySection.Oem, DescriptorStatus.Available,
-                    "Other section", "", "", false),
-                new DeviceOverlayCapability("fixture.value", null, DeviceOverlaySection.Overview,
-                    DescriptorStatus.Available, "Fixture value", "", "", true,
-                    new CapabilityValue
+                new DeviceOverlayCapability("fixture.other", null, DescriptorStatus.Available,
+                    "Other section", "", "", false) { PluginSectionId = DeviceSections.ControllerId },
+                new DeviceOverlayCapability("fixture.value", null, DescriptorStatus.Available, "Fixture value", "", "",
+                    true, new CapabilityValue
                     {
                         Kind = kind, IntegerValue = 50, BooleanValue = false, ChoiceValue = "a",
                         CurveValue = [new CurvePoint(30, 20), new CurvePoint(60, 50), new CurvePoint(90, 100)]
                     })
                 {
                     ValueKind = kind, Writable = true, Minimum = 0, Maximum = 100, Step = 1,
+                    PluginSectionId = DeviceSections.InfoId,
                     Choices =
                     [
                         new CapabilityChoice("a",
@@ -317,7 +317,7 @@ public sealed class OverlayLayoutTests
         var window = fixture.Overlay();
         window.AttachDeviceBridge(device);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
-        UiFixture.Click(window, UiFixture.Rail(window, "device.section.overview"));
+        UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.info"));
         UiFixture.OpenSections(window);
         var type = kind switch
         {
@@ -332,7 +332,7 @@ public sealed class OverlayLayoutTests
         window.PinToggleRequested += requests.Add;
         editor.Focus();
         window.RequestSecondaryAction(editor);
-        Assert.Equal(["section.device.overview"], requests);
+        Assert.Equal(["section.device.plugin.info.main"], requests);
         UiFixture.Click(window, editor, MouseButton.Right);
         Assert.Equal(2, requests.Count);
         switch (editor)
@@ -349,8 +349,8 @@ public sealed class OverlayLayoutTests
             .Single(header => header.IsEffectivelyVisible);
         UiFixture.Click(window, header.GetVisualDescendants().OfType<Button>().Single());
         Assert.Equal(3, requests.Count);
-        Assert.All(requests, id => Assert.Equal("section.device.overview", id));
-        window.SetPins(["section.device.overview"]);
+        Assert.All(requests, id => Assert.Equal("section.device.plugin.info.main", id));
+        window.SetPins(["section.device.plugin.info.main"]);
         UiFixture.OpenSections(window);
         UiFixture.Click(window, UiFixture.Tab(window, 0));
         UiFixture.OpenSections(window);
@@ -374,14 +374,14 @@ public sealed class OverlayLayoutTests
         }
 
         window.RequestSecondaryAction(pinned);
-        Assert.Equal("section.device.overview", requests[^1]);
+        Assert.Equal("section.device.plugin.info.main", requests[^1]);
         device.State = device.State with { Visible = false };
         device.Notify();
         Dispatcher.UIThread.RunJobs();
         Assert.DoesNotContain(pinnedSection.GetVisualDescendants(), control => control.GetType() == type);
         var unavailableHeader = pinnedSection.GetVisualDescendants().OfType<SectionPinHeader>().Single();
         UiFixture.Click(window, unavailableHeader.GetVisualDescendants().OfType<Button>().Single());
-        Assert.Equal("section.device.overview", requests[^1]);
+        Assert.Equal("section.device.plugin.info.main", requests[^1]);
         window.SetPins([]);
         UiFixture.OpenSections(window);
         Assert.DoesNotContain(UiFixture.Named<Panel>(window, "PinnedSectionsGrid").GetVisualDescendants(),

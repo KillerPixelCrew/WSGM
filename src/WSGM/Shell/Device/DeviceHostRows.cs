@@ -102,7 +102,7 @@ internal static class DeviceHostRows
             // Only when a change can actually take effect. Cycling into a target the backend cannot
             // bring up would replace one broken state with another.
             status.State is not ControllerManagementState.Unavailable,
-            health);
+            health) { SectionId = DeviceSections.ControllerId };
     }
 
     /// <summary>Builds the glyph preview from the resolved profile and the glyph service.</summary>
@@ -258,7 +258,7 @@ internal static class DeviceHostRows
                 "The selected profile was deleted · press to choose another",
                 "MISSING",
                 true,
-                DescriptorStatus.Warning);
+                DescriptorStatus.Warning) { SectionId = DeviceSections.PowerId };
         }
 
         var scope = selected is null
@@ -273,7 +273,10 @@ internal static class DeviceHostRows
             scope,
             selected is null ? "NONE" : selected.Name.ToUpperInvariant(),
             true,
-            selected is null ? DescriptorStatus.None : DescriptorStatus.Available);
+            selected is null ? DescriptorStatus.None : DescriptorStatus.Available)
+        {
+            SectionId = DeviceSections.PowerId
+        };
     }
 
     internal static DescriptorRow LightingProfileView(IReadOnlyList<DeviceAuthoredProfile> profiles,
@@ -288,11 +291,12 @@ internal static class DeviceHostRows
             Title = "Lighting profile",
             Description = detail is null ? row.Description : row.Description + " · " + detail,
             Status = status == DescriptorStatus.None ? row.Status : status,
-            OverrideId = selected.IsGameOverride ? nameof(ProfileField.LightingProfile) : null
+            OverrideId = selected.IsGameOverride ? nameof(ProfileField.LightingProfile) : null,
+            SectionId = DeviceSections.RgbId
         };
     }
 
-    /// <summary>Projects the device cycle's recoverable state into the Diagnostics page's own row.</summary>
+    /// <summary>Projects the device cycle's recoverable state into its row on the Info page.</summary>
     /// <param name="state">The current cycle state.</param>
     /// <returns>The row, or null when the cycle is healthy and there is nothing to recover.</returns>
     /// <remarks>
@@ -310,9 +314,9 @@ internal static class DeviceHostRows
             DeviceHostRowIds.Retry,
             "Retry device integration",
             $"{LifecycleLabel(state)} · starts one manual recovery attempt",
-            "READY",
+            "Retry",
             true,
-            DescriptorStatus.Warning);
+            DescriptorStatus.Warning) { SectionId = DeviceSections.InfoId };
     }
 
     /// <summary>
@@ -373,7 +377,7 @@ internal static class DeviceHostRows
         if (availability is { Available: false })
         {
             return new DescriptorRow(DeviceHostRowIds.AutoTdp, "AutoTDP", availability.Detail, "OFF",
-                false, DescriptorStatus.Unsupported);
+                false, DescriptorStatus.Unsupported) { SectionId = DeviceSections.PowerId };
         }
 
         if (!enabled)
@@ -383,7 +387,7 @@ internal static class DeviceHostRows
                 "AutoTDP",
                 "Move the power limit from measured frame delivery",
                 "OFF",
-                true);
+                true) { SectionId = DeviceSections.PowerId };
         }
 
         var detail = status is null ? "Starting." : AutoTdpReason.Describe(status.Detail);
@@ -408,7 +412,10 @@ internal static class DeviceHostRows
                 $"{frametime:F1} ms against a {target:F1} ms deadline · {detail}");
         }
 
-        return new DescriptorRow(DeviceHostRowIds.AutoTdp, "AutoTDP", detail, trailing, true, health);
+        return new DescriptorRow(DeviceHostRowIds.AutoTdp, "AutoTDP", detail, trailing, true, health)
+        {
+            SectionId = DeviceSections.PowerId
+        };
     }
 
     /// <summary>Projects AutoTDP's frame-rate target as the slider under its switch.</summary>
@@ -428,7 +435,8 @@ internal static class DeviceHostRows
             {
                 Range = new DescriptorRange(AutoTdpTarget.MinimumFps, AutoTdpTarget.MaximumFps, Step: 1, Unit: "FPS"),
                 Value = target.Fps,
-                OverrideId = target.GameOverride ? nameof(ProfileField.AutoTdpTarget) : null
+                OverrideId = target.GameOverride ? nameof(ProfileField.AutoTdpTarget) : null,
+                SectionId = DeviceSections.PowerId
             }
             : null;
     }
@@ -504,7 +512,7 @@ internal static class DeviceHostRows
             description,
             trailing,
             true,
-            status);
+            status) { SectionId = DeviceSections.ControllerId };
     }
 
     internal static string LifecycleLabel(DeviceCycleState state)

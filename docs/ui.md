@@ -225,7 +225,9 @@ next write cannot overwrite that selection.
 
 The Device Overview shows the per-application profile switch, then the same Power and Fans folds as
 the Power page while device integration publishes power controls, then Performance, beside the
-persistent section rail. Available sections and Quick Access pin choices keep stable identities.
+persistent section rail. The rail lists each published page that draws rows, the shared Power, RGB,
+Controller and Info pages and any declared sections, with a badge counting those rows; it never
+shows a second Overview. Available sections and Quick Access pin choices keep stable identities.
 Windows energy plans are visible directly, including with integration disabled. Power holds the
 assignments and device-specific groups for manual power and display, fans, charging and automatic
 control; profile details and reset are collapsible. Controller stacks button glyph selection above
@@ -254,8 +256,9 @@ categories, so a graphics toggle, slider or choice looks and behaves like a devi
 heading pins that group to Quick Access. `GraphicsPageCaptureTests` renders it from
 `tests/WSGM.UiTests/Fixtures/intel-graphics-ui-publication.json`, an Intel adapter and built-in
 display publication with one game override, and a pinned group on Quick Access. The Claw captures
-take the Power and thermals variable refresh row from the same fixture, as the device bridge does.
-`--overlay-test` shows the destination with an Intel-shaped simulated publication, described in
+take the Power variable refresh row from the same fixture through
+`DeviceOverlayBridge.VariableRefreshRow`, as the device bridge does. `--overlay-test` shows the
+destination with an Intel-shaped simulated publication, described in
 [overlay and input](overlay-and-input.md#graphics-sections).
 
 Live value refreshes keep row and editor instances and their drafts. A descriptor generation,

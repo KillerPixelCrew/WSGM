@@ -15,9 +15,8 @@ public partial class OverlayWindow
 
     /// <summary>Draws the shared performance rows from a snapshot the caller read once for the pass.</summary>
     /// <param name="snapshot">The performance snapshot, or null without a performance source.</param>
-    /// <param name="device">The Device snapshot of the same pass, or null to read it when the page needs it.</param>
     /// <remarks>Quick access draws its pinned copy in the same pass, not here.</remarks>
-    private void RefreshPerformancePanel(PerformanceOverlaySnapshot? snapshot, DeviceOverlaySnapshot? device = null)
+    private void RefreshPerformancePanel(PerformanceOverlaySnapshot? snapshot)
     {
         if (_closed)
         {
@@ -33,7 +32,7 @@ public partial class OverlayWindow
         }
 
         PlacePerformanceSection(_navigation.IsVisible(OverlayDestination.Device));
-        PerformanceSection.IsVisible = snapshot?.Visible is true && PerformanceBelongsOnCurrentPage(device);
+        PerformanceSection.IsVisible = snapshot?.Visible is true && PerformanceBelongsOnCurrentPage(snapshot);
         DevicePerformanceCard.IsVisible =
             PerformanceSection.IsVisible && _navigation.IsVisible(OverlayDestination.Device);
         // The Tools root offers Performance only while the rows live there: with Device visible they
@@ -125,25 +124,16 @@ public partial class OverlayWindow
 
     /// <summary>Whether the performance rows belong on the page currently showing.</summary>
     /// <remarks>
-    ///     Device shows performance on its overview and the shared or plugin-declared Power
-    ///     page. Unrelated Device pages do not retain these controls.
+    ///     Device shows performance on its overview and the page of the section Shell gives the rows.
+    ///     Unrelated Device pages do not retain these controls.
     /// </remarks>
-    private bool PerformanceBelongsOnCurrentPage(DeviceOverlaySnapshot? device)
+    private bool PerformanceBelongsOnCurrentPage(PerformanceOverlaySnapshot? snapshot)
     {
-        if (!_navigation.IsVisible(OverlayDestination.Device))
+        if (!_navigation.IsVisible(OverlayDestination.Device) || _navigation.Page == OverlayPage.Device)
         {
             return true;
         }
 
-        if (_navigation.Page == OverlayPage.Device || DeviceOverlaySectionPages.SectionFor(_navigation.Page)
-                is DeviceOverlaySection.PowerAndThermals)
-        {
-            return true;
-        }
-
-        return _navigation.Page is OverlayPage.DevicePluginSection
-               && _navigation.SectionId is { } sectionId
-               && DeviceOverlaySectionPages.SectionAbsorbedInto(device ?? DeviceSnapshotOrOff(), sectionId)
-                   is DeviceOverlaySection.PowerAndThermals;
+        return snapshot is not null && DevicePageOpen(snapshot.SectionId);
     }
 }

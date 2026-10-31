@@ -8,7 +8,6 @@ namespace WSGM.Shell;
 /// <summary>One presentation-only semantic capability row for the final Device destination.</summary>
 /// <param name="CapabilityId">Published capability ID used for command routing.</param>
 /// <param name="InstanceId">Published instance discriminator, or null for a single-instance capability.</param>
-/// <param name="Section">Host fallback page selected from semantic role.</param>
 /// <param name="Status">Projected availability or command status for presentation.</param>
 /// <param name="Title">Resolved plain row label.</param>
 /// <param name="Description">Resolved explanatory text, empty when absent.</param>
@@ -19,7 +18,6 @@ namespace WSGM.Shell;
 internal sealed record DeviceOverlayCapability(
     string CapabilityId,
     string? InstanceId,
-    DeviceOverlaySection Section,
     DescriptorStatus Status,
     string Title,
     string Description,
@@ -49,7 +47,12 @@ internal sealed record DeviceOverlayCapability(
     /// <summary>The descriptor's semantic role, for consumers pairing related controls.</summary>
     public CapabilityRole Role { get; init; } = CapabilityRole.GenericReadOnly;
 
-    /// <summary>The declared overlay section holding this row, or null for the WSGM fallback home.</summary>
+    /// <summary>The Device page holding this row.</summary>
+    /// <remarks>
+    ///     A device row always names one: its declared section, or the shared page Shell gives its role
+    ///     (<see cref="CapabilityRowProjection.ToDeviceRow" />). A graphics row is null outside a section its
+    ///     publisher declared.
+    /// </remarks>
     public string? PluginSectionId { get; init; }
 
     /// <summary>The declared category within that section, or null for the section's lead group.</summary>

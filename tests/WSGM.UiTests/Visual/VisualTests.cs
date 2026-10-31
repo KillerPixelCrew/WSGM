@@ -93,7 +93,7 @@ public sealed class VisualTests
             UiFixture.Click(window, UiFixture.Tab(window, 2));
             if (page == "plugin")
             {
-                UiFixture.Click(window, UiFixture.Rail(window, "device.section.overview"));
+                UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.info"));
             }
         }
 

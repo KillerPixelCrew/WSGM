@@ -197,6 +197,22 @@ public sealed class DeviceCapabilityRouterTests
     }
 
     [Fact]
+    public async Task TheSharedPagesArePublishedBeforeAndAfterADescriptorSet()
+    {
+        FakeCapabilityPublisher publisher = new(CapabilityRole.GenericToggle);
+        await using DeviceCapabilityRouter router = new(action => action());
+        string[] shared = [.. DeviceSections.All.Select(section => section.SectionId)];
+
+        Assert.Equal(shared, router.Sections.Select(section => section.SectionId));
+        router.Attach(publisher);
+        Assert.Equal(shared, router.Sections.Select(section => section.SectionId));
+        publisher.Publish(CapabilityBuilders.Set(1, CapabilityBuilders.Toggle(CapabilityProfileScope.Switched)));
+        Assert.Equal(shared, router.Sections.Select(section => section.SectionId));
+        router.Detach();
+        Assert.Equal(shared, router.Sections.Select(section => section.SectionId));
+    }
+
+    [Fact]
     public async Task DisconnectedRouterRejectsACommandWithAnActionableReason()
     {
         await using DeviceCapabilityRouter router = new(action => action());

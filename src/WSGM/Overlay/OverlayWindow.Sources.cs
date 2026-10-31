@@ -159,7 +159,7 @@ public partial class OverlayWindow
     internal void AttachPowerSchemes(ChoiceRowSelection selection)
     {
         _powerSchemeSelection = selection;
-        ConfigureTabs(DeviceSnapshotOrOff().Visible);
+        ConfigureTabs(DeviceSnapshotOrOff());
         Opened += async (_, _) => await selection.RefreshAsync();
         Closed += (_, _) => selection.Dispose();
         // The section is shown only once Windows has been read and offers a choice.
@@ -392,10 +392,9 @@ public partial class OverlayWindow
         }
 
         var snapshot = DeviceSnapshotOrOff();
-        ConfigureTabs(snapshot.Visible);
-        ObserveGlyphInput(
-            DeviceOverlaySectionPages.SectionFor(_navigation.Page)
-                is DeviceOverlaySection.ControllerAndMotion);
+        ConfigureTabs(snapshot);
+        ObserveGlyphInput(_navigation.Page == OverlayPage.DevicePluginSection
+                          && IsControllerSection(snapshot, _navigation.SectionId));
         RefreshNavigationHints();
         RefreshDevicePrerequisites(snapshot);
         if (DevicePanelShowing())

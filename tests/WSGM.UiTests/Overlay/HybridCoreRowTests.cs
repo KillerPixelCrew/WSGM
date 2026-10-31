@@ -60,6 +60,8 @@ public sealed class HybridCoreRowTests
         window.AttachHybridCores(selection);
         await selection.RefreshAsync();
         Dispatcher.UIThread.RunJobs();
+        // The page needs a row of its own to be offered; the processor cores add none here.
+        device.State = device.State with { AutoTdp = DeviceHostRows.AutoTdpView(false, null) };
 
         OpenDevicePowerPage(window, device);
 

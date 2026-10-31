@@ -149,7 +149,7 @@ public partial class OverlayWindow : Window
         AddHandler(PointerReleasedEvent, OnPointerReleasedForLiveRefresh, RoutingStrategies.Tunnel);
         PointerCaptureLost += OnPointerCaptureLostForLiveRefresh;
 
-        ConfigureTabs(false);
+        ConfigureTabs(DeviceSnapshotOrOff());
         Tabs.SelectionChanged += OnTabSelectionChanged;
 
         // ReSharper disable once UseDeconstruction
@@ -279,7 +279,7 @@ public partial class OverlayWindow : Window
         var performance = _performanceSource?.Snapshot();
         var device = DeviceSnapshotOrOff();
         RefreshNavigationHints();
-        RefreshPerformancePanel(performance, device);
+        RefreshPerformancePanel(performance);
         // Drawn even while the panel is hidden: the warm pass exercises it, and the first Device
         // visit then only refreshes values.
         RefreshDevicePanel(device, performance);

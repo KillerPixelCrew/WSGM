@@ -26,7 +26,7 @@ namespace WSGM.UiTests.Overlay;
 /// </summary>
 /// <remarks>
 ///     Most cases draw the MSI Claw publication from <c>Fixtures/claw-ui-publication.json</c>. The pages a Claw
-///     does not reach, the WSGM-owned OEM, Lighting and Diagnostics pages, the colour editor and the WSGM
+///     does not reach, the shared pages of rows a plugin left unplaced, the colour editor and the simulated
 ///     Controller page, draw a <see cref="FakeDevice" /> snapshot. Every hardware write fails the test.
 /// </remarks>
 public sealed class DevicePageCaptureTests
@@ -342,7 +342,7 @@ public sealed class DevicePageCaptureTests
         var window = fixture.Overlay(width, height);
         window.AttachDeviceBridge(device);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
-        UiFixture.Click(window, UiFixture.Rail(window, "device.section.lighting"));
+        UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.rgb"));
         UiFixture.OpenSections(window);
         var row = window.GetVisualDescendants().OfType<DeviceCapabilityControl>()
             .Single(row => row.IsEffectivelyVisible && Equals(row.Tag, "lighting.zone-color#ring"));
@@ -354,14 +354,14 @@ public sealed class DevicePageCaptureTests
     }
 
     /// <summary>
-    ///     The WSGM-owned OEM, Lighting and Diagnostics pages, which a device reaches while it declares no
-    ///     section of its own for them.
+    ///     The shared Controller, RGB and Info pages holding the OEM buttons, lighting and readings a device
+    ///     published without placing them, beside the recovery row.
     /// </summary>
     [AvaloniaTheory]
-    [InlineData("oem")]
-    [InlineData("lighting")]
-    [InlineData("diagnostics")]
-    public void WsgmOwnedSection(string section)
+    [InlineData(DeviceSections.ControllerId)]
+    [InlineData(DeviceSections.RgbId)]
+    [InlineData(DeviceSections.InfoId)]
+    public void UnplacedRowsOnTheirSharedPage(string section)
     {
         using FakeDevice device = new();
         device.State = UndeclaredSections();
@@ -369,13 +369,13 @@ public sealed class DevicePageCaptureTests
         var window = fixture.Overlay();
         window.AttachDeviceBridge(device);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
-        UiFixture.Click(window, UiFixture.Rail(window, "device.section." + section));
+        UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin." + section));
         UiFixture.OpenSections(window);
         ScrollToTop(window);
         var list = UiFixture.Named<StackPanel>(window, "DeviceCapabilityList");
         Assert.Contains(list.GetVisualDescendants().OfType<Control>(),
             control => control is DeviceCapabilityControl or DeviceSettingRow);
-        VisualBaseline.Verify(window, $"device-{section}-1280x800");
+        VisualBaseline.Verify(window, $"device-unplaced-{section}-1280x800");
     }
 
     /// <summary>A saved device pin whose group the device no longer publishes.</summary>
@@ -398,11 +398,11 @@ public sealed class DevicePageCaptureTests
     }
 
     /// <summary>
-    ///     The WSGM Controller page of a device that declares no Controller section, then its glyph group pinned
+    ///     The shared Controller page of a device that declares no Controller section, then its glyph group pinned
     ///     from that page and drawn on Quick Access.
     /// </summary>
     [AvaloniaFact]
-    public void WsgmControllerPageAndPin()
+    public void SharedControllerPageAndPin()
     {
         using SimulatedDeviceOverlaySource simulated = new();
         using FakeDevice device = new();
@@ -418,7 +418,7 @@ public sealed class DevicePageCaptureTests
         };
         window.AttachDeviceBridge(device);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
-        UiFixture.Click(window, UiFixture.Rail(window, "device.section.controller"));
+        UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.controller"));
         UiFixture.OpenSections(window);
         ScrollToTop(window);
         VisualBaseline.Verify(window, "simulated-controller-1280x800");
@@ -475,43 +475,40 @@ public sealed class DevicePageCaptureTests
     }
 
     /// <summary>
-    ///     A device with OEM buttons, lighting and diagnostics that declares no section layout, as the Device
-    ///     page sees a definition before its layout is accepted.
+    ///     A device with OEM buttons, lighting and readings that places none of them in a section, so Shell puts
+    ///     each on the shared page of its role.
     /// </summary>
     private static DeviceOverlaySnapshot UndeclaredSections()
     {
         return new DeviceOverlaySnapshot(true, "Fixture handheld", "Device integration active", null,
         [
-            new DeviceOverlayCapability("fixture.temperature", null, DeviceOverlaySection.Overview,
-                DescriptorStatus.Available, "Processor temperature", "Synthetic sensor", "45 °C", false),
-            OemButton("oem.left", "Left OEM button", "overlay"),
-            OemButton("oem.right", "Right OEM button", "keyboard"),
-            new DeviceOverlayCapability("lighting.power", null, DeviceOverlaySection.LightingAndFeatures,
-                DescriptorStatus.Available, "Lighting", string.Empty, "ON", true, CapabilityValue.Boolean(true),
-                CapabilityValue.Boolean(false))
+            .. new[]
             {
-                Role = CapabilityRole.LightingPower, ValueKind = CapabilityValueKind.Boolean, Writable = true
-            },
-            new DeviceOverlayCapability("lighting.zone-color", "ring", DeviceOverlaySection.LightingAndFeatures,
-                DescriptorStatus.Available, "Ring", "Opens the color editor", "#FF9D3D", true,
-                CapabilityValue.Color(0xFF9D3D))
-            {
-                Role = CapabilityRole.LightingZoneColor, ValueKind = CapabilityValueKind.Color, Writable = true
-            },
-            new DeviceOverlayCapability("firmware.version", null, DeviceOverlaySection.Diagnostics,
-                DescriptorStatus.Available, "Firmware version", "Reported by the controller", "1.0.7", false,
-                CapabilityValue.Text("1.0.7"))
-            {
-                Role = CapabilityRole.GenericReadOnly, ValueKind = CapabilityValueKind.Text
-            }
-        ], Recovery: DeviceHostRows.RecoveryView(DeviceCycleState.Faulted))
-        {
-            PluginSections = []
-        };
+                new DeviceOverlayCapability("fixture.temperature", null, DescriptorStatus.Available,
+                    "Processor temperature", "Synthetic sensor", "45 °C", false),
+                OemButton("oem.left", "Left OEM button", "overlay"),
+                OemButton("oem.right", "Right OEM button", "keyboard"),
+                new DeviceOverlayCapability("lighting.power", null, DescriptorStatus.Available, "Lighting",
+                    string.Empty, "ON", true, CapabilityValue.Boolean(true), CapabilityValue.Boolean(false))
+                {
+                    Role = CapabilityRole.LightingPower, ValueKind = CapabilityValueKind.Boolean, Writable = true
+                },
+                new DeviceOverlayCapability("lighting.zone-color", "ring", DescriptorStatus.Available, "Ring",
+                    "Opens the color editor", "#FF9D3D", true, CapabilityValue.Color(0xFF9D3D))
+                {
+                    Role = CapabilityRole.LightingZoneColor, ValueKind = CapabilityValueKind.Color, Writable = true
+                },
+                new DeviceOverlayCapability("firmware.version", null, DescriptorStatus.Available, "Firmware version",
+                    "Reported by the controller", "1.0.7", false, CapabilityValue.Text("1.0.7"))
+                {
+                    Role = CapabilityRole.GenericReadOnly, ValueKind = CapabilityValueKind.Text
+                }
+            }.Select(CapabilityRowProjection.OnDevicePage)
+        ], Recovery: DeviceHostRows.RecoveryView(DeviceCycleState.Faulted));
 
         static DeviceOverlayCapability OemButton(string id, string title, string assigned)
         {
-            return new DeviceOverlayCapability(id, null, DeviceOverlaySection.Oem, DescriptorStatus.Available, title,
+            return new DeviceOverlayCapability(id, null, DescriptorStatus.Available, title,
                 "What the button does", assigned == "overlay" ? "Overlay" : "Keyboard", true,
                 CapabilityValue.Choice(assigned),
                 CapabilityValue.Choice(assigned == "overlay" ? "keyboard" : "overlay"))
@@ -617,7 +614,7 @@ public sealed class DevicePageCaptureTests
                 Detail = "Device integration active",
                 Capabilities =
                 [
-                    .. views.Select(view => CapabilityRowProjection.ToOverlayCapability(view, ids,
+                    .. views.Select(view => CapabilityRowProjection.ToDeviceRow(view, ids,
                         FanCurvePresetTable.HandheldCompanion)),
                     graphics.VariableRefreshRow(ids)
                 ],

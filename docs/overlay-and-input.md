@@ -119,14 +119,30 @@ when the content scrolls.
 
 ## Device sections, performance profiles and lighting color
 
-Plugin-declared Device sections and WSGM-owned sections appear in the Device rail.
+Shell always publishes the shared Power, RGB, Controller and Info pages (`DeviceSections`), before a
+descriptor set arrives and with integration off too, followed by the sections a plugin declares. It
+gives every row one of them where it projects the row: a capability its publisher left unplaced goes
+to the page of its role (`CapabilityRowProjection.DevicePageFor`; OEM buttons to Controller, generic
+controls and readings to Info), the graphics package's variable refresh row to Power, each
+host-owned row to the page in its `DescriptorRow.SectionId`, and the performance rows to
+`PerformanceOverlaySnapshot.SectionId`. The Overlay draws pages only from that publication, so there
+are no WSGM-owned fallback pages and no rules folding them into declared ones. The Device root is
+the one Overview.
+
+The rail lists a page while it draws something, and its badge counts the rows it draws:
+capabilities, host rows, the performance rows other than the per-application switch, and on Power
+the Windows plan, power assignment, manual power and processor core controls.
 `OverlayPage.DevicePluginSection` carries the open section's id in the route rather than adding an
 enum value per section. Rows are grouped under declared category headings in sort-then-snapshot
 order, with full-width folding groups stacked vertically. The SDK's closed prominence and pairing
-hints guide presentation without allowing plugin markup. A section that vanishes with a descriptor
-generation while its page is open renders a plain "no longer available" line. Leaving one runs the
-same body as leaving a WSGM section: the glyph sample lease is released and both panels are redrawn.
-The generic pop fallback it used to take did neither.
+hints guide presentation without allowing plugin markup. A section that vanishes while its page is
+open renders a plain "no longer available" line, and a page whose section the snapshot no longer
+publishes returns to the Device root. Leaving a page releases the glyph sample lease and redraws
+both panels.
+
+Quick Access pins saved while Device drew WSGM-owned fallback pages (`section.device.power`,
+`.controller`, `.controller-and-motion`, `.lighting` and `.diagnostics`) are read as the
+`.configuration` group of the matching shared page, through `QuickAccessPins.CurrentId`.
 
 ## Graphics sections
 

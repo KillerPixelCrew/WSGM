@@ -9,6 +9,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using WSGM.Controls;
 using WSGM.Input;
+using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
@@ -249,9 +250,13 @@ public partial class OverlayWindow
         }
     }
 
-    private void ConfigureTabs(bool showDevice)
+    /// <summary>Shows or hides the Device destination for a snapshot and leaves a page it no longer publishes.</summary>
+    /// <param name="device">The Device snapshot.</param>
+    private void ConfigureTabs(DeviceOverlaySnapshot device)
     {
-        if (_powerSchemeSelection is not null && _navigation.NeedsDeviceRoot(showDevice))
+        var showDevice = device.Visible;
+        if (_powerSchemeSelection is not null
+            && _navigation.NeedsDeviceRoot(device.PluginSections.Select(section => section.SectionId)))
         {
             // Keep Core controls reachable when the plugin owning the open section disappears.
             // The normal root transition also releases nested-page resources and restores focus.
@@ -493,12 +498,6 @@ public partial class OverlayWindow
                 if (AnySubView)
                 {
                     LeaveActiveSubView();
-                    return true;
-                }
-
-                if (DeviceOverlaySectionPages.SectionFor(_navigation.Page) is { } leaving)
-                {
-                    LeaveDeviceSection(leaving);
                     return true;
                 }
 

@@ -25,6 +25,25 @@ internal sealed class QuickAccessPins
     /// <summary>The Tag prefix that marks a Quick access clone; X on one unpins.</summary>
     internal const string TagPrefix = "pin:";
 
+    /// <summary>The pin id a stored pin is drawn and toggled under.</summary>
+    /// <param name="id">A pin id read from AppConfig.QuickAccessPins.</param>
+    /// <returns>
+    ///     The id of the shared page's host-row group for a pin saved while Device drew WSGM-owned fallback
+    ///     pages, which it did with integration off or before a device's layout arrived; any other id unchanged.
+    /// </returns>
+    internal static string CurrentId(string id)
+    {
+        return id switch
+        {
+            "section.device.power" => "section.device.plugin.power.configuration",
+            "section.device.controller" or "section.device.controller-and-motion" =>
+                "section.device.plugin.controller.configuration",
+            "section.device.lighting" => "section.device.plugin.rgb.configuration",
+            "section.device.diagnostics" => "section.device.plugin.info.configuration",
+            _ => id
+        };
+    }
+
     // Every section heading currently in the window's tree; each adds itself on attach and leaves on detach.
     private readonly HashSet<SectionPinHeader> _headers = [];
     private readonly Panel _mirrorGrid;

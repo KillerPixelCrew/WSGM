@@ -418,7 +418,7 @@ public sealed class OverlayInteractionTests
         Dispatcher.UIThread.RunJobs();
         var dismissed = 0;
         window.Dismissed += () => dismissed++;
-        var entry = UiFixture.Rail(window, "device.section.overview");
+        var entry = UiFixture.Rail(window, "device.section.plugin.info");
         UiFixture.Click(window, entry);
         var heading = window.GetVisualDescendants().OfType<SectionPinHeader>()
             .Single(header => header.IsEffectivelyVisible).GetVisualDescendants().OfType<Button>().Single();
@@ -598,7 +598,7 @@ public sealed class OverlayInteractionTests
         Assert.NotNull(PrivateField<Delegate>(schemes, "Changed"));
         Assert.NotNull(PrivateField<Delegate>(presets, "Changed"));
         UiFixture.Click(window, UiFixture.Tab(window, 2));
-        UiFixture.Click(window, UiFixture.Rail(window, "device.section.overview"));
+        UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.info"));
         UiFixture.OpenSections(window);
         UiFixture.Click(window, window.GetVisualDescendants().OfType<DeviceSettingRow>()
             .Single(row => row.IsEffectivelyVisible && Equals(row.Content, "Processor temperature")).Editor);

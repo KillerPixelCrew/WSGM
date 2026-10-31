@@ -24,10 +24,7 @@ public partial class OverlayWindow
             .Where(id => (id == "section.system.power-profile" && _powerSchemeSelection is { State.Options.Count: > 0 })
                          || (snapshot.Visible && id.StartsWith("section.device.", StringComparison.Ordinal)))
             .Concat(performance?.Visible is true ? ["section.performance"] : [])
-            .Concat(pinSections.Where(section => section.Capabilities.Count > 0
-                                                                 || (section.Owned == DeviceOverlaySection
-                                                                         .ControllerAndMotion &&
-                                                                     snapshot.GlyphSelection is not null))
+            .Concat(pinSections.Where(section => section.Capabilities.Count > 0 || section.HostRows.Count > 0)
                 .Select(section => section.Id))
             .Concat(graphics.Select(section => section.Id)).Distinct().ToArray();
         if (DeviceSectionPinsHost.Children.OfType<SectionPinHeader>().Select(header => header.SectionId)
@@ -47,18 +44,24 @@ public partial class OverlayWindow
         }
     }
 
+    /// <summary>
+    ///     Renders the controller page: button glyphs and controller output, then the section's other groups.
+    /// </summary>
     private Control? RenderControllerPage(DeviceOverlaySnapshot snapshot, DevicePinSection[] pinSections,
-        string? focusedKey, string pinId)
+        string sectionId, string? focusedKey)
     {
+        var pinId = "section.device.plugin." + sectionId + ".configuration";
         var glyphs = CreateSection(pinId, "Button glyphs");
         var output = new StackPanel { Spacing = 8 };
         DeviceCapabilityList.Children.Add(WrapDeviceSection(glyphs));
         DeviceCapabilityList.Children.Add(CreateFold(pinId + ".output", "Controller output", output));
 
-        var restore = RenderOwnedDeviceRows(snapshot with { Controller = null },
-            DeviceOverlaySection.ControllerAndMotion, focusedKey, glyphs);
-        restore = RenderOwnedDeviceRows(snapshot with { GlyphSelection = null, GlyphPreview = null },
-            DeviceOverlaySection.ControllerAndMotion, focusedKey, output) ?? restore;
+        var restore = RenderOwnedDeviceRows(snapshot,
+            DeviceOverlaySectionPages.HostRowsIn(snapshot with { Controller = null }, sectionId), focusedKey,
+            glyphs);
+        restore = RenderOwnedDeviceRows(snapshot,
+            DeviceOverlaySectionPages.HostRowsIn(snapshot with { GlyphSelection = null }, sectionId), focusedKey,
+            output) ?? restore;
         if (snapshot.Controller is null)
         {
             output.Children.Add(new TextBlock
@@ -72,17 +75,10 @@ public partial class OverlayWindow
         }
 
         foreach (var section in pinSections.Where(section => section.Capabilities.Count > 0
-                                                                             && (section.PluginSectionId is { } id
-                                                                                 ? DeviceOverlaySectionPages
-                                                                                     .SectionAbsorbedInto(snapshot,
-                                                                                         id) == DeviceOverlaySection
-                                                                                     .ControllerAndMotion
-                                                                                 : section.Owned ==
-                                                                                 DeviceOverlaySection
-                                                                                     .ControllerAndMotion)))
+                                                             && section.PluginSectionId == sectionId))
         {
             var content = CreateSection(section.Id, section.Title);
-            restore = AddDeviceSectionRows(snapshot, section with { Owned = null }, content, focusedKey) ?? restore;
+            restore = AddDeviceSectionRows(snapshot, section with { HostRows = [] }, content, focusedKey) ?? restore;
             DeviceCapabilityList.Children.Add(WrapDeviceSection(content));
         }
 

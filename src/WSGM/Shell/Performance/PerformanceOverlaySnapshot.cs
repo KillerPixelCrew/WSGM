@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Shell;
 
@@ -11,4 +12,9 @@ internal sealed record PerformanceOverlaySnapshot(
     bool Visible,
     string Status,
     IReadOnlyList<DescriptorRow> Rows,
-    IReadOnlyList<DescriptorRow> ProfileRows);
+    IReadOnlyList<DescriptorRow> ProfileRows)
+{
+    /// <summary>The Device page these rows are drawn on, beside the Overview.</summary>
+    /// <remarks>The enable toggle in <see cref="ProfileRows" /> heads the Overview alone.</remarks>
+    public string SectionId => DeviceSections.PowerId;
+}

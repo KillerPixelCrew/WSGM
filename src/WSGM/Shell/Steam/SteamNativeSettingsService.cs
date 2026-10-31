@@ -296,7 +296,7 @@ internal sealed partial class SteamNativeSettingsService(
         var declarations = CapabilityRowProjection.ProjectSections(coordinator.Capabilities.Sections);
         HashSet<string> declared = new(declarations.Select(section => section.SectionId), StringComparer.Ordinal);
         var capabilities = coordinator.PresentedCapabilities()
-            .Select(view => CapabilityRowProjection.ToOverlayCapability(view, declared, coordinator.FanPresets,
+            .Select(view => CapabilityRowProjection.ToDeviceRow(view, declared, coordinator.FanPresets,
                 profile.Layers))
             .Where(capability => capability.Role is not CapabilityRole.PowerSustainedLimit
                 and not CapabilityRole.PowerSlowLimit and not CapabilityRole.VariableRefreshRate)
@@ -315,8 +315,8 @@ internal sealed partial class SteamNativeSettingsService(
                                        or CapabilityRole.LightingZoneColor or CapabilityRole.LightingEffect
                                        or CapabilityRole.LightingEffectSpeed
                                    || declaration?.Key is SettingSectionKey.Lighting;
-                    var devicePower = capability.Role is CapabilityRole.ScenarioMode
-                                      || capability.Section is DeviceOverlaySection.PowerAndThermals
+                    var devicePower = CapabilityRowProjection.DevicePageFor(capability.Role)
+                                      == WSGM.Device.Sdk.Capabilities.DeviceSections.PowerId
                                       || declaration?.Key is SettingSectionKey.Power;
                     if (!lighting && !devicePower)
                     {

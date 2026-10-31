@@ -149,8 +149,8 @@ public sealed class DeviceRowReconciliationTests
             writes.Add(requested);
             return Task.CompletedTask;
         };
-        var capability = new DeviceOverlayCapability("power.test", null, DeviceOverlaySection.PowerAndThermals,
-            DescriptorStatus.Available, "Power limit", "", "15 W", true, CapabilityValue.Integer(15))
+        var capability = new DeviceOverlayCapability("power.test", null, DescriptorStatus.Available, "Power limit", "",
+            "15 W", true, CapabilityValue.Integer(15))
         {
             Role = CapabilityRole.PowerSustainedLimit, PluginSectionId = "power",
             ValueKind = CapabilityValueKind.Integer, Writable = true, Minimum = 8, Maximum = 37
@@ -210,8 +210,8 @@ public sealed class DeviceRowReconciliationTests
     {
         using var device = new FakeDevice();
         using var fixture = new UiFixture();
-        var capability = new DeviceOverlayCapability("power.test", null, DeviceOverlaySection.PowerAndThermals,
-            DescriptorStatus.Available, "Power limit", "", "15 W", true, CapabilityValue.Integer(15))
+        var capability = new DeviceOverlayCapability("power.test", null, DescriptorStatus.Available, "Power limit", "",
+            "15 W", true, CapabilityValue.Integer(15))
         {
             Role = CapabilityRole.PowerSustainedLimit, PluginSectionId = "power",
             ValueKind = CapabilityValueKind.Integer,
@@ -347,8 +347,8 @@ public sealed class DeviceRowReconciliationTests
         {
             Capabilities =
             [
-                new DeviceOverlayCapability("power.test", null, DeviceOverlaySection.PowerAndThermals,
-                    DescriptorStatus.Available, "Power", "", "15 W", true, CapabilityValue.Integer(15))
+                new DeviceOverlayCapability("power.test", null, DescriptorStatus.Available, "Power", "", "15 W", true,
+                    CapabilityValue.Integer(15))
                 {
                     Role = CapabilityRole.PowerSustainedLimit, PluginSectionId = "power",
                     ValueKind = CapabilityValueKind.Integer,
@@ -378,31 +378,30 @@ public sealed class DeviceRowReconciliationTests
     {
         using var device = new FakeDevice();
         using var fixture = new UiFixture();
-        var capability = new DeviceOverlayCapability("lighting.test", null, DeviceOverlaySection.Overview,
-            DescriptorStatus.Available, "Lighting", "", "On", true,
-            new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = true })
+        var capability = new DeviceOverlayCapability("lighting.test", null, DescriptorStatus.Available, "Lighting", "",
+            "On", true, new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = true })
         {
-            ValueKind = CapabilityValueKind.Boolean, Writable = true
+            ValueKind = CapabilityValueKind.Boolean, Writable = true, PluginSectionId = DeviceSections.InfoId
         };
-        device.State = device.State with { Capabilities = [capability], PluginSections = [] };
+        device.State = device.State with { Capabilities = [capability] };
         var window = fixture.Overlay(1280, 720);
         window.AttachDeviceBridge(device);
         if (pinned)
         {
-            window.SetPins(["section.device.overview"]);
+            window.SetPins(["section.device.plugin.info.main"]);
             UiFixture.OpenSections(window);
         }
         else
         {
             UiFixture.Click(window, UiFixture.Tab(window, 2));
-            UiFixture.Click(window, UiFixture.Rail(window, "device.section.overview"));
+            UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.info"));
             UiFixture.OpenSections(window);
         }
 
         Dispatcher.UIThread.RunJobs();
         var host = UiFixture.Named<Panel>(window, pinned ? "PinnedSectionsGrid" : "DeviceCapabilityList");
         var group = Assert.Single(host.Children.OfType<Border>());
-        Assert.Equal((pinned ? "pin:" : "") + "section.device.overview", group.Tag);
+        Assert.Equal((pinned ? "pin:" : "") + "section.device.plugin.info.main", group.Tag);
         var fold = Assert.IsType<CollapsibleSection>(group.Child);
         Assert.True(fold.IsExpanded);
         Assert.Single(fold.GetVisualDescendants().OfType<Expander>());

@@ -87,7 +87,6 @@ internal static class CapabilityRowProjection
         return new DeviceOverlayCapability(
             descriptor.CapabilityId,
             descriptor.InstanceId,
-            SectionFor(descriptor.Role),
             StatusFor(projection),
             // Scenario rows name the firmware mode they choose, on every surface.
             descriptor.Role == CapabilityRole.ScenarioMode
@@ -124,6 +123,34 @@ internal static class CapabilityRowProjection
             MaximumLength = descriptor.MaximumLength,
             Presets = descriptor.Role == CapabilityRole.FanCurve ? presets : null
         };
+    }
+
+    /// <summary>Projects one device capability into its row on a Device page.</summary>
+    /// <param name="view">The capability and its current projection.</param>
+    /// <param name="declaredSections">The device publisher's sections, the shared pages included.</param>
+    /// <param name="presets">The matched model's fan curve presets.</param>
+    /// <param name="layers">Current profile layers for game-override sources, or null when unavailable.</param>
+    /// <returns>
+    ///     The row of <see cref="ToOverlayCapability" />, placed on the shared page <see cref="DevicePageFor" />
+    ///     names when its publisher placed it in no declared section.
+    /// </returns>
+    internal static DeviceOverlayCapability ToDeviceRow(
+        DeviceCapabilityView view,
+        IReadOnlySet<string> declaredSections,
+        FanCurvePresetTable presets,
+        ProfileLayers? layers = null)
+    {
+        return OnDevicePage(ToOverlayCapability(view, declaredSections, presets, layers));
+    }
+
+    /// <summary>Places a row without a declared section on the shared Device page of its role.</summary>
+    /// <param name="row">A projected row.</param>
+    /// <returns>The row, unchanged when it already names a section.</returns>
+    internal static DeviceOverlayCapability OnDevicePage(DeviceOverlayCapability row)
+    {
+        return row.PluginSectionId is null
+            ? row with { PluginSectionId = DevicePageFor(row.Role), CategoryId = null }
+            : row;
     }
 
     /// <summary>What invoking an action does: WSGM's own step first, then the publisher's explanation.</summary>
@@ -249,12 +276,19 @@ internal static class CapabilityRowProjection
         };
     }
 
-    private static DeviceOverlaySection SectionFor(CapabilityRole role)
+    /// <summary>The shared Device page a capability goes to when its publisher placed it in no declared section.</summary>
+    /// <param name="role">The capability's semantic role.</param>
+    /// <returns>One of the <see cref="DeviceSections" /> ids.</returns>
+    /// <remarks>
+    ///     Info is the shared page for whatever describes the device as a whole, so the generic controls and
+    ///     readings a plugin left unplaced go there with its diagnostics; the Device root is the one overview.
+    /// </remarks>
+    internal static string DevicePageFor(CapabilityRole role)
     {
         return role switch
         {
-            CapabilityRole.ScenarioMode => DeviceOverlaySection.Overview,
-            CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit
+            CapabilityRole.ScenarioMode
+                or CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit
                 or CapabilityRole.PowerFastLimit or CapabilityRole.PowerPeakLimit
                 or CapabilityRole.PowerBackend
                 or CapabilityRole.FanMode or CapabilityRole.FanDuty
@@ -262,24 +296,16 @@ internal static class CapabilityRowProjection
                 or CapabilityRole.FanMeasuredRpm or CapabilityRole.ChargeLimit
                 or CapabilityRole.ChargeProtectionMode or CapabilityRole.ChargeBypass
                 or CapabilityRole.Telemetry
-                // Variable refresh sits with the frame limit and power controls it interacts with,
-                // not among the lighting oddments, because that is where a user goes to change how the
-                // device performs.
-                or CapabilityRole.VariableRefreshRate => DeviceOverlaySection.PowerAndThermals,
+                // Variable refresh sits with the frame limit and power controls it interacts with, because
+                // that is where a user goes to change how the device performs.
+                or CapabilityRole.VariableRefreshRate => DeviceSections.PowerId,
+            // OEM buttons are physical controls of the handheld, so they sit with the controller.
             CapabilityRole.ControllerSource or CapabilityRole.MotionSource
-                or CapabilityRole.HapticSink => DeviceOverlaySection.ControllerAndMotion,
-            CapabilityRole.OemControl => DeviceOverlaySection.Oem,
+                or CapabilityRole.HapticSink or CapabilityRole.OemControl => DeviceSections.ControllerId,
             CapabilityRole.LightingPower or CapabilityRole.LightingBrightness
                 or CapabilityRole.LightingZoneColor or CapabilityRole.LightingEffect
-                or CapabilityRole.LightingEffectSpeed
-                or CapabilityRole.GenericToggle or CapabilityRole.GenericRange
-                or CapabilityRole.GenericChoice or CapabilityRole.GenericAction
-                or CapabilityRole.GenericText
-                => DeviceOverlaySection.LightingAndFeatures,
-            // A read-only value is something to consult, not to set, so it belongs with the rest of the
-            // diagnostics rather than among the controls a user came to change.
-            CapabilityRole.GenericReadOnly => DeviceOverlaySection.Diagnostics,
-            _ => DeviceOverlaySection.Overview
+                or CapabilityRole.LightingEffectSpeed => DeviceSections.RgbId,
+            _ => DeviceSections.InfoId
         };
     }
 

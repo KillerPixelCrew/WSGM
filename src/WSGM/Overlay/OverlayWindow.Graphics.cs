@@ -123,8 +123,8 @@ public partial class OverlayWindow
             GraphicsCapabilityList.Children.Add(new TextBlock
             {
                 Text = "The graphics driver has not published any settings yet.",
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(2, 4)
+                Classes = { "caption" },
+                TextWrapping = TextWrapping.Wrap
             });
         }
 

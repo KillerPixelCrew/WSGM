@@ -1,3 +1,4 @@
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Overlay;
 
 namespace WSGM.Tests.Overlay;
@@ -47,21 +48,22 @@ public sealed class OverlayNavigationTests
         Assert.True(navigation.Push(OverlayPage.DevicePluginSection, "device.section.plugin.power", "power"));
         Assert.Equal(OverlayPage.DevicePluginSection, navigation.Page);
         Assert.Equal("power", navigation.SectionId);
-        Assert.False(navigation.NeedsDeviceRoot(false));
+        // Shell publishes the shared pages with integration off too.
+        Assert.False(navigation.NeedsDeviceRoot(DeviceSections.All.Select(section => section.SectionId)));
     }
 
     [Fact]
-    public void RemovingAPluginRequestsTheDeviceRootWhileCoreControlsRemain()
+    public void AnUnpublishedSectionRequestsTheDeviceRootWhileCoreControlsRemain()
     {
         OverlayNavigation navigation = new();
         navigation.SetDeviceVisible(true, true);
         navigation.Select(OverlayDestination.Device);
         navigation.Push(OverlayPage.DevicePluginSection, "power", "plugin-power");
-        Assert.False(navigation.NeedsDeviceRoot(true));
-        Assert.True(navigation.NeedsDeviceRoot(false));
+        Assert.False(navigation.NeedsDeviceRoot(["power", "plugin-power"]));
+        Assert.True(navigation.NeedsDeviceRoot(["power"]));
         navigation.Select(OverlayDestination.Device);
         navigation.SetDeviceVisible(false, true);
-        Assert.False(navigation.NeedsDeviceRoot(false));
+        Assert.False(navigation.NeedsDeviceRoot(["power"]));
         Assert.Equal(OverlayPage.Device, navigation.Page);
         Assert.Null(navigation.SectionId);
         Assert.Equal(1, navigation.Depth);
@@ -303,15 +305,15 @@ public sealed class OverlayNavigationTests
         OverlayNavigation navigation = new();
         navigation.SetDeviceVisible(true);
         Assert.True(navigation.Select(OverlayDestination.Device));
-        Assert.True(navigation.Push(OverlayPage.DevicePowerAndThermals, null));
-        Assert.Equal(OverlayPage.DevicePowerAndThermals, navigation.Page);
+        Assert.True(navigation.Push(OverlayPage.DevicePluginSection, null, DeviceSections.PowerId));
+        Assert.Equal(OverlayPage.DevicePluginSection, navigation.Page);
 
         Assert.True(navigation.Select(OverlayDestination.Steam));
         Assert.True(navigation.Select(OverlayDestination.Device));
 
         Assert.Equal(OverlayPage.Device, navigation.Page);
         Assert.Equal(1, navigation.Depth);
-        Assert.Null(DeviceOverlaySectionPages.SectionFor(navigation.Page));
+        Assert.Null(navigation.SectionId);
     }
 
     [Fact]

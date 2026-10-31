@@ -91,13 +91,8 @@ internal sealed class FixtureGraphicsSource : IGraphicsOverlaySource
                 .Where(capability => capability.View.Descriptor.Role is CapabilityRole.VariableRefreshRate)
                 .Select(capability => new PublishedCapability(capability.View, PluginId))
         ])!;
-        return CapabilityRowProjection.ToOverlayCapability(vrr.View, declaredSections,
-                FanCurvePresetTable.HandheldCompanion) with
-        {
-            GpuPluginId = vrr.GpuPluginId,
-            PluginSectionId = null,
-            CategoryId = null
-        };
+        return DeviceOverlayBridge.VariableRefreshRow(vrr.View, vrr.GpuPluginId!, declaredSections,
+            FanCurvePresetTable.HandheldCompanion);
     }
 
     private GpuPublisherSnapshot PublisherSnapshot()

@@ -116,13 +116,9 @@ public partial class OverlayWindow
     private void PlaceUnifiedPowerControls(DeviceOverlaySnapshot snapshot,
         IReadOnlyList<DeviceOverlaySectionEntry> sectionPages)
     {
-        _unifiedPowerDetails = _navigation.Page == OverlayPage.DevicePowerAndThermals
-                               || _navigation.Page == OverlayPage.DevicePluginSection
-                               && DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot,
-                                   _navigation.SectionId ?? string.Empty)
-                               == DeviceOverlaySection.PowerAndThermals
-                               || _navigation.Page == OverlayPage.Device
-                               && OverviewPowerEntry(snapshot, sectionPages) is not null;
+        _unifiedPowerDetails = DevicePageOpen(DeviceSections.PowerId)
+                               || (_navigation.Page == OverlayPage.Device
+                                   && OverviewPowerEntry(snapshot, sectionPages) is not null);
         if (_unifiedPowerDetails && !ReferenceEquals(DeviceCapabilityList.Parent, UnifiedDevicePowerBody))
         {
             ((Panel)DeviceCapabilityList.Parent!).Children.Remove(DeviceCapabilityList);
@@ -140,35 +136,25 @@ public partial class OverlayWindow
         IReadOnlyList<DeviceOverlaySectionEntry> sectionPages)
     {
         return snapshot.Visible
-            ? sectionPages.FirstOrDefault(entry => entry.Section == DeviceOverlaySection.PowerAndThermals)
+            ? sectionPages.FirstOrDefault(entry => entry.SectionId == DeviceSections.PowerId)
             : null;
     }
 
     /// <summary>Every pinnable Device group the snapshot publishes, derived once per render or pin pass.</summary>
     /// <param name="snapshot">The Device snapshot.</param>
-    /// <param name="sectionPages">The section menu already built from it, or null to build it here.</param>
     /// <returns>The groups in presentation order.</returns>
-    private static DevicePinSection[] DevicePinSections(DeviceOverlaySnapshot snapshot,
-        IReadOnlyList<DeviceOverlaySectionEntry>? sectionPages = null)
+    private static DevicePinSection[] DevicePinSections(DeviceOverlaySnapshot snapshot)
     {
-        return [.. BuildDevicePinSections(snapshot, sectionPages ?? DeviceOverlaySectionPages.Build(snapshot))];
+        return [.. BuildDevicePinSections(snapshot)];
     }
 
-    private static IEnumerable<DevicePinSection> BuildDevicePinSections(DeviceOverlaySnapshot snapshot,
-        IReadOnlyList<DeviceOverlaySectionEntry> sectionPages)
+    private static IEnumerable<DevicePinSection> BuildDevicePinSections(DeviceOverlaySnapshot snapshot)
     {
         foreach (var section in snapshot.PluginSections)
         {
-            var capabilities = snapshot.Visible
-                ? DeviceOverlaySectionPages.CapabilitiesInPluginSection(snapshot, section.SectionId)
-                : [];
-            var owned = DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, section.SectionId);
-            if (!snapshot.Visible && owned != DeviceOverlaySection.ControllerAndMotion)
-            {
-                owned = null;
-            }
-
-            var power = owned == DeviceOverlaySection.PowerAndThermals;
+            var capabilities = DeviceOverlaySectionPages.CapabilitiesIn(snapshot, section.SectionId);
+            var hostRows = DeviceOverlaySectionPages.HostRowsIn(snapshot, section.SectionId);
+            var power = section.SectionId == DeviceSections.PowerId;
             var prefix = "section.device.plugin." + section.SectionId;
             var lead = capabilities.Where(capability => capability.CategoryId is null
                                                         || (power &&
@@ -186,7 +172,7 @@ public partial class OverlayWindow
             if (lead.Length > 0)
             {
                 yield return new DevicePinSection(prefix + ".main", power ? "Manual power and display" : section.Title,
-                    section.SectionId, lead);
+                    section.SectionId, lead, []);
             }
 
             var categories = power
@@ -203,28 +189,18 @@ public partial class OverlayWindow
                 if (rows.Length > 0)
                 {
                     yield return new DevicePinSection(prefix + ".category." + category.Id, category.Title,
-                        section.SectionId, rows);
+                        section.SectionId, rows, []);
                 }
             }
 
             // Host controls have their own stable pin identity even when the plugin publishes
             // only categorized rows or no capabilities at all.
-            if (owned is { } host)
+            if (hostRows.Count > 0)
             {
                 yield return new DevicePinSection(prefix + ".configuration",
                     power ? "Automatic control and saved profiles" : "Configuration",
-                    section.SectionId, [], host);
+                    section.SectionId, [], hostRows);
             }
-        }
-
-        foreach (var section in sectionPages.Where(section =>
-                     section.PluginSectionId is null
-                     && (snapshot.Visible || section.Section == DeviceOverlaySection.ControllerAndMotion)))
-        {
-            yield return new DevicePinSection(
-                SectionKey.FromKey(DeviceOverlaySectionPages.FocusKey(section.Section)).FocusKey, section.Title, null,
-                snapshot.Visible ? DeviceOverlaySectionPages.CapabilitiesIn(snapshot, section.Section) : [],
-                section.Section);
         }
     }
 
@@ -232,9 +208,9 @@ public partial class OverlayWindow
         Panel target, string? focusedKey = null, bool pinned = false)
     {
         Control? restoreFocus = null;
-        if (section.Owned is { } hostSection)
+        if (section.HostRows.Count > 0)
         {
-            restoreFocus = RenderOwnedDeviceRows(snapshot, hostSection, focusedKey, target, !pinned);
+            restoreFocus = RenderOwnedDeviceRows(snapshot, section.HostRows, focusedKey, target, !pinned);
             if (pinned)
             {
                 // A host row may sit inside its game-override marker, which carries no key of its own.
@@ -373,10 +349,16 @@ public partial class OverlayWindow
         return WrapDeviceSection(unavailable);
     }
 
+    /// <summary>One pinnable Device group.</summary>
+    /// <param name="Id">The persisted pin id.</param>
+    /// <param name="Title">The group heading.</param>
+    /// <param name="PluginSectionId">The section whose page draws the group.</param>
+    /// <param name="Capabilities">The device rows of the group.</param>
+    /// <param name="HostRows">The host-owned rows of the group, drawn before its device rows.</param>
     private sealed record DevicePinSection(
         string Id,
         string Title,
-        string? PluginSectionId,
+        string PluginSectionId,
         IReadOnlyList<DeviceOverlayCapability> Capabilities,
-        DeviceOverlaySection? Owned = null);
+        IReadOnlyList<DescriptorRow> HostRows);
 }

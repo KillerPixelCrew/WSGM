@@ -147,14 +147,17 @@ public sealed class DeviceOverlayBridgeTests
         var snapshot = source.Snapshot();
 
         Assert.True(snapshot.Visible);
-        Assert.Equal(DeviceOverlaySection.PowerAndThermals,
-            DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, DeviceSections.PowerId));
+        // The shared pages are always published, and every row and host row is on one of them.
+        Assert.All(DeviceSections.All, shared => Assert.Contains(snapshot.PluginSections,
+            section => section.SectionId == shared.SectionId));
+        Assert.All(snapshot.Capabilities, capability => Assert.Contains(snapshot.PluginSections,
+            section => section.SectionId == capability.PluginSectionId));
+        Assert.All(snapshot.HostRows, row => Assert.Contains(snapshot.PluginSections,
+            section => section.SectionId == row.SectionId));
+        Assert.Contains(snapshot.Capabilities, capability => capability.PluginSectionId == DeviceSections.PowerId);
         Assert.Contains(snapshot.Capabilities,
-            capability => capability.Section == DeviceOverlaySection.PowerAndThermals);
-        Assert.Contains(snapshot.Capabilities,
-            capability => capability.Section == DeviceOverlaySection.ControllerAndMotion);
-        Assert.Contains(snapshot.Capabilities,
-            capability => capability.Section == DeviceOverlaySection.LightingAndFeatures);
+            capability => capability.PluginSectionId == DeviceSections.ControllerId);
+        Assert.Contains(snapshot.Capabilities, capability => capability.PluginSectionId == DeviceSections.RgbId);
         Assert.All(snapshot.Capabilities,
             capability => Assert.NotEqual(DescriptorStatus.None, capability.Status));
         Assert.NotNull(snapshot.GlyphSelection);
@@ -298,6 +301,47 @@ public sealed class DeviceOverlayBridgeTests
         Assert.Equal(1, changes);
     }
 
+    [Theory]
+    [InlineData(CapabilityRole.ScenarioMode, DeviceSections.PowerId)]
+    [InlineData(CapabilityRole.VariableRefreshRate, DeviceSections.PowerId)]
+    [InlineData(CapabilityRole.Telemetry, DeviceSections.PowerId)]
+    [InlineData(CapabilityRole.OemControl, DeviceSections.ControllerId)]
+    [InlineData(CapabilityRole.HapticSink, DeviceSections.ControllerId)]
+    [InlineData(CapabilityRole.LightingEffect, DeviceSections.RgbId)]
+    [InlineData(CapabilityRole.GenericToggle, DeviceSections.InfoId)]
+    [InlineData(CapabilityRole.GenericReadOnly, DeviceSections.InfoId)]
+    public void AnUnplacedDeviceRowGoesToTheSharedPageOfItsRole(CapabilityRole role, string page)
+    {
+        DeviceOverlayCapability row = new("row", null, DescriptorStatus.Available, "Row", "", "", false)
+        {
+            Role = role, CategoryId = "orphan"
+        };
+
+        var placed = CapabilityRowProjection.OnDevicePage(row);
+
+        Assert.Equal(page, placed.PluginSectionId);
+        Assert.Null(placed.CategoryId);
+        // A declared placement is kept.
+        Assert.Equal("cooling", CapabilityRowProjection.OnDevicePage(row with { PluginSectionId = "cooling" })
+            .PluginSectionId);
+    }
+
+    [Fact]
+    public void EveryHostRowNamesItsSharedPage()
+    {
+        Assert.Equal(DeviceSections.PowerId, DeviceHostRows.AutoTdpView(false, null).SectionId);
+        Assert.Equal(DeviceSections.PowerId, DeviceHostRows.AutoTdpView(true, null).SectionId);
+        Assert.Equal(DeviceSections.PowerId,
+            DeviceHostRows.AutoTdpTargetRow(true, new AutoTdpTargetView(60, 60, false))!.SectionId);
+        Assert.Equal(DeviceSections.ControllerId, DeviceHostRows.ControllerView(true,
+            Status(ControllerManagementState.Active, ManagedControllerTarget.Xbox360))!.SectionId);
+        Assert.Equal(DeviceSections.InfoId, DeviceHostRows.RecoveryView(DeviceCycleState.Faulted)!.SectionId);
+        Assert.Equal(DeviceSections.PowerId,
+            DeviceHostRows.AuthoredProfileView([Profile("quiet", "Quiet")], "quiet", ProfileSource.Global)!.SectionId);
+        Assert.Equal(DeviceSections.RgbId, DeviceHostRows.LightingProfileView([], new Resolved<string?>(null,
+            ProfileSource.Global), null, DescriptorStatus.None).SectionId);
+    }
+
     [Fact]
     public void SimulatedDeviceDeclaresThePluginLayout()
     {
@@ -306,14 +350,15 @@ public sealed class DeviceOverlayBridgeTests
         var snapshot = source.Snapshot();
 
         Assert.Equal(
-            ["power", "cooling", "rgb"],
+            ["power", "cooling", "rgb", "controller", "info"],
             snapshot.PluginSections.Select(section => section.SectionId));
         Assert.Contains(snapshot.Capabilities, capability =>
             capability is { PluginSectionId: DeviceSections.RgbId, Role: CapabilityRole.LightingZoneColor });
         Assert.Contains(snapshot.Capabilities, capability =>
             capability.Role == CapabilityRole.LightingBrightness);
-        // One row stays unplaced so the WSGM fallback grouping keeps working beside the layout.
-        Assert.Contains(snapshot.Capabilities, capability => capability.PluginSectionId is null);
+        // The one row its publisher left unplaced is on the shared page of its role.
+        Assert.Contains(snapshot.Capabilities, capability =>
+            capability is { Role: CapabilityRole.HapticSink, PluginSectionId: DeviceSections.ControllerId });
     }
 
     [Fact]
@@ -438,7 +483,9 @@ public sealed class DeviceOverlayBridgeTests
         var row = DeviceHostRows.RecoveryView(DeviceCycleState.Faulted);
 
         Assert.NotNull(row);
-        Assert.Equal("READY", row.TrailingText);
+        // The trailing text labels the row's button, so it names the action.
+        Assert.Equal("Retry", row.TrailingText);
+        Assert.Equal(DeviceSections.InfoId, row.SectionId);
         // The row says what is wrong, not only that a button exists.
         Assert.Contains("·", row.Description, StringComparison.Ordinal);
     }
@@ -460,10 +507,9 @@ public sealed class DeviceOverlayBridgeTests
                 true,
                 Status(ControllerManagementState.Active, ManagedControllerTarget.Xbox360)));
 
-        var entry = Assert.Single(DeviceOverlaySectionPages.Build(snapshot),
-            candidate => candidate.PluginSectionId == "controller");
+        var entry = Assert.Single(DeviceOverlaySectionPages.Build(snapshot));
 
-        Assert.Equal(DeviceOverlaySection.ControllerAndMotion, entry.Section);
+        Assert.Equal(DeviceSections.ControllerId, entry.SectionId);
         Assert.Equal(1, entry.Count);
     }
 
@@ -480,7 +526,7 @@ public sealed class DeviceOverlayBridgeTests
                 string.Empty,
                 "AUTO",
                 true,
-                DescriptorStatus.Available),
+                DescriptorStatus.Available) { SectionId = DeviceSections.ControllerId },
             [],
             DeviceHostRows.AutoTdpView(false, null),
             DeviceHostRows.ControllerView(
@@ -490,11 +536,11 @@ public sealed class DeviceOverlayBridgeTests
 
         Assert.Equal(
             [
-                DeviceOverlaySection.PowerAndThermals,
-                DeviceOverlaySection.ControllerAndMotion,
-                DeviceOverlaySection.Diagnostics
+                (DeviceSections.PowerId, 1),
+                (DeviceSections.ControllerId, 2),
+                (DeviceSections.InfoId, 1)
             ],
-            DeviceOverlaySectionPages.Build(snapshot).Select(entry => entry.Section));
+            DeviceOverlaySectionPages.Build(snapshot).Select(entry => (entry.SectionId, entry.Count)));
     }
 
     private static DeviceAuthoredProfile Profile(
@@ -727,8 +773,7 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void UnifiedModeKeepsBoostReadbackButOnlyPrimaryIsWritable()
     {
-        DeviceOverlayCapability primary = new("primary", null, DeviceOverlaySection.PowerAndThermals,
-            default, "Sustained", "", "20 W", true)
+        DeviceOverlayCapability primary = new("primary", null, default, "Sustained", "", "20 W", true)
         {
             Role = CapabilityRole.PowerSustainedLimit,
             Writable = true

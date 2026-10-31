@@ -73,7 +73,7 @@ public static class PreviewExports
                 Status = deviceName ?? "MSI Claw 8 AI+", Detail = "Device integration active",
                 Capabilities =
                 [
-                    .. capabilities.Select(view => CapabilityRowProjection.ToOverlayCapability(view, ids,
+                    .. capabilities.Select(view => CapabilityRowProjection.ToDeviceRow(view, ids,
                         FanCurvePresetTable.HandheldCompanion)),
                     graphics.VariableRefreshRow(ids)
                 ],

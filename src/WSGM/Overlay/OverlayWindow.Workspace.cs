@@ -58,8 +58,7 @@ public partial class OverlayWindow
         };
         if (_navigation.Destination == OverlayDestination.Device)
         {
-            RefreshDeviceSectionRail(
-                DeviceOverlaySectionPages.Build(DeviceSnapshotOrOff(), _performanceSource?.Snapshot()));
+            RefreshDeviceSectionRail(DeviceSectionPages(DeviceSnapshotOrOff(), _performanceSource?.Snapshot()));
             return;
         }
 
@@ -96,7 +95,7 @@ public partial class OverlayWindow
         };
         entries.AddRange(sections.Select(entry =>
             new WorkspaceSection(DeviceOverlaySectionPages.FocusKey(entry), entry.Title,
-                SectionIconFor(entry.Icon) ?? Icons.ListLines, entry.Page, entry.PluginSectionId)));
+                SectionIconFor(entry.Icon) ?? Icons.ListLines, OverlayPage.DevicePluginSection, entry.SectionId)));
         entries.Add(new WorkspaceSection("device.gpu", "GPU", Icons.Monitor, OverlayPage.DeviceGpu, null));
         ReconcileSectionRail(entries);
         foreach (var entry in sections)
@@ -230,10 +229,6 @@ public partial class OverlayWindow
         if (section.PluginSection is { } plugin)
         {
             EnterDevicePluginSection(plugin);
-        }
-        else if (DeviceOverlaySectionPages.SectionFor(section.Page) is { } device)
-        {
-            EnterDeviceSection(device);
         }
         else if (section.Page == OverlayPage.Device)
         {
