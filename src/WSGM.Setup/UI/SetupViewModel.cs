@@ -336,7 +336,11 @@ internal sealed class SetupViewModel : Observable
 
     private async Task ShowCompatibilityAsync()
     {
-        if (_compatibility is not null)
+        var kxDevice = _hardware?.Chosen is { } chosen
+                       && (chosen.Offer.Definition.HardwareAccess & LibHandheld.Contracts.DeviceHardwareAccess.IntelKx) != 0
+            ? chosen.Name
+            : null;
+        if (_compatibility is not null && _compatibility.KxDevice == kxDevice)
         {
             Page = _compatibility;
             return;
@@ -345,12 +349,13 @@ internal sealed class SetupViewModel : Observable
         try
         {
             var state = await Task.Run(_engine!.DriverCompatibility.Read);
-            _compatibility = new DriverCompatibilityPage(state);
+            _compatibility = new DriverCompatibilityPage(state, kxDevice: kxDevice);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             SetupLog.Warn("Reading driver protection settings failed: " + ex.Message);
-            _compatibility = new DriverCompatibilityPage(null, "Windows protection settings could not be read: " + ex.Message);
+            _compatibility = new DriverCompatibilityPage(null, "Windows protection settings could not be read: " + ex.Message,
+                kxDevice);
         }
         Page = _compatibility;
     }

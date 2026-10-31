@@ -52,6 +52,8 @@ internal static class HandheldUiProjection
             CapabilityRole.PowerFastLimit => (DeviceSections.PowerId, "limits", 2),
             CapabilityRole.PowerPeakLimit => (DeviceSections.PowerId, "limits", 3),
             CapabilityRole.ScenarioMode => (DeviceSections.PowerId, "performance", 0),
+            // Which hardware path carries the limits, shown first among them.
+            CapabilityRole.PowerBackend => (DeviceSections.PowerId, "limits", -1),
             CapabilityRole.ChargeLimit or CapabilityRole.ChargeProtectionMode or CapabilityRole.ChargeBypass => (
                 DeviceSections.PowerId, "charging", 0),
             CapabilityRole.FanMode => (DeviceSections.PowerId, "fans", 0),

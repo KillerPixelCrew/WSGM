@@ -73,6 +73,22 @@ if (Test-Path -LiteralPath $installer -PathType Leaf) {
     }
 }
 
+# KX.exe has no download and no signature: it is committed and pinned by digest alone, and the
+# WSGM project ships it for the user-selected Intel KX power path.
+$kxLockPath = Join-Path $PSScriptRoot '..\external\kx\kx.lock.json'
+$kx = (Get-Content -LiteralPath $kxLockPath -Raw | ConvertFrom-Json).component
+$kxPath = Join-Path (Split-Path -Parent $kxLockPath) $kx.file
+if (-not (Test-Path -LiteralPath $kxPath -PathType Leaf)) {
+    $problems.Add("external\kx\$($kx.file) is missing")
+}
+elseif ((Get-FileHash -LiteralPath $kxPath -Algorithm SHA256).Hash -ne $kx.sha256) {
+    $problems.Add("external\kx\$($kx.file) does not match kx.lock.json")
+}
+$appProject = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\src\WSGM\WSGM.csproj') -Raw
+if ($appProject -notmatch [regex]::Escape('external\kx\KX.exe')) {
+    $problems.Add('the WSGM project does not ship external\kx\KX.exe')
+}
+
 if ($problems.Count -gt 0) {
     throw "PawnIO pin check failed:`n  $($problems -join "`n  ")"
 }

@@ -1120,6 +1120,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             CapabilityRole.ScenarioMode => DeviceOverlaySection.Overview,
             CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit
                 or CapabilityRole.PowerFastLimit or CapabilityRole.PowerPeakLimit
+                or CapabilityRole.PowerBackend
                 or CapabilityRole.FanMode or CapabilityRole.FanDuty
                 or CapabilityRole.FanTargetRpm or CapabilityRole.FanCurve
                 or CapabilityRole.FanMeasuredRpm or CapabilityRole.ChargeLimit

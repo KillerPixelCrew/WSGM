@@ -1382,6 +1382,7 @@ internal static class DeviceCapabilityValidation
                 kind is CapabilityValueKind.Boolean or CapabilityValueKind.Choice,
             CapabilityRole.GenericChoice
                 or CapabilityRole.ScenarioMode
+                or CapabilityRole.PowerBackend
                 or CapabilityRole.FanMode
                 or CapabilityRole.LightingEffect
                 or CapabilityRole.ControllerSource

@@ -419,6 +419,16 @@ writes are never retried automatically. Crash recovery handles unfinished sessio
 records are evidence, not runtime drivers. Production support comes from a native LibHandheld
 contribution. AllyXLab was retired on 2026-09-25, once the wizard covered it.
 
+**Intel power limits have selectable paths, and KX is back (2026-10-31).** Every Intel handheld
+offers its firmware path where it has one (Atlas EC, Claw WMI), PawnIO MSR 0x610, and KX MSR plus
+the MCHBAR mirror, in both the Overlay and Steam Quick Access, stored globally. On the Atlas the
+firmware path lagged in games and Intel's IPF service kept lowering MCHBAR PL1 to 35 W, so the
+direct paths disable and stop IPF while selected and restore it afterwards. KX is offered only when
+its pinned helper is deployed and Memory Integrity is not running, and runs only while selected. A
+model that declares `DeviceHardwareAccess.IntelKx` (the Atlas) makes setup turn Memory Integrity and
+the vulnerable-driver blocklist off, written as Device Guard policy so Windows keeps it off.
+Evidence is in the Atlas `PROVENANCE.md`. This supersedes the KX part of the next entry.
+
 **Device Lab and KX are removed (2026-10-28).** Device Lab, its tests, publishing scripts and skill
 were deleted from the repository. Hardware evidence is gathered in attended sessions and recorded in
 the family `PROVENANCE.md` beside the LibHandheld code it supports. Handheld Companion's KX helper
