@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using LibHandheld;
 using Windows.Management.Deployment;
 using WindowsDeviceControl;
-using LibHandheld;
 using WSGM.Shared;
 using DeploymentPackageStatus = Windows.Management.Deployment.PackageStatus;
 

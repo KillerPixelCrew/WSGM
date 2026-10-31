@@ -1,5 +1,6 @@
 using WSGM.Core;
 using WSGM.Shell;
+using CanonicalButtons = LibHandheld.Contracts.CanonicalButtons;
 using CapabilityDisplay = LibHandheld.Contracts.CapabilityDisplay;
 using DisplayKey = LibHandheld.Contracts.DisplayKey;
 using OemControlDefaultActionHint = LibHandheld.Contracts.OemControlDefaultActionHint;
@@ -8,7 +9,6 @@ using OemControlEdge = LibHandheld.Contracts.OemControlEdge;
 using OemControlEvent = LibHandheld.Contracts.OemControlEvent;
 using OemControlPlacement = LibHandheld.Contracts.OemControlPlacement;
 using OemPressKind = LibHandheld.Contracts.OemPressKind;
-using CanonicalButtons = LibHandheld.Contracts.CanonicalButtons;
 
 namespace WSGM.Tests.Shell;
 

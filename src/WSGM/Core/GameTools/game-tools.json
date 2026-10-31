@@ -32,8 +32,14 @@
         "default": "dxgi.dll",
         "options": [
           { "name": "dxgi.dll", "hint": "Most compatible. Try this first." },
-          { "name": "winmm.dll", "hint": "Use for Vulkan games. Also worth trying for Xbox and Microsoft Store games." },
-          { "name": "version.dll", "hint": "Often works better for Xbox and Microsoft Store games." },
+          {
+            "name": "winmm.dll",
+            "hint": "Use for Vulkan games. Also worth trying for Xbox and Microsoft Store games."
+          },
+          {
+            "name": "version.dll",
+            "hint": "Often works better for Xbox and Microsoft Store games."
+          },
           { "name": "dbghelp.dll", "hint": "An alternative when the others do not load." },
           { "name": "d3d12.dll", "hint": "Try this when DLSS crashes with the other names." },
           { "name": "wininet.dll", "hint": "An alternative when the others do not load." },
@@ -63,7 +69,11 @@
         "required": ["OptiScaler.dll", "OptiScaler.ini"],
         "familyDirectories": { "v10": ["OptiScaler"] },
         "exclude": ["setup_windows.bat", "setup_linux.sh", "!! *"],
-        "neverExclude": ["OptiScaler.ini", "plugins/OptiPatcher.asi", "OptiScaler/plugins/OptiPatcher.asi"]
+        "neverExclude": [
+          "OptiScaler.ini",
+          "plugins/OptiPatcher.asi",
+          "OptiScaler/plugins/OptiPatcher.asi"
+        ]
       },
       "configFiles": ["OptiScaler.ini"],
       "replaceable": [

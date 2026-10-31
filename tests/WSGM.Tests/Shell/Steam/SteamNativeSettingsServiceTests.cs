@@ -3,8 +3,8 @@ using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
-using WSGM.Tests.Builders;
 using WSGM.Testing;
+using WSGM.Tests.Builders;
 
 namespace WSGM.Tests.Shell;
 

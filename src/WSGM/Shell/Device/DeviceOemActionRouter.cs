@@ -7,13 +7,13 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Interop;
+using CanonicalButtons = LibHandheld.Contracts.CanonicalButtons;
 using HapticCapabilities = LibHandheld.Contracts.HapticCapabilities;
 using OemControlDescriptor = LibHandheld.Contracts.OemControlDescriptor;
 using OemControlEdge = LibHandheld.Contracts.OemControlEdge;
 using OemControlEvent = LibHandheld.Contracts.OemControlEvent;
 using OemControlPlacement = LibHandheld.Contracts.OemControlPlacement;
 using OemDefaultActionHint = LibHandheld.Contracts.OemControlDefaultActionHint;
-using CanonicalButtons = LibHandheld.Contracts.CanonicalButtons;
 using PhysicalDeviceIdentity = LibHandheld.Contracts.PhysicalDeviceIdentity;
 
 namespace WSGM.Shell;
