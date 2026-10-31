@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,6 +10,11 @@ namespace WSGM.Core;
 ///     One session-owned RTSS service shared by every UI projection. Serializes adapter commands,
 ///     polls for the session lifetime, and projects adapter failures into shared state.
 /// </summary>
+/// <remarks>
+///     This owns the adapter, its serialization gate and the write and drift-repair rules.
+///     <see cref="PerformanceStateStore" /> holds what the session believes, and
+///     <see cref="PerformanceRefreshLoop" /> runs the shared refresh and the poll.
+/// </remarks>
 internal sealed class PerformanceService : IAsyncDisposable
 {
     // Commands and target transitions publish what they wrote. This is the readback: the external
@@ -25,35 +29,15 @@ internal sealed class PerformanceService : IAsyncDisposable
         PerformanceControl.OverlayLevel
     ];
 
-    private static readonly RtssProbe InitialProbe = new(
-        RtssAvailability.Unknown,
-        null,
-        null,
-        0,
-        null,
-        "RTSS discovery has not run.");
-
     private readonly IRtssAdapter _adapter;
     private readonly SemaphoreSlim _adapterGate = new(1, 1);
-    private readonly Dictionary<long, string> _commandProfiles = [];
     private readonly TimeSpan _commandTimeout;
     private readonly CancellationTokenSource _disposeCts = new();
     private readonly RtssLauncher _launcher;
     private readonly Func<ProfileField, int, CancellationToken, Task<ProfileSnapshot>> _persistValue;
-    private readonly Task _pollTask;
-    private readonly Lock _stateGate = new();
-    private readonly TimeProvider _timeProvider;
-    private long _commandSequence;
+    private readonly PerformanceRefreshLoop _refresh;
+    private readonly PerformanceStateStore _store;
     private bool _disposed;
-    private bool _enabled;
-    private ProfileSnapshot _profiles;
-
-    private PerformanceState? _raisedState;
-    private bool _refreshPending;
-    private bool _refreshRunning;
-    private Task _refreshTask = Task.CompletedTask;
-
-    private PerformanceState _state;
 
     /// <summary>Creates the service and starts its RTSS poll.</summary>
     /// <param name="adapter">The RTSS adapter owned and disposed by this service.</param>
@@ -77,49 +61,26 @@ internal sealed class PerformanceService : IAsyncDisposable
         _adapter = adapter ?? throw new ArgumentNullException(nameof(adapter));
         _launcher = launcher ?? throw new ArgumentNullException(nameof(launcher));
         _persistValue = persistValue ?? throw new ArgumentNullException(nameof(persistValue));
-        _profiles = profiles ?? ProfileSnapshot.Empty;
-        _enabled = enabled;
         PollInterval = pollInterval ?? DefaultPollInterval;
         _commandTimeout = commandTimeout ?? DefaultCommandTimeout;
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(PollInterval, TimeSpan.Zero, nameof(pollInterval));
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(_commandTimeout, TimeSpan.Zero, nameof(commandTimeout));
-        _timeProvider = timeProvider ?? TimeProvider.System;
-        _state = WithResolvedDesired(new PerformanceState(
-            InitialProbe,
-            TargetFor(_profiles.Active),
-            false,
-            ProfileSource.None,
-            ProfileSource.None,
-            PerformanceValues.Empty,
-            PerformanceValues.Empty,
-            null,
-            PerformanceCommandState.Idle));
-        _pollTask = Task.Run(PollAsync);
+        var clock = timeProvider ?? TimeProvider.System;
+        _store = new PerformanceStateStore(profiles ?? ProfileSnapshot.Empty, enabled, clock);
+        _refresh = new PerformanceRefreshLoop(
+            RefreshCoreAsync,
+            RefreshFailed,
+            PollInterval,
+            clock,
+            _disposeCts.Token);
+        _refresh.StartPolling();
     }
 
     /// <summary>Latest immutable state snapshot, safe to read across threads.</summary>
-    internal PerformanceState Current
-    {
-        get
-        {
-            lock (_stateGate)
-            {
-                return _state;
-            }
-        }
-    }
+    internal PerformanceState Current => _store.Current;
 
     /// <summary>Whether the session currently permits RTSS control.</summary>
-    internal bool Enabled
-    {
-        get
-        {
-            lock (_stateGate)
-            {
-                return _enabled;
-            }
-        }
-    }
+    internal bool Enabled => _store.Enabled;
 
     /// <summary>Interval between background availability and drift checks.</summary>
     internal TimeSpan PollInterval { get; }
@@ -133,23 +94,18 @@ internal sealed class PerformanceService : IAsyncDisposable
             return;
         }
 
-        Task refresh;
-        lock (_stateGate)
+        var stopped = _refresh.Close();
+        if (stopped is null)
         {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _disposed = true;
-            refresh = _refreshTask;
+            return;
         }
 
+        _disposed = true;
         _launcher.Dispose();
         await _disposeCts.CancelAsync().ConfigureAwait(false);
         try
         {
-            await Task.WhenAll(_pollTask, refresh).WaitAsync(_commandTimeout).ConfigureAwait(false);
+            await stopped.WaitAsync(_commandTimeout).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -178,7 +134,11 @@ internal sealed class PerformanceService : IAsyncDisposable
     }
 
     /// <summary>Publishes meaningful state changes on the calling worker; UI subscribers must marshal to their dispatcher.</summary>
-    internal event Action<PerformanceState>? StateChanged;
+    internal event Action<PerformanceState>? StateChanged
+    {
+        add => _store.StateChanged += value;
+        remove => _store.StateChanged -= value;
+    }
 
     /// <summary>
     ///     Hands the Custom overlay's configuration (selector level 4) to the adapter's
@@ -233,26 +193,15 @@ internal sealed class PerformanceService : IAsyncDisposable
         await _adapterGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            lock (_stateGate)
+            if (!_store.TryApplyProfiles(
+                    profiles,
+                    enabled,
+                    _adapter.ClearOverlay,
+                    out previous,
+                    out next,
+                    out enabledNow))
             {
-                if (profiles.Generation < _profiles.Generation
-                    || (ReferenceEquals(profiles, _profiles) && enabled == _enabled))
-                {
-                    return;
-                }
-
-                previous = _state;
-                enabledNow = enabled && !_enabled;
-                _profiles = profiles;
-                _enabled = enabled;
-                _state = WithResolvedDesired(_state with { Target = TargetFor(profiles.Active) });
-                if (!enabled)
-                {
-                    _adapter.ClearOverlay();
-                    _state = _state with { Observed = _state.Observed.With(PerformanceControl.OverlayLevel, 0) };
-                }
-
-                next = _state;
+                return;
             }
         }
         finally
@@ -260,10 +209,10 @@ internal sealed class PerformanceService : IAsyncDisposable
             _adapterGate.Release();
         }
 
-        RaiseStateChanged(next);
+        _store.Raise(next);
         if (enabledNow)
         {
-            KickRefresh();
+            _refresh.Kick();
         }
 
         if (previous.Desired != next.Desired || previous.Target != next.Target
@@ -298,6 +247,14 @@ internal sealed class PerformanceService : IAsyncDisposable
             cancellationToken);
     }
 
+    /// <summary>Joins or starts the shared availability and readback refresh.</summary>
+    /// <param name="cancellationToken">Cancels only this caller's wait, not the shared refresh.</param>
+    /// <returns>A task completing when the shared refresh finishes.</returns>
+    internal Task RefreshAsync(CancellationToken cancellationToken = default)
+    {
+        return _refresh.RefreshAsync(cancellationToken);
+    }
+
     private async Task<PerformanceCommandState> SetCoreAsync(
         PerformanceControl control,
         int value,
@@ -309,24 +266,18 @@ internal sealed class PerformanceService : IAsyncDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         origin = SanitizeToken(origin, "unknown");
         correlationId = SanitizeToken(correlationId, Guid.NewGuid().ToString("N"));
-        var sequence = Interlocked.Increment(ref _commandSequence);
+        var sequence = _store.NextSequence();
 
         PerformanceCommandState Command(PerformanceCommandPhase phase, string? diagnostic = null)
         {
             return new PerformanceCommandState(sequence, origin, correlationId, control, value, phase, diagnostic);
         }
 
-        UpdateCommand(Command(PerformanceCommandPhase.Queued));
+        _store.UpdateCommand(Command(PerformanceCommandPhase.Queued));
 
-        bool enabled;
-        lock (_stateGate)
+        if (!_store.Enabled)
         {
-            enabled = _enabled;
-        }
-
-        if (!enabled)
-        {
-            return UpdateCommand(Command(
+            return _store.UpdateCommand(Command(
                 PerformanceCommandPhase.Rejected,
                 "RTSS integration is disabled."));
         }
@@ -340,7 +291,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         }
         catch (OperationCanceledException)
         {
-            return UpdateCommand(Command(
+            return _store.UpdateCommand(Command(
                 PerformanceCommandPhase.Rejected,
                 _disposeCts.IsCancellationRequested
                     ? "RTSS is stopping."
@@ -352,19 +303,14 @@ internal sealed class PerformanceService : IAsyncDisposable
             // A queued command must recheck shutdown and policy after acquiring the adapter gate.
             if (_disposed)
             {
-                return UpdateCommand(Command(
+                return _store.UpdateCommand(Command(
                     PerformanceCommandPhase.Rejected,
                     "RTSS is stopping."));
             }
 
-            lock (_stateGate)
+            if (!_store.Enabled)
             {
-                enabled = _enabled;
-            }
-
-            if (!enabled)
-            {
-                return UpdateCommand(Command(
+                return _store.UpdateCommand(Command(
                     PerformanceCommandPhase.Rejected,
                     "RTSS integration was switched off while the command was queued."));
             }
@@ -389,78 +335,10 @@ internal sealed class PerformanceService : IAsyncDisposable
         }
     }
 
-    /// <summary>Joins or starts the shared availability and readback refresh.</summary>
-    /// <param name="cancellationToken">Cancels only this caller's wait, not the shared refresh.</param>
-    /// <returns>A task completing when the shared refresh finishes.</returns>
-    internal Task RefreshAsync(CancellationToken cancellationToken = default)
+    private void RefreshFailed(Exception ex)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        return StartRefresh().WaitAsync(cancellationToken);
-    }
-
-    private void KickRefresh()
-    {
-        lock (_stateGate)
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            if (_refreshRunning)
-            {
-                _refreshPending = true;
-            }
-
-            StartRefresh();
-        }
-    }
-
-    private Task StartRefresh()
-    {
-        lock (_stateGate)
-        {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            if (!_refreshRunning)
-            {
-                _refreshRunning = true;
-                _refreshTask = Task.Run(async () =>
-                {
-                    while (true)
-                    {
-                        try
-                        {
-                            await RefreshCoreAsync(_disposeCts.Token).ConfigureAwait(false);
-                        }
-                        catch (OperationCanceledException) when (_disposeCts.IsCancellationRequested)
-                        {
-                            // Session shutdown closes refresh admission before canceling its work.
-                        }
-                        catch (Exception ex)
-                        {
-                            if (!_disposed)
-                            {
-                                Log.Error("RTSS refresh failed", ex);
-                                MarkDegraded(ex.Message);
-                            }
-                        }
-
-                        lock (_stateGate)
-                        {
-                            if (_disposed || !_refreshPending)
-                            {
-                                _refreshRunning = false;
-                                return;
-                            }
-
-                            _refreshPending = false;
-                        }
-                    }
-                });
-            }
-
-            return _refreshTask;
-        }
+        Log.Error("RTSS refresh failed", ex);
+        _store.MarkDegraded(ex.Message);
     }
 
     private async Task RefreshCoreAsync(CancellationToken cancellationToken)
@@ -481,7 +359,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             _adapterGate.Release();
         }
 
-        _launcher.Watch(Current.Probe, KickRefresh);
+        _launcher.Watch(Current.Probe, _refresh.Kick);
 
         // Starting RTSS can wait up to ten seconds for its tray process. Keep that settle outside
         // the adapter gate so UI commands can still observe and report the unavailable state.
@@ -489,7 +367,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         {
             await _launcher.TryStartAsync(launchProbe, Enabled, admission.Token, RefreshStartedRtssAsync)
                 .ConfigureAwait(false);
-            _launcher.Watch(Current.Probe, KickRefresh);
+            _launcher.Watch(Current.Probe, _refresh.Kick);
         }
 
         // Also outside the gate, and for the same reason: the repair is an ordinary command and
@@ -576,15 +454,15 @@ internal sealed class PerformanceService : IAsyncDisposable
             return new PerformanceCommandState(sequence, origin, correlationId, control, value, phase, diagnostic);
         }
 
-        UpdateCommand(Command(PerformanceCommandPhase.Applying));
+        _store.UpdateCommand(Command(PerformanceCommandPhase.Applying));
 
         try
         {
             var probe = await _adapter.ProbeAsync(boundedCancellation).ConfigureAwait(false);
-            UpdateProbe(probe);
+            _store.PublishProbe(probe);
             if (probe.Availability != RtssAvailability.Ready || probe.Capabilities is null)
             {
-                return UpdateCommand(Command(
+                return _store.UpdateCommand(Command(
                     PerformanceCommandPhase.Rejected,
                     probe.Diagnostic ?? "RTSS is unavailable."));
             }
@@ -592,7 +470,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             if (!probe.Capabilities.Supports(control)
                 || !probe.Capabilities.IsValid(control, value))
             {
-                return UpdateCommand(Command(
+                return _store.UpdateCommand(Command(
                     PerformanceCommandPhase.Rejected,
                     "The requested value is outside the adapter's verified bounds."));
             }
@@ -617,48 +495,34 @@ internal sealed class PerformanceService : IAsyncDisposable
                 catch (Exception ex)
                 {
                     Log.Error("Persisting the RTSS profile value failed", ex);
-                    return UpdateCommand(Command(
+                    return _store.UpdateCommand(Command(
                         PerformanceCommandPhase.Failed,
                         ex is ArgumentException or InvalidOperationException
                             ? ex.Message
                             : "The performance preference could not be persisted."));
                 }
 
-                lock (_stateGate)
-                {
-                    if (saved.Generation >= _profiles.Generation)
-                    {
-                        _profiles = saved;
-                        _state = WithResolvedDesired(_state with { Target = TargetFor(saved.Active) });
-                    }
-                }
+                _store.AcceptSaved(saved);
             }
 
-            PerformanceApplicationTarget? target;
-            bool applicationOptedIn;
-            lock (_stateGate)
-            {
-                target = _state.Target;
-                applicationOptedIn = _profiles.EditsGame;
-            }
+            var (target, applicationOptedIn) = _store.CommandTarget();
 
             // Avoid creating per-executable profiles without opt-in. Existing profiles still need
             // updating because their explicit values override the global profile.
             var profile = EffectiveRtssProfile(target, applicationOptedIn);
-            lock (_stateGate)
-            {
-                _commandProfiles[sequence] = target is null
+            _store.RecordCommandProfile(
+                sequence,
+                target is null
                     ? string.Empty
                     : target.RtssProfileName is null
                         ? $"pending application {target.ApplicationId}"
-                        : profile;
-            }
+                        : profile);
 
-            RaiseStateChanged(Current);
+            _store.Raise(Current);
 
             if (control == PerformanceControl.FrameLimit && target is { RtssProfileName: null or "" })
             {
-                return UpdateCommand(Command(
+                return _store.UpdateCommand(Command(
                     PerformanceCommandPhase.Deferred,
                     "The application preference was saved and will apply when its foreground "
                     + "executable is known."));
@@ -672,17 +536,17 @@ internal sealed class PerformanceService : IAsyncDisposable
                 boundedCancellation).ConfigureAwait(false);
             if (!applied.Applied)
             {
-                return UpdateCommand(Command(
+                return _store.UpdateCommand(Command(
                     PerformanceCommandPhase.Rejected,
                     applied.Diagnostic ?? "RTSS rejected the profile update."));
             }
 
-            PublishWritten(control, value);
-            return UpdateCommand(Command(PerformanceCommandPhase.Applied));
+            _store.PublishWritten(control, value);
+            return _store.UpdateCommand(Command(PerformanceCommandPhase.Applied));
         }
         catch (OperationCanceledException)
         {
-            return UpdateCommand(Command(
+            return _store.UpdateCommand(Command(
                 PerformanceCommandPhase.Failed,
                 callerCancellation.IsCancellationRequested
                     ? "The caller cancelled after RTSS command processing began."
@@ -691,8 +555,8 @@ internal sealed class PerformanceService : IAsyncDisposable
         catch (Exception ex)
         {
             Log.Error("RTSS performance command failed", ex);
-            MarkDegraded(ex.Message);
-            return UpdateCommand(Command(PerformanceCommandPhase.Failed, ex.Message));
+            _store.MarkDegraded(ex.Message);
+            return _store.UpdateCommand(Command(PerformanceCommandPhase.Failed, ex.Message));
         }
     }
 
@@ -724,61 +588,17 @@ internal sealed class PerformanceService : IAsyncDisposable
         }
     }
 
-    private async Task PollAsync()
-    {
-        var cancellationToken = _disposeCts.Token;
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            try
-            {
-                await RefreshAsync(cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                Log.Error("RTSS refresh failed", ex);
-                MarkDegraded(ex.Message);
-            }
-
-            await Task.Delay(PollInterval, _timeProvider, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
     private async Task<RtssProbe?> RefreshInsideGateAsync(CancellationToken cancellationToken)
     {
         var probe = await _adapter.ProbeAsync(cancellationToken).ConfigureAwait(false);
         if (probe.Availability != RtssAvailability.Ready || probe.Capabilities is null)
         {
-            PerformanceState unavailable;
-            RtssProbe previousProbe;
-            lock (_stateGate)
-            {
-                previousProbe = _state.Probe;
-                _state = WithResolvedDesired(_state with
-                {
-                    Probe = probe,
-                    Observed = PerformanceValues.Empty,
-                    OverlayPresentationEnabled = null,
-                    RefreshedAt = _timeProvider.GetUtcNow()
-                });
-                unavailable = _state;
-            }
-
-            LogProbeChange(previousProbe, probe);
-            RaiseStateChanged(unavailable);
-
+            _store.PublishUnavailable(probe);
             return probe;
         }
 
         var target = Current.Target;
-        bool applicationOptedIn;
-        lock (_stateGate)
-        {
-            applicationOptedIn = _profiles.EditsGame;
-        }
+        var applicationOptedIn = _store.ApplicationOptedIn;
 
         // The same profile-selection rule as the apply path, so readback observes the profile the
         // writes actually target instead of reporting a phantom external change against a
@@ -792,7 +612,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             readback = readback with { Values = readback.Values with { FrameLimit = null } };
         }
 
-        UpdateReadback(probe, readback);
+        _store.PublishReadback(probe, readback);
         return null;
     }
 
@@ -810,267 +630,6 @@ internal sealed class PerformanceService : IAsyncDisposable
         }
 
         return applicationOptedIn || _adapter.ProfileExists(name) ? name : string.Empty;
-    }
-
-    private void UpdateReadback(RtssProbe probe, RtssReadback readback)
-    {
-        PerformanceState next;
-        lock (_stateGate)
-        {
-            var changed = _state.RefreshedAt is not null
-                          && _state.Observed != readback.Values
-                          && _state.Command.Phase is not PerformanceCommandPhase.Applying
-                              and not PerformanceCommandPhase.Queued;
-            var command = changed
-                ? new PerformanceCommandState(
-                    Interlocked.Increment(ref _commandSequence),
-                    "external",
-                    "rtss-external-change",
-                    ChangedControl(_state.Observed, readback.Values),
-                    null,
-                    PerformanceCommandPhase.ExternalChange,
-                    "RTSS state changed outside WSGM.")
-                : _state.Command;
-            _state = WithResolvedDesired(_state with
-            {
-                Probe = probe,
-                Observed = readback.Values,
-                OverlayPresentationEnabled = readback.OverlayPresentationEnabled,
-                RefreshedAt = readback.Timestamp,
-                Command = command
-            });
-            next = _state;
-        }
-
-        RaiseStateChanged(next);
-    }
-
-    private void PublishWritten(PerformanceControl control, int value)
-    {
-        PerformanceState next;
-        lock (_stateGate)
-        {
-            _state = _state with
-            {
-                Observed = _state.Observed.With(control, value),
-                OverlayPresentationEnabled = control == PerformanceControl.OverlayLevel
-                    ? value > 0 ? true : null
-                    : _state.OverlayPresentationEnabled,
-                RefreshedAt = _timeProvider.GetUtcNow()
-            };
-            next = _state;
-        }
-
-        RaiseStateChanged(next);
-    }
-
-    private void UpdateProbe(RtssProbe probe)
-    {
-        PerformanceState next;
-        RtssProbe previous;
-        lock (_stateGate)
-        {
-            previous = _state.Probe;
-            _state = _state with { Probe = probe };
-            next = _state;
-        }
-
-        LogProbeChange(previous, probe);
-        RaiseStateChanged(next);
-    }
-
-    /// <summary>Logs an RTSS probe result when it changes.</summary>
-    /// <param name="previous">The probe this replaces.</param>
-    /// <param name="probe">The new probe.</param>
-    /// <remarks>
-    ///     The probe runs on every poll, so only transitions are logged. Each transition includes the
-    ///     availability and diagnostic needed for remote RTSS diagnosis.
-    /// </remarks>
-    private static void LogProbeChange(RtssProbe previous, RtssProbe probe)
-    {
-        if (previous.Availability == probe.Availability
-            && string.Equals(previous.Diagnostic, probe.Diagnostic, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        var version = string.IsNullOrWhiteSpace(probe.Version) ? "unknown" : probe.Version;
-        var detail = string.IsNullOrWhiteSpace(probe.Diagnostic)
-            ? string.Empty
-            : $" - {probe.Diagnostic}";
-        var line = $"RTSS: {probe.Availability}, version {version}{detail}";
-        if (probe.Availability is RtssAvailability.Ready)
-        {
-            Log.Info(line);
-        }
-        else
-        {
-            Log.Warn(line);
-        }
-    }
-
-    private void MarkDegraded(string diagnostic)
-    {
-        PerformanceState next;
-        lock (_stateGate)
-        {
-            _state = _state with
-            {
-                Probe = _state.Probe with
-                {
-                    Availability = RtssAvailability.Degraded,
-                    Diagnostic = diagnostic
-                }
-            };
-            next = _state;
-        }
-
-        RaiseStateChanged(next);
-    }
-
-    private PerformanceCommandState UpdateCommand(PerformanceCommandState command)
-    {
-        PerformanceState next;
-        string? appliedProfile;
-        lock (_stateGate)
-        {
-            command = UpdateCommandLocked(command);
-            next = _state;
-            _commandProfiles.TryGetValue(command.Sequence, out appliedProfile);
-            if (command.Phase is not (PerformanceCommandPhase.Queued
-                or PerformanceCommandPhase.Applying))
-            {
-                _commandProfiles.Remove(command.Sequence);
-            }
-        }
-
-        LogCommandOutcome(command, next, appliedProfile);
-        RaiseStateChanged(next);
-        return command;
-    }
-
-    /// <summary>Records what one RTSS write actually did.</summary>
-    /// <param name="command">The command that reached a terminal phase.</param>
-    /// <param name="state">The state it left behind, for the profile it was written to.</param>
-    /// <param name="appliedProfile">RTSS profile the command targeted.</param>
-    /// <remarks>
-    ///     Every terminal outcome is recorded through <see cref="Log.Change" /> keyed per control. The
-    ///     profile is included because global and per-application writes target different RTSS files,
-    ///     and the origin because a value nobody meant to set is otherwise unattributable — a stray
-    ///     12 FPS cap took a whole evening to place, and the log could not say whether the overlay
-    ///     slider, the Quick Access row or a profile reload had written it.
-    /// </remarks>
-    private static void LogCommandOutcome(
-        PerformanceCommandState command,
-        PerformanceState state,
-        string? appliedProfile)
-    {
-        if (command.Phase
-            is PerformanceCommandPhase.Idle
-            or PerformanceCommandPhase.Queued
-            or PerformanceCommandPhase.Applying)
-        {
-            return;
-        }
-
-        var profile = appliedProfile is not null
-            ? string.IsNullOrWhiteSpace(appliedProfile) ? "the global profile" : appliedProfile
-            : string.IsNullOrWhiteSpace(state.Target?.RtssProfileName)
-                ? "the global profile"
-                : state.Target!.RtssProfileName;
-        var detail = string.IsNullOrWhiteSpace(command.Diagnostic)
-            ? string.Empty
-            : $" — {command.Diagnostic}";
-        var succeeded = command.Phase
-            is PerformanceCommandPhase.Deferred
-            or PerformanceCommandPhase.Applied;
-        Log.Change(
-            $"rtss.command.{command.Control}",
-            $"RTSS {command.Control}={command.RequestedValue?.ToString() ?? "none"} on {profile} "
-            + $"from {command.Origin}: {command.Phase}{detail}",
-            succeeded ? LogLevel.Info : LogLevel.Warn);
-    }
-
-    private PerformanceCommandState UpdateCommandLocked(PerformanceCommandState command)
-    {
-        if (command.Sequence >= _state.Command.Sequence)
-        {
-            _state = _state with { Command = command };
-        }
-
-        return command;
-    }
-
-    private PerformanceState WithResolvedDesired(PerformanceState state)
-    {
-        if (!_enabled)
-        {
-            return state with
-            {
-                Desired = PerformanceValues.Empty,
-                ApplicationProfileEnabled = false,
-                FrameLimitLayer = ProfileSource.None,
-                OverlayLevelLayer = ProfileSource.None
-            };
-        }
-
-        var layers = _profiles.Layers;
-        var frameLimit = layers.Value(values => values.FrameLimit);
-        var overlayLevel = layers.Value(values => values.OverlayLevel);
-        return state with
-        {
-            Desired = new PerformanceValues(frameLimit.Value, overlayLevel.Value),
-            ApplicationProfileEnabled = _profiles.EditsGame,
-            FrameLimitLayer = frameLimit.Source,
-            OverlayLevelLayer = overlayLevel.Source
-        };
-    }
-
-    private void RaiseStateChanged(PerformanceState state)
-    {
-        // Timestamp-only refreshes do not change any subscriber's displayed state.
-        var previous = Interlocked.Exchange(ref _raisedState, state);
-        if (previous is not null && previous == state with { RefreshedAt = previous.RefreshedAt })
-        {
-            return;
-        }
-
-        try
-        {
-            StateChanged?.Invoke(state);
-        }
-        catch (Exception ex)
-        {
-            Log.Error("RTSS state observer failed", ex);
-        }
-    }
-
-    private static PerformanceControl ChangedControl(PerformanceValues old, PerformanceValues current)
-    {
-        return old.FrameLimit != current.FrameLimit
-            ? PerformanceControl.FrameLimit
-            : PerformanceControl.OverlayLevel;
-    }
-
-    /// <summary>The RTSS target for the running application, or null for the global profile.</summary>
-    /// <param name="active">The running application.</param>
-    /// <returns>The target, with an invalid executable dropped.</returns>
-    internal static PerformanceApplicationTarget? TargetFor(ActiveProfile active)
-    {
-        if (!active.HasApplication)
-        {
-            return null;
-        }
-
-        var executable = active.Executable is { } name && ValidProfileName(name) ? name.Trim() : null;
-        return new PerformanceApplicationTarget(active.ApplicationId!.Trim(), active.SteamAppId, executable);
-    }
-
-    private static bool ValidProfileName(string value)
-    {
-        return !string.IsNullOrWhiteSpace(value)
-               && string.Equals(Path.GetFileName(value), value, StringComparison.Ordinal)
-               && value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string SanitizeToken(string value, string fallback)

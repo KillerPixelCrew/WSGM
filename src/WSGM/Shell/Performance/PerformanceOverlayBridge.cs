@@ -115,7 +115,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             var profiles = _profiles.Current;
             return _service.Current with
             {
-                Target = PerformanceService.TargetFor(profiles.Active),
+                Target = PerformanceApplicationTarget.For(profiles.Active),
                 ApplicationProfileEnabled = profiles.EditsGame
             };
         }

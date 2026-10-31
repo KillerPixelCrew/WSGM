@@ -11,13 +11,13 @@ internal enum RtssAvailability
     /// <summary>Discovery has not run.</summary>
     Unknown,
 
-    /// <summary>No RTSS registration was found.</summary>
+    /// <summary>The registry names no RTSS folder, or the folder has no RTSS executable.</summary>
     NotInstalled,
 
-    /// <summary>Registration, file identity, architecture, or required exports were not accepted.</summary>
+    /// <summary>The installation lacks the 64-bit profile API or is older than 7.3.</summary>
     Incompatible,
 
-    /// <summary>The verified installation has no matching running process.</summary>
+    /// <summary>The installation has no running process.</summary>
     NotRunning,
 
     /// <summary>Discovery accepted a running process; the profile API is not yet ready.</summary>
@@ -70,8 +70,8 @@ internal sealed record RtssCapabilities(
 
 /// <summary>One bounded adapter discovery result. Process identity is folded into Generation.</summary>
 /// <param name="Availability">Discovery or adapter readiness state.</param>
-/// <param name="Version">Registered RTSS version, when identified.</param>
-/// <param name="ExecutablePath">Verified candidate executable path, when identified.</param>
+/// <param name="Version">Product version of the installed RTSS executable, when read.</param>
+/// <param name="ExecutablePath">The installed RTSS executable path, when the registry named a folder.</param>
 /// <param name="Generation">Process/install identity token used to reject stale requests; zero without an identity.</param>
 /// <param name="Capabilities">Verified control bounds when the adapter is ready.</param>
 /// <param name="Diagnostic">Availability explanation suitable for diagnostics.</param>

@@ -8,7 +8,7 @@ using WSGM.Interop;
 
 namespace WSGM.Core;
 
-/// <summary>Production RTSS adapter over the installed architecture-matched profile API.</summary>
+/// <summary>Production RTSS adapter over the installed 64-bit profile API.</summary>
 internal sealed class RtssNativeAdapter : IRtssAdapter
 {
     private const string FrameLimitProperty = "FramerateLimit";
@@ -80,7 +80,7 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
 
     /// <inheritdoc />
     /// <remarks>
-    ///     Discovery runs on a worker because registry, signature, file, and process inspection
+    ///     Discovery runs on a worker because registry, file-version, and process inspection
     ///     can block even when the caller acquired its serialization gate synchronously.
     /// </remarks>
     public Task<RtssProbe> ProbeAsync(CancellationToken cancellationToken)
@@ -377,9 +377,7 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
                          ?? throw new InvalidDataException("RTSS discovery returned no executable path.");
         var directory = Path.GetDirectoryName(executable)
                         ?? throw new InvalidDataException("RTSS executable has no installation directory.");
-        var library = Path.Combine(
-            directory,
-            Environment.Is64BitProcess ? "RTSSHooks64.dll" : "RTSSHooks.dll");
+        var library = Path.Combine(directory, RtssDiscovery.ProfileApiName);
         _api = new RtssProfileApi(library);
         _generation = probe.Generation;
     }

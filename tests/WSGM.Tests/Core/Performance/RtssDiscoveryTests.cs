@@ -5,7 +5,7 @@ namespace WSGM.Tests.Core;
 public sealed class RtssDiscoveryTests
 {
     [Fact]
-    public void VerifiedRegistrationApiAndProcess_AreAcceptedWithoutLoadingRtssCode()
+    public void InstalledFilesAndRunningProcess_AreAcceptedWithoutLoadingRtssCode()
     {
         var environment = FakeDiscoveryEnvironment.Valid();
 
@@ -18,7 +18,7 @@ public sealed class RtssDiscoveryTests
     }
 
     [Fact]
-    public void SimilarlyNamedProcessOutsideVerifiedInstall_IsIgnored()
+    public void SimilarlyNamedProcessOutsideInstallFolder_IsIgnored()
     {
         var environment = FakeDiscoveryEnvironment.Valid();
         environment.Processes =
@@ -36,13 +36,10 @@ public sealed class RtssDiscoveryTests
     }
 
     [Fact]
-    public void OldRegistration_IsIncompatible()
+    public void VersionOlderThan73_IsIncompatible()
     {
         var environment = FakeDiscoveryEnvironment.Valid();
-        environment.Records =
-        [
-            environment.Records[0] with { DisplayVersion = "7.2.3" }
-        ];
+        environment.Version = new Version(7, 2, 3);
 
         var probe = new RtssDiscovery(environment).Probe();
 
@@ -50,19 +47,10 @@ public sealed class RtssDiscoveryTests
     }
 
     [Fact]
-    public void MissingProfileApiExport_IsIncompatible()
+    public void MissingProfileApi_IsIncompatible()
     {
         var environment = FakeDiscoveryEnvironment.Valid();
-        environment.ApiIdentity = environment.ApiIdentity with
-        {
-            Exports = new HashSet<string>(StringComparer.Ordinal)
-            {
-                "LoadProfile",
-                "SaveProfile",
-                "GetProfileProperty",
-                "SetProfileProperty"
-            }
-        };
+        environment.Files.Remove($@"{FakeDiscoveryEnvironment.InstallRoot}\RTSSHooks64.dll");
 
         var probe = new RtssDiscovery(environment).Probe();
 
@@ -70,73 +58,45 @@ public sealed class RtssDiscoveryTests
     }
 
     [Fact]
-    public void UnprotectedRegistrationPath_IsIncompatible()
+    public void NoRegisteredFolder_IsNotInstalled()
     {
         var environment = FakeDiscoveryEnvironment.Valid();
-        environment.Records =
-        [
-            environment.Records[0] with
-            {
-                InstallLocation = @"C:\Users\player\AppData\Local\RTSS",
-                UninstallString = null,
-                DisplayIcon = null
-            }
-        ];
+        environment.InstallLocation = null;
 
         var probe = new RtssDiscovery(environment).Probe();
 
-        Assert.Equal(RtssAvailability.Incompatible, probe.Availability);
+        Assert.Equal(RtssAvailability.NotInstalled, probe.Availability);
     }
 
     private sealed class FakeDiscoveryEnvironment : IRtssDiscoveryEnvironment
     {
-        private const string InstallRoot = @"C:\Program Files (x86)\RivaTuner Statistics Server";
+        public const string InstallRoot = @"C:\Program Files (x86)\RivaTuner Statistics Server";
 
-        public IReadOnlyList<RtssInstallRecord> Records { get; set; } = [];
+        public string? InstallLocation { get; set; } = InstallRoot;
 
-        private RtssFileIdentity ExecutableIdentity { get; } = new(
-            true,
-            500_000,
-            "RTSS",
-            "7.3.5.28314",
-            false,
-            new HashSet<string>(StringComparer.Ordinal));
+        public HashSet<string> Files { get; } = new(StringComparer.OrdinalIgnoreCase)
+        {
+            $@"{InstallRoot}\RTSS.exe",
+            $@"{InstallRoot}\RTSSHooks64.dll"
+        };
 
-        public RtssFileIdentity ApiIdentity { get; set; } = new(
-            true,
-            1_400_000,
-            null,
-            null,
-            Environment.Is64BitProcess,
-            new HashSet<string>(StringComparer.Ordinal)
-            {
-                "LoadProfile",
-                "SaveProfile",
-                "GetProfileProperty",
-                "SetProfileProperty",
-                "UpdateProfiles"
-            });
+        public Version Version { get; set; } = new(7, 3, 7);
 
         public IReadOnlyList<RtssProcessIdentity> Processes { get; set; } = [];
 
-        public IReadOnlyList<string> ProtectedInstallRoots { get; } =
-        [
-            @"C:\Program Files",
-            @"C:\Program Files (x86)"
-        ];
-
-        public IReadOnlyList<RtssInstallRecord> ReadInstallRecords()
+        public string? ReadInstallLocation()
         {
-            return Records;
+            return InstallLocation;
         }
 
-        public RtssFileIdentity ReadFileIdentity(string path)
+        public bool FileExists(string path)
         {
-            return path.EndsWith(
-                Environment.Is64BitProcess ? "RTSSHooks64.dll" : "RTSSHooks.dll",
-                StringComparison.OrdinalIgnoreCase)
-                ? ApiIdentity
-                : ExecutableIdentity;
+            return Files.Contains(path);
+        }
+
+        public Version ReadProductVersion(string path)
+        {
+            return Version;
         }
 
         public IReadOnlyList<RtssProcessIdentity> ReadProcesses()
@@ -148,21 +108,11 @@ public sealed class RtssDiscoveryTests
         {
             return new FakeDiscoveryEnvironment
             {
-                Records =
-                [
-                    new RtssInstallRecord(
-                        "RivaTuner Statistics Server 7.3.7",
-                        "7.3.7",
-                        "Unwinder",
-                        string.Empty,
-                        $"\"{InstallRoot}\\uninstall.exe\"",
-                        $"\"{InstallRoot}\\uninstall.exe\"")
-                ],
                 Processes =
                 [
                     new RtssProcessIdentity(
                         321,
-                        $"{InstallRoot}\\RTSS.exe",
+                        $@"{InstallRoot}\RTSS.exe",
                         DateTimeOffset.UnixEpoch)
                 ]
             };

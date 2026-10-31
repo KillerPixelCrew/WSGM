@@ -230,7 +230,7 @@ public sealed class AutoTdpControllerTests
         var controller = Started(15);
         Run(controller, DwellWindows, Fast);
 
-        var decisions = Run(controller, AutoTdpController.SettleWindows + AutoTdpController.ProbeWindows, Fast);
+        var decisions = Run(controller, AutoTdpController.SettleWindows + AutoTdpProbeTrial.Windows, Fast);
 
         Assert.Equal("probe-accepted", decisions[^1].Reason);
         Assert.Equal(AutoTdpPhase.Tracking, controller.Phase);
@@ -267,7 +267,7 @@ public sealed class AutoTdpControllerTests
         Run(controller, AutoTdpController.SettleWindows, Fast);
 
         Run(controller, 1, Late);
-        var decisions = Run(controller, AutoTdpController.ProbeWindows - 1, Fast);
+        var decisions = Run(controller, AutoTdpProbeTrial.Windows - 1, Fast);
 
         Assert.Equal("probe-accepted", decisions[^1].Reason);
         Assert.Equal(13, controller.Watts);
@@ -343,7 +343,7 @@ public sealed class AutoTdpControllerTests
     {
         var controller = Started(24);
         Run(controller, DwellWindows, Capped, 50.0);
-        Run(controller, AutoTdpController.SettleWindows + AutoTdpController.ProbeWindows, Capped, 52.0);
+        Run(controller, AutoTdpController.SettleWindows + AutoTdpProbeTrial.Windows, Capped, 52.0);
 
         var next = Run(controller, 1, Capped, 52.0);
 
@@ -356,12 +356,12 @@ public sealed class AutoTdpControllerTests
     {
         var controller = Started(24);
         Run(controller, DwellWindows, Capped, 50.0);
-        Run(controller, AutoTdpController.SettleWindows + AutoTdpController.ProbeWindows, Capped, 50.0);
+        Run(controller, AutoTdpController.SettleWindows + AutoTdpProbeTrial.Windows, Capped, 50.0);
         Run(controller, 1, Capped, 50.0);
 
         // The two-step probe held its frames, but the GPU worked 15 points harder for them. The
         // next step halves instead of doubling.
-        Run(controller, AutoTdpController.SettleWindows + AutoTdpController.ProbeWindows, Capped, 65.0);
+        Run(controller, AutoTdpController.SettleWindows + AutoTdpProbeTrial.Windows, Capped, 65.0);
         var next = Run(controller, 1, Capped, 65.0);
 
         Assert.Equal(AutoTdpAction.Probe, next[^1].Action);
@@ -373,10 +373,10 @@ public sealed class AutoTdpControllerTests
     {
         var controller = Started(24);
         Run(controller, WithCpu(DwellWindows, 40.0));
-        Run(controller, WithCpu(AutoTdpController.SettleWindows + AutoTdpController.ProbeWindows, 40.0));
+        Run(controller, WithCpu(AutoTdpController.SettleWindows + AutoTdpProbeTrial.Windows, 40.0));
         Run(controller, WithCpu(1, 40.0));
 
-        Run(controller, WithCpu(AutoTdpController.SettleWindows + AutoTdpController.ProbeWindows, 55.0));
+        Run(controller, WithCpu(AutoTdpController.SettleWindows + AutoTdpProbeTrial.Windows, 55.0));
         var next = Run(controller, WithCpu(1, 55.0));
 
         Assert.Equal(AutoTdpAction.Probe, next[^1].Action);
@@ -388,7 +388,7 @@ public sealed class AutoTdpControllerTests
     {
         var controller = Started(24);
         Run(controller, DwellWindows, Capped);
-        Run(controller, AutoTdpController.SettleWindows + AutoTdpController.ProbeWindows, Capped);
+        Run(controller, AutoTdpController.SettleWindows + AutoTdpProbeTrial.Windows, Capped);
         Run(controller, 1, Capped);
         Run(controller, AutoTdpController.SettleWindows, Capped);
 
@@ -408,7 +408,7 @@ public sealed class AutoTdpControllerTests
     {
         var controller = Started(20);
         Run(controller, DwellWindows, Capped);
-        Run(controller, AutoTdpController.SettleWindows + AutoTdpController.ProbeWindows, Capped);
+        Run(controller, AutoTdpController.SettleWindows + AutoTdpProbeTrial.Windows, Capped);
 
         Run(controller, 1, Late);
         var decisions = Run(controller, DwellWindows - 1, Capped);

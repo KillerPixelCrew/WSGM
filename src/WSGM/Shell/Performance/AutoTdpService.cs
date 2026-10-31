@@ -1,9 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
-using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
@@ -12,88 +9,16 @@ using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Shell;
 
-/// <summary>Truthful state of AutoTDP for the overlay, native QAM, and diagnostics.</summary>
-internal enum AutoTdpState
-{
-    /// <summary>The user has not enabled AutoTDP.</summary>
-    Off,
-
-    /// <summary>Enabled, but a prerequisite is missing.</summary>
-    Unavailable,
-
-    /// <summary>Enabled and waiting for a foreground application to render.</summary>
-    Idle,
-
-    /// <summary>Actively controlling the power limit.</summary>
-    Controlling,
-
-    /// <summary>Suspended because the power limit was changed by hand.</summary>
-    Paused
-}
-
-/// <summary>The complete AutoTDP projection.</summary>
-/// <param name="State">Whether automatic control is off, unavailable, idle, controlling or manually paused.</param>
-/// <param name="Watts">
-///     Reported power limit in watts, or null; may be a controller estimate or fallback rather than
-///     hardware readback.
-/// </param>
-/// <param name="FrametimeMs">Mean frame time of the selected RTSS sample in milliseconds, or null without a sample.</param>
-/// <param name="TargetFrametimeMs">Frame delivery deadline in milliseconds, or null when this state has no active target.</param>
-/// <param name="ApplicationId">Canonical application identity associated with the projection, or null when unresolved.</param>
-/// <param name="Detail">Displayable reason for the state or controller decision.</param>
-/// <param name="Action">Controller decision represented by this update, or null for a status-only update.</param>
-internal sealed record AutoTdpStatus(
-    AutoTdpState State,
-    int? Watts,
-    double? FrametimeMs,
-    double? TargetFrametimeMs,
-    string? ApplicationId,
-    string Detail,
-    AutoTdpAction? Action = null);
-
-/// <summary>Shared admission state for AutoTDP commands and every UI projection.</summary>
-/// <param name="Available">Whether writable primary and required paired power limits are present.</param>
-/// <param name="Detail">Reason admission is unavailable; empty when available.</param>
-/// <param name="TargetFrametimeMs">
-///     The deadline control judges against, from AutoTDP's own target and any lower active frame limit,
-///     even if power is unavailable; null without a usable target.
-/// </param>
-internal sealed record AutoTdpAvailability(bool Available, string Detail, double? TargetFrametimeMs);
-
-/// <summary>AutoTDP's frame-rate target as the overlay and Quick Access both draw it.</summary>
-/// <param name="Fps">The resolved profile target, or the default when no layer sets one.</param>
-/// <param name="EffectiveFps">The rate control aims for, lower than <paramref name="Fps" /> under a lower frame limit.</param>
-/// <param name="GameOverride">Whether the running game's profile supplies the target.</param>
-internal sealed record AutoTdpTargetView(int Fps, int EffectiveFps, bool GameOverride)
-{
-    /// <summary>The line under the slider: what the target does, or the frame limit holding it lower.</summary>
-    internal string Description => EffectiveFps < Fps
-        ? string.Create(CultureInfo.InvariantCulture, $"Held to the {EffectiveFps} FPS frame limit.")
-        : "Power drops until the game runs just above this rate.";
-
-    /// <summary>Resolves the target through the profile layers and the service's current deadline.</summary>
-    /// <param name="layers">The profile layers in force.</param>
-    /// <param name="availability">The service's admission state, whose deadline includes a lower frame limit.</param>
-    /// <returns>The view.</returns>
-    internal static AutoTdpTargetView Resolve(ProfileLayers layers, AutoTdpAvailability? availability)
-    {
-        var stored = layers.Value(values => values.AutoTdpTargetFps);
-        var fps = AutoTdpTarget.EffectiveFps(stored.Value, null);
-        var effective = availability?.TargetFrametimeMs is > 0 and { } deadline
-            ? Math.Min(fps, (int)Math.Round(1000d / deadline))
-            : fps;
-        return new AutoTdpTargetView(fps, effective, stored.IsGameOverride);
-    }
-}
-
 /// <summary>
 ///     The one AutoTDP session service.
 /// </summary>
 /// <remarks>
 ///     A thin binding around <see cref="AutoTdpController" />: it decides nothing itself, so the whole
 ///     control policy stays replayable from a recorded trace without a device. What lives here is the
-///     plumbing the controller must not know about — which application is in front, which capability is
-///     the primary power limit, and the rule that only one power write may be in flight.
+///     plumbing the controller must not know about — which application is in front, the enable
+///     generation and its stop order, and the rule that only one power write may be in flight.
+///     <see cref="AutoTdpTelemetry" /> reads what the controller judges, <see cref="AutoTdpPowerCapability" />
+///     finds the limits it writes, and <see cref="AutoTdpRestoreObligation" /> keeps the limit it must hand back.
 ///     <para>
 ///         Every prerequisite is optional and checked each tick. No RTSS, no plugin, no power capability, or
 ///         no rendering application simply means AutoTDP holds; none of them is an error, and none of them
@@ -109,15 +34,14 @@ internal sealed class AutoTdpService : IAsyncDisposable
     /// </remarks>
     private static readonly TimeSpan Window = TimeSpan.FromSeconds(1);
 
-    private readonly Func<IReadOnlyList<DeviceCapabilityView>> _capabilities;
     private readonly AutoTdpController _controller = new();
-
-    private readonly IFrametimeSource _frametimes;
     private readonly Lock _gate = new();
-    private readonly Func<RtssOsdMetrics>? _metrics;
+    private readonly AutoTdpPowerCapability _power;
+    private readonly AutoTdpRestoreObligation _restore = new();
     private readonly CancellationTokenSource _shutdown = new();
     private readonly long _startTimestamp = Stopwatch.GetTimestamp();
     private readonly Func<double> _targetFrametimeMs;
+    private readonly AutoTdpTelemetry _telemetry;
     private readonly AutoTdpTraceRecorder? _trace;
     private readonly SemaphoreSlim _write = new(1, 1);
 
@@ -131,21 +55,24 @@ internal sealed class AutoTdpService : IAsyncDisposable
     private bool _enabled;
     private CancellationTokenSource? _generation;
     private Task<bool> _lastStop = Task.FromResult(true);
-    private bool _powerMayDiffer;
 
     // What the last prerequisite refresh reported. The refresh runs on every tick and every
     // performance poll, and its subscribers rebuild Steam and OSD state, so it raises only when
     // availability or the enabled flag moved.
     private AutoTdpAvailability? _reportedAvailability;
     private bool _reportedEnabled;
-    private DeviceCapabilityView? _restorePair;
-    private int? _restoreTo;
-    private bool _restoreUnavailableLogged;
     private bool _resync;
     private RunningApplicationTargetSnapshot? _running;
 
     private Task _worker = Task.CompletedTask;
 
+    /// <summary>Creates the service; control starts only when <see cref="Apply" /> enables it.</summary>
+    /// <param name="frametimes">The RTSS frame-time source; its owner disposes it after <see cref="Completion" />.</param>
+    /// <param name="capabilities">The device's current capability views.</param>
+    /// <param name="writeAsync">Writes one capability value through the device's power lane.</param>
+    /// <param name="targetFrametimeMs">The deadline control judges against.</param>
+    /// <param name="trace">The trace recorder, or null for none; its owner disposes it.</param>
+    /// <param name="metrics">The shared sensor sample, or null when no provider is published.</param>
     internal AutoTdpService(
         IFrametimeSource frametimes,
         Func<IReadOnlyList<DeviceCapabilityView>> capabilities,
@@ -158,12 +85,11 @@ internal sealed class AutoTdpService : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(capabilities);
         ArgumentNullException.ThrowIfNull(writeAsync);
         ArgumentNullException.ThrowIfNull(targetFrametimeMs);
-        _frametimes = frametimes;
-        _capabilities = capabilities;
+        _telemetry = new AutoTdpTelemetry(frametimes, metrics);
+        _power = new AutoTdpPowerCapability(capabilities);
         _writeAsync = writeAsync;
         _targetFrametimeMs = targetFrametimeMs;
         _trace = trace;
-        _metrics = metrics;
     }
 
     /// <summary>Current projection.</summary>
@@ -178,6 +104,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     /// <summary>Whether automatic control is currently enabled for this session.</summary>
     internal bool Enabled => Volatile.Read(ref _enabled);
 
+    /// <summary>Whether AutoTDP currently owns the power limit: enabled and not paused by a manual change.</summary>
     internal bool OwnsPower
     {
         get
@@ -189,28 +116,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
         }
     }
 
-    internal AutoTdpAvailability Availability
-    {
-        get
-        {
-            var target = _targetFrametimeMs();
-            if (!double.IsFinite(target) || target <= 0)
-            {
-                return new AutoTdpAvailability(false, "No frame-rate target is set.", null);
-            }
-
-            var power = FindPowerCapability();
-            if (power?.Descriptor.PairedPowerLimitId is not null
-                && !CanWrite(FindPairedPower(power)))
-            {
-                return new AutoTdpAvailability(false, "The paired power limit is unavailable.", target);
-            }
-
-            return CanWrite(power)
-                ? new AutoTdpAvailability(true, string.Empty, target)
-                : new AutoTdpAvailability(false, "No primary power limit is available.", target);
-        }
-    }
+    /// <summary>The shared admission state for the current deadline and power limits.</summary>
+    internal AutoTdpAvailability Availability => _power.Availability(_targetFrametimeMs());
 
     /// <summary>The final stop, or a completed task before <see cref="StopAsync(Deadline)" /> was called.</summary>
     /// <remarks>
@@ -263,7 +170,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             int? watts;
             lock (_gate)
             {
-                watts = _restoreTo;
+                watts = _restore.Watts;
             }
 
             Log.Warn(
@@ -305,8 +212,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
         bool alreadyReported;
         lock (_gate)
         {
-            unrestored = _restoreTo;
-            alreadyReported = _restoreUnavailableLogged;
+            unrestored = _restore.Watts;
+            alreadyReported = _restore.UnavailableReported;
         }
 
         // The frame-time source and the trace belong to whoever created them, and are disposed by it
@@ -559,21 +466,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
             previousWrites = _applicationWrites;
             _applicationWrites = new CancellationTokenSource();
-            if (watts is null)
-            {
-                // The chosen profile now owns power. Restoring a numeric baseline when AutoTDP is
-                // switched off would write a limit and, on devices like the Atlas, leave that profile.
-                _restoreTo = null;
-                _restorePair = null;
-            }
-            else if (_restoreTo is not null)
-            {
-                _restoreTo = watts;
-                if (FindPowerCapability() is { } primary)
-                {
-                    _restorePair = FindPairedPower(primary);
-                }
-            }
+            _restore.FollowManualChange(watts, _power);
         }
 
         previousWrites.Cancel();
@@ -674,6 +567,9 @@ internal sealed class AutoTdpService : IAsyncDisposable
         }
     }
 
+    /// <summary>Runs one control tick: reads the window, asks the controller, and applies its decision.</summary>
+    /// <param name="cancellationToken">Cancels the AutoTDP worker or caller.</param>
+    /// <returns>A task completing when the tick and any write it dispatched finished.</returns>
     internal async Task TickAsync(CancellationToken cancellationToken)
     {
         RefreshPrerequisites();
@@ -750,7 +646,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             trace.RunningGeneration = runningGeneration;
         }
 
-        if (FindPowerCapability() is not { } power || !Availability.Available)
+        if (_power.FindPrimary() is not { } power || !Availability.Available)
         {
             Publish(
                 AutoTdpState.Unavailable,
@@ -763,17 +659,14 @@ internal sealed class AutoTdpService : IAsyncDisposable
             return;
         }
 
-        AutoTdpLimits limits = new(
-            power.Descriptor.Minimum ?? 0,
-            power.Descriptor.Maximum ?? 0,
-            power.Descriptor.Step ?? 0);
+        var limits = AutoTdpPowerCapability.Limits(power);
         if (trace is not null)
         {
-            TracePower(trace, power, limits);
+            _power.TraceBefore(trace, power, limits);
         }
 
         // Firmware without readback starts control from the ceiling until the first write lands.
-        var current = CurrentWatts(power) ?? limits.Maximum;
+        var current = AutoTdpPowerCapability.CurrentWatts(power) ?? limits.Maximum;
         if (!limits.IsUsable)
         {
             Publish(
@@ -787,13 +680,13 @@ internal sealed class AutoTdpService : IAsyncDisposable
             return;
         }
 
-        var frametime = SelectSample(running, trace);
+        var frametime = _telemetry.SelectSample(running, trace);
         var target = _targetFrametimeMs();
         trace?.TargetFrametimeMs = target;
 
         // Read once, before the decision, and hand the same sample to the trace. The controller
         // consumes GPU load, so a value read after the write would describe the wrong window.
-        var metrics = ReadMetrics();
+        var metrics = _telemetry.ReadMetrics();
         trace?.Metrics = metrics;
 
         if (frametime is null && !_controllerStarted)
@@ -810,7 +703,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             return;
         }
 
-        var context = ContextKey(running, frametime, target);
+        var context = AutoTdpTelemetry.ContextKey(running, frametime, target);
         AutoTdpDecision decision;
         bool rebased;
         bool started;
@@ -841,7 +734,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
                     elapsedMs,
                     context,
                     target,
-                    ToWindow(frametime),
+                    AutoTdpTelemetry.ToWindow(frametime),
                     metrics.GpuLoadPercent,
                     metrics.CpuLoadPercent),
                 limits);
@@ -888,7 +781,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             {
                 if (trace is not null)
                 {
-                    TracePostWrite(trace);
+                    _power.TraceAfter(trace);
                 }
             }
 
@@ -970,21 +863,12 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 // one operation: an old application can be cancelled before or after dispatch,
                 // but never in the gap between them.
                 cancellationToken.ThrowIfCancellationRequested();
-                if (restoreFrom is { } watts)
+                if (restoreFrom is { } watts && !_restore.TryCapture(watts, power, _power))
                 {
-                    if (_restoreTo is null)
-                    {
-                        _restorePair = FindPairedPower(power);
-                        if (power.Descriptor.PairedPowerLimitId is not null && !CanWrite(_restorePair))
-                        {
-                            trace?.WriteNote = "paired-unobserved";
+                    trace?.WriteNote = "paired-unobserved";
 
-                            _resync = true;
-                            return false;
-                        }
-                    }
-
-                    _restoreTo ??= watts;
+                    _resync = true;
+                    return false;
                 }
 
                 command = _writeAsync(
@@ -1013,17 +897,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             var applied = result.Outcome.IsApplied();
             lock (_gate)
             {
-                if (result.Outcome == CommandOutcome.Rejected && !_powerMayDiffer)
-                {
-                    // Rejected is the one outcome that proves nothing reached hardware. If this
-                    // was the generation's first write, there is consequently nothing to restore.
-                    _restoreTo = null;
-                    _restorePair = null;
-                }
-                else if (result.Outcome != CommandOutcome.Rejected)
-                {
-                    _powerMayDiffer = true;
-                }
+                _restore.NoteOutcome(result.Outcome);
             }
 
             trace?.WriteApplied = applied;
@@ -1046,7 +920,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             lock (_gate)
             {
                 // The call may have failed after dispatch; preserve the restore obligation.
-                _powerMayDiffer = true;
+                _restore.NoteUncertain();
             }
 
             MarkWriteUnapplied();
@@ -1069,20 +943,11 @@ internal sealed class AutoTdpService : IAsyncDisposable
     private async Task<bool> StopAsync(CancellationToken cancellationToken, AutoTdpTraceRow? trace = null)
     {
         int? restoreTo;
-        var power = FindPowerCapability();
+        var power = _power.FindPrimary();
         bool reportUnavailable;
         lock (_gate)
         {
-            restoreTo = _restoreTo;
-            reportUnavailable = restoreTo is not null && power is null && !_restoreUnavailableLogged;
-            if (power is not null)
-            {
-                _restoreUnavailableLogged = false;
-            }
-            else if (reportUnavailable)
-            {
-                _restoreUnavailableLogged = true;
-            }
+            restoreTo = _restore.BeginRestore(power is not null, out reportUnavailable);
         }
 
         if (restoreTo is not { } watts || power is null)
@@ -1101,7 +966,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
             return restoreTo is null;
         }
 
-        if (!CanWrite(power) || (_restorePair is not null && !CanWrite(FindPairedPower(power))))
+        if (!AutoTdpPowerCapability.CanWrite(power)
+            || (_restore.Pair is not null && !AutoTdpPowerCapability.CanWrite(_power.FindPaired(power))))
         {
             Publish(AutoTdpState.Off, null, null, null,
                 "AutoTDP is off; the power limit is unavailable for restoration.");
@@ -1111,7 +977,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
         if (trace is not null)
         {
             trace.PreviousWatts = _controller.Watts;
-            TracePower(trace, power, null);
+            _power.TraceBefore(trace, power, null);
         }
 
         var decision = _controller.Stop(watts);
@@ -1121,13 +987,13 @@ internal sealed class AutoTdpService : IAsyncDisposable
         // timed out, or skipped is the one message that makes the handheld's real state
         // undiagnosable from a log.
         var restored = await WriteAsync(power, decision, cancellationToken, trace: trace).ConfigureAwait(false);
-        if (restored && _restorePair is { } pair)
+        if (restored && _restore.Pair is { } pair)
         {
-            var live = FindPairedPower(power);
+            var live = _power.FindPaired(power);
             // The pair goes back to what it was last read or written as, else to what the profile asks
             // for. With neither, there is nothing to hand back and the primary limit alone is restored.
             var previous = pair.Projection.State.ObservedValue ?? pair.Projection.DesiredValue;
-            if (!CanWrite(live))
+            if (!AutoTdpPowerCapability.CanWrite(live))
             {
                 restored = false;
             }
@@ -1148,22 +1014,18 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
         if (trace is not null)
         {
-            TracePostWrite(trace);
+            _power.TraceAfter(trace);
         }
 
         lock (_gate)
         {
-            switch (restored)
+            if (!restored)
             {
-                case true when _restoreTo == watts:
-                    _restoreTo = null;
-                    _restorePair = null;
-                    _powerMayDiffer = false;
-                    _controllerStarted = false;
-                    break;
-                case false:
-                    _resync = true;
-                    break;
+                _resync = true;
+            }
+            else if (_restore.Fulfil(watts))
+            {
+                _controllerStarted = false;
             }
         }
 
@@ -1178,87 +1040,6 @@ internal sealed class AutoTdpService : IAsyncDisposable
         return restored;
     }
 
-    private DeviceCapabilityView? FindPowerCapability()
-    {
-        return _capabilities()
-            .FirstOrDefault(view =>
-                view.Descriptor is
-                {
-                    Role: CapabilityRole.PowerSustainedLimit,
-                    SupportsWrite: true,
-                    ValueKind: CapabilityValueKind.Integer
-                });
-    }
-
-    private DeviceCapabilityView? FindPairedPower(DeviceCapabilityView primary)
-    {
-        return primary.Descriptor.PairedPowerLimitId is { } id
-            ? _capabilities().FirstOrDefault(view => view.Descriptor.CapabilityId == id &&
-                                                     view.Descriptor.InstanceId is null)
-            : null;
-    }
-
-    /// <summary>Whether the limit can be commanded in this cycle.</summary>
-    /// <remarks>
-    ///     No readback, no settled uncertain result and no idle command lane: HC writes the limit and moves
-    ///     on, and waiting for any of those kept AutoTDP unavailable on the Ally for a whole session.
-    /// </remarks>
-    private static bool CanWrite(DeviceCapabilityView? view)
-    {
-        return view is not null && CapabilityFreshness.CanCommand(view.Projection.State);
-    }
-
-    /// <summary>The limit as last read or written, else the value the profile asks for.</summary>
-    private static int? CurrentWatts(DeviceCapabilityView? view)
-    {
-        return view?.Projection.State.ObservedValue?.IntegerValue ?? view?.Projection.DesiredValue?.IntegerValue;
-    }
-
-    private RtssFrametimeSample? SelectSample(RunningApplicationTargetSnapshot? running, AutoTdpTraceRow? trace)
-    {
-        var live = _frametimes.ReadLive();
-        var selected = SelectSample(running, live, out var selection);
-        if (trace is not null)
-        {
-            trace.Renderers = live.Count;
-            trace.Selection = selection;
-            trace.Frametime = selected;
-            trace.ProcessId = selected?.ProcessId;
-        }
-
-        return selected;
-    }
-
-    private static RtssFrametimeSample? SelectSample(
-        RunningApplicationTargetSnapshot? running,
-        IReadOnlyList<RtssFrametimeSample> live,
-        out string selection)
-    {
-        if (live.Count == 0)
-        {
-            selection = "none";
-            return null;
-        }
-
-        // The running-application monitor knows which executable Steam launched; RTSS knows which
-        // process is drawing. Matching them is what keeps AutoTDP from tuning power for a launcher
-        // or a background renderer that happens to be in the table.
-        if (running?.ExecutablePath is { Length: > 0 } executable
-            && live.FirstOrDefault(sample => string.Equals(
-                Path.GetFileName(sample.ExecutablePath),
-                Path.GetFileName(executable),
-                StringComparison.OrdinalIgnoreCase)) is { } matched)
-        {
-            selection = "executable";
-            return matched;
-        }
-
-        // With exactly one renderer there is nothing to confuse it with. With several and no
-        // identity, AutoTDP declines rather than guessing which one the user is playing.
-        selection = live.Count == 1 ? "only-renderer" : "ambiguous";
-        return live.Count == 1 ? live[0] : null;
-    }
-
     private static string AutoTdpTraceStatus(AutoTdpState state)
     {
         return state switch
@@ -1270,103 +1051,6 @@ internal sealed class AutoTdpService : IAsyncDisposable
             AutoTdpState.Paused => "paused",
             _ => throw new ArgumentOutOfRangeException(nameof(state))
         };
-    }
-
-    private void TracePower(AutoTdpTraceRow trace, DeviceCapabilityView power, AutoTdpLimits? limits)
-    {
-        trace.Limits = limits;
-        trace.PowerCapability = power.Descriptor.CapabilityId;
-        trace.PairedCapability = power.Descriptor.PairedPowerLimitId;
-        trace.ObservedWatts = power.Projection.State.ObservedValue?.IntegerValue;
-        trace.ObservedQuality = power.Projection.State.Quality.ToString();
-        trace.PairedObservedWatts = FindPairedPower(power)?.Projection.State.ObservedValue?.IntegerValue;
-    }
-
-    private void TracePostWrite(AutoTdpTraceRow trace)
-    {
-        if (FindPowerCapability() is not { } power)
-        {
-            return;
-        }
-
-        trace.PostObservedWatts = power.Projection.State.ObservedValue?.IntegerValue;
-        trace.PostPairedObservedWatts = FindPairedPower(power)?.Projection.State.ObservedValue?.IntegerValue;
-    }
-
-    /// <summary>Samples the sensors, never letting a failing provider stop a control decision.</summary>
-    /// <returns>What the sensor provider published, or an empty sample.</returns>
-    /// <remarks>
-    ///     Utilization is advisory: every rule that consults it is skipped when the value is absent, so
-    ///     an unavailable provider makes the controller frametime-only rather than wrong.
-    /// </remarks>
-    private RtssOsdMetrics ReadMetrics()
-    {
-        if (_metrics is null)
-        {
-            return RtssOsdMetrics.Empty;
-        }
-
-        try
-        {
-            return _metrics();
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-                                       or InvalidOperationException)
-        {
-            Log.Change("autotdp-sensors", $"AutoTDP sensors unavailable: {ex.Message}");
-            return RtssOsdMetrics.Empty;
-        }
-    }
-
-    /// <summary>The RTSS window in the shape the controller judges, or null when nothing rendered.</summary>
-    private static AutoTdpWindow? ToWindow(RtssFrametimeSample? sample)
-    {
-        return sample is null
-            ? null
-            : new AutoTdpWindow(
-                sample.WindowStartTicks,
-                sample.WindowEndTicks,
-                sample.Frames,
-                sample.MeanFrametimeMs,
-                sample.FrameTimeRaw > 0 ? sample.FrameTimeRaw / 1000d : null,
-                sample.AgeMs);
-    }
-
-    /// <summary>The application and deadline the controller's evidence belongs to.</summary>
-    /// <param name="running">The running-application snapshot, when one identified a game.</param>
-    /// <param name="sample">The RTSS renderer, used only when Steam gave no identity.</param>
-    /// <param name="targetFrametimeMs">The active deadline.</param>
-    /// <returns>The context key.</returns>
-    /// <remarks>
-    ///     The deadline is part of the identity. A session that moved a game from a 120 FPS cap to a
-    ///     60 FPS one kept one key across both, so evidence gathered for the harder problem went on
-    ///     constraining the easier one (Claw, 2026-09-26).
-    /// </remarks>
-    private static string? ContextKey(
-        RunningApplicationTargetSnapshot? running,
-        RtssFrametimeSample? sample,
-        double targetFrametimeMs)
-    {
-        string identity;
-        if (running?.ApplicationId is { Length: > 0 } application)
-        {
-            identity = application;
-        }
-        else if (sample?.ExecutablePath is { Length: > 0 } executable)
-        {
-            identity = $"process:{Path.GetFileName(executable)}";
-        }
-        else
-        {
-            // A stall long enough to retire the RTSS entry leaves an unidentified game running. The
-            // controller keeps the context it already has rather than being told the game changed,
-            // which would discard the quarantine the stall just opened.
-            return null;
-        }
-
-        return string.Create(
-            CultureInfo.InvariantCulture,
-            $"{identity}|{targetFrametimeMs:F2}ms");
     }
 
     private void Publish(
