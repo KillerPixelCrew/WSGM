@@ -164,11 +164,12 @@ public sealed class ImportStateStoreTests
     }
 
     [Fact]
-    public void SavingAnAppliedTitleSettlesItsChoiceButKeepsAFixedMatch()
+    public void SavingAnAppliedTitleRecordsItsReceiptAndKeepsTheSharedChoice()
     {
-        // The record now says what Steam has; the match is the one thing Steam keeps no trace of.
+        // Choices are device-wide intent; the account's receipt is what records what Steam now has.
         using TemporaryDirectory temporary = new();
         ImportStateStore store = new(temporary.GetPath("library-import.json"));
+        store.SetActiveAccount(7);
         store.SaveChoice(new ImportChoice
         {
             Source = "epic", Key = "Moonlit", Route = "direct", MatchProvider = "steamgriddb", MatchId = "7",
@@ -177,29 +178,32 @@ public sealed class ImportStateStoreTests
 
         store.SaveApplied(new ImportedEntry
         {
-            Source = "epic", Key = "Moonlit", AppId = 9, Name = "Moonlit", Target = "t", LaunchOptions = "o",
-            Mode = nameof(ImportMode.ControllerOnly), Route = "direct"
+            AccountId = 7, Source = "epic", Key = "Moonlit", AppId = 9, Name = "Moonlit", Target = "t",
+            LaunchOptions = "o", Mode = nameof(ImportMode.ControllerOnly), Route = "direct"
         });
 
         var choice = Assert.Single(store.Choices());
-        Assert.Equal(("7", "", 0), (choice.MatchId, choice.Route, choice.Artwork.Count));
+        Assert.Equal(("7", "direct", 1), (choice.MatchId, choice.Route, choice.Artwork.Count));
         Assert.Equal(9u, Assert.Single(store.Entries()).AppId);
     }
 
     [Fact]
-    public void SavingAnAppliedTitleWithNoFixedMatchDropsItsChoice()
+    public void ATitleAppliedInOneAccountLeavesItsChoiceForAnother()
     {
         using TemporaryDirectory temporary = new();
         ImportStateStore store = new(temporary.GetPath("library-import.json"));
+        store.SetActiveAccount(7);
         store.SaveChoice(new ImportChoice { Source = "epic", Key = "Moonlit", Route = "direct" });
 
         store.SaveApplied(new ImportedEntry
         {
-            Source = "epic", Key = "Moonlit", AppId = 9, Name = "Moonlit", Target = "t", LaunchOptions = "o",
-            Mode = nameof(ImportMode.ControllerOnly), Route = "direct"
+            AccountId = 7, Source = "epic", Key = "Moonlit", AppId = 9, Name = "Moonlit", Target = "t",
+            LaunchOptions = "o", Mode = nameof(ImportMode.ControllerOnly), Route = "direct"
         });
+        store.SetActiveAccount(8);
 
-        Assert.Empty(store.Choices());
+        Assert.Equal(0u, Assert.Single(store.Entries()).AppId);
+        Assert.Equal("direct", Assert.Single(store.Choices()).Route);
     }
 
     [Fact]
@@ -260,13 +264,17 @@ public sealed class ImportStateStoreTests
     {
         using TemporaryDirectory temporary = new();
         var path = temporary.GetPath("library-import.json");
-        new ImportStateStore(path).Save(new ImportedEntry
+        ImportStateStore store = new(path);
+        store.SetActiveAccount(7);
+        store.Save(new ImportedEntry
         {
-            Source = "xbox", Key = "A_x!App", Name = "Moonlit", AppId = 42,
+            AccountId = 7, Source = "xbox", Key = "A_x!App", Name = "Moonlit", AppId = 42,
             Target = "t", LaunchOptions = "o", Mode = nameof(ImportMode.SteamIntegration)
         });
+        ImportStateStore reloaded = new(path);
+        reloaded.SetActiveAccount(7);
 
-        var entry = Assert.Single(new ImportStateStore(path).Entries());
+        var entry = Assert.Single(reloaded.Entries());
 
         Assert.Equal(42u, entry.AppId);
         Assert.Equal(nameof(ImportMode.SteamIntegration), entry.Mode);
@@ -419,17 +427,26 @@ public sealed class ImportStateStoreTests
         using TemporaryDirectory temporary = new();
         var path = temporary.GetPath("library-import.json");
         ImportStateStore store = new(path);
+        store.SetActiveAccount(7);
 
         store.SaveCollection(new ImportedCollection
-            { Group = "epic", Id = "uc-1", Name = "Epic Games", AppIds = [5, 5, 0, 6] });
-        store.SaveCollection(new ImportedCollection { Group = "EPIC", Id = "uc-2", Name = "Epic Games", AppIds = [7] });
+            { AccountId = 7, Group = "epic", Id = "uc-1", Name = "Epic Games", AppIds = [5, 5, 0, 6] });
+        store.SaveCollection(new ImportedCollection
+            { AccountId = 7, Group = "EPIC", Id = "uc-2", Name = "Epic Games", AppIds = [7] });
 
-        var kept = Assert.Single(new ImportStateStore(path).Collections());
+        var kept = Assert.Single(Reloaded().Collections());
         Assert.Equal("uc-2", kept.Id);
         Assert.Equal([7u], kept.AppIds);
 
-        store.SaveCollection(new ImportedCollection { Group = "epic", Id = "", Name = "Epic Games" });
-        Assert.Empty(new ImportStateStore(path).Collections());
+        store.SaveCollection(new ImportedCollection { AccountId = 7, Group = "epic", Id = "", Name = "Epic Games" });
+        Assert.Empty(Reloaded().Collections());
+
+        ImportStateStore Reloaded()
+        {
+            ImportStateStore reloaded = new(path);
+            reloaded.SetActiveAccount(7);
+            return reloaded;
+        }
     }
 
     [Fact]
@@ -444,7 +461,8 @@ public sealed class ImportStateStoreTests
                                 ]}
                                 """);
 
-        var kept = Assert.Single(new ImportStateStore(path).Collections());
+        // Receipts written before accounts were recorded load as legacy ones, bounded the same way.
+        var kept = Assert.Single(new ImportStateStore(path).LegacyCollections());
 
         Assert.Equal("epic", kept.Group);
         Assert.Equal([3u], kept.AppIds);

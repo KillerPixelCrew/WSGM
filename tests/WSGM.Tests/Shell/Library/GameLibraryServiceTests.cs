@@ -186,8 +186,8 @@ public sealed class GameLibraryServiceTests
         var fields = Written(mode, multiplayer, acknowledged);
         return new ImportedEntry
         {
-            Source = "xbox", Key = Aumid, Name = "Moonlit", AppId = appId, Target = fields.Target,
-            StartDirectory = fields.StartDirectory,
+            AccountId = Harness.Account, Source = "xbox", Key = Aumid, Name = "Moonlit", AppId = appId,
+            Target = fields.Target, StartDirectory = fields.StartDirectory,
             LaunchOptions = fields.LaunchOptions, Mode = mode.ToString(), Acknowledged = acknowledged,
             ConfirmedUtc = "2026-09-24T00:00:00.0000000+00:00", OwnsProfile = ownsProfile
         };
@@ -359,12 +359,14 @@ public sealed class GameLibraryServiceTests
         using Harness harness = new();
         harness.Store.Save(new ImportedEntry
         {
-            Source = "xbox", Key = "Gone_x!App", Name = "Gone", AppId = 90, Target = "t", LaunchOptions = "o",
+            AccountId = Harness.Account, Source = "xbox", Key = "Gone_x!App", Name = "Gone", AppId = 90,
+            Target = "t", LaunchOptions = "o",
             Mode = nameof(ImportMode.ControllerOnly), ConfirmedUtc = "2026-09-24T00:00:00.0000000+00:00"
         });
         harness.Store.Save(new ImportedEntry
         {
-            Source = "xbox", Key = "Maybe_y!App", Name = "Maybe", Target = "t", LaunchOptions = "o",
+            AccountId = Harness.Account, Source = "xbox", Key = "Maybe_y!App", Name = "Maybe", Target = "t",
+            LaunchOptions = "o",
             Mode = nameof(ImportMode.ControllerOnly)
         });
         using var source = harness.Create([Game(), Game("Maybe_y!App", name: "Maybe")]);
@@ -705,8 +707,8 @@ public sealed class GameLibraryServiceTests
         var fields = ShortcutTestFields.Compose(EpicGame().CommandRoutes[0], Launcher);
         harness.Import(new ImportedEntry
         {
-            Source = "epic", Key = "Hades", Name = "Hades", AppId = 88, Target = fields.Target,
-            StartDirectory = fields.StartDirectory,
+            AccountId = Harness.Account, Source = "epic", Key = "Hades", Name = "Hades", AppId = 88,
+            Target = fields.Target, StartDirectory = fields.StartDirectory,
             LaunchOptions = fields.LaunchOptions, Mode = nameof(ImportMode.SteamIntegration), Route = "direct",
             ConfirmedUtc = "2026-09-24T00:00:00.0000000+00:00"
         });
@@ -816,7 +818,7 @@ public sealed class GameLibraryServiceTests
         using Harness harness = new();
         TaskCompletionSource<IReadOnlyList<ExistingShortcut>> held = new();
         var reads = 0;
-        harness.ReadLibrary = _ => ++reads == 1 ? Task.FromResult<IReadOnlyList<ExistingShortcut>>([]) : held.Task;
+        harness.ReadLibrary = _ => ++reads == 1 ? Task.FromResult(harness.Snapshot()) : held.Task;
         using var source = harness.Create([Game()]);
         var entry = Assert.Single((await ScannedAsync(source)).Entries);
         Assert.True((await source.ApplyAsync(CancellationToken.None)).Succeeded);
@@ -827,7 +829,7 @@ public sealed class GameLibraryServiceTests
         Assert.False((await source.SelectAsync("", "", false, CancellationToken.None)).Succeeded);
         Assert.False((await source.ExcludeAsync(entry.Id, CancellationToken.None)).Succeeded);
 
-        held.SetResult([]);
+        held.SetResult(harness.Snapshot());
         await DoneAsync(source);
     }
 
@@ -898,7 +900,7 @@ public sealed class GameLibraryServiceTests
         using Harness harness = new();
         harness.Store.Save(new ImportedEntry
         {
-            Source = "xbox", Key = Aumid, Name = "Moonlit", Target = Launcher,
+            AccountId = Harness.Account, Source = "xbox", Key = Aumid, Name = "Moonlit", Target = Launcher,
             LaunchOptions = Written(ImportMode.SteamIntegration).LaunchOptions,
             Mode = nameof(ImportMode.SteamIntegration)
         });
@@ -1016,7 +1018,7 @@ public sealed class GameLibraryServiceTests
     {
         using Harness harness = new();
         harness.Store.SaveCollection(new ImportedCollection
-            { Group = "xbox", Id = "uc-7", Name = "Xbox", AppIds = [77] });
+            { AccountId = Harness.Account, Group = "xbox", Id = "uc-7", Name = "Xbox", AppIds = [77] });
         GameLibraryConfig settings = new();
         using var source = harness.Create([Game()], settings: settings);
 
@@ -1038,8 +1040,8 @@ public sealed class GameLibraryServiceTests
         var fields = ShortcutTestFields.Compose(EpicGame().CommandRoutes[0], Launcher);
         harness.Import(new ImportedEntry
         {
-            Source = "epic", Key = "Hades", Name = "Hades", AppId = 88, Target = fields.Target,
-            StartDirectory = fields.StartDirectory,
+            AccountId = Harness.Account, Source = "epic", Key = "Hades", Name = "Hades", AppId = 88,
+            Target = fields.Target, StartDirectory = fields.StartDirectory,
             LaunchOptions = fields.LaunchOptions, Mode = nameof(ImportMode.SteamIntegration), Route = "direct",
             ConfirmedUtc = "2026-09-24T00:00:00.0000000+00:00"
         });
@@ -1065,10 +1067,10 @@ public sealed class GameLibraryServiceTests
         File.WriteAllText(romPath, "fixture ROM");
         harness.Import(Recorded(ImportMode.SteamIntegration));
         harness.Store.SaveCollection(new ImportedCollection
-            { Group = "rom-system:nes", Id = "uc-nes", Name = "NES", AppIds = [88] });
+            { AccountId = Harness.Account, Group = "rom-system:nes", Id = "uc-nes", Name = "NES", AppIds = [88] });
         harness.Import(new ImportedEntry
         {
-            Source = "manual", Key = "single-rom", Name = "NES game", AppId = 88,
+            AccountId = Harness.Account, Source = "manual", Key = "single-rom", Name = "NES game", AppId = 88,
             Target = "helper", StartDirectory = media.Root, Route = "managed",
             Mode = nameof(ImportMode.SteamIntegration),
             ConfirmedUtc = "2026-10-06T12:00:00Z",
@@ -1132,14 +1134,18 @@ public sealed class GameLibraryServiceTests
     }
 
     /// <summary>A Steam library in memory, and a writer over it that records what it was asked.</summary>
+    /// <remarks>Every read names one confirmed Steam account, the way the shortcut gateway's reads do.</remarks>
     private sealed class Harness : IDisposable
     {
+        internal const uint Account = 7;
+
         private readonly TemporaryDirectory _temporary = new();
         private uint _next = 2147483651u;
 
         internal Harness()
         {
             Store = new ImportStateStore(StatePath);
+            Store.SetActiveAccount(Account);
         }
 
         internal string StatePath => _temporary.GetPath("import.json");
@@ -1176,6 +1182,12 @@ public sealed class GameLibraryServiceTests
 
             return Task.FromResult(new SteamCollectionSyncResult(SteamClientWriteOutcome.Applied,
                 add.Count == 0 ? null : id ?? "uc-" + name, add.Count, null));
+        }
+
+        /// <summary>The library as a whole-library read of the confirmed account returns it.</summary>
+        internal IReadOnlyList<ExistingShortcut> Snapshot()
+        {
+            return new SteamShortcutSnapshot(Account, [.. Library]);
         }
 
         /// <summary>A title WSGM imported earlier: recorded, and in Steam as recorded.</summary>
@@ -1242,8 +1254,7 @@ public sealed class GameLibraryServiceTests
                 () => [],
                 Store,
                 () => writer,
-                token => ReadLibrary?.Invoke(token)
-                         ?? Task.FromResult<IReadOnlyList<ExistingShortcut>>([.. Library]),
+                token => ReadLibrary?.Invoke(token) ?? Task.FromResult(Snapshot()),
                 (appId, _) =>
                 {
                     ShortcutReads++;

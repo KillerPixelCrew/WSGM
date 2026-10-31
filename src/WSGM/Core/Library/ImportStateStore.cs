@@ -406,7 +406,7 @@ public sealed class ImportStateStore
         Mutate(state => Replace(state, entry, RequireEntryAccount(entry)));
     }
 
-    /// <summary>Records one applied entry and settles its choice in a single write.</summary>
+    /// <summary>Records one applied entry's receipt for its account in a single write.</summary>
     /// <param name="entry">What Steam now has.</param>
     /// <exception cref="ImportStateException">The record could not be written.</exception>
     /// <remarks>Shared choices remain user intent across accounts; this records only the applied account's receipt.</remarks>
