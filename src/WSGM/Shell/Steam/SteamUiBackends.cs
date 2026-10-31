@@ -99,7 +99,7 @@ internal sealed record SteamUiBackends
     internal WsgmSteamSettingsService? WsgmSettings { get; init; }
 
     /// <summary>The per-game processor boost mode behind Steam's Performance dropdown, or null.</summary>
-    internal NativeQamCpuBoostService? CpuBoost { get; init; }
+    internal CpuBoostService? CpuBoost { get; init; }
 
     /// <summary>The guide-chord mirror the editor's reset restores Valve's template through, or null.</summary>
     internal SteamGuideChordMirror? ChordMirror { get; init; }

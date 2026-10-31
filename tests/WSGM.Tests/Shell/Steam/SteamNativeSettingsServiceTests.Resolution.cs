@@ -3,9 +3,9 @@ using WSGM.Shell;
 
 namespace WSGM.Tests.Shell;
 
-public sealed class NativeQamResolutionServiceTests
+public sealed partial class SteamNativeSettingsServiceTests
 {
-    private static readonly DisplayResolution[] Two =
+    private static readonly DisplayResolution[] TwoResolutions =
     [
         new(1280, 800),
         new(1920, 1200)
@@ -14,12 +14,12 @@ public sealed class NativeQamResolutionServiceTests
     [Fact]
     public void TwoOrMoreResolutionsMakeTheRowAvailable()
     {
-        var state = NativeQamResolutionService.Project(
-            Two,
+        var state = SteamNativeSettingsService.ProjectResolution(
+            TwoResolutions,
             new DisplayResolution(1920, 1200));
 
         Assert.True(state.Available);
-        Assert.Equal(["1280x800", "1920x1200"], state.Options);
+        Assert.Equal(["1280x800", "1920x1200"], state.Options.Select(option => option.Id));
         Assert.Equal("1920x1200", state.Current);
     }
 
@@ -28,7 +28,7 @@ public sealed class NativeQamResolutionServiceTests
     {
         // Offering a picker that cannot change anything reads as a broken control rather than an
         // absent feature.
-        var state = NativeQamResolutionService.Project(
+        var state = SteamNativeSettingsService.ProjectResolution(
             [new DisplayResolution(1920, 1200)],
             new DisplayResolution(1920, 1200));
 
@@ -40,7 +40,7 @@ public sealed class NativeQamResolutionServiceTests
     [Fact]
     public void NoValidatedModesHidesTheRowAndSaysWhy()
     {
-        var state = NativeQamResolutionService.Project([], null);
+        var state = SteamNativeSettingsService.ProjectResolution([], null);
 
         Assert.False(state.Available);
         Assert.NotEmpty(state.StatusText);
@@ -50,7 +50,7 @@ public sealed class NativeQamResolutionServiceTests
     public void AnUnreadableCurrentModeStillLeavesTheRowUsable()
     {
         // The options are what the row needs to work; the current value is a label.
-        var state = NativeQamResolutionService.Project(Two, null);
+        var state = SteamNativeSettingsService.ProjectResolution(TwoResolutions, null);
 
         Assert.True(state.Available);
         Assert.Empty(state.Current);
@@ -68,15 +68,15 @@ public sealed class NativeQamResolutionServiceTests
     {
         // The value arrives from injected JavaScript, so it is parsed rather than trusted.
         List<DisplayResolution> applied = [];
-        NativeQamResolutionService service = new(new DisplayResolutionService(
-            () => Two,
+        var service = new DisplayResolutionService(
+            () => TwoResolutions,
             (width, height) =>
             {
                 applied.Add(new DisplayResolution(width, height));
                 return true;
-            }));
+            });
 
-        var result = await service.SetResolutionAsync(value, CancellationToken.None);
+        var result = await SteamNativeSettingsService.SetResolutionAsync(service, value, CancellationToken.None);
 
         Assert.False(result.Succeeded);
         Assert.Empty(applied);
@@ -86,15 +86,15 @@ public sealed class NativeQamResolutionServiceTests
     public async Task AnOfferedValueIsApplied()
     {
         List<DisplayResolution> applied = [];
-        NativeQamResolutionService service = new(new DisplayResolutionService(
-            () => Two,
+        var service = new DisplayResolutionService(
+            () => TwoResolutions,
             (width, height) =>
             {
                 applied.Add(new DisplayResolution(width, height));
                 return true;
-            }));
+            });
 
-        var result = await service.SetResolutionAsync(
+        var result = await SteamNativeSettingsService.SetResolutionAsync(service,
             "1280x800",
             CancellationToken.None);
 
@@ -107,15 +107,15 @@ public sealed class NativeQamResolutionServiceTests
     {
         // Parsing proves the shape, not that the display accepts it.
         List<DisplayResolution> applied = [];
-        NativeQamResolutionService service = new(new DisplayResolutionService(
-            () => Two,
+        var service = new DisplayResolutionService(
+            () => TwoResolutions,
             (width, height) =>
             {
                 applied.Add(new DisplayResolution(width, height));
                 return true;
-            }));
+            });
 
-        var result = await service.SetResolutionAsync(
+        var result = await SteamNativeSettingsService.SetResolutionAsync(service,
             "3840x2160",
             CancellationToken.None);
 

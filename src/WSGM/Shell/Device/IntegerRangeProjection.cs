@@ -21,8 +21,8 @@ namespace WSGM.Shell;
 /// <param name="GameOverride">Whether the running game's profile supplies the desired value.</param>
 /// <remarks>
 ///     Neither value is ever filled from the ceiling. A device that cannot read its limits and has no
-///     desired value reports neither, so the overlay shows no figure rather than the maximum; only Steam's
-///     sliders fall back to a bound to have a position at all.
+///     desired value reports neither, so the overlay shows no figure and Steam's slider says the value is
+///     unknown rather than showing the maximum.
 /// </remarks>
 internal sealed record IntegerRangeProjection(
     bool Available,

@@ -21,15 +21,18 @@ namespace WSGM.Shell;
 ///     Borrowed Windows core-placement owner shared with the overlay; this adapter serializes its own
 ///     reads and writes.
 /// </param>
-internal sealed class NativeQamHybridCoreService(HybridCores cores) : ISteamHybridCoreBackend
+internal sealed class NativeQamHybridCoreService(HybridCores cores)
 {
     private readonly Lock _sync = new();
     private bool _publishWritten;
     private HybridCoreStatus? _published;
     private string _status = string.Empty;
 
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> SetHybridCoresAsync(string option, CancellationToken cancellationToken)
+    /// <summary>Applies one offered processor core preference to both power sources.</summary>
+    /// <param name="option">The preference id from the last publication.</param>
+    /// <param name="cancellationToken">Cancels admission and the write.</param>
+    /// <returns>Applied, or the refusal with its reason.</returns>
+    internal Task<SteamUiCommandResult> SetHybridCoresAsync(string option, CancellationToken cancellationToken)
     {
         if (HybridCores.ModeForId(option) is not { } mode)
         {
@@ -75,9 +78,9 @@ internal sealed class NativeQamHybridCoreService(HybridCores cores) : ISteamHybr
     ///     Available choices and AC selection, or an unavailable state with a reason; the read runs on a worker under the
     ///     same lock as writes.
     /// </returns>
-    internal ValueTask<SteamHybridCoreState?> ReadAsync()
+    internal ValueTask<ChoiceRowState?> ReadAsync()
     {
-        return new ValueTask<SteamHybridCoreState?>(Task.Run<SteamHybridCoreState?>(() =>
+        return new ValueTask<ChoiceRowState?>(Task.Run<ChoiceRowState?>(() =>
         {
             lock (_sync)
             {
@@ -91,15 +94,15 @@ internal sealed class NativeQamHybridCoreService(HybridCores cores) : ISteamHybr
                         // Published as unavailable rather than withheld. No options hides the row, and
                         // the reason still reaches the component host's render outcomes, so an absent
                         // control can be told from a broken one. The overlay shows the same sentence.
-                        return new SteamHybridCoreState(false, [], string.Empty,
+                        return new ChoiceRowState(false, [], string.Empty,
                             HybridCores.Describe(status));
                     }
 
-                    return new SteamHybridCoreState(
+                    return new ChoiceRowState(
                         true,
                         [
                             .. status.Options.Select(option =>
-                                new SteamPowerProfileOption(HybridCores.IdFor(option.Mode), option.Name))
+                                new ChoiceRowOption(HybridCores.IdFor(option.Mode), option.Name))
                         ],
                         // Empty when the machine is set to a placement WSGM does not offer. Naming one
                         // of its own modes there would claim WSGM put it there.
@@ -108,7 +111,7 @@ internal sealed class NativeQamHybridCoreService(HybridCores cores) : ISteamHybr
                 }
                 catch (Exception ex)
                 {
-                    return new SteamHybridCoreState(false, [], string.Empty, ex.Message);
+                    return new ChoiceRowState(false, [], string.Empty, ex.Message);
                 }
             }
         }));

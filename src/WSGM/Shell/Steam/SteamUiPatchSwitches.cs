@@ -60,8 +60,10 @@ internal static class SteamUiPatchSwitches
                 // The cascade follows the themes' own switch as well; off, the gate is retracted and
                 // every owned node leaves every window.
                 SteamThemeStyleSurface.PatchId => host && backends.Themes is { Enabled: true },
-                SteamSettingsQuickAccessRow.PatchId => components
-                                                       || (host && backends.PluginSteamUi?.ReadModules().Count > 0),
+                // The component host mounts every Quick Access row, plugin rows included, so it stays
+                // while a plugin draws rows there even with native Quick Access off.
+                SteamQuickAccessRowsSurface.HostPatchId => components
+                                                           || (host && backends.PluginSteamUi?.ReadModules().Count > 0),
                 _ when pluginPatchIds.Contains(patch.Id) => host,
                 _ => components
             };

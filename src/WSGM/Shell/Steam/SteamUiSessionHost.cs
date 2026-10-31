@@ -170,9 +170,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // all project the same capability views and coordinator configuration.
         _backends.DeviceCoordinator?.Capabilities.Changed += OnCapabilitiesChanged;
         _backends.DeviceCoordinator?.ConfigurationChanged += QueueStatePublication;
-        _modules.AutoTdp.StateChanged += QueueStatePublication;
+        // AutoTDP moves between idle, controlling and paused, and controller management between its
+        // states, with the stored settings and every capability view untouched.
+        _backends.DeviceCoordinator?.Power.AutoTdp.StatusChanged += OnAutoTdpStatusChanged;
         _backends.Performance.StateChanged += OnPerformanceStateChanged;
-        _modules.ControllerTarget.StateChanged += QueueStatePublication;
+        _backends.DeviceCoordinator?.Controllers.StatusChanged += OnControllerStatusChanged;
         // A profile change moves the game-override markers even when no device value changed.
         _backends.Profiles.Changed += OnProfilesChanged;
         if (_backends.PluginSteamUi is { } pluginSteamUi)
@@ -220,9 +222,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _backends.DisplayTimeouts?.Changed -= QueueStatePublication;
         _backends.DeviceCoordinator?.Capabilities.Changed -= OnCapabilitiesChanged;
         _backends.DeviceCoordinator?.ConfigurationChanged -= QueueStatePublication;
-        _modules.AutoTdp.StateChanged -= QueueStatePublication;
+        _backends.DeviceCoordinator?.Power.AutoTdp.StatusChanged -= OnAutoTdpStatusChanged;
         _backends.Performance.StateChanged -= OnPerformanceStateChanged;
-        _modules.ControllerTarget.StateChanged -= QueueStatePublication;
+        _backends.DeviceCoordinator?.Controllers.StatusChanged -= OnControllerStatusChanged;
         _backends.Profiles.Changed -= OnProfilesChanged;
         _backends.PluginSteamUi?.Changed -= QueueStatePublication;
         _backends.PluginSteamUi?.ModulesChanged -= OnPluginModulesChanged;
@@ -321,9 +323,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // Removes whatever the retraction left, the bridge last, within the same deadline.
         await _patches.ShutdownAsync(deadline).ConfigureAwait(false);
         await _bridge.DisposeAsync().ConfigureAwait(false);
-        _modules.AutoTdp.Dispose();
         _modules.Audio?.Dispose();
-        _modules.ControllerTarget.Dispose();
         _shutdown.Dispose();
         if (retraction is not null)
         {
@@ -705,6 +705,17 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     }
 
     private void OnPerformanceStateChanged(PerformanceState state)
+    {
+        QueueStatePublication();
+    }
+
+    // Raised from AutoTDP's own tick loop. Queueing a publication is thread-safe, so no UI-thread hop.
+    private void OnAutoTdpStatusChanged(AutoTdpStatus status)
+    {
+        QueueStatePublication();
+    }
+
+    private void OnControllerStatusChanged(ControllerManagerStatus status)
     {
         QueueStatePublication();
     }

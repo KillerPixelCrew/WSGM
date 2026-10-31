@@ -10,8 +10,8 @@ using WindowsDeviceControl;
 
 namespace WSGM.Shell;
 
-/// <summary>Projects live default-output format and spatial controls into Quick Access.</summary>
-internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, IDisposable
+/// <summary>Owns the default output's format and spatial-sound choices for Steam's Quick Access and Settings rows.</summary>
+internal sealed class NativeQamAudioFormatService : IDisposable
 {
     private readonly AudioManager _audio;
     private readonly AudioProfileService _profiles;
@@ -45,19 +45,7 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
         _audio.PropertyChanged -= OnAudioChanged;
     }
 
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> SetFormatAsync(string formatId, CancellationToken cancellationToken)
-    {
-        return SetFormatForEndpointAsync(_offered?.EndpointId ?? string.Empty, formatId, cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> SetSpatialAsync(string spatialId, CancellationToken cancellationToken)
-    {
-        return SetSpatialForEndpointAsync(_offered?.EndpointId ?? string.Empty, spatialId, cancellationToken);
-    }
-
-    /// <summary>Applies a native Settings selection only to the output its row described.</summary>
+    /// <summary>Applies a Steam row's selection only to the output the row described.</summary>
     /// <param name="endpointId">Endpoint id published with the row; must still name the default output.</param>
     /// <param name="formatId">Exact id in the last published format/channel choices.</param>
     /// <param name="cancellationToken">Cancels the profile owner's endpoint write.</param>
@@ -80,7 +68,7 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
         return new SteamUiCommandResult(result.Succeeded, result.Detail);
     }
 
-    /// <summary>Applies a native Settings selection only to the output its row described.</summary>
+    /// <summary>Applies a Steam row's selection only to the output the row described.</summary>
     /// <param name="endpointId">Endpoint id published with the row; must still name the default output.</param>
     /// <param name="spatialId">GUID string from the last published spatial-format choices.</param>
     /// <param name="cancellationToken">Cancels the profile owner's endpoint write.</param>
@@ -106,43 +94,36 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
     /// <summary>Raised when a changed default endpoint requires new options to be published.</summary>
     internal event Action? StateChanged;
 
-    /// <summary>Reads the current output's format and spatial capabilities.</summary>
-    /// <returns>The current choices and selection, or an unavailable state with a reason when the endpoint cannot be read.</returns>
-    internal async ValueTask<SteamAudioFormatState?> ReadAsync()
-    {
-        return (await ReadEndpointAsync().ConfigureAwait(false)).State;
-    }
-
     /// <summary>Returns choices together with the exact endpoint that offered them.</summary>
     /// <returns>
     ///     Capabilities paired with their endpoint identity; an unavailable state and null id clear command admission
     ///     when no endpoint can be read.
     /// </returns>
-    internal async ValueTask<(SteamAudioFormatState State, string? EndpointId)> ReadEndpointAsync()
+    internal async ValueTask<(AudioFormatChoices State, string? EndpointId)> ReadEndpointAsync()
     {
         var capabilities = await _profiles.ReadPlaybackCapabilitiesAsync(CancellationToken.None).ConfigureAwait(false);
         if (capabilities is null)
         {
             _offered = null;
-            return (new SteamAudioFormatState(false, [], string.Empty, [], string.Empty, [], string.Empty,
+            return (new AudioFormatChoices(false, [], string.Empty, [], string.Empty, [], string.Empty,
                 "Advanced audio controls are unavailable for the current output."), null);
         }
 
         var channels = AudioPlaybackChoices.Channels(capabilities)
-            .Select(choice => new SteamAudioFormatOption(FormatId(choice.Format), choice.Label)).ToArray();
+            .Select(choice => new ChoiceRowOption(FormatId(choice.Format), choice.Label)).ToArray();
         var formats = AudioPlaybackChoices.Formats(capabilities)
-            .Select(choice => new SteamAudioFormatOption(FormatId(choice.Format), choice.Label)).ToArray();
+            .Select(choice => new ChoiceRowOption(FormatId(choice.Format), choice.Label)).ToArray();
         var spatial = new[] { CoreAudio.SpatialAudioFormats.Off }
             .Concat(capabilities.SupportedSpatialFormats)
             .Distinct()
             .Select(static format =>
-                new SteamAudioFormatOption(format.ToString(), SpatialAudioNames.For(format)))
+                new ChoiceRowOption(format.ToString(), SpatialAudioNames.For(format)))
             .ToArray();
         _offered = new Offered(
             capabilities.EndpointId,
             [.. channels.Concat(formats).Select(static option => option.Id)],
             [.. spatial.Select(static option => option.Id)]);
-        return (new SteamAudioFormatState(
+        return (new AudioFormatChoices(
             channels.Length > 0 || formats.Length > 0 || spatial.Length > 0,
             channels,
             FormatId(capabilities.CurrentFormat),

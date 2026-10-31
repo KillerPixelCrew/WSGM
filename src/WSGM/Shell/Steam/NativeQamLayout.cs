@@ -4,7 +4,9 @@ namespace WSGM.Shell;
 
 /// <summary>WSGM's layout of the rows it adds to Steam's Quick Access tabs.</summary>
 /// <remarks>
-///     Pure data, published through <see cref="SteamQuickAccessLayoutSurface" />. Each section's id is
+///     Pure data, published through <see cref="SteamQuickAccessLayoutSurface" />. A section's kinds name the
+///     Quick Access row sections <see cref="SteamNativeSettingsService" /> publishes and the toolkit's own
+///     rows (the frame limit, the lighting editor and Valve's components). Each section's id is
 ///     its English title, which is also the id its fold is kept under in
 ///     <see cref="WSGM.Core.QuickAccessFolds" />, so a user's open sections carry over unchanged. The
 ///     Reset section has no heading and Profile scope does not fold, as Valve's own rows in them need.
@@ -35,7 +37,7 @@ internal static class NativeQamLayout
         ],
         [
             new SteamQuickAccessSection("Charging", "Charging", "batteryCharging", true, ["charging"]),
-            new SteamQuickAccessSection("RGB lighting", "RGB lighting", "colors", true, ["lighting"]),
+            new SteamQuickAccessSection("RGB lighting", "RGB lighting", "colors", true, ["lighting", "lightingZones"]),
             new SteamQuickAccessSection("Device controls", "Device controls", "sliders", true, ["deviceDescriptors"])
         ],
         true,

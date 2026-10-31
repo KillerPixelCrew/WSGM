@@ -14,16 +14,21 @@ using WSGM.Overlay;
 
 namespace WSGM.Shell;
 
-/// <summary>Projects the existing Quick Access owners into Steam's native settings pages.</summary>
-/// <remarks>No polling, hardware lifetime or configuration belongs to this projection.</remarks>
+/// <summary>
+///     The one row producer for Steam's native Settings pages and the host rows of its Quick Access tabs.
+/// </summary>
+/// <remarks>
+///     Each feature (display, power, audio, device and controller) builds its rows and their write closures
+///     once per read, and places each row on a Settings page section, a Quick Access section, or both. Both
+///     surfaces answer through <see cref="SetAsync" /> against the same offered commands, so a row's
+///     validation and its write are the same wherever it is drawn. No polling, hardware lifetime or
+///     configuration belongs to this projection.
+/// </remarks>
 /// <param name="brightness">Borrowed live panel-brightness adapter.</param>
-/// <param name="resolution">Borrowed display-mode adapter, or null to omit resolution.</param>
+/// <param name="resolution">Borrowed display-mode owner, or null when this session must not move the display.</param>
 /// <param name="performance">Borrowed RTSS, frame-cap and VRR adapter.</param>
-/// <param name="tdp">Borrowed sustained/boost power-limit adapter.</param>
-/// <param name="autoTdp">Borrowed AutoTDP setting and status adapter.</param>
-/// <param name="powerProfiles">Borrowed Windows power-profile adapter.</param>
-/// <param name="powerPresets">Borrowed device preset-assignment adapter.</param>
-/// <param name="cpuBoost">Borrowed CPU boost adapter, or null to omit the row.</param>
+/// <param name="powerProfiles">Borrowed Windows power-profile workflow, shared with the overlay.</param>
+/// <param name="cpuBoost">Borrowed CPU boost owner, or null to omit the row.</param>
 /// <param name="hybridCores">Borrowed processor core-placement adapter.</param>
 /// <param name="audioFormat">Borrowed endpoint-format adapter, or null to omit advanced audio controls.</param>
 /// <param name="graphics">Borrowed graphics settings projection, or null when no graphics owner is available.</param>
@@ -33,27 +38,30 @@ namespace WSGM.Shell;
 /// <param name="scaledResolutions">Borrowed GPU-scaled resolution owner, or null to omit the source-mode editor.</param>
 internal sealed partial class SteamNativeSettingsService(
     NativeQamBrightnessService brightness,
-    NativeQamResolutionService? resolution,
+    DisplayResolutionService? resolution,
     PerformanceServiceNativeQamAdapter performance,
-    DeviceCoordinatorNativeQamTdpService tdp,
-    DeviceCoordinatorNativeQamAutoTdpService autoTdp,
     NativeQamPowerProfileService powerProfiles,
-    NativeQamPowerPresetService powerPresets,
-    NativeQamCpuBoostService? cpuBoost,
+    CpuBoostService? cpuBoost,
     NativeQamHybridCoreService hybridCores,
     NativeQamAudioFormatService? audioFormat,
     SteamGraphicsService? graphics,
     DeviceCoordinator? coordinator,
     ProfileService profiles,
     DisplayTimeouts? displayTimeouts = null,
-    ScaledResolutionService? scaledResolutions = null) : ISteamNativeSettingsBackend
+    ScaledResolutionService? scaledResolutions = null) : ISteamNativeSettingsBackend, ISteamQuickAccessRowsBackend
 {
     private readonly SemaphoreSlim _reads = new(1, 1);
     private IReadOnlyDictionary<string, Offered> _offered = new Dictionary<string, Offered>();
-    private long _revision;
     private string? _publishedPages;
+    private string? _publishedQuickAccess;
+    private long _quickAccessRevision;
+    private long _revision;
 
-    /// <inheritdoc />
+    /// <summary>Validates one change against the row last offered under its key, then runs its write.</summary>
+    /// <param name="key">The row key either surface published.</param>
+    /// <param name="value">The renderer's value.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>The write's outcome, or why the key or value is no longer offered.</returns>
     public Task<SteamUiCommandResult> SetAsync(string key, JsonElement value, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -100,8 +108,8 @@ internal sealed partial class SteamNativeSettingsService(
     ///     envelope look new, so the whole Display, Power, Audio and Controller state was evaluated into
     ///     Steam's context every two seconds even when nothing in it had changed.
     /// </remarks>
-    internal static long NextRevision(IReadOnlyList<SteamNativeSettingsPage> pages, ref string? published,
-        long revision)
+    /// <typeparam name="T">The published content's type.</typeparam>
+    internal static long NextRevision<T>(T pages, ref string? published, long revision)
     {
         var content = JsonSerializer.Serialize(pages);
         if (string.Equals(content, published, StringComparison.Ordinal))
@@ -113,10 +121,10 @@ internal sealed partial class SteamNativeSettingsService(
         return revision + 1;
     }
 
-    /// <summary>Reads fresh state from the same adapters that publish Quick Access.</summary>
+    /// <summary>Reads the Settings pages: one fresh build of every feature's rows.</summary>
     /// <returns>
     ///     Fresh native settings pages and revision; the completed read atomically replaces the exact offered command
-    ///     set.
+    ///     set, which covers the Quick Access rows of the same build too.
     /// </returns>
     /// <remarks>
     ///     Concurrent reads are serialized. Dependencies remain borrowed, and row keys retain the profile/device
@@ -127,49 +135,81 @@ internal sealed partial class SteamNativeSettingsService(
         await _reads.WaitAsync().ConfigureAwait(false);
         try
         {
-            var offer = new OfferedRows(profiles.Current);
-            // The backends are independent, so their reads run together and each page awaits its own.
-            // A default read completes with nothing, which omits the rows of an owner that does not exist.
-            var lightRead = brightness.ReadAsync();
-            var presetsRead = powerPresets.ReadAsync();
-            var schemesRead = powerProfiles.ReadAsync();
-            var boostRead = cpuBoost is null ? default : cpuBoost.ReadAsync();
-            var coresRead = hybridCores.ReadAsync();
-            var endpointRead = audioFormat is null ? default : audioFormat.ReadEndpointAsync();
-            List<SteamSettingsSection> display = [];
-            List<SteamSettingsSection> power = [];
-            List<SteamSettingsSection> audio = [];
-            List<SteamSettingsSection> controller = [];
-            await AddDisplayPageAsync(display, offer, lightRead).ConfigureAwait(false);
-            await AddPowerPageAsync(power, offer, presetsRead, schemesRead, boostRead, coresRead)
-                .ConfigureAwait(false);
-            DeviceSections(power, controller, offer);
-            await AddAudioPageAsync(audio, offer, endpointRead).ConfigureAwait(false);
-            AddRumbleSection(controller, offer);
-
-            AddProfileSection(display, "display", offer);
-            AddProfileSection(power, "power", offer);
-            AddProfileSection(controller, "controller", offer);
-            List<SteamNativeSettingsPage> pages = [];
-            Page("display", display);
-            Page("power", power);
-            Page("audio", audio);
-            Page("controller", controller);
-            Volatile.Write(ref _offered, offer.Commands);
-            _revision = NextRevision(pages, ref _publishedPages, _revision);
-            return new SteamNativeSettingsState(pages, _revision);
-
-            void Page(string id, List<SteamSettingsSection> sections)
-            {
-                if (sections.Count > 0)
-                {
-                    pages.Add(new SteamNativeSettingsPage(id, sections));
-                }
-            }
+            var built = await BuildAsync().ConfigureAwait(false);
+            Volatile.Write(ref _offered, built.Commands);
+            _revision = NextRevision(built.Pages, ref _publishedPages, _revision);
+            return new SteamNativeSettingsState(built.Pages, _revision);
         }
         finally
         {
             _reads.Release();
+        }
+    }
+
+    /// <summary>Reads the Quick Access rows: one fresh build of every feature's rows.</summary>
+    /// <returns>
+    ///     The sections the component host places by the layout, with their own revision; the read replaces the
+    ///     offered command set like <see cref="ReadAsync" />.
+    /// </returns>
+    internal async ValueTask<SteamQuickAccessRowsState?> ReadQuickAccessAsync()
+    {
+        await _reads.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var built = await BuildAsync().ConfigureAwait(false);
+            Volatile.Write(ref _offered, built.Commands);
+            _quickAccessRevision = NextRevision(built.QuickAccess, ref _publishedQuickAccess, _quickAccessRevision);
+            return new SteamQuickAccessRowsState(built.QuickAccess, _quickAccessRevision);
+        }
+        finally
+        {
+            _reads.Release();
+        }
+    }
+
+    /// <summary>Builds both surfaces from one read of every owner.</summary>
+    /// <returns>The Settings pages, the Quick Access sections and every row's offered command.</returns>
+    private async Task<(List<SteamNativeSettingsPage> Pages, List<SteamQuickAccessRowSection> QuickAccess,
+        Dictionary<string, Offered> Commands)> BuildAsync()
+    {
+        var offer = new OfferedRows(profiles.Current);
+        // The backends are independent, so their reads run together and each page awaits its own.
+        // A default read completes with nothing, which omits the rows of an owner that does not exist.
+        var lightRead = brightness.ReadAsync();
+        var presetsRead = ReadPowerPresetsAsync(coordinator?.Power.PowerPresets, coordinator?.Power.PowerAssignments);
+        var schemesRead = powerProfiles.ReadAsync();
+        var boostRead = cpuBoost is null ? default : ReadCpuBoostAsync(cpuBoost, profiles);
+        var coresRead = hybridCores.ReadAsync();
+        var endpointRead = audioFormat is null ? default : audioFormat.ReadEndpointAsync();
+        List<SteamSettingsSection> display = [];
+        List<SteamSettingsSection> power = [];
+        List<SteamSettingsSection> audio = [];
+        List<SteamSettingsSection> controller = [];
+        await AddDisplayPageAsync(display, offer, lightRead).ConfigureAwait(false);
+        await AddPowerPageAsync(power, offer, presetsRead, schemesRead, boostRead, coresRead)
+            .ConfigureAwait(false);
+        DeviceSections(power, controller, offer);
+        AddDeviceQuickAccess(offer);
+        await AddAudioPageAsync(audio, offer, endpointRead).ConfigureAwait(false);
+        AddControllerTarget(controller, offer);
+        AddRumbleSection(controller, offer);
+
+        AddProfileSection(display, "display", offer);
+        AddProfileSection(power, "power", offer);
+        AddProfileSection(controller, "controller", offer);
+        List<SteamNativeSettingsPage> pages = [];
+        Page("display", display);
+        Page("power", power);
+        Page("audio", audio);
+        Page("controller", controller);
+        return (pages, offer.QuickAccess, offer.Commands);
+
+        void Page(string id, List<SteamSettingsSection> sections)
+        {
+            if (sections.Count > 0)
+            {
+                pages.Add(new SteamNativeSettingsPage(id, sections));
+            }
         }
     }
 
@@ -354,7 +394,8 @@ internal sealed partial class SteamNativeSettingsService(
         {
             SteamSettingsRowKind.Boolean => value.ValueKind is JsonValueKind.True or JsonValueKind.False,
             SteamSettingsRowKind.Choice => value.ValueKind is JsonValueKind.String
-                                           && row.Choices?.Any(choice => choice.Value == value.GetString()) == true,
+                                           && row.Choices?.Any(choice =>
+                                               choice.Selectable && choice.Value == value.GetString()) == true,
             SteamSettingsRowKind.Range => value.ValueKind is JsonValueKind.Number && value.TryGetDouble(out var number)
                 && double.IsFinite(number) && row.Minimum is { } minimum && row.Maximum is { } maximum
                 && number >= minimum && number <= maximum && row.Step is > 0
@@ -401,15 +442,46 @@ internal sealed partial class SteamNativeSettingsService(
         return progress is "queued" or "applying" or "replacing";
     }
 
-    private static SteamSettingsRow Choice(string key, string label, IReadOnlyList<SteamPowerProfileOption> options,
-        string current, string description)
+    /// <summary>One feature's choice as a Steam dropdown, or null when it has nothing to offer.</summary>
+    /// <param name="key">The row key.</param>
+    /// <param name="label">The row's label.</param>
+    /// <param name="icon">The toolkit glyph beside it in Quick Access.</param>
+    /// <param name="state">The feature's choice; no options omits the row.</param>
+    /// <returns>
+    ///     The row: an unselectable option listed only while it is current, disabled while the choice is unavailable or
+    ///     offers fewer than two entries, its description marked when the running game supplies the value, and the
+    ///     selected label as its summary.
+    /// </returns>
+    internal static SteamSettingsRow? ChoiceRow(string key, string label, string icon, ChoiceRowState? state)
     {
-        return new SteamSettingsRow(key, SteamSettingsRowKind.Choice, label, description, Text: current,
-            Choices:
-            [
-                .. options.Where(option => option.Selectable)
-                    .Select(option => new SteamSettingsChoice(option.Id, option.Label))
-            ]);
+        if (state is not { Options.Count: > 0 })
+        {
+            return null;
+        }
+
+        SteamSettingsChoice[] choices =
+        [
+            .. state.Options.Where(option => option.Selectable || option.Id == state.Current)
+                .Select(option => new SteamSettingsChoice(option.Id, option.Label, option.Selectable))
+        ];
+        var selected = choices.FirstOrDefault(choice => choice.Value == state.Current);
+        return new SteamSettingsRow(key, SteamSettingsRowKind.Choice, label,
+            Marked(state.StatusText, state.Accent), Text: selected?.Value ?? string.Empty, Choices: choices,
+            Disabled: !state.Available || choices.Length < 2, Accent: state.Accent, Icon: icon,
+            Summary: selected?.Label);
+    }
+
+    /// <summary>A row description, led by the game-override label when the running game supplies the value.</summary>
+    /// <param name="description">The row's own description, or empty.</param>
+    /// <param name="accent">Whether the value is a game override.</param>
+    /// <returns>The description to publish, or null for none.</returns>
+    internal static string? Marked(string? description, bool accent)
+    {
+        return accent
+            ? NativeQamLayout.AccentDescription(description)
+            : string.IsNullOrEmpty(description)
+                ? null
+                : description;
     }
 
     private static void Section(List<SteamSettingsSection> target, string title, string id, List<SteamSettingsRow> rows)
@@ -435,12 +507,17 @@ internal sealed partial class SteamNativeSettingsService(
             ? $"Profile-aware controls edit {profile.Game?.Name ?? profile.Active.ApplicationId}'s current game profile."
             : "Profile-aware controls edit Global defaults. Live values are shared with Quick Access and the overlay.";
 
+        /// <summary>The Quick Access sections this read built, in the order they were first given a row.</summary>
+        internal List<SteamQuickAccessRowSection> QuickAccess { get; } = [];
+
         /// <summary>Adds a row and offers its command, keyed by the editing scope when it is profile-aware.</summary>
-        /// <param name="rows">The section rows the row joins.</param>
+        /// <param name="rows">The Settings section rows the row joins, or null for a Quick Access-only row.</param>
         /// <param name="row">The row.</param>
         /// <param name="write">The command a matching write runs.</param>
         /// <param name="profileAware">Whether the row edits the current profile scope.</param>
-        internal void Add(List<SteamSettingsRow> rows, SteamSettingsRow row,
+        /// <returns>The row as offered, with its final key, for placing it on the other surface too.</returns>
+        /// <remarks>A key offered twice in one read, by a row both surfaces draw, keeps its first command.</remarks>
+        internal SteamSettingsRow Add(List<SteamSettingsRow>? rows, SteamSettingsRow row,
             Func<JsonElement, CancellationToken, Task<SteamUiCommandResult>> write, bool profileAware = false)
         {
             if (profileAware)
@@ -448,8 +525,31 @@ internal sealed partial class SteamNativeSettingsService(
                 row = row with { Key = ProfileKey(row.Key, Profile.Active, Profile.EditsGame) };
             }
 
-            rows.Add(row);
-            Commands.Add(row.Key, new Offered(row, write, profileAware ? Profile.Active : null, Profile.EditsGame));
+            rows?.Add(row);
+            Commands.TryAdd(row.Key, new Offered(row, write, profileAware ? Profile.Active : null, Profile.EditsGame));
+            return row;
+        }
+
+        /// <summary>Places a row in the Quick Access section the layout names by <paramref name="section" />.</summary>
+        /// <param name="section">The section id, which is the layout kind it is drawn under.</param>
+        /// <param name="row">The row, already offered when it takes a command.</param>
+        internal void Quick(string section, SteamSettingsRow row)
+        {
+            var index = QuickAccess.FindIndex(candidate => candidate.Id == section);
+            if (index < 0)
+            {
+                QuickAccess.Add(new SteamQuickAccessRowSection(section, [row]));
+                return;
+            }
+
+            QuickAccess[index] = QuickAccess[index] with { Rows = [.. QuickAccess[index].Rows, row] };
+        }
+
+        /// <summary>Adds a whole Quick Access section, such as a titled one no layout section names.</summary>
+        /// <param name="section">The section; its rows are already offered.</param>
+        internal void QuickSection(SteamQuickAccessRowSection section)
+        {
+            QuickAccess.Add(section);
         }
     }
 

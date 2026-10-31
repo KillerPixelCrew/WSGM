@@ -28,7 +28,8 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
         SteamLibraryImportSurface.PatchId,
         SteamWsgmSettingsSurface.PatchId,
         SteamNativeSettingsSurface.PatchId,
-        SteamSettingsQuickAccessRow.PatchId,
+        SteamQuickAccessRowsSurface.PatchId,
+        SteamQuickAccessRowsSurface.HostPatchId,
         SteamNavigationPanelSurface.PatchId
     };
 

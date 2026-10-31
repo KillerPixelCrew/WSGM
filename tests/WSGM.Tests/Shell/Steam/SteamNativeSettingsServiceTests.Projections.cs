@@ -8,7 +8,7 @@ using static WSGM.Tests.Builders.ControllerBuilders;
 
 namespace WSGM.Tests.Shell;
 
-public sealed partial class NativeQamSemanticServicesTests
+public sealed partial class SteamNativeSettingsServiceTests
 {
     [Fact]
     public void TdpProjectionUsesTheAuthoritativeDesiredObservedAndProgressState()
@@ -60,9 +60,8 @@ public sealed partial class NativeQamSemanticServicesTests
                 }
             }
         };
-        var state = DeviceCoordinatorNativeQamTdpService.ProjectPowerLimits([pl1, pl2]);
-        Assert.Equal(17, state.Sustained.ObservedWatts);
-        Assert.Equal(30, state.Boost.ObservedWatts);
+        Assert.Equal(17, IntegerRangeProjection.PowerLimit([pl1, pl2]).Observed);
+        Assert.Equal(30, IntegerRangeProjection.PowerLimit([pl1, pl2], CapabilityRole.PowerSlowLimit).Observed);
         Assert.Equal("vendor.boost", IntegerRangeProjection.PowerLimit(
             [pl1, pl2], CapabilityRole.PowerSlowLimit).CapabilityId);
 
@@ -81,59 +80,69 @@ public sealed partial class NativeQamSemanticServicesTests
                 State = pl2.Projection.State with { ObservedValue = CapabilityValue.Integer(37) }
             }
         };
-        state = DeviceCoordinatorNativeQamTdpService.ProjectPowerLimits([pl1, pl2]);
-        Assert.Equal(37, state.Sustained.ObservedWatts);
-        Assert.Equal(37, state.Boost.ObservedWatts);
-        Assert.False(DeviceCoordinatorNativeQamTdpService.ProjectPowerLimits([pl1]).Boost.Available);
-        Assert.False(DeviceCoordinatorNativeQamTdpService.ProjectPowerLimits([pl1, pl2, pl2]).Boost.Available);
+        Assert.Equal(37, IntegerRangeProjection.PowerLimit([pl1, pl2]).Observed);
+        Assert.Equal(37, IntegerRangeProjection.PowerLimit([pl1, pl2], CapabilityRole.PowerSlowLimit).Observed);
+        Assert.False(IntegerRangeProjection.PowerLimit([pl1], CapabilityRole.PowerSlowLimit).Available);
+        Assert.False(IntegerRangeProjection.PowerLimit([pl1, pl2, pl2], CapabilityRole.PowerSlowLimit).Available);
     }
 
     [Fact]
     public async Task PowerSlidersRefuseBothWritesWhenDeviceIntegrationIsOff()
     {
-        DeviceCoordinatorNativeQamTdpService service = new(null);
-        Assert.False(service.PowerLimit.Sustained.Available);
-        Assert.False(service.PowerLimit.Boost.Available);
-        Assert.False((await service.SetPrimaryLimitAsync(20, CancellationToken.None)).Succeeded);
-        Assert.False((await service.SetBoostLimitAsync(25, CancellationToken.None)).Succeeded);
+        await using var rig = await ProducerRig.CreateAsync();
+        var state = await rig.Producer.ReadQuickAccessAsync();
+        Assert.DoesNotContain(state!.Sections, section => section.Id is "powerLimit" or "autoTdp");
+        Assert.False((await rig.Producer.SetPowerLimitAsync(CapabilityRole.PowerSustainedLimit, 20,
+            CancellationToken.None)).Succeeded);
+        Assert.False((await rig.Producer.SetPowerLimitAsync(CapabilityRole.PowerSlowLimit, 25,
+            CancellationToken.None)).Succeeded);
+        Assert.False((await rig.Producer.SetAsync("power.auto-tdp", Json("true"), CancellationToken.None))
+            .Succeeded);
     }
 
     [Fact]
     public void DeviceControlsProjectionUsesSemanticRolesAndIndependentLightingZones()
     {
-        var state =
-            DeviceCoordinatorNativeQamDeviceControlsService.Project(
-            [
-                IntegerDeviceView(
-                    "vendor.charge",
-                    CapabilityRole.ChargeLimit,
-                    DisplayKey.ChargeLimit,
-                    60,
-                    100,
-                    80,
-                    79),
-                IntegerDeviceView(
-                    "vendor.brightness",
-                    CapabilityRole.LightingBrightness,
-                    DisplayKey.Brightness,
-                    0,
-                    100,
-                    50,
-                    45),
-                ColorDeviceView("vendor.color", "right-ring", "Right ring", 0xFF8000),
-                ColorDeviceView("vendor.color", "buttons", "Buttons", 0x0080FF)
-            ], FanCurvePresetTable.HandheldCompanion);
+        IReadOnlyList<DeviceCapabilityView> views =
+        [
+            IntegerDeviceView(
+                "vendor.charge",
+                CapabilityRole.ChargeLimit,
+                DisplayKey.ChargeLimit,
+                60,
+                100,
+                80,
+                79),
+            IntegerDeviceView(
+                "vendor.brightness",
+                CapabilityRole.LightingBrightness,
+                DisplayKey.Brightness,
+                0,
+                100,
+                50,
+                45),
+            ColorDeviceView("vendor.color", "right-ring", "Right ring", 0xFF8000),
+            ColorDeviceView("vendor.color", "buttons", "Buttons", 0x0080FF)
+        ];
+        var rows = SteamNativeSettingsService.DeviceQuickAccessRows(views, FanCurvePresetTable.HandheldCompanion);
 
-        Assert.True(state.ChargeLimit?.Available);
-        Assert.Equal(60, state.ChargeLimit?.Minimum);
-        Assert.Equal(80, state.ChargeLimit?.Desired);
-        Assert.Equal(79, state.ChargeLimit?.Observed);
-        Assert.True(state.LightingBrightness?.Available);
-        Assert.Equal(2, state.LightingZones.Count);
-        Assert.Contains(state.LightingZones, zone =>
-            zone is { Id: "right-ring", Label: "Right ring", ObservedColor: 0xFF8000 });
-        Assert.Contains(state.LightingZones, zone =>
-            zone is { Id: "buttons", Label: "Buttons", ObservedColor: 0x0080FF });
+        var charge = Assert.Single(rows, row => row.Section == "charging").Row;
+        Assert.Equal(SteamSettingsRowKind.Range, charge.Kind);
+        Assert.Equal("Battery charge limit", charge.Label);
+        Assert.Equal("percent", charge.Icon);
+        Assert.Equal(60, charge.Minimum);
+        Assert.Equal(79, charge.Number);
+        Assert.Equal("%", charge.Suffix);
+        Assert.Equal("Limit 79%", charge.Summary);
+        var brightness = Assert.Single(rows, row => row.Section == "lighting").Row;
+        Assert.Equal("Lighting brightness", brightness.Label);
+        Assert.Equal("45%", brightness.Summary);
+        // The zones are the inline editor's, so they are not descriptor rows as well.
+        Assert.DoesNotContain(rows, row => row.Section == "deviceDescriptors");
+        var zones = DeviceCoordinatorLightingZonesService.Project(views, FanCurvePresetTable.HandheldCompanion);
+        Assert.Equal(2, zones.Count);
+        Assert.Contains(zones, zone => zone is { Id: "right-ring", Label: "Right ring", ObservedColor: 0xFF8000 });
+        Assert.Contains(zones, zone => zone is { Id: "buttons", Label: "Buttons", ObservedColor: 0x0080FF });
     }
 
     [Fact]
@@ -146,9 +155,9 @@ public sealed partial class NativeQamSemanticServicesTests
             State = view.Projection.State with { ObservedValue = null, Quality = HardwareStateQuality.Unknown },
             DesiredValue = null
         } };
-        var state = DeviceCoordinatorNativeQamDeviceControlsService.Project([view],
-            FanCurvePresetTable.HandheldCompanion);
-        var row = Assert.Single(Assert.Single(state.Sections!).Rows);
+        var (section, row, _) = Assert.Single(SteamNativeSettingsService.DeviceQuickAccessRows([view],
+            FanCurvePresetTable.HandheldCompanion));
+        Assert.Equal("deviceDescriptors", section);
         Assert.Null(row.Number);
         Assert.False(row.Disabled);
     }
@@ -173,15 +182,14 @@ public sealed partial class NativeQamSemanticServicesTests
             80,
             80);
 
-        var state =
-            DeviceCoordinatorNativeQamDeviceControlsService.Project([first, second],
-                FanCurvePresetTable.HandheldCompanion);
+        var rows = SteamNativeSettingsService.DeviceQuickAccessRows([first, second],
+            FanCurvePresetTable.HandheldCompanion);
 
-        Assert.False(state.ChargeLimit?.Available);
-        Assert.Contains(
-            "ambiguous",
-            state.ChargeLimit?.StatusText,
-            StringComparison.OrdinalIgnoreCase);
+        // No dedicated slider for an ambiguous role; each control stays reachable as its own descriptor row.
+        Assert.DoesNotContain(rows, row => row.Section == "charging");
+        Assert.Contains("ambiguous", IntegerRangeProjection.Percent([first, second], CapabilityRole.ChargeLimit)
+            .StatusText, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, rows.Count(row => row.Section == "deviceDescriptors"));
     }
 
     [Fact]
@@ -207,11 +215,10 @@ public sealed partial class NativeQamSemanticServicesTests
             CapabilityId = "vendor.curve", Role = CapabilityRole.FanCurve, ValueKind = CapabilityValueKind.Curve
         };
         var curve = CapabilityValue.Curve([new CurvePoint(40, 20), new CurvePoint(80, 90)]);
-        var state = DeviceCoordinatorNativeQamDeviceControlsService.Project([
+        var rows = SteamNativeSettingsService.DeviceQuickAccessRows([
             fan, DeviceView(protection, CapabilityValue.Choice("balanced"), CapabilityValue.Choice("full")),
             DeviceView(curveDescriptor, curve, curve)
-        ], FanCurvePresetTable.HandheldCompanion);
-        var rows = Assert.Single(state.Sections!).Rows;
+        ], FanCurvePresetTable.HandheldCompanion).Select(entry => entry.Row).ToArray();
         var fanRow = Assert.Single(rows, row => row.Kind == SteamSettingsRowKind.Range);
         Assert.Contains("right", fanRow.Label, StringComparison.Ordinal);
         Assert.Equal(15, fanRow.Minimum);
@@ -243,43 +250,38 @@ public sealed partial class NativeQamSemanticServicesTests
     [Fact]
     public void AmbiguousLightingZoneIsDroppedWithoutHidingIndependentControls()
     {
-        var state =
-            DeviceCoordinatorNativeQamDeviceControlsService.Project(
-            [
-                IntegerDeviceView(
-                    "vendor.charge",
-                    CapabilityRole.ChargeLimit,
-                    DisplayKey.ChargeLimit,
-                    60,
-                    100,
-                    80,
-                    80),
-                ColorDeviceView("first", "ring", "First ring", 0xFF0000),
-                ColorDeviceView("second", "ring", "Second ring", 0x0000FF),
-                ColorDeviceView("buttons", "button zone", "Buttons", 0x00FF00)
-            ], FanCurvePresetTable.HandheldCompanion);
+        IReadOnlyList<DeviceCapabilityView> views =
+        [
+            IntegerDeviceView(
+                "vendor.charge",
+                CapabilityRole.ChargeLimit,
+                DisplayKey.ChargeLimit,
+                60,
+                100,
+                80,
+                80),
+            ColorDeviceView("first", "ring", "First ring", 0xFF0000),
+            ColorDeviceView("second", "ring", "Second ring", 0x0000FF),
+            ColorDeviceView("buttons", "button zone", "Buttons", 0x00FF00)
+        ];
 
-        Assert.True(state.ChargeLimit?.Available);
-        var zone = Assert.Single(state.LightingZones);
+        Assert.Contains(SteamNativeSettingsService.DeviceQuickAccessRows(views, FanCurvePresetTable.HandheldCompanion),
+            row => row.Section == "charging");
+        var zone = Assert.Single(DeviceCoordinatorLightingZonesService.Project(views,
+            FanCurvePresetTable.HandheldCompanion));
         Assert.Equal("button zone", zone.Id);
     }
 
     [Fact]
-    public void UnavailableControllerServicePublishesNoSelectableTargets()
+    public async Task UnavailableControllerServicePublishesNoSelectableTargets()
     {
-        using var service = new DeviceCoordinatorNativeQamControllerTargetService(null);
+        await using var rig = await ProducerRig.CreateAsync();
 
-        var state = service.Current;
+        var state = await rig.Producer.ReadQuickAccessAsync();
 
-        Assert.False(state.Available);
-        Assert.Empty(state.Targets);
-        Assert.Empty(state.SelectedTarget);
-        Assert.Empty(state.ObservedTarget);
-        // The reason is surfaced verbatim rather than replaced with a generic message, so a user
-        // reading native QAM learns why controller management is off.
-        Assert.Equal(
-            DeviceCoordinatorNativeQamControllerTargetService.UnavailableDetail,
-            state.StatusText);
+        Assert.DoesNotContain(state!.Sections, section => section.Id == "controllerTarget");
+        var result = await rig.Producer.SetAsync("controller.target", Json("\"Xbox360\""), CancellationToken.None);
+        Assert.False(result.Succeeded);
     }
 
     [Fact]
@@ -621,35 +623,33 @@ public sealed partial class NativeQamSemanticServicesTests
     [Fact]
     public void TheTargetSliderCarriesTheSharedBoundsLineAndMarker()
     {
-        var state = DeviceCoordinatorNativeQamAutoTdpService.Project(true, null, true, null,
+        var state = SteamNativeSettingsService.ProjectAutoTdp(true, null, true, null,
             new AutoTdpTargetView(45, 40, true));
 
-        Assert.Equal(new SteamAutoTdpTarget(45, AutoTdpTarget.MinimumFps, AutoTdpTarget.MaximumFps,
+        Assert.Equal(new AutoTdpRowTarget(45, AutoTdpTarget.MinimumFps, AutoTdpTarget.MaximumFps,
             "Held to the 40 FPS frame limit.", true), state.Target);
     }
 
     [Fact]
     public async Task TheUnavailableServiceRefusesRatherThanSilentlyAccepting()
     {
-        // No device platform in this session: the service is constructed without a coordinator,
-        // which is how a session with device integration off projects this row.
-        using DeviceCoordinatorNativeQamAutoTdpService service = new(null);
+        // No device platform in this session: the producer is built without a coordinator, which is how a
+        // session with device integration off projects this row.
+        await using var rig = await ProducerRig.CreateAsync();
 
-        Assert.False(service.Current.Available);
-        var result = await service.SetAutoTdpAsync(true, CancellationToken.None);
-
-        Assert.False(result.Succeeded);
-        Assert.Equal(service.Current.StatusText, result.Error);
-        var target = await service.SetAutoTdpTargetAsync(45, CancellationToken.None);
-        Assert.False(target.Succeeded);
+        await rig.Producer.ReadQuickAccessAsync();
+        Assert.False((await rig.Producer.SetAsync("power.auto-tdp", Json("true"), CancellationToken.None))
+            .Succeeded);
+        Assert.False((await rig.Producer.SetAsync("power.auto-tdp-target", Json("45"), CancellationToken.None))
+            .Succeeded);
     }
 
-    private static SteamAutoTdpState Project(
+    private static AutoTdpRowState Project(
         bool enabled,
         AutoTdpStatus? status,
         bool powerLimitAvailable = true)
     {
-        return DeviceCoordinatorNativeQamAutoTdpService.Project(enabled, status, powerLimitAvailable);
+        return SteamNativeSettingsService.ProjectAutoTdp(enabled, status, powerLimitAvailable);
     }
 
     // The controller target Steam's native quick-access menu shows is WSGM's own setting.
@@ -690,7 +690,7 @@ public sealed partial class NativeQamSemanticServicesTests
             target => Assert.Equal(nameof(ManagedControllerTarget.SteamDeckComposite), target.Id),
             target => Assert.Equal(nameof(ManagedControllerTarget.Xbox360), target.Id),
             target => Assert.Equal(nameof(ManagedControllerTarget.DualShock4), target.Id));
-        Assert.All(state.Targets, target => Assert.True(target.Available));
+        Assert.All(state.Targets, target => Assert.True(target.Selectable));
     }
 
     [Fact]
@@ -754,7 +754,7 @@ public sealed partial class NativeQamSemanticServicesTests
     {
         // After a wake faulted the cycle the selector showed nothing, and a choice made there snapped
         // back to blank (Xbox Ally X, 2026-09-28). The choice is shown; only Observed stays empty.
-        var state = DeviceCoordinatorNativeQamControllerTargetService.Project(
+        var state = SteamNativeSettingsService.ProjectControllerTarget(
             true,
             Status(ControllerManagementState.Faulted, null, "The virtual controller could not be attached."),
             true,
@@ -777,7 +777,7 @@ public sealed partial class NativeQamSemanticServicesTests
                 ManagedControllerTarget.Xbox360,
                 applicationId: "steam:70"));
 
-        Assert.EndsWith(DeviceCoordinatorNativeQamControllerTargetService.RestartToRebind, state.StatusText,
+        Assert.EndsWith(SteamNativeSettingsService.RestartToRebind, state.StatusText,
             StringComparison.Ordinal);
     }
 
@@ -788,7 +788,7 @@ public sealed partial class NativeQamSemanticServicesTests
             true,
             Status(ControllerManagementState.Active, ManagedControllerTarget.Xbox360));
 
-        Assert.DoesNotContain(DeviceCoordinatorNativeQamControllerTargetService.RestartToRebind, state.StatusText,
+        Assert.DoesNotContain(SteamNativeSettingsService.RestartToRebind, state.StatusText,
             StringComparison.Ordinal);
     }
 
@@ -821,28 +821,20 @@ public sealed partial class NativeQamSemanticServicesTests
         // Enum.TryParse accepts numeric text, which would otherwise let an out-of-range value in.
         Assert.Equal(
             expected,
-            DeviceCoordinatorNativeQamControllerTargetService.TryParseTarget(candidate, out _));
+            SteamNativeSettingsService.TryParseTarget(candidate, out _));
     }
 
     [Fact]
-    public void EveryProjectedTargetSurvivesTheHostPayloadBoundary()
+    public void EveryProjectedTargetSurvivesTheRowBoundary()
     {
-        foreach (var target in Enum.GetValues<ManagedControllerTarget>())
+        var state = ProjectTarget(true, Status(ControllerManagementState.Idle, ManagedControllerTarget.Xbox360));
+        foreach (var target in state.Targets)
         {
-            using var payload = JsonDocument.Parse($$"""{"target":"{{target}}"}""");
-
-            Assert.True(SteamUiPayload.TryReadTarget(payload.RootElement, out var parsed));
-            Assert.Equal(target.ToString(), parsed);
+            Assert.True(SteamNativeSettingsService.TryParseTarget(target.Id, out var parsed));
+            Assert.Equal(target.Id, parsed.ToString());
         }
-    }
 
-    [Fact]
-    public void TheUnavailableServiceStaysTheProjectionForASessionWithNoDevicePlatform()
-    {
-        using DeviceCoordinatorNativeQamControllerTargetService service = new(null);
-
-        Assert.False(service.Current.Available);
-        Assert.Empty(service.Current.Targets);
+        Assert.Equal(Enum.GetValues<ManagedControllerTarget>().Length, state.Targets.Count);
     }
 
     [Fact]
@@ -861,13 +853,13 @@ public sealed partial class NativeQamSemanticServicesTests
         Assert.Contains(ControllerManager.NativeDetail, state.StatusText, StringComparison.Ordinal);
     }
 
-    private static SteamControllerTargetState ProjectTarget(
+    private static ControllerTargetRowState ProjectTarget(
         bool enabled,
         ControllerManagerStatus status,
         bool packageInstalled = true,
         IReadOnlyList<ManagedControllerTarget>? supportedTargets = null)
     {
-        return DeviceCoordinatorNativeQamControllerTargetService.Project(
+        return SteamNativeSettingsService.ProjectControllerTarget(
             enabled,
             status,
             packageInstalled,

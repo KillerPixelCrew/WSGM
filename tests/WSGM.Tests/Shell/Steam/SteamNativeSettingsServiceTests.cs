@@ -4,10 +4,12 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Overlay;
 using WSGM.Shell;
+using WSGM.Tests.Builders;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Shell;
 
-public sealed class SteamNativeSettingsServiceTests
+public sealed partial class SteamNativeSettingsServiceTests
 {
     [Theory]
     [InlineData("#FF0000", 0xFF0000)]
@@ -121,5 +123,124 @@ public sealed class SteamNativeSettingsServiceTests
             [SteamNativeSettingsService.ProfileKey("power.sustained", active, false)] = true
         };
         Assert.False(offered.ContainsKey(original));
+    }
+
+    [Fact]
+    public void AnUnselectableChoiceIsListedOnlyWhileCurrentAndNeverAccepted()
+    {
+        ChoiceRowState state = new(true,
+            [new ChoiceRowOption("a", "A"), new ChoiceRowOption("b", "B"), new ChoiceRowOption("custom", "Custom", false)],
+            "custom", "Status", true);
+
+        var row = SteamNativeSettingsService.ChoiceRow("key", "Label", "power", state)!;
+
+        Assert.Equal(["a", "b", "custom"], row.Choices!.Select(choice => choice.Value));
+        Assert.False(row.Choices![2].Selectable);
+        Assert.Equal("custom", row.Text);
+        Assert.Equal("Custom", row.Summary);
+        Assert.Equal("power", row.Icon);
+        Assert.Equal(NativeQamLayout.AccentDescription("Status"), row.Description);
+        Assert.False(SteamNativeSettingsService.ValidValue(row, JsonSerializer.SerializeToElement("custom")));
+        Assert.True(SteamNativeSettingsService.ValidValue(row, JsonSerializer.SerializeToElement("b")));
+
+        var other = SteamNativeSettingsService.ChoiceRow("key", "Label", "power", state with { Current = "a" })!;
+        Assert.Equal(["a", "b"], other.Choices!.Select(choice => choice.Value));
+        Assert.Null(SteamNativeSettingsService.ChoiceRow("key", "Label", "power", state with { Options = [] }));
+        Assert.True(SteamNativeSettingsService.ChoiceRow("key", "Label", "power",
+            state with { Options = [new ChoiceRowOption("a", "A")], Current = "a" })!.Disabled);
+        Assert.True(SteamNativeSettingsService.ChoiceRow("key", "Label", "power",
+            state with { Available = false })!.Disabled);
+    }
+
+    [Fact]
+    public async Task QuickAccessAndSettingsShareOneRowAndOneOfferedCommand()
+    {
+        await using var rig = await ProducerRig.CreateAsync();
+
+        var quickAccess = await rig.Producer.ReadQuickAccessAsync();
+        var settings = await rig.Producer.ReadAsync();
+
+        var cores = Assert.Single(Assert.Single(quickAccess!.Sections, section => section.Id == "hybridCores").Rows);
+        Assert.Equal("Processor cores", cores.Label);
+        Assert.Equal("cores", cores.Icon);
+        Assert.Equal(cores.Text is { Length: > 0 }
+            ? cores.Choices!.Single(choice => choice.Value == cores.Text).Label
+            : null, cores.Summary);
+        var page = Assert.Single(settings!.Pages, candidate => candidate.Id == "power");
+        // One row, one key: both surfaces describe it identically and offer one command.
+        Assert.Contains(page.Sections.SelectMany(section => section.Rows),
+            row => row.Key == cores.Key && row.Label == cores.Label && row.Text == cores.Text);
+        var other = cores.Choices!.First(choice => choice.Value != cores.Text);
+        Assert.True((await rig.Producer.SetAsync(cores.Key, JsonSerializer.SerializeToElement(other.Value),
+            CancellationToken.None)).Succeeded);
+        Assert.False((await rig.Producer.SetAsync(cores.Key, JsonSerializer.SerializeToElement("nope"),
+            CancellationToken.None)).Succeeded);
+        Assert.False((await rig.Producer.SetAsync("no.such.row", JsonSerializer.SerializeToElement(true),
+            CancellationToken.None)).Succeeded);
+    }
+
+    [Fact]
+    public async Task AnUnchangedBuildKeepsTheQuickAccessRevision()
+    {
+        await using var rig = await ProducerRig.CreateAsync();
+
+        var first = await rig.Producer.ReadQuickAccessAsync();
+        var second = await rig.Producer.ReadQuickAccessAsync();
+
+        Assert.Equal(first!.Revision, second!.Revision);
+        Assert.True(first.Revision > 0);
+    }
+
+    [Fact]
+    public void AutoTdpPublishesItsAvailabilityProgressAndHeldWatts()
+    {
+        var holding = SteamNativeSettingsService.ProjectAutoTdp(true,
+            new AutoTdpStatus(AutoTdpState.Controlling, 17, 14.2, 16.6, "steam:70", "sustained-miss"), true);
+        Assert.True(holding is { Available: true, Controlling: true, Watts: 17, Progress: "completed" });
+        Assert.False(SteamNativeSettingsService.ProjectAutoTdp(true, null, false).Available);
+    }
+
+    private static JsonElement Json(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.Clone();
+    }
+
+    /// <summary>A producer over inert owners: no device, display, audio or graphics, a fake core and scheme API.</summary>
+    private sealed class ProducerRig : IAsyncDisposable
+    {
+        private readonly PerformanceService _performance;
+
+        private ProducerRig(PerformanceService performance, SteamNativeSettingsService producer)
+        {
+            _performance = performance;
+            Producer = producer;
+        }
+
+        internal SteamNativeSettingsService Producer { get; }
+
+        public ValueTask DisposeAsync()
+        {
+            return _performance.DisposeAsync();
+        }
+
+        internal static Task<ProducerRig> CreateAsync()
+        {
+            FakeHybridCoreApi api = new();
+            var profiles = PerformanceBuilders.Profiles();
+            var performance = PerformanceBuilders.Service(profiles);
+            SteamNativeSettingsService producer = new(
+                new NativeQamBrightnessService(() => false, () => null, _ => false, Timeout.InfiniteTimeSpan),
+                null,
+                new PerformanceServiceNativeQamAdapter(performance, profiles),
+                new NativeQamPowerProfileService(new PowerSchemes(api)),
+                null,
+                new NativeQamHybridCoreService(api.Owner()),
+                null,
+                null,
+                null,
+                profiles);
+            return Task.FromResult(new ProducerRig(performance, producer));
+        }
     }
 }

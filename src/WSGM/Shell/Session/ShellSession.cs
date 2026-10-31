@@ -779,9 +779,7 @@ public sealed class ShellSession
             LaunchActions = _library.LaunchActions,
             ScaledResolutions = _integrations.ScaledResolutions,
             WsgmSettings = _steamUi.SettingsPage,
-            CpuBoost = _cpuBoost.Available
-                ? new NativeQamCpuBoostService(_cpuBoost, _profiles)
-                : null,
+            CpuBoost = _cpuBoost.Available ? _cpuBoost : null,
             ChordMirror = _system.ChordMirror,
             PowerMenu = _steamUi.PowerMenu,
             Themes = _library.Themes,

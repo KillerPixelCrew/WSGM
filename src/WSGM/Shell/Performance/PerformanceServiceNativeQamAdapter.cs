@@ -12,8 +12,7 @@ namespace WSGM.Shell;
 /// </summary>
 internal sealed class PerformanceServiceNativeQamAdapter :
     ISteamPerformanceBackend,
-    ISteamFrameLimitBackend,
-    ISteamVariableRefreshBackend
+    ISteamFrameLimitBackend
 {
     private readonly ProfileService _profiles;
     private readonly PerformanceService _service;
@@ -38,7 +37,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
     ///     Availability follows the plugin's published capability and nothing else: a machine whose
     ///     device publishes no VRR capability has no switch, rather than one that refuses every press.
     /// </remarks>
-    internal SteamVariableRefreshState Vrr
+    internal VariableRefreshView Vrr
     {
         get
         {
@@ -46,10 +45,9 @@ internal sealed class PerformanceServiceNativeQamAdapter :
             var available = support?.VariableRefreshRateSupported == true
                             && ApplyVariableRefreshRate is not null;
             var enabled = support?.VariableRefreshRateEnabled == true;
-            return new SteamVariableRefreshState(
+            return new VariableRefreshView(
                 available,
                 enabled,
-                "idle",
                 available
                     ? enabled
                         ? "The panel follows the frame rate."
@@ -225,8 +223,11 @@ internal sealed class PerformanceServiceNativeQamAdapter :
         return new SteamUiCommandResult(failure is null, failure);
     }
 
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> SetVariableRefreshRateAsync(
+    /// <summary>Switches variable refresh through the device capability.</summary>
+    /// <param name="enabled">The requested state.</param>
+    /// <param name="cancellationToken">Cancels the device write.</param>
+    /// <returns>Applied, or the refusal with its reason.</returns>
+    internal Task<SteamUiCommandResult> SetVariableRefreshRateAsync(
         bool enabled,
         CancellationToken cancellationToken)
     {

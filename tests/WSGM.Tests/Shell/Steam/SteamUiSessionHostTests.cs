@@ -69,7 +69,8 @@ public sealed class SteamUiSessionHostTests : IDisposable
         var allowed = root.GetProperty("allowed");
         Assert.Equal("refused", allowed.GetProperty(SteamDownloadSort.PatchId)[0].GetString());
         Assert.Equal("toggleQuickAccess", allowed.GetProperty("wsgm.native-qam.shell")[0].GetString());
-        Assert.True(allowed.TryGetProperty("steam-ui.device-controls", out _));
+        Assert.True(allowed.TryGetProperty(SteamQuickAccessRowsSurface.PatchId, out _));
+        Assert.True(allowed.TryGetProperty(SteamLightingZonesRow.PatchId, out _));
         Assert.False(allowed.TryGetProperty(SteamThemesSurface.PatchId, out _));
 
         // Optional fixture export for the attended harness; normal test runs write nothing.
@@ -117,7 +118,7 @@ public sealed class SteamUiSessionHostTests : IDisposable
     }
 
     [Fact]
-    public async Task BridgeVocabularyComesFromTheDeclaredModulesIncludingDeviceControls()
+    public async Task BridgeVocabularyComesFromTheDeclaredModulesIncludingQuickAccessRows()
     {
         await using var transport = new SessionHostTransport();
         await using var performance = PerformanceBuilders.Service();
@@ -128,8 +129,11 @@ public sealed class SteamUiSessionHostTests : IDisposable
         await WaitForAsync(() => transport.BridgeConfiguration is not null);
 
         Assert.Contains(
-            "\"steam-ui.device-controls\":[\"setControl\",\"setChargeLimit\","
-            + "\"setLightingBrightness\",\"setLightingColor\"]",
+            "\"steam-ui.quick-access-rows\":[\"set\"]",
+            transport.BridgeConfiguration,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"steam-ui.lighting-zones\":[\"setLightingColor\"]",
             transport.BridgeConfiguration,
             StringComparison.Ordinal);
     }
@@ -419,18 +423,18 @@ public sealed class SteamUiSessionHostTests : IDisposable
             null);
         await WaitForAsync(() => transport.Responses.Count >= 1);
         transport.EmitRequest(
-            "steam-ui.power-limit",
-            "setPrimaryLimit",
+            SteamQuickAccessRowsSurface.PatchId,
+            "set",
             2,
             1,
-            new { watts = "not-a-number" });
+            new { key = "power.sustained" });
         await WaitForAsync(() => transport.Responses.Count >= 2);
 
         Assert.Equal(1, toggles);
         Assert.True(transport.Responses[0].GetProperty("ok").GetBoolean());
         Assert.False(transport.Responses[1].GetProperty("ok").GetBoolean());
         Assert.Equal(
-            "The sustained power-limit payload is invalid.",
+            "The Quick Access row payload is invalid.",
             transport.Responses[1].GetProperty("error").GetString());
     }
 

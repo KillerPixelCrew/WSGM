@@ -23,7 +23,7 @@ namespace WSGM.Shell;
 ///         unavailable row says why and cannot be changed.
 ///     </para>
 /// </remarks>
-internal sealed class SteamGraphicsService : ISteamSettingsQuickAccessBackend, IDisposable
+internal sealed class SteamGraphicsService : IDisposable
 {
     /// <summary>A graphics chip with its pins, in Steam's menu convention: one solid shape, holes even-odd.</summary>
     internal const string Glyph =
@@ -35,10 +35,10 @@ internal sealed class SteamGraphicsService : ISteamSettingsQuickAccessBackend, I
 
     private readonly Lock _gate = new();
     private readonly IGraphicsOverlaySource _source;
-    private SteamSettingsQuickAccessState? _quickAccessState;
+    private GraphicsPagesState? _quickAccessState;
     private long _revision = 1;
     private GraphicsOverlaySnapshot? _snapshot;
-    private SteamSettingsQuickAccessState? _state;
+    private GraphicsPagesState? _state;
 
     /// <summary>Creates the page's backend over the overlay's graphics source.</summary>
     /// <param name="source">The graphics projection; its owner disposes it after this.</param>
@@ -80,8 +80,12 @@ internal sealed class SteamGraphicsService : ISteamSettingsQuickAccessBackend, I
         Changed = null;
     }
 
-    /// <inheritdoc />
-    public async Task<SteamUiCommandResult> SetAsync(string key, JsonElement value,
+    /// <summary>Writes one published graphics row through the graphics projection.</summary>
+    /// <param name="key">The row's <see cref="RowKey" />.</param>
+    /// <param name="value">The renderer's value.</param>
+    /// <param name="cancellationToken">Cancels the driver write.</param>
+    /// <returns>Applied, or the refusal with its reason.</returns>
+    internal async Task<SteamUiCommandResult> SetAsync(string key, JsonElement value,
         CancellationToken cancellationToken)
     {
         if (Find(key) is not { } capability)
@@ -116,22 +120,22 @@ internal sealed class SteamGraphicsService : ISteamSettingsQuickAccessBackend, I
 
     /// <summary>The page as it should be drawn now.</summary>
     /// <returns>The page model.</returns>
-    internal SteamSettingsQuickAccessState ReadState()
+    internal GraphicsPagesState ReadState()
     {
         lock (_gate)
         {
-            return _state ??= new SteamSettingsQuickAccessState(Pages(CurrentSnapshot()), _revision);
+            return _state ??= new GraphicsPagesState(Pages(CurrentSnapshot()), _revision);
         }
     }
 
     /// <summary>Projects the current graphics snapshot into vendor groups for Quick Access.</summary>
     /// <returns>A state snapshot with the current revision and one grouped page per publisher.</returns>
-    internal SteamSettingsQuickAccessState ReadQuickAccessState()
+    internal GraphicsPagesState ReadQuickAccessState()
     {
         lock (_gate)
         {
             return _quickAccessState ??=
-                new SteamSettingsQuickAccessState(QuickAccessPages(CurrentSnapshot()), _revision);
+                new GraphicsPagesState(QuickAccessPages(CurrentSnapshot()), _revision);
         }
     }
 

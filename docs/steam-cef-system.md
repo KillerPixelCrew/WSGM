@@ -45,9 +45,11 @@ on the existing shared transport. Pack compatibility, licensing and restoration 
            ├─ SteamUiModuleRuntime: publications down, commands up
            ├─ Shell\Steam\SteamUiModuleCatalog.cs: surface adapters, host modules and pages, plugin modules
            ├─ Shell\Steam\SteamUiPatchSwitches.cs: every patch switch, derived from the surface switches
-           └─ NativeQam*Service (Shell\<Feature>\)  the backends: TDP, AutoTDP, frame limit, VRR, controller
-                                             target, device controls, audio, network, Bluetooth,
-                                             brightness, resolution; each feeds one toolkit surface
+           ├─ Shell\Steam\SteamNativeSettingsService*.cs: the one row producer for Quick Access
+           │                                 and Steam Settings (power, display, audio, device)
+           └─ NativeQam*Service (Shell\<Feature>\)  the gate backends and shared owners: frame limit
+                                             and perf state, power profile, cores, audio, network,
+                                             Bluetooth, brightness, lighting zones
  Core\Library\SteamLibraryTabs.cs                       legacy resident script: library tabs
  Shell\Library\LibraryBadges.cs, HomeCarousel.cs        card readings behind the library badge and Home carousel
  toolkit Client\                                one-shot client calls through the session transport:
@@ -333,13 +335,12 @@ while the session runs.
 | Surface group                      | Registration and backend                                                                                                                                                                                                                                                 |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Shell command                      | `shell` handles `wsgm.native-qam.shell/toggleQuickAccess` through the overlay toggle.                                                                                                                                                                                    |
-| Power limits and device controls   | `SteamPowerLimitSurface`, `SteamAutoTdpRow`, `SteamControllerTargetRow`, `SteamDeviceControlsRow` use the corresponding `DeviceCoordinatorNativeQam*Service`.                                                                                                            |
-| Performance                        | `SteamPerformanceSurface`, `SteamFrameLimitRow`, `SteamVariableRefreshRow` use `PerformanceServiceNativeQamAdapter`; state determines availability.                                                                                                                      |
-| Windows power policy               | `SteamPowerProfileRow`, `SteamPowerPresetRow`, `SteamHybridCoreRow` use their `NativeQam*Service`; `SteamCpuBoostRow` is declared when its backend exists.                                                                                                               |
-| Display and audio                  | `SteamBrightnessSurface` uses `NativeQamBrightnessService`; optional resolution, audio and audio-format backends add their matching rows/surface.                                                                                                                        |
+| Quick Access rows                  | `SteamQuickAccessRowsSurface` publishes `SteamNativeSettingsService.ReadQuickAccessAsync` and answers `set` through the same offered commands as the Settings pages. Its module registers the one component host patch that mounts every Quick Access row.               |
+| Performance and lighting editor    | `SteamPerformanceSurface` and `SteamFrameLimitRow` use `PerformanceServiceNativeQamAdapter`; `SteamLightingZonesRow` uses `DeviceCoordinatorLightingZonesService`. State determines availability.                                                                        |
+| Display and audio                  | `SteamBrightnessSurface` uses `NativeQamBrightnessService`; an optional audio manager adds `SteamAudioSurface`. Resolution and audio-format rows are Quick Access rows.                                                                                                  |
 | Radio and storage                  | An available radio owner adds network/Bluetooth; `SteamStorageSurface` uses `SteamStorageBridge` when the storage managers exist.                                                                                                                                        |
 | Layout and folds                   | `SteamQuickAccessLayoutSurface` publishes `NativeQamLayout.Layout`; `SteamPanelFoldsSurface` uses `SteamPanelFoldsBackend`.                                                                                                                                              |
-| Native Settings and graphics       | `SteamNativeSettingsSurface` uses `SteamNativeSettingsService`; the optional graphics owner also publishes `SteamSettingsQuickAccessRow` through `SteamGraphicsService`.                                                                                                 |
+| Native Settings and graphics       | `SteamNativeSettingsSurface` uses `SteamNativeSettingsService`, the same producer as the Quick Access rows; the optional graphics owner's pages appear on both through `SteamGraphicsService`.                                                                           |
 | Library presentation               | `SteamLibraryBadgeSurface` publishes `LibraryBadges.Current`, with the game-page details patch in the same module; `SteamHomeCarouselSurface` projects the same reading through `HomeCarousel`.                                                                          |
 | Product pages                      | One `SteamPageSurface` merges all routes. Available artwork, library-import, settings, themes and animations services contribute their own WSGM renderer modules; the file picker is added with artwork or library import.                                               |
 | Navigation and actions             | WSGM settings adds `SteamNavigationPanelSurface`; `SteamExtensionsTabSurface` and `SteamGameContextMenuSurface` always have WSGM's own content; optional `SteamPowerMenuSurface` hands Switch to Desktop to its host backend.                                            |
@@ -367,12 +368,12 @@ change the set.
 | `HostSurfaces` (overlay activation)       | The independent overlay-activation observer.                                                                                                                                             |
 | Active glyph presentation                 | The MainWindow stylesheet, gated by CEF, device integration and the resolved profile.                                                                                                    |
 
-The settings-sections patch is also kept for plugin Quick Access rows when host surfaces are on;
-WSGM's own graphics publication still follows `NativeQuickAccess`. Publication enablement and patch
-enablement are distinct. The host surfaces keep the bridge bootstrap up; only the glyph stylesheet
-is delivered without the bridge, so the global switch stays on while either is wanted. A typed
-reader returning null publishes nothing and preserves the last delivered state; clear a surface with
-its explicit empty state or remove its patch.
+The Quick Access component host (`steam-ui.quick-access`) is also kept for plugin Quick Access rows
+when host surfaces are on; WSGM's own rows still follow `NativeQuickAccess`. Publication enablement
+and patch enablement are distinct. The host surfaces keep the bridge bootstrap up; only the glyph
+stylesheet is delivered without the bridge, so the global switch stays on while either is wanted. A
+typed reader returning null publishes nothing and preserves the last delivered state; clear a
+surface with its explicit empty state or remove its patch.
 
 ### Common-plugin frontends
 
@@ -520,33 +521,40 @@ bridge.
 
 ### The component host
 
-`components.ts` renders into Steam's React tree and includes the shared UI kit stylesheet in the
-roots that use it. It resolves Valve's own primitives by localization token and source shape (React,
-the slider, dropdown and toggle fields, panel section and row, the localizer), then registers a
-transform on the shared `React.useMemo` claim so that when the Quick Access tab array passes through
-a memo, two panels are replaced by wrappers. The Performance panel is found by export identity
-through `#QuickAccess_Tab_Perf_Common_Settings`, `#QuickAccess_Tab_Perf_BatteryTimeRemaining` and
+`components.ts` is one gate (`steam-ui.quick-access`, registered by `SteamQuickAccessRowsSurface`)
+that renders into Steam's React tree and includes the shared UI kit stylesheet in the roots that use
+it. It resolves Valve's own primitives by localization token and source shape (React, the slider,
+dropdown and toggle fields, panel section and row, the localizer), then registers a transform on the
+shared `React.useMemo` claim so that when the Quick Access tab array passes through a memo, two
+panels are replaced by wrappers. The Performance panel is found by export identity through
+`#QuickAccess_Tab_Perf_Common_Settings`, `#QuickAccess_Tab_Perf_BatteryTimeRemaining` and
 `TS.ON_FRAME`; the Quick Settings panel by source containing
 `#QuickAccess_Tab_Settings_Section_Other_Title` and `#QuickAccess_ReorderControllers_Button`.
 
 The wrappers draw WSGM's rows in the toolkit UI kit's groups after Valve's Performance tree: blocks
-with a fill and border under a heading that carries the section's glyph. WSGM supplies the sections,
-their titles, glyphs and folds and which rows each holds, as `Shell\Steam\NativeQamLayout.cs`
-published through the toolkit's layout surface; the section ids are the titles, so the folds kept in
-`quick-access-folds.json` carry over. Quick Settings places Display before the native controls, then
-Charging and RGB lighting after them, and wraps Valve's own sections so they get the same block
-look. Performance groups profile scope, power profiles, display/frame rate, power limits, controller
-and reset; Valve's battery line above them is kept at one line's height. Every group but Profile
-scope folds and starts folded, and a folded heading reports what its rows hold (the chosen profile,
-the frame cap, the watts, the charge limit). Every Quick Access fold, the Extensions tab's items and
-each theme's patches included, goes through the toolkit's one fold surface: the sections the user
-opened are sent to `SteamPanelFoldsBackend` and kept in `quick-access-folds.json`, so an open
-section outlives Steam rebuilding the tab. A section whose WSGM rows all draw nothing, such as Power
-limits and Controller without a device, stays mounted but out of layout. WSGM's layout hides Steam's
-two FPS-counter rows, which its own overlay replaces. The wrap is one transform on the toolkit's
-shared `useMemo` claim, which the Screensaver settings rows use too; `useMemo` is handed back when
-the last transform on it is removed. RGB brightness stays visible; Edit color reveals the zone and
-HSV sliders only when needed.
+with a fill and border under a heading that carries the section's glyph. Most rows are
+`SteamSettingsRow` descriptors that `SteamNativeSettingsService.ReadQuickAccessAsync` publishes in
+sections (`powerPreset`, `powerProfile`, `hybridCores`, `cpuBoost`, `vrr`, `powerLimit`, `autoTdp`,
+`controllerTarget`, `resolution`, `audioFormat`, `charging`, `lighting`, `deviceDescriptors`) and
+the toolkit draws with Steam's fields, its draft keeping and its refusal line, so a value, label,
+glyph and folded summary come from the same row the Settings page draws. What stays bespoke is the
+frame-limit slider, the inline lighting editor (`lightingZones`) and Valve's own components. WSGM
+supplies the sections, their titles, glyphs and folds and which kinds each holds, as
+`Shell\Steam\NativeQamLayout.cs` published through the toolkit's layout surface; the section ids are
+the titles, so the folds kept in `quick-access-folds.json` carry over. Quick Settings places Display
+before the native controls, then Charging and RGB lighting after them, and wraps Valve's own
+sections so they get the same block look. Performance groups profile scope, power profiles,
+display/frame rate, power limits, controller and reset; Valve's battery line above them is kept at
+one line's height. Every group but Profile scope folds and starts folded, and a folded heading
+reports what its rows hold (the chosen profile, the frame cap, the watts, the charge limit). Every
+Quick Access fold, the Extensions tab's items and each theme's patches included, goes through the
+toolkit's one fold surface: the sections the user opened are sent to `SteamPanelFoldsBackend` and
+kept in `quick-access-folds.json`, so an open section outlives Steam rebuilding the tab. A section
+whose WSGM rows all draw nothing, such as Power limits and Controller without a device, stays
+mounted but out of layout. WSGM's layout hides Steam's two FPS-counter rows, which its own overlay
+replaces. The wrap is one transform on the toolkit's shared `useMemo` claim, which the Screensaver
+settings rows use too; `useMemo` is handed back when the last transform on it is removed. RGB
+brightness stays visible; Edit color reveals the zone and HSV sliders only when needed.
 
 Rows and section headers carry a glyph from `icons.ts`, drawn by the toolkit on a 24x24 grid rather
 than taken from the client, filled with `currentColor` so it inherits the row's colour. A row passes
@@ -636,13 +644,11 @@ every module and refused each gate that had named one; the record is in
 | network     | `installed && available`                | `!available`        |
 
 `SteamUiBridgePatch` probes only webpack and React, so a moved Quick Access module cannot take the
-host pages, badges and other gates down with it, and never retains a module id in C#. Each
-`SteamQuickAccessRowPatch` probes the four Quick Access conjunctions that must each match exactly
-one module (TDP availability, TDP component, performance actions, read-only profile projection) plus
-five structural ones, applies `install(kind)`, verifies
-`registered && hostVersion === 1 && performanceRootWrapped`, and removes with `remove(kind)`. Every
-command payload is read by the surface's module with `SteamUiPayload` before WSGM's backend sees a
-typed value.
+host pages, badges and other gates down with it, and never retains a module id in C#. The Quick
+Access component host is one gate with one probe, `SteamQuickAccessRowsSurface.HostPatch`: it
+resolves the performance panel, Valve's fields, panel layout and localizer once and mounts every
+Quick Access row. Every command payload is read by the surface's module with `SteamUiPayload` before
+WSGM's backend sees a typed value.
 
 `Core\Steam\SteamInputGlyphStylePatch.cs` targets the main window with the default 8 s phase
 timeout, probes the parsed stylesheets for the two build-coupled classes rather than the DOM,
@@ -705,14 +711,13 @@ quarantine lasts as long as the module is registered: for WSGM's own modules tha
 
 ### Advanced audio
 
-`SteamAudioFormatRow` mounts two dropdowns in Quick Settings: the playback channel layout and
-default format, and spatial sound. The published state carries only the current playback endpoint's
-supported formats, the current selections, and a reason when the endpoint exposes neither. The
-vocabulary is `setFormat` and `setSpatial`, each with one bounded `target` identifier out of the
-list that was published. `NativeQamAudioFormatService` validates every payload against the latest
-observed capability before it reaches `AudioProfileService`, which is the same service the Overlay
-panel writes through, so there is one Windows implementation behind both. A row is not drawn when
-the endpoint offers fewer than two choices for it.
+The Audio section of Quick Settings holds three Quick Access rows, Channels, Format and Spatial
+sound, which are also the Advanced playback rows of Steam Settings > Audio. Their keys name the
+playback endpoint that offered them, so a choice made against one output cannot reach the output
+that is default by the time it arrives. `NativeQamAudioFormatService` validates every value against
+the latest observed capability before it reaches `AudioProfileService`, which is the same service
+the Overlay panel writes through, so there is one Windows implementation behind both. A row with no
+choice is not drawn, and one with a single choice is disabled.
 
 ### Degradation
 
@@ -729,12 +734,12 @@ their matching setter echoes cannot dispatch hardware writes. Failed or refused 
 reason without retrying. The service tests and the emitted brightness fixture cover this without
 hardware; focused controller/touch and reconnect checks remain attended.
 
-Without a device coordinator the TDP, AutoTDP, device-control and controller-target services publish
-an unavailable state and refuse writes with the reason. Audio, network, Bluetooth and resolution
-modules are not declared at all without their managers. A perf control is hidden by omitting its
-field; a component that cannot mount reports why in `renderOutcomes`. The power-profile and
-processor-core dropdowns hide when they publish no options, which is how a processor with one kind
-of core shows no core row.
+Without a device coordinator the producer offers no TDP, AutoTDP, device-control or
+controller-target row, and a command for one is refused as no longer offered. Audio, network and
+Bluetooth modules are not declared at all without their managers, and no resolution row is offered
+without a resolution owner. A perf control is hidden by omitting its field; a component that cannot
+mount reports why in `renderOutcomes`. The power-profile and processor-core dropdowns hide when they
+publish no options, which is how a processor with one kind of core shows no core row.
 
 `state received but rejected by validation` is the outcome to look for when a row that used to draw
 stops drawing. The host published something the injected half refused, so the control returns null
@@ -827,13 +832,13 @@ answer at once and finish in the background.
 | `steam-ui.theme-styles`      | `ThemeService.ReadStyles`           | its `Changed`, under its own styles revision | `ConfigurationChanged()` |
 | `steam-ui.navigation-panel`  | `WsgmSteamSettingsService.ReadMenu` | graphics packages starting and stopping      | nothing                  |
 
-QAM Performance has one folding group per GPU publisher, named for its vendor, such as Intel GPU.
-Adapter and display categories are plain sections inside it through `SteamSettingsQuickAccessRow`,
-using `SteamGraphicsService` for values, overrides and writes. Overlay GPU categories retain their
-individual folding groups. QAM Quick Settings places Channels, Format and Spatial sound under Audio,
-separately from Display. Channel choices preserve the current encoding when the new layout supports
-it; Format lists only encodings for the active channel layout. Off is a label, not the spatial
-format GUID.
+QAM Performance has one folding group per GPU publisher, named for its vendor, such as Intel GPU: a
+titled Quick Access row section no layout section names, kept folded under `settings.<page id>`.
+Adapter and display categories are plain sections inside it, using `SteamGraphicsService` for
+values, overrides and writes. Overlay GPU categories retain their individual folding groups. QAM
+Quick Settings places Channels, Format and Spatial sound under Audio, separately from Display.
+Channel choices preserve the current encoding when the new layout supports it; Format lists only
+encodings for the active channel layout. Off is a label, not the spatial format GUID.
 
 The main menu's WSGM row, before Power, is drawn by Valve's own route entry and navigates to
 `/wsgm/settings` with Valve's own action; the host is never asked. That page is drawn by the
@@ -957,9 +962,10 @@ Display, Power, Audio and Controller extend Steam's existing Settings pages thro
 separate WSGM Graphics route. These pages follow the CEF switch independently of native Quick
 Access.
 
-`SteamNativeSettingsService` borrows the host's QAM adapters. Display exposes brightness,
-resolution, refresh rate, variable refresh and the shared display-off timeouts alongside GPU
-sections from `SteamGraphicsService`. Adapter, display and category headings come from
+`SteamNativeSettingsService` is the producer the Quick Access rows come from too: one build per read
+offers both surfaces' rows, and a row both draw is one row with one command. Display exposes
+brightness, resolution, refresh rate, variable refresh and the shared display-off timeouts alongside
+GPU sections from `SteamGraphicsService`. Adapter, display and category headings come from
 `GraphicsOverlayBridge`; a publisher retracts its rows when it stops. Power uses the existing TDP,
 AutoTDP, power preset, Windows power scheme, CPU boost, hybrid-core and device-capability owners.
 Audio uses `NativeQamAudioFormatService` for the active endpoint's channels, default format and

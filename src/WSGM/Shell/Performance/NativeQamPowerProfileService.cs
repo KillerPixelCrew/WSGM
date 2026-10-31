@@ -12,14 +12,14 @@ namespace WSGM.Shell;
 ///     The session's Windows power-profile workflow for Steam and the overlay. Accepted writes are published first;
 ///     independent refreshes read Windows. The installed list is cached briefly and writes are not retried.
 /// </summary>
-internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
+internal sealed class NativeQamPowerProfileService
 {
     private static readonly TimeSpan SchemeRefreshInterval = TimeSpan.FromMinutes(1);
     private readonly PowerSchemes _schemes;
     private readonly Lock _sync = new();
     private readonly TimeProvider _timeProvider;
     private HashSet<Guid> _offeredIds = [];
-    private SteamPowerProfileOption[] _options = [];
+    private ChoiceRowOption[] _options = [];
     private DateTimeOffset _refreshAfter;
     private bool _refreshRequested = true;
     private string _status = string.Empty;
@@ -36,9 +36,12 @@ internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
-    /// <inheritdoc />
+    /// <summary>Selects one offered Windows power profile for Steam's rows.</summary>
+    /// <param name="option">The profile's GUID in "D" form.</param>
+    /// <param name="cancellationToken">Cancels admission and selection.</param>
+    /// <returns>Applied, or the refusal with its reason.</returns>
     /// <remarks>Invalid IDs and operational failures become refusal results; cancellation propagates.</remarks>
-    public async Task<SteamUiCommandResult> SetPowerProfileAsync(string option, CancellationToken cancellationToken)
+    internal async Task<SteamUiCommandResult> SetPowerProfileAsync(string option, CancellationToken cancellationToken)
     {
         if (!Guid.TryParseExact(option, "D", out var id) || id == Guid.Empty)
         {
@@ -144,7 +147,7 @@ internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
         _offeredIds = [.. schemes.Select(scheme => scheme.Id)];
         _options =
         [
-            .. schemes.Select(scheme => new SteamPowerProfileOption(scheme.Id.ToString("D"),
+            .. schemes.Select(scheme => new ChoiceRowOption(scheme.Id.ToString("D"),
                 nameCounts[scheme.Name] > 1
                     ? $"{scheme.Name} ({scheme.Id:D})"
                     : scheme.Name))
@@ -160,9 +163,9 @@ internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
     ///     fails.
     /// </returns>
     /// <remarks>Work is serialized on a worker. Options refresh when requested or after the one-minute cache interval.</remarks>
-    internal ValueTask<SteamPowerProfileState?> ReadAsync()
+    internal ValueTask<ChoiceRowState?> ReadAsync()
     {
-        return new ValueTask<SteamPowerProfileState?>(Task.Run<SteamPowerProfileState?>(() =>
+        return new ValueTask<ChoiceRowState?>(Task.Run<ChoiceRowState?>(() =>
         {
             lock (_sync)
             {
@@ -171,7 +174,7 @@ internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
                     if (_writtenActive is { } written)
                     {
                         _writtenActive = null;
-                        return new SteamPowerProfileState(PowerSchemes.OffersChoice(_options.Length), _options,
+                        return new ChoiceRowState(PowerSchemes.OffersChoice(_options.Length), _options,
                             written.ToString("D"), string.IsNullOrEmpty(_status)
                                 ? "Windows accepted the power profile selection."
                                 : _status);
@@ -190,16 +193,16 @@ internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
                     catch (Exception ex)
                     {
                         var offered = PowerSchemes.OffersChoice(_options.Length);
-                        return new SteamPowerProfileState(offered, offered ? _options : [], string.Empty, ex.Message);
+                        return new ChoiceRowState(offered, offered ? _options : [], string.Empty, ex.Message);
                     }
 
                     if (!PowerSchemes.OffersChoice(_options.Length))
                     {
-                        return new SteamPowerProfileState(false, [], active.ToString("D"),
+                        return new ChoiceRowState(false, [], active.ToString("D"),
                             "Windows offers one power profile.");
                     }
 
-                    return new SteamPowerProfileState(true, _options,
+                    return new ChoiceRowState(true, _options,
                         active.ToString("D"), string.IsNullOrEmpty(_status)
                             ? "Windows controls the active power profile. Changes apply immediately."
                             : _status);
@@ -207,7 +210,7 @@ internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
                 catch (Exception ex)
                 {
                     _refreshRequested = true;
-                    return new SteamPowerProfileState(false, [], string.Empty, ex.Message);
+                    return new ChoiceRowState(false, [], string.Empty, ex.Message);
                 }
             }
         }));

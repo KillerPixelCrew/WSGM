@@ -56,15 +56,10 @@ public sealed class SteamUiAssetTests
         Assert.Contains("DropDownField", source, StringComparison.Ordinal);
         Assert.Contains("PanelSectionRow", source, StringComparison.Ordinal);
         Assert.Contains("LocalizeString", source, StringComparison.Ordinal);
-        Assert.Contains("steam-ui.power-limit", source, StringComparison.Ordinal);
+        Assert.Contains("steam-ui.quick-access-rows", source, StringComparison.Ordinal);
         Assert.Contains("steam-ui.frame-limit", source, StringComparison.Ordinal);
-        Assert.Contains("steam-ui.controller-target", source, StringComparison.Ordinal);
-        Assert.Contains("steam-ui.device-controls", source, StringComparison.Ordinal);
-        Assert.Contains("setPrimaryLimit", source, StringComparison.Ordinal);
+        Assert.Contains("steam-ui.lighting-zones", source, StringComparison.Ordinal);
         Assert.Contains("setFrameLimit", source, StringComparison.Ordinal);
-        Assert.Contains("setControllerTarget", source, StringComparison.Ordinal);
-        Assert.Contains("setChargeLimit", source, StringComparison.Ordinal);
-        Assert.Contains("setLightingBrightness", source, StringComparison.Ordinal);
         Assert.Contains("setLightingColor", source, StringComparison.Ordinal);
         Assert.Contains("onChangeComplete", source, StringComparison.Ordinal);
 

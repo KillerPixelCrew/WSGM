@@ -897,7 +897,7 @@ public sealed class AutoTdpServiceTests
     public void QamAndOverlayKeepTheSwitchAndShowTheSameUnavailableReason(bool enabled)
     {
         AutoTdpAvailability availability = new(false, "The paired power limit is unavailable.", 1000d / 60);
-        var qam = DeviceCoordinatorNativeQamAutoTdpService.Project(enabled, null, true, availability);
+        var qam = SteamNativeSettingsService.ProjectAutoTdp(enabled, null, true, availability);
         var overlay = DeviceHostRows.AutoTdpView(enabled, null, availability);
         Assert.True(qam.Available);
         Assert.Equal(enabled, qam.Enabled);

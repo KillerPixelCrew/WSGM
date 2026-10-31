@@ -27,7 +27,7 @@ internal sealed class SteamUiModuleCatalog
     /// <summary>Whether the host has closed admission; nothing is replaced or indicated after it.</summary>
     private readonly Func<bool> _closed;
 
-    private readonly DeviceCoordinatorNativeQamDeviceControlsService _deviceControls;
+    private readonly DeviceCoordinatorLightingZonesService _lightingZones;
 
     /// <summary>The Quick Access plugin tab, which carries WSGM's own tools as well.</summary>
     private readonly SteamExtensionsTabBackend _extensionsTab;
@@ -47,16 +47,6 @@ internal sealed class SteamUiModuleCatalog
 
     // Serializes plugin module replacement; _composedPluginModules is the list the runtime holds.
     private readonly SemaphoreSlim _pluginModulesChange = new(1, 1);
-    private readonly NativeQamPowerPresetService _powerPresets;
-
-    /// <summary>
-    ///     The display-resolution row's backend, or null when this session must not move the display.
-    /// </summary>
-    /// <remarks>
-    ///     The patch is not registered at all then, so the row cannot appear and offer a control with
-    ///     nothing behind it.
-    /// </remarks>
-    private readonly NativeQamResolutionService? _resolution;
 
     private readonly ScreensaverInputActivity _screensaverInput = new();
 
@@ -66,7 +56,6 @@ internal sealed class SteamUiModuleCatalog
     /// <summary>The switches the host last applied.</summary>
     private readonly Func<SteamUiSurfaceSwitches> _switches;
 
-    private readonly DeviceCoordinatorNativeQamTdpService _tdp;
     private readonly Func<CancellationToken, Task<bool>> _toggleQuickAccess;
 
     /// <summary>Whether WSGM's settings page can be drawn, as the host last reconciled it.</summary>
@@ -148,26 +137,20 @@ internal sealed class SteamUiModuleCatalog
         // One fold store for every Quick Access tab: the Extensions tab's sections and the
         // Performance and Quick Settings groups.
         PanelFolds = new SteamPanelFoldsBackend(backends.Folds);
-        _resolution = backends.Resolution is { } resolution ? new NativeQamResolutionService(resolution) : null;
-        _tdp = new DeviceCoordinatorNativeQamTdpService(deviceCoordinator);
-        _powerPresets =
-            new NativeQamPowerPresetService(deviceCoordinator?.Power.PowerPresets,
-                deviceCoordinator?.Power.PowerAssignments);
-        _deviceControls = new DeviceCoordinatorNativeQamDeviceControlsService(deviceCoordinator);
+        _lightingZones = new DeviceCoordinatorLightingZonesService(deviceCoordinator);
         _performance = new PerformanceServiceNativeQamAdapter(backends.Performance, backends.Profiles)
         {
             PerfSupport = backends.PerfSupport,
             ApplyRefreshRate = backends.ApplyRefreshRate,
             ApplyVariableRefreshRate = backends.ApplyVariableRefreshRate
         };
-        AutoTdp = new DeviceCoordinatorNativeQamAutoTdpService(deviceCoordinator);
-        ControllerTarget = new DeviceCoordinatorNativeQamControllerTargetService(deviceCoordinator);
         Audio = backends.Audio is { } audio ? new AudioManagerNativeQamAudioService(audio) : null;
         AudioFormat = backends.Audio is { } formatAudio && backends.AudioProfiles is { } audioProfiles
             ? new NativeQamAudioFormatService(formatAudio, audioProfiles)
             : null;
-        NativeSettings = new SteamNativeSettingsService(backends.Brightness, _resolution, _performance, _tdp,
-            AutoTdp, backends.PowerProfiles, _powerPresets, backends.CpuBoost, backends.HybridCores, AudioFormat,
+        // A session that must not move the display has no resolution owner, so no resolution row is offered.
+        NativeSettings = new SteamNativeSettingsService(backends.Brightness, backends.Resolution, _performance,
+            backends.PowerProfiles, backends.CpuBoost, backends.HybridCores, AudioFormat,
             backends.Graphics, deviceCoordinator, backends.Profiles, backends.DisplayTimeouts,
             scaledResolutions: backends.ScaledResolutions);
         Network = backends.Radios is { } radios
@@ -190,12 +173,6 @@ internal sealed class SteamUiModuleCatalog
     /// <summary>Which Quick Access sections the user opened.</summary>
     internal SteamPanelFoldsBackend PanelFolds { get; }
 
-    /// <summary>The AutoTDP row's backend over the device coordinator.</summary>
-    internal DeviceCoordinatorNativeQamAutoTdpService AutoTdp { get; }
-
-    /// <summary>The controller-target row's backend over the device coordinator.</summary>
-    internal DeviceCoordinatorNativeQamControllerTargetService ControllerTarget { get; }
-
     /// <summary>
     ///     Null when no audio manager exists for this session.
     /// </summary>
@@ -207,10 +184,10 @@ internal sealed class SteamUiModuleCatalog
     /// </remarks>
     internal AudioManagerNativeQamAudioService? Audio { get; }
 
-    /// <summary>The audio-format row's backend, or null without an audio manager and advanced audio.</summary>
+    /// <summary>The playback-format owner the audio rows read, or null without an audio manager and advanced audio.</summary>
     internal NativeQamAudioFormatService? AudioFormat { get; }
 
-    /// <summary>Steam's native Settings pages over WSGM's backends.</summary>
+    /// <summary>The one row producer for Steam's native Settings pages and the Quick Access rows.</summary>
     internal SteamNativeSettingsService NativeSettings { get; }
 
     /// <summary>The Wi-Fi surface, or null when this session has no radio manager.</summary>
@@ -325,32 +302,14 @@ internal sealed class SteamUiModuleCatalog
                 "shell",
                 commands: [new SteamUiCommandHandler(ShellPatchId, "toggleQuickAccess", HandleToggleQuickAccessAsync)]),
 
-            // Valve's TDP toggle and slider, fed the primary power limit's range and routed back to
-            // the device capability.
-            SteamPowerLimitSurface.Module(
-                Enabled,
-                () => new ValueTask<SteamPowerLimitState?>(_tdp.PowerLimit),
-                _tdp,
-                "tdp"),
-
-            SteamAutoTdpRow.Module(Enabled, () => new ValueTask<SteamAutoTdpState?>(AutoTdp.Current), AutoTdp),
+            // Every host row in Quick Access that is a plain Steam field, from the same producer as
+            // Steam's Settings pages, and the component host that mounts every Quick Access row. Declared
+            // unconditionally: which rows exist is decided by what each owner publishes.
+            SteamQuickAccessRowsSurface.Module(Enabled, NativeSettings.ReadQuickAccessAsync, NativeSettings),
 
             // The frame limit is the toolkit's unified row rather than Valve's notch slider, and
             // the Q12 retirement does not apply: a free 30-120 range made Valve's unusable.
             SteamFrameLimitRow.Module(Enabled, () => new ValueTask<SteamFrameLimitState?>(_performance.FrameLimit),
-                _performance),
-            SteamPowerProfileRow.Module(Enabled, _backends.PowerProfiles.ReadAsync, _backends.PowerProfiles),
-            SteamHybridCoreRow.Module(Enabled, _backends.HybridCores.ReadAsync, _backends.HybridCores),
-            SteamPowerPresetRow.Module(Enabled, _powerPresets.ReadAsync, _powerPresets),
-
-            SteamControllerTargetRow.Module(
-                Enabled,
-                () => new ValueTask<SteamControllerTargetState?>(ControllerTarget.Current),
-                ControllerTarget),
-
-            // Declared unconditionally — whether the switch appears is decided by whether the
-            // device publishes a variable-refresh capability, which the state carries.
-            SteamVariableRefreshRow.Module(Enabled, () => new ValueTask<SteamVariableRefreshState?>(_performance.Vrr),
                 _performance),
 
             // The backend behind Valve's own Performance tab and the Valve rows that read it.
@@ -365,10 +324,11 @@ internal sealed class SteamUiModuleCatalog
             // Declared unconditionally: the panel backlight depends on nothing WSGM has to supply.
             SteamBrightnessSurface.Module(Enabled, _backends.Brightness.ReadAsync, _backends.Brightness),
 
-            SteamDeviceControlsRow.Module(
+            // The inline lighting-colour editor; the charge limit and lighting brightness are plain rows.
+            SteamLightingZonesRow.Module(
                 Enabled,
-                () => new ValueTask<SteamDeviceControlsState?>(_deviceControls.Current),
-                _deviceControls),
+                () => new ValueTask<SteamLightingZonesState?>(_lightingZones.Current),
+                _lightingZones),
 
             SteamDownloadSort.Module(),
 
@@ -405,13 +365,6 @@ internal sealed class SteamUiModuleCatalog
         // The controller's capabilities as Steam's pages read them. Declared unconditionally: the
         // state carries an empty mask until a profile marks a whole pair of controls absent.
         modules.Add(SteamControllerCapsSurface.Module(HostSteamUiEnabled, () => GlyphDelivery.Current));
-
-        if (_backends.CpuBoost is { } cpuBoost)
-        {
-            // Beside the core preference, and equally independent of a device plugin: it is Windows
-            // power policy carried per game.
-            modules.Add(SteamCpuBoostRow.Module(Enabled, cpuBoost.ReadAsync, cpuBoost));
-        }
 
         // Steam's game menu. Declared unconditionally: WSGM's own Change Artwork entry is in it
         // whether or not a plugin contributes anything.
@@ -492,14 +445,6 @@ internal sealed class SteamUiModuleCatalog
                 HostSteamUiEnabled,
                 () => new ValueTask<SteamNavigationPanelState?>(WsgmSteamSettingsService.ReadMenu(_wsgmSettingsReady())),
                 wsgmSettings));
-        }
-
-        // GPU controls in Quick Access share their projection with Steam's Display settings.
-        if (_backends.Graphics is { } graphics)
-        {
-            modules.Add(SteamSettingsQuickAccessRow.Module(Enabled,
-                () => new ValueTask<SteamSettingsQuickAccessState?>(graphics.ReadQuickAccessState()), graphics,
-                () => graphics.Revision));
         }
 
         modules.Add(SteamNativeSettingsSurface.Module(HostSteamUiEnabled, NativeSettings.ReadAsync, NativeSettings));
@@ -586,24 +531,11 @@ internal sealed class SteamUiModuleCatalog
                 timeouts, content: _backends.Screensavers));
         }
 
-        if (_resolution is { } resolution)
-        {
-            modules.Add(SteamResolutionRow.Module(
-                Enabled,
-                () => new ValueTask<SteamResolutionState?>(resolution.Current),
-                resolution));
-        }
-
         if (Audio is { } audio)
         {
             // Publishing once after injection updates the store whose availability was cached when
             // Steam started before the replacement namespace existed.
             modules.Add(SteamAudioSurface.Module(Enabled, () => new ValueTask<SteamAudioState?>(audio.Current), audio));
-        }
-
-        if (AudioFormat is { } audioFormat)
-        {
-            modules.Add(SteamAudioFormatRow.Module(Enabled, audioFormat.ReadAsync, audioFormat));
         }
 
         // The gate reveals Steam's Wi-Fi surface, and the surface is only worth revealing if

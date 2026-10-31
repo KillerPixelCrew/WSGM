@@ -37,9 +37,8 @@ public sealed class DeviceOverlayBridgeTests
         Assert.True(CapabilityValueValidation.ValueMatches(row.CurrentValue, descriptor, out _));
         Assert.Null(capability.Projection.State.ObservedValue);
         Assert.Null(capability.Projection.DesiredValue);
-        var steam = DeviceCoordinatorNativeQamDeviceControlsService.Project([capability],
-            FanCurvePresetTable.HandheldCompanion);
-        var steamRow = Assert.Single(Assert.Single(steam.Sections!).Rows);
+        var steamRow = Assert.Single(SteamNativeSettingsService.DeviceQuickAccessRows([capability],
+            FanCurvePresetTable.HandheldCompanion)).Row;
         Assert.False(steamRow.Disabled);
         Assert.Equal(descriptor.CurveInputs, steamRow.Curve!.Select(point => point.Input));
 
