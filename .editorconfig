@@ -55,7 +55,7 @@ resharper_unused_parameter_local_highlighting = none
 resharper_unused_member_local_highlighting = none
 
 # Normalize repairs explicit JSON nulls over the initializers; the guards are its purpose (ConfigurationTests pins it).
-[src/WSGM/Core/ConfigStore.cs]
+[src/WSGM/Core/Config/ConfigStore.cs]
 resharper_null_coalescing_condition_is_always_not_null_according_to_api_contract_highlighting = none
 resharper_condition_is_always_true_or_false_according_to_nullable_api_contract_highlighting = none
 resharper_conditional_access_qualifier_is_non_nullable_according_to_api_contract_highlighting = none
