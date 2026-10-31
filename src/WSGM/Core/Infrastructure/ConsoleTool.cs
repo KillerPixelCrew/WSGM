@@ -8,54 +8,6 @@ using System.Threading.Tasks;
 namespace WSGM.Core;
 
 /// <summary>
-///     Bounded console-process outcome preserving whether process start crossed an uncertain
-///     side-effect boundary.
-/// </summary>
-internal enum ConsoleToolRunOutcome
-{
-    /// <summary>The process was never started.</summary>
-    NotStarted,
-
-    /// <summary>The process exited successfully before the deadline.</summary>
-    Succeeded,
-
-    /// <summary>The process exited with a known failure before the deadline.</summary>
-    Failed,
-
-    /// <summary>The process started but its result could not be verified.</summary>
-    Unknown
-}
-
-/// <summary>One console invocation, including uncertain outcomes after process start.</summary>
-/// <param name="Outcome">Whether start was avoided, a known exit occurred, or effects remain uncertain.</param>
-/// <param name="ExitCode">Observed exit status, or null when no exit status could be established.</param>
-/// <param name="Output">Combined stdout and stderr, or empty when capture could not finish within the budget.</param>
-internal sealed record ConsoleToolResult(ConsoleToolRunOutcome Outcome, int? ExitCode, string Output);
-
-/// <summary>
-///     Narrow owned-process surface used to verify bounded console-tool cleanup without
-///     starting a live operating-system command from tests.
-/// </summary>
-internal interface IConsoleToolProcess : IDisposable
-{
-    /// <summary>Gets the process exit code after exit.</summary>
-    int ExitCode { get; }
-
-    /// <summary>Captures stdout and stderr concurrently.</summary>
-    /// <returns>A task containing captured stdout followed by stderr; concurrent stream order is not preserved.</returns>
-    Task<string> ReadOutputAsync();
-
-    /// <summary>Waits for the exact process to exit.</summary>
-    /// <param name="cancellationToken">Cancels this wait; the owner separately decides whether to kill the process.</param>
-    /// <returns>A task completing when the owned process exits.</returns>
-    /// <exception cref="OperationCanceledException">The wait was canceled.</exception>
-    Task WaitForExitAsync(CancellationToken cancellationToken);
-
-    /// <summary>Requests termination of the exact process and its descendants.</summary>
-    void KillTree();
-}
-
-/// <summary>
 ///     One home for the "run a hidden console tool and wait" pattern
 ///     (schtasks, powercfg, powershell one-shots), so every caller gets the same
 ///     exit-code and timeout checks. The absolute-deadline path preserves a timeout as

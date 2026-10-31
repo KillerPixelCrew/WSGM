@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using SteamUiToolkit;
 using WSGM.Core;
@@ -183,8 +182,3 @@ internal static class SteamSoundsSurface
         return true;
     }
 }
-
-/// <summary>Serializer metadata for the page's state.</summary>
-[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-[JsonSerializable(typeof(SteamSoundsState))]
-internal sealed partial class SoundsJsonContext : JsonSerializerContext;

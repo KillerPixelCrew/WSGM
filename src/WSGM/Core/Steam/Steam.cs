@@ -12,16 +12,6 @@ using WSGM.Shared;
 
 namespace WSGM.Core;
 
-/// <summary>A native keyboard shortcut understood by Steam's Big Picture UI.</summary>
-public enum BigPictureShortcut
-{
-    /// <summary>Ctrl+1, equivalent to Steam's guide button and left-side menu.</summary>
-    SteamMenu,
-
-    /// <summary>Ctrl+2, equivalent to Steam's Quick Access button and right-side menu.</summary>
-    QuickAccess
-}
-
 /// <summary>
 ///     Everything WSGM knows about Steam. WSGM is Steam-exclusive: Steam is
 ///     located via the registry (no path configuration), started/focused/closed via
@@ -281,7 +271,7 @@ public static class Steam
     /// <param name="shim">The process's Steam Input shim, reconciled before a cold start.</param>
     /// <param name="steamInputManagement">Whether Steam Input Management is on in the current configuration.</param>
     /// <returns>Activation outcome, with caller-owned process wrapper when available; readiness must be observed separately.</returns>
-    internal static AppLauncher.LaunchResult LaunchBigPicture(UserDataContext context, SteamInputShim shim,
+    internal static LaunchResult LaunchBigPicture(UserDataContext context, SteamInputShim shim,
         bool steamInputManagement, bool unelevated = false, bool cefEnabled = true)
     {
         SteamCef.EnsureRemoteDebuggingEnabled(InstallDirectory, cefEnabled);
@@ -304,17 +294,17 @@ public static class Steam
     /// <param name="context">The owner's task and diagnostic directory.</param>
     /// <param name="shim">The process's Steam Input shim, reconciled before a cold start.</param>
     /// <param name="steamInputManagement">Whether Steam Input Management is on in the current configuration.</param>
-    internal static AppLauncher.LaunchResult LaunchDesktop(UserDataContext context, SteamInputShim shim,
+    internal static LaunchResult LaunchDesktop(UserDataContext context, SteamInputShim shim,
         bool steamInputManagement, bool unelevated = false, bool cefEnabled = true)
     {
         SteamCef.EnsureRemoteDebuggingEnabled(InstallDirectory, cefEnabled);
         if (IsRunning)
         {
-            return new AppLauncher.LaunchResult(null, true, false);
+            return new LaunchResult(null, true, false);
         }
 
         return ExePath is not { } exe
-            ? new AppLauncher.LaunchResult(null, false, false)
+            ? new LaunchResult(null, false, false)
             : ColdStart(context, shim, steamInputManagement, exe, "", unelevated, cefEnabled);
     }
 
@@ -322,7 +312,7 @@ public static class Steam
     ///     The one cold Steam start: shim reconcile, debug port, integrity choice and the
     ///     startup-trace hint. Callers differ only in the arguments Steam is started with.
     /// </summary>
-    private static AppLauncher.LaunchResult ColdStart(UserDataContext context, SteamInputShim shim,
+    private static LaunchResult ColdStart(UserDataContext context, SteamInputShim shim,
         bool steamInputManagement, string exe, string arguments, bool unelevated, bool cefEnabled)
     {
         return ColdStart(steamInputManagement, InstallDirectory, cefEnabled, shim.Reconcile,
@@ -339,13 +329,13 @@ public static class Steam
     /// <param name="launch">Launches Steam using the reconciled shim status.</param>
     /// <returns>The launch delegate's activation result; preparation failures propagate.</returns>
     /// <remarks>The caller must establish Steam is not running. Port preparation does not establish UI readiness.</remarks>
-    internal static AppLauncher.LaunchResult ColdStart(
+    internal static LaunchResult ColdStart(
         bool steamInputManagement,
         string? installDirectory,
         bool cefEnabled,
         Func<bool, string, SteamInputShimStatus> reconcile,
         Action<string?, bool> enableRemoteDebugging,
-        Func<SteamInputShimStatus, AppLauncher.LaunchResult> launch)
+        Func<SteamInputShimStatus, LaunchResult> launch)
     {
         // Steam is provably not running on this branch, which makes it the one
         // moment in a session when a stale Steam Input shim can actually be
@@ -359,7 +349,7 @@ public static class Steam
         return launch(shimStatus);
     }
 
-    private static AppLauncher.LaunchResult LaunchColdClient(UserDataContext context,
+    private static LaunchResult LaunchColdClient(UserDataContext context,
         SteamInputShimStatus shimStatus, string exe, string arguments, bool unelevated)
     {
         // The de-elevating scheduled task is only meaningful from an elevated WSGM: started
@@ -372,14 +362,14 @@ public static class Steam
             if (disposition == ScheduledTaskLaunchDisposition.Dispatched)
             {
                 Log.Info("Steam launch integrity: medium (de-elevated scheduled task).");
-                return new AppLauncher.LaunchResult(null, true, false);
+                return new LaunchResult(null, true, false);
             }
 
             if (disposition == ScheduledTaskLaunchDisposition.Unknown)
             {
                 Log.Warn(
                     "Steam scheduled launch outcome is unknown; waiting for Steam detection without another launch.");
-                return new AppLauncher.LaunchResult(null, false, false);
+                return new LaunchResult(null, false, false);
             }
 
             Log.Warn("Steam launch integrity: de-elevation was not dispatched; "

@@ -8,24 +8,6 @@ using WindowsDeviceControl;
 
 namespace WSGM.Shell;
 
-/// <summary>Reads which monitors the adapter can currently see.</summary>
-internal interface IDisplayPresence
-{
-    /// <summary>Observes every monitor. May throw <see cref="Win32Exception" /> when the driver is mid-change.</summary>
-    /// <returns>The current observation.</returns>
-    DisplayArrangement Observe();
-}
-
-/// <summary>Tells a waiter that the display set may have changed.</summary>
-internal interface IDisplayChangeSignal
-{
-    /// <summary>Waits for the next hint, the backstop delay, or cancellation.</summary>
-    /// <param name="backstop">How long to wait when no hint arrives.</param>
-    /// <param name="cancellationToken">Cancels the wait.</param>
-    /// <returns>A task that completes on a hint or after the backstop.</returns>
-    Task WaitForChangeAsync(TimeSpan backstop, CancellationToken cancellationToken);
-}
-
 /// <summary>
 ///     Waits without a deadline for requested monitors and two matching topology fingerprints 500 ms apart.
 /// </summary>

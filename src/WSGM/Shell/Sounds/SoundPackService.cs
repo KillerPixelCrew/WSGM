@@ -10,19 +10,6 @@ using WSGM.Core;
 
 namespace WSGM.Shell;
 
-internal sealed record SoundPackState(
-    SoundPack[] Packs,
-    string Selected,
-    bool Busy,
-    string? Error,
-    string Compatibility,
-    ThemeStoreSummary[] Listings,
-    int Total,
-    int Page)
-{
-    internal string Integration { get; init; } = "Waiting for Steam sound integration.";
-}
-
 /// <summary>Session-owned sound content, serialized commands and detached Steam publications.</summary>
 internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
 {

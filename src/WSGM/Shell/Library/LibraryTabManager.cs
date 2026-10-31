@@ -285,8 +285,8 @@ internal sealed class LibraryTabManager(ConfigStore store)
             }).ToList();
         var expressions = customTabs.Select(tab => LibraryFilter.BuildEvaluation(
             tab.FilterTree, tab.Categories == 0
-                ? LibraryFilter.Categories.Games
-                : (LibraryFilter.Categories)tab.Categories, resolver)).ToList();
+                ? LibraryFilterCategories.Games
+                : (LibraryFilterCategories)tab.Categories, resolver)).ToList();
         var evaluations = await LibraryFilter.EvaluateAsync(steam, expressions, cancellationToken)
             .ConfigureAwait(false);
         for (var i = 0; i < customTabs.Count; i++)

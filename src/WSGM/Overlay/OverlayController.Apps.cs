@@ -249,7 +249,7 @@ public sealed partial class OverlayController
             // EnumWindows, DWM queries and the process-table snapshot are synchronous Win32 work.
             // Avalonia's dispatcher also owns pointer delivery and the 16 ms gamepad poll, so only
             // a detached snapshot returns to it.
-            (HashSet<uint> SteamPids, IReadOnlyList<WindowFinder.AppWindow> Windows) snapshot =
+            (HashSet<uint> SteamPids, IReadOnlyList<AppWindow> Windows) snapshot =
                 await Task.Run(() =>
                 {
                     var steamPids = refreshSteamPids
@@ -284,7 +284,7 @@ public sealed partial class OverlayController
     }
 
     private AppSwitcherEntry CreateSwitcherEntry(
-        WindowFinder.AppWindow window,
+        AppWindow window,
         HashSet<uint> steamPids)
     {
         // Cached icons are handed over synchronously; a miss resolves off the UI thread

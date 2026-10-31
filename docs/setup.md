@@ -103,10 +103,10 @@ in.
 ## The Steam autostart takeover
 
 WSGM starts Steam so the client inherits WSGM's integrity, and a Steam that Windows started first
-takes that away without saying so. `Core\SteamAutostart` therefore looks for the places Windows
-would start it: `Run` values in HKCU and HKLM including the 32-bit view, shortcuts in either Startup
-folder resolved through `Interop\ShellLink`, and scheduled tasks with a logon trigger. Tasks are
-read as language-neutral XML from `schtasks /Query /XML`, because the table output is localized.
+takes that away without saying so. `Core\Steam\SteamAutostartScanner` therefore looks for the places
+Windows would start it: `Run` values in HKCU and HKLM including the 32-bit view, shortcuts in either
+Startup folder resolved through `Interop\ShellLink`, and scheduled tasks with a logon trigger. Tasks
+are read as language-neutral XML from `schtasks /Query /XML`, because the table output is localized.
 Matching compares the resolved executable against Steam's own path, and an unquoted command is
 resolved the way Windows resolves it, by successive prefixes rather than the first space.
 

@@ -1,64 +1,9 @@
 using System;
-using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Threading;
 
 namespace WSGM.Core;
-
-/// <summary>Which file name the Steam Input shim is deployed under.</summary>
-internal enum SteamInputShimVector
-{
-    /// <summary>Not deployed under any name.</summary>
-    None,
-
-    /// <summary>
-    ///     Deployed as <c>XInput1_4.dll</c>. The primary vector: Steam's SDL
-    ///     backend loads XInput by bare name, and it is the name ValvePlug has shipped
-    ///     against a live client for years.
-    /// </summary>
-    XInput14,
-
-    /// <summary>
-    ///     Deployed as <c>dinput8.dll</c>. The fallback, used when something
-    ///     else already owns the primary name.
-    /// </summary>
-    DInput8
-}
-
-/// <summary>What the shim deployment looks like on disk.</summary>
-internal enum SteamInputShimState
-{
-    /// <summary>Steam is not installed, so there is nowhere to deploy.</summary>
-    SteamNotInstalled,
-
-    /// <summary>Steam Input Management is off; any deployed copy is parked aside.</summary>
-    Disabled,
-
-    /// <summary>A WSGM-owned shim is in place and matches this build.</summary>
-    Deployed,
-
-    /// <summary>
-    ///     A WSGM-owned shim is in place but stale, and Steam has it mapped so
-    ///     it could not be replaced. The next cold start replaces it.
-    /// </summary>
-    UpdatePending,
-
-    /// <summary>Every candidate name in Steam's directory belongs to another program.</summary>
-    Blocked,
-
-    /// <summary>The deployment could not be carried out (access denied, I/O error).</summary>
-    Failed
-}
-
-/// <summary>A snapshot of the shim deployment.</summary>
-/// <param name="State">What the deployment looks like on disk.</param>
-/// <param name="Vector">Which name the shim occupies, if any.</param>
-/// <param name="Detail">Extra context for the Settings status line and the log.</param>
-internal readonly record struct SteamInputShimStatus(
-    SteamInputShimState State,
-    SteamInputShimVector Vector,
-    string? Detail);
 
 /// <summary>
 ///     Owns the Steam Input shim that lives in Steam's own install directory.
@@ -95,9 +40,6 @@ internal sealed class SteamInputShim
     ///     download. Renaming the extension moves WSGM's traces into Steam's folder.
     /// </remarks>
     private const string MarkerExtension = ".wsgm-shim";
-
-    /// <summary>Marker format this build writes and accepts.</summary>
-    private const int MarkerFormatVersion = 1;
 
     /// <summary>Candidate names in preference order.</summary>
     private static readonly SteamInputShimVector[] Vectors =
@@ -616,13 +558,13 @@ internal sealed class SteamInputShim
                || marker.DeployedTicks != deployed.LastWriteTimeUtc.Ticks;
     }
 
-    private static bool TryReadMarker(string markerPath, out Marker marker)
+    private static bool TryReadMarker(string markerPath, out SteamInputShimMarker marker)
     {
         marker = default;
         try
         {
             return File.Exists(markerPath)
-                   && Marker.TryParse(File.ReadAllText(markerPath), out marker);
+                   && SteamInputShimMarker.TryParse(File.ReadAllText(markerPath), out marker);
         }
         catch
         {
@@ -637,7 +579,7 @@ internal sealed class SteamInputShim
         {
             var source = new FileInfo(sourcePath);
             var deployed = new FileInfo(deployedPath);
-            var marker = new Marker(
+            var marker = new SteamInputShimMarker(
                 source.Length,
                 source.LastWriteTimeUtc.Ticks,
                 deployed.Length,
@@ -679,65 +621,6 @@ internal sealed class SteamInputShim
         }
         catch
         {
-            return true;
-        }
-    }
-
-    /// <summary>The version stamp recorded beside a deployed shim.</summary>
-    /// <param name="SourceLength">Byte length of the staged payload when it was copied.</param>
-    /// <param name="SourceTicks">Last-write ticks of the staged payload when it was copied.</param>
-    /// <param name="DeployedLength">Byte length of the copy WSGM wrote.</param>
-    /// <param name="DeployedTicks">Last-write ticks of the copy WSGM wrote.</param>
-    /// <param name="Vector">Which name the copy was written under.</param>
-    internal readonly record struct Marker(
-        long SourceLength,
-        long SourceTicks,
-        long DeployedLength,
-        long DeployedTicks,
-        SteamInputShimVector Vector)
-    {
-        /// <summary>Renders the stamp as the single line stored in the sidecar.</summary>
-        /// <returns>The serialized stamp.</returns>
-        public string Format()
-        {
-            return string.Join(
-                ' ',
-                $"WSGM-SIM/{MarkerFormatVersion}",
-                SourceLength.ToString(CultureInfo.InvariantCulture),
-                SourceTicks.ToString(CultureInfo.InvariantCulture),
-                DeployedLength.ToString(CultureInfo.InvariantCulture),
-                DeployedTicks.ToString(CultureInfo.InvariantCulture),
-                Vector.ToString());
-        }
-
-        /// <summary>Parses a stamp written by <see cref="Format" />.</summary>
-        /// <param name="line">The serialized stamp.</param>
-        /// <param name="marker">The parsed stamp when parsing succeeded.</param>
-        /// <returns><see langword="true" /> when the line is a stamp this build accepts.</returns>
-        public static bool TryParse(string? line, out Marker marker)
-        {
-            marker = default;
-            if (line is null)
-            {
-                return false;
-            }
-
-            var parts = line.Trim().Split(' ');
-            if (parts.Length != 6 || parts[0] != $"WSGM-SIM/{MarkerFormatVersion}")
-            {
-                return false;
-            }
-
-            if (!long.TryParse(parts[1], CultureInfo.InvariantCulture, out var sourceLength)
-                || !long.TryParse(parts[2], CultureInfo.InvariantCulture, out var sourceTicks)
-                || !long.TryParse(parts[3], CultureInfo.InvariantCulture, out var deployedLength)
-                || !long.TryParse(parts[4], CultureInfo.InvariantCulture, out var deployedTicks)
-                || !Enum.TryParse<SteamInputShimVector>(parts[5], out var vector))
-            {
-                return false;
-            }
-
-            marker = new Marker(sourceLength, sourceTicks, deployedLength, deployedTicks, vector);
             return true;
         }
     }

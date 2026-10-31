@@ -196,10 +196,10 @@ public sealed class RemovableDriveTests
         Assert.False(manager.HasDrives);
     }
 
-    private static RemovableDriveManager.EjectableDevice Device(
+    private static EjectableDevice Device(
         string id, string name, string letters)
     {
-        return new RemovableDriveManager.EjectableDevice(id, name, letters, 32_000_000_000L, EjectKind.UsbDevice, 1,
+        return new EjectableDevice(id, name, letters, 32_000_000_000L, EjectKind.UsbDevice, 1,
             letters[0]);
     }
 

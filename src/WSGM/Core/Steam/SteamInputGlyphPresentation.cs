@@ -5,33 +5,6 @@ using WSGM.Device.Sdk.Glyphs;
 
 namespace WSGM.Core;
 
-/// <summary>Where Steam loads one piece of artwork from.</summary>
-/// <param name="Url">A data URI of the package's bytes, or the path of a glyph Steam itself ships.</param>
-internal sealed record SteamInputGlyphAssetReference(string Url);
-
-/// <summary>One Valve glyph resource replaced by physical-device artwork.</summary>
-/// <param name="ValvePath">Steam resource path matched by the stylesheet.</param>
-/// <param name="Control">Logical control whose presentation is replaced.</param>
-/// <param name="Asset">Resolved package data URI or native Steam glyph URL.</param>
-internal sealed record SteamInputGlyphResourceMapping(
-    string ValvePath,
-    GlyphControlId Control,
-    SteamInputGlyphAssetReference Asset);
-
-/// <summary>One full or partial controller-diagram resource.</summary>
-/// <param name="Slot">Diagram slot: full, left, or right.</param>
-/// <param name="Asset">Resolved immutable artwork reference.</param>
-internal sealed record SteamInputGlyphControllerImageMapping(
-    string Slot,
-    SteamInputGlyphAssetReference Asset);
-
-/// <summary>The overlay lit on the controller diagram while one physical control is selected.</summary>
-/// <param name="Control">The physical control.</param>
-/// <param name="Asset">Its highlight artwork, in the full-controller image's coordinate space.</param>
-internal sealed record SteamInputGlyphHighlightMapping(
-    GlyphControlId Control,
-    SteamInputGlyphAssetReference Asset);
-
 /// <summary>Immutable projection of an imported device profile for Steam glyph and controller-diagram delivery.</summary>
 /// <param name="ProfileId">Stable reviewed profile identity.</param>
 /// <param name="Revision">Profile revision used to invalidate prior presentation.</param>

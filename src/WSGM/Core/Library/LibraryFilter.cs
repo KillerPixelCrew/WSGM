@@ -21,26 +21,6 @@ namespace WSGM.Core;
 public static class LibraryFilter
 {
     /// <summary>
-    ///     Bitfield category flags (values match TabMaster's so the concepts
-    ///     line up): which app kinds are candidates before the predicate runs.
-    /// </summary>
-    [Flags]
-    public enum Categories
-    {
-        /// <summary>Games.</summary>
-        Games = 1,
-
-        /// <summary>Software / applications.</summary>
-        Software = 2,
-
-        /// <summary>Include hidden apps (allApps vs visibleApps).</summary>
-        Hidden = 16,
-
-        /// <summary>Soundtracks / music.</summary>
-        Music = 8192
-    }
-
-    /// <summary>
     ///     Whether a kind's invert toggle is meaningful (the others already
     ///     express both directions through their own params).
     /// </summary>
@@ -89,7 +69,7 @@ public static class LibraryFilter
     /// <param name="categories">Category prefilter bitfield.</param>
     /// <param name="cards">Resolver for SD-card membership.</param>
     /// <returns>A self-contained JavaScript IIFE returning a JSON result; no Steam evaluation occurs here.</returns>
-    public static string BuildEvaluation(FilterNode root, Categories categories, ISdCardResolver cards)
+    public static string BuildEvaluation(FilterNode root, LibraryFilterCategories categories, ISdCardResolver cards)
     {
         var emit = new Emitter(cards);
         var predicate = NodeExpr(root, emit);
@@ -380,10 +360,4 @@ public static class LibraryFilter
             return name;
         }
     }
-
-    /// <summary>Outcome of evaluating a compiled filter over the library.</summary>
-    /// <param name="Reachable">Whether Steam's debug port answered.</param>
-    /// <param name="Ok">Whether Steam evaluated and returned a valid result.</param>
-    /// <param name="AppIds">The matching app ids (empty is a valid successful result).</param>
-    public readonly record struct FilterEvalResult(bool Reachable, bool Ok, IReadOnlyList<long> AppIds);
 }

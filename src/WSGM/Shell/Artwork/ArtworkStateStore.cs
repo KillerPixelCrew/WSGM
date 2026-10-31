@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using WSGM.Core;
 
 namespace WSGM.Shell;
@@ -188,35 +187,3 @@ internal sealed class ArtworkStateStore
         }
     }
 }
-
-internal sealed class ArtworkState
-{
-    public List<ArtworkGameLink> Games { get; set; } = [];
-    public List<ArtworkSavedFilter> Filters { get; set; } = [];
-}
-
-internal sealed class ArtworkGameLink
-{
-    public uint AppId { get; set; }
-    public string ProviderId { get; set; } = "";
-    public string GameId { get; set; } = "";
-    public string Name { get; set; } = "";
-}
-
-internal sealed class ArtworkSavedFilter
-{
-    public string Tab { get; set; } = "";
-    public List<string> Styles { get; set; } = [];
-    public List<string> Dimensions { get; set; } = [];
-    public List<string> Mimes { get; set; } = [];
-    public bool Static { get; set; } = true;
-    public bool Animated { get; set; } = true;
-    public bool Adult { get; set; }
-    public bool Humor { get; set; } = true;
-    public bool Epilepsy { get; set; } = true;
-    public bool Untagged { get; set; } = true;
-}
-
-[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-[JsonSerializable(typeof(ArtworkState))]
-internal sealed partial class ArtworkStateJsonContext : JsonSerializerContext;

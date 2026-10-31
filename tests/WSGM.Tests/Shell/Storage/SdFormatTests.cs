@@ -31,7 +31,7 @@ public sealed partial class SdFormatTests
     [Fact]
     public void TargetDetailShowsSizeBusLettersAndTheDeckHint()
     {
-        var detail = SdFormatManager.DescribeTarget(new SdFormatManager.FormatTarget(
+        var detail = SdFormatManager.DescribeTarget(new FormatTarget(
             "id", 3, "SanDisk", 256_000_000_000L, NativeStorage.BusTypeSd, ['E'],
             true));
 
@@ -44,7 +44,7 @@ public sealed partial class SdFormatTests
     [Fact]
     public void ALetterlessDeckCardStillDescribesCleanly()
     {
-        var detail = SdFormatManager.DescribeTarget(new SdFormatManager.FormatTarget(
+        var detail = SdFormatManager.DescribeTarget(new FormatTarget(
             "id", 3, "Generic", 512_000_000_000L, NativeStorage.BusTypeUsb, [],
             false));
 
@@ -59,7 +59,7 @@ public sealed partial class SdFormatTests
     public void CompareIdentity_SameCapacityAndBus_ReturnsSame()
     {
         Assert.Equal(
-            SdFormatManager.TargetIdentity.Same,
+            FormatTargetIdentity.Same,
             SdFormatManager.CompareIdentity(
                 true, false, true,
                 256_000_000_000L, NativeStorage.BusTypeSd,
@@ -71,7 +71,7 @@ public sealed partial class SdFormatTests
         // -1 is TryGetDeviceDescriptor's failure sentinel, not a different bus.
     {
         Assert.Equal(
-            SdFormatManager.TargetIdentity.Same,
+            FormatTargetIdentity.Same,
             SdFormatManager.CompareIdentity(
                 true, false, true,
                 256_000_000_000L, -1,
@@ -86,7 +86,7 @@ public sealed partial class SdFormatTests
         // IOCTL_STORAGE_QUERY_PROPERTY aborts a healthy format after `clean`.
     {
         Assert.Equal(
-            SdFormatManager.TargetIdentity.Same,
+            FormatTargetIdentity.Same,
             SdFormatManager.CompareIdentity(
                 true, false, true,
                 256_000_000_000L, NativeStorage.BusTypeSd,
@@ -97,7 +97,7 @@ public sealed partial class SdFormatTests
     public void CompareIdentity_SizeUnknownAtPickTime_ReturnsSame()
     {
         Assert.Equal(
-            SdFormatManager.TargetIdentity.Same,
+            FormatTargetIdentity.Same,
             SdFormatManager.CompareIdentity(
                 true, false, true,
                 256_000_000_000L, NativeStorage.BusTypeSd,
@@ -110,7 +110,7 @@ public sealed partial class SdFormatTests
         // remain the one discriminator a card reader actually gives us.
     {
         Assert.Equal(
-            SdFormatManager.TargetIdentity.Changed,
+            FormatTargetIdentity.Changed,
             SdFormatManager.CompareIdentity(
                 true, false, true,
                 128_000_000_000L, NativeStorage.BusTypeSd,
@@ -121,7 +121,7 @@ public sealed partial class SdFormatTests
     public void CompareIdentity_DiskHandleCouldNotBeOpened_ReturnsUnreadable()
     {
         Assert.Equal(
-            SdFormatManager.TargetIdentity.Unreadable,
+            FormatTargetIdentity.Unreadable,
             SdFormatManager.CompareIdentity(
                 false, false, false,
                 0L, -1,
@@ -139,14 +139,14 @@ public sealed partial class SdFormatTests
             0L, -1,
             256_000_000_000L, NativeStorage.BusTypeSd);
 
-        Assert.Equal(SdFormatManager.TargetIdentity.Unreadable, identity);
+        Assert.Equal(FormatTargetIdentity.Unreadable, identity);
     }
 
     [Fact]
     public void CompareIdentity_NegativeSize_ReturnsUnreadable()
     {
         Assert.Equal(
-            SdFormatManager.TargetIdentity.Unreadable,
+            FormatTargetIdentity.Unreadable,
             SdFormatManager.CompareIdentity(
                 true, false, true,
                 -1L, NativeStorage.BusTypeSd,
@@ -157,7 +157,7 @@ public sealed partial class SdFormatTests
     public void CompareIdentity_DifferentCapacity_ReturnsChanged()
     {
         Assert.Equal(
-            SdFormatManager.TargetIdentity.Changed,
+            FormatTargetIdentity.Changed,
             SdFormatManager.CompareIdentity(
                 true, false, true,
                 512_000_000_000L, NativeStorage.BusTypeSd,
@@ -168,7 +168,7 @@ public sealed partial class SdFormatTests
     public void CompareIdentity_DifferentBusType_ReturnsChanged()
     {
         Assert.Equal(
-            SdFormatManager.TargetIdentity.Changed,
+            FormatTargetIdentity.Changed,
             SdFormatManager.CompareIdentity(
                 true, false, true,
                 256_000_000_000L, NativeStorage.BusTypeUsb,
@@ -179,7 +179,7 @@ public sealed partial class SdFormatTests
     public void CompareIdentity_NoLongerRemovableMedia_ReturnsChanged()
     {
         Assert.Equal(
-            SdFormatManager.TargetIdentity.Changed,
+            FormatTargetIdentity.Changed,
             SdFormatManager.CompareIdentity(
                 true, false, false,
                 256_000_000_000L, NativeStorage.BusTypeSd,
@@ -190,7 +190,7 @@ public sealed partial class SdFormatTests
     public void CompareIdentity_SystemDisk_ReturnsChanged()
     {
         Assert.Equal(
-            SdFormatManager.TargetIdentity.Changed,
+            FormatTargetIdentity.Changed,
             SdFormatManager.CompareIdentity(
                 true, true, true,
                 256_000_000_000L, NativeStorage.BusTypeSd,
@@ -203,7 +203,7 @@ public sealed partial class SdFormatTests
         // over the unreadable case rather than being masked by it.
     {
         Assert.Equal(
-            SdFormatManager.TargetIdentity.Changed,
+            FormatTargetIdentity.Changed,
             SdFormatManager.CompareIdentity(
                 false, true, false,
                 0L, -1,

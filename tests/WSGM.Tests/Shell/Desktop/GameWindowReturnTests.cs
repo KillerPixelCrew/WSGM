@@ -121,14 +121,14 @@ public sealed class GameWindowReturnTests
     public void SwitcherReplacesReusedHwndInsteadOfRetainingOldProcess()
     {
         var model = new AppSwitcherViewModel();
-        model.Reconcile([new WindowFinder.AppWindow(30, "Game", 42)], 30, Create);
+        model.Reconcile([new AppWindow(30, "Game", 42)], 30, Create);
         var original = model.Entries[0];
-        model.Reconcile([new WindowFinder.AppWindow(30, "Another process", 99)], 30, Create);
+        model.Reconcile([new AppWindow(30, "Another process", 99)], 30, Create);
         Assert.NotSame(original, model.Entries[0]);
         Assert.Equal(99u, model.Entries[0].ProcessId);
         return;
 
-        static AppSwitcherEntry Create(WindowFinder.AppWindow window)
+        static AppSwitcherEntry Create(AppWindow window)
         {
             return new AppSwitcherEntry(window.Hwnd, window.Title, false, null) { ProcessId = window.ProcessId };
         }

@@ -4,35 +4,6 @@ using System.Linq;
 
 namespace WSGM.Core;
 
-/// <summary>The profiles the importer exposes instead of asking surfaces to invent command lines.</summary>
-/// <param name="Id">The emulated system identity.</param>
-/// <param name="Name">The user-visible system name.</param>
-/// <param name="Extensions">The default accepted file extensions.</param>
-/// <param name="ScreenscraperSystemId">The provider's system identity, or zero when unmapped.</param>
-/// <param name="ParserKind">The matching behavior determined by this system.</param>
-public sealed record RomSystemProfile(
-    string Id,
-    string Name,
-    IReadOnlyList<string> Extensions,
-    int ScreenscraperSystemId,
-    RomParserKind ParserKind);
-
-/// <summary>The actual entry-point parsing required by a system's supported launch formats.</summary>
-public enum RomParserKind
-{
-    /// <summary>An individual ROM file.</summary>
-    File,
-
-    /// <summary>A disc image or descriptor with required companions.</summary>
-    Disc,
-
-    /// <summary>A verified PlayStation 3 extracted/installed EBOOT entry point.</summary>
-    Eboot,
-
-    /// <summary>An installed Vita/PS4 application selected by its eboot.bin entry point.</summary>
-    InstalledEboot
-}
-
 /// <summary>The reviewed standalone profiles plus explicit installed-core system metadata.</summary>
 public static class RomProfiles
 {

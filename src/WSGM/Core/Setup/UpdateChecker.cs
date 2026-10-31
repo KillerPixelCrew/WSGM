@@ -6,49 +6,11 @@ using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Install;
 
 namespace WSGM.Core;
-
-/// <summary>A published WSGM release and the files the updater needs from it.</summary>
-/// <param name="Version">The release version, without the tag's <c>v</c>.</param>
-/// <param name="PageUrl">The release page, for the notes.</param>
-/// <param name="SetupName">The setup's file name.</param>
-/// <param name="SetupUrl">Where to download the setup.</param>
-/// <param name="HashUrl">Where to download the setup's SHA-256 file.</param>
-/// <param name="BundleUrl">Where to download the release's bundle manifest, when it has one.</param>
-public sealed record UpdateRelease(
-    string Version,
-    string PageUrl,
-    string SetupName,
-    string SetupUrl,
-    string HashUrl,
-    string? BundleUrl);
-
-/// <summary>An installed community plugin the release no longer carries.</summary>
-/// <param name="PluginId">The plugin id.</param>
-/// <param name="Name">The plugin's display name.</param>
-/// <param name="Contact">The developer contact, when the plugin names one.</param>
-/// <param name="Log">The failed build's log, when the release recorded it.</param>
-public sealed record UpdateWarning(string PluginId, string Name, string? Contact, string? Log);
-
-/// <summary>A newer release, with what updating to it would cost.</summary>
-/// <param name="Release">The release.</param>
-/// <param name="Warnings">Installed community plugins that would stop loading.</param>
-public sealed record UpdateOffer(UpdateRelease Release, IReadOnlyList<UpdateWarning> Warnings);
-
-/// <summary>What the last update check found, kept per user so Settings can show it.</summary>
-public sealed record UpdateState
-{
-    /// <summary>When the last check completed.</summary>
-    public DateTimeOffset? LastCheckUtc { get; init; }
-
-    /// <summary>The newer release that check found, or null when WSGM was current.</summary>
-    public UpdateOffer? Offer { get; init; }
-}
 
 /// <summary>
 ///     Finds newer WSGM releases and hands one to its setup. It only ever reads GitHub's latest
@@ -355,8 +317,3 @@ public static class UpdateChecker
             : new Version(version.Major, version.Minor, Math.Max(0, version.Build));
     }
 }
-
-/// <summary>Source-generated metadata for the update state file.</summary>
-[JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-[JsonSerializable(typeof(UpdateState))]
-internal sealed partial class UpdateJsonContext : JsonSerializerContext;

@@ -1,5 +1,6 @@
 using WSGM.Core;
 using WSGM.Interop;
+using WSGM.Tests.Fakes;
 
 namespace WSGM.Tests.Core;
 

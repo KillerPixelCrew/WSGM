@@ -7,42 +7,6 @@ using WSGM.Interop;
 
 namespace WSGM.Core;
 
-/// <summary>Windows' processor performance boost mode, with HC's five choices.</summary>
-/// <remarks>
-///     The values are the ones Windows stores for <c>PERFBOOSTMODE</c> and the ones Handheld
-///     Companion writes for its "CPU boost mode" (<c>CPUBoostLevel</c>). Windows also defines
-///     aggressive-at-guaranteed modes 5 and 6; HC does not offer them, so neither does this.
-/// </remarks>
-public enum CpuBoostMode
-{
-    /// <summary>No boost: cores stay at their base frequency.</summary>
-    Disabled = 0,
-
-    /// <summary>Windows' default: boost when there is headroom.</summary>
-    Enabled = 1,
-
-    /// <summary>Boost as hard as the platform allows.</summary>
-    Aggressive = 2,
-
-    /// <summary>Enabled, but weighed against energy efficiency.</summary>
-    EfficientEnabled = 3,
-
-    /// <summary>Aggressive, but weighed against energy efficiency.</summary>
-    EfficientAggressive = 4
-}
-
-/// <summary>One offered mode with the wording the user reads.</summary>
-/// <param name="Mode">The mode this option selects.</param>
-/// <param name="Name">Short label, HC's.</param>
-/// <param name="Description">What it does for a game.</param>
-internal sealed record CpuBoostOption(CpuBoostMode Mode, string Name, string Description);
-
-/// <summary>What the machine reports and what is currently in effect.</summary>
-/// <param name="Supported">Whether the active scheme exposes the setting at all.</param>
-/// <param name="OnAc">The mode in effect while plugged in, or null when it is not one WSGM offers.</param>
-/// <param name="OnBattery">The mode in effect on battery, or null when it is not one WSGM offers.</param>
-internal sealed record CpuBoostStatus(bool Supported, CpuBoostMode? OnAc, CpuBoostMode? OnBattery);
-
 /// <summary>
 ///     The processor boost mode over Windows power policy, written the way Handheld Companion
 ///     writes it: both power sources to one value on the active scheme, then the scheme re-activated.

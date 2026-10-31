@@ -2,6 +2,7 @@ using System.Text.Json;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
+using WSGM.Tests.Builders;
 
 namespace WSGM.Tests.Shell;
 
@@ -546,7 +547,7 @@ public sealed class DevicePowerAssignmentsTests
 
     private sealed class Rig
     {
-        internal readonly DevicePowerPresetsTests.Rig Device = new();
+        internal readonly DevicePowerPresetRig Device = new();
         internal string? Application;
 
         internal bool AutoTdpOwnsPower;

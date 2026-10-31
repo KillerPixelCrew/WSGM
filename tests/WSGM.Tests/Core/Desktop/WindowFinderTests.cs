@@ -25,9 +25,9 @@ public sealed class WindowFinderTests
     [Fact]
     public void WindowSnapshotCarriesTheMinimizedStateForSwitcherPresentation()
     {
-        var window = new WindowFinder.AppWindow(456, "Game", 789) { IsMinimized = true };
+        var window = new AppWindow(456, "Game", 789) { IsMinimized = true };
 
         Assert.True(window.IsMinimized);
-        Assert.False(new WindowFinder.AppWindow(1, "A", 2).IsMinimized);
+        Assert.False(new AppWindow(1, "A", 2).IsMinimized);
     }
 }

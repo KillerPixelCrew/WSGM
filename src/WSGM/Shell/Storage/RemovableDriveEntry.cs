@@ -1,0 +1,173 @@
+using System.Collections.Generic;
+using WSGM.Core;
+
+namespace WSGM.Shell;
+
+/// <summary>
+///     One row in the Safe Eject list — a physical removable device (all of
+///     its volumes together), or one piece of removable media. A row instance
+///     survives refreshes so the gamepad cursor keeps its place; only its values are
+///     updated (the radio/Bluetooth row discipline).
+/// </summary>
+public sealed class RemovableDriveEntry : ObservableObject
+{
+    /// <summary>Creates a row.</summary>
+    /// <param name="id">
+    ///     The device instance path (or "media:X" for a media row),
+    ///     which identifies the row across refreshes.
+    /// </param>
+    /// <param name="kind">How this row ejects.</param>
+    public RemovableDriveEntry(string id, EjectKind kind)
+    {
+        Id = id;
+        Kind = kind;
+    }
+
+    /// <summary>Mounted volume letters as data, independent of the display text.</summary>
+    public IReadOnlyList<char> VolumeLetters { get; internal set; } = [];
+
+    /// <summary>Gets the row's identity. Immutable.</summary>
+    public string Id { get; }
+
+    /// <summary>
+    ///     Gets how this row ejects. Immutable: a reclassified device gets
+    ///     a new id and therefore a new row.
+    /// </summary>
+    public EjectKind Kind { get; }
+
+    /// <summary>
+    ///     The devnode the PnP eject targets (USB-device rows). Refreshed
+    ///     with every snapshot; read by the manager, not the UI.
+    /// </summary>
+    internal uint DevInst { get; set; }
+
+    /// <summary>The drive letter the media-level eject opens (media rows).</summary>
+    internal char VolumeLetter { get; set; }
+
+    internal string DiskPath { get; set; } = "";
+
+    /// <summary>
+    ///     Gets the device's display name, or a placeholder when the
+    ///     hardware did not offer one.
+    /// </summary>
+    public string Name
+    {
+        get => field.Length == 0 ? "Removable drive" : field;
+        internal set => SetFieldIfChanged(ref field, value, nameof(Name));
+    } = "";
+
+    /// <summary>Gets the drive letter(s), e.g. "E:" or "E:, F:".</summary>
+    public string Letters
+    {
+        get;
+        internal set
+        {
+            if (!SetFieldIfChanged(ref field, value, nameof(Letters)))
+            {
+                return;
+            }
+
+            Raise(nameof(StatusLine));
+        }
+    } = "";
+
+    /// <summary>Gets the total capacity in bytes, or zero when the device did not report one.</summary>
+    /// <remarks>
+    ///     Kept beside <see cref="SizeText" /> rather than parsed back out of it. The text is rounded
+    ///     for display, and Steam's storage pages want the number: they render a capacity the user
+    ///     compares against a game's size.
+    /// </remarks>
+    public long SizeBytes { get; internal set; }
+
+    /// <summary>Gets the total capacity as display text, e.g. "512 GB".</summary>
+    public string SizeText
+    {
+        get;
+        internal set
+        {
+            if (SetFieldIfChanged(ref field, value, nameof(SizeText)))
+            {
+                Raise(nameof(StatusLine));
+            }
+        }
+    } = "";
+
+    /// <summary>Gets whether an eject is in flight for this row.</summary>
+    public bool Busy
+    {
+        get;
+        internal set
+        {
+            if (!SetFieldIfChanged(ref field, value, nameof(Busy)))
+            {
+                return;
+            }
+
+            Raise(nameof(StatusLine));
+            Raise(nameof(ActionEnabled));
+        }
+    }
+
+    /// <summary>
+    ///     Gets whether this row's eject already succeeded, so the hardware
+    ///     is safe to pull. The row usually disappears on the next refresh; until it
+    ///     does, its button must not offer a second eject.
+    /// </summary>
+    public bool Ejected
+    {
+        get;
+        internal set
+        {
+            if (!SetFieldIfChanged(ref field, value, nameof(Ejected)))
+            {
+                return;
+            }
+
+            Raise(nameof(StatusLine));
+            Raise(nameof(ActionEnabled));
+        }
+    }
+
+    /// <summary>
+    ///     Gets the last eject outcome for this row ("Safe to remove", or a
+    ///     veto message). Cleared when a fresh snapshot shows the drive back in
+    ///     ordinary use.
+    /// </summary>
+    public string ResultText
+    {
+        get;
+        internal set
+        {
+            if (SetFieldIfChanged(ref field, value, nameof(ResultText)))
+            {
+                Raise(nameof(StatusLine));
+            }
+        }
+    } = "";
+
+    /// <summary>
+    ///     Gets whether this row is showing its Eject button. Selecting
+    ///     reveals the action rather than taking it — a stray tap must never rip a
+    ///     game library out from under a running session.
+    /// </summary>
+    public bool Expanded
+    {
+        get;
+        internal set => SetFieldIfChanged(ref field, value, nameof(Expanded));
+    }
+
+    /// <summary>Gets whether the Eject button may be pressed.</summary>
+    public bool ActionEnabled => !Busy && !Ejected;
+
+    /// <summary>
+    ///     Gets the second line under the name: the in-flight/outcome state
+    ///     when there is one, else the letters and capacity.
+    /// </summary>
+    public string StatusLine => Busy
+        ? "Ejecting..."
+        : ResultText.Length > 0
+            ? ResultText
+            : SizeText.Length > 0
+                ? $"{Letters} — {SizeText}"
+                : Letters;
+}

@@ -15,7 +15,7 @@ public sealed class LibraryFilterTests
     // arrays, compiled regexes) live in the prologue, not the returned predicate.
     private static string Full(FilterNode node, ISdCardResolver? cards = null)
     {
-        return LibraryFilter.BuildEvaluation(node, LibraryFilter.Categories.Games, cards ?? NoCards);
+        return LibraryFilter.BuildEvaluation(node, LibraryFilterCategories.Games, cards ?? NoCards);
     }
 
     // ---- per-kind predicates ----
@@ -256,7 +256,7 @@ public sealed class LibraryFilterTests
     {
         var root = new FilterNode { Kind = FilterKind.Merge, Mode = FilterMode.And };
         root.Children.Add(new FilterNode { Kind = FilterKind.Installed, BoolValue = true });
-        var js = LibraryFilter.BuildEvaluation(root, LibraryFilter.Categories.Games, NoCards);
+        var js = LibraryFilter.BuildEvaluation(root, LibraryFilterCategories.Games, NoCards);
 
         Assert.Contains("collectionStore", js);
         Assert.Contains("type-games", js);

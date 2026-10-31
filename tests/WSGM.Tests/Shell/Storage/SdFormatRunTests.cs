@@ -223,7 +223,7 @@ public sealed partial class SdFormatTests
         Assert.Empty(run.Stages);
 
         run.Manager.Apply([
-            new SdFormatManager.FormatTarget("card", 3, "replacement",
+            new FormatTarget("card", 3, "replacement",
                 512_000_000_000L, NativeStorage.BusTypeUsb, ['F'], false)
         ]);
         Assert.Same(run.Entry, Assert.Single(run.Manager.Targets));
@@ -383,7 +383,7 @@ public sealed partial class SdFormatTests
         run.IdentityReader = read => read == 1
             ? run.Identity
             : unreadable
-                ? new SdFormatManager.DiskIdentitySnapshot(false, false, false, 0, -1)
+                ? new DiskIdentitySnapshot(false, false, false, 0, -1)
                 : run.Identity with { BusType = -1 };
 
         await run.StartAsync();
@@ -527,7 +527,7 @@ public sealed partial class SdFormatTests
                 return true;
             });
 
-            var operations = new SdFormatManager.Operations
+            var operations = new SdFormatOperations
             {
                 IsElevated = () => Elevated,
                 ReadDiskIdentity = disk =>
@@ -638,7 +638,7 @@ public sealed partial class SdFormatTests
             };
             Manager = new SdFormatManager(Config.Store, operations, () => [], Cancellation.Token);
             Manager.Apply([
-                new SdFormatManager.FormatTarget("card", 3, "original",
+                new FormatTarget("card", 3, "original",
                     Identity.SizeBytes, Identity.BusType, ['E'], false)
             ]);
             Entry = Assert.Single(Manager.Targets);
@@ -665,10 +665,10 @@ public sealed partial class SdFormatTests
         internal int IdentityReads { get; private set; }
         internal ConsoleToolResult PartitionResult { get; set; } = Succeeded;
 
-        internal SdFormatManager.DiskIdentitySnapshot Identity { get; set; } = new(false, true, true,
+        internal DiskIdentitySnapshot Identity { get; set; } = new(false, true, true,
             256_000_000_000L, NativeStorage.BusTypeSd);
 
-        internal Func<int, SdFormatManager.DiskIdentitySnapshot>? IdentityReader { get; set; }
+        internal Func<int, DiskIdentitySnapshot>? IdentityReader { get; set; }
         internal TaskCompletionSource<SteamLibraryRemoveResult>? RemovalCompletion { get; set; }
         internal TaskCompletionSource<ConsoleToolResult>? PartitionCompletion { get; set; }
         internal Action? AfterRemoval { get; set; }

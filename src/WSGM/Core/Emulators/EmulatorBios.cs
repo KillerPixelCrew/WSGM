@@ -11,40 +11,6 @@ using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
-internal sealed record EmulatorBiosFile(string Path, string Status, string Md5, bool Optional);
-
-internal sealed record EmulatorBiosSystem(
-    string Id,
-    string Name,
-    string Status,
-    string[] Emulators,
-    EmulatorBiosFile[] Files,
-    string[] Links);
-
-internal sealed record EmulatorBiosState(string Folder, bool Checked, EmulatorBiosSystem[] Systems);
-
-internal sealed record BiosCatalog
-{
-    public BiosSystemDefinition[] Systems { get; init; } = [];
-}
-
-internal sealed record BiosSystemDefinition
-{
-    public string Id { get; init; } = "";
-    public string Name { get; init; } = "";
-    public bool Any { get; init; }
-    public bool Optional { get; init; }
-    public BiosFileDefinition[] Files { get; init; } = [];
-}
-
-internal sealed record BiosFileDefinition
-{
-    public string Path { get; init; } = "";
-    public string[] Md5 { get; init; } = [];
-    public bool Optional { get; init; }
-    public bool Directory { get; init; }
-}
-
 /// <summary>The emulator manager's shared local BIOS catalogue, verification and native path configuration.</summary>
 public sealed partial class EmulatorManager
 {

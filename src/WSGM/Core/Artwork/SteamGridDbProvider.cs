@@ -12,53 +12,6 @@ using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
-/// <summary>One artwork candidate from SteamGridDB.</summary>
-/// <param name="Id">SteamGridDB asset id.</param>
-/// <param name="Url">Full-resolution image URL.</param>
-/// <param name="Thumb">Thumbnail URL (for the picker grid).</param>
-/// <param name="Width">Pixel width.</param>
-/// <param name="Height">Pixel height.</param>
-/// <param name="Extension">Provider-reported format hint; downloaded bytes are validated separately before application.</param>
-/// <param name="Author">Artwork author.</param>
-/// <param name="Style">SteamGridDB style identifier.</param>
-/// <param name="Notes">SteamGridDB notes.</param>
-/// <param name="Animated">Whether the result is animated.</param>
-/// <param name="Nsfw">Whether the result is adult-tagged.</param>
-/// <param name="Humor">Whether the result is humor-tagged.</param>
-/// <param name="Epilepsy">Whether the result is flashing-content-tagged.</param>
-// ReSharper disable once NotAccessedPositionalProperty.Global
-internal sealed record SgdbAsset(
-    int Id,
-    string Url,
-    string Thumb,
-    int Width,
-    int Height,
-    string Extension,
-    string? Author = null,
-    string? Style = null,
-    string? Notes = null,
-    bool Animated = false,
-    bool Nsfw = false,
-    bool Humor = false,
-    bool Epilepsy = false);
-
-/// <summary>A SteamGridDB request failed for a reason the UI should surface.</summary>
-/// <param name="message">A user-facing message.</param>
-internal sealed class SteamGridDbException(string message) : ArtworkProviderException(message, "steamgriddb");
-
-/// <summary>A game match from a SteamGridDB title search.</summary>
-/// <param name="Id">SteamGridDB game id.</param>
-/// <param name="Name">Game name.</param>
-internal sealed record SgdbGame(int Id, string Name);
-
-/// <summary>One official Steam store asset described by SteamGridDB platform metadata.</summary>
-/// <param name="Label">Display label for the official Steam slot.</param>
-/// <param name="Url">Official asset URL.</param>
-/// <param name="Width">Advertised pixel width.</param>
-/// <param name="Height">Advertised pixel height.</param>
-/// <param name="Extension">Expected filename extension; downloaded bytes still require validation.</param>
-internal sealed record SgdbOfficialAsset(string Label, string Url, int Width, int Height, string Extension);
-
 /// <summary>
 ///     Read-only client for the SteamGridDB v2 REST API: title search and per-slot
 ///     asset listing. Its images sit on an open content network, so <see cref="ArtworkDownload" />

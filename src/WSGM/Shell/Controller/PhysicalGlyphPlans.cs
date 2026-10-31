@@ -9,12 +9,6 @@ using WSGM.Device.Sdk.Glyphs;
 
 namespace WSGM.Shell;
 
-internal enum PhysicalGlyphSurface
-{
-    DeviceDescription,
-    NavigationHint
-}
-
 /// <summary>
 ///     Path-free adapter from an imported physical profile to Avalonia-safe geometry plans.
 /// </summary>

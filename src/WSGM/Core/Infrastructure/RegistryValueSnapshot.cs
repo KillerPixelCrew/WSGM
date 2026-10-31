@@ -18,9 +18,9 @@ internal sealed class RegistryValueSnapshot<T>
     private readonly T _absentValue;
     private readonly Func<object, T> _coerce;
     private readonly RegistryValueKind _defaultKind;
-    private readonly Func<AppConfig, State> _load;
+    private readonly Func<AppConfig, RegistryValueState<T>> _load;
     private readonly Func<RegistryValueKind, RegistryValueKind> _normalizeKind;
-    private readonly Action<AppConfig, State> _store;
+    private readonly Action<AppConfig, RegistryValueState<T>> _store;
 
     private readonly string _valueName;
     private readonly object _writeFallback;
@@ -46,7 +46,7 @@ internal sealed class RegistryValueSnapshot<T>
     public RegistryValueSnapshot(string valueName, T absentValue, T writeFallback,
         RegistryValueKind defaultKind, Func<object, T> coerce,
         Func<RegistryValueKind, RegistryValueKind> normalizeKind,
-        Func<AppConfig, State> load, Action<AppConfig, State> store)
+        Func<AppConfig, RegistryValueState<T>> load, Action<AppConfig, RegistryValueState<T>> store)
     {
         _valueName = valueName;
         _absentValue = absentValue;
@@ -64,18 +64,18 @@ internal sealed class RegistryValueSnapshot<T>
     /// </summary>
     /// <param name="key">Caller-owned registry key to read, or null to represent an absent key.</param>
     /// <returns>An uncaptured state retaining presence and raw registry kind; access/coercion failures propagate.</returns>
-    public State ReadCurrent(RegistryKey? key)
+    public RegistryValueState<T> ReadCurrent(RegistryKey? key)
     {
         if (key is null)
         {
-            return new State(false, false, _absentValue, _defaultKind);
+            return new RegistryValueState<T>(false, false, _absentValue, _defaultKind);
         }
 
         var sentinel = new object();
         var value = key.GetValue(_valueName, sentinel, RegistryValueOptions.DoNotExpandEnvironmentNames);
         return ReferenceEquals(value, sentinel)
-            ? new State(false, false, _absentValue, _defaultKind)
-            : new State(false, true, _coerce(value), key.GetValueKind(_valueName));
+            ? new RegistryValueState<T>(false, false, _absentValue, _defaultKind)
+            : new RegistryValueState<T>(false, true, _coerce(value), key.GetValueKind(_valueName));
     }
 
     /// <summary>
@@ -85,7 +85,7 @@ internal sealed class RegistryValueSnapshot<T>
     /// </summary>
     /// <param name="config">Caller-owned mutable configuration receiving the snapshot.</param>
     /// <param name="current">Previously read registry facts to mark as captured.</param>
-    public void Capture(AppConfig config, State current)
+    public void Capture(AppConfig config, RegistryValueState<T> current)
     {
         _store(config, current with { Captured = true });
     }
@@ -129,14 +129,4 @@ internal sealed class RegistryValueSnapshot<T>
             key.DeleteValue(_valueName, false);
         }
     }
-
-    /// <summary>
-    ///     The four persisted facts about a snapshotted value, mirroring one
-    ///     AppConfig field group (SnapshotCaptured / ValueExists / value / ValueKind).
-    /// </summary>
-    /// <param name="Captured">Whether these facts have been durably captured for restoration.</param>
-    /// <param name="Exists">Whether the original registry value existed.</param>
-    /// <param name="Value">Coerced original value, or the configured absent-value fallback.</param>
-    /// <param name="Kind">Original registry type, or the configured default for an absent value.</param>
-    internal readonly record struct State(bool Captured, bool Exists, T Value, RegistryValueKind Kind);
 }

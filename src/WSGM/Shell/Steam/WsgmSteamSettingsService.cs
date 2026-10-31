@@ -12,31 +12,6 @@ using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
 
-/// <summary>Applies shared WSGM settings through the session's configuration and plugin owners.</summary>
-internal interface IWsgmSteamSettingsBackend
-{
-    /// <summary>Changes one setting.</summary>
-    /// <param name="key">The row's key, as published.</param>
-    /// <param name="value">The new value, in the row's own shape.</param>
-    /// <param name="cancellationToken">Cancels the change.</param>
-    /// <returns>Whether it was saved, and why not when it was not.</returns>
-    Task<SteamUiCommandResult> SetAsync(string key, JsonElement value, CancellationToken cancellationToken);
-}
-
-/// <summary>What WSGM's settings page in Steam draws.</summary>
-/// <param name="Pages">The sidebar's pages.</param>
-/// <param name="Revision">Increases whenever what the page shows may have changed.</param>
-internal sealed record WsgmSteamSettingsState(IReadOnlyList<SteamSettingsPage> Pages, long Revision);
-
-/// <summary>An installed common plugin package.</summary>
-/// <param name="PluginId">Its package identity.</param>
-/// <param name="Name">Its display name.</param>
-/// <param name="EnabledByDefault">
-///     Whether its default instance runs while the configuration names none, as a graphics package does on
-///     a machine with an adapter it serves.
-/// </param>
-internal sealed record InstalledCommonPlugin(string PluginId, string Name, bool EnabledByDefault = false);
-
 /// <summary>WSGM's own settings, reached from a WSGM row in Steam's main menu.</summary>
 /// <remarks>
 ///     Borrows configuration and plugin callbacks shared with WSGM Settings. Changes use the config

@@ -44,7 +44,7 @@ cannot be resolved (Steam unavailable, two games running), both surfaces say so 
 explicitly; nothing is written to a game notebook, or to Global, on the strength of a failed
 resolution.
 
-A page (`Core/Notes/NoteDocument.cs`) is a structured document, never HTML:
+A page (`Core/Notes/NotePage.cs`) is a structured document, never HTML:
 
 - text blocks and images, each with an id, position, size and back-to-front order;
 - a vector ink layer of strokes (tool, `#RRGGBB` color, width, x/y points, optional pen pressure)

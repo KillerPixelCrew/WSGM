@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using SteamUiToolkit;
 using WSGM.Core;
@@ -143,8 +142,3 @@ internal static class SteamAnimationsSurface
         return true;
     }
 }
-
-/// <summary>Serializer metadata for the page's state.</summary>
-[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-[JsonSerializable(typeof(SteamAnimationsState))]
-internal sealed partial class AnimationsJsonContext : JsonSerializerContext;

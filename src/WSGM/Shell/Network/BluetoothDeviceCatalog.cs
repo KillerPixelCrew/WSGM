@@ -5,17 +5,6 @@ using WindowsDeviceControl;
 
 namespace WSGM.Shell;
 
-internal sealed record BluetoothLogicalDevice(
-    string Id,
-    string EndpointId,
-    string PairingEndpointId,
-    string Name,
-    string Container,
-    bool Paired,
-    bool CanPair,
-    bool Connected,
-    IReadOnlyList<string> EndpointIds);
-
 /// <summary>Merges watcher endpoints into the one logical collection used by every WSGM surface.</summary>
 /// <remarks>
 ///     Container identities arrive normalized by WindowsDeviceControl: lower-case, and empty for an

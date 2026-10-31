@@ -6,12 +6,6 @@ using static WSGM.Core.AppConfigDefaults;
 
 namespace WSGM.Core;
 
-/// <summary>Returns a normalized value with the repairs that should be reported to the user or log.</summary>
-/// <typeparam name="T">Configuration value type.</typeparam>
-/// <param name="Value">Normalized value; may be the same mutable instance supplied to the rule.</param>
-/// <param name="Diagnostics">Human-readable repair descriptions; empty when no reported repair was needed.</param>
-internal sealed record ConfigRuleResult<T>(T Value, IReadOnlyList<string> Diagnostics);
-
 /// <summary>Repairs the loaded configuration graph before runtime consumers use it.</summary>
 internal static class AppConfigRules
 {

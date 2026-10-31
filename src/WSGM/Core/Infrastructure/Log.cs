@@ -7,37 +7,6 @@ using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
-/// <summary>Severity of one log line, and the order the verbosity threshold compares against.</summary>
-public enum LogLevel
-{
-    /// <summary>Detail worth keeping only while investigating. Suppressed unless verbose.</summary>
-    Debug,
-
-    /// <summary>A state transition or lifecycle event worth having in every log.</summary>
-    Info,
-
-    /// <summary>Something degraded, was refused, or fell back: behaviour actually changed.</summary>
-    Warn,
-
-    /// <summary>A failure the code could not handle.</summary>
-    Error
-}
-
-/// <summary>How much detail the log records, as a user-facing choice.</summary>
-/// <remarks>
-///     Two states rather than a full level picker: the only useful question is whether debug detail is
-///     wanted. Hiding warnings or failures is never a reasonable choice, because this log is the whole
-///     of remote diagnosis.
-/// </remarks>
-public enum LogVerbosity
-{
-    /// <summary>Transitions, warnings and failures. The default.</summary>
-    Normal,
-
-    /// <summary>Adds the debug level, for reproducing a specific problem.</summary>
-    Verbose
-}
-
 /// <summary>
 ///     Tiny synchronized file logger. No toasts/taskbar exist in shell mode,
 ///     so the log file is the primary diagnostic surface.

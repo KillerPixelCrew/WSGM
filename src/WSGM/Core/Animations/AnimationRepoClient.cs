@@ -9,10 +9,6 @@ using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
-/// <summary>The repository could not be read, or refused.</summary>
-/// <param name="message">Repository failure text suitable for the UI.</param>
-public sealed class AnimationRepoException(string message) : Exception(message);
-
 /// <summary>SteamDeckRepo, the animation repository Animation Changer browses.</summary>
 /// <remarks>
 ///     One request lists everything: <c>/api/posts/all</c> answers every post, and the boot

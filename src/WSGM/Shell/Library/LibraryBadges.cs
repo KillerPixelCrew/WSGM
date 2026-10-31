@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
-using System.Threading.Tasks;
 using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Interop;
@@ -193,7 +192,7 @@ internal static class LibraryBadges
 
     /// <summary>A registration's Steam label, volume label, or drive-based library name.</summary>
     private static string RegistrationName(
-        SteamLibraryVdf.LibraryRegistration registration, Func<string, string?> readVolumeLabel)
+        LibraryRegistration registration, Func<string, string?> readVolumeLabel)
     {
         var label = registration.Label.Trim();
         if (label.Length > 0)
@@ -216,30 +215,5 @@ internal static class LibraryBadges
     private static string? ReadVolumeLabel(string root)
     {
         return NativeStorage.TryGetVolumeInformation(root, out var label, out _) ? label : null;
-    }
-}
-
-/// <summary>Hears what the library badge reports back: Steam's Big Picture Home layout.</summary>
-/// <remarks>
-///     The badge sits on the tile and moves with the carousel in either layout, so nothing here
-///     changes placement. The report is logged on every transition so a pasted <c>wsgm.log</c> says
-///     which layout Steam was in, which is the fact the September 2026 beta made worth knowing.
-///     <see cref="Log.Change" /> already writes only a changed line.
-/// </remarks>
-internal sealed class LibraryBadgeBackend(
-    Func<uint, CancellationToken, Task<SteamUiCommandResult>>? recheck = null) : ISteamLibraryBadgeBackend
-{
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> RecheckAsync(uint appId, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        return recheck?.Invoke(appId, cancellationToken) ?? Task.FromResult(SteamUiCommandResult.Refused);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> HomeLayoutAsync(bool bigArt, CancellationToken cancellationToken)
-    {
-        Log.Change("steam.home.layout", $"Steam Home layout: Big Art Mode {(bigArt ? "on" : "off")}.");
-        return Task.FromResult(SteamUiCommandResult.Applied);
     }
 }

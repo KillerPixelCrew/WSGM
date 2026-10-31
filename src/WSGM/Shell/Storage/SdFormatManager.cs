@@ -59,7 +59,7 @@ public sealed class SdFormatManager : ObservableObject
     /// <summary>Session cancellation used by cancellable format stages; it cannot undo disk writes.</summary>
     private readonly CancellationToken _lifetime;
 
-    private readonly Operations _operations;
+    private readonly SdFormatOperations _operations;
 
     /// <summary>
     ///     Reads the candidate disks on a worker thread, projecting the storage read it is handed or a fresh
@@ -100,14 +100,14 @@ public sealed class SdFormatManager : ObservableObject
     /// <param name="operations">The disk, Steam and log operations the run uses.</param>
     /// <param name="readTargets">Reads the candidate list on a worker thread.</param>
     /// <param name="lifetime">Cancels format runs when the session ends.</param>
-    internal SdFormatManager(ConfigStore store, Operations operations, Func<List<FormatTarget>> readTargets,
+    internal SdFormatManager(ConfigStore store, SdFormatOperations operations, Func<List<FormatTarget>> readTargets,
         CancellationToken lifetime = default)
         : this(store, operations ?? throw new ArgumentNullException(nameof(operations)), Project(readTargets),
             lifetime)
     {
     }
 
-    private SdFormatManager(ConfigStore store, Operations operations,
+    private SdFormatManager(ConfigStore store, SdFormatOperations operations,
         Func<StorageInventory?, List<FormatTarget>> readTargets, CancellationToken lifetime)
     {
         _store = store;
@@ -146,9 +146,9 @@ public sealed class SdFormatManager : ObservableObject
         return _ => readTargets();
     }
 
-    private static Operations CreateOperations(ConfigStore store, SteamClient? client)
+    private static SdFormatOperations CreateOperations(ConfigStore store, SteamClient? client)
     {
-        return new Operations
+        return new SdFormatOperations
         {
             IsElevated = ElevationCheck.IsCurrentProcessElevated,
             ReadDiskIdentity = ReadDiskIdentity,
@@ -469,7 +469,7 @@ public sealed class SdFormatManager : ObservableObject
             // the removal above can outlast a card swap (Shell\AGENTS.md).
             var beforeErase = await Task.Run(() => ReadTargetIdentity(target));
             LogReverification(target, beforeErase, "clean/partition");
-            if (beforeErase.Identity == TargetIdentity.Changed)
+            if (beforeErase.Identity == FormatTargetIdentity.Changed)
             {
                 // Nothing has been erased yet, so the registration this run removed
                 // belongs to a card that is still intact: put it back, exactly as the
@@ -559,7 +559,7 @@ public sealed class SdFormatManager : ObservableObject
                 _lifetime.ThrowIfCancellationRequested();
                 var beforeFormat = await Task.Run(() => ReadTargetIdentity(target));
                 LogReverification(target, beforeFormat, "format");
-                if (beforeFormat.Identity == TargetIdentity.Changed)
+                if (beforeFormat.Identity == FormatTargetIdentity.Changed)
                 {
                     // No compensation on this path: the erase already destroyed the old
                     // library, which is why removedContentId/removedLabel were cleared.
@@ -611,7 +611,7 @@ public sealed class SdFormatManager : ObservableObject
                 _lifetime.ThrowIfCancellationRequested();
                 var beforeAssign = await Task.Run(() => ReadTargetIdentity(target));
                 LogReverification(target, beforeAssign, "assign");
-                if (beforeAssign.Identity == TargetIdentity.Changed)
+                if (beforeAssign.Identity == FormatTargetIdentity.Changed)
                 {
                     Progress.Finish(CardChangedMidRunMessage, false);
                     return;
@@ -750,7 +750,7 @@ public sealed class SdFormatManager : ObservableObject
     ///     Changed for a guarded disk or conflicting known identity; Unreadable for failed handle/size reads; otherwise
     ///     Same, which cannot detect equal-capacity swaps.
     /// </returns>
-    internal static TargetIdentity CompareIdentity(
+    internal static FormatTargetIdentity CompareIdentity(
         bool opened, bool systemDisk, bool removable, long size, int busType,
         long expectedSize, int expectedBusType)
     {
@@ -758,12 +758,12 @@ public sealed class SdFormatManager : ObservableObject
         {
             // First and unconditional: a disk number that now points at system
             // storage must abort even when nothing else about it could be read.
-            return TargetIdentity.Changed;
+            return FormatTargetIdentity.Changed;
         }
 
         if (!opened || size <= 0)
         {
-            return TargetIdentity.Unreadable;
+            return FormatTargetIdentity.Unreadable;
         }
 
         // The sentinel tolerance is SYMMETRIC: size 0 / bus -1 are query-failure
@@ -772,8 +772,8 @@ public sealed class SdFormatManager : ObservableObject
         return !removable
                || (expectedSize > 0 && size != expectedSize)
                || (busType >= 0 && expectedBusType >= 0 && busType != expectedBusType)
-            ? TargetIdentity.Changed
-            : TargetIdentity.Same;
+            ? FormatTargetIdentity.Changed
+            : FormatTargetIdentity.Same;
     }
 
     /// <summary>
@@ -826,13 +826,13 @@ public sealed class SdFormatManager : ObservableObject
         // ReSharper disable once SwitchStatementMissingSomeEnumCasesNoDefault
         switch (snapshot.Identity)
         {
-            case TargetIdentity.Changed:
+            case FormatTargetIdentity.Changed:
                 Warn($"Format: disk {entry.DiskNumber} is not the card that was picked — "
                      + $"aborting before the {stage} run (system disk {snapshot.SystemDisk}, "
                      + $"removable {snapshot.Removable}, size {entry.SizeBytes}->{snapshot.SizeBytes}, "
                      + $"bus {entry.BusType}->{snapshot.BusType}).");
                 break;
-            case TargetIdentity.Unreadable:
+            case FormatTargetIdentity.Unreadable:
                 Info($"Format: disk {entry.DiskNumber} did not answer the identity re-check "
                      + $"before the {stage} run (size {snapshot.SizeBytes}, bus {snapshot.BusType}); "
                      + "continuing — a reader that is not ready yet is not a swapped card.");
@@ -1144,84 +1144,6 @@ public sealed class SdFormatManager : ObservableObject
         char PreferredLetter);
 
     /// <summary>
-    ///     External operations behind the format run and its <see cref="SteamLibraryProvisioner" />;
-    ///     orchestration and library bookkeeping stay in those owners.
-    /// </summary>
-    internal sealed class Operations
-    {
-        internal required Func<bool?> IsElevated { get; init; }
-        internal required Func<int, DiskIdentitySnapshot> ReadDiskIdentity { get; init; }
-        internal required Func<string, CancellationToken, Task<ConsoleToolResult>> RunDiskpart { get; init; }
-        internal required Func<int, CancellationToken, Task<int>> WaitForVolume { get; init; }
-        internal required Func<int, int, CancellationToken, Task<char?>> WaitForLetter { get; init; }
-        internal required Func<char, (string? Root, int Disk)> ReadVolume { get; init; }
-        internal required Func<int, List<char>> LettersOnDisk { get; init; }
-        internal required Func<char, string> LetterRoot { get; init; }
-        internal required Func<(bool Running, string? ExePath)> ReadSteam { get; init; }
-        internal required Func<(string? Path, string? Text)> ReadLibraryFolders { get; init; }
-        internal required Func<string, (string? ContentId, string Label)> ReadMarker { get; init; }
-
-        internal required Func<string, string, CancellationToken, Task<SteamLibraryRemoveResult>> RemoveLibrary
-        {
-            get;
-            init;
-        }
-
-        internal required Func<string, string, bool, SteamLibraryAddResult> AddLibrary { get; init; }
-        internal required Func<char, CancellationToken, Task<bool>> Retrim { get; init; }
-        internal required Action<char> BroadcastVolumeArrival { get; init; }
-        internal required Func<int, CancellationToken, Task> Delay { get; init; }
-        internal required Action<LogLevel, string, Exception?> WriteLog { get; init; }
-    }
-
-    internal readonly record struct DiskIdentitySnapshot(
-        bool SystemDisk,
-        bool HandleOpened,
-        bool Removable,
-        long SizeBytes,
-        int BusType);
-
-    /// <summary>One formattable disk as the background snapshot reports it.</summary>
-    /// <param name="Id">The row identity (device instance path or "disk:N").</param>
-    /// <param name="DiskNumber">The physical disk number.</param>
-    /// <param name="Name">Vendor/product identity.</param>
-    /// <param name="SizeBytes">Total disk size.</param>
-    /// <param name="BusType">The STORAGE_BUS_TYPE value.</param>
-    /// <param name="Letters">Currently mounted letters on this disk, if any.</param>
-    /// <param name="HasLinuxPartitions">Whether ext4-style partitions were found.</param>
-    internal sealed record FormatTarget(
-        string Id,
-        int DiskNumber,
-        string Name,
-        long SizeBytes,
-        int BusType,
-        IReadOnlyList<char> Letters,
-        bool HasLinuxPartitions);
-
-    /// <summary>
-    ///     What a fresh look at the target's disk number says about the media
-    ///     sitting there now, compared with the identity the run started from.
-    /// </summary>
-    internal enum TargetIdentity
-    {
-        /// <summary>Everything that could be read still matches the picked card.</summary>
-        Same,
-
-        /// <summary>
-        ///     The disk did not answer its identity queries. NOT a mismatch: a
-        ///     reader whose media is momentarily not ready reports exactly this, and the
-        ///     run must carry on so the existing waits and retries can still rescue it.
-        /// </summary>
-        Unreadable,
-
-        /// <summary>
-        ///     The disk number now belongs to something else — a different
-        ///     capacity or bus, no longer removable media, or a system disk.
-        /// </summary>
-        Changed
-    }
-
-    /// <summary>
     ///     One (re-)verification pass: the verdict plus the raw facts behind
     ///     it, so an abort can name what differed in a pasted log.
     /// </summary>
@@ -1235,7 +1157,7 @@ public sealed class SdFormatManager : ObservableObject
     /// <param name="SizeBytes">The size just read, 0 when the query failed.</param>
     /// <param name="BusType">The bus type just read, -1 when the query failed.</param>
     private readonly record struct TargetIdentitySnapshot(
-        TargetIdentity Identity,
+        FormatTargetIdentity Identity,
         bool SystemDisk,
         bool HandleOpened,
         bool Removable,

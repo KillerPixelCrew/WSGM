@@ -18,55 +18,6 @@ using PhysicalDeviceIdentity = LibHandheld.Contracts.PhysicalDeviceIdentity;
 
 namespace WSGM.Shell;
 
-/// <summary>WSGM-owned typed action surface available to the OEM router.</summary>
-internal sealed record DeviceOemActionServices
-{
-    internal Func<bool> WrapperInputLeaseActive { get; init; } = static () => false;
-
-    internal required Func<bool, CancellationToken, Task<bool>> SendSteamShortcutAsync { get; init; }
-
-    internal required Func<CancellationToken, Task<bool>> ToggleOverlayAsync { get; init; }
-
-    internal required Func<CancellationToken, Task<bool>> ToggleSteamQuickAccessAsync { get; init; }
-
-    internal required Func<CancellationToken, Task<bool>> ToggleSteamOverlayAsync { get; init; }
-
-    internal required Func<CancellationToken, Task<bool>> ToggleDevicePageAsync { get; init; }
-
-    internal required Func<CancellationToken, Task<bool>> ToggleOpenAppsAsync { get; init; }
-
-    internal required Func<CancellationToken, Task<bool>> ToggleDesktopGameModeAsync { get; init; }
-
-    internal required Func<CancellationToken, Task<bool>> ToggleOnScreenKeyboardAsync { get; init; }
-
-    internal required Func<CancellationToken, Task<bool>> CyclePerformanceProfileAsync { get; init; }
-
-    internal required Func<CancellationToken, Task<bool>> CyclePerformanceOverlayLevelAsync { get; init; }
-
-    internal required Func<int, CancellationToken, Task<bool>> SetRearButtonAsync { get; init; }
-}
-
-/// <summary>WSGM-owned assignment and runtime-availability policy for physical OEM controls.</summary>
-internal static class OemActionRules
-{
-    internal static bool IsAssignable(OemAction action, OemControlPlacement placement)
-    {
-        return !IsVirtualTargetButton(action) || placement is OemControlPlacement.Rear;
-    }
-
-    internal static bool IsVirtualTargetButton(OemAction action)
-    {
-        return action
-            is OemAction.VirtualTargetRearButton1
-            or OemAction.VirtualTargetRearButton2;
-    }
-
-    internal static bool IsAvailable(OemAction action, bool targetHasRearButtons)
-    {
-        return !IsVirtualTargetButton(action) || targetHasRearButtons;
-    }
-}
-
 /// <summary>Maps canonical OEM events to the closed WSGM-owned action vocabulary.</summary>
 internal sealed class DeviceOemActionRouter : IDisposable
 {

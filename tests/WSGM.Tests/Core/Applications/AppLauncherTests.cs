@@ -7,7 +7,7 @@ public sealed class AppLauncherTests
     [Fact]
     public void LaunchResultIsAnImmutableValueSummary()
     {
-        var result = new AppLauncher.LaunchResult(null, false, true);
+        var result = new LaunchResult(null, false, true);
 
         Assert.False(result.Started);
         Assert.True(result.ElevationDeclined);

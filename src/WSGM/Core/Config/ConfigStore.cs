@@ -47,7 +47,7 @@ public sealed class ConfigStore
                 throw new ConfigUnavailableException("Use the active transaction's read result.");
             }
 
-            MutexLease? held;
+            ConfigMutexLease? held;
             try
             {
                 held = Acquire();
@@ -97,6 +97,12 @@ public sealed class ConfigStore
             held.Dispose();
             throw;
         }
+    }
+
+    /// <summary>Clears the writer thread when a <see cref="ConfigTransaction" /> ends.</summary>
+    internal void ReleaseWriterThread()
+    {
+        Volatile.Write(ref _writerThread, 0);
     }
 
     /// <summary>Applies fields to the fresh document and saves only when the caller reports a change.</summary>
@@ -248,7 +254,7 @@ public sealed class ConfigStore
     ///     current schema replaces it. One copy: an existing one is the first older file and stays. Without the
     ///     copy the write is refused, so the older file is never replaced unpreserved.
     /// </summary>
-    private void PreserveOlderSchema(byte[] bytes, int version)
+    internal void PreserveOlderSchema(byte[] bytes, int version)
     {
         var copy = Path.Combine(Context.Root, $"config.v{version}.json");
         var created = false;
@@ -284,7 +290,7 @@ public sealed class ConfigStore
         }
     }
 
-    private MutexLease Acquire()
+    private ConfigMutexLease Acquire()
     {
         Mutex? mutex = null;
         try
@@ -305,7 +311,7 @@ public sealed class ConfigStore
                 throw new TimeoutException("The configuration is busy.");
             }
 
-            return new MutexLease(mutex);
+            return new ConfigMutexLease(mutex);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -314,7 +320,9 @@ public sealed class ConfigStore
         }
     }
 
-    private void WriteHeld(AppConfig config)
+    /// <summary>Publishes <paramref name="config" /> while the caller holds the writer mutex.</summary>
+    /// <param name="config">The configuration to write.</param>
+    internal void WriteHeld(AppConfig config)
     {
         try
         {
@@ -325,111 +333,6 @@ public sealed class ConfigStore
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             throw new ConfigUnavailableException("Configuration could not be published.", ex);
-        }
-    }
-
-    /// <summary>Owns an already-acquired configuration mutex and its native handle.</summary>
-    /// <param name="mutex">Mutex whose ownership transfers to this same-thread lease.</param>
-    internal sealed class MutexLease(Mutex mutex) : IDisposable
-    {
-        /// <summary>Releases the acquired mutex and closes it; release failures are logged.</summary>
-        /// <remarks>Call once on the acquiring thread.</remarks>
-        public void Dispose()
-        {
-            try
-            {
-                mutex.ReleaseMutex();
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Config mutex release failed: {ex.Message}");
-            }
-            finally
-            {
-                mutex.Dispose();
-            }
-        }
-    }
-
-    /// <summary>One thread-owned writer; file promotion and boot projection may share its scope.</summary>
-    /// <remarks>
-    ///     This scope serializes related operations but does not roll back files already published.
-    ///     Save is explicit, and both Save and Dispose must run on the thread that acquired the scope.
-    /// </remarks>
-    public sealed class ConfigTransaction : IDisposable
-    {
-        private readonly MutexLease _held;
-        private readonly ConfigStore _store;
-        private readonly int _thread = Environment.CurrentManagedThreadId;
-        private bool _disposed;
-        private (byte[] Bytes, int Version)? _older;
-
-        /// <summary>Transfers an acquired writer lease and strict read into one thread-bound transaction.</summary>
-        /// <param name="store">Persistence owner used for explicit publication.</param>
-        /// <param name="held">Acquired mutex lease transferred to the transaction.</param>
-        /// <param name="read">Validated loaded or absent configuration result.</param>
-        /// <param name="older">Original older-schema bytes and version to preserve on first save, or null.</param>
-        internal ConfigTransaction(ConfigStore store, MutexLease held, ConfigReadResult read,
-            (byte[] Bytes, int Version)? older)
-        {
-            _store = store;
-            _held = held;
-            Read = read;
-            _older = older;
-        }
-
-        /// <summary>The validated read, updated to refer to a saved replacement.</summary>
-        public ConfigReadResult Read { get; private set; }
-
-        /// <summary>The fresh configuration owned by this writer.</summary>
-        public AppConfig Config => Read.RequireConfig();
-
-        /// <summary>Releases the writer without implicitly saving.</summary>
-        public void Dispose()
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            EnsureOwner();
-            _disposed = true;
-            Volatile.Write(ref _store._writerThread, 0);
-            _held.Dispose();
-        }
-
-        /// <summary>Publishes configuration durably while retaining the writer scope.</summary>
-        /// <remarks>
-        ///     Preserves the first older-schema document before replacing it. A successful save updates
-        ///     only the configuration file; callers own asset promotion and boot-manifest publication.
-        /// </remarks>
-        /// <param name="replacement">A merged replacement, or null to save the owned document.</param>
-        /// <exception cref="ConfigUnavailableException">The owner thread, schema backup or publication is unavailable.</exception>
-        /// <exception cref="ObjectDisposedException">The writer scope has already been disposed.</exception>
-        public void Save(AppConfig? replacement = null)
-        {
-            EnsureOwner();
-            if (replacement is not null)
-            {
-                Read = Read with { Config = replacement };
-            }
-
-            if (_older is { } older)
-            {
-                _store.PreserveOlderSchema(older.Bytes, older.Version);
-                _older = null;
-            }
-
-            _store.WriteHeld(Config);
-        }
-
-        private void EnsureOwner()
-        {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            if (_thread != Environment.CurrentManagedThreadId)
-            {
-                throw new ConfigUnavailableException("The writer must stay on its acquiring thread.");
-            }
         }
     }
 }

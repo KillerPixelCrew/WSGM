@@ -710,10 +710,10 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             _config.DeviceIntegration.Enabled && !_disposed);
         switch (action)
         {
-            case ResumeAction.Skip:
+            case DeviceResumeAction.Skip:
                 Log.Info($"Device resume skipped: state={State}, cycle present={client is not null}.");
                 return;
-            case ResumeAction.Restart:
+            case DeviceResumeAction.Restart:
                 await RestartCycleUnderGateAsync(afterSystemSleep, cancellationToken).ConfigureAwait(false);
                 return;
         }
@@ -795,7 +795,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     ///     started again only after a sleep and only when it faulted, which is how the runtime ends
     ///     when the pad re-enumerates on wake.
     /// </remarks>
-    internal static ResumeAction DecideResume(
+    internal static DeviceResumeAction DecideResume(
         bool hasCycle,
         DeviceCycleState state,
         DeviceCycleState? lifecycleState,
@@ -805,13 +805,13 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         if (!hasCycle)
         {
             return afterSystemSleep && integrationWanted && state is DeviceCycleState.Faulted
-                ? ResumeAction.Restart
-                : ResumeAction.Skip;
+                ? DeviceResumeAction.Restart
+                : DeviceResumeAction.Skip;
         }
 
         return lifecycleState is DeviceCycleState.Suspended
-            ? ResumeAction.Resume
-            : ResumeAction.Restart;
+            ? DeviceResumeAction.Resume
+            : DeviceResumeAction.Restart;
     }
 
     /// <summary>Starts one user-requested attempt after automatic recovery was exhausted.</summary>
@@ -1058,19 +1058,10 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     /// <summary>Waits for the transition gate and holds it until the returned lease is disposed.</summary>
     /// <param name="cancellationToken">Cancels the wait; once the gate is held the lease owns its release.</param>
     /// <returns>The lease that releases the gate.</returns>
-    private async ValueTask<TransitionLease> EnterTransitionAsync(CancellationToken cancellationToken)
+    private async ValueTask<DeviceTransitionLease> EnterTransitionAsync(CancellationToken cancellationToken)
     {
         await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        return new TransitionLease(_transitionGate);
-    }
-
-    /// <summary>One held entry of the transition gate.</summary>
-    internal readonly struct TransitionLease(SemaphoreSlim gate) : IDisposable
-    {
-        public void Dispose()
-        {
-            gate.Release();
-        }
+        return new DeviceTransitionLease(_transitionGate);
     }
 
     private async Task StartCycleUnderGateAsync(CancellationToken cancellationToken)
@@ -2444,18 +2435,5 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             stream.ReadExactly(bytes);
             return true;
         }
-    }
-
-    /// <summary>What a resume does with the cycle it finds.</summary>
-    internal enum ResumeAction
-    {
-        /// <summary>Nothing to resume.</summary>
-        Skip,
-
-        /// <summary>Resume the suspended handheld in place.</summary>
-        Resume,
-
-        /// <summary>Stop whatever is there and start a fresh cycle.</summary>
-        Restart
     }
 }

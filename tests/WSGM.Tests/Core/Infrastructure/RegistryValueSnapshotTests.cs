@@ -53,7 +53,7 @@ public sealed class RegistryValueSnapshotTests
             static kind => kind == RegistryValueKind.ExpandString
                 ? RegistryValueKind.ExpandString
                 : RegistryValueKind.String,
-            static config => new RegistryValueSnapshot<string?>.State(
+            static config => new RegistryValueState<string?>(
                 config.PreviousShellSnapshotCaptured,
                 config.PreviousShellValueExists,
                 config.PreviousShellValue,

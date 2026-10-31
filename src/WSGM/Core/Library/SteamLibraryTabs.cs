@@ -11,24 +11,6 @@ using SteamUiToolkit;
 namespace WSGM.Core;
 
 /// <summary>
-///     One injected library tab: a title + the exact app ids it should contain.
-///     WSGM computes the ids (from filters, cards, or genres); Steam renders them.
-/// </summary>
-/// <param name="Id">Stable unique tab id (e.g. <c>wsgm-card-…</c>).</param>
-/// <param name="Title">The tab's display title.</param>
-/// <param name="AppIds">The app ids the tab shows.</param>
-public sealed record InjectedTab(string Id, string Title, IReadOnlyList<long> AppIds);
-
-/// <summary>
-///     Outcome of a tab sync: whether the injection succeeded, and the native
-///     Steam tabs the resident script observed in the strip (empty when the library has
-///     not rendered yet — callers must treat that as "unknown", not "none").
-/// </summary>
-/// <param name="Ok">Whether the definitions reached Steam without a script error.</param>
-/// <param name="NativeTabs">Native tabs observed in Steam's tab array.</param>
-public sealed record TabSyncResult(bool Ok, List<NativeTabConfig> NativeTabs);
-
-/// <summary>
 ///     Adds real WSGM tabs to Steam's library tab strip — TabMaster's mechanism,
 ///     re-implemented without Decky and driven from an injected <c>SharedJSContext</c>
 ///     script (device-verified live). The script captures Steam's webpack registry

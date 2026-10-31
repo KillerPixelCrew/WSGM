@@ -6,23 +6,6 @@ using WSGM.Interop;
 
 namespace WSGM.Shell;
 
-/// <summary>One look at Steam's processes and its Big Picture window.</summary>
-/// <param name="Running">Whether steam.exe or a steamwebhelper runs in this session.</param>
-/// <param name="BrowserProcessId">
-///     steamwebhelper's browser process, the one that opens the debugging port; an unreadable helper
-///     when no browser process could be told from its children; zero while there is no helper.
-/// </param>
-/// <param name="BrowserDebugging">
-///     Whether that browser process was started with <c>--remote-debugging-port</c>; null while there is
-///     no browser process or its command line could not be read.
-/// </param>
-/// <param name="BigPictureWindow">Whether Steam's Big Picture window exists.</param>
-internal readonly record struct SteamProcessSnapshot(
-    bool Running,
-    uint BrowserProcessId,
-    bool? BrowserDebugging,
-    bool BigPictureWindow);
-
 /// <summary>Reads Steam's process state once per call: two process-name lookups and one window search.</summary>
 /// <remarks>
 ///     Only the transport gate's worker calls this, once a second, so the cache needs no lock. Looking
@@ -40,7 +23,7 @@ internal sealed class SteamProcessObserver
     private const string ClientProcessName = "steam";
     private const string HelperProcessName = "steamwebhelper";
 
-    private readonly Dictionary<uint, HelperRole> _helpers = [];
+    private readonly Dictionary<uint, SteamHelperRole> _helpers = [];
 
     /// <summary>Takes one snapshot of Steam's processes and window.</summary>
     /// <returns>The snapshot; a failed process query reads as Steam not running.</returns>
@@ -79,12 +62,12 @@ internal sealed class SteamProcessObserver
                 _helpers[id] = role;
             }
 
-            if (role is HelperRole.DebuggingBrowser or HelperRole.Browser)
+            if (role is SteamHelperRole.DebuggingBrowser or SteamHelperRole.Browser)
             {
                 browser = id;
-                debugging = role == HelperRole.DebuggingBrowser;
+                debugging = role == SteamHelperRole.DebuggingBrowser;
             }
-            else if (role == HelperRole.Unknown && (unreadable == 0 || id < unreadable))
+            else if (role == SteamHelperRole.Unknown && (unreadable == 0 || id < unreadable))
             {
                 unreadable = id;
             }
@@ -105,36 +88,20 @@ internal sealed class SteamProcessObserver
     /// <param name="commandLine">The process's command line, or null when it could not be read.</param>
     /// <returns>What the process is.</returns>
     /// <remarks>Chromium starts every child with <c>--type=</c>; the browser process has none.</remarks>
-    internal static HelperRole Classify(string? commandLine)
+    internal static SteamHelperRole Classify(string? commandLine)
     {
         if (commandLine is null)
         {
-            return HelperRole.Unknown;
+            return SteamHelperRole.Unknown;
         }
 
         if (commandLine.Contains(" --type=", StringComparison.Ordinal))
         {
-            return HelperRole.Child;
+            return SteamHelperRole.Child;
         }
 
         return commandLine.Contains("--remote-debugging-port", StringComparison.Ordinal)
-            ? HelperRole.DebuggingBrowser
-            : HelperRole.Browser;
-    }
-
-    /// <summary>What a steamwebhelper process is.</summary>
-    internal enum HelperRole
-    {
-        /// <summary>Its command line could not be read.</summary>
-        Unknown,
-
-        /// <summary>A renderer, GPU or utility process.</summary>
-        Child,
-
-        /// <summary>The browser process, started without remote debugging.</summary>
-        Browser,
-
-        /// <summary>The browser process, started with remote debugging.</summary>
-        DebuggingBrowser
+            ? SteamHelperRole.DebuggingBrowser
+            : SteamHelperRole.Browser;
     }
 }

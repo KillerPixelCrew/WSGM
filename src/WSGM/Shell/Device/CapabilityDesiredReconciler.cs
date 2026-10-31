@@ -1,53 +1,10 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
-using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Shell;
-
-/// <summary>What one publisher's reconciliation pass needs from its owner.</summary>
-/// <param name="Label">The publisher's name in the log, such as "Device".</param>
-/// <param name="Snapshot">Reads the router's current views.</param>
-/// <param name="ExecuteAsync">
-///     Writes one admitted value and returns the result, or null when the owner skipped it on its own
-///     terms, such as a lighting zone that used up its attempts.
-/// </param>
-internal sealed record CapabilityReconcilePass(
-    string Label,
-    Func<IReadOnlyList<DeviceCapabilityView>> Snapshot,
-    Func<DeviceCapabilityView, CapabilityValue, CancellationToken, Task<CapabilityCommandResult?>> ExecuteAsync)
-{
-    /// <summary>Reads one candidate fresh without rebuilding every view.</summary>
-    public Func<DeviceCapabilityKey, DeviceCapabilityView?>? ReadCurrent { get; init; }
-
-    /// <summary>Orders the writes; lower values go first.</summary>
-    public Func<DeviceCapabilityView, int> Priority { get; init; } = static _ => 0;
-
-    /// <summary>Which capabilities this pass considers at all.</summary>
-    public Func<DeviceCapabilityView, bool> Include { get; init; } = static _ => true;
-
-    /// <summary>Checked before each capability; true abandons the rest of the pass.</summary>
-    public Func<bool> Abandon { get; init; } = static () => false;
-
-    /// <summary>
-    ///     Whether the publisher has reported the capability at all. One that has not is waiting for its first
-    ///     state rather than unavailable, so it is skipped without a warning.
-    /// </summary>
-    public Func<DeviceCapabilityView, bool> HasState { get; init; } = static _ => true;
-}
-
-/// <summary>What one reconciliation pass did.</summary>
-/// <param name="Applied">Commands reporting application, including accepted writes without independent readback.</param>
-/// <param name="Unchanged">Candidates already at their desired value.</param>
-/// <param name="Refused">Dispatched commands returning an outcome other than application.</param>
-/// <param name="Skipped">
-///     Candidates deferred by missing state, availability, value bounds, prior uncertainty, or owner
-///     policy.
-/// </param>
-internal readonly record struct CapabilityReconcileCounts(int Applied, int Unchanged, int Refused, int Skipped);
 
 /// <summary>
 ///     Writes each capability's desired value when it differs from what the publisher reports, for the

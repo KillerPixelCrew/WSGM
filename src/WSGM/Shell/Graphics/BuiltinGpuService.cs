@@ -335,12 +335,3 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
         internal IBuiltinGpuDriver Publisher { get; } = publisher;
     }
 }
-
-/// <summary>The native owner's lifecycle boundary; admission closes before any owned call is joined.</summary>
-internal interface IBuiltinGpuDriver : IAsyncDisposable
-{
-    ValueTask<GpuHealth> StartAsync(CancellationToken token);
-    ValueTask RefreshTopologyAsync(CancellationToken token);
-    void CloseAdmission();
-    void SetSuspended(bool suspended);
-}

@@ -11,28 +11,6 @@ using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
-/// <summary>One artwork image the Store offers for a title.</summary>
-/// <param name="Purpose">The Store's own name for what the image is.</param>
-/// <param name="Url">Where to fetch it.</param>
-/// <param name="Width">Its width in pixels, or zero when the Store did not say.</param>
-/// <param name="Height">Its height in pixels, or zero when the Store did not say.</param>
-public sealed record StoreCatalogImage(string Purpose, string Url, int Width, int Height);
-
-/// <summary>What the Store says about one title.</summary>
-/// <param name="ProductId">The Store product id.</param>
-/// <param name="Name">The title as the Store names it.</param>
-/// <param name="IsGame">Whether the Store classifies it as a game.</param>
-/// <param name="Multiplayer">Whether it reports a multiplayer capability.</param>
-/// <param name="MultiplayerEvidence">Which capability decided that, in one sentence.</param>
-/// <param name="Images">The artwork the Store offers.</param>
-public sealed record StoreCatalogEntry(
-    string ProductId,
-    string Name,
-    bool IsGame,
-    MultiplayerVerdict Multiplayer,
-    string MultiplayerEvidence,
-    IReadOnlyList<StoreCatalogImage> Images);
-
 /// <summary>Asks Microsoft's public Store catalog about an installed package.</summary>
 /// <remarks>
 ///     <para>

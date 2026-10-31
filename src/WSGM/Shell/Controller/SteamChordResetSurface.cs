@@ -1,16 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using SteamUiToolkit;
 using WSGM.Core;
 
 namespace WSGM.Shell;
-
-/// <summary>What the chord reset hook publishes: whether the mirror is watching.</summary>
-/// <param name="Active">Whether the guide chord mirror is active, so a reset needs reporting.</param>
-internal sealed record WsgmChordMirrorState(bool Active);
 
 /// <summary>
 ///     The Steam UI hook that reports the layout editor's "reset to defaults" for the guide button
@@ -98,8 +93,3 @@ internal static class SteamChordResetSurface
                || (payload.ValueKind is JsonValueKind.Object && SteamUiPayload.HasExactly(payload, 0));
     }
 }
-
-/// <summary>The hook state on the wire, camelCase as the fragment reads it.</summary>
-[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-[JsonSerializable(typeof(WsgmChordMirrorState))]
-internal sealed partial class WsgmChordMirrorJsonContext : JsonSerializerContext;

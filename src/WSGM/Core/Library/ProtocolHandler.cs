@@ -6,11 +6,6 @@ using Microsoft.Win32;
 
 namespace WSGM.Core;
 
-/// <summary>A program and the arguments that open one URI.</summary>
-/// <param name="Program">The registered program, unquoted and fully qualified.</param>
-/// <param name="Arguments">Its arguments with the URI substituted.</param>
-public sealed record ProtocolCommand(string Program, string Arguments);
-
 /// <summary>Finds the program a URI scheme is registered to, so a launcher URI can be a shortcut.</summary>
 /// <remarks>
 ///     <para>

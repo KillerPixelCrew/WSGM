@@ -17,7 +17,7 @@ namespace WSGM.Shell;
 /// </summary>
 /// <param name="operations">The format flow's external operations; this uses the Steam, marker and log ones.</param>
 /// <param name="progress">The storage run an Add Library publishes its progress and outcome on.</param>
-internal sealed class SteamLibraryProvisioner(SdFormatManager.Operations operations, StorageRunProgress progress)
+internal sealed class SteamLibraryProvisioner(SdFormatOperations operations, StorageRunProgress progress)
 {
     /// <summary>
     ///     Turns a user-chosen folder into a registered Steam library

@@ -1,6 +1,5 @@
 using System;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using SteamUiToolkit;
 using WSGM.Core;
 
@@ -76,7 +75,3 @@ internal static class SteamLaunchActionsSurface
         return true;
     }
 }
-
-[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-[JsonSerializable(typeof(LaunchActionState))]
-internal sealed partial class LaunchActionsJsonContext : JsonSerializerContext;

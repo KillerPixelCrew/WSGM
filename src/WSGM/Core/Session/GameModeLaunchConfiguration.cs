@@ -3,26 +3,6 @@ using WindowsDeviceControl;
 
 namespace WSGM.Core;
 
-/// <summary>How Game Mode arranges displays when it starts.</summary>
-public enum GameModeLaunchKind
-{
-    /// <summary>Start on the display Windows already calls primary, adjusting scaling only.</summary>
-    Default,
-
-    /// <summary>Apply a saved layout, optionally after waiting for a display and running actions.</summary>
-    Custom
-}
-
-/// <summary>What the desktop returns to when Game Mode ends.</summary>
-public enum GameModeReturn
-{
-    /// <summary>Whatever was on screen when Game Mode was entered.</summary>
-    EntryArrangement,
-
-    /// <summary>A saved desktop layout, regardless of what entry found.</summary>
-    DesktopLayout
-}
-
 /// <summary>
 ///     Everything Game Mode entry and leave do beyond starting Steam.
 ///     One record covers both directions because entry and leave are two halves of one transaction: the

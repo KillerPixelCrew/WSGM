@@ -8,15 +8,6 @@ using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Shell;
 
-/// <summary>A logical fan and the writable duty bounds its current descriptor declares.</summary>
-internal readonly record struct DeviceFanCurveFan(string InstanceId, int MinimumDuty = 0, int MaximumDuty = 100);
-
-/// <summary>A temperature observation, including the time its source actually sampled it.</summary>
-internal readonly record struct DeviceFanCurveTemperature(double? Celsius, DateTimeOffset CapturedAt);
-
-/// <summary>An acknowledged duty write; refused and uncertain outcomes both stop automatic writes.</summary>
-internal readonly record struct DeviceFanCurveWriteResult(bool Applied, string? Reason = null);
-
 /// <summary>The session-owned software fan policy; hardware access remains with the coordinator.</summary>
 internal sealed class DeviceFanCurveController : IAsyncDisposable
 {

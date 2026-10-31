@@ -9,34 +9,6 @@ using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
 
-/// <summary>What one configured step did.</summary>
-/// <param name="Step">The configured step.</param>
-/// <param name="Outcome">The plugin's own outcome.</param>
-/// <param name="Detail">A bounded explanation suitable for the splash or the log.</param>
-internal sealed record PluginActionStepResult(PluginActionStep Step, PluginActionOutcome Outcome, string Detail)
-{
-    /// <summary>Whether the step got far enough for the next one to run.</summary>
-    internal bool Succeeded => Outcome is PluginActionOutcome.AppliedVerified or PluginActionOutcome.Dispatched;
-
-    /// <summary>
-    ///     Whether the step may have changed something despite not succeeding. Compensation
-    ///     has to run for these too, because "unknown" is not "nothing happened".
-    /// </summary>
-    internal bool MayHaveActed => Outcome is not PluginActionOutcome.Rejected;
-}
-
-/// <summary>Resolves a configured step against the live plugin host.</summary>
-internal interface IPluginActionInvoker
-{
-    /// <summary>Invokes one step at its own deadline.</summary>
-    /// <param name="step">The configured step.</param>
-    /// <param name="deadline">When this step alone must be finished.</param>
-    /// <param name="cancellationToken">Cancels the step.</param>
-    /// <returns>The plugin's result.</returns>
-    Task<PluginActionResult> InvokeAsync(
-        PluginActionStep step, Deadline deadline, CancellationToken cancellationToken);
-}
-
 /// <summary>
 ///     Runs a configured list of plugin actions in order.
 ///     Two behaviours, because the lists mean different things. Entry stops at the first step that did
@@ -134,36 +106,5 @@ internal sealed class PluginActionSequence(IPluginActionInvoker invoker, Action<
         {
             return new PluginActionStepResult(step, PluginActionOutcome.Unconfirmed, "Unconfirmed: " + ex.Message);
         }
-    }
-}
-
-/// <summary>
-///     Invokes steps against the resident plugin host, resolving each step's generation at the
-///     moment it runs so a plugin that restarted between two steps is not addressed with a stale
-///     one.
-/// </summary>
-/// <param name="host">Borrowed resident host used to resolve current instance generations.</param>
-internal sealed class PluginHostActionInvoker(PluginHost host) : IPluginActionInvoker
-{
-    /// <inheritdoc />
-    public Task<PluginActionResult> InvokeAsync(
-        PluginActionStep step, Deadline deadline, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        if (step.Plugin is not { } identity || string.IsNullOrWhiteSpace(step.ActionId))
-        {
-            return Task.FromResult(new PluginActionResult(Guid.NewGuid(), PluginActionOutcome.Rejected,
-                "The step does not name a plugin action."));
-        }
-
-        var instance = host.Snapshot().FirstOrDefault(value => value.Instance == identity);
-        if (instance is null)
-        {
-            return Task.FromResult(new PluginActionResult(Guid.NewGuid(), PluginActionOutcome.Rejected,
-                $"{identity.PluginId} / {identity.InstanceId} is not running."));
-        }
-
-        return host.InvokeActionAsync(identity, instance.Generation, step.ActionId, step.Arguments,
-            PluginActionOrigin.SessionAutomation, deadline, cancellationToken);
     }
 }

@@ -776,32 +776,3 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
         PublishSoftwareChargeLimit();
     }
 }
-
-internal sealed record HandheldRuntimeState(
-    DeviceCycleState State,
-    string? DeviceDefinitionId,
-    CapabilityReason? Reason);
-
-internal enum HandheldStopReason
-{
-    WsgmExiting,
-    IntegrationDisabled,
-    RuntimeFault,
-    StartCanceled,
-    StartFailed,
-    SessionEnding,
-    Updating,
-    Uninstalling
-}
-
-internal enum DeviceRuntimeExitReason
-{
-    Intentional,
-    BackgroundFault
-}
-
-internal sealed record DeviceRuntimeExit(DeviceRuntimeExitReason Reason, string Detail);
-
-internal sealed record DeviceCommandDispatch(
-    CapabilityCommandResult Immediate,
-    Task<CapabilityCommandResult>? LateCompletion = null);

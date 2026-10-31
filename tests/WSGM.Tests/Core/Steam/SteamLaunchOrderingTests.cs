@@ -14,7 +14,7 @@ public sealed class SteamLaunchOrderingTests
     {
         List<string> calls = [];
         var status = new SteamInputShimStatus(SteamInputShimState.Deployed, default, null);
-        var expected = new AppLauncher.LaunchResult(null, true, false);
+        var expected = new LaunchResult(null, true, false);
 
         var result = Steam.ColdStart(steamInputManagement, "fixture-steam", cefEnabled,
             (enabled, reason) =>
@@ -69,7 +69,7 @@ public sealed class SteamLaunchOrderingTests
             _ =>
             {
                 calls.Add("launch");
-                return new AppLauncher.LaunchResult(null, true, false);
+                return new LaunchResult(null, true, false);
             }));
 
         Assert.Same(failure, thrown);

@@ -9,44 +9,6 @@ using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
 
-/// <summary>One running graphics publisher, as a page lists it.</summary>
-/// <param name="Identity">The plugin instance.</param>
-/// <param name="Name">The package's display name.</param>
-/// <param name="ProfileKey">The key its values are stored under, <c>gpu:</c> and the plugin id.</param>
-/// <param name="Health">The plugin's last reported health.</param>
-/// <param name="HealthDetail">The plugin's detail for that health, or null.</param>
-internal sealed record GpuPublisherView(
-    PluginInstanceIdentity Identity,
-    string Name,
-    string ProfileKey,
-    PluginHealth Health,
-    string? HealthDetail);
-
-/// <summary>One graphics capability, ready for a control.</summary>
-/// <param name="View">
-///     The router's view: the descriptor, the projection with its desired and Global values, profile scope
-///     and apply timing, and the last command result.
-/// </param>
-/// <param name="OverrideId">
-///     The id to hand <see cref="GpuCoordinator.UseGlobalAsync" /> while the running game's profile supplies
-///     the value, or null when the value is Global's.
-/// </param>
-internal sealed record GpuCapabilityView(DeviceCapabilityView View, string? OverrideId);
-
-/// <summary>One graphics publisher's page.</summary>
-/// <param name="Publisher">The publisher.</param>
-/// <param name="Sections">The overlay sections its descriptor set declares.</param>
-/// <param name="Capabilities">Its capabilities in router order.</param>
-internal sealed record GpuPublisherSnapshot(
-    GpuPublisherView Publisher,
-    IReadOnlyList<CapabilitySection> Sections,
-    IReadOnlyList<GpuCapabilityView> Capabilities);
-
-/// <summary>A published capability and the graphics plugin it came from, or null for the device package.</summary>
-/// <param name="View">The capability.</param>
-/// <param name="GpuPluginId">The graphics plugin's id, or null when the device package publishes it.</param>
-internal sealed record PublishedCapability(DeviceCapabilityView View, string? GpuPluginId);
-
 /// <summary>
 ///     Owns every running <c>wsgm.gpu</c> package's capabilities: one router per publisher, its desired
 ///     values, the user's writes and the per-application sync.

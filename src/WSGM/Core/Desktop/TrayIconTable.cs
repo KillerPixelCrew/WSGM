@@ -4,26 +4,6 @@ using System.Linq;
 
 namespace WSGM.Core;
 
-/// <summary>How a tray request changed the icon table.</summary>
-public enum TrayChange
-{
-    /// <summary>
-    ///     The request was rejected (unknown icon, duplicate add, no hwnd) —
-    ///     return 0 from WM_COPYDATA so shell32 reports failure and well-behaved apps
-    ///     re-add.
-    /// </summary>
-    Rejected,
-
-    /// <summary>A new icon appeared.</summary>
-    Added,
-
-    /// <summary>An existing icon changed.</summary>
-    Updated,
-
-    /// <summary>An icon was removed.</summary>
-    Removed
-}
-
 /// <summary>
 ///     The live set of registered tray icons: identity resolution
 ///     ((hwnd,uid) pair, or GUID when NIF_GUID is set), per-flag field updates, and
@@ -31,14 +11,14 @@ public enum TrayChange
 /// </summary>
 public sealed class TrayIconTable
 {
-    private readonly List<TrayIcon> _icons = [];
+    private readonly List<TrayIconRecord> _icons = [];
 
     /// <summary>Gets every registered icon, including hidden ones, registration order.</summary>
-    public IReadOnlyList<TrayIcon> Icons => _icons;
+    public IReadOnlyList<TrayIconRecord> Icons => _icons;
 
     /// <summary>Finds the icon a request refers to, or null.</summary>
     /// <param name="n">The parsed request.</param>
-    private TrayIcon? Find(TrayProtocol.TrayNotification n)
+    private TrayIconRecord? Find(TrayNotification n)
     {
         var byGuid = (n.Flags & TrayProtocol.NifGuid) != 0 && n.Guid != Guid.Empty;
         return _icons.FirstOrDefault(icon =>
@@ -53,7 +33,7 @@ public sealed class TrayIconTable
     /// <param name="n">The parsed request.</param>
     /// <param name="affected">The icon the request created, changed, or removed.</param>
     /// <returns>The registration change or rejection; ignored requests may leave affected null.</returns>
-    public TrayChange Apply(TrayProtocol.TrayNotification n, out TrayIcon? affected)
+    public TrayChange Apply(TrayNotification n, out TrayIconRecord? affected)
     {
         affected = null;
         var existing = Find(n);
@@ -73,7 +53,8 @@ public sealed class TrayIconTable
                     return TrayChange.Rejected;
                 }
 
-                var added = new TrayIcon(n.Hwnd, n.Uid, (n.Flags & TrayProtocol.NifGuid) != 0 ? n.Guid : Guid.Empty);
+                var added = new TrayIconRecord(n.Hwnd, n.Uid,
+                    (n.Flags & TrayProtocol.NifGuid) != 0 ? n.Guid : Guid.Empty);
                 ApplyFields(added, n);
                 _icons.Add(added);
                 affected = added;
@@ -131,7 +112,7 @@ public sealed class TrayIconTable
         _icons.Clear();
     }
 
-    private static void ApplyFields(TrayIcon icon, TrayProtocol.TrayNotification n)
+    private static void ApplyFields(TrayIconRecord icon, TrayNotification n)
     {
         if ((n.Flags & TrayProtocol.NifMessage) != 0)
         {
@@ -156,51 +137,5 @@ public sealed class TrayIconTable
         // must rasterize synchronously while the foreign handle is alive, and it
         // rasterizes per icon even for NIS_SHAREDICON, so the table has no reason to
         // retain the wire handle.
-    }
-
-    /// <summary>One registered tray icon.</summary>
-    public sealed class TrayIcon
-    {
-        /// <summary>Creates table-owned registration state without retaining the sender's native icon handle.</summary>
-        /// <param name="hwnd">Borrowed callback window identity.</param>
-        /// <param name="uid">Application-assigned icon ID.</param>
-        /// <param name="guid">Optional GUID identity, or Guid.Empty.</param>
-        internal TrayIcon(nint hwnd, uint uid, Guid guid)
-        {
-            Hwnd = hwnd;
-            Uid = uid;
-            Guid = guid;
-        }
-
-        /// <summary>Gets the owning app's callback window.</summary>
-        public nint Hwnd { get; }
-
-        /// <summary>Gets the app-chosen icon id.</summary>
-        public uint Uid { get; }
-
-        /// <summary>Gets the GUID identity (Guid.Empty when the app didn't use NIF_GUID).</summary>
-        public Guid Guid { get; internal set; }
-
-        /// <summary>Gets the message to send the app for icon interactions.</summary>
-        public uint CallbackMessage { get; internal set; }
-
-        /// <summary>Gets the negotiated protocol version (0/3 legacy, 4 = coords protocol).</summary>
-        public uint Version { get; internal set; }
-
-        /// <summary>Gets the tooltip text.</summary>
-        public string Tip { get; internal set; } = "";
-
-        /// <summary>Gets whether the app asked the icon to be hidden (NIS_HIDDEN).</summary>
-        public bool IsHidden { get; internal set; }
-
-        /// <summary>
-        ///     Gets or sets the host-rasterized icon image (opaque to this
-        ///     pure table; the tray host stores an Avalonia bitmap here). Ownership is
-        ///     per icon: the host disposes this image when the icon is removed and
-        ///     again at teardown, so one image instance must never be shared between
-        ///     two icons — a NIS_SHAREDICON registration has to rasterize its own from
-        ///     the shared handle.
-        /// </summary>
-        public object? IconImage { get; set; }
     }
 }

@@ -89,7 +89,8 @@ on the reference handheld.
 refresh; [WifiController](../src/WSGM/Shell/Network/WifiController.cs) owns Wi-Fi state and actions;
 [BluetoothPairing](../src/WSGM/Shell/Network/BluetoothPairing.cs) owns the pairing attempt and
 [PairingPrompt](../src/WSGM/Shell/Network/PairingPrompt.cs) describes its questions;
-[RadioEntries](../src/WSGM/Shell/Network/RadioEntries.cs) holds UI-facing entries;
+[WifiNetworkEntry](../src/WSGM/Shell/Network/WifiNetworkEntry.cs) and
+[BluetoothDeviceEntry](../src/WSGM/Shell/Network/BluetoothDeviceEntry.cs) hold UI-facing entries;
 [BluetoothDeviceCatalog](../src/WSGM/Shell/Network/BluetoothDeviceCatalog.cs) merges endpoint
 identity and rejects stale discovery callbacks. The pairing attempt belongs to the manager, so
 closing one panel does not make another consumer's discovery request disappear.
@@ -104,8 +105,8 @@ writes, and [CoalescingVolumeWrite](../src/WSGM/Shell/Audio/CoalescingVolumeWrit
 [AudioDiscovery](../src/WSGM/Shell/Audio/AudioDiscovery.cs) coordinates discovery;
 [AudioPlaybackChoices](../src/WSGM/Shell/Audio/AudioPlaybackChoices.cs) and
 [AudioEndpointText](../src/WSGM/Shell/Audio/AudioEndpointText.cs) project choices and wording.
-[NativeQamAudioService](../src/WSGM/Shell/Audio/NativeQamAudioService.cs) and
-[NativeQamAudioFormatService](../src/WSGM/Shell/Audio/NativeQamAudioFormatService.cs) expose the
+[AudioManagerNativeQamAudioService](../src/WSGM/Shell/Audio/AudioManagerNativeQamAudioService.cs)
+and [NativeQamAudioFormatService](../src/WSGM/Shell/Audio/NativeQamAudioFormatService.cs) expose the
 same state to Steam. Saved Game Mode audio policy is owned separately by
 [AudioProfileService](../src/WSGM/Shell/Audio/AudioProfileService.cs), described in
 [power and display](power-and-display.md#game-mode-audio-profiles).

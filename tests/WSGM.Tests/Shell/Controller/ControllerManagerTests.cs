@@ -3,6 +3,7 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Input;
 using WSGM.Shell;
+using WSGM.Tests.Fakes;
 using WSGM.Tests.Input;
 using static WSGM.Tests.Builders.ControllerBuilders;
 using CanonicalButtons = LibHandheld.Contracts.CanonicalButtons;

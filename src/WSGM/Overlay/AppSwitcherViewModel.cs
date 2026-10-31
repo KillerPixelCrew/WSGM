@@ -109,7 +109,7 @@ public sealed class TrayIconEntry : ObservableObject
 
     /// <summary>Creates a tile over a live tray-icon record.</summary>
     /// <param name="icon">The host's icon record.</param>
-    public TrayIconEntry(TrayIconTable.TrayIcon icon)
+    public TrayIconEntry(TrayIconRecord icon)
     {
         Icon = icon;
         _image = icon.IconImage;
@@ -117,7 +117,7 @@ public sealed class TrayIconEntry : ObservableObject
     }
 
     /// <summary>Gets the underlying tray-icon record (click forwarding target).</summary>
-    public TrayIconTable.TrayIcon Icon { get; }
+    public TrayIconRecord Icon { get; }
 
     /// <summary>Gets the rasterized icon image.</summary>
     public Bitmap? Image => Icon.IconImage as Bitmap;
@@ -187,11 +187,11 @@ public sealed class AppSwitcherViewModel : ObservableObject
     /// <param name="activeHwnd">The window considered foreground for highlighting.</param>
     /// <param name="create">Creates a chip for a newly appearing window.</param>
     public void Reconcile(
-        IReadOnlyList<WindowFinder.AppWindow> fresh,
+        IReadOnlyList<AppWindow> fresh,
         nint activeHwnd,
-        Func<WindowFinder.AppWindow, AppSwitcherEntry> create)
+        Func<AppWindow, AppSwitcherEntry> create)
     {
-        var byHwnd = new Dictionary<nint, WindowFinder.AppWindow>(fresh.Count);
+        var byHwnd = new Dictionary<nint, AppWindow>(fresh.Count);
         foreach (var window in fresh)
         {
             // Duplicate handles cannot occur in one EnumWindows pass; TryAdd keeps
@@ -239,9 +239,9 @@ public sealed class AppSwitcherViewModel : ObservableObject
     ///     focused tray button survives unrelated changes.
     /// </summary>
     /// <param name="icons">The host's registered icons (hidden ones are filtered here).</param>
-    public void ReconcileTray(IReadOnlyList<TrayIconTable.TrayIcon> icons)
+    public void ReconcileTray(IReadOnlyList<TrayIconRecord> icons)
     {
-        List<TrayIconTable.TrayIcon> visible = [.. icons.Where(icon => !icon.IsHidden)];
+        List<TrayIconRecord> visible = [.. icons.Where(icon => !icon.IsHidden)];
 
         for (var i = TrayIcons.Count - 1; i >= 0; i--)
         {

@@ -2,52 +2,6 @@ using System;
 
 namespace WSGM.Core;
 
-/// <summary>Why a resume did or did not send the machine back to sleep.</summary>
-/// <remarks>
-///     Every refusal is named rather than collapsed into a bool. A machine that quietly stays awake and
-///     a machine that quietly suspends are both surprising, and the difference between "you woke it"
-///     and "something else did, but you are using it" is the whole of this feature's diagnosis.
-/// </remarks>
-internal enum ModernStandbyOutcome
-{
-    /// <summary>The mode is switched off. WSGM does nothing on resume.</summary>
-    Disabled,
-
-    /// <summary>Windows attributes the wake to a person. Their wake is never undone.</summary>
-    UserWoke,
-
-    /// <summary>The display came on. Something is being shown to somebody.</summary>
-    DisplayOn,
-
-    /// <summary>Input was observed since the wake.</summary>
-    UserActive,
-
-    /// <summary>This wake has already been slept through as often as WSGM will try.</summary>
-    AttemptsExhausted,
-
-    /// <summary>Still inside the grace period; ask again later.</summary>
-    TooSoon,
-
-    /// <summary>Nothing accounts for the wake. Suspend again.</summary>
-    Resuspend
-}
-
-/// <summary>The decision for one look at an unattended wake.</summary>
-/// <param name="Outcome">What was decided, and why.</param>
-internal readonly record struct ModernStandbyDecision(ModernStandbyOutcome Outcome)
-{
-    /// <summary>Whether this look should suspend the machine.</summary>
-    internal bool ShouldResuspend => Outcome == ModernStandbyOutcome.Resuspend;
-
-    /// <summary>Whether a later look at the same wake could still decide to suspend.</summary>
-    /// <remarks>
-    ///     Only the grace period is worth waiting through. Every other refusal is a fact about this
-    ///     wake that will not change while it lasts, so polling past one is a timer that can never
-    ///     reach a decision.
-    /// </remarks>
-    internal bool ShouldKeepWatching => Outcome == ModernStandbyOutcome.TooSoon;
-}
-
 /// <summary>
 ///     Decides whether an unattended wake should be slept through again. Pure: it reads no clock, no
 ///     Windows state and no configuration, so every rule below is testable on its own.

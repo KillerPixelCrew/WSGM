@@ -409,7 +409,7 @@ public sealed unsafe class TrayHost : IDisposable
     /// <param name="contextMenu">True for a context-menu (right-click) activation.</param>
     /// <param name="screenX">Screen X of the activation, for cursor parking and the v4 coordinate protocol.</param>
     /// <param name="screenY">Screen Y of the activation, for cursor parking and the v4 coordinate protocol.</param>
-    public void SendClick(TrayIconTable.TrayIcon icon, bool contextMenu, int screenX, int screenY)
+    public void SendClick(TrayIconRecord icon, bool contextMenu, int screenX, int screenY)
     {
         if (_disposed)
         {
@@ -506,7 +506,7 @@ public sealed unsafe class TrayHost : IDisposable
             $"Tray click forwarded to '{icon.Tip}' ({kind}, v{icon.Version}, cb 0x{icon.CallbackMessage:X}, hwnd 0x{icon.Hwnd:X}).");
     }
 
-    private static void Notify(TrayIconTable.TrayIcon icon, uint notification, int x, int y)
+    private static void Notify(TrayIconRecord icon, uint notification, int x, int y)
     {
         nint wParam;
         nint lParam;

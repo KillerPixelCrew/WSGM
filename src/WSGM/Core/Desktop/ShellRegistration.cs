@@ -24,7 +24,7 @@ public static class ShellRegistration
         static value => value as string ?? string.Empty,
         static kind =>
             kind == RegistryValueKind.ExpandString ? RegistryValueKind.ExpandString : RegistryValueKind.String,
-        static config => new RegistryValueSnapshot<string?>.State(config.PreviousShellSnapshotCaptured,
+        static config => new RegistryValueState<string?>(config.PreviousShellSnapshotCaptured,
             config.PreviousShellValueExists,
             config.PreviousShellValue, config.PreviousShellValueKind),
         static (config, state) =>
@@ -43,7 +43,7 @@ public static class ShellRegistration
         static value => value is int number ? number : 0,
         static kind =>
             kind == RegistryValueKind.QWord ? RegistryValueKind.QWord : RegistryValueKind.DWord,
-        static config => new RegistryValueSnapshot<int>.State(config.PreviousStartupToGamingHomeSnapshotCaptured,
+        static config => new RegistryValueState<int>(config.PreviousStartupToGamingHomeSnapshotCaptured,
             config.PreviousStartupToGamingHomeValueExists,
             config.PreviousStartupToGamingHomeValue,
             config.PreviousStartupToGamingHomeValueKind),

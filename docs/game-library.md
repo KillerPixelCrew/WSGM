@@ -111,7 +111,7 @@ sources ──detect/discover──▶ games ──plan──▶ entries ──c
 
 | Part             | Home                                                                                                           | Owns                                                                                                                                                                                                                       |
 | ---------------- | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sources          | `Core\Library\LibrarySource.cs`, `Core\Library\Sources\`                                                       | Detecting one launcher and finding its installed games in one shape: identity, name, install path, launch routes, multiplayer, whether it is a game, catalog images. Nothing after discovery knows where a game came from. |
+| Sources          | `Core\Library\ILibrarySource.cs`, `Core\Library\DiscoveredGame.cs`, `Core\Library\Sources\`                    | Detecting one launcher and finding its installed games in one shape: identity, name, install path, launch routes, multiplayer, whether it is a game, catalog images. Nothing after discovery knows where a game came from. |
 | Launch routes    | `Core\Library\ShortcutRoute.cs`, `Core\Library\ProtocolHandler.cs`, `Core\Library\PackagedLauncherShortcut.cs` | How a title's shortcut is written and recognised again. The packaged route composes a `WSGM.PackagedLaunch.exe` request; a command route is an exact Target, directory and arguments.                                      |
 | Plan             | `Core\Library\ImportPlan.cs`                                                                                   | Pure: what a sync would do to each title, from the sources, WSGM's records and Steam's live shortcuts.                                                                                                                     |
 | Choices, records | `Core\Library\ImportStateStore.cs`                                                                             | What the user decided per title (mode or route, "don't import", artwork picks, a fixed match) and what WSGM created.                                                                                                       |
@@ -143,12 +143,12 @@ work. `ReadState` supplies the compact review and its revision, while `ReadDetai
 requests supply detail on demand.
 
 Both command adapters call that same service: `SteamLibraryImportSurface` connects the CEF page to
-it, and `IGameLibraryOverlaySource` in `Shell/Session/OverlayToolSessions.cs` supplies the Overlay.
-`GameLibraryView.cs` and `.Tools.cs` own local navigation/filter state; `ServiceSubView` marshals
-publications to the dispatcher and reconciles keyed controls. The Overlay initially shows 48 review
-entries and reveals another 48 on Load more; source, tab and text filters determine the list.
-`OverlayPreviewImage` owns thumbnail loading and disposal, so a view does not decode the entire
-library at once.
+it, and `IGameLibraryOverlaySource` in `Shell/Session/IGameLibraryOverlaySource.cs` supplies the
+Overlay. `GameLibraryView.cs` and `.Tools.cs` own local navigation/filter state; `ServiceSubView`
+marshals publications to the dispatcher and reconciles keyed controls. The Overlay initially shows
+48 review entries and reveals another 48 on Load more; source, tab and text filters determine the
+list. `OverlayPreviewImage` owns thumbnail loading and disposal, so a view does not decode the
+entire library at once.
 
 `ApplyAsync` freezes editing while the selected batch is processed. Each write rechecks its live
 shortcut premise, persists successful records as it goes, applies the selected artwork and

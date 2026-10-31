@@ -9,58 +9,6 @@ using System.Text.Json;
 
 namespace WSGM.Core;
 
-/// <summary>Installed Audio Loader metadata and resource mappings, or a visible manifest-read failure.</summary>
-/// <param name="Id">Local installation-folder identity.</param>
-/// <param name="Name">Display name.</param>
-/// <param name="Author">Manifest author text.</param>
-/// <param name="Version">Manifest version text.</param>
-/// <param name="Description">Manifest description.</param>
-/// <param name="StoreId">Store listing identity, or null for a local archive.</param>
-/// <param name="Error">Manifest-read failure, or null when accepted.</param>
-/// <param name="Mappings">Steam resource names mapped to ordered relative sound paths.</param>
-/// <param name="Ignore">Resources intentionally left using Steam defaults.</param>
-internal sealed record SoundPack(
-    string Id,
-    string Name,
-    string Author,
-    string Version,
-    string Description,
-    string? StoreId,
-    string? Error,
-    IReadOnlyDictionary<string, string[]> Mappings,
-    IReadOnlySet<string> Ignore)
-{
-    /// <summary>Distinct supported preview and sound paths, relative to the pack directory.</summary>
-    internal string[] Assets { get; init; } = [];
-
-    /// <summary>Author-supplied manifest identity, when present.</summary>
-    internal string ManifestId { get; init; } = "";
-
-    /// <summary>Repository/source text from the manifest or installation sidecar.</summary>
-    internal string Source { get; init; } = "";
-
-    /// <summary>Most recent comparison against Steam resources, when the caller supplied one.</summary>
-    internal SoundPackCompatibility? Compatibility { get; init; }
-}
-
-/// <summary>Pack coverage against one observed Steam resource vocabulary.</summary>
-/// <param name="SupportedResources">Resources with at least one usable file.</param>
-/// <param name="MissingResources">Resources with no usable file.</param>
-/// <param name="IgnoredResources">Resources explicitly excluded by the pack.</param>
-/// <param name="UnknownMappings">Manifest mappings absent from the current Steam vocabulary.</param>
-/// <param name="AssetProblems">Missing, empty, unsupported or unreadable asset details.</param>
-internal sealed record SoundPackCompatibility(
-    string[] SupportedResources,
-    string[] MissingResources,
-    string[] IgnoredResources,
-    string[] UnknownMappings,
-    string[] AssetProblems)
-{
-    /// <summary>Counts and fallback behavior suitable for the pack-details surface.</summary>
-    internal string Summary =>
-        $"{SupportedResources.Length} mapped resources; {MissingResources.Length} missing resources; {IgnoredResources.Length} ignored resources; {AssetProblems.Length} missing or unsupported assets; {UnknownMappings.Length} unknown mappings. Unmatched events use Steam defaults.";
-}
-
 /// <summary>Reads Audio Loader manifests and installs their assets in WSGM's per-user content folder.</summary>
 /// <param name="root">Local sound-pack directory; paths are constrained beneath this root.</param>
 internal sealed class SoundPackLibrary(string root)

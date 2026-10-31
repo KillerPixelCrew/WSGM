@@ -6,15 +6,6 @@ using CommonManifest = WSGM.Plugin.Sdk.PluginManifest;
 
 namespace WSGM.Core;
 
-/// <summary>One metadata-validated independent plugin package.</summary>
-internal sealed record CommonInstalledPlugin(string PackagePath, CommonManifest Manifest)
-{
-    public string Sha256 { get; init; } = "";
-}
-
-/// <summary>One unselected package retained on disk, with its reason.</summary>
-internal sealed record PluginPackageNotice(string PackagePath, string Id, string Reason);
-
 /// <summary>Metadata-only discovery of independent plugins; hardware libraries have no package slot.</summary>
 internal sealed record PluginPackageCatalog
 {

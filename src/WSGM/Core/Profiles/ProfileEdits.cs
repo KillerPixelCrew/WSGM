@@ -4,16 +4,6 @@ using System.Linq;
 
 namespace WSGM.Core;
 
-/// <summary>Which layer an edit writes to.</summary>
-public enum ProfileLayer
-{
-    /// <summary>The running game's profile when it is enabled, Global otherwise.</summary>
-    Active,
-
-    /// <summary>Always Global.</summary>
-    Global
-}
-
 /// <summary>Pure edits of the profile store, applied inside one configuration mutation.</summary>
 /// <remarks>
 ///     Nothing here copies a value from one layer into another. Opting a game in creates an empty

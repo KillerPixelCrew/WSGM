@@ -359,16 +359,16 @@ are in [AutoTDP](autotdp-controller.md).
 
 ## Source routes
 
-| Boundary                                          | Source                                                                                    |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Registered folder, required files and version     | [RtssDiscovery](../src/WSGM/Core/Performance/RtssDiscovery.cs)                            |
-| Starting the installed application                | [RtssLauncher](../src/WSGM/Core/RtssLauncher.cs)                                          |
-| Profile API and installed native-library lifetime | [RtssNativeAdapter](../src/WSGM/Core/RtssNativeAdapter.cs)                                |
-| Typed status, target and adapter contract         | [RtssModels](../src/WSGM/Core/RtssModels.cs)                                              |
-| Shared-memory frametime snapshots                 | [RtssFrametimeReader](../src/WSGM/Core/RtssFrametimeReader.cs)                            |
-| Performance overlay composition                   | [RtssOsd](../src/WSGM/Core/RtssOsd.cs)                                                    |
-| Application/profile reconciliation                | [ApplicationPerformanceReconciler](../src/WSGM/Shell/ApplicationPerformanceReconciler.cs) |
-| Session construction and disposal                 | [PerformanceServices](../src/WSGM/Shell/Session/PerformanceServices.cs)                   |
+| Boundary                                          | Source                                                                                                                             |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Registered folder, required files and version     | [RtssDiscovery](../src/WSGM/Core/Performance/RtssDiscovery.cs)                                                                     |
+| Starting the installed application                | [RtssLauncher](../src/WSGM/Core/RtssLauncher.cs)                                                                                   |
+| Profile API and installed native-library lifetime | [RtssNativeAdapter](../src/WSGM/Core/RtssNativeAdapter.cs)                                                                         |
+| Typed status, target and adapter contract         | [RtssCapabilities](../src/WSGM/Core/Performance/RtssCapabilities.cs), [IRtssAdapter](../src/WSGM/Core/Performance/IRtssAdapter.cs) |
+| Shared-memory frametime snapshots                 | [RtssFrametimeReader](../src/WSGM/Core/RtssFrametimeReader.cs)                                                                     |
+| Performance overlay composition                   | [RtssOsd](../src/WSGM/Core/RtssOsd.cs)                                                                                             |
+| Application/profile reconciliation                | [ApplicationPerformanceReconciler](../src/WSGM/Shell/ApplicationPerformanceReconciler.cs)                                          |
+| Session construction and disposal                 | [PerformanceServices](../src/WSGM/Shell/Session/PerformanceServices.cs)                                                            |
 
 RTSS observations feed both performance presentation and AutoTDP. Their readback can update
 effective state and diagnose an external edit, but cannot become a new saved preference.

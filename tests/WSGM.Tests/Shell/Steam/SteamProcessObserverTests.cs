@@ -6,13 +6,13 @@ public sealed class SteamProcessObserverTests
 {
     [Theory]
     [InlineData("\"steamwebhelper.exe\" -steampid=1 --remote-debugging-port=8080",
-        (int)SteamProcessObserver.HelperRole.DebuggingBrowser)]
-    [InlineData("\"steamwebhelper.exe\" -steampid=1 -uimode=4", (int)SteamProcessObserver.HelperRole.Browser)]
+        (int)SteamHelperRole.DebuggingBrowser)]
+    [InlineData("\"steamwebhelper.exe\" -steampid=1 -uimode=4", (int)SteamHelperRole.Browser)]
     [InlineData("\"steamwebhelper.exe\" --type=renderer --remote-debugging-port=8080",
-        (int)SteamProcessObserver.HelperRole.Child)]
-    [InlineData(null, (int)SteamProcessObserver.HelperRole.Unknown)]
+        (int)SteamHelperRole.Child)]
+    [InlineData(null, (int)SteamHelperRole.Unknown)]
     public void HelpersAreToldApartByTheirCommandLine(string? commandLine, int role)
     {
-        Assert.Equal((SteamProcessObserver.HelperRole)role, SteamProcessObserver.Classify(commandLine));
+        Assert.Equal((SteamHelperRole)role, SteamProcessObserver.Classify(commandLine));
     }
 }

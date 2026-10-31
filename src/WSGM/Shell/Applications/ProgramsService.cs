@@ -13,16 +13,6 @@ using WSGM.Interop;
 
 namespace WSGM.Shell;
 
-/// <summary>Detached shared Programs presentation; images are borrowed from the session cache.</summary>
-internal sealed record ProgramState(ProgramDefinition Definition, bool Running, bool Available,
-    string Status, Bitmap? Icon, bool UiIdentityAvailable = true)
-{
-    internal bool CanLaunch => Available && UiIdentityAvailable;
-}
-
-/// <summary>A user-visible window choice bound to its captured image and process birth time.</summary>
-internal sealed record ProgramUiCandidate(WindowFinder.AppWindow Window, string Executable, DateTime Started);
-
 /// <summary>One session owner for Programs configuration, exact process matching and launch/focus actions.</summary>
 internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
 {
@@ -306,7 +296,7 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         .Where(item => item.Process is { Path.Length: > 0 })
         .Select(item => new ProgramUiCandidate(item.Window, item.Process!.Path, item.Process.Started)).ToArray();
 
-    private async Task<string> FocusAsync(string id, WindowFinder.AppWindow window, CancellationToken token)
+    private async Task<string> FocusAsync(string id, AppWindow window, CancellationToken token)
     {
         // HWND reuse and process exit between snapshot and activation must not focus another app.
         NativeMethods.GetWindowThreadProcessId(window.Hwnd, out var owner);
@@ -332,7 +322,7 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         return "Application focused.";
     }
 
-    private WindowFinder.AppWindow? FindWindow(string id, IReadOnlyList<ProgramProcess> processes)
+    private AppWindow? FindWindow(string id, IReadOnlyList<ProgramProcess> processes)
     {
         var ids = processes.Select(process => process.Id).ToHashSet();
         var windows = WindowFinder.ListSwitchableWindows().Where(window => ids.Contains(window.ProcessId)).ToArray();

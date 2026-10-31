@@ -886,37 +886,37 @@ public sealed class LibraryTabsView : OverlaySubView
 
     private static IReadOnlyList<(int Value, string Label)> CategoryChoices(int current)
     {
-        var games = (int)LibraryFilter.Categories.Games;
-        var software = games | (int)LibraryFilter.Categories.Software;
-        var hidden = software | (int)LibraryFilter.Categories.Hidden;
+        var games = (int)LibraryFilterCategories.Games;
+        var software = games | (int)LibraryFilterCategories.Software;
+        var hidden = software | (int)LibraryFilterCategories.Hidden;
         var choices = new List<(int Value, string Label)>
         {
-            (games, CategoriesLabel((LibraryFilter.Categories)games)),
-            (software, CategoriesLabel((LibraryFilter.Categories)software)),
-            (hidden, CategoriesLabel((LibraryFilter.Categories)hidden))
+            (games, CategoriesLabel((LibraryFilterCategories)games)),
+            (software, CategoriesLabel((LibraryFilterCategories)software)),
+            (hidden, CategoriesLabel((LibraryFilterCategories)hidden))
         };
         if (choices.All(choice => choice.Value != current))
         {
-            choices.Add((current, CategoriesLabel((LibraryFilter.Categories)current)));
+            choices.Add((current, CategoriesLabel((LibraryFilterCategories)current)));
         }
 
         return choices;
     }
 
-    private static string CategoriesLabel(LibraryFilter.Categories c)
+    private static string CategoriesLabel(LibraryFilterCategories c)
     {
         var parts = new List<string>();
-        if (c.HasFlag(LibraryFilter.Categories.Games))
+        if (c.HasFlag(LibraryFilterCategories.Games))
         {
             parts.Add("Games");
         }
 
-        if (c.HasFlag(LibraryFilter.Categories.Software))
+        if (c.HasFlag(LibraryFilterCategories.Software))
         {
             parts.Add("Software");
         }
 
-        if (c.HasFlag(LibraryFilter.Categories.Music))
+        if (c.HasFlag(LibraryFilterCategories.Music))
         {
             parts.Add("Music");
         }
@@ -926,7 +926,7 @@ public sealed class LibraryTabsView : OverlaySubView
             parts.Add("Games");
         }
 
-        if (c.HasFlag(LibraryFilter.Categories.Hidden))
+        if (c.HasFlag(LibraryFilterCategories.Hidden))
         {
             parts.Add("+Hidden");
         }

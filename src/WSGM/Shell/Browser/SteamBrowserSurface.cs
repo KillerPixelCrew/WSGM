@@ -1,5 +1,4 @@
 using System;
-using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using SteamUiToolkit;
 using WSGM.Browser;
@@ -28,9 +27,3 @@ internal static class SteamBrowserSurface
             ]);
     }
 }
-
-internal sealed record SteamBrowserState(string Home, string SearchPrefix);
-
-[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-[JsonSerializable(typeof(SteamBrowserState))]
-internal partial class SteamBrowserJson : JsonSerializerContext;

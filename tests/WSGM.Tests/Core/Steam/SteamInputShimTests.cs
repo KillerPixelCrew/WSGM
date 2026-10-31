@@ -267,9 +267,9 @@ public sealed class SteamInputShimTests : IDisposable
     [Fact]
     public void StampRoundTripsEveryFieldItRecords()
     {
-        var marker = new SteamInputShim.Marker(11, 22, 33, 44, SteamInputShimVector.DInput8);
+        var marker = new SteamInputShimMarker(11, 22, 33, 44, SteamInputShimVector.DInput8);
 
-        Assert.True(SteamInputShim.Marker.TryParse(marker.Format(), out var parsed));
+        Assert.True(SteamInputShimMarker.TryParse(marker.Format(), out var parsed));
         Assert.Equal(marker, parsed);
     }
 
@@ -280,6 +280,6 @@ public sealed class SteamInputShimTests : IDisposable
     [InlineData("WSGM-SIM/1 x 2 3 4 DInput8")]
     public void StampRejectsAnythingItDidNotWrite(string line)
     {
-        Assert.False(SteamInputShim.Marker.TryParse(line, out _));
+        Assert.False(SteamInputShimMarker.TryParse(line, out _));
     }
 }

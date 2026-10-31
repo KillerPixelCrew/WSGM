@@ -45,7 +45,7 @@ public sealed class TrayProtocolTests
         return payload;
     }
 
-    private static TrayProtocol.TrayNotification Parse(byte[] payload)
+    private static TrayNotification Parse(byte[] payload)
     {
         Assert.True(TrayProtocol.TryParse(payload, out var parsed));
         Assert.NotNull(parsed);
@@ -99,7 +99,7 @@ public sealed class TrayProtocolTests
         Assert.False(TrayProtocol.TryParse(Blob(TrayProtocol.NimAdd).AsSpan(0, 200), out _));
     }
 
-    private static TrayIconTable.TrayIcon Added(TrayIconTable table, byte[] blob)
+    private static TrayIconRecord Added(TrayIconTable table, byte[] blob)
     {
         Assert.Equal(TrayChange.Added, table.Apply(Parse(blob), out var icon));
         Assert.NotNull(icon);

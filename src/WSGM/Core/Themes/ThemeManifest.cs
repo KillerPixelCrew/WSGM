@@ -6,26 +6,6 @@ using System.Text.Json.Nodes;
 
 namespace WSGM.Core;
 
-/// <summary>A theme folder that CSS Loader would refuse, with its reason.</summary>
-/// <param name="message">The reason, in CSS Loader's words where it has them.</param>
-public sealed class ThemeManifestException(string message) : Exception(message);
-
-/// <summary>The flags a <c>theme.json</c> may carry, upper-cased as CSS Loader reads them.</summary>
-public static class ThemeFlags
-{
-    /// <summary>The theme is a profile: a generated set of dependencies and their patch values.</summary>
-    public const string Preset = "PRESET";
-
-    /// <summary>Disabling the theme leaves its dependencies enabled.</summary>
-    public const string KeepDependencies = "KEEP_DEPENDENCIES";
-
-    /// <summary>Enabling the theme asks whether to enable its dependencies.</summary>
-    public const string OptionalDependencies = "OPTIONAL_DEPENDENCIES";
-
-    /// <summary>The theme wants CSS Loader's navigation patch, which WSGM does not have.</summary>
-    public const string RequireNavPatch = "REQUIRE_NAV_PATCH";
-}
-
 /// <summary>What CSS Loader reads out of a theme folder, before any file is loaded.</summary>
 /// <remarks>
 ///     Mirrors <c>css_theme.py</c> (b1bc683): the same defaults, the same keys, and the same
@@ -279,67 +259,3 @@ public static class ThemeManifest
         };
     }
 }
-
-/// <summary>One entry of an <c>inject</c> map: a stylesheet, or a CSS variable, and the windows it is for.</summary>
-/// <param name="Key">
-///     The stylesheet's path relative to the theme folder, or a variable name starting with <c>--</c>,
-///     in which case the first tab is the variable's value.
-/// </param>
-/// <param name="Tabs">The tab names or aliases, expanded by <see cref="ThemeTargets" />.</param>
-public sealed record ThemeInjectManifest(string Key, IReadOnlyList<string> Tabs);
-
-/// <summary>A colour or image the user picks for a patch option.</summary>
-/// <param name="Name">The component's label.</param>
-/// <param name="Type"><c>color-picker</c> or <c>image-picker</c>.</param>
-/// <param name="On">The patch option the component belongs to.</param>
-/// <param name="Default">The default colour or image path.</param>
-/// <param name="CssVariable">The variable the value is written to, with its <c>--</c>.</param>
-/// <param name="Tabs">The windows the variable is set in.</param>
-public sealed record ThemeComponentManifest(
-    string Name,
-    string Type,
-    string On,
-    string Default,
-    string CssVariable,
-    IReadOnlyList<string> Tabs);
-
-/// <summary>One patch: a named choice between sets of injects.</summary>
-/// <param name="Name">The patch's label.</param>
-/// <param name="Type"><c>dropdown</c>, <c>checkbox</c>, <c>slider</c> or <c>none</c>; anything else is a dropdown.</param>
-/// <param name="Default">The option chosen until the user picks another.</param>
-/// <param name="Options">The options in manifest order, each with what it injects.</param>
-/// <param name="Components">The colours and images picked under the patch.</param>
-public sealed record ThemePatchManifest(
-    string Name,
-    string Type,
-    string Default,
-    IReadOnlyList<KeyValuePair<string, IReadOnlyList<ThemeInjectManifest>>> Options,
-    IReadOnlyList<ThemeComponentManifest> Components);
-
-/// <summary>Everything a theme's manifest declares.</summary>
-/// <param name="Name">The theme's identity among installed themes.</param>
-/// <param name="DisplayName">What the user sees, or null to show the name.</param>
-/// <param name="Id">The store id, or the name when the manifest has none.</param>
-/// <param name="Version">The version text.</param>
-/// <param name="Author">The author text.</param>
-/// <param name="Require">The manifest version the theme was written for.</param>
-/// <param name="Flags">The theme's flags, upper-cased.</param>
-/// <param name="TabMappings">The theme's own tab aliases.</param>
-/// <param name="Dependencies">
-///     Themes this one needs, each with the patch values it sets on them: an option, or an option
-///     with its components' values, as the manifest wrote it.
-/// </param>
-/// <param name="Injects">What the theme always injects while enabled.</param>
-/// <param name="Patches">The theme's patches.</param>
-public sealed record ThemeManifestData(
-    string Name,
-    string? DisplayName,
-    string Id,
-    string Version,
-    string Author,
-    int Require,
-    IReadOnlyList<string> Flags,
-    IReadOnlyDictionary<string, IReadOnlyList<string>> TabMappings,
-    IReadOnlyDictionary<string, IReadOnlyDictionary<string, JsonNode>> Dependencies,
-    IReadOnlyList<ThemeInjectManifest> Injects,
-    IReadOnlyList<ThemePatchManifest> Patches);

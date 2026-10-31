@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using SteamUiToolkit;
 
@@ -62,7 +61,7 @@ internal static class SteamWsgmSettingsSurface
                     PatchId, enabled, read, WsgmSteamSettingsJsonContext.Default.WsgmSteamSettingsState)
             ],
             [
-                SteamUiModuleBuilder.Command<SetRequest>(PatchId, "set", TryReadSet,
+                SteamUiModuleBuilder.Command<SteamWsgmSettingsSetRequest>(PatchId, "set", TryReadSet,
                     (request, token) => backend.SetAsync(request.Key, request.Value, token),
                     "The setting payload is invalid.")
             ]);
@@ -75,7 +74,7 @@ internal static class SteamWsgmSettingsSurface
     ///     True when the key is nonblank and the value is neither object, null nor undefined; the backend validates
     ///     row-specific types.
     /// </returns>
-    internal static bool TryReadSet(JsonElement payload, out SetRequest value)
+    internal static bool TryReadSet(JsonElement payload, out SteamWsgmSettingsSetRequest value)
     {
         value = default;
         if (!SteamUiPayload.HasExactly(payload, 2)
@@ -86,17 +85,7 @@ internal static class SteamWsgmSettingsSurface
             return false;
         }
 
-        value = new SetRequest(key, setting.Clone());
+        value = new SteamWsgmSettingsSetRequest(key, setting.Clone());
         return true;
     }
-
-    /// <summary>One change: the row's key and its new value.</summary>
-    /// <param name="Key">Published row identity.</param>
-    /// <param name="Value">Cloned new JSON value; row semantics are validated by the backend.</param>
-    internal readonly record struct SetRequest(string Key, JsonElement Value);
 }
-
-/// <summary>The page model on the wire, camelCase as the renderer reads it.</summary>
-[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-[JsonSerializable(typeof(WsgmSteamSettingsState))]
-internal sealed partial class WsgmSteamSettingsJsonContext : JsonSerializerContext;

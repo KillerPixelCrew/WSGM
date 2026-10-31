@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace WSGM.Core;
 
@@ -124,7 +123,3 @@ internal sealed class PendingPluginRemovalStore(string path)
         }
     }
 }
-
-/// <summary>Source-generated JSON metadata for the pending removal list.</summary>
-[JsonSerializable(typeof(string[]))]
-internal sealed partial class PendingRemovalsJsonContext : JsonSerializerContext;

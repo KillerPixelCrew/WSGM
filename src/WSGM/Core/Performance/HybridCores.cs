@@ -1,57 +1,10 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using WindowsDeviceControl;
 using WSGM.Interop;
 
 namespace WSGM.Core;
-
-/// <summary>How WSGM offers to place threads across a hybrid CPU's core types.</summary>
-/// <remarks>
-///     These are WSGM's names for values Windows publishes for its thread scheduling policy. Windows
-///     names them itself, which is why they are the ones WSGM writes: its heterogeneous-policy setting
-///     is enumerated only as "use heterogeneous policy 0..4" with no published meaning, so WSGM reads
-///     and restores that value but never chooses one.
-/// </remarks>
-internal enum HybridCoreMode
-{
-    /// <summary>Windows places threads. The state a machine ships in.</summary>
-    Automatic,
-
-    /// <summary>Both core types stay eligible; performance cores are preferred.</summary>
-    PreferPerformance,
-
-    /// <summary>Both core types stay eligible; efficiency cores are preferred.</summary>
-    PreferEfficiency,
-
-    /// <summary>Only performance cores are eligible.</summary>
-    PerformanceOnly,
-
-    /// <summary>Only efficiency cores are eligible.</summary>
-    EfficiencyOnly
-}
-
-/// <summary>One offered mode with the wording the user reads.</summary>
-/// <param name="Mode">The mode this option selects.</param>
-/// <param name="Name">Short label.</param>
-/// <param name="Description">What it does, in terms of the machine rather than the scheduler.</param>
-internal sealed record HybridCoreOption(HybridCoreMode Mode, string Name, string Description);
-
-/// <summary>What the machine supports and what is currently in effect.</summary>
-/// <param name="Supported">Whether the control should be offered at all.</param>
-/// <param name="PerformanceCores">Cores in the most performant efficiency class.</param>
-/// <param name="EfficiencyCores">Cores in every other class.</param>
-/// <param name="Options">The modes this machine accepts, in offer order.</param>
-/// <param name="OnAc">The mode in effect while plugged in, or null when it is not one WSGM offers.</param>
-/// <param name="OnBattery">The mode in effect on battery, or null when it is not one WSGM offers.</param>
-internal sealed record HybridCoreStatus(
-    bool Supported,
-    int PerformanceCores,
-    int EfficiencyCores,
-    IReadOnlyList<HybridCoreOption> Options,
-    HybridCoreMode? OnAc,
-    HybridCoreMode? OnBattery);
 
 /// <summary>
 ///     Manual hybrid core placement over the reusable library. Reads consult Windows; writes preserve

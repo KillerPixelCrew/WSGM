@@ -3,101 +3,12 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 using PhysicalDeviceIdentity = LibHandheld.Contracts.PhysicalDeviceIdentity;
 
 namespace WSGM.Shell;
-
-/// <summary>One entry WSGM added to HidHide, remembered so exit and uninstall take exactly that back out.</summary>
-internal sealed class HidHideOwnedDelta
-{
-    public HidHideEntryKind EntryKind { get; init; }
-
-    public string Value { get; init; } = string.Empty;
-}
-
-/// <summary>The entries WSGM added, persisted so a crash still leaves them for the next exit to remove.</summary>
-internal sealed class HidHideOwnershipLedger
-{
-    public List<HidHideOwnedDelta> Deltas { get; init; } = [];
-}
-
-internal interface IHidHideOwnershipStore
-{
-    Task<HidHideOwnershipLedger?> LoadAsync(CancellationToken cancellationToken);
-
-    Task SaveAsync(HidHideOwnershipLedger ledger, CancellationToken cancellationToken);
-
-    Task DeleteAsync(CancellationToken cancellationToken);
-}
-
-internal sealed class FileHidHideOwnershipStore : IHidHideOwnershipStore
-{
-    private readonly string _path;
-
-    internal FileHidHideOwnershipStore(string path)
-    {
-        _path = Path.GetFullPath(path);
-    }
-
-    public async Task<HidHideOwnershipLedger?> LoadAsync(CancellationToken cancellationToken)
-    {
-        if (!File.Exists(_path))
-        {
-            return null;
-        }
-
-        await using FileStream stream = new(
-            _path,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read,
-            4096,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
-        return await JsonSerializer.DeserializeAsync(
-            stream,
-            HidHideOwnershipJsonContext.Default.HidHideOwnershipLedger,
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    public async Task SaveAsync(
-        HidHideOwnershipLedger ledger,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(ledger);
-        var directory = Path.GetDirectoryName(_path);
-        if (string.IsNullOrWhiteSpace(directory))
-        {
-            throw new InvalidOperationException("The HidHide ledger path has no parent directory.");
-        }
-
-        Directory.CreateDirectory(directory);
-        await AtomicFile.WriteAsync(
-            _path,
-            (stream, token) => JsonSerializer.SerializeAsync(
-                stream,
-                ledger,
-                HidHideOwnershipJsonContext.Default.HidHideOwnershipLedger,
-                token),
-            true,
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    public Task DeleteAsync(CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        File.Delete(_path);
-        return Task.CompletedTask;
-    }
-}
-
-/// <summary>How a HidHide change went, for the log and the controller state.</summary>
-/// <param name="Succeeded">Whether all required driver writes were accepted; this does not claim independent readback.</param>
-/// <param name="Detail">Operation summary or failure detail suitable for diagnostics.</param>
-internal sealed record HidHideResult(bool Succeeded, string Detail);
 
 /// <summary>Hides the physical pad while WSGM drives a virtual one, and shows it again on leaving.</summary>
 /// <remarks>
@@ -558,6 +469,3 @@ internal sealed class HidHideOwnership
         return path;
     }
 }
-
-[JsonSerializable(typeof(HidHideOwnershipLedger))]
-internal sealed partial class HidHideOwnershipJsonContext : JsonSerializerContext;

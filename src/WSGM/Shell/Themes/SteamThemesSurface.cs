@@ -1,6 +1,5 @@
 using System;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using SteamUiToolkit;
 
@@ -221,7 +220,3 @@ internal static class SteamThemesSurface
     /// <summary>One request to set a component's value.</summary>
     private readonly record struct ComponentRequest(string Theme, string Patch, string Component, string Value);
 }
-
-[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-[JsonSerializable(typeof(SteamThemesState))]
-internal sealed partial class ThemesJsonContext : JsonSerializerContext;

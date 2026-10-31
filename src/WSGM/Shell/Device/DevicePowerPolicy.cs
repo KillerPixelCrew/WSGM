@@ -28,7 +28,7 @@ internal sealed class DevicePowerPolicy
     private readonly Func<bool> _closed;
     private readonly Func<AppConfig> _config;
     private readonly Func<HandheldDefinition?> _definition;
-    private readonly Func<CancellationToken, ValueTask<DeviceCoordinator.TransitionLease>> _enterTransition;
+    private readonly Func<CancellationToken, ValueTask<DeviceTransitionLease>> _enterTransition;
 
     private readonly Func<string, string?, CapabilityValue?, CapabilityCommandOrigin, bool, CancellationToken,
         Task<CapabilityCommandResult>> _executeInLane;
@@ -98,7 +98,7 @@ internal sealed class DevicePowerPolicy
         Func<HandheldDefinition?> definition,
         Func<bool> closed,
         CancellationToken lifetime,
-        Func<CancellationToken, ValueTask<DeviceCoordinator.TransitionLease>> enterTransition,
+        Func<CancellationToken, ValueTask<DeviceTransitionLease>> enterTransition,
         Func<Action<AppConfig>, CancellationToken, Task<AppConfig>> persistConfiguration,
         string traceDirectory,
         Func<double> autoTdpTargetFrametimeMs,

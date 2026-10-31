@@ -12,39 +12,6 @@ using WSGM.Interop;
 
 namespace WSGM.Shell;
 
-/// <summary>A connected card's library manifest and the volume it was read through.</summary>
-/// <param name="Manifest">The manifest as read in this pass.</param>
-/// <param name="Volume">The volume it was read from.</param>
-internal sealed record ConnectedCard(StorageLibraryManifest Manifest, ObservedVolume Volume);
-
-/// <summary>One availability pass's published result.</summary>
-/// <param name="Revision">Monotonic pass revision; unchanged passes keep the previous one.</param>
-/// <param name="Checked">Whether a pass has read Steam's shortcuts at least once.</param>
-/// <param name="Shortcuts">Every tracked non-Steam shortcut, ordered by location and name.</param>
-/// <param name="Libraries">Every known or connected card library, with its immediate actions.</param>
-/// <param name="Volumes">Every mounted local volume, identified through its GUID path.</param>
-/// <param name="Cards">Connected card libraries by library id, excluding ambiguous ones.</param>
-/// <param name="Ambiguous">Library ids that more than one connected volume claims.</param>
-internal sealed record ShortcutAvailabilitySnapshot(
-    long Revision,
-    bool Checked,
-    IReadOnlyList<ShortcutStatus> Shortcuts,
-    IReadOnlyList<GameLibraryStorage> Libraries,
-    IReadOnlyList<ObservedVolume> Volumes,
-    IReadOnlyDictionary<string, ConnectedCard> Cards,
-    IReadOnlySet<string> Ambiguous)
-{
-    /// <summary>Before the first pass.</summary>
-    internal static ShortcutAvailabilitySnapshot Empty { get; } = new(0, false, [], [], [],
-        new Dictionary<string, ConnectedCard>(), new HashSet<string>());
-
-    /// <summary>The latest status of one shortcut, or null when it is not tracked or not checked yet.</summary>
-    internal ShortcutStatus? Find(uint appId)
-    {
-        return appId == 0 ? null : Shortcuts.FirstOrDefault(status => status.AppId == appId);
-    }
-}
-
 /// <summary>Tracks whether every non-Steam shortcut in Steam's list can start, and where its files live.</summary>
 /// <remarks>
 ///     <para>
