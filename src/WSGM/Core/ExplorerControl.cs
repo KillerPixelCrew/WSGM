@@ -99,6 +99,6 @@ public static class ExplorerControl
         }
 
         NativeMethods.GetWindowThreadProcessId(window, out var processId);
-        return processId != 0 && NativeShellProcess.TryGetSessionId(processId) == WindowFinder.CurrentSessionId;
+        return processId != 0 && NativeShellProcess.TryGetSessionId(processId) == ProcessLookup.CurrentSessionId;
     }
 }

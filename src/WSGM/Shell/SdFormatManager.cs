@@ -189,7 +189,7 @@ public sealed class SdFormatManager(
                 : SteamLibraryFolders.RemoveLibraryByContentIdAsync(client, id, text, token),
             AddLibrary = (path, label, replace) => client is null
                 ? new SteamLibraryAddResult(SteamLibraryAddStatus.NotSent, "No Steam client in this window.")
-                : SteamLibraryFolders.AddLibrary(client, path, label, replace),
+                : client.InstallFolders.AddAsync(path, label, replace).GetAwaiter().GetResult(),
             Retrim = RetrimVolume,
             BroadcastVolumeArrival = NativeStorage.BroadcastVolumeArrival,
             Delay = (milliseconds, token) => Task.Delay(milliseconds, token),
@@ -953,8 +953,8 @@ public sealed class SdFormatManager(
         string contentId;
         try
         {
-            var values = SteamLibraryVdf.ValuesOf(File.ReadAllText(marker), "contentid");
-            if (values.Count == 0 || string.IsNullOrWhiteSpace(values[0]))
+            if (!SteamLibraryMarker.TryRead(Path.GetDirectoryName(marker)!, out var markerId, out _)
+                || string.IsNullOrWhiteSpace(markerId))
             {
                 Warn($"Format: existing marker at {marker} has no content id.");
                 return LibraryRemoval.Refused(
@@ -962,7 +962,7 @@ public sealed class SdFormatManager(
                     + "Formatting was stopped to avoid leaving ghost games in Steam.");
             }
 
-            contentId = values[0];
+            contentId = markerId;
         }
         catch (Exception ex)
         {
@@ -1120,14 +1120,14 @@ public sealed class SdFormatManager(
 
         var roots = letters.Select(_operations.LetterRoot).ToList();
         var candidates = roots
-            .Select(root => Path.Combine(root, SteamLibraryVdf.CardFolderName, "libraryfolder.vdf"))
+            .Select(root => Path.Combine(root, SteamLibraryVdf.CardFolderName, SteamLibraryMarker.MarkerFileName))
             .ToList();
         var (_, configText) = _operations.ReadLibraryFolders();
         if (configText is not null)
         {
             candidates.AddRange(SteamLibraryVdf.ValuesOf(configText, "path")
                 .Where(path => roots.Any(root => path.StartsWith(root, StringComparison.OrdinalIgnoreCase)))
-                .Select(path => Path.Combine(path, "libraryfolder.vdf")));
+                .Select(path => Path.Combine(path, SteamLibraryMarker.MarkerFileName)));
         }
 
         var marker = candidates.Distinct(StringComparer.OrdinalIgnoreCase).FirstOrDefault(File.Exists);
@@ -1482,7 +1482,7 @@ public sealed class SdFormatManager(
     /// <summary>
     ///     Registers the library with Steam. When Steam is RUNNING this
     ///     drives Steam's own front-end API over its CEF debug port
-    ///     (<see cref="SteamLibraryFolders" />): Steam adopts, persists, mounts and scans it with
+    ///     (<see cref="SteamInstallFolders.AddAsync" />): Steam adopts, persists, mounts and scans it with
     ///     no restart, which a file edit cannot do against a live client (Steam holds
     ///     libraries in memory and rewrites the file on exit). When Steam is CLOSED
     ///     (or its debug port is unreachable), the entry is spliced into
@@ -1692,7 +1692,7 @@ public sealed class SdFormatManager(
     {
         var utf8NoBom = new UTF8Encoding(false);
         File.WriteAllText(
-            Path.Combine(libraryPath, "libraryfolder.vdf"),
+            Path.Combine(libraryPath, SteamLibraryMarker.MarkerFileName),
             SteamLibraryVdf.BuildMarker(contentId, steamExe ?? "", label),
             utf8NoBom);
         Info($"Format: library marker written ({libraryPath}, contentid {contentId}).");

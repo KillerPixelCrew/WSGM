@@ -299,8 +299,6 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     private void OnDrivesChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         Volatile.Write(ref _snapshot, BuildSnapshot());
-        // The format targets follow from the storage read that changed the drive list, not a second walk.
-        _formats.Refresh(_drives.Inventory);
     }
 
     private void OnTargetsChanged(object? sender, NotifyCollectionChangedEventArgs e)

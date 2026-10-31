@@ -521,8 +521,8 @@ foreground itself.
 
 ### The detection poll must not throw
 
-The splash poll calls `WindowFinder.FindWindow`, whose `FindProcessIds` reads `Process.SessionId`
-per candidate behind a blanket `catch`. Narrowing that catch to
+The splash poll calls `WindowFinder.FindWindow`, whose `ProcessLookup.FindProcessIds` reads
+`Process.SessionId` per candidate behind a blanket `catch`. Narrowing that catch to
 `InvalidOperationException`/`Win32Exception` let another exception type escape the poll: Big Picture
 was never detected, the splash never faded, and its cover sat over the live window as a black intro
 on every boot (device, two reboots, 2026-08-12). Keep the catch blanket, and do not add an

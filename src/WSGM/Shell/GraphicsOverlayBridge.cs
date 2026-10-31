@@ -5,7 +5,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Settings;
 
 namespace WSGM.Shell;
 
@@ -113,11 +112,7 @@ internal sealed class GraphicsOverlayBridge : IGraphicsOverlaySource
                 .ThenBy(item => item.Index)
                 .Select(item => item.Row)
                 .ToArray();
-            foreach (var section in publisher.Sections
-                         .Select((section, index) => (Section: section, Index: index))
-                         .OrderBy(item => item.Section.SortOrder)
-                         .ThenBy(item => item.Index)
-                         .Select(item => item.Section))
+            foreach (var section in CapabilityRowProjection.ProjectSections(publisher.Sections))
             {
                 var capabilities = rows.Where(row => row.PluginSectionId == section.SectionId).ToArray();
                 if (capabilities.Length == 0)
@@ -125,21 +120,16 @@ internal sealed class GraphicsOverlayBridge : IGraphicsOverlaySource
                     continue;
                 }
 
-                var title = Title(section.Key, section.CustomTitle, section.SectionId);
+                // The publisher's name stands in for a description; WSGM's device wording would misname it.
+                var description = publisher.Sections.First(item => item.SectionId == section.SectionId)
+                    .CustomDescription ?? name;
                 sections.Add(new GraphicsOverlaySection(
                     pluginId + "/" + section.SectionId,
                     pluginId,
-                    several ? $"{title} ({name})" : title,
-                    section.CustomDescription ?? name,
+                    several ? $"{section.Title} ({name})" : section.Title,
+                    description,
                     section.Icon,
-                    [
-                        .. section.Categories
-                            .Select((category, index) => (Category: category, Index: index))
-                            .OrderBy(item => item.Category.SortOrder)
-                            .ThenBy(item => item.Index)
-                            .Select(item => new DeviceOverlayCategory(item.Category.CategoryId,
-                                Title(item.Category.Key, item.Category.CustomTitle, item.Category.CategoryId)))
-                    ],
+                    section.Categories,
                     capabilities));
             }
 
@@ -166,7 +156,7 @@ internal sealed class GraphicsOverlayBridge : IGraphicsOverlaySource
     {
         var view = capability.View;
         var projection = view.Projection;
-        var row = DeviceOverlayBridge.ToOverlayCapability(view, declared);
+        var row = CapabilityRowProjection.ToOverlayCapability(view, declared);
         // A native per-application value is saved for the running game rather than written, and its driver
         // applies it when the game starts, so the row shows the game's value rather than the Global one the
         // driver reports.
@@ -198,11 +188,6 @@ internal sealed class GraphicsOverlayBridge : IGraphicsOverlaySource
             // Global-only values are saved to Global whatever runs, so a game never overrides them.
             OverrideId = projection.ProfileScope is CapabilityProfileScope.GlobalOnly ? null : capability.OverrideId
         };
-    }
-
-    private static string Title(SettingSectionKey key, string? custom, string fallback)
-    {
-        return key is SettingSectionKey.Custom ? custom ?? fallback : key.ToString();
     }
 
     // Raised on the UI dispatcher by the graphics coordinator.

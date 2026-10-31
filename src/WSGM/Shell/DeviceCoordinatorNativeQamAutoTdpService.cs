@@ -66,7 +66,7 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
             return Project(
                 _coordinator.AutoTdpEnabled,
                 _autoTdp?.Status,
-                PowerLimitProjection.Project(_coordinator.Capabilities.Snapshot()).Available,
+                IntegerRangeProjection.PowerLimit(_coordinator.Capabilities.Snapshot()).Available,
                 availability,
                 AutoTdpTargetView.Resolve(_coordinator.Profiles.Current.Layers, availability));
         }

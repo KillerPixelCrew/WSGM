@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
-using System.Text.Json;
 using System.Threading;
 
 namespace WSGM.Core;
@@ -12,12 +11,6 @@ namespace WSGM.Core;
 /// <summary>Creates each reviewed portable layout and preserves data before owned program replacement.</summary>
 internal static class EmulatorPortableSetup
 {
-    private static readonly string[] RetroArchSorting =
-    [
-        "sort_savefiles_enable", "sort_savestates_enable", "sort_savefiles_by_content_enable",
-        "sort_savestates_by_content_enable"
-    ];
-
     internal static void CopyData(string source, string destination, CancellationToken token,
         bool packagePresent = false,
         IReadOnlySet<string>? excludedNames = null, bool packageResources = false, bool overwriteExisting = true,
@@ -76,7 +69,7 @@ internal static class EmulatorPortableSetup
                                 "The portable user data contains a recursive directory link: " + entry);
                         }
 
-                        if (StoragePaths.IsUnder(entry, destination) && !Same(entry, target))
+                        if (StoragePaths.IsUnder(entry, destination) && !EmulatorPortable.Same(entry, target))
                         {
                             continue;
                         }
@@ -90,7 +83,7 @@ internal static class EmulatorPortableSetup
                                 new HashSet<string>(ancestors, StringComparer.OrdinalIgnoreCase), false);
                             Directory.Delete(target); // Unlink only; the original user directory remains intact.
                             Directory.Move(temporary, target);
-                            if (Same(entry, target))
+                            if (EmulatorPortable.Same(entry, target))
                             {
                                 continue;
                             }
@@ -120,7 +113,7 @@ internal static class EmulatorPortableSetup
                         File.Copy(retained, target + ".before-portable-" + Guid.NewGuid().ToString("N"), false);
                         File.Delete(target); // Remove the file alias, not the file it named.
                     }
-                    else if (Same(entry, target))
+                    else if (EmulatorPortable.Same(entry, target))
                     {
                         continue;
                     }
@@ -173,10 +166,10 @@ internal static class EmulatorPortableSetup
 
         // Resolve removable ROM media before touching the old configuration or its portable aliases.
         var romPaths = installed.DefinitionId == "retroarch"
-            ? ReadRetroArchRomPaths(previous ?? installed, knownRomPaths, token)
+            ? RetroArchPortableData.ReadRomPaths(previous ?? installed, knownRomPaths, token)
             : [];
         var gbaSaves = installed.DefinitionId == "dolphin"
-            ? DolphinGbaSaves(previous ?? installed).ToArray()
+            ? DolphinPortableData.ReadGbaSaves(previous ?? installed).ToArray()
             : [];
 
         if (previous is not null)
@@ -200,10 +193,13 @@ internal static class EmulatorPortableSetup
                 AtomicFile.WriteText(Path.Combine(program, "portable.txt"), "", true);
                 installed = installed with { DataPath = program };
                 break;
-            case "eden": Link(program, "user", retainedData, token, staged, createAlias); break;
-            case "rpcs3": Link(program, "portable", retainedData, token, staged, createAlias); break;
+            case "eden" or "rpcs3":
+                Link(program, EmulatorPortableProfiles.Alias(installed.DefinitionId), retainedData, token, staged,
+                    createAlias);
+                break;
             case "dolphin":
-                Link(program, "User", retainedData, token, staged, createAlias);
+                Link(program, EmulatorPortableProfiles.Alias(installed.DefinitionId), retainedData, token, staged,
+                    createAlias);
                 AtomicFile.WriteText(Path.Combine(program, "portable.txt"), "", true);
                 break;
             case "pcsx2": Pcsx2Data.Prepare(installed, staged: staged); break;
@@ -232,7 +228,7 @@ internal static class EmulatorPortableSetup
 
         if (installed.DefinitionId == "retroarch")
         {
-            PrepareRetroArchConfigs(installed, previous, token, romPaths);
+            RetroArchPortableData.PrepareConfigs(installed, previous, token, romPaths);
         }
 
         foreach (var (file, section, key, folder) in EmulatorPortable.DataFolders(installed.DefinitionId))
@@ -279,7 +275,7 @@ internal static class EmulatorPortableSetup
                            ?? installed.DataPath;
                 foreach (var (key, source, folder) in redirected)
                 {
-                    var required = folder.Length == 0 || !Same(source, Path.Combine(root, folder));
+                    var required = folder.Length == 0 || !EmulatorPortable.Same(source, Path.Combine(root, folder));
                     if (required)
                     {
                         RequireDataSource(source);
@@ -304,7 +300,7 @@ internal static class EmulatorPortableSetup
 
         if (installed.DefinitionId == "dolphin")
         {
-            PreserveDolphinGbaSaves(installed, gbaSaves, token);
+            DolphinPortableData.PreserveGbaSaves(installed, gbaSaves, token);
         }
 
         return installed;
@@ -322,13 +318,10 @@ internal static class EmulatorPortableSetup
         {
             previous ?? installed, installed with { DataPath = retainedData }
         };
-        var alias = installed.DefinitionId switch
-        {
-            "duckstation" => "", "eden" => "user", "rpcs3" => "portable", "dolphin" => "User",
-            _ when EmulatorPortableProfiles.Supports(installed.DefinitionId) =>
-                EmulatorPortableProfiles.Alias(installed.DefinitionId),
-            _ => null
-        };
+        var alias = installed.DefinitionId is "duckstation" or "eden" or "rpcs3" or "dolphin" ||
+                    EmulatorPortableProfiles.Supports(installed.DefinitionId)
+            ? EmulatorPortableProfiles.Alias(installed.DefinitionId)
+            : null;
         if (alias is not null)
         {
             var native = Path.Combine(Path.GetDirectoryName(installed.ExecutablePath)!, alias);
@@ -358,7 +351,7 @@ internal static class EmulatorPortableSetup
                 var root = paths.FirstOrDefault(path => path.Key == "$(EmulatorDir)").Path ?? source.DataPath;
                 foreach (var (_, path, folder) in paths)
                 {
-                    if (folder.Length == 0 || !Same(path, Path.Combine(root, folder)))
+                    if (folder.Length == 0 || !EmulatorPortable.Same(path, Path.Combine(root, folder)))
                     {
                         RequireRedirect(path);
                     }
@@ -437,477 +430,9 @@ internal static class EmulatorPortableSetup
         }
     }
 
-    private static IReadOnlyCollection<string> ReadRetroArchRomPaths(EmulatorInstallation previous,
-        Func<IReadOnlyList<string>>? knownRomPaths, CancellationToken token)
-    {
-        var main = Path.Combine(previous.DataPath, "retroarch.cfg");
-        if (!File.Exists(main))
-        {
-            return [];
-        }
-
-        var configs = new List<string> { main };
-        var overrideSetting = IniFile.ReadValue(main, "rgui_config_directory")?.Trim('"');
-        var overrides = string.IsNullOrWhiteSpace(overrideSetting) || overrideSetting == "default"
-            ? Path.Combine(previous.DataPath, "config")
-            : Path.GetFullPath(Path.Combine(previous.DataPath, overrideSetting));
-        if (Directory.Exists(overrides))
-        {
-            configs.AddRange(EmulatorPortable.ConfigFiles(overrides));
-        }
-
-        if (!configs.Any(config => EmulatorPortable.RetroArchFlags.Any(key =>
-                EmulatorPortable.IsTrue(IniFile.ReadValue(config, key)))))
-        {
-            return [];
-        }
-
-        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var program = Path.GetDirectoryName(previous.ExecutablePath)!;
-        foreach (var path in knownRomPaths?.Invoke() ?? [])
-        {
-            AddRom(path);
-        }
-
-        var playlists = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var config in configs)
-        {
-            foreach (var key in EmulatorPortable.RetroArchDataPaths.Where(key =>
-                         key.StartsWith("content_", StringComparison.Ordinal)))
-            {
-                var value = IniFile.ReadValue(config, key)?.Trim('"');
-                if (!string.IsNullOrWhiteSpace(value) && value != "default")
-                {
-                    playlists.Add(Path.GetFullPath(Path.Combine(previous.DataPath, value)));
-                }
-                else if (Same(config, main))
-                {
-                    playlists.Add(Path.Combine(previous.DataPath, key[..^5] + ".lpl"));
-                }
-            }
-
-            var setting = IniFile.ReadValue(config, "playlist_directory")?.Trim('"');
-            var directory = string.IsNullOrWhiteSpace(setting) || setting == "default"
-                ? Same(config, main) ? Path.Combine(previous.DataPath, "playlists") : null
-                : Path.GetFullPath(Path.Combine(previous.DataPath, setting));
-            if (directory is not null && Directory.Exists(directory))
-            {
-                foreach (var file in EmulatorPortable.ConfigFiles(directory, "*.lpl"))
-                {
-                    playlists.Add(file);
-                }
-            }
-        }
-
-        foreach (var file in playlists.Where(File.Exists))
-        {
-            token.ThrowIfCancellationRequested();
-            var text = File.ReadAllText(file);
-            if (!text.TrimStart().StartsWith('{'))
-            {
-                // RetroArch also accepts its original six-line playlist format.
-                var lines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
-                for (var index = 0; index + 5 < lines.Length; index += 6)
-                {
-                    AddRom(lines[index]);
-                }
-
-                continue;
-            }
-
-            using var document = JsonDocument.Parse(text);
-            if (document.RootElement.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var item in items.EnumerateArray())
-                {
-                    if (item.TryGetProperty("path", out var path) && path.ValueKind == JsonValueKind.String &&
-                        path.GetString() is { Length: > 0 } rom)
-                    {
-                        AddRom(rom);
-                    }
-                }
-            }
-        }
-
-        foreach (var rom in paths)
-        {
-            token.ThrowIfCancellationRequested();
-            var archive = rom.IndexOf('#');
-            RequireRomMedia(archive < 0 ? rom : rom[..archive]);
-        }
-
-        var mainFlags = RetroArchFlags(main, null);
-        foreach (var config in configs)
-        {
-            foreach (var rom in paths)
-            {
-                var flags = Same(config, main) ? mainFlags : RetroArchFlags(config, mainFlags, rom);
-                foreach (var key in new[] { "savefile_directory", "savestate_directory" })
-                {
-                    var saves = key == "savefile_directory";
-                    if (!flags[saves ? "savefiles_in_content_dir" : "savestates_in_content_dir"]
-                        || !flags[saves ? "sort_savefiles_enable" : "sort_savestates_enable"])
-                    {
-                        continue;
-                    }
-
-                    var (parent, stem) = RetroArchContentName(rom);
-
-                    bool Matches(string file)
-                    {
-                        return RetroArchSidecarKey(previous, Path.GetFileName(file)[stem.Length..]) == key;
-                    }
-
-                    if (!Directory.EnumerateFiles(parent, stem + ".*").Any(Matches))
-                    {
-                        continue;
-                    }
-
-                    var sorted = RetroArchSidecarDirectories(parent, flags, saves)
-                        .Where(directory => directory.Relative.Length > 0);
-                    if (!sorted.Any(directory => Directory.EnumerateFiles(directory.Source, stem + ".*").Any(Matches)))
-                    {
-                        throw new InvalidDataException("RetroArch cannot safely bind the flat "
-                                                       + (saves ? "save" : "savestate") + " for " + rom
-                                                       + " while core sorting is enabled. Restore its native core save folder before converting; the original configuration is preserved.");
-                    }
-                }
-            }
-        }
-
-        return paths;
-
-        void AddRom(string rom)
-        {
-            if (string.IsNullOrWhiteSpace(rom) || rom.Contains("://", StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            var archive = rom.IndexOf('#');
-            paths.Add(Path.GetFullPath(Path.Combine(program, archive < 0 ? rom : rom[..archive]))
-                      + (archive < 0 ? "" : rom[archive..]));
-        }
-    }
-
-    private static void PrepareRetroArchConfigs(EmulatorInstallation installed, EmulatorInstallation? previous,
-        CancellationToken token, IReadOnlyCollection<string> knownRomPaths)
-    {
-        var main = Path.Combine(installed.DataPath, "retroarch.cfg");
-        var mainFlags = RetroArchFlags(main, null);
-        var originalValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        // Import the original override directory before looking for per-core and per-game files.
-        Rewrite(main, installed.DataPath, mainFlags);
-        var configured = IniFile.ReadValue(main, "rgui_config_directory")?.Trim('"');
-        var directory = string.IsNullOrWhiteSpace(configured)
-            ? Path.Combine(installed.DataPath, "config")
-            : Path.GetFullPath(Path.Combine(installed.DataPath, configured));
-        if (!Directory.Exists(directory))
-        {
-            return;
-        }
-
-        var configs = EmulatorPortable.ConfigFiles(directory).ToArray();
-        foreach (var config in configs)
-        {
-            originalValues[config] = File.ReadAllText(config);
-        }
-
-        var originalFlags = configs.ToDictionary(config => config,
-            config => RetroArchFlags(config, mainFlags, originalValues: originalValues),
-            StringComparer.OrdinalIgnoreCase);
-        foreach (var config in configs)
-        {
-            foreach (var rom in knownRomPaths)
-            {
-                var inherited = RetroArchFlags(config, mainFlags, rom, originalValues);
-                foreach (var key in EmulatorPortable.RetroArchFlags)
-                {
-                    originalFlags[config][key] |= inherited[key];
-                }
-            }
-        }
-
-        foreach (var config in configs)
-        {
-            var relative = Path.ChangeExtension(Path.GetRelativePath(directory, config), null);
-            Rewrite(config, Path.Combine(installed.DataPath, "override-data", relative), originalFlags[config]);
-        }
-
-        void Rewrite(string config, string overrideData, IReadOnlyDictionary<string, bool>? original = null)
-        {
-            var mainConfig = Same(config, main);
-            var flags = original ?? RetroArchFlags(config, mainFlags);
-            var destinations = new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (var key in EmulatorPortable.RetroArchDataPaths)
-            {
-                var value = IniFile.ReadValue(config, key)?.Trim('"');
-                if (string.IsNullOrWhiteSpace(value) ||
-                    !installed.DataPolicy.ConfigPaths.TryGetValue(key, out var template))
-                {
-                    continue;
-                }
-
-                if (value != "default" && !mainConfig && EmulatorPortable.IsUnder(installed.DataPath,
-                        Path.GetFullPath(Path.Combine(installed.DataPath, value))))
-                {
-                    destinations[key] = Path.GetFullPath(Path.Combine(installed.DataPath, value));
-                    continue;
-                }
-
-                var source = value == "default"
-                    ? null
-                    : Path.GetFullPath(Path.Combine(previous?.DataPath ?? installed.DataPath, value));
-                var destination = template.Replace("{data}", overrideData, StringComparison.Ordinal);
-                if (!mainConfig && source is not null && previous is not null &&
-                    EmulatorPortable.IsUnder(previous.DataPath, source))
-                {
-                    destination = Path.Combine(installed.DataPath, Path.GetRelativePath(previous.DataPath, source));
-                }
-
-                destinations[key] = destination;
-                if (source is not null)
-                {
-                    CopyPath(source, destination, token,
-                        !EmulatorPortable.IsUnder(previous?.DataPath ?? installed.DataPath, source));
-                }
-            }
-
-            foreach (var (key, flag) in new[]
-                     {
-                         ("savefile_directory", "savefiles_in_content_dir"),
-                         ("savestate_directory", "savestates_in_content_dir"),
-                         ("screenshot_directory", "screenshots_in_content_dir"),
-                         ("system_directory", "systemfiles_in_content_dir")
-                     })
-            {
-                if ((mainConfig || flags[flag])
-                    && !destinations.ContainsKey(key) &&
-                    installed.DataPolicy.ConfigPaths.TryGetValue(key, out var template))
-                {
-                    destinations[key] = template.Replace("{data}", overrideData, StringComparison.Ordinal);
-                }
-            }
-
-            PreserveRetroArchSidecars(installed, previous, flags, destinations, knownRomPaths, token,
-                mainConfig ? null : rom => RetroArchFlags(config, mainFlags, rom, originalValues));
-            foreach (var (key, destination) in destinations)
-            {
-                IniFile.SetValue(config, key, '"' + destination.Replace('\\', '/') + '"');
-            }
-
-            foreach (var key in EmulatorPortable.RetroArchFlags)
-            {
-                if (flags[key])
-                {
-                    IniFile.SetValue(config, key, "false");
-                }
-            }
-        }
-    }
-
-    private static Dictionary<string, bool> RetroArchFlags(string config, IReadOnlyDictionary<string, bool>? inherited,
-        string? rom = null, IReadOnlyDictionary<string, string>? originalValues = null)
-    {
-        if (inherited is not null)
-        {
-            var directory = Path.GetDirectoryName(config)!;
-            var core = Path.Combine(directory, Path.GetFileName(directory) + ".cfg");
-            if (!Same(core, config) && File.Exists(core))
-            {
-                inherited = RetroArchFlags(core, inherited, originalValues: originalValues);
-            }
-
-            if (rom is not null)
-            {
-                var (parent, stem) = RetroArchContentName(rom);
-                var content = Path.Combine(directory, Path.GetFileName(parent) + ".cfg");
-                if (Path.GetFileNameWithoutExtension(config).Equals(stem, StringComparison.OrdinalIgnoreCase)
-                    && !Same(content, config) && !Same(content, core) && File.Exists(content))
-                {
-                    inherited = RetroArchFlags(content, inherited, originalValues: originalValues);
-                }
-            }
-        }
-
-        var text = originalValues?.GetValueOrDefault(config);
-        return EmulatorPortable.RetroArchFlags.Concat(RetroArchSorting).ToDictionary(key => key, key =>
-                (text is null ? IniFile.ReadValue(config, key) : IniFile.ReadTextValue(text, key)) is { } value
-                    ? EmulatorPortable.IsTrue(value)
-                    : inherited?.GetValueOrDefault(key) ?? key is "sort_savefiles_enable" or "sort_savestates_enable",
-            StringComparer.Ordinal);
-    }
-
-    private static (string Parent, string Stem) RetroArchContentName(string rom)
-    {
-        var archive = rom.IndexOf('#');
-        var parent = Path.GetDirectoryName(Path.GetFullPath(archive < 0 ? rom : rom[..archive]));
-        var stem = Path.GetFileNameWithoutExtension(archive < 0 ? rom : rom[(archive + 1)..]);
-        return (parent ?? throw new InvalidDataException("The ROM has no parent directory: " + rom), stem);
-    }
-
-    private static IEnumerable<(string Source, string Relative)> RetroArchSidecarDirectories(string parent,
-        IReadOnlyDictionary<string, bool> flags, bool saves)
-    {
-        // runloop_path_set_redirect appends the content-folder name first, then the runtime library_name.
-        // Keep actual native folder names: catalogue/history display names need not match library_name.
-        var prefix = flags[saves ? "sort_savefiles_by_content_enable" : "sort_savestates_by_content_enable"]
-            ? Path.GetFileName(Path.TrimEndingDirectorySeparator(parent))
-            : "";
-        var intermediate = Path.Combine(parent, prefix);
-        if (Directory.Exists(intermediate))
-        {
-            if (flags[saves ? "sort_savefiles_enable" : "sort_savestates_enable"])
-            {
-                foreach (var directory in Directory.EnumerateDirectories(intermediate))
-                {
-                    yield return (directory, Path.Combine(prefix, Path.GetFileName(directory)));
-                }
-            }
-            else if (prefix.Length > 0)
-            {
-                yield return (intermediate, prefix);
-            }
-        }
-
-        // Retain the native mkdir-failure fallback too. Ambiguous core-sorted fallbacks fail in preflight.
-        yield return (parent, flags[saves ? "sort_savefiles_enable" : "sort_savestates_enable"] ? "" : prefix);
-    }
-
-    private static string? RetroArchSidecarKey(EmulatorInstallation installed, string suffix)
-    {
-        suffix = suffix.ToLowerInvariant();
-        if (suffix is ".srm" or ".rtc" || (suffix == ".brm" && installed.Cores.Any(core =>
-                core.Id.Contains("clownmdemu", StringComparison.OrdinalIgnoreCase))))
-        {
-            return "savefile_directory";
-        }
-
-        if (suffix is ".state" or ".state.auto" || (suffix.StartsWith(".state", StringComparison.Ordinal)
-                                                    && suffix.Length > 6 && suffix[6..].All(char.IsAsciiDigit)))
-        {
-            return "savestate_directory";
-        }
-
-        return suffix == ".png" ? "screenshot_directory" : null;
-    }
-
-    private static void PreserveRetroArchSidecars(EmulatorInstallation installed, EmulatorInstallation? previous,
-        IReadOnlyDictionary<string, bool> flags, IReadOnlyDictionary<string, string> destinations,
-        IReadOnlyCollection<string> paths, CancellationToken token,
-        Func<string, IReadOnlyDictionary<string, bool>>? romFlags = null)
-    {
-        var saves = flags["savefiles_in_content_dir"];
-        var states = flags["savestates_in_content_dir"];
-        var images = flags["screenshots_in_content_dir"];
-        var system = flags["systemfiles_in_content_dir"];
-        if (!saves && !states && !images && !system)
-        {
-            return;
-        }
-
-        foreach (var rom in paths)
-        {
-            token.ThrowIfCancellationRequested();
-            var archive = rom.IndexOf('#');
-            var (parent, stem) = RetroArchContentName(rom);
-            RequireRomMedia(archive < 0 ? rom : rom[..archive]);
-            if (system && destinations.TryGetValue("system_directory", out var systemDirectory))
-            {
-                foreach (var required in installed.Cores.Concat(previous?.Cores ?? [])
-                             .SelectMany(core => core.RequiredFiles).Distinct(StringComparer.OrdinalIgnoreCase))
-                {
-                    var relative = required;
-                    if (Path.IsPathRooted(relative))
-                    {
-                        var roots = new[]
-                        {
-                            Path.Combine(installed.DataPath, "system"),
-                            Path.Combine(previous?.DataPath ?? installed.DataPath, "system")
-                        };
-                        var root = roots.FirstOrDefault(path => StoragePaths.IsUnder(path, required));
-                        if (root is null)
-                        {
-                            continue;
-                        }
-
-                        relative = Path.GetRelativePath(root, required);
-                    }
-
-                    var source = Path.GetFullPath(Path.Combine(parent, relative));
-                    if (!EmulatorPortable.IsUnder(parent, source))
-                    {
-                        continue;
-                    }
-
-                    if (Directory.Exists(source) && EmulatorPortable.ConfigFiles(source, "*")
-                            .Any(file => !EmulatorPortable.IsUnder(parent, file)))
-                    {
-                        throw new InvalidDataException(
-                            "The declared ROM firmware contains a link outside its content directory: " + source);
-                    }
-
-                    CopyPath(source, Path.Combine(systemDirectory, relative), token);
-                }
-            }
-
-            foreach (var key in new[] { "savefile_directory", "savestate_directory", "screenshot_directory" })
-            {
-                if ((key == "savefile_directory" && !saves) || (key == "savestate_directory" && !states)
-                                                            || (key == "screenshot_directory" && !images) ||
-                                                            !destinations.TryGetValue(key, out var destination))
-                {
-                    continue;
-                }
-
-                var directories = key == "screenshot_directory"
-                    ? new[] { (Source: parent, Relative: "") }
-                    : RetroArchSidecarDirectories(parent, romFlags?.Invoke(rom) ?? flags, key == "savefile_directory");
-                foreach (var (source, relative) in directories)
-                {
-                    foreach (var file in Directory.EnumerateFiles(source, stem + ".*", SearchOption.TopDirectoryOnly))
-                    {
-                        if (RetroArchSidecarKey(installed, Path.GetFileName(file)[stem.Length..]) != key)
-                        {
-                            continue;
-                        }
-
-                        var target = Path.Combine(destination, relative, Path.GetFileName(file));
-                        CopyPath(file, target, token);
-                        if (key == "savestate_directory" && File.Exists(file + ".png"))
-                        {
-                            CopyPath(file + ".png", target + ".png", token);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private static IEnumerable<string> DolphinGbaSaves(EmulatorInstallation installed)
-    {
-        var config = Path.Combine(installed.DataPath, "Config", "Dolphin.ini");
-        if (!EmulatorPortable.IsTrue(IniFile.ReadValue(config, "SavesInRomPath", "GBA")))
-        {
-            yield break;
-        }
-
-        var program = Path.GetDirectoryName(installed.ExecutablePath)!;
-        for (var slot = 1; slot <= 5; slot++)
-        {
-            var rom = IniFile.ReadValue(config, slot == 5 ? "GBPlayerRom" : "Rom" + slot, "GBA")?.Trim('"');
-            if (string.IsNullOrWhiteSpace(rom))
-            {
-                continue;
-            }
-
-            rom = Path.GetFullPath(Path.Combine(program, rom));
-            RequireRomMedia(rom);
-            yield return Path.ChangeExtension(rom, null) + "-" + slot + ".sav";
-        }
-    }
-
-    private static void RequireRomMedia(string rom)
+    /// <summary>Refuses a conversion while the media holding a referenced ROM is disconnected.</summary>
+    /// <param name="rom">ROM file or folder path.</param>
+    internal static void RequireRomMedia(string rom)
     {
         if (!File.Exists(rom) && !Directory.Exists(rom))
         {
@@ -916,42 +441,19 @@ internal static class EmulatorPortableSetup
         }
     }
 
-    private static void PreserveDolphinGbaSaves(EmulatorInstallation installed, IReadOnlyList<string> saves,
-        CancellationToken token)
-    {
-        var config = Path.Combine(installed.DataPath, "Config", "Dolphin.ini");
-        if (!EmulatorPortable.IsTrue(IniFile.ReadValue(config, "SavesInRomPath", "GBA")))
-        {
-            return;
-        }
-
-        var setting = IniFile.ReadValue(config, "SavesPath", "GBA")?.Trim('"');
-        var destination = string.IsNullOrWhiteSpace(setting)
-            ? Path.Combine(installed.DataPath, "GBA", "Saves")
-            : EmulatorPortable.ResolveSettingPath(installed, "GBA", "SavesPath", setting);
-        if (!EmulatorPortable.IsUnder(installed.DataPath, destination))
-        {
-            throw new InvalidDataException(
-                "Dolphin GBA saves must be preserved inside owned portable data before rebinding.");
-        }
-
-        foreach (var save in saves)
-        {
-            CopyPath(save, Path.Combine(destination, Path.GetFileName(save)), token);
-        }
-
-        IniFile.SetValue(config, "SavesPath", destination.Replace('\\', '/'), "GBA");
-        IniFile.SetValue(config, "SavesInRomPath", "False", "GBA");
-    }
-
-    private static void CopyPath(string source, string destination, CancellationToken token, bool required = false)
+    /// <summary>Copies one file or folder into portable data, backing up a file it replaces.</summary>
+    /// <param name="source">File or folder to copy.</param>
+    /// <param name="destination">Destination path.</param>
+    /// <param name="token">Cancels the copy.</param>
+    /// <param name="required">Whether a missing source is a failure.</param>
+    internal static void CopyPath(string source, string destination, CancellationToken token, bool required = false)
     {
         if (required)
         {
             RequireDataSource(source);
         }
 
-        if (Same(source, destination))
+        if (EmulatorPortable.Same(source, destination))
         {
             return;
         }
@@ -984,7 +486,7 @@ internal static class EmulatorPortableSetup
         var link = Path.Combine(program, name);
         var directory = new DirectoryInfo(link);
         if (directory.LinkTarget is not null && directory.Exists
-                                             && Same(directory.ResolveLinkTarget(true)!.FullName, data))
+                                             && EmulatorPortable.Same(directory.ResolveLinkTarget(true)!.FullName, data))
         {
             return;
         }
@@ -1053,7 +555,7 @@ internal static class EmulatorPortableSetup
     internal static void DeleteProgram(string path, string root)
     {
         var full = Path.GetFullPath(path);
-        if (!StoragePaths.IsUnder(root, full) || Same(full, root))
+        if (!StoragePaths.IsUnder(root, full) || EmulatorPortable.Same(full, root))
         {
             throw new IOException("The portable cleanup target is outside its owned program root.");
         }
@@ -1104,11 +606,7 @@ internal static class EmulatorPortableSetup
         // DuckStation writes beside its executable, including atomically replaced settings.ini.
         var destination = Path.Combine(retainedData, ".portable-snapshots", Path.GetFileName(version));
         var aliases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var name = installed.DefinitionId switch
-        {
-            "eden" => "user", "rpcs3" => "portable", "dolphin" => "User",
-            _ => EmulatorPortableProfiles.Alias(installed.DefinitionId)
-        };
+        var name = EmulatorPortableProfiles.Alias(installed.DefinitionId);
         var pending = new Stack<string>();
         pending.Push(version);
         while (pending.Count > 0)
@@ -1123,7 +621,7 @@ internal static class EmulatorPortableSetup
                 else if (name.Length > 0 && info.Name.Equals(name, StringComparison.OrdinalIgnoreCase)
                                          && File.Exists(Path.Combine(info.Parent!.FullName,
                                              Path.GetFileName(installed.ExecutablePath)))
-                                         && Same(EmulatorPortable.PhysicalPath(directory),
+                                         && EmulatorPortable.Same(EmulatorPortable.PhysicalPath(directory),
                                              EmulatorPortable.PhysicalPath(retainedData)))
                 {
                     aliases.Add(Path.GetFullPath(directory));
@@ -1132,11 +630,5 @@ internal static class EmulatorPortableSetup
         }
 
         CopyData(version, destination, token, excludedLinks: aliases);
-    }
-
-    private static bool Same(string left, string right)
-    {
-        return Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar)
-            .Equals(Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase);
     }
 }

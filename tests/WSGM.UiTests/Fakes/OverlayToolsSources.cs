@@ -38,11 +38,6 @@ internal sealed class EmulatorOverlaySource : IEmulatorBackend
 
     public event Action? Changed;
 
-    public EmulatorSnapshot ReadState()
-    {
-        return State;
-    }
-
     public EmulatorProgressState ReadProgressState()
     {
         return new EmulatorProgressState(State.Busy, State.Status);
@@ -342,7 +337,7 @@ internal static class OverlayToolFixtures
     }
 }
 
-internal sealed class FakeThemesSource : IThemeBrowseSession
+internal sealed class FakeThemesSource : IThemeBrowseSession, ISteamThemesBackend
 {
     internal readonly List<string> Commands = [];
     internal SteamThemesState State = OverlayToolFixtures.Themes;
@@ -491,7 +486,7 @@ internal sealed class FakeThemesSource : IThemeBrowseSession
     }
 }
 
-internal sealed class FakeMoviesSource : IAnimationBrowseSession
+internal sealed class FakeMoviesSource : IAnimationBrowseSession, ISteamAnimationsBackend
 {
     internal readonly List<string> Commands = [];
     internal SteamAnimationsState State = OverlayToolFixtures.Movies;
@@ -625,9 +620,9 @@ internal sealed class FakeArtworkSource : IArtworkBrowseSession
         return Command("OpenAsync");
     }
 
-    public Task<OverlayLibraryResult> ReadGamesAsync()
+    public Task<SteamLibraryReadResult> ReadGamesAsync()
     {
-        return Task.FromResult(new OverlayLibraryResult([new SteamLibraryApp(42, "Example game")], null));
+        return Task.FromResult(new SteamLibraryReadResult([new SteamLibraryApp(42, "Example game")], null));
     }
 
     public Task<SteamLogoPosition?> ReadLogoPositionAsync()

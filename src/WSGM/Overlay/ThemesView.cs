@@ -12,6 +12,7 @@ public sealed partial class ThemesView : ServiceSubView
 {
     private IThemeBrowseSession? _browser;
     private bool _detailOpened;
+    private ISteamThemesBackend? _owner;
 
     /// <inheritdoc />
     protected override string LogScope => "Themes";
@@ -20,15 +21,17 @@ public sealed partial class ThemesView : ServiceSubView
     /// <param name="service">The themes, or null when the overlay closes or the session has none.</param>
     internal void Attach(ThemeService? service)
     {
-        AttachSession(service?.CreateBrowserSession());
+        AttachSession(service?.CreateBrowserSession("installed"), service);
     }
 
     /// <summary>Replaces and disposes the previous surface-local browser, then follows the new session on the UI thread.</summary>
     /// <param name="session">Owned browser session; null detaches. Do not pass the currently attached instance again.</param>
-    internal void AttachSession(IThemeBrowseSession? session)
+    /// <param name="owner">The shared owner the theme commands go to; null with a null session.</param>
+    internal void AttachSession(IThemeBrowseSession? session, ISteamThemesBackend? owner)
     {
         _browser?.Dispose();
         _browser = session;
+        _owner = owner;
         AttachSource(session);
     }
 
@@ -78,12 +81,12 @@ public sealed partial class ThemesView : ServiceSubView
         AddStatus(stack, state);
 
         stack.Children.Add(Tagged(Row("Refresh", "Read the themes folder again and check for updates", Icons.Restart,
-            state.Busy ? null : () => Run(_browser!.RefreshAsync, "refresh")), "refresh"));
+            state.Busy ? null : () => Run(_owner!.RefreshAsync, "refresh")), "refresh"));
         if (state.Updates > 0)
         {
             stack.Children.Add(Tagged(PrimaryRow($"Update all ({state.Updates})",
                 "Install every newer version the store has", Icons.ArrowDown,
-                () => Run(_browser!.UpdateAllAsync, "update all")), "update-all"));
+                () => Run(_owner!.UpdateAllAsync, "update all")), "update-all"));
         }
 
         stack.Children.Add(SectionLabel("INSTALLED"));
@@ -124,7 +127,7 @@ public sealed partial class ThemesView : ServiceSubView
         AddStatus(stack, state);
         stack.Children.Add(Tagged(Row(theme.Enabled ? "On" : "Off",
             theme.Enabled ? "Press to turn the theme off" : "Press to turn the theme on", Icons.Palette,
-            () => Run(token => _browser!.SetEnabledAsync(name, !theme.Enabled, token), "switch")), "enabled"));
+            () => Run(token => _owner!.SetEnabledAsync(name, !theme.Enabled, token), "switch")), "enabled"));
 
         if (theme.Patches.Count > 0)
         {
@@ -138,7 +141,7 @@ public sealed partial class ThemesView : ServiceSubView
             {
                 case "checkbox":
                     stack.Children.Add(Tagged(Row(patch.Name, patch.Value == "Yes" ? "Yes" : "No", null,
-                        () => Run(token => _browser!.SetPatchAsync(name, patchName, patch.Value == "Yes" ? "No" : "Yes",
+                        () => Run(token => _owner!.SetPatchAsync(name, patchName, patch.Value == "Yes" ? "No" : "Yes",
                             token), "patch")), "patch:" + patchName));
                     break;
                 case "slider":
@@ -150,7 +153,7 @@ public sealed partial class ThemesView : ServiceSubView
                 default:
                     stack.Children.Add(ChoiceRow(patch.Name,
                         [.. patch.Options.Select(option => (option, option))], patch.Value,
-                        option => Run(token => _browser!.SetPatchAsync(name, patchName, option, token), "patch")));
+                        option => Run(token => _owner!.SetPatchAsync(name, patchName, option, token), "patch")));
                     break;
             }
 
@@ -166,17 +169,17 @@ public sealed partial class ThemesView : ServiceSubView
         {
             stack.Children.Add(Tagged(PrimaryRow($"Update to {theme.LatestVersion}",
                 "Install the store's newer version", Icons.ArrowDown,
-                state.Busy ? null : () => Run(token => _browser!.UpdateAsync(name, token), "update")), "update"));
+                state.Busy ? null : () => Run(token => _owner!.UpdateAsync(name, token), "update")), "update"));
         }
 
         stack.Children.Add(Tagged(Row(theme.Hidden ? "Show in Quick Access" : "Hide from Quick Access",
             theme.Hidden ? "Lists the theme in Steam's Quick Access again" : "Keeps the theme off Steam's Quick Access",
-            Icons.Panel, () => Run(token => _browser!.SetHiddenAsync(name, !theme.Hidden, token), "hide")), "hide"));
+            Icons.Panel, () => Run(token => _owner!.SetHiddenAsync(name, !theme.Hidden, token), "hide")), "hide"));
         stack.Children.Add(Tagged(DangerRow("Delete", "Turns the theme off and removes its folder", Icons.Close,
             () =>
             {
                 ConfirmCommand("Delete theme", $"Delete {theme.DisplayName}? This turns it off and removes its folder.",
-                    token => _browser!.DeleteAsync(name, token));
+                    token => _owner!.DeleteAsync(name, token));
             }), "delete"));
         SetContent(stack);
     }
@@ -257,7 +260,7 @@ public sealed partial class ThemesView : ServiceSubView
         };
         stack.Children.Add(Tagged(PrimaryRow(label, "Download into the themes folder; turn it on under Installed",
                 Icons.ArrowDown,
-                state.Busy ? null : () => Run(token => _browser!.InstallAsync(id, token), "install")),
+                state.Busy ? null : () => Run(token => _owner!.InstallAsync(id, token), "install")),
             "install"));
 
         SetContent(stack);

@@ -30,7 +30,7 @@ public sealed class DeviceOverlayBridgeTests
             Quality = HardwareStateQuality.Unknown
         };
         var capability = new DeviceCapabilityView(descriptor, new CapabilityProjection { State = state }, null);
-        var row = DeviceOverlayBridge.ToOverlayCapability(capability, new HashSet<string>());
+        var row = CapabilityRowProjection.ToOverlayCapability(capability, new HashSet<string>());
         Assert.True(row.CanInvoke);
         Assert.Equal(instance, row.InstanceId);
         Assert.Equal(descriptor.CurveInputs, row.CurrentValue!.CurveValue.Select(point => point.Input));
@@ -43,7 +43,7 @@ public sealed class DeviceOverlayBridgeTests
         Assert.Equal(descriptor.CurveInputs, steamRow.Curve!.Select(point => point.Input));
 
         var observed = CapabilityValue.Curve([new CurvePoint(40, 30), new CurvePoint(80, 90)]);
-        var known = DeviceOverlayBridge.ToOverlayCapability(capability with
+        var known = CapabilityRowProjection.ToOverlayCapability(capability with
         {
             Projection = capability.Projection with { State = state with { ObservedValue = observed } }
         }, new HashSet<string>());
@@ -86,7 +86,7 @@ public sealed class DeviceOverlayBridgeTests
             Quality = HardwareStateQuality.Observed,
             ObservedValue = CapabilityValue.Curve([new CurvePoint(40, 20), new CurvePoint(90, 100)])
         };
-        var view = DeviceOverlayBridge.ToOverlayCapability(
+        var view = CapabilityRowProjection.ToOverlayCapability(
             new DeviceCapabilityView(descriptor, new CapabilityProjection { State = state }, null),
             new HashSet<string>());
         Assert.Equal(available, view.CanInvoke);
@@ -131,7 +131,7 @@ public sealed class DeviceOverlayBridgeTests
                 : null
         };
 
-        var capability = DeviceOverlayBridge.ToOverlayCapability(
+        var capability = CapabilityRowProjection.ToOverlayCapability(
             new DeviceCapabilityView(descriptor, projection, null),
             new HashSet<string>(StringComparer.Ordinal));
 
@@ -181,7 +181,7 @@ public sealed class DeviceOverlayBridgeTests
             Quality = HardwareStateQuality.Unknown
         };
 
-        var capability = DeviceOverlayBridge.ToOverlayCapability(
+        var capability = CapabilityRowProjection.ToOverlayCapability(
             new DeviceCapabilityView(
                 descriptor,
                 new CapabilityProjection { State = state },
@@ -290,7 +290,7 @@ public sealed class DeviceOverlayBridgeTests
     {
         // Off is a setting, not a fault, and the page has other rows. A permanently greyed control
         // the user cannot act on from this page is worse than nothing.
-        Assert.Null(DeviceOverlayBridge.ControllerView(
+        Assert.Null(DeviceHostRows.ControllerView(
             false,
             Status(ControllerManagementState.Off, null)));
     }
@@ -298,7 +298,7 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void AnActiveTargetIsNamedInTheRowRatherThanOnlyMarkedOn()
     {
-        var row = DeviceOverlayBridge.ControllerView(
+        var row = DeviceHostRows.ControllerView(
             true,
             Status(ControllerManagementState.Active, ManagedControllerTarget.SteamDeckComposite));
 
@@ -312,7 +312,7 @@ public sealed class DeviceOverlayBridgeTests
     public void ARunningGameIsToldTheChangeWillNotReachIt()
     {
         // A game holds the target it launched with. Without saying so, the control looks broken.
-        var row = DeviceOverlayBridge.ControllerView(
+        var row = DeviceHostRows.ControllerView(
             true,
             Status(
                 ControllerManagementState.Active,
@@ -326,7 +326,7 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void AnUnavailableBackendCannotBeCycledIntoAnotherBrokenTarget()
     {
-        var row = DeviceOverlayBridge.ControllerView(
+        var row = DeviceHostRows.ControllerView(
             true,
             Status(
                 ControllerManagementState.Unavailable,
@@ -342,7 +342,7 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void TheNativePadIsNamedAndTheTargetCanStillBeChanged()
     {
-        var row = DeviceOverlayBridge.ControllerView(
+        var row = DeviceHostRows.ControllerView(
             true,
             Status(ControllerManagementState.Native, ManagedControllerTarget.SteamDeckComposite,
                 ControllerManager.NativeDetail));
@@ -363,7 +363,7 @@ public sealed class DeviceOverlayBridgeTests
         ManagedControllerTarget? current,
         ManagedControllerTarget expected)
     {
-        Assert.Equal(expected, DeviceOverlayBridge.NextTarget(current));
+        Assert.Equal(expected, DeviceHostRows.NextTarget(current));
     }
 
     [Fact]
@@ -375,13 +375,13 @@ public sealed class DeviceOverlayBridgeTests
 
         Assert.Equal(
             ManagedControllerTarget.SteamDeckComposite,
-            DeviceOverlayBridge.NextTarget(ManagedControllerTarget.SteamDeckComposite, supported));
+            DeviceHostRows.NextTarget(ManagedControllerTarget.SteamDeckComposite, supported));
         Assert.Equal(
             ManagedControllerTarget.SteamDeckComposite,
-            DeviceOverlayBridge.NextTarget(ManagedControllerTarget.DualShock4, supported));
+            DeviceHostRows.NextTarget(ManagedControllerTarget.DualShock4, supported));
         Assert.Equal(
             ManagedControllerTarget.DualShock4,
-            DeviceOverlayBridge.NextTarget(
+            DeviceHostRows.NextTarget(
                 ManagedControllerTarget.SteamDeckComposite,
                 [ManagedControllerTarget.SteamDeckComposite, ManagedControllerTarget.DualShock4]));
     }
@@ -391,13 +391,13 @@ public sealed class DeviceOverlayBridgeTests
     {
         // A recovery control that is always present but almost always inert trains a user to ignore
         // it, which is the opposite of what it is for.
-        Assert.Null(DeviceOverlayBridge.RecoveryView(DeviceCycleState.Active));
+        Assert.Null(DeviceHostRows.RecoveryView(DeviceCycleState.Active));
     }
 
     [Fact]
     public void AnAvailableRetryIsOfferedAndCarriesTheCycleState()
     {
-        var row = DeviceOverlayBridge.RecoveryView(DeviceCycleState.Faulted);
+        var row = DeviceHostRows.RecoveryView(DeviceCycleState.Faulted);
 
         Assert.NotNull(row);
         Assert.Equal("READY", row.TrailingText);
@@ -418,7 +418,7 @@ public sealed class DeviceOverlayBridgeTests
             null,
             [],
             null,
-            DeviceOverlayBridge.ControllerView(
+            DeviceHostRows.ControllerView(
                 true,
                 Status(ControllerManagementState.Active, ManagedControllerTarget.Xbox360)));
 
@@ -444,11 +444,11 @@ public sealed class DeviceOverlayBridgeTests
                 true,
                 DescriptorStatus.Available),
             [],
-            DeviceOverlayBridge.AutoTdpView(false, null),
-            DeviceOverlayBridge.ControllerView(
+            DeviceHostRows.AutoTdpView(false, null),
+            DeviceHostRows.ControllerView(
                 true,
                 Status(ControllerManagementState.Idle, ManagedControllerTarget.Xbox360)),
-            DeviceOverlayBridge.RecoveryView(DeviceCycleState.Faulted));
+            DeviceHostRows.RecoveryView(DeviceCycleState.Faulted));
 
         Assert.Equal(
             [
@@ -502,13 +502,13 @@ public sealed class DeviceOverlayBridgeTests
     {
         // These are created in Settings, so a row offering a choice between nothing would invite a
         // press that cannot do anything.
-        Assert.Null(DeviceOverlayBridge.AuthoredProfileView([], null, ProfileSource.None));
+        Assert.Null(DeviceHostRows.AuthoredProfileView([], null, ProfileSource.None));
     }
 
     [Fact]
     public void AProfileChosenForEverythingSaysSo()
     {
-        var row = DeviceOverlayBridge.AuthoredProfileView(
+        var row = DeviceHostRows.AuthoredProfileView(
             [Profile("quiet", "Quiet"), Profile("loud", "Loud")],
             "quiet",
             ProfileSource.Global);
@@ -523,7 +523,7 @@ public sealed class DeviceOverlayBridgeTests
     [InlineData("future.profile", "Device profile")]
     public void AnAuthoredProfileUsesItsCapabilityKindAsTheLabel(string capabilityId, string expected)
     {
-        var row = DeviceOverlayBridge.AuthoredProfileView(
+        var row = DeviceHostRows.AuthoredProfileView(
             [Profile("profile", "Profile", capabilityId)],
             "profile",
             ProfileSource.Global);
@@ -536,7 +536,7 @@ public sealed class DeviceOverlayBridgeTests
     {
         // The same word with very different consequences: this is the difference the user opens the
         // row to check mid-game.
-        var row = DeviceOverlayBridge.AuthoredProfileView(
+        var row = DeviceHostRows.AuthoredProfileView(
             [Profile("quiet", "Quiet")],
             "quiet",
             ProfileSource.Game);
@@ -547,7 +547,7 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void NothingChosenReadsAsNoneRatherThanEmpty()
     {
-        var row = DeviceOverlayBridge.AuthoredProfileView(
+        var row = DeviceHostRows.AuthoredProfileView(
             [Profile("quiet", "Quiet")],
             null,
             ProfileSource.Global);
@@ -561,7 +561,7 @@ public sealed class DeviceOverlayBridgeTests
     {
         // None is a state the user chose; this is not, and showing them identically hides a
         // selection that has silently stopped working.
-        var row = DeviceOverlayBridge.AuthoredProfileView(
+        var row = DeviceHostRows.AuthoredProfileView(
             [Profile("quiet", "Quiet")],
             "deleted",
             ProfileSource.Game);
@@ -573,7 +573,7 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void ADeletedSelectionStillUsesTheAuthoredCapabilityKindAsTheLabel()
     {
-        var row = DeviceOverlayBridge.AuthoredProfileView(
+        var row = DeviceHostRows.AuthoredProfileView(
             [Profile("colour", "Colour", CapabilityIds.LightingColor)],
             "deleted",
             ProfileSource.Game);
@@ -584,7 +584,7 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void TheRowOffersACycleOnceThereIsSomethingToCycleTo()
     {
-        var row = DeviceOverlayBridge.AuthoredProfileView(
+        var row = DeviceHostRows.AuthoredProfileView(
             [Profile("quiet", "Quiet")],
             "quiet",
             ProfileSource.Global);
@@ -597,7 +597,7 @@ public sealed class DeviceOverlayBridgeTests
     {
         // Pressing it moves to a profile that does exist, which is the fastest way out of the state
         // for someone mid-game.
-        var row = DeviceOverlayBridge.AuthoredProfileView(
+        var row = DeviceHostRows.AuthoredProfileView(
             [Profile("quiet", "Quiet")],
             "deleted",
             ProfileSource.Global);
@@ -618,7 +618,7 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void SwitchedOffReadsAsOffAndStaysToggleable()
     {
-        var row = DeviceOverlayBridge.AutoTdpView(false, null);
+        var row = DeviceHostRows.AutoTdpView(false, null);
 
         Assert.Equal("OFF", row.TrailingText);
         Assert.Equal(DescriptorStatus.None, row.Status);
@@ -628,7 +628,7 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void SwitchedOnBeforeTheServiceReportsAnythingSaysSoRatherThanLookingIdle()
     {
-        var row = DeviceOverlayBridge.AutoTdpView(true, null);
+        var row = DeviceHostRows.AutoTdpView(true, null);
 
         Assert.Equal("ON", row.TrailingText);
         Assert.Contains("Starting", row.Description, StringComparison.Ordinal);
@@ -637,7 +637,7 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void ControllingShowsTheLimitItSettledOnAndHowFramesAreLanding()
     {
-        var row = DeviceOverlayBridge.AutoTdpView(
+        var row = DeviceHostRows.AutoTdpView(
             true,
             new AutoTdpStatus(
                 AutoTdpState.Controlling,
@@ -657,7 +657,7 @@ public sealed class DeviceOverlayBridgeTests
     public void APausedSwitchWarnsRatherThanLookingHealthy()
     {
         // A user who turned AutoTDP on and then moved the slider needs to see that it stopped.
-        var row = DeviceOverlayBridge.AutoTdpView(
+        var row = DeviceHostRows.AutoTdpView(
             true,
             new AutoTdpStatus(AutoTdpState.Paused, 22, null, null, null, "Paused by a manual change."));
 
@@ -668,7 +668,7 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void AMissingPrerequisiteReadsAsUnsupportedNotBroken()
     {
-        var row = DeviceOverlayBridge.AutoTdpView(
+        var row = DeviceHostRows.AutoTdpView(
             true,
             new AutoTdpStatus(
                 AutoTdpState.Unavailable,
@@ -685,7 +685,7 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void WaitingForAGameIsDistinctFromControllingOne()
     {
-        var row = DeviceOverlayBridge.AutoTdpView(
+        var row = DeviceHostRows.AutoTdpView(
             true,
             new AutoTdpStatus(AutoTdpState.Idle, 15, null, null, null, "No application is rendering."));
 
@@ -695,9 +695,9 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void TheTargetSliderFollowsTheSwitchAndMarksAGameOverride()
     {
-        Assert.Null(DeviceOverlayBridge.AutoTdpTargetRow(false, new AutoTdpTargetView(45, 45, false)));
+        Assert.Null(DeviceHostRows.AutoTdpTargetRow(false, new AutoTdpTargetView(45, 45, false)));
 
-        var row = DeviceOverlayBridge.AutoTdpTargetRow(true, new AutoTdpTargetView(45, 40, true))!;
+        var row = DeviceHostRows.AutoTdpTargetRow(true, new AutoTdpTargetView(45, 40, true))!;
 
         Assert.Equal(DeviceHostRowIds.AutoTdpTarget, row.Id);
         Assert.Equal(new DescriptorRange(AutoTdpTarget.MinimumFps, AutoTdpTarget.MaximumFps, 1), row.Range);
@@ -733,11 +733,11 @@ public sealed class DeviceOverlayBridgeTests
         {
             CapabilityId = "boost", Role = CapabilityRole.PowerSlowLimit, TrailingText = "30 W"
         };
-        Assert.Equal("TDP", DeviceOverlayBridge.ProjectManualTdp(primary, true).Title);
-        var readback = DeviceOverlayBridge.ProjectManualTdp(boost, true);
+        Assert.Equal("TDP", CapabilityRowProjection.ProjectManualTdp(primary, true).Title);
+        var readback = CapabilityRowProjection.ProjectManualTdp(boost, true);
         Assert.False(readback.Writable);
         Assert.False(readback.CanInvoke);
         Assert.Equal("30 W", readback.TrailingText);
-        Assert.Equal(boost, DeviceOverlayBridge.ProjectManualTdp(boost, false));
+        Assert.Equal(boost, CapabilityRowProjection.ProjectManualTdp(boost, false));
     }
 }

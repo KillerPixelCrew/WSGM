@@ -171,32 +171,33 @@ public sealed class AnimationServiceTests : IDisposable
         using var service =
             Service(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(posts) });
         service.Start();
+        using var page = service.CreateBrowserSession("browse");
         TaskCompletionSource fetched = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        service.Changed += () =>
+        page.Changed += () =>
         {
-            if (service.ReadState().Browse is { Loading: false, Total: > 0 })
+            if (page.ReadState().Browse is { Loading: false, Total: > 0 })
             {
                 fetched.TrySetResult();
             }
         };
 
-        await service.BrowseAsync("newest", "", CancellationToken.None);
+        await page.BrowseAsync("newest", "", CancellationToken.None);
         await fetched.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        var browse = service.ReadState().Browse;
+        var browse = page.ReadState().Browse;
         Assert.Equal(2, browse.Total);
         Assert.Equal(["Aurora", "Neon"], browse.Items.Select(item => item.Name));
         Assert.True(browse.Items[1].Downloaded, "the library's copy is marked");
         Assert.Equal("2025-06-01", browse.Items[0].Updated);
 
-        await service.BrowseAsync("popular", "", CancellationToken.None);
-        Assert.Equal(["Neon", "Aurora"], service.ReadState().Browse.Items.Select(item => item.Name));
-        await service.BrowseAsync("name", "aur", CancellationToken.None);
-        Assert.Equal(["Aurora"], service.ReadState().Browse.Items.Select(item => item.Name));
+        await page.BrowseAsync("popular", "", CancellationToken.None);
+        Assert.Equal(["Neon", "Aurora"], page.ReadState().Browse.Items.Select(item => item.Name));
+        await page.BrowseAsync("name", "aur", CancellationToken.None);
+        Assert.Equal(["Aurora"], page.ReadState().Browse.Items.Select(item => item.Name));
 
-        await service.OpenAsync("new1", CancellationToken.None);
-        Assert.Equal("Aurora", service.ReadState().Detail!.Name);
-        Assert.False(service.ReadState().Detail!.Downloaded);
+        await page.OpenAsync("new1", CancellationToken.None);
+        Assert.Equal("Aurora", page.ReadState().Detail!.Name);
+        Assert.False(page.ReadState().Detail!.Downloaded);
     }
 
     [Fact]
@@ -205,23 +206,24 @@ public sealed class AnimationServiceTests : IDisposable
         using var service =
             Service(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"posts":[]}""") });
         service.Start();
+        using var page = service.CreateBrowserSession("browse");
         TaskCompletionSource fetched = new(TaskCreationOptions.RunContinuationsAsynchronously);
         var published = 0;
-        service.Changed += () =>
+        page.Changed += () =>
         {
             published++;
-            if (!service.ReadState().Browse.Loading)
+            if (!page.ReadState().Browse.Loading)
             {
                 fetched.TrySetResult();
             }
         };
 
-        await service.BrowseAsync("newest", "", CancellationToken.None);
+        await page.BrowseAsync("newest", "", CancellationToken.None);
         await fetched.Task.WaitAsync(TimeSpan.FromSeconds(5));
         var before = published;
-        await service.BrowseAsync("newest", "", CancellationToken.None);
+        await page.BrowseAsync("newest", "", CancellationToken.None);
 
-        Assert.Equal(0, service.ReadState().Browse.Total);
+        Assert.Equal(0, page.ReadState().Browse.Total);
         Assert.Equal(before, published);
     }
 
@@ -230,8 +232,10 @@ public sealed class AnimationServiceTests : IDisposable
     {
         using var service = Service();
         service.Start();
+        using var page = service.CreateBrowserSession("settings");
+        var section = new AnimationQuickAccessSection(service, page);
 
-        var item = service.ReadExtensionsItem();
+        var item = section.ReadExtensionsItem();
 
         Assert.Equal("wsgm.animations", item.Id);
         Assert.Equal(["Browse movies…", "Library…", "Shuffle"], item.Actions!.Select(action => action.Label));
@@ -241,19 +245,19 @@ public sealed class AnimationServiceTests : IDisposable
         Assert.Equal(["Steam's own", "Calm", "Neon"], settings[0].ChoiceLabels);
         Assert.Equal(("shuffleOnStart", false), (settings[1].Key, settings[1].BooleanValue));
 
-        var chosen = await service.ConfigureExtensionAsync("boot", JsonSerializer.SerializeToElement("calm"),
+        var chosen = await section.ConfigureExtensionAsync("boot", JsonSerializer.SerializeToElement("calm"),
             CancellationToken.None);
         Assert.True(chosen.Succeeded);
         Assert.Equal("calm", _config.Boot);
-        Assert.Equal("calm", service.ReadExtensionsItem().Settings![0].TextValue);
-        var stale = await service.ConfigureExtensionAsync("boot", JsonSerializer.SerializeToElement("gone"),
+        Assert.Equal("calm", section.ReadExtensionsItem().Settings![0].TextValue);
+        var stale = await section.ConfigureExtensionAsync("boot", JsonSerializer.SerializeToElement("gone"),
             CancellationToken.None);
         Assert.False(stale.Succeeded);
 
-        var route = await service.ActivateExtensionAsync("wsgm.animations.manage", CancellationToken.None);
+        var route = await section.ActivateExtensionAsync("wsgm.animations.manage", CancellationToken.None);
         Assert.True(route.Succeeded);
         Assert.Equal("/wsgm/animations", route.Payload!.Value.GetProperty("route").GetString());
-        Assert.Equal("library", service.ReadState().ActiveTab);
+        Assert.Equal("library", page.ReadState().ActiveTab);
     }
 
     [Fact]
@@ -261,9 +265,11 @@ public sealed class AnimationServiceTests : IDisposable
     {
         using var service = Service();
         service.Start();
+        using var page = service.CreateBrowserSession("settings");
+        var section = new AnimationQuickAccessSection(service, page);
 
-        var shuffled = await service.ActivateExtensionAsync("wsgm.animations.shuffle", CancellationToken.None);
-        var setting = await service.ConfigureExtensionAsync("shuffleOnStart",
+        var shuffled = await section.ActivateExtensionAsync("wsgm.animations.shuffle", CancellationToken.None);
+        var setting = await section.ConfigureExtensionAsync("shuffleOnStart",
             JsonSerializer.SerializeToElement(true), CancellationToken.None);
 
         Assert.True(shuffled.Succeeded);
@@ -278,13 +284,15 @@ public sealed class AnimationServiceTests : IDisposable
     {
         using var service = Service();
         service.Start();
+        using var page = service.CreateBrowserSession("settings");
+        var section = new AnimationQuickAccessSection(service, page);
         await service.SelectAsync("neon", CancellationToken.None);
         Assert.True(service.ReadState().Settings.RestartNeeded);
 
         service.SteamStarted();
 
         Assert.False(service.ReadState().Settings.RestartNeeded);
-        Assert.DoesNotContain("Restart", service.ReadExtensionsItem().Detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("Restart", section.ReadExtensionsItem().Detail, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -303,12 +311,13 @@ public sealed class AnimationServiceTests : IDisposable
     {
         using var service = Service();
         service.Start();
-        await service.OpenAsync("neon", CancellationToken.None);
-        Assert.NotNull(service.ReadState().Detail);
+        using var page = service.CreateBrowserSession("browse");
+        await page.OpenAsync("neon", CancellationToken.None);
+        Assert.NotNull(page.ReadState().Detail);
 
-        await service.SetTabAsync("library", CancellationToken.None);
+        await page.SetTabAsync("library", CancellationToken.None);
 
-        Assert.Null(service.ReadState().Detail);
+        Assert.Null(page.ReadState().Detail);
     }
 
     [Fact]
@@ -321,30 +330,31 @@ public sealed class AnimationServiceTests : IDisposable
             Content = new StringContent("{\"posts\":[" + posts + "]}")
         });
         service.Start();
+        using var page = service.CreateBrowserSession("browse");
         TaskCompletionSource fetched = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        service.Changed += () =>
+        page.Changed += () =>
         {
-            if (service.ReadState().Browse is { Loading: false, Total: > 0 })
+            if (page.ReadState().Browse is { Loading: false, Total: > 0 })
             {
                 fetched.TrySetResult();
             }
         };
 
-        await service.BrowseAsync("liked", "", CancellationToken.None);
+        await page.BrowseAsync("liked", "", CancellationToken.None);
         await fetched.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        var browse = service.ReadState().Browse;
+        var browse = page.ReadState().Browse;
         Assert.Equal((AnimationService.BrowsePage, 100, 100), (browse.Items.Count, browse.Matched, browse.Total));
         Assert.Equal("Movie 99", browse.Items[0].Name);
         Assert.Equal(99, browse.Items[0].Likes);
 
-        await service.BrowseMoreAsync(CancellationToken.None);
-        await service.BrowseMoreAsync(CancellationToken.None);
-        await service.BrowseMoreAsync(CancellationToken.None);
-        Assert.Equal(100, service.ReadState().Browse.Items.Count);
+        await page.BrowseMoreAsync(CancellationToken.None);
+        await page.BrowseMoreAsync(CancellationToken.None);
+        await page.BrowseMoreAsync(CancellationToken.None);
+        Assert.Equal(100, page.ReadState().Browse.Items.Count);
 
-        await service.BrowseAsync("liked", "Movie 1", CancellationToken.None);
-        var searched = service.ReadState().Browse;
+        await page.BrowseAsync("liked", "Movie 1", CancellationToken.None);
+        var searched = page.ReadState().Browse;
         Assert.Equal(11, searched.Matched);
         Assert.Equal(11, searched.Items.Count);
     }

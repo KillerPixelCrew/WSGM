@@ -23,6 +23,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private const string ShellPatchId = "wsgm.native-qam.shell";
     private readonly AnimationService? _animations;
 
+    /// <summary>The Animations page's own tab, listing and detail, or null without boot movies.</summary>
+    private readonly AnimationBrowseSession? _animationsPage;
+
     /// <summary>The artwork browser behind Steam's Change Artwork page, or null.</summary>
     private readonly SteamArtworkBrowserSource? _artwork;
     private readonly LaunchActionService? _launchActions;
@@ -143,6 +146,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     private readonly DeviceCoordinatorNativeQamTdpService _tdp;
     private readonly ThemeService? _themes;
+
+    /// <summary>The Themes page's own store browsing, tab and detail, or null without themes.</summary>
+    private readonly ThemeBrowseSession? _themesPage;
+
     private readonly Func<CancellationToken, Task<bool>> _toggleQuickAccess;
     private readonly ISteamUiTransport _transport;
     private readonly WsgmSteamSettingsService? _wsgmSettings;
@@ -197,6 +204,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _hybridCores = backends.HybridCores;
         _themes = backends.Themes;
         _animations = backends.Animations;
+        // The Steam pages keep their own browsing, as each overlay view does; they open on Browse.
+        _themesPage = _themes?.CreateBrowserSession("browse");
+        _animationsPage = _animations?.CreateBrowserSession("browse");
         _sounds = backends.Sounds;
         _cpuBoost = backends.CpuBoost;
         _displayTimeouts = backends.DisplayTimeouts;
@@ -230,7 +240,14 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             [
                 .. new IExtensionsTabSection?[]
                 {
-                    _libraryManager?.CardsSection, _libraryManager?.TabsSection, _themes, _animations, _notes,
+                    _libraryManager?.CardsSection, _libraryManager?.TabsSection,
+                    _themes is { } themes && _themesPage is { } themesPage
+                        ? new ThemeQuickAccessSection(themes, themesPage)
+                        : null,
+                    _animations is { } animations && _animationsPage is { } animationsPage
+                        ? new AnimationQuickAccessSection(animations, animationsPage)
+                        : null,
+                    _notes,
                     new BrowserExtensionsSection()
                 }.OfType<IExtensionsTabSection>()
             ],
@@ -337,32 +354,21 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <summary>Hears every change source that moves a published state. The constructor's last step.</summary>
     private void Subscribe()
     {
-        if (_screensavers is not null)
-        {
-            _screensavers.Changed += QueueStatePublication;
-        }
+        _screensavers?.Changed += QueueStatePublication;
         _runtime.ModuleFailed += OnModuleFailed;
         _patches.Synchronized += OnPatchesSynchronized;
         _transport.GenerationChanged += OnGenerationChanged;
         _brightness.Changed += QueueStatePublication;
         _panelFolds.Changed += QueueStatePublication;
         LibraryBadges.Changed += OnLibraryBadgesChanged;
-        if (_displayTimeouts is not null)
-        {
-            _displayTimeouts.Changed += OnSemanticStateChanged;
-        }
-
+        _displayTimeouts?.Changed += QueueStatePublication;
         // One subscription for every device row: the power sliders, the device controls and AutoTDP
         // all project the same capability views and coordinator configuration.
-        if (_coordinator is not null)
-        {
-            _coordinator.Capabilities.Changed += OnCapabilitiesChanged;
-            _coordinator.ConfigurationChanged += OnSemanticStateChanged;
-        }
-
-        _autoTdp.StateChanged += OnSemanticStateChanged;
+        _coordinator?.Capabilities.Changed += OnCapabilitiesChanged;
+        _coordinator?.ConfigurationChanged += QueueStatePublication;
+        _autoTdp.StateChanged += QueueStatePublication;
         _performanceService.StateChanged += OnPerformanceStateChanged;
-        _controllerTarget.StateChanged += OnSemanticStateChanged;
+        _controllerTarget.StateChanged += QueueStatePublication;
         // A profile change moves the game-override markers even when no device value changed.
         _profiles.Changed += OnProfilesChanged;
         if (_pluginSteamUi is not null)
@@ -379,188 +385,58 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // Both host pages answer a command immediately and finish the work in the background, so
         // without these the page only ever sees the first loading snapshot: the scan or the search
         // completes, raises this, and nobody is listening. The page spins forever.
-        if (_artwork is not null)
-        {
-            _artwork.Changed += QueueStatePublication;
-        }
-
-        if (_libraryImport is not null)
-        {
-            _libraryImport.Changed += QueueStatePublication;
-        }
-
-        if (_emulators is not null)
-        {
-            _emulators.Changed += QueueStatePublication;
-        }
-
-        if (_launchActions is not null)
-        {
-            _launchActions.Changed += QueueStatePublication;
-        }
-
-        if (_libraryManager is not null)
-        {
-            _libraryManager.Changed += QueueStatePublication;
-        }
-        if (_notes is not null)
-        {
-            _notes.Changed += QueueStatePublication;
-        }
-
-        if (_chordMirror is not null)
-        {
-            _chordMirror.Changed += QueueStatePublication;
-        }
-
-        if (_wsgmSettings is not null)
-        {
-            _wsgmSettings.Changed += QueueStatePublication;
-        }
-
-        if (_graphics is not null)
-        {
-            _graphics.Changed += QueueStatePublication;
-        }
-
-        if (_themes is not null)
-        {
-            _themes.Changed += OnThemesChanged;
-        }
-
-        if (_animations is not null)
-        {
-            _animations.Changed += QueueStatePublication;
-        }
-
-        if (_sounds is not null)
-        {
-            _sounds.Changed += QueueStatePublication;
-        }
-
-        if (_powerMenu is not null)
-        {
-            _powerMenu.Changed += QueueStatePublication;
-        }
-
-        if (_audio is not null)
-        {
-            _audio.StateChanged += OnSemanticStateChanged;
-        }
-
-        if (_audioFormat is not null)
-        {
-            _audioFormat.StateChanged += OnSemanticStateChanged;
-        }
+        _artwork?.Changed += QueueStatePublication;
+        _libraryImport?.Changed += QueueStatePublication;
+        _emulators?.Changed += QueueStatePublication;
+        _launchActions?.Changed += QueueStatePublication;
+        _libraryManager?.Changed += QueueStatePublication;
+        _notes?.Changed += QueueStatePublication;
+        _chordMirror?.Changed += QueueStatePublication;
+        _wsgmSettings?.Changed += QueueStatePublication;
+        _graphics?.Changed += QueueStatePublication;
+        // Each page session republishes its owner's changes along with its own.
+        _themesPage?.Changed += OnThemesChanged;
+        _animationsPage?.Changed += QueueStatePublication;
+        _sounds?.Changed += QueueStatePublication;
+        _powerMenu?.Changed += QueueStatePublication;
+        _audio?.StateChanged += QueueStatePublication;
+        _audioFormat?.StateChanged += QueueStatePublication;
     }
 
     /// <summary>Detaches everything <see cref="Subscribe" /> attached.</summary>
     private void Unsubscribe()
     {
-        if (_screensavers is not null)
-        {
-            _screensavers.Changed -= QueueStatePublication;
-        }
+        _screensavers?.Changed -= QueueStatePublication;
         _runtime.ModuleFailed -= OnModuleFailed;
         _patches.Synchronized -= OnPatchesSynchronized;
         _transport.GenerationChanged -= OnGenerationChanged;
         _brightness.Changed -= QueueStatePublication;
         _panelFolds.Changed -= QueueStatePublication;
         LibraryBadges.Changed -= OnLibraryBadgesChanged;
-        if (_displayTimeouts is not null)
-        {
-            _displayTimeouts.Changed -= OnSemanticStateChanged;
-        }
-
-        if (_coordinator is not null)
-        {
-            _coordinator.Capabilities.Changed -= OnCapabilitiesChanged;
-            _coordinator.ConfigurationChanged -= OnSemanticStateChanged;
-        }
-
-        _autoTdp.StateChanged -= OnSemanticStateChanged;
+        _displayTimeouts?.Changed -= QueueStatePublication;
+        _coordinator?.Capabilities.Changed -= OnCapabilitiesChanged;
+        _coordinator?.ConfigurationChanged -= QueueStatePublication;
+        _autoTdp.StateChanged -= QueueStatePublication;
         _performanceService.StateChanged -= OnPerformanceStateChanged;
-        _controllerTarget.StateChanged -= OnSemanticStateChanged;
+        _controllerTarget.StateChanged -= QueueStatePublication;
         _profiles.Changed -= OnProfilesChanged;
-        if (_pluginSteamUi is not null)
-        {
-            _pluginSteamUi.Changed -= QueueStatePublication;
-            _pluginSteamUi.ModulesChanged -= OnPluginModulesChanged;
-        }
-
-        if (_artwork is not null)
-        {
-            _artwork.Changed -= QueueStatePublication;
-        }
-
-        if (_libraryImport is not null)
-        {
-            _libraryImport.Changed -= QueueStatePublication;
-        }
-
-        if (_emulators is not null)
-        {
-            _emulators.Changed -= QueueStatePublication;
-        }
-
-        if (_launchActions is not null)
-        {
-            _launchActions.Changed -= QueueStatePublication;
-        }
-
-        if (_libraryManager is not null)
-        {
-            _libraryManager.Changed -= QueueStatePublication;
-        }
-        if (_notes is not null)
-        {
-            _notes.Changed -= QueueStatePublication;
-        }
-
-        if (_chordMirror is not null)
-        {
-            _chordMirror.Changed -= QueueStatePublication;
-        }
-
-        if (_wsgmSettings is not null)
-        {
-            _wsgmSettings.Changed -= QueueStatePublication;
-        }
-
-        if (_graphics is not null)
-        {
-            _graphics.Changed -= QueueStatePublication;
-        }
-
-        if (_themes is not null)
-        {
-            _themes.Changed -= OnThemesChanged;
-        }
-
-        if (_animations is not null)
-        {
-            _animations.Changed -= QueueStatePublication;
-        }
-
-        if (_sounds is not null)
-        {
-            _sounds.Changed -= QueueStatePublication;
-        }
-
-        if (_powerMenu is not null)
-        {
-            _powerMenu.Changed -= QueueStatePublication;
-        }
-
-        if (_audio is not null)
-        {
-            _audio.StateChanged -= OnSemanticStateChanged;
-        }
-
-        if (_audioFormat is not null)
-        {
-            _audioFormat.StateChanged -= OnSemanticStateChanged;
-        }
+        _pluginSteamUi?.Changed -= QueueStatePublication;
+        _pluginSteamUi?.ModulesChanged -= OnPluginModulesChanged;
+        _artwork?.Changed -= QueueStatePublication;
+        _libraryImport?.Changed -= QueueStatePublication;
+        _emulators?.Changed -= QueueStatePublication;
+        _launchActions?.Changed -= QueueStatePublication;
+        _libraryManager?.Changed -= QueueStatePublication;
+        _notes?.Changed -= QueueStatePublication;
+        _chordMirror?.Changed -= QueueStatePublication;
+        _wsgmSettings?.Changed -= QueueStatePublication;
+        _graphics?.Changed -= QueueStatePublication;
+        _themesPage?.Changed -= OnThemesChanged;
+        _animationsPage?.Changed -= QueueStatePublication;
+        _sounds?.Changed -= QueueStatePublication;
+        _powerMenu?.Changed -= QueueStatePublication;
+        _audio?.StateChanged -= QueueStatePublication;
+        _audioFormat?.StateChanged -= QueueStatePublication;
     }
 
     /// <summary>Retracts and disposes the host, no longer than the shutdown deadline allows.</summary>
@@ -633,6 +509,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // The runtime first: it stops answering, cancels what is in flight and drains its own
         // request tasks, so nothing is still writing to the bridge when that is disposed below.
         await _runtime.ShutdownAsync(deadline).ConfigureAwait(false);
+        // The pages' browsing ends once no command can reach it; the services it reads stay the session's.
+        _themesPage?.Dispose();
+        _animationsPage?.Dispose();
         // ReSharper disable once MethodHasAsyncOverload
         _shutdown.Cancel();
         // Removes whatever the retraction left, the bridge last, within the same deadline.
@@ -1223,12 +1102,13 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // The themes: the page they are browsed and managed on, and the cascade the toolkit installs
         // into every window. Both follow CEF itself; the cascade also follows the themes' own switch,
         // and publishes nothing while it is off, which leaves Steam's styling as it was.
-        if (_themes is { } themes)
+        if (_themes is { } themes && _themesPage is { } themesPage)
         {
             modules.Add(SteamThemesSurface.Module(
                 HostSteamUiEnabled,
-                () => new ValueTask<SteamThemesState?>(themes.ReadState()),
-                () => themes.Revision,
+                () => new ValueTask<SteamThemesState?>(themesPage.ReadState()),
+                () => themesPage.Revision,
+                themesPage,
                 themes));
             modules.Add(SteamThemeStyleSurface.Module(
                 () => HostSteamUiEnabled() && themes.Enabled,
@@ -1246,12 +1126,13 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         // The boot movie's page. Follows CEF itself, like the themes' page.
-        if (_animations is { } animations)
+        if (_animations is { } animations && _animationsPage is { } animationsPage)
         {
             modules.Add(SteamAnimationsSurface.Module(
                 HostSteamUiEnabled,
-                () => new ValueTask<SteamAnimationsState?>(animations.ReadState()),
-                () => animations.Revision,
+                () => new ValueTask<SteamAnimationsState?>(animationsPage.ReadState()),
+                () => animationsPage.Revision,
+                animationsPage,
                 animations));
         }
 
@@ -1493,11 +1374,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             : new SteamUiCommandResult(false, "Quick access is not currently available.");
     }
 
-    private void OnSemanticStateChanged()
-    {
-        QueueStatePublication();
-    }
-
     private void OnLibraryBadgesChanged()
     {
         lock (_switchGate)
@@ -1656,18 +1532,14 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         Log.Warn($"Steam UI module {failure.Module.Id} was disabled after {failure.Operation}: {failure.Error}");
     }
 
-    private void QueueStatePublication()
+    /// <summary>Queues one publication round of every Steam surface's state, unless the host is closed.</summary>
+    /// <remarks>The session calls this after a display topology notification as well.</remarks>
+    internal void QueueStatePublication()
     {
         if (!_disposed)
         {
             _runtime.QueuePublication();
         }
-    }
-
-    /// <summary>Republishes the shared display state after a topology notification.</summary>
-    internal void RefreshDisplayState()
-    {
-        QueueStatePublication();
     }
 
     /// <summary>Sets every registered patch's switch from the given switches. The caller holds <c>_switchGate</c>.</summary>

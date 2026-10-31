@@ -100,7 +100,7 @@ public static class Steam
     public static bool IsInstalled => ExePath is not null;
 
     /// <summary>Gets whether a Steam client or Big Picture helper process is running.</summary>
-    public static bool IsRunning => WindowFinder.FindProcessIds(ProcessNames).Count > 0;
+    public static bool IsRunning => ProcessLookup.FindProcessIds(ProcessNames).Count > 0;
 
     /// <summary>
     ///     Gets whether Steam's process-owned Big Picture window exists. This is
@@ -118,7 +118,7 @@ public static class Steam
     {
         get
         {
-            if (WindowFinder.FindProcessIds(ProcessNames)
+            if (ProcessLookup.FindProcessIds(ProcessNames)
                 .Any(processId => ElevationCheck.IsProcessElevated(processId) == true))
             {
                 return true;
@@ -133,7 +133,7 @@ public static class Steam
     /// <param name="reason">Why the active helpers are being reported.</param>
     private static void LogActiveLaunchHelpers(string reason)
     {
-        var currentSession = WindowFinder.CurrentSessionId;
+        var currentSession = ProcessLookup.CurrentSessionId;
         foreach (var process in Process.GetProcessesByName(
                      Path.GetFileNameWithoutExtension(LaunchWrapperCommand.HelperFileName)))
         {

@@ -30,7 +30,8 @@ public sealed class SoundPackServiceTests : IDisposable
         var id = library.Install(archive);
         var selected = id;
         await using var service =
-            new SoundPackService(library, () => selected, value => selected = value, () => steam, _ => { });
+            new SoundPackService(library, () => selected, value => selected = value, () => steam,
+                new ThemeStoreClient(), _ => { });
         Assert.True((await service.RefreshAsync(CancellationToken.None)).Succeeded);
         Assert.Single(service.ReadOverrides().Sounds);
         Assert.True((await service.DeleteAsync(id, CancellationToken.None)).Succeeded);
@@ -46,7 +47,7 @@ public sealed class SoundPackServiceTests : IDisposable
     {
         var selected = "missing";
         await using var service = new SoundPackService(new SoundPackLibrary(Root), () => selected,
-            value => selected = value, () => null, _ => { });
+            value => selected = value, () => null, new ThemeStoreClient(), _ => { });
         Assert.True((await service.RefreshAsync(CancellationToken.None)).Succeeded);
         Assert.Empty(service.ReadOverrides().Sounds);
         Assert.Equal("missing", selected);
@@ -60,7 +61,7 @@ public sealed class SoundPackServiceTests : IDisposable
         // ReSharper disable once ArgumentsStyleStringLiteral
         var store = new ThemeStoreClient(handler, apiUrl: "https://example.invalid");
         await using var service = new SoundPackService(new SoundPackLibrary(Root), () => "", _ => { },
-            () => null, _ => { }, store);
+            () => null, store, _ => { });
         var browse = service.BrowseAsync(1, "", CancellationToken.None);
         await handler.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
         try
@@ -88,7 +89,8 @@ public sealed class SoundPackServiceTests : IDisposable
             ("navigation.wav", "custom"));
         var id = library.Install(archive);
         await using var service = new SoundPackService(library, () => id,
-            _ => throw new IOException("Configuration is unreadable."), () => steam, _ => { });
+            _ => throw new IOException("Configuration is unreadable."), () => steam, new ThemeStoreClient(),
+            _ => { });
         Assert.True((await service.RefreshAsync(CancellationToken.None)).Succeeded);
         Assert.Single(service.ReadOverrides().Sounds);
         var removed = await service.DeleteAsync(id, CancellationToken.None);
@@ -110,7 +112,7 @@ public sealed class SoundPackServiceTests : IDisposable
             ("navigation.wav", "custom"));
         var selected = library.Install(archive);
         await using var service = new SoundPackService(library, () => selected, value => selected = value,
-            () => steam, _ => { });
+            () => steam, new ThemeStoreClient(), _ => { });
         Assert.True((await service.RefreshAsync(CancellationToken.None)).Succeeded);
         service.SetHostState(true, new SteamUiPatchSnapshot(SteamSoundOverrideSurface.PatchId, true,
             SteamUiPatchState.Verified, null, default!, null, DateTimeOffset.UtcNow));

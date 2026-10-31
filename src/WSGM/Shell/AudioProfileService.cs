@@ -494,6 +494,41 @@ internal sealed class AudioProfileService : IAsyncDisposable
             : Result(name, _operations.SetDefaultEndpoint(endpoint.Value.Id));
     }
 
+    /// <summary>Reads Windows' endpoints and the selected or current default playback endpoint's capabilities.</summary>
+    /// <param name="endpointId">The selected endpoint, or null to inspect the current default without selecting it.</param>
+    /// <returns>
+    ///     The observation; its formats and spatial formats are each null when that read failed. Every call here is
+    ///     a blocking Core Audio read outside the operation gate.
+    /// </returns>
+    internal AudioDiscovery Discover(string? endpointId)
+    {
+        var playback = List(CoreAudio.AudioDirection.Render);
+        var outputs = Options(playback);
+        var inputs = Options(List(CoreAudio.AudioDirection.Capture));
+        endpointId ??= playback.FirstOrDefault(static endpoint => endpoint.IsDefault).Id;
+        if (endpointId is null)
+        {
+            return new AudioDiscovery(outputs, inputs, null, null, null);
+        }
+
+        var formats = _operations.ListSupportedDeviceFormats(endpointId, out var supported) >= 0
+            ? supported
+            : null;
+        var spatial = _operations.GetSpatialAudio(endpointId, out var state) >= 0
+            ? state.SupportedFormats
+            : null;
+        return new AudioDiscovery(outputs, inputs, endpointId, formats, spatial);
+    }
+
+    private static IReadOnlyList<AudioEndpointOption> Options(IReadOnlyList<CoreAudio.AudioEndpoint> endpoints)
+    {
+        return
+        [
+            .. endpoints.Select(static endpoint =>
+                new AudioEndpointOption(endpoint.Id, AudioEndpointText.Name(endpoint)))
+        ];
+    }
+
     private IReadOnlyList<CoreAudio.AudioEndpoint> List(CoreAudio.AudioDirection direction)
     {
         return _operations.ListEndpoints(direction, out var endpoints) >= 0 ? endpoints : [];

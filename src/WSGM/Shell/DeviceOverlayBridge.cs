@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Controls;
@@ -10,8 +8,6 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Lifecycle;
-using WSGM.Device.Sdk.Settings;
-using WSGM.Overlay;
 using CanonicalControllerSample = LibHandheld.Contracts.CanonicalControllerSample;
 
 namespace WSGM.Shell;
@@ -87,14 +83,16 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         var deviceViews = _coordinator.PresentedCapabilities();
         var presets = FanCurvePresets.For(device?.Id);
         var capabilities = deviceViews
-            .Select(view => ToOverlayCapability(view, declaredSectionIds, _coordinator.Profiles.Current.Layers, presets))
+            .Select(view => CapabilityRowProjection.ToOverlayCapability(view, declaredSectionIds,
+                _coordinator.Profiles.Current.Layers, presets))
             .ToList();
         // Variable refresh moved to the graphics packages; the Power and thermals row stays where users
         // look for it, backed by whichever package publishes the capability.
         if (deviceViews.All(view => view.Descriptor.Role is not CapabilityRole.VariableRefreshRate)
             && VariableRefreshCapabilities.Find(null, _gpu, false) is { GpuPluginId: { } vrrPlugin } vrr)
         {
-            capabilities.Add(ToOverlayCapability(vrr.View, declaredSectionIds, _coordinator.Profiles.Current.Layers)
+            capabilities.Add(CapabilityRowProjection.ToOverlayCapability(vrr.View, declaredSectionIds,
+                    _coordinator.Profiles.Current.Layers)
                 with
                 {
                     GpuPluginId = vrrPlugin,
@@ -107,21 +105,21 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         {
             for (var index = 0; index < capabilities.Count; index++)
             {
-                capabilities[index] = ProjectManualTdp(capabilities[index], true);
+                capabilities[index] = CapabilityRowProjection.ProjectManualTdp(capabilities[index], true);
             }
         }
 
         var glyphSelectionState = _coordinator.PhysicalGlyphSelectionSnapshot();
-        var glyphSelection = PhysicalGlyphSelectionView(
+        var glyphSelection = DeviceHostRows.PhysicalGlyphSelectionView(
             _coordinator.PhysicalGlyphSelection,
             glyphSelectionState);
         var autoTdpAvailability = _autoTdp?.Availability;
-        var autoTdp = AutoTdpView(
+        var autoTdp = DeviceHostRows.AutoTdpView(
             _coordinator.AutoTdpEnabled,
             _autoTdp?.Status,
             autoTdpAvailability);
-        var recovery = RecoveryView(state);
-        var controller = ControllerView(
+        var recovery = DeviceHostRows.RecoveryView(state);
+        var controller = DeviceHostRows.ControllerView(
             _coordinator.ControllerManagementEnabled,
             controllerStatus) is { } controllerRow
             ? controllerRow with
@@ -133,7 +131,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             : null;
         var authored = _coordinator.AuthoredProfileSelection();
         var lighting = _coordinator.LightingProfileSelection();
-        var glyphPreview = GlyphPreview(
+        var glyphPreview = DeviceHostRows.GlyphPreview(
             glyphSelectionState,
             _glyphs,
             // The input test is live only while the plugin's canonical samples are actually
@@ -149,7 +147,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             : device.Name;
         return new DeviceOverlaySnapshot(
             _coordinator.IntegrationEnabled,
-            LifecycleLabel(state),
+            DeviceHostRows.LifecycleLabel(state),
             detail,
             glyphSelection,
             capabilities,
@@ -158,7 +156,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             recovery,
             glyphPreview,
             authored is { } selection
-                ? AuthoredProfileView(
+                ? DeviceHostRows.AuthoredProfileView(
                     selection.Profiles,
                     selection.Selected.Value,
                     selection.Selected.Source) is { } authoredRow
@@ -172,27 +170,26 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             HostSelections = new Dictionary<string, DeviceHostSelection>
             {
                 [DeviceHostRowIds.AutoTdp] = new(_coordinator.AutoTdpEnabled ? "on" : "off",
-                    [HostChoice("off", "Off"), HostChoice("on", "On")]),
+                    [DeviceHostRows.HostChoice("off", "Off"), DeviceHostRows.HostChoice("on", "On")]),
                 [DeviceHostRowIds.ControllerTarget] = new(
                     (controllerStatus.Target ?? _coordinator.ChosenControllerTarget()).ToString(),
                     _coordinator.Controllers.SupportedTargets
-                        .Select(target => HostChoice(target.ToString(), TargetLabel(target))).ToArray()),
-                [DeviceHostRowIds.AuthoredProfile] = new(authored?.Selected.Value ?? "",
-                    new[] { HostChoice("", "None") }
-                        .Concat(authored?.Profiles.Select(profile => HostChoice(profile.ProfileId, profile.Name)) ?? [])
+                        .Select(target => DeviceHostRows.HostChoice(target.ToString(),
+                            DeviceHostRows.TargetLabel(target)))
                         .ToArray()),
+                [DeviceHostRowIds.AuthoredProfile] = new(authored?.Selected.Value ?? "",
+                    DeviceHostRows.ProfileChoices(authored?.Profiles, "None")),
                 [DeviceHostRowIds.LightingProfile] = new(lighting?.Selected.Value ?? "",
-                    new[] { HostChoice("", _coordinator.Profiles.Current.EditsGame ? "Use Global" : "None") }
-                        .Concat(lighting?.Profiles.Select(profile => HostChoice(profile.ProfileId, profile.Name)) ?? [])
-                        .ToArray())
+                    DeviceHostRows.ProfileChoices(lighting?.Profiles,
+                        DeviceHostRows.LightingProfileEmptyLabel(_coordinator.Profiles.Current.EditsGame)))
             },
             LightingProfile = lighting is { } colors
-                ? LightingProfileView(colors.Profiles, colors.Selected,
+                ? DeviceHostRows.LightingProfileView(colors.Profiles, colors.Selected,
                     _coordinator.LightingProfileDetail, _coordinator.LightingProfileStatus)
                 : null,
             GlyphMode = _coordinator.PhysicalGlyphSelection,
-            PluginSections = ProjectSections(declaredSections),
-            AutoTdpTarget = AutoTdpTargetRow(
+            PluginSections = CapabilityRowProjection.ProjectSections(declaredSections),
+            AutoTdpTarget = DeviceHostRows.AutoTdpTargetRow(
                 _coordinator.AutoTdpEnabled,
                 AutoTdpTargetView.Resolve(_coordinator.Profiles.Current.Layers, autoTdpAvailability))
         };
@@ -274,7 +271,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     public Task CycleControllerTargetAsync(CancellationToken cancellationToken = default)
     {
         return _coordinator.SetControllerTargetAsync(
-            NextTarget(
+            DeviceHostRows.NextTarget(
                 _coordinator.Controllers.Snapshot().Target,
                 _coordinator.Controllers.SupportedTargets),
             cancellationToken);
@@ -398,380 +395,6 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
-    private static CapabilityChoice HostChoice(string value, string label)
-    {
-        return new CapabilityChoice(value,
-            new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = label });
-    }
-
-    internal static DeviceOverlayCapability ProjectManualTdp(DeviceOverlayCapability capability, bool unified)
-    {
-        return !unified
-            ? capability
-            : capability.Role switch
-            {
-                CapabilityRole.PowerSustainedLimit => capability with { Title = "TDP" },
-                CapabilityRole.PowerSlowLimit => capability with { Writable = false, CanInvoke = false },
-                _ => capability
-            };
-    }
-
-    /// <summary>Projects controller management into the Controller and motion page's own row.</summary>
-    /// <param name="enabled">Whether management may run at all.</param>
-    /// <param name="status">The manager's truthful state.</param>
-    /// <returns>The row, or null when management is off and there is nothing to show.</returns>
-    /// <remarks>
-    ///     A direct row rather than a synthesized capability, like the AutoTDP and glyph rows: the target
-    ///     is WSGM's own setting, so routing it through the plugin capability dispatch would mean a
-    ///     second meaning for a capability id and a branch inside the one invoke path.
-    /// </remarks>
-    internal static DescriptorRow? ControllerView(
-        bool enabled,
-        ControllerManagerStatus status)
-    {
-        ArgumentNullException.ThrowIfNull(status);
-        if (!enabled)
-        {
-            // Off is a setting, not a fault, and the page has other rows. Saying nothing here is
-            // better than a permanently greyed control the user cannot act on from this page.
-            return null;
-        }
-
-        var health = status.State switch
-        {
-            ControllerManagementState.Active or ControllerManagementState.Native => DescriptorStatus.Available,
-            ControllerManagementState.Idle => DescriptorStatus.Stale,
-            ControllerManagementState.Faulted => DescriptorStatus.Warning,
-            ControllerManagementState.Unavailable => DescriptorStatus.Unsupported,
-            _ => DescriptorStatus.None
-        };
-        var trailing = status.Target is { } target ? TargetLabel(target) : "NONE";
-        var description = status.Detail;
-        if (string.IsNullOrWhiteSpace(description))
-        {
-            description = status.State switch
-            {
-                ControllerManagementState.Active => "A virtual controller is present and receiving input",
-                ControllerManagementState.Idle => "Ready · no virtual controller is present yet",
-                _ => "Present the physical controller as a chosen virtual one"
-            };
-        }
-
-        if (status.ApplicationId is { Length: > 0 })
-        {
-            // A game holds the target it launched with, so the row has to say that a change will not
-            // reach the running one. Without this the control looks broken.
-            description += " · restart the running game to change its target";
-        }
-
-        return new DescriptorRow(
-            DeviceHostRowIds.ControllerTarget,
-            "Controller target",
-            description,
-            trailing,
-            // Only when a change can actually take effect. Cycling into a target the backend cannot
-            // bring up would replace one broken state with another.
-            status.State is not ControllerManagementState.Unavailable,
-            health);
-    }
-
-    /// <summary>Builds the glyph preview from the resolved profile and the glyph service.</summary>
-    /// <param name="selection">The resolved physical-glyph selection.</param>
-    /// <param name="glyphs">The service that turns the profile's artwork into drawable geometry.</param>
-    /// <param name="inputTestAvailable">Whether physical input is reaching the surface.</param>
-    /// <returns>The preview, or null when no profile supplies anything to draw.</returns>
-    /// <remarks>
-    ///     Only controls the profile says are present are shown. A profile that declares a control
-    ///     absent is describing the hardware — an MSI Claw has no trackpads — so drawing a placeholder
-    ///     for it would contradict the thing the preview exists to confirm.
-    ///     <para>
-    ///         The service is asked with the <c>DeviceDescription</c> surface, which is authorized
-    ///         unconditionally, because this preview is a description of the device rather than a
-    ///         navigation hint or a Steam route: it has to render the plugin's artwork even when the active
-    ///         input source is not the managed handheld, which is exactly when someone is checking it.
-    ///     </para>
-    /// </remarks>
-    private static DeviceOverlayGlyphPreview? GlyphPreview(
-        PhysicalGlyphSelectionResult selection,
-        PhysicalGlyphPlans glyphs,
-        bool inputTestAvailable)
-    {
-        ArgumentNullException.ThrowIfNull(selection);
-        ArgumentNullException.ThrowIfNull(glyphs);
-        if (selection.Profile is not { } profile)
-        {
-            return null;
-        }
-
-        List<DeviceOverlayGlyphPreviewItem> items = [];
-        foreach (var mapping in profile.Manifest.Controls)
-        {
-            if (mapping.Presence is not GlyphControlPresence.Present)
-            {
-                continue;
-            }
-
-            var plan = glyphs.Resolve(
-                selection,
-                mapping.Control,
-                PhysicalGlyphSurface.DeviceDescription,
-                true);
-            if (!plan.UsesDeviceArtwork)
-            {
-                continue;
-            }
-
-            items.Add(new DeviceOverlayGlyphPreviewItem(
-                mapping.Control,
-                // The label printed on the device wins over the canonical name: the preview exists
-                // to be compared against the hardware in the user's hands.
-                string.IsNullOrWhiteSpace(mapping.PhysicalLabel)
-                    ? ControlLabel(mapping.Control)
-                    : mapping.PhysicalLabel,
-                plan));
-        }
-
-        if (items.Count == 0)
-        {
-            return null;
-        }
-
-        return new DeviceOverlayGlyphPreview(
-            profile.Manifest.DisplayName,
-            $"{items.Count} controls · revision {profile.Manifest.Revision} · source {Short(profile.Manifest.SourceRevision)}",
-            items,
-            inputTestAvailable);
-    }
-
-    /// <summary>Turns a canonical control id into a readable name.</summary>
-    /// <param name="control">The control.</param>
-    /// <returns>The name, with word boundaries restored.</returns>
-    /// <remarks>
-    ///     Derived from the enum rather than tabulated, so a control added to the SDK gets a sensible
-    ///     name here without a second list to forget to update. A profile that prints its own label on
-    ///     the device overrides this anyway.
-    /// </remarks>
-    private static string ControlLabel(GlyphControlId control)
-    {
-        var name = control.ToString();
-        StringBuilder text = new(name.Length + 4);
-        for (var index = 0; index < name.Length; index++)
-        {
-            var character = name[index];
-            if (index > 0 && char.IsUpper(character) && !char.IsUpper(name[index - 1]))
-            {
-                text.Append(' ');
-            }
-
-            text.Append(character);
-        }
-
-        return text.ToString();
-    }
-
-    private static string Short(string revision)
-    {
-        return revision.Length <= 12
-            ? revision
-            : revision[..12];
-    }
-
-    /// <summary>Projects the authored profile in force into its overlay row.</summary>
-    /// <param name="profiles">Profiles authored for this device.</param>
-    /// <param name="selectedProfileId">The profile currently chosen, or null for none.</param>
-    /// <param name="source">Which profile layer the choice came from.</param>
-    /// <returns>The row, or null when the device has no authored profiles at all.</returns>
-    /// <remarks>
-    ///     Null when nothing has been authored: profiles are created in Settings, and a row offering a
-    ///     choice between nothing would be an invitation to press a button that cannot do anything.
-    ///     <para>
-    ///         The scope is in the description rather than implied, because a profile chosen for one game
-    ///         and the same profile chosen for everything read identically otherwise — and the difference is
-    ///         what the user changes when they open this row mid-game.
-    ///     </para>
-    /// </remarks>
-    internal static DescriptorRow? AuthoredProfileView(
-        IReadOnlyList<DeviceAuthoredProfile> profiles,
-        string? selectedProfileId,
-        ProfileSource source)
-    {
-        ArgumentNullException.ThrowIfNull(profiles);
-        if (profiles.Count == 0)
-        {
-            return null;
-        }
-
-        var display = profiles[0].CapabilityId switch
-        {
-            CapabilityIds.FanCurve => new CapabilityDisplay { Key = DisplayKey.FanCurve },
-            CapabilityIds.LightingColor => new CapabilityDisplay { Key = DisplayKey.Lighting },
-            _ => new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Device profile" }
-        };
-        var label = CapabilityDisplayLabels.For(display, "Device profile");
-
-        var selected = selectedProfileId is { Length: > 0 }
-            ? profiles.FirstOrDefault(profile => string.Equals(
-                profile.ProfileId,
-                selectedProfileId,
-                StringComparison.Ordinal))
-            : null;
-
-        if (selectedProfileId is { Length: > 0 } && selected is null)
-        {
-            // The stored choice names a profile that no longer exists. Said plainly rather than
-            // shown as "none", because none is a state the user chose and this is not.
-            return new DescriptorRow(
-                DeviceHostRowIds.AuthoredProfile,
-                label,
-                // Cyclable on purpose: pressing it moves to a profile that does exist, which is the
-                // fastest way out of the state for a user who is mid-game.
-                "The selected profile was deleted · press to choose another",
-                "MISSING",
-                true,
-                DescriptorStatus.Warning);
-        }
-
-        var scope = selected is null
-            ? $"{profiles.Count} authored · none selected"
-            : source is ProfileSource.Game
-                ? $"1 of {profiles.Count} · this game's override"
-                : $"1 of {profiles.Count} · from Global";
-
-        return new DescriptorRow(
-            DeviceHostRowIds.AuthoredProfile,
-            label,
-            scope,
-            selected is null ? "NONE" : selected.Name.ToUpperInvariant(),
-            true,
-            selected is null ? DescriptorStatus.None : DescriptorStatus.Available);
-    }
-
-    internal static DescriptorRow LightingProfileView(IReadOnlyList<DeviceAuthoredProfile> profiles,
-        Resolved<string?> selected, string? detail, DescriptorStatus status)
-    {
-        var row = AuthoredProfileView(profiles, selected.Value, selected.Source)
-                  ?? new DescriptorRow(DeviceHostRowIds.LightingProfile, "Lighting profile",
-                      "Create a color profile in Settings, Device profiles.", "NONE", false);
-        return row with
-        {
-            Id = DeviceHostRowIds.LightingProfile,
-            Title = "Lighting profile",
-            Description = detail is null ? row.Description : row.Description + " · " + detail,
-            Status = status == DescriptorStatus.None ? row.Status : status,
-            OverrideId = selected.IsGameOverride ? nameof(ProfileField.LightingProfile) : null
-        };
-    }
-
-    /// <summary>Projects the device cycle's recoverable state into the Diagnostics page's own row.</summary>
-    /// <param name="state">The current cycle state.</param>
-    /// <returns>The row, or null when the cycle is healthy and there is nothing to recover.</returns>
-    /// <remarks>
-    ///     Absent when healthy. A recovery control that is always present but almost always inert trains
-    ///     a user to ignore it, which is the opposite of what it is for.
-    /// </remarks>
-    internal static DescriptorRow? RecoveryView(DeviceCycleState state)
-    {
-        if (state is not DeviceCycleState.Faulted)
-        {
-            return null;
-        }
-
-        return new DescriptorRow(
-            DeviceHostRowIds.Retry,
-            "Retry device integration",
-            $"{LifecycleLabel(state)} · starts one manual recovery attempt",
-            "READY",
-            true,
-            DescriptorStatus.Warning);
-    }
-
-    private static string TargetLabel(ManagedControllerTarget target)
-    {
-        return target switch
-        {
-            ManagedControllerTarget.SteamDeckComposite => "DECK",
-            ManagedControllerTarget.Xbox360 => "XBOX",
-            ManagedControllerTarget.DualShock4 => "DS4",
-            _ => "NONE"
-        };
-    }
-
-    /// <summary>Projects AutoTDP's switch and live state into one row.</summary>
-    /// <param name="enabled">The persisted setting.</param>
-    /// <param name="status">Live state, or null when the service is not running.</param>
-    /// <param name="availability">The service's authoritative admission state.</param>
-    /// <returns>The row.</returns>
-    /// <remarks>
-    ///     The row reports what AutoTDP is actually doing, not merely that it is switched on. A user who
-    ///     turned it on and sees nothing happening needs to know whether it is waiting for a game, held
-    ///     by a manual power change, or unable to find a power limit at all.
-    /// </remarks>
-    internal static DescriptorRow AutoTdpView(
-        bool enabled, AutoTdpStatus? status, AutoTdpAvailability? availability = null)
-    {
-        if (availability is { Available: false })
-        {
-            return new DescriptorRow(DeviceHostRowIds.AutoTdp, "AutoTDP", availability.Detail, "OFF",
-                false, DescriptorStatus.Unsupported);
-        }
-
-        if (!enabled)
-        {
-            return new DescriptorRow(
-                DeviceHostRowIds.AutoTdp,
-                "AutoTDP",
-                "Move the power limit from measured frame delivery",
-                "OFF",
-                true);
-        }
-
-        var detail = status is null ? "Starting." : AutoTdpReason.Describe(status.Detail);
-        var trailing = status?.Watts is { } watts
-            ? watts.ToString(CultureInfo.InvariantCulture) + " W"
-            : "ON";
-        var health = status?.State switch
-        {
-            AutoTdpState.Controlling => DescriptorStatus.Available,
-            AutoTdpState.Paused => DescriptorStatus.Warning,
-            AutoTdpState.Unavailable => DescriptorStatus.Unsupported,
-            AutoTdpState.Idle => DescriptorStatus.Stale,
-            _ => DescriptorStatus.None
-        };
-        if (status is { FrametimeMs: { } frametime, TargetFrametimeMs: { } target })
-        {
-            // Invariant, like the watts above it. The surrounding sentence is English, and a row
-            // that mixed a comma decimal separator with a full stop in one line would read as a
-            // formatting bug rather than as localisation.
-            detail = string.Create(
-                CultureInfo.InvariantCulture,
-                $"{frametime:F1} ms against a {target:F1} ms deadline · {detail}");
-        }
-
-        return new DescriptorRow(DeviceHostRowIds.AutoTdp, "AutoTDP", detail, trailing, true, health);
-    }
-
-    /// <summary>Projects AutoTDP's frame-rate target as the slider under its switch.</summary>
-    /// <param name="enabled">The persisted AutoTDP setting.</param>
-    /// <param name="target">The resolved target.</param>
-    /// <returns>The row while AutoTDP is on, else null: the target means nothing without control.</returns>
-    /// <remarks>
-    ///     Its own profile value, so AutoTDP runs without a frame limit. The Quick Access slider is fed the
-    ///     same <see cref="AutoTdpTargetView" />, so both draw the same value, bounds, marker and line.
-    /// </remarks>
-    internal static DescriptorRow? AutoTdpTargetRow(bool enabled, AutoTdpTargetView target)
-    {
-        ArgumentNullException.ThrowIfNull(target);
-        return enabled
-            ? new DescriptorRow(DeviceHostRowIds.AutoTdpTarget, "Target frame rate", target.Description,
-                string.Create(CultureInfo.InvariantCulture, $"{target.Fps} FPS"), true, DescriptorStatus.Available)
-            {
-                Range = new DescriptorRange(AutoTdpTarget.MinimumFps, AutoTdpTarget.MaximumFps, 1),
-                Value = target.Fps,
-                OverrideId = target.GameOverride ? nameof(ProfileField.AutoTdpTarget) : null
-            }
-            : null;
-    }
-
     private void ReleasePhysicalSamples()
     {
         lock (_sampleGate)
@@ -811,41 +434,6 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         }
     }
 
-    /// <summary>The next target in the cycle order.</summary>
-    /// <param name="current">The target in effect, or null when none is.</param>
-    /// <param name="supported">
-    ///     Targets the backend can build. An empty list means nothing has been discovered yet and the
-    ///     full order is used, which is also the order the tests pin.
-    /// </param>
-    /// <returns>The target the row moves to.</returns>
-    /// <remarks>
-    ///     Steam Deck first from nothing, because it is the target that carries every control the
-    ///     canonical model defines; the other two exist for compatibility with software that does not
-    ///     understand it. Unsupported targets are skipped rather than offered: selecting one persists a
-    ///     target the backend then refuses to create, which leaves controller management unavailable.
-    /// </remarks>
-    internal static ManagedControllerTarget NextTarget(
-        ManagedControllerTarget? current,
-        IReadOnlyList<ManagedControllerTarget>? supported = null)
-    {
-        ManagedControllerTarget[] order =
-        [
-            ManagedControllerTarget.SteamDeckComposite,
-            ManagedControllerTarget.Xbox360,
-            ManagedControllerTarget.DualShock4
-        ];
-        var offered = supported is { Count: > 0 }
-            ? [.. order.Where(supported.Contains)]
-            : order;
-        if (offered.Length == 0)
-        {
-            return current ?? ManagedControllerTarget.SteamDeckComposite;
-        }
-
-        var index = current is { } target ? Array.IndexOf(offered, target) : -1;
-        return offered[(index + 1) % offered.Length];
-    }
-
     private void OnStateChanged(DeviceCycleState _)
     {
         PhysicalInputReset?.Invoke();
@@ -878,452 +466,6 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     private void OnProfilesChanged(ProfileSnapshot snapshot, ProfileChangeKind kind)
     {
         Changed?.Invoke();
-    }
-
-    internal static DeviceOverlayCapability ToOverlayCapability(
-        DeviceCapabilityView view,
-        IReadOnlySet<string> declaredSections,
-        ProfileLayers? layers = null,
-        FanCurvePresetTable? presets = null)
-    {
-        var descriptor = view.Descriptor;
-        var projection = view.Projection;
-        var state = projection.State;
-        var table = presets ?? FanCurvePresetTable.HandheldCompanion;
-        var displayed = projection.PendingValue
-                        ?? state.ObservedValue
-                        ?? projection.DesiredValue;
-        if (descriptor is { ValueKind: CapabilityValueKind.Curve, SupportsWrite: true }
-            && descriptor.CurveInputs.Count > 0
-            && displayed?.CurveValue is not { Count: > 0 })
-        {
-            // An editor draft is not an observed firmware setting. Use the device's Default preset until Apply.
-            displayed = CapabilityValue.Curve(descriptor.CurveInputs
-                .Select(input => new CurvePoint(input, Math.Clamp(
-                    FanCurvePresets.DutyAt(table, FanCurvePreset.Default, input),
-                    descriptor.Minimum ?? 0, descriptor.Maximum ?? 100))).ToArray());
-        }
-        var actionOnlyReady = state is { Available: true, Reason: null, Quality: HardwareStateQuality.Unknown }
-                              && descriptor is { SupportsAction: true, SupportsRead: false };
-        var current = DeviceCapabilityRouter.CanCommand(state);
-        var next = NextValue(descriptor, displayed);
-        // A color that was never read back still opens its editor, starting from white.
-        var colorWrite = descriptor.ValueKind is CapabilityValueKind.Color;
-        var curveWrite = descriptor.ValueKind is CapabilityValueKind.Curve
-                         && displayed?.CurveValue is { Count: > 0 };
-        var canInvoke = current
-                        && (descriptor.SupportsAction
-                            || (descriptor.SupportsWrite && (next is not null || colorWrite || curveWrite)));
-        var description = projection.Progress switch
-        {
-            CommandProgress.Pending => "Applying requested value…",
-            CommandProgress.Uncertain => "Last request did not report back",
-            CommandProgress.Failed => view.LastResult?.Reason?.Detail ?? "Last request failed",
-            _ when projection.DesiredValueOutOfRange =>
-                "Saved value is outside the current firmware range",
-            _ when state.Reason is not null => state.Reason.Detail,
-            _ when descriptor.CapabilityId == "processor.reset" =>
-                "Clears processor tuning for this device in Global and every game. Restores supported values; a Windows restart may be needed for firmware defaults.",
-            _ when actionOnlyReady => "Ready",
-            // A healthy value has nothing to explain; the row shows it without a caption.
-            _ when state.Quality is HardwareStateQuality.Verified or HardwareStateQuality.Observed => string.Empty,
-            _ => $"{QualityLabel(state.Quality)} · {PersistenceLabel(descriptor.Persistence)}"
-        } ?? "Capability state is unavailable.";
-        return new DeviceOverlayCapability(
-            descriptor.CapabilityId,
-            descriptor.InstanceId,
-            SectionFor(descriptor.Role),
-            StatusFor(projection),
-            CapabilityDisplayLabels.For(descriptor.Display, "Device control"),
-            description,
-            descriptor.SupportsAction ? "RUN" : FormatValue(displayed, descriptor),
-            canInvoke,
-            displayed,
-            descriptor.SupportsAction ? null : next)
-        {
-            Role = descriptor.Role,
-            PluginSectionId = descriptor.SectionId is { } sectionId
-                              && declaredSections.Contains(sectionId)
-                ? sectionId
-                : null,
-            CategoryId = descriptor.SectionId is { } declared
-                         && declaredSections.Contains(declared)
-                ? descriptor.CategoryId
-                : null,
-            SortOrder = descriptor.SortOrder,
-            OverrideId = OverrideIdFor(view, layers),
-            Prominence = descriptor.Prominence,
-            LayoutPair = descriptor.LayoutPair,
-            ValueKind = descriptor.ValueKind,
-            Writable = descriptor.SupportsWrite,
-            SupportsAction = descriptor.SupportsAction,
-            Minimum = descriptor.Minimum,
-            Maximum = descriptor.Maximum,
-            Step = descriptor.Step,
-            Unit = descriptor.Unit,
-            Choices = descriptor.Choices,
-            CurveInputs = descriptor.CurveInputs,
-            MaximumLength = descriptor.MaximumLength,
-            Presets = descriptor.Role == CapabilityRole.FanCurve ? table : null
-        };
-    }
-
-    /// <summary>The setting id while the running game's own profile supplies a capability's value.</summary>
-    /// <remarks>
-    ///     The sustained limit and variable refresh are stored as typed profile values rather than
-    ///     device values, so their source is read from those; everything else from the desired value.
-    /// </remarks>
-    /// <param name="view">Capability with its effective desired-value source.</param>
-    /// <param name="layers">Current profile layers for typed power/refresh values, or null when unavailable.</param>
-    /// <returns>The setting identifier whose game override can be cleared, or null when no game override supplies it.</returns>
-    internal static string? OverrideIdFor(DeviceCapabilityView view, ProfileLayers? layers)
-    {
-        return view.Descriptor.Role switch
-        {
-            CapabilityRole.PowerSustainedLimit => layers is { } resolved
-                ? CapabilityProjection.OverrideId(resolved, resolved.PowerTargetKey)
-                : null,
-            CapabilityRole.VariableRefreshRate => CapabilityProjection.OverrideId(layers,
-                new ProfileSettingKey(ProfileField.VariableRefreshRate)),
-            CapabilityRole.LightingZoneColor when
-                layers?.Reference(values => values.LightingProfileId).IsGameOverride == true =>
-                nameof(ProfileField.LightingProfile),
-            _ => CapabilityProjection.DeviceOverrideId(view)
-        };
-    }
-
-    internal static DescriptorRow PhysicalGlyphSelectionView(
-        DeviceGlyphSelection mode,
-        PhysicalGlyphSelectionResult selection)
-    {
-        var trailing = mode switch
-        {
-            DeviceGlyphSelection.Automatic => "AUTO",
-            DeviceGlyphSelection.NativeSteam => "STEAM",
-            DeviceGlyphSelection.ManualReviewedProfile => "REVIEWED",
-            _ => "AUTO"
-        };
-        string description;
-        DescriptorStatus status;
-        if (selection.Profile is { } profile)
-        {
-            description = $"{profile.Manifest.DisplayName} · revision {profile.Manifest.Revision} · "
-                          + $"source {profile.Manifest.SourceRevision}"
-                          + (selection.FellBackFromMissingManualProfile
-                              ? " · selected reviewed profile is missing; Automatic fallback"
-                              : string.Empty);
-            status = selection.FellBackFromMissingManualProfile
-                ? DescriptorStatus.Warning
-                : DescriptorStatus.Available;
-        }
-        else if (selection.FallbackReason is PhysicalGlyphFallbackReason.NativeSteamSelected)
-        {
-            description = "Steam and generic first-party glyphs remain unchanged.";
-            status = DescriptorStatus.Available;
-        }
-        else
-        {
-            description = selection.FallbackReason switch
-            {
-                PhysicalGlyphFallbackReason.DeviceIntegrationDisabled =>
-                    "Device integration is off; generic glyphs remain active.",
-                PhysicalGlyphFallbackReason.ExactDeviceMismatch =>
-                    "The package profile does not match this exact device; generic glyphs remain active.",
-                _ => "No reviewed physical profile is available; generic glyphs remain active."
-            };
-            status = DescriptorStatus.Warning;
-        }
-
-        return new DescriptorRow(
-            DeviceHostRowIds.GlyphSelection,
-            "Physical glyphs",
-            description,
-            trailing,
-            true,
-            status);
-    }
-
-    /// <summary>Projects the declared overlay sections for presentation, in declared order.</summary>
-    /// <param name="sections">Publisher sections, augmented by the predefined sections needed for host presentation.</param>
-    /// <returns>Sections and categories in sort order with declaration order breaking ties.</returns>
-    internal static IReadOnlyList<DeviceOverlayPluginSection> ProjectSections(
-        IReadOnlyList<CapabilitySection> sections)
-    {
-        return
-        [
-            .. DeviceSectionLayout.IncludePredefined(sections)
-                .Select((section, index) => (Section: section, Index: index))
-                .OrderBy(item => item.Section.SortOrder)
-                .ThenBy(item => item.Index)
-                .Select(item => new DeviceOverlayPluginSection(
-                    item.Section.SectionId,
-                    item.Section.SectionId switch
-                    {
-                        DeviceSections.RgbId => "RGB",
-                        DeviceSections.InfoId => "Info",
-                        _ => SectionTitle(item.Section.Key, item.Section.CustomTitle)
-                    },
-                    item.Section.CustomDescription ?? SectionDescription(item.Section.Key),
-                    item.Section.Icon,
-                    [
-                        .. item.Section.Categories
-                            .Select((category, categoryIndex) => (Category: category, Index: categoryIndex))
-                            .OrderBy(entry => entry.Category.SortOrder)
-                            .ThenBy(entry => entry.Index)
-                            .Select(entry => new DeviceOverlayCategory(
-                                entry.Category.CategoryId,
-                                SectionTitle(entry.Category.Key, entry.Category.CustomTitle)))
-                    ])
-                {
-                    Key = item.Section.Key
-                })
-        ];
-    }
-
-    /// <summary>The WSGM-owned title behind a section key; custom text is bounded plugin text.</summary>
-    private static string SectionTitle(SettingSectionKey key, string? custom)
-    {
-        return key switch
-        {
-            SettingSectionKey.Custom => custom ?? "Device",
-            SettingSectionKey.General => "General",
-            SettingSectionKey.Power => "Power",
-            SettingSectionKey.Fans => "Fans",
-            SettingSectionKey.Lighting => "Lighting",
-            SettingSectionKey.Controller => "Controller",
-            SettingSectionKey.Display => "Display",
-            SettingSectionKey.Advanced => "Advanced",
-            SettingSectionKey.Diagnostics => "Diagnostics",
-            _ => key.ToString()
-        };
-    }
-
-    /// <summary>WSGM's own card description for a keyed section that supplies none.</summary>
-    private static string SectionDescription(SettingSectionKey key)
-    {
-        return key switch
-        {
-            SettingSectionKey.Power => "Power and performance controls",
-            SettingSectionKey.Fans => "Cooling control and readings",
-            SettingSectionKey.Lighting => "Device lighting",
-            SettingSectionKey.Controller => "Controller, motion, and rumble",
-            SettingSectionKey.Display => "Display features",
-            SettingSectionKey.Diagnostics => "Health and readings",
-            _ => "Device controls"
-        };
-    }
-
-    private static DeviceOverlaySection SectionFor(CapabilityRole role)
-    {
-        return role switch
-        {
-            CapabilityRole.ScenarioMode => DeviceOverlaySection.Overview,
-            CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit
-                or CapabilityRole.PowerFastLimit or CapabilityRole.PowerPeakLimit
-                or CapabilityRole.FanMode or CapabilityRole.FanDuty
-                or CapabilityRole.FanTargetRpm or CapabilityRole.FanCurve
-                or CapabilityRole.FanMeasuredRpm or CapabilityRole.ChargeLimit
-                or CapabilityRole.ChargeProtectionMode or CapabilityRole.ChargeBypass
-                or CapabilityRole.Telemetry
-                // Variable refresh sits with the frame limit and power controls it interacts with,
-                // not among the lighting oddments, because that is where a user goes to change how the
-                // device performs.
-                or CapabilityRole.VariableRefreshRate => DeviceOverlaySection.PowerAndThermals,
-            CapabilityRole.ControllerSource or CapabilityRole.MotionSource
-                or CapabilityRole.HapticSink => DeviceOverlaySection.ControllerAndMotion,
-            CapabilityRole.OemControl => DeviceOverlaySection.Oem,
-            CapabilityRole.LightingPower or CapabilityRole.LightingBrightness
-                or CapabilityRole.LightingZoneColor or CapabilityRole.LightingEffect
-                or CapabilityRole.LightingEffectSpeed
-                or CapabilityRole.GenericToggle or CapabilityRole.GenericRange
-                or CapabilityRole.GenericChoice or CapabilityRole.GenericAction
-                or CapabilityRole.GenericText
-                => DeviceOverlaySection.LightingAndFeatures,
-            // A read-only value is something to consult, not to set, so it belongs with the rest of the
-            // diagnostics rather than among the controls a user came to change.
-            CapabilityRole.GenericReadOnly => DeviceOverlaySection.Diagnostics,
-            _ => DeviceOverlaySection.Overview
-        };
-    }
-
-    private static DescriptorStatus StatusFor(CapabilityProjection projection)
-    {
-        if (projection.Progress is CommandProgress.Pending)
-        {
-            return DescriptorStatus.Progress;
-        }
-
-        if (projection.Progress is CommandProgress.Failed
-            || projection.State.Quality is HardwareStateQuality.Faulted
-            || projection.State.Reason?.Code is CapabilityReasonCode.TransportFaulted)
-        {
-            return DescriptorStatus.Faulted;
-        }
-
-        if (projection.Progress is CommandProgress.Uncertain || projection.DesiredValueOutOfRange)
-        {
-            return DescriptorStatus.Warning;
-        }
-
-        if (projection.State.Quality is HardwareStateQuality.Stale
-            || projection.State.Reason?.Code is CapabilityReasonCode.ObservationExpired)
-        {
-            return DescriptorStatus.Stale;
-        }
-
-        return projection.State.Reason?.Code switch
-        {
-            CapabilityReasonCode.ResourceConflict or CapabilityReasonCode.ResourceReleased =>
-                DescriptorStatus.ExternallyOwned,
-            CapabilityReasonCode.Unsupported
-                or CapabilityReasonCode.FirmwareNotVerified
-                or CapabilityReasonCode.PrerequisiteMissing => DescriptorStatus.Unsupported,
-            _ => projection.State.Available
-                ? DescriptorStatus.Available
-                : DescriptorStatus.Warning
-        };
-    }
-
-    private static CapabilityValue? NextValue(
-        CapabilityDescriptor descriptor,
-        CapabilityValue? current)
-    {
-        return descriptor.ValueKind switch
-        {
-            CapabilityValueKind.Boolean => new CapabilityValue
-            {
-                Kind = CapabilityValueKind.Boolean,
-                BooleanValue = !(current?.BooleanValue ?? false)
-            },
-            CapabilityValueKind.Integer when descriptor is
-            {
-                Minimum: { } minimum,
-                Maximum: { } maximum,
-                Step: { } step and > 0
-            } => new CapabilityValue
-            {
-                Kind = CapabilityValueKind.Integer,
-                IntegerValue = current?.IntegerValue is { } value && value + step <= maximum
-                    ? value + step
-                    : minimum
-            },
-            CapabilityValueKind.Choice when descriptor.Choices.Count > 0 => new CapabilityValue
-            {
-                Kind = CapabilityValueKind.Choice,
-                ChoiceValue = NextChoice(descriptor, current?.ChoiceValue)
-            },
-            _ => null
-        };
-    }
-
-    private static string NextChoice(CapabilityDescriptor descriptor, string? current)
-    {
-        var index = descriptor.Choices.ToList().FindIndex(choice => string.Equals(
-            choice.Value,
-            current,
-            StringComparison.Ordinal));
-        return descriptor.Choices[(index + 1) % descriptor.Choices.Count].Value;
-    }
-
-    private static string FormatValue(CapabilityValue? value, CapabilityDescriptor descriptor)
-    {
-        if (value is null)
-        {
-            return "—";
-        }
-
-        var unit = descriptor.Unit;
-
-        return value.Kind switch
-        {
-            CapabilityValueKind.Boolean => value.BooleanValue is true ? "ON" : "OFF",
-            CapabilityValueKind.Integer => value.IntegerValue is { } integer
-                ? $"{integer.ToString(CultureInfo.CurrentCulture)}{UnitSuffix(unit)}"
-                : "—",
-            CapabilityValueKind.Choice => ChoiceLabel(value.ChoiceValue, descriptor),
-            CapabilityValueKind.Color => value.ColorValue is { } color
-                ? $"#{color:X6}"
-                : "—",
-            CapabilityValueKind.Curve => value.CurveValue.Count > 0
-                ? $"{value.CurveValue.Count} points"
-                : "—",
-            _ => "RUN"
-        };
-    }
-
-    /// <summary>The published label of a choice, so a reading shows what the plugin named it, not its id.</summary>
-    private static string ChoiceLabel(string? value, CapabilityDescriptor descriptor)
-    {
-        if (value is null)
-        {
-            return "—";
-        }
-
-        foreach (var choice in descriptor.Choices)
-        {
-            if (string.Equals(choice.Value, value, StringComparison.Ordinal))
-            {
-                return CapabilityDisplayLabels.For(choice.Display, value);
-            }
-        }
-
-        return value;
-    }
-
-    /// <summary>What follows a value in a unit, with its leading space where one belongs.</summary>
-    /// <param name="unit">Declared measurement unit.</param>
-    /// <returns>A formatted suffix with spacing, or empty for units without a supported textual suffix.</returns>
-    internal static string UnitSuffix(CapabilityUnit unit)
-    {
-        return unit switch
-        {
-            CapabilityUnit.Watt => " W",
-            CapabilityUnit.Percent => "%",
-            CapabilityUnit.Celsius => " °C",
-            CapabilityUnit.Rpm => " RPM",
-            CapabilityUnit.Milliampere => " mA",
-            CapabilityUnit.Millivolt => " mV",
-            CapabilityUnit.Megahertz => " MHz",
-            CapabilityUnit.Millisecond => " ms",
-            _ => string.Empty
-        };
-    }
-
-    private static string LifecycleLabel(DeviceCycleState state)
-    {
-        return state switch
-        {
-            DeviceCycleState.Disabled => "Device integration off",
-            DeviceCycleState.Detected => "Device detected",
-            DeviceCycleState.Passive => "Device passive",
-            DeviceCycleState.Activating => "Device activating",
-            DeviceCycleState.Active => "Device active",
-            DeviceCycleState.Degraded => "Device partly available",
-            DeviceCycleState.Suspended => "Device suspended",
-            DeviceCycleState.Deactivating => "Device deactivating",
-            DeviceCycleState.Faulted => "Device faulted",
-            _ => state.ToString()
-        };
-    }
-
-    private static string QualityLabel(HardwareStateQuality quality)
-    {
-        return quality switch
-        {
-            HardwareStateQuality.Stale => "Stale",
-            HardwareStateQuality.Faulted => "Faulted",
-            _ => "Ready"
-        };
-    }
-
-    private static string PersistenceLabel(CapabilityPersistence persistence)
-    {
-        return persistence switch
-        {
-            CapabilityPersistence.Volatile => "resets on device power loss",
-            CapabilityPersistence.DevicePersistent => "stored on device",
-            _ => "persistence unknown"
-        };
     }
 
     /// <summary>One observer's claim on the physical sample stream.</summary>

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using WindowsDeviceControl;
 
 namespace WSGM.Shell;
@@ -23,50 +22,6 @@ internal sealed record AudioDiscovery(
 {
     /// <summary>Nothing observed, which is what a machine without Core Audio offers.</summary>
     internal static AudioDiscovery Empty { get; } = new([], [], null, null, null);
-
-    /// <summary>Reads Windows' endpoints and the selected or current default playback endpoint's capabilities.</summary>
-    /// <param name="endpointId">The selected endpoint, or null to inspect the current default without selecting it.</param>
-    /// <returns>The observation. Every call here is a blocking Core Audio read.</returns>
-    internal static AudioDiscovery Read(string? endpointId)
-    {
-        if (!OperatingSystem.IsWindows())
-        {
-            return Empty;
-        }
-
-        var outputRead = CoreAudio.ListEndpoints(CoreAudio.AudioDirection.Render, out var playback);
-        var outputs = outputRead >= 0 ? Options(playback) : [];
-        var inputs = Endpoints(CoreAudio.AudioDirection.Capture);
-        endpointId ??= playback.FirstOrDefault(endpoint => endpoint.IsDefault).Id;
-        if (endpointId is null)
-        {
-            return new AudioDiscovery(outputs, inputs, null, null, null);
-        }
-
-        var formats = CoreAudio.ListSupportedDeviceFormats(endpointId, out var supported) >= 0
-            ? supported
-            : null;
-        var spatial = CoreAudio.GetSpatialAudio(endpointId, out var state) >= 0
-            ? state.SupportedFormats
-            : null;
-        return new AudioDiscovery(outputs, inputs, endpointId, formats, spatial);
-    }
-
-    private static IReadOnlyList<AudioEndpointOption> Endpoints(CoreAudio.AudioDirection direction)
-    {
-        return CoreAudio.ListEndpoints(direction, out var endpoints) >= 0
-            ? Options(endpoints)
-            : [];
-    }
-
-    private static IReadOnlyList<AudioEndpointOption> Options(IReadOnlyList<CoreAudio.AudioEndpoint> endpoints)
-    {
-        return
-        [
-            .. endpoints.Select(static endpoint =>
-                new AudioEndpointOption(endpoint.Id, AudioEndpointText.Name(endpoint)))
-        ];
-    }
 }
 
 /// <summary>Display names for the spatial-audio formats Windows reports.</summary>

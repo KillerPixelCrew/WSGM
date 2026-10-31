@@ -431,16 +431,18 @@ against index shift. There is no shift.
 
 ### Card swaps are reconciled on the volume notification, not by polling
 
-`Shell\CardVolumeMonitor.cs` subscribes with `RegisterDeviceNotification` to
-`GUID_DEVINTERFACE_VOLUME` on the process message-only window. Two alternatives are wrong: the
+`Shell\RemovableDriveManager.cs` is the one owner that subscribes with `RegisterDeviceNotification`
+to `GUID_DEVINTERFACE_VOLUME` on the process message-only window. Two alternatives are wrong: the
 broadcast `DBT_DEVTYP_VOLUME` message goes only to top-level windows, so a `HWND_MESSAGE` window
 never receives it; WMI (`Win32_DiskDrive` plus a model string) matches one reader only and gives no
 volume-arrival identity.
 
-The notification arrives before the volume is mounted and lettered, so the reaction settles 3 s and
-rescans all drives rather than resolving the reported device path. The decision compares the card's
-own `contentid` (the identity that travels with the card) against the ids registered for that path
-in `libraryfolders.vdf`; Steam's live folder API exposes no content id, so the file is the source.
+The notification arrives before the volume is mounted and lettered, so the drive manager settles 3 s
+and reads all storage once rather than resolving the reported device path. When that read changes
+the volumes or disks it raises `TopologyChanged`; `Shell\CardVolumeMonitor.cs`, the manifest watcher
+and the format list all react to it and scan that same read. The decision compares the card's own
+`contentid` (the identity that travels with the card) against the ids registered for that path in
+`libraryfolders.vdf`; Steam's live folder API exposes no content id, so the file is the source.
 Reconciliation is gated on the CEF master switch and off in `--overlay-test`, and on nothing else.
 It used to be a game-mode service as well, which left Big Picture on the desktop showing a library
 whose card had been pulled (Claw, 2026-09-11): Steam's storage pages are revived whenever the bridge

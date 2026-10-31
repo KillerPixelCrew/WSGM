@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
@@ -12,26 +11,15 @@ using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Shell;
 
-/// <summary>Owns boot-movie browsing, installed content and selection for Steam and the overlay.</summary>
+/// <summary>Owns the boot-movie catalog, installed content and selection for Steam and the overlay.</summary>
 /// <remarks>
 ///     Selection is stored separately from content; an empty choice restores Steam's movie. While a WSGM
 ///     movie is selected, Steam's own startup-movie choice is saved and temporarily cleared after readiness.
 ///     Override changes take effect on the next Steam start because Steam caches the lookup per document.
+///     Each surface's tab, sort, search and detail belong to its <see cref="AnimationBrowseSession" />.
 /// </remarks>
-internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, IChangeSource, IExtensionsTabSection
+internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, IChangeSource
 {
-    /// <summary>The section's item id.</summary>
-    internal const string ExtensionsId = "wsgm.animations";
-
-    /// <summary>The action that opens the Browse tab.</summary>
-    internal const string ExtensionsBrowseId = "wsgm.animations.browse";
-
-    /// <summary>The action that opens the Library tab.</summary>
-    internal const string ExtensionsManageId = "wsgm.animations.manage";
-
-    /// <summary>The action that picks the boot movie anew.</summary>
-    internal const string ExtensionsShuffleId = "wsgm.animations.shuffle";
-
     /// <summary>What the choice that puts Big Picture back on Steam's own movie is called.</summary>
     internal const string StockLabel = "Steam's own";
 
@@ -67,14 +55,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     // repository reads, movie downloads and copies, reloads and Steam choice work. The session joins them.
     private readonly ServiceOperation _operation;
     private readonly Action<Action<AnimationsConfig>> _writeConfig;
-    private string _activeTab = "browse";
-    private IReadOnlyList<SteamAnimationsItem>? _browseItems;
-    private IReadOnlyList<AnimationListing>? _browseOrder;
-    private string _browseSearch = string.Empty;
-    private int _browseShown = BrowsePage;
-    private string _browseSort = SteamAnimationsSurface.Sorts[0].Id;
     private AnimationsConfig _config;
-    private string? _detailId;
     private bool _disposed;
     private IReadOnlyList<AnimationListing>? _repo;
     private string? _repoError;
@@ -124,6 +105,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     /// <summary>The revision of the state <see cref="ReadState" /> answers.</summary>
     internal long Revision => Interlocked.Read(ref _revision);
 
+    /// <summary>The repository's listings, the same instance until a fetch replaces them; empty before one.</summary>
     internal IReadOnlyList<AnimationListing> Catalog
     {
         get
@@ -157,152 +139,6 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     }
 
     /// <inheritdoc />
-    public string SectionId => ExtensionsId;
-
-    /// <summary>The Quick Access section: the boot choice, the shuffle, and the way to the page.</summary>
-    /// <returns>The item.</returns>
-    public SteamExtensionsTabItem ReadExtensionsItem()
-    {
-        lock (_sync)
-        {
-            var entries = _library.Entries;
-            var detail = entries.Count == 0 ? "No movies yet" : $"{entries.Count} in the library";
-            if (_restartNeeded)
-            {
-                detail += " · Restart Steam to see the change";
-            }
-
-            return new SteamExtensionsTabItem(
-                ExtensionsId,
-                "Boot animation",
-                string.Empty,
-                _operation.Busy ? "Working…" : "Ready",
-                detail,
-                [
-                    new SteamExtensionsTabAction(ExtensionsBrowseId, "Browse movies…"),
-                    new SteamExtensionsTabAction(ExtensionsManageId, "Library…"),
-                    new SteamExtensionsTabAction(ExtensionsShuffleId, "Shuffle")
-                ],
-                [
-                    new SteamExtensionsTabSetting("boot", "Boot movie", "text", TextValue: SelectedLocked(),
-                        Choices: [string.Empty, .. entries.Select(entry => entry.Id)],
-                        ChoiceLabels: [StockLabel, .. entries.Select(entry => entry.Name)]),
-                    new SteamExtensionsTabSetting("shuffleOnStart", "Shuffle on start", "boolean",
-                        _config.ShuffleOnStart,
-                        Description: "Picks the boot movie anew from the library each time WSGM starts.")
-                ],
-                Revision);
-        }
-    }
-
-    /// <summary>Answers one of the section's actions.</summary>
-    /// <param name="id">The action id.</param>
-    /// <param name="cancellationToken">Cancels waiting.</param>
-    /// <returns>The result, carrying the page's route for the two that open it.</returns>
-    public async Task<SteamUiCommandResult> ActivateExtensionAsync(string id, CancellationToken cancellationToken)
-    {
-        switch (id)
-        {
-            case ExtensionsBrowseId:
-                await SetTabAsync("browse", cancellationToken).ConfigureAwait(false);
-                return SteamUiCommandResult.Route(SteamAnimationsSurface.Route);
-            case ExtensionsManageId:
-                await SetTabAsync("library", cancellationToken).ConfigureAwait(false);
-                return SteamUiCommandResult.Route(SteamAnimationsSurface.Route);
-            case ExtensionsShuffleId:
-                return await ShuffleAsync(cancellationToken).ConfigureAwait(false);
-            default:
-                return new SteamUiCommandResult(false, "That entry is no longer available.");
-        }
-    }
-
-    /// <summary>Applies one of the section's settings: the boot movie by library id, or the shuffle.</summary>
-    /// <param name="key">The setting's key.</param>
-    /// <param name="value">Its new value.</param>
-    /// <param name="cancellationToken">Cancels waiting.</param>
-    /// <returns>The result.</returns>
-    public Task<SteamUiCommandResult> ConfigureExtensionAsync(
-        string key, JsonElement value, CancellationToken cancellationToken)
-    {
-        return (key, value.ValueKind) switch
-        {
-            ("boot", JsonValueKind.String) => SelectAsync(value.GetString() ?? string.Empty, cancellationToken),
-            ("shuffleOnStart", JsonValueKind.True or JsonValueKind.False) =>
-                SetShuffleOnStartAsync(value.GetBoolean(), cancellationToken),
-            _ => Task.FromResult(new SteamUiCommandResult(false, "That setting is no longer available."))
-        };
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> SetTabAsync(string tab, CancellationToken cancellationToken)
-    {
-        lock (_sync)
-        {
-            _activeTab = tab;
-            _detailId = null;
-        }
-
-        Publish();
-        return Task.FromResult(SteamUiCommandResult.Applied);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> BrowseAsync(string sort, string search, CancellationToken cancellationToken)
-    {
-        int? fetch = null;
-        lock (_sync)
-        {
-            sort = SteamAnimationsSurface.Sorts.Any(candidate => candidate.Id == sort)
-                ? sort
-                : SteamAnimationsSurface.Sorts[0].Id;
-            search = search.Trim();
-            var changed = sort != _browseSort || search != _browseSearch;
-            _browseSort = sort;
-            _browseSearch = search;
-            if (_repo is null && !_repoLoading)
-            {
-                _repoLoading = true;
-                _repoError = null;
-                fetch = ++_repoSequence;
-            }
-            else if (!changed)
-            {
-                // Asking again for what is shown changes nothing, so a view that asks whenever the
-                // list is empty cannot redraw itself in a loop.
-                return Task.FromResult(SteamUiCommandResult.Applied);
-            }
-
-            ResetBrowseLocked();
-        }
-
-        Publish();
-        if (fetch is { } sequence)
-        {
-            _operation.Track(Task.Run(() => FetchRepoAsync(sequence, _shutdown.Token)));
-        }
-
-        return Task.FromResult(SteamUiCommandResult.Applied);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> BrowseMoreAsync(CancellationToken cancellationToken)
-    {
-        lock (_sync)
-        {
-            if (_browseOrder is null || _browseShown >= _browseOrder.Count)
-            {
-                return Task.FromResult(SteamUiCommandResult.Applied);
-            }
-
-            _browseShown += BrowsePage;
-            _browseItems = null;
-        }
-
-        Publish();
-        return Task.FromResult(SteamUiCommandResult.Applied);
-    }
-
-    /// <inheritdoc />
     public Task<SteamUiCommandResult> RefreshAsync(CancellationToken cancellationToken)
     {
         int sequence;
@@ -320,35 +156,6 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
 
         Publish();
         _operation.Track(Task.Run(() => FetchRepoAsync(sequence, _shutdown.Token)));
-        return Task.FromResult(SteamUiCommandResult.Applied);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> OpenAsync(string id, CancellationToken cancellationToken)
-    {
-        lock (_sync)
-        {
-            if (FindListingLocked(id) is null && _library.Find(id) is null)
-            {
-                return Task.FromResult(new SteamUiCommandResult(false, "That movie is not listed."));
-            }
-
-            _detailId = id;
-        }
-
-        Publish();
-        return Task.FromResult(SteamUiCommandResult.Applied);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> CloseDetailAsync(CancellationToken cancellationToken)
-    {
-        lock (_sync)
-        {
-            _detailId = null;
-        }
-
-        Publish();
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
@@ -376,11 +183,6 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
             lock (_libraryWork)
             {
                 error = _library.Adopt(listing, staged);
-            }
-
-            lock (_sync)
-            {
-                _browseItems = null;
             }
 
             if (error is not null)
@@ -417,7 +219,6 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
                 return RefuseLocked(error);
             }
 
-            _browseItems = null;
             removed = $"Removed {entry.Name}.";
             selected = _config.Boot == id;
             if (!selected)
@@ -515,7 +316,6 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
             string name;
             lock (_sync)
             {
-                _browseItems = null;
                 name = _library.Find(id!)?.Name ?? id!;
             }
 
@@ -546,7 +346,6 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
 
         lock (_sync)
         {
-            _browseItems = null;
             if (_config.ShuffleOnStart)
             {
                 picked = AnimationShuffle.Pick(_library.Entries, _random);
@@ -626,37 +425,31 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         }));
     }
 
-    /// <summary>Everything the page and the overlay draw.</summary>
-    /// <returns>The state.</returns>
+    /// <summary>Everything the page and the overlay draw, apart from a surface's own browsing.</summary>
+    /// <returns>
+    ///     The state, with the repository's loading and error but no listing, tab or detail; an
+    ///     <see cref="AnimationBrowseSession" /> adds its own.
+    /// </returns>
     internal SteamAnimationsState ReadState()
     {
         lock (_sync)
         {
-            var downloaded = _library.Entries.Select(entry => entry.Id).ToHashSet(StringComparer.Ordinal);
-            // The order is kept until the list, the sort or the search changes; only the page shown is
-            // projected, since the repository lists thousands.
-            _browseOrder ??= _repo is null ? [] : [.. Filtered(_repo)];
-            _browseItems ??=
-            [
-                .. _browseOrder.Take(_browseShown)
-                    .Select(listing => ProjectListing(listing, downloaded.Contains(listing.Id)))
-            ];
             var steam = _steamDirectory();
             return new SteamAnimationsState(
-                _activeTab,
+                string.Empty,
                 SelectedLocked(),
                 StockLabel,
                 [.. _library.Entries.Select(ProjectEntry)],
                 new SteamAnimationsBrowse(
-                    _browseSort,
+                    SteamAnimationsSurface.Sorts[0].Id,
                     SteamAnimationsSurface.Sorts,
-                    _browseSearch,
-                    _browseItems,
-                    _browseOrder.Count,
+                    string.Empty,
+                    [],
+                    0,
                     _repo?.Count ?? 0,
                     _repoLoading,
                     _repoError),
-                DetailLocked(downloaded),
+                null,
                 new SteamAnimationsSettings(
                     _config.ShuffleOnStart,
                     _config.BootVolume,
@@ -699,7 +492,6 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
             if (list is not null)
             {
                 _repo = list;
-                ResetBrowseLocked();
             }
         }
 
@@ -707,12 +499,24 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         Publish();
     }
 
-    /// <summary>Starts the Browse tab over at its first page, for a new list, sort or search. Called under the lock.</summary>
-    private void ResetBrowseLocked()
+    /// <summary>Fetches the repository's list when it was never read and no fetch is running.</summary>
+    internal void EnsureCatalog()
     {
-        _browseOrder = null;
-        _browseItems = null;
-        _browseShown = BrowsePage;
+        int sequence;
+        lock (_sync)
+        {
+            if (_repo is not null || _repoLoading)
+            {
+                return;
+            }
+
+            _repoLoading = true;
+            _repoError = null;
+            sequence = ++_repoSequence;
+        }
+
+        Publish();
+        _operation.Track(Task.Run(() => FetchRepoAsync(sequence, _shutdown.Token)));
     }
 
     private AnimationListing? FindListingLocked(string id)
@@ -726,41 +530,26 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         return _library.Find(_config.Boot) is null ? string.Empty : _config.Boot;
     }
 
-    /// <summary>The opened movie, projected at each read so its library badge is current. Called under the lock.</summary>
-    private SteamAnimationsItem? DetailLocked(HashSet<string> downloaded)
+    /// <summary>One movie from the repository or the library, projected now so its library badge is current.</summary>
+    /// <param name="id">A listing or library id.</param>
+    /// <returns>The movie, or null when neither lists it.</returns>
+    internal SteamAnimationsItem? ReadItem(string id)
     {
-        if (_detailId is not { } id)
+        lock (_sync)
         {
-            return null;
-        }
+            if (FindListingLocked(id) is { } listing)
+            {
+                return ProjectListing(listing, _library.Find(id) is not null);
+            }
 
-        if (FindListingLocked(id) is { } listing)
-        {
-            return ProjectListing(listing, downloaded.Contains(id));
+            return _library.Find(id) is { } entry ? ProjectEntry(entry) : null;
         }
-
-        return _library.Find(id) is { } entry ? ProjectEntry(entry) : null;
     }
 
-    private IEnumerable<AnimationListing> Filtered(IReadOnlyList<AnimationListing> repo)
-    {
-        IEnumerable<AnimationListing> items = repo;
-        if (_browseSearch.Length > 0)
-        {
-            items = items.Where(listing => listing.Name.Contains(_browseSearch, StringComparison.OrdinalIgnoreCase));
-        }
-
-        return _browseSort switch
-        {
-            "oldest" => items.OrderBy(listing => When(listing.Updated)),
-            "name" => items.OrderBy(listing => listing.Name, StringComparer.OrdinalIgnoreCase),
-            "popular" => items.OrderByDescending(listing => listing.Downloads),
-            "liked" => items.OrderByDescending(listing => listing.Likes),
-            _ => items.OrderByDescending(listing => When(listing.Updated))
-        };
-    }
-
-    private static DateTimeOffset? When(string updated)
+    /// <summary>A listing's update time, read as UTC when it names no offset.</summary>
+    /// <param name="updated">The repository's date text.</param>
+    /// <returns>The time, or null when the text is not a date.</returns>
+    internal static DateTimeOffset? When(string updated)
     {
         return DateTimeOffset.TryParse(updated, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal,
             out var when)
@@ -768,12 +557,16 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
             : null;
     }
 
-    internal AnimationBrowseSession CreateBrowserSession()
+    /// <summary>Creates one surface's tab, listing and detail over this service.</summary>
+    /// <param name="tab">The tab the surface opens on.</param>
+    /// <returns>A session the surface owns and disposes.</returns>
+    internal AnimationBrowseSession CreateBrowserSession(string tab)
     {
-        return new AnimationBrowseSession(this);
+        return new AnimationBrowseSession(this, tab);
     }
 
-    internal string? PreviewPath(string id)
+    /// <inheritdoc />
+    public string? PreviewPath(string id)
     {
         lock (_sync)
         {
@@ -781,6 +574,10 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         }
     }
 
+    /// <summary>Projects one repository listing.</summary>
+    /// <param name="listing">The listing.</param>
+    /// <param name="downloaded">Whether the library holds it.</param>
+    /// <returns>The movie as the pages draw it.</returns>
     internal static SteamAnimationsItem ProjectListing(AnimationListing listing, bool downloaded)
     {
         return new SteamAnimationsItem(

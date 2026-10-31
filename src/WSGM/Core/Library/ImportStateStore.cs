@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -750,10 +749,9 @@ public sealed class ImportStateStore
     /// <summary>Moves an unreadable file aside, keeping it for recovery rather than writing over it.</summary>
     private void Quarantine(JsonException failure)
     {
-        var aside = _path + ".corrupt-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture);
         try
         {
-            File.Move(_path, aside, false);
+            var aside = AtomicFile.SetAside(_path);
             Log.Warn($"The library import records did not parse ({failure.Message}); kept as {aside}.");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

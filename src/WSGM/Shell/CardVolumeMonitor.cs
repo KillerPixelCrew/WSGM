@@ -5,26 +5,19 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
-using WSGM.Interop;
 
 namespace WSGM.Shell;
 
 /// <summary>Reconciles Steam libraries with removable media after volume arrival and removal.</summary>
 /// <remarks>
 ///     Steam identifies registrations by path, so different cards sharing a drive letter require removal
-///     of the old registration before adding the current one. Volume notifications precede mounting;
-///     reconciliation waits for settling and rescans mounted drives. Live changes use Steam's CEF API.
-///     When Steam is closed, its next startup reads the library files without reconciliation here.
+///     of the old registration before adding the current one. Each pass follows a settled storage read of
+///     <see cref="RemovableDriveManager" />, which alone claims volume notifications, and scans that read.
+///     Live changes use Steam's CEF API. When Steam is closed, its next startup reads the library files
+///     without reconciliation here.
 /// </remarks>
 internal sealed class CardVolumeMonitor : IDisposable
 {
-    /// <summary>
-    ///     How long to let Windows finish mounting before looking at drives.
-    ///     The notification fires while the volume is still arriving; reading drive
-    ///     letters immediately sees the state from before the change.
-    /// </summary>
-    internal static readonly TimeSpan SettleDelay = TimeSpan.FromSeconds(3);
-
     /// <summary>
     ///     Upper bound on one reconcile pass. Every step is a CEF round trip
     ///     with its own timeout; this stops a wedged client pinning the worker.
@@ -33,6 +26,10 @@ internal sealed class CardVolumeMonitor : IDisposable
 
     private readonly HashSet<Task> _activePasses = [];
     private readonly Func<Task> _afterReconcile;
+
+    /// <summary>The session's storage owner, whose settled reads drive and supply every pass.</summary>
+    private readonly RemovableDriveManager _drives;
+
     private readonly Func<bool> _enabled;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -51,32 +48,29 @@ internal sealed class CardVolumeMonitor : IDisposable
     private readonly LibraryPolicy _policy;
 
     private readonly SteamUiReadiness _readiness;
-
-    private readonly MessageWindow _window;
     private bool _disposed;
 
     // 1 while a continuation waits for the next Steam UI ready edge. Kept apart from the log
     // one-shot below: an edge whose pass finds Steam still unavailable must arm the next wait.
     private int _readyWaitArmed;
 
-    private Timer? _settle;
     private bool _waitingForSteamUi;
 
     private CardVolumeMonitor(
-        MessageWindow window,
+        RemovableDriveManager drives,
         Func<bool> enabled,
         Func<Task> afterReconcile,
         LibraryPolicy policy,
         SteamUiReadiness readiness)
     {
-        _window = window;
+        _drives = drives;
         _enabled = enabled;
         _afterReconcile = afterReconcile;
         _policy = policy;
         _readiness = readiness;
     }
 
-    /// <summary>Unsubscribes and stops reacting to volume notifications.</summary>
+    /// <summary>Unsubscribes and stops reacting to storage changes.</summary>
     public void Dispose()
     {
         lock (_lifetimeGate)
@@ -87,8 +81,6 @@ internal sealed class CardVolumeMonitor : IDisposable
             }
 
             _disposed = true;
-            _settle?.Dispose();
-            _settle = null;
             _lifetime.Cancel();
             if (_activePasses.Count == 0)
             {
@@ -97,12 +89,11 @@ internal sealed class CardVolumeMonitor : IDisposable
             }
         }
 
-        _window.VolumeChanged -= OnVolumeChanged;
-        _window.DeregisterVolumeNotifications();
+        _drives.TopologyChanged -= OnTopologyChanged;
     }
 
-    /// <summary>Creates the monitor and subscribes it to volume notifications.</summary>
-    /// <param name="window">The process message-only window.</param>
+    /// <summary>Creates the monitor and subscribes it to the storage owner's topology changes.</summary>
+    /// <param name="drives">The session's storage owner, whose settled reads each pass scans.</param>
     /// <param name="enabled">
     ///     Whether the CEF bridge may be driven right now. Read at
     ///     every reaction, not captured once, so the master switch applies live.
@@ -116,23 +107,19 @@ internal sealed class CardVolumeMonitor : IDisposable
     ///     detects and reports; what a detection means is the policy's to decide.
     /// </param>
     /// <param name="readiness">The session's Steam UI readiness, which a reconcile waits on.</param>
-    /// <returns>The started monitor, or null when the registration failed.</returns>
-    internal static CardVolumeMonitor? StartNew(
-        MessageWindow window,
+    /// <returns>The started monitor.</returns>
+    internal static CardVolumeMonitor StartNew(
+        RemovableDriveManager drives,
         Func<bool> enabled,
         Func<Task> afterReconcile,
         LibraryPolicy policy,
         SteamUiReadiness readiness)
     {
+        ArgumentNullException.ThrowIfNull(drives);
         ArgumentNullException.ThrowIfNull(policy);
         ArgumentNullException.ThrowIfNull(readiness);
-        var monitor = new CardVolumeMonitor(window, enabled, afterReconcile, policy, readiness);
-        if (!window.RegisterVolumeNotifications())
-        {
-            return null;
-        }
-
-        window.VolumeChanged += monitor.OnVolumeChanged;
+        var monitor = new CardVolumeMonitor(drives, enabled, afterReconcile, policy, readiness);
+        drives.TopologyChanged += monitor.OnTopologyChanged;
         // Seed from the cards that are already in their readers. Without a first pass
         // the removal path is blind to anything inserted before WSGM started: it only
         // ever purges a path it saw as a live card, and nothing would have seen it.
@@ -141,7 +128,7 @@ internal sealed class CardVolumeMonitor : IDisposable
     }
 
     /// <summary>
-    ///     Schedules a reconcile pass without a volume notification — used at
+    ///     Starts a reconcile pass without a storage change — used at
     ///     startup and whenever Steam restarts, since a fresh client rebuilds its folder
     ///     list from disk and may bring a departed card's library back with it.
     /// </summary>
@@ -154,38 +141,22 @@ internal sealed class CardVolumeMonitor : IDisposable
         }
 
         Log.Info($"Card volumes: reconcile requested ({reason}).");
-        Schedule();
+        StartPass();
     }
 
-    private void OnVolumeChanged(bool arrived)
+    /// <summary>
+    ///     Runs on the storage owner's worker after a settled read changed the volumes or disks. The owner
+    ///     already collapsed the notification burst a single card produces into that one read.
+    /// </summary>
+    private void OnTopologyChanged()
     {
         if (_disposed)
         {
             return;
         }
 
-        Log.Info($"Card volumes: {(arrived ? "arrival" : "removal")} reported, "
-                 + $"reconciling in {SettleDelay.TotalSeconds:0}s.");
-        Schedule();
-    }
-
-    /// <summary>
-    ///     Arms the settle timer. Restarting a one-shot timer collapses the burst
-    ///     a single card produces — a reader reports the interface, then the volume, then
-    ///     the mount — into one pass, and covers a user swapping several cards in a row.
-    /// </summary>
-    private void Schedule()
-    {
-        lock (_lifetimeGate)
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _settle ??= new Timer(_ => StartPass(), null, Timeout.Infinite, Timeout.Infinite);
-            _settle.Change(SettleDelay, Timeout.InfiniteTimeSpan);
-        }
+        Log.Info("Card volumes: storage changed; reconciling.");
+        StartPass();
     }
 
     private void StartPass()
@@ -375,11 +346,11 @@ internal sealed class CardVolumeMonitor : IDisposable
             // seconds old by now and the reader takes a new card in far less than that.
             // Re-read the marker and abandon the decision if the media changed: acting
             // on it would register the card that left, or hand the card that arrived
-            // the previous one's label. The swap raised its own notification, so the
-            // pass it schedules decides again on what is actually there.
+            // the previous one's label. A fresh pass, queued behind this one, decides
+            // again on what is actually there, and the swap's own storage read starts another.
             if (!StillInTheReader(libraryPath, cardContentId, out var cardLabel))
             {
-                Schedule();
+                StartPass();
                 continue;
             }
 
@@ -530,11 +501,11 @@ internal sealed class CardVolumeMonitor : IDisposable
     ///     path with no library still has to be reported: that is precisely the case where
     ///     Steam is holding a registration for a card that has gone.
     /// </remarks>
-    private static List<(string LibraryPath, string? ContentId, string Label)>
+    private List<(string LibraryPath, string? ContentId, string Label)>
         ScanCardLibraryPaths()
     {
         var found = new List<(string, string?, string)>();
-        foreach (var volume in StorageInventory.Read().ReadyExternalVolumes())
+        foreach (var volume in _drives.Inventory.ReadyExternalVolumes())
         {
             if (volume.DriveType != DriveType.Removable)
             {
@@ -579,7 +550,7 @@ internal sealed class CardVolumeMonitor : IDisposable
                 return map;
             }
 
-            foreach (var entry in SteamLibraryVdf.ReadEntries(text))
+            foreach (var entry in SteamLibraryVdf.ReadRegistrations(text))
             {
                 var key = SteamLibraryVdf.NormalizePath(entry.Path);
                 if (key.Length == 0 || entry.ContentId is null)

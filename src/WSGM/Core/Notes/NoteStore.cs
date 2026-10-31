@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -348,11 +347,9 @@ public sealed class NoteStore
 
     private static string? SetAside(string file)
     {
-        var aside = file + ".bad." + DateTime.UtcNow.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture)
-                    + Path.GetExtension(file);
         try
         {
-            File.Move(file, aside, false);
+            var aside = AtomicFile.SetAside(file);
             Log.Warn($"Notes: kept the unreadable file as {Path.GetFileName(aside)}.");
             return aside;
         }

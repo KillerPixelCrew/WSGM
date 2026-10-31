@@ -6,7 +6,6 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
-using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Shell;
@@ -41,8 +40,8 @@ internal sealed class SteamGraphicsService : ISteamSettingsQuickAccessBackend, I
     private GraphicsOverlaySnapshot? _snapshot;
     private SteamSettingsQuickAccessState? _state;
 
-    /// <summary>Creates the page's backend over a graphics source it then owns.</summary>
-    /// <param name="source">The graphics projection, disposed with this.</param>
+    /// <summary>Creates the page's backend over the overlay's graphics source.</summary>
+    /// <param name="source">The graphics projection; its owner disposes it after this.</param>
     internal SteamGraphicsService(IGraphicsOverlaySource source)
     {
         _source = source ?? throw new ArgumentNullException(nameof(source));
@@ -74,11 +73,10 @@ internal sealed class SteamGraphicsService : ISteamSettingsQuickAccessBackend, I
     }
 
     /// <inheritdoc />
-    /// <remarks>Detaches change notifications and disposes the graphics source this service owns.</remarks>
+    /// <remarks>Detaches change notifications; the graphics source stays with its owner.</remarks>
     public void Dispose()
     {
         _source.Changed -= Refresh;
-        _source.Dispose();
         Changed = null;
     }
 
@@ -97,7 +95,7 @@ internal sealed class SteamGraphicsService : ISteamSettingsQuickAccessBackend, I
                 capability.Description is { Length: > 0 } reason ? reason : "This setting cannot be changed now.");
         }
 
-        if (!TryValue(capability, value, out var candidate))
+        if (!SteamCapabilityRows.TryValue(capability, value, out var candidate))
         {
             return new SteamUiCommandResult(false, "The graphics setting value is invalid.");
         }
@@ -229,51 +227,6 @@ internal sealed class SteamGraphicsService : ISteamSettingsQuickAccessBackend, I
         }).ToArray();
     }
 
-    /// <summary>One graphics row on the page.</summary>
-    /// <param name="capability">The projected row.</param>
-    /// <returns>The page's row for it.</returns>
-    /// <remarks>
-    ///     A value the running game overrides is marked as Steam's Quick Access rows mark one: its
-    ///     description leads with "Game override" and is drawn in Steam's accent blue. There is no Use global row: Steam's
-    ///     surfaces return to Global through Steam's Reset button, and the overlay keeps its own.
-    /// </remarks>
-    internal static SteamSettingsRow Row(DeviceOverlayCapability capability)
-    {
-        ArgumentNullException.ThrowIfNull(capability);
-        var key = RowKey(capability);
-        var description = capability.Description is { Length: > 0 } text ? text : null;
-        var disabled = !capability.CanInvoke;
-        var row = capability switch
-        {
-            { Writable: true, ValueKind: CapabilityValueKind.Boolean } => new SteamSettingsRow(key,
-                SteamSettingsRowKind.Boolean, capability.Title, description,
-                capability.CurrentValue?.BooleanValue ?? false, Disabled: disabled),
-            { Writable: true, ValueKind: CapabilityValueKind.Integer, Minimum: { } minimum, Maximum: { } maximum }
-                when maximum >= minimum => new SteamSettingsRow(key, SteamSettingsRowKind.Range, capability.Title,
-                    description, Number: capability.CurrentValue?.IntegerValue ?? minimum, Minimum: minimum,
-                    Maximum: maximum, Step: capability.Step ?? 1,
-                    Suffix: DeviceOverlayBridge.UnitSuffix(capability.Unit) is { Length: > 0 } suffix ? suffix : null,
-                    Disabled: disabled),
-            { Writable: true, ValueKind: CapabilityValueKind.Choice, Choices.Count: > 0 } => new SteamSettingsRow(key,
-                SteamSettingsRowKind.Choice, capability.Title, description,
-                Text: capability.CurrentValue?.ChoiceValue ?? string.Empty,
-                Choices:
-                [
-                    .. capability.Choices.Select(choice =>
-                        new SteamSettingsChoice(choice.Value,
-                            CapabilityDisplayLabels.For(choice.Display, choice.Value)))
-                ],
-                Disabled: disabled),
-            { SupportsAction: true } => new SteamSettingsRow(key, SteamSettingsRowKind.Action, capability.Title,
-                description, Disabled: disabled, ButtonLabel: "Run"),
-            _ => new SteamSettingsRow(key, SteamSettingsRowKind.Note, capability.Title, description,
-                Text: capability.TrailingText)
-        };
-        return capability.OverrideId is null
-            ? row
-            : row with { Accent = true, Description = NativeQamLayout.AccentDescription(row.Description) };
-    }
-
     /// <summary>A row's key: the plugin, the capability and its instance.</summary>
     /// <param name="capability">The projected row.</param>
     /// <returns><c>&lt;pluginId&gt;/&lt;capabilityId&gt;</c>, followed by <c>#&lt;instanceId&gt;</c> when it has one.</returns>
@@ -283,44 +236,9 @@ internal sealed class SteamGraphicsService : ISteamSettingsQuickAccessBackend, I
                + (capability.InstanceId is { } instance ? "#" + instance : string.Empty);
     }
 
-    /// <summary>Puts the renderer's value into the capability's own shape, within what it accepts.</summary>
-    /// <param name="capability">The row being changed.</param>
-    /// <param name="value">The renderer's value.</param>
-    /// <param name="candidate">The capability value, or null for an action.</param>
-    /// <returns>Whether the value fits the row.</returns>
-    internal static bool TryValue(DeviceOverlayCapability capability, JsonElement value,
-        out CapabilityValue? candidate)
+    private static SteamSettingsRow Row(DeviceOverlayCapability capability)
     {
-        candidate = null;
-        switch (capability)
-        {
-            case { Writable: true, ValueKind: CapabilityValueKind.Boolean }
-                when value.ValueKind is JsonValueKind.True or JsonValueKind.False:
-                candidate = new CapabilityValue
-                    { Kind = CapabilityValueKind.Boolean, BooleanValue = value.GetBoolean() };
-                return true;
-            case { Writable: true, ValueKind: CapabilityValueKind.Integer, Minimum: { } minimum, Maximum: { } maximum }
-                when value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var number)
-                                                             && double.IsFinite(number):
-                // Steam's slider reports a double; it lands on the row's own steps.
-                if (CapabilityProjection.ValidInteger(CapabilityValue.Integer((int)Math.Round(number)), minimum,
-                        maximum,
-                        Math.Max(1, capability.Step ?? 1)) is not { } integer)
-                {
-                    return false;
-                }
-
-                candidate = CapabilityValue.Integer(integer);
-                return true;
-            case { Writable: true, ValueKind: CapabilityValueKind.Choice } when value.ValueKind == JsonValueKind.String
-                && capability.Choices.Any(choice => choice.Value == value.GetString()):
-                candidate = CapabilityValue.Choice(value.GetString()!);
-                return true;
-            case { SupportsAction: true }:
-                return true;
-            default:
-                return false;
-        }
+        return SteamCapabilityRows.Row(capability, RowKey(capability));
     }
 
     private DeviceOverlayCapability? Find(string key)

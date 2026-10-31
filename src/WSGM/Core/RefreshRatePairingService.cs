@@ -37,6 +37,8 @@ internal sealed class RefreshRatePairingService
     private DisplayOperatingPoint? _operatingPoint;
     private bool _operatingPointKnown;
     private long _operatingPointRevision;
+    private int _pairedFrameLimit = -1;
+    private long _pairedOperatingPoint = -1;
     private FrameLimitStrategy _strategy = FrameLimitStrategy.FrameLimitOnly;
 
     /// <summary>Creates the service over the real display.</summary>
@@ -319,6 +321,42 @@ internal sealed class RefreshRatePairingService
         }
 
         return complete;
+    }
+
+    /// <summary>Pairs the display cadence to a frame limit, unless that pairing is already held.</summary>
+    /// <param name="limit">The desired frame limit, or zero for uncapped.</param>
+    /// <param name="force">
+    ///     Re-applies the pairing for the limit already latched. Set after a resume: the limit did not
+    ///     change, but the panel behind it was re-established by the driver and may have come back at
+    ///     its default rate, which the latch would otherwise hide until the user moved the cap twice.
+    /// </param>
+    /// <remarks>The latch is owned by the session's UI-thread callers.</remarks>
+    internal void Pair(int limit, bool force)
+    {
+        var point = OperatingPointRevision;
+        if (limit == _pairedFrameLimit && point == _pairedOperatingPoint && !force)
+        {
+            return;
+        }
+
+        _pairedFrameLimit = limit;
+        _pairedOperatingPoint = point;
+
+        // Uncapped hands the display back: there is no cadence left to pair against, and holding a
+        // reduced refresh rate after the cap is gone would cap frames by the back door. A forced
+        // pass is the exception: with no cap there is no WSGM-driven rate to undo, and restoring
+        // would overwrite a rate the user set by hand before the sleep.
+        if (limit <= 0)
+        {
+            if (!force)
+            {
+                _ = Restore();
+            }
+
+            return;
+        }
+
+        _ = ApplyForCap(limit);
     }
 
     private void CaptureOriginal()

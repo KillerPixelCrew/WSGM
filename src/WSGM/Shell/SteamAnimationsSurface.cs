@@ -48,16 +48,19 @@ internal static class SteamAnimationsSurface
     /// <param name="enabled">Whether state may be published; patch installation is coordinated separately.</param>
     /// <param name="read">Reads the current model; null skips this publication without retracting the previous state.</param>
     /// <param name="revision">The model's revision, so an unchanged model is not serialized again.</param>
-    /// <param name="backend">Answers user operations.</param>
+    /// <param name="browse">The page's own tab, listing and detail.</param>
+    /// <param name="backend">Answers the shared animation owner's operations.</param>
     /// <param name="id">Module identity for diagnostics.</param>
-    /// <returns>A module borrowing its backend and readers; construction does not install its patch.</returns>
+    /// <returns>A module borrowing its backends and readers; construction does not install its patch.</returns>
     public static ISteamUiModule Module(
         Func<bool> enabled,
         Func<ValueTask<SteamAnimationsState?>> read,
         Func<long> revision,
+        IAnimationBrowseSession browse,
         ISteamAnimationsBackend backend,
         string id = "animations")
     {
+        ArgumentNullException.ThrowIfNull(browse);
         ArgumentNullException.ThrowIfNull(backend);
         return new SteamUiModule(
             id,
@@ -68,15 +71,15 @@ internal static class SteamAnimationsSurface
             ],
             [
                 SteamUiModuleBuilder.Command<string>(PatchId, "setTab", TryReadTab,
-                    backend.SetTabAsync, "The animations tab payload is invalid."),
+                    browse.SetTabAsync, "The animations tab payload is invalid."),
                 SteamUiModuleBuilder.Command<(string Sort, string Search)>(PatchId, "browse", TryReadBrowse,
-                    (request, token) => backend.BrowseAsync(request.Sort, request.Search, token),
+                    (request, token) => browse.BrowseAsync(request.Sort, request.Search, token),
                     "The animations browse payload is invalid."),
-                SteamUiModuleBuilder.Command(PatchId, "more", backend.BrowseMoreAsync),
+                SteamUiModuleBuilder.Command(PatchId, "more", browse.BrowseMoreAsync),
                 SteamUiModuleBuilder.Command(PatchId, "refresh", backend.RefreshAsync),
                 SteamUiModuleBuilder.Command<string>(PatchId, "open", TryReadId,
-                    backend.OpenAsync, "The animation id payload is invalid."),
-                SteamUiModuleBuilder.Command(PatchId, "closeDetail", backend.CloseDetailAsync),
+                    browse.OpenAsync, "The animation id payload is invalid."),
+                SteamUiModuleBuilder.Command(PatchId, "closeDetail", browse.CloseDetailAsync),
                 SteamUiModuleBuilder.Command<string>(PatchId, "download", TryReadId,
                     backend.DownloadAsync, "The animation id payload is invalid."),
                 SteamUiModuleBuilder.Command<string>(PatchId, "delete", TryReadId,

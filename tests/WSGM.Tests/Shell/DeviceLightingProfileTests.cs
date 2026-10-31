@@ -73,7 +73,7 @@ public sealed class DeviceLightingProfileTests
     [Fact]
     public void SharedSelectorKeepsPartialFailureVisibleAndAllowsExplicitRetry()
     {
-        var row = DeviceOverlayBridge.LightingProfileView([Color("blue", 0x0000FF)],
+        var row = DeviceHostRows.LightingProfileView([Color("blue", 0x0000FF)],
             new Resolved<string?>("blue", ProfileSource.Game),
             "Applied to 1 of 2 lighting zones. The write is uncertain.",
             DescriptorStatus.Warning);

@@ -37,7 +37,7 @@ public sealed class StartupAppWatcher : IDisposable
     {
         _apps = apps;
         // The convenience ctor taking a callback auto-starts the timer (see
-        // GamepadService) — keep construction and Start() explicit.
+        // GamepadService); the watcher starts polling here, after the handler is attached.
         _timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(5) };
         _timer.Tick += (_, _) => Poll();
         _timer.Start();
@@ -46,8 +46,6 @@ public sealed class StartupAppWatcher : IDisposable
     /// <summary>Session policy preventing a deliberately suspended integration from relaunching.</summary>
     internal Func<string, bool>? IsLaunchSuppressed { get; init; }
 
-    /// <summary>Invalidates delayed relaunches across even a very short desktop takeover.</summary>
-    internal Func<string, int>? LaunchGeneration { get; init; }
 
     /// <summary>Stops periodic process monitoring.</summary>
     public void Dispose()
@@ -61,6 +59,28 @@ public sealed class StartupAppWatcher : IDisposable
         _timer.Stop();
         _lifetime.Cancel();
         _lifetime.Dispose();
+    }
+
+    /// <summary>
+    ///     Drops the watch state of every matching app, so relaunches already queued for it are rejected.
+    ///     A desktop takeover calls this, however briefly it then suspends the integrations.
+    /// </summary>
+    /// <param name="match">Selects the configured paths whose state is dropped.</param>
+    internal void Forget(Func<string, bool> match)
+    {
+        var paths = new List<string>();
+        foreach (var path in _states.Keys)
+        {
+            if (match(path))
+            {
+                paths.Add(path);
+            }
+        }
+
+        foreach (var path in paths)
+        {
+            _states.Remove(path);
+        }
     }
 
     /// <summary>Replaces the monitored startup-program configuration.</summary>
@@ -126,7 +146,7 @@ public sealed class StartupAppWatcher : IDisposable
                     paths[i] = probes[i].Path;
                 }
 
-                running = WindowFinder.ReadRunningPaths(paths);
+                running = ProcessLookup.ReadRunningPaths(paths);
             }
             catch (Exception ex)
             {
@@ -170,10 +190,9 @@ public sealed class StartupAppWatcher : IDisposable
                 continue;
             }
 
-            var generation = LaunchGeneration?.Invoke(path) ?? 0;
-            if (!_states.TryGetValue(path, out var state) || state.LaunchGeneration != generation)
+            if (!_states.TryGetValue(path, out var state))
             {
-                state = new WatchState { LaunchGeneration = generation };
+                state = new WatchState();
                 _states[path] = state;
             }
 
@@ -225,7 +244,7 @@ public sealed class StartupAppWatcher : IDisposable
             IReadOnlyDictionary<string, bool?>? running = null;
             try
             {
-                running = await Task.Run(() => WindowFinder.ReadRunningPaths([path]), cancellationToken)
+                running = await Task.Run(() => ProcessLookup.ReadRunningPaths([path]), cancellationToken)
                     .ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
@@ -267,9 +286,7 @@ public sealed class StartupAppWatcher : IDisposable
             return;
         }
 
-        if (!_states.TryGetValue(path, out var current) || !ReferenceEquals(current, state)
-                                                        || state.LaunchGeneration !=
-                                                        (LaunchGeneration?.Invoke(path) ?? 0))
+        if (!_states.TryGetValue(path, out var current) || !ReferenceEquals(current, state))
         {
             return;
         }
@@ -289,7 +306,6 @@ public sealed class StartupAppWatcher : IDisposable
     {
         public bool ExitUnresolved;
         public DateTime LastRelaunchUtc;
-        public int LaunchGeneration;
         public bool RelaunchPending;
         public long RelaunchRevision;
 

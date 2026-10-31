@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
@@ -10,6 +9,7 @@ using WSGM.Core;
 namespace WSGM.Shell;
 
 /// <summary>One surface's store browsing, using its session's shared client and durable theme owner.</summary>
+/// <remarks>The Steam page and the overlay each hold one, so neither surface's listing or detail moves the other's.</remarks>
 internal sealed class ThemeBrowseSession : IThemeBrowseSession
 {
     private readonly ThemeStoreClient _client;
@@ -28,18 +28,28 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
     private int _page;
     private ThemeStoreQuery _query = ThemeStoreQuery.Default;
     private CancellationTokenSource? _queryWork;
+    private long _revision;
     private int _total;
 
-    internal ThemeBrowseSession(ThemeService owner, ThemeStoreClient client, CancellationToken lifetime)
+    /// <summary>Creates a session over the shared owner.</summary>
+    /// <param name="owner">The durable theme owner, whose changes this session republishes.</param>
+    /// <param name="client">The owner's store client.</param>
+    /// <param name="tab">The tab this surface opens on.</param>
+    /// <param name="lifetime">The owner's lifetime; its end cancels this session's reads.</param>
+    internal ThemeBrowseSession(ThemeService owner, ThemeStoreClient client, string tab, CancellationToken lifetime)
     {
         _lifetime = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
         _owner = owner;
         _client = client;
+        Tab = tab;
         owner.Changed += Publish;
     }
 
+    /// <summary>Advances with every change of the owner's state or this session's own.</summary>
+    internal long Revision => _owner.Revision + Interlocked.Read(ref _revision);
+
     /// <inheritdoc />
-    public string Tab { get; set; } = "installed";
+    public string Tab { get; set; }
 
     /// <inheritdoc />
     public event Action? Changed;
@@ -57,12 +67,14 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
     /// <inheritdoc />
     public SteamThemesState ReadState()
     {
+        var revision = Revision;
         var shared = _owner.ReadState();
         lock (_gate)
         {
             var items = _items.Select(_owner.BrowserItem).ToArray();
             var browse = new SteamThemesBrowse(_query.Filter, _query.Order, _query.Search,
-                _filters?.Filters ?? new Dictionary<string, int>(), _filters?.Orders ?? [ThemeStoreQuery.DefaultOrder],
+                _filters?.Filters ?? new Dictionary<string, int>(StringComparer.Ordinal),
+                _filters?.Orders ?? [ThemeStoreQuery.DefaultOrder],
                 items, _total, _page, _loading, _error);
             SteamThemesDetail? detail = null;
             if (_detailId is { } id)
@@ -70,8 +82,10 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
                 var listing = _detail?.Summary ?? _items.FirstOrDefault(item => item.Id == id);
                 var item = listing is not null
                     ? _owner.BrowserItem(listing)
-                    : new SteamThemesStoreItem(id, "", "Loading…", "", "", [], "", null, 0, 0, null, "none");
-                var installed = shared.Themes.Concat(shared.Presets).Select(theme => theme.Name).ToHashSet();
+                    : new SteamThemesStoreItem(id, string.Empty, "Loading…", string.Empty, string.Empty, [],
+                        string.Empty, null, 0, 0, null, ThemeStates.None);
+                var installed = shared.Themes.Concat(shared.Presets).Select(theme => theme.Name)
+                    .ToHashSet(StringComparer.Ordinal);
                 detail = new SteamThemesDetail(item, _detail?.Description ?? "",
                     _detail is null ? [] : _detail.Summary.ImageIds.Select(_client.BlobUrl).ToArray(),
                     _detail is null
@@ -81,7 +95,7 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
                     _detailLoading, _detailError);
             }
 
-            return shared with { ActiveTab = Tab, Browse = browse, Detail = detail };
+            return shared with { ActiveTab = Tab, Browse = browse, Detail = detail, Revision = revision };
         }
     }
 
@@ -90,7 +104,12 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
     {
         lock (_gate)
         {
-            _query = new ThemeStoreQuery(1, ThemeStoreQuery.Default.PerPage, filter, order, search);
+            _query = new ThemeStoreQuery(
+                1,
+                ThemeStoreQuery.Default.PerPage,
+                filter.Length == 0 ? ThemeStoreQuery.AllFilter : filter,
+                order.Length == 0 ? ThemeStoreQuery.DefaultOrder : order,
+                search);
             _items = [];
             _page = 0;
             _total = 0;
@@ -107,6 +126,11 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
             if (_loading)
             {
                 return Task.FromResult(new SteamUiCommandResult(false, "The store is still answering."));
+            }
+
+            if (_items.Count >= _total)
+            {
+                return Task.FromResult(new SteamUiCommandResult(false, "Every matching theme is listed."));
             }
 
             _query = _query with { Page = _page + 1 };
@@ -133,7 +157,7 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
         }
 
         Publish();
-        _ = ReadAsync();
+        _owner.Track(ReadAsync());
         return Task.FromResult(SteamUiCommandResult.Applied);
 
         async Task ReadAsync()
@@ -177,13 +201,7 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
     /// <inheritdoc />
     public Task<SteamUiCommandResult> CloseDetailAsync(CancellationToken token)
     {
-        lock (_gate)
-        {
-            _detailWork?.Cancel();
-            _detailId = null;
-            _detail = null;
-        }
-
+        CloseDetail();
         Publish();
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
@@ -205,107 +223,26 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
     public Task<SteamUiCommandResult> SetTabAsync(string tab, CancellationToken cancellationToken)
     {
         Tab = tab;
+        CloseDetail();
         Publish();
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> InstallAsync(string id, CancellationToken cancellationToken)
+    private void CloseDetail()
     {
-        return _owner.InstallAsync(id, cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> UpdateAsync(string name, CancellationToken cancellationToken)
-    {
-        return _owner.UpdateAsync(name, cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> UpdateAllAsync(CancellationToken cancellationToken)
-    {
-        return _owner.UpdateAllAsync(cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> DeleteAsync(string name, CancellationToken cancellationToken)
-    {
-        return _owner.DeleteAsync(name, cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> SetEnabledAsync(string name, bool enabled, CancellationToken cancellationToken)
-    {
-        return _owner.SetEnabledAsync(name, enabled, cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> SetPatchAsync(string theme, string patch, string value,
-        CancellationToken cancellationToken)
-    {
-        return _owner.SetPatchAsync(theme, patch, value, cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> SetComponentAsync(string theme, string patch, string component, string value,
-        CancellationToken cancellationToken)
-    {
-        return _owner.SetComponentAsync(theme, patch, component, value, cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> SetProfileAsync(string name, CancellationToken cancellationToken)
-    {
-        return _owner.SetProfileAsync(name, cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> CreateProfileAsync(string name, CancellationToken cancellationToken)
-    {
-        return _owner.CreateProfileAsync(name, cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> RefreshAsync(CancellationToken cancellationToken)
-    {
-        return _owner.RefreshAsync(cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> SetHiddenAsync(string name, bool hidden, CancellationToken cancellationToken)
-    {
-        return _owner.SetHiddenAsync(name, hidden, cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> DismissAsync(CancellationToken cancellationToken)
-    {
-        return _owner.DismissAsync(cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> SetSettingAsync(string key, JsonElement value,
-        CancellationToken cancellationToken)
-    {
-        return _owner.SetSettingAsync(key, value, cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> SetThemesEnabledAsync(bool enabled, CancellationToken cancellationToken)
-    {
-        return _owner.SetThemesEnabledAsync(enabled, cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> SetTranslationsBranchAsync(string branch, CancellationToken cancellationToken)
-    {
-        return _owner.SetTranslationsBranchAsync(branch, cancellationToken);
+        lock (_gate)
+        {
+            _detailWork?.Cancel();
+            _detailId = null;
+            _detail = null;
+        }
     }
 
     private void Publish()
     {
         if (!_lifetime.IsCancellationRequested)
         {
+            Interlocked.Increment(ref _revision);
             Changed?.Invoke();
         }
     }
@@ -328,7 +265,7 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
         }
 
         Publish();
-        _ = FetchAsync();
+        _owner.Track(FetchAsync());
         return Task.FromResult(SteamUiCommandResult.Applied);
 
         async Task FetchAsync()
@@ -344,7 +281,7 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
                     }
                     catch (ThemeStoreException ex)
                     {
-                        Log.Warn("Theme store filters: " + ex.Message);
+                        Log.Warn($"Themes: the store's filters could not be read: {ex.Message}");
                     }
                 }
 

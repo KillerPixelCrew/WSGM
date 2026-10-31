@@ -87,7 +87,7 @@ internal static class SteamCustomLaunchCommand
     /// <summary>
     ///     Always-wrapping quote for Steam-facing command strings (Launch Options and
     ///     shortcut Target fields), shared with the launch-wrapper command builder. Distinct from
-    ///     <see cref="SelfElevation.Quote" />, which quotes conditionally for argv round-trips.
+    ///     <see cref="WindowsCommandLine.Quote(string)" />, which quotes conditionally for argv round-trips.
     /// </summary>
     /// <param name="value">Non-null Steam-facing field value.</param>
     /// <returns>The always-quoted value with embedded double quotes escaped.</returns>

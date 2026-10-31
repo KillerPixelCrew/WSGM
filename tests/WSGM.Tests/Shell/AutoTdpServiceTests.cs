@@ -898,7 +898,7 @@ public sealed class AutoTdpServiceTests
     {
         AutoTdpAvailability availability = new(false, "The paired power limit is unavailable.", 1000d / 60);
         var qam = DeviceCoordinatorNativeQamAutoTdpService.Project(enabled, null, true, availability);
-        var overlay = DeviceOverlayBridge.AutoTdpView(enabled, null, availability);
+        var overlay = DeviceHostRows.AutoTdpView(enabled, null, availability);
         Assert.True(qam.Available);
         Assert.Equal(enabled, qam.Enabled);
         Assert.False(overlay.CanInvoke);

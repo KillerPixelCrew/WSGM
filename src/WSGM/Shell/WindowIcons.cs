@@ -161,29 +161,7 @@ public sealed class WindowIconCache
             return null;
         }
 
-        var extracted = NativeMethods.ExtractIconExW(exe, 0, out var large, out var small, 1);
-        if (extracted is 0 or unchecked((uint)-1))
-        {
-            return null;
-        }
-
-        try
-        {
-            var best = large != 0 ? large : small;
-            return best != 0 ? Render(best) : null;
-        }
-        finally
-        {
-            if (large != 0)
-            {
-                NativeMethods.DestroyIcon(large);
-            }
-
-            if (small != 0)
-            {
-                NativeMethods.DestroyIcon(small);
-            }
-        }
+        return IconRasterizer.FromExecutable(exe, _pixelSize);
     }
 
     /// <summary>
@@ -239,6 +217,37 @@ public sealed class WindowIconCache
 /// </summary>
 internal static class IconRasterizer
 {
+    /// <summary>Rasterizes an executable's first icon resource, preferring its large icon.</summary>
+    /// <param name="path">Executable whose resources are read.</param>
+    /// <param name="size">Positive square output dimension in physical pixels.</param>
+    /// <returns>A new caller-owned bitmap to dispose, or null when the file has no readable icon.</returns>
+    internal static Bitmap? FromExecutable(string path, int size)
+    {
+        var extracted = NativeMethods.ExtractIconExW(path, 0, out var large, out var small, 1);
+        if (extracted is 0 or unchecked((uint)-1))
+        {
+            return null;
+        }
+
+        try
+        {
+            var best = large != 0 ? large : small;
+            return best != 0 ? Rasterize(best, size) : null;
+        }
+        finally
+        {
+            if (large != 0)
+            {
+                NativeMethods.DestroyIcon(large);
+            }
+
+            if (small != 0)
+            {
+                NativeMethods.DestroyIcon(small);
+            }
+        }
+    }
+
     /// <summary>
     ///     Draws the icon into a 32-bpp top-down DIB and copies the BGRA pixels
     ///     into an Avalonia bitmap. Legacy icons without an alpha channel come out of

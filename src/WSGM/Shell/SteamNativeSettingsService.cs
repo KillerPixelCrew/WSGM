@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -229,11 +228,13 @@ internal sealed partial class SteamNativeSettingsService(
 
         if (coordinator.LightingProfileSelection() is { } lightingSelection)
         {
-            var descriptor = DeviceOverlayBridge.LightingProfileView(lightingSelection.Profiles,
+            var descriptor = DeviceHostRows.LightingProfileView(lightingSelection.Profiles,
                 lightingSelection.Selected,
                 coordinator.LightingProfileDetail, coordinator.LightingProfileStatus);
-            var choices = new[] { new SteamSettingsChoice(string.Empty, profile.EditsGame ? "Use Global" : "None") }
-                .Concat(lightingSelection.Profiles.Select(item => new SteamSettingsChoice(item.ProfileId, item.Name)))
+            var choices = DeviceHostRows.ProfileChoices(lightingSelection.Profiles,
+                    DeviceHostRows.LightingProfileEmptyLabel(profile.EditsGame))
+                .Select(choice => new SteamSettingsChoice(choice.Value,
+                    CapabilityDisplayLabels.For(choice.Display, choice.Value)))
                 .ToArray();
             var key = ProfileKey(DeviceHostRowIds.LightingProfile, profile.Active, profile.EditsGame);
             var row = new SteamSettingsRow(key, SteamSettingsRowKind.Choice, descriptor.Title, descriptor.Description,
@@ -251,11 +252,11 @@ internal sealed partial class SteamNativeSettingsService(
             }, profile.Active, profile.EditsGame));
         }
 
-        var declarations = DeviceOverlayBridge.ProjectSections(coordinator.Capabilities.Sections);
+        var declarations = CapabilityRowProjection.ProjectSections(coordinator.Capabilities.Sections);
         HashSet<string> declared = new(declarations.Select(section => section.SectionId), StringComparer.Ordinal);
         var presets = FanCurvePresets.For(coordinator.DeviceDefinition?.Id);
         var capabilities = coordinator.PresentedCapabilities()
-            .Select(view => DeviceOverlayBridge.ToOverlayCapability(view, declared, profile.Layers, presets))
+            .Select(view => CapabilityRowProjection.ToOverlayCapability(view, declared, profile.Layers, presets))
             .Where(capability => capability.Role is not CapabilityRole.PowerSustainedLimit
                 and not CapabilityRole.PowerSlowLimit and not CapabilityRole.VariableRefreshRate)
             .ToArray();
@@ -304,27 +305,18 @@ internal sealed partial class SteamNativeSettingsService(
 
     /// <summary>Builds a native row bound to the capability's device and descriptor generations.</summary>
     /// <param name="capability">Projected descriptor, current value, write admission and profile override metadata.</param>
-    /// <returns>A color/text-specific row or the shared graphics row, with a generation-qualified key and override accent.</returns>
+    /// <returns>The shared Steam capability row, keyed by capability and instance, with the override accent.</returns>
     internal static SteamSettingsRow DeviceRow(DeviceOverlayCapability capability)
     {
         var key = "device/" + capability.CapabilityId +
                   (capability.InstanceId is { } instance ? "#" + instance : string.Empty);
-        var row = capability switch
-        {
-            { Writable: true, ValueKind: CapabilityValueKind.Color } => new SteamSettingsRow(key,
-                SteamSettingsRowKind.Color,
-                capability.Title, "Choose a color, then Save to write the device. " + capability.Description,
-                Text: $"#{capability.CurrentValue?.ColorValue ?? 0xFFFFFF:X6}", Disabled: !capability.CanInvoke,
-                ColorAlpha: false),
-            { Writable: true, ValueKind: CapabilityValueKind.Text } => new SteamSettingsRow(key,
-                SteamSettingsRowKind.Text,
-                capability.Title, capability.Description, Text: capability.CurrentValue?.TextValue ?? string.Empty,
-                MaximumLength: capability.MaximumLength, Disabled: !capability.CanInvoke),
-            _ => SteamGraphicsService.Row(capability) with { Key = key }
-        };
-        return capability.OverrideId is null || row.Accent
-            ? row
-            : row with { Accent = true, Description = NativeQamLayout.AccentDescription(row.Description) };
+        // This page's colour editor stages its pick until Save, so the row says so.
+        return SteamCapabilityRows.Row(capability is { Writable: true, ValueKind: CapabilityValueKind.Color }
+            ? capability with
+            {
+                Description = "Choose a color, then Save to write the device. " + capability.Description
+            }
+            : capability, key);
     }
 
     private async Task<SteamUiCommandResult> WriteDeviceAsync(DeviceOverlayCapability seen, JsonElement value,
@@ -338,16 +330,7 @@ internal sealed partial class SteamNativeSettingsService(
             return new SteamUiCommandResult(false, "The device capability changed while you were choosing.");
         }
 
-        CapabilityValue? candidate;
-        if (seen.ValueKind is CapabilityValueKind.Color && TryColor(value, out var color))
-        {
-            candidate = new CapabilityValue { Kind = CapabilityValueKind.Color, ColorValue = color };
-        }
-        else if (seen.ValueKind is CapabilityValueKind.Text && value.ValueKind is JsonValueKind.String)
-        {
-            candidate = new CapabilityValue { Kind = CapabilityValueKind.Text, TextValue = value.GetString() };
-        }
-        else if (!SteamGraphicsService.TryValue(seen, value, out candidate))
+        if (!SteamCapabilityRows.TryValue(seen, value, out var candidate))
         {
             return new SteamUiCommandResult(false, "The device setting value is invalid.");
         }
@@ -383,68 +366,11 @@ internal sealed partial class SteamNativeSettingsService(
                                          && (row.MaximumLength is null ||
                                              value.GetString()!.Length <= row.MaximumLength),
             SteamSettingsRowKind.ResolutionList => ValidResolutionEdit(row, value),
-            SteamSettingsRowKind.Color => TryColor(value, out _),
+            SteamSettingsRowKind.Color => SteamCapabilityRows.TryColor(value, out _),
+            SteamSettingsRowKind.Curve => value.ValueKind is JsonValueKind.Array,
             SteamSettingsRowKind.Action => value.ValueKind is JsonValueKind.True,
             _ => false
         };
-    }
-
-    /// <summary>Parses the native editor's opaque RGB color vocabulary.</summary>
-    /// <param name="value">A #RRGGBB string or hsla(h, s%, l%, 1); finite hue is wrapped into one turn.</param>
-    /// <param name="color">Packed 24-bit RGB on success; zero on failure.</param>
-    /// <returns>True for a complete supported color with valid saturation/lightness and full opacity.</returns>
-    internal static bool TryColor(JsonElement value, out int color)
-    {
-        color = 0;
-        if (value.ValueKind is not JsonValueKind.String || value.GetString() is not { } text)
-        {
-            return false;
-        }
-
-        if (text.Length == 7 && text[0] == '#')
-        {
-            return int.TryParse(text.AsSpan(1), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture,
-                out color);
-        }
-
-        if (!text.StartsWith("hsla(", StringComparison.Ordinal) || !text.EndsWith(')'))
-        {
-            return false;
-        }
-
-        var parts = text[5..^1].Split(',', StringSplitOptions.TrimEntries);
-        if (parts.Length != 4 || !parts[1].EndsWith('%') || !parts[2].EndsWith('%')
-            || !double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var hue)
-            || !double.TryParse(parts[1][..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out var saturation)
-            || !double.TryParse(parts[2][..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out var lightness)
-            || !double.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out var alpha)
-            || !double.IsFinite(hue) || saturation is < 0 or > 100 || !double.IsFinite(saturation)
-            || lightness is < 0 or > 100 || !double.IsFinite(lightness) || alpha != 1)
-        {
-            return false;
-        }
-
-        var normalizedHue = (hue % 360 + 360) % 360 / 60;
-        var light = lightness / 100;
-        var chroma = (1 - Math.Abs(2 * light - 1)) * saturation / 100;
-        var secondary = chroma * (1 - Math.Abs(normalizedHue % 2 - 1));
-        var offset = light - chroma / 2;
-        var (red, green, blue) = normalizedHue switch
-        {
-            < 1 => (chroma, secondary, 0d),
-            < 2 => (secondary, chroma, 0d),
-            < 3 => (0d, chroma, secondary),
-            < 4 => (0d, secondary, chroma),
-            < 5 => (secondary, 0d, chroma),
-            _ => (chroma, 0d, secondary)
-        };
-        color = (Channel(red) << 16) | (Channel(green) << 8) | Channel(blue);
-        return true;
-
-        int Channel(double channel)
-        {
-            return (int)Math.Round((channel + offset) * 255);
-        }
     }
 
     /// <summary>Keeps commands from a former editing scope out of the current offered set.</summary>

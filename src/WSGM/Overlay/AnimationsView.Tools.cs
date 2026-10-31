@@ -33,7 +33,7 @@ public sealed partial class AnimationsView
 
     private void AddMoviePreview(StackPanel body, SteamAnimationsItem item)
     {
-        var source = _browser!.PreviewPath(item.Id) ?? item.PreviewUrl;
+        var source = _service!.PreviewPath(item.Id) ?? item.PreviewUrl;
         if (source is not null)
         {
             body.Children.Add(new OverlayMediaPreview(Context, source) { Tag = "movie.preview:" + item.Id });

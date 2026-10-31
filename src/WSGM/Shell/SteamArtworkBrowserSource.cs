@@ -10,7 +10,8 @@ using WSGM.Core;
 
 namespace WSGM.Shell;
 
-/// <summary>Projects WSGM's artwork providers into the toolkit's Steam-native browser.</summary>
+/// <summary>One surface's browsing of WSGM's artwork providers in the toolkit's Steam-native browser.</summary>
+/// <remarks>Created by the shared <see cref="ArtworkBrowser" />, which owns the providers, the saved state and Steam.</remarks>
 internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 {
     /// <summary>The tab that manages a title's current artwork instead of browsing one slot.</summary>
@@ -26,11 +27,10 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
     private static readonly byte[] TransparentPixel = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVQYV2NgYAAAAAMAAWgmWQ0AAAAASUVORK5CYII=");
 
-    private readonly List<SteamArtworkBrowserSource> _contexts = [];
-
     private readonly Dictionary<string, SteamArtworkBrowserFilter> _filters = new(StringComparer.Ordinal);
 
     private readonly object _gate = new();
+    private readonly ArtworkBrowser _owner;
     private readonly IReadOnlyList<IArtworkProvider> _providers;
     private readonly Func<ArtworkConfig> _readConfiguration;
     private readonly CancellationTokenSource _shutdown = new();
@@ -52,25 +52,20 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
     private CancellationTokenSource? _load;
     private Dictionary<string, ArtworkGameMatch> _matches = new(StringComparer.Ordinal);
     private Dictionary<string, SgdbOfficialAsset> _officialCandidates = new(StringComparer.Ordinal);
-    private SteamArtworkBrowserSource? _parent;
-    private string _providerSignature;
     private long _revision;
     private ArtworkGameMatch? _selectedMatch;
     private SteamArtworkBrowserState? _state;
-    private string _tabSignature;
 
-    internal SteamArtworkBrowserSource(
-        Func<ArtworkConfig> readConfiguration,
-        ArtworkStateStore store, SteamClient steam, IReadOnlyList<IArtworkProvider>? providers = null)
+    /// <summary>Creates a session over the shared owner; use <see cref="ArtworkBrowser.CreateViewSession" />.</summary>
+    /// <param name="owner">The owner of the providers, the saved state and Steam.</param>
+    internal SteamArtworkBrowserSource(ArtworkBrowser owner)
     {
-        _readConfiguration = readConfiguration;
-        _steam = steam ?? throw new ArgumentNullException(nameof(steam));
-        _providers = providers ?? ArtworkSearch.Providers;
+        _owner = owner;
+        _readConfiguration = owner.ReadConfiguration;
+        _steam = owner.Steam;
+        _providers = owner.Providers;
         _steamGridDb = _providers.OfType<SteamGridDbProvider>().FirstOrDefault();
-        var configuration = readConfiguration();
-        _tabSignature = configuration.TabSignature();
-        _providerSignature = configuration.ProviderSignature();
-        _store = store;
+        _store = owner.Store;
     }
 
     /// <inheritdoc />
@@ -105,26 +100,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
             return;
         }
 
-        SteamArtworkBrowserSource[] contexts;
-        lock (_gate)
-        {
-            contexts = [.. _contexts];
-            _contexts.Clear();
-        }
-
-        foreach (var context in contexts)
-        {
-            context.Dispose();
-        }
-
-        if (_parent is not null)
-        {
-            lock (_parent._gate)
-            {
-                _parent._contexts.Remove(this);
-            }
-        }
-
+        _owner.Remove(this);
         _shutdown.Cancel();
         lock (_gate)
         {
@@ -526,7 +502,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
     }
 
     /// <inheritdoc />
-    public Task<OverlayLibraryResult> ReadGamesAsync()
+    public Task<SteamLibraryReadResult> ReadGamesAsync()
     {
         return OverlayLibraryLookup.ReadAsync(_steam, _shutdown.Token);
     }
@@ -619,48 +595,23 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
-    internal SteamArtworkBrowserSource CreateViewSession()
+    /// <summary>Shows what another session applied, when this session has the same game open.</summary>
+    /// <param name="appId">The game.</param>
+    /// <param name="message">The outcome.</param>
+    /// <param name="managed">The game's managed slots now.</param>
+    internal void ShowArtwork(uint appId, string message, SteamArtworkManagedSlot[] managed)
     {
-        var context = new SteamArtworkBrowserSource(_readConfiguration, _store, _steam, _providers) { _parent = this };
         lock (_gate)
         {
-            _contexts.Add(context);
-        }
-
-        return context;
-    }
-
-    private void BroadcastArtwork(uint appId, string message, SteamArtworkManagedSlot[] managed)
-    {
-        var owner = _parent ?? this;
-        SteamArtworkBrowserSource[] contexts;
-        lock (owner._gate)
-        {
-            contexts = [owner, .. owner._contexts];
-        }
-
-        foreach (var context in contexts)
-        {
-            if (ReferenceEquals(context, this))
+            if (_state?.AppId != appId)
             {
-                continue;
+                return;
             }
 
-            lock (context._gate)
-            {
-                if (context._state?.AppId != appId)
-                {
-                    continue;
-                }
-
-                context._state = context._state with
-                {
-                    ManagedSlots = managed, Notice = message, Error = null, Revision = ++context._revision
-                };
-            }
-
-            context.Changed?.Invoke();
+            _state = _state with { ManagedSlots = managed, Notice = message, Error = null, Revision = ++_revision };
         }
+
+        Changed?.Invoke();
     }
 
     private async Task ApplyLocalCoreAsync(
@@ -698,39 +649,9 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         await ApplyBytesCoreAsync(appId, asset, bytes, cancellationToken).ConfigureAwait(false);
     }
 
-    internal void ConfigurationChanged()
+    /// <summary>Opens this session's game again, for a changed tab layout or credentials.</summary>
+    internal void Reopen()
     {
-        var configuration = _readConfiguration();
-        var tabSignature = configuration.TabSignature();
-        var providerSignature = configuration.ProviderSignature();
-        SteamArtworkBrowserSource[] contexts;
-        bool credentialsChanged;
-        lock (_gate)
-        {
-            if (_tabSignature == tabSignature && _providerSignature == providerSignature)
-            {
-                return;
-            }
-
-            _tabSignature = tabSignature;
-            credentialsChanged = _providerSignature != providerSignature;
-            _providerSignature = providerSignature;
-            contexts = [.. _contexts];
-        }
-
-        if (_parent is null && credentialsChanged)
-        {
-            foreach (var provider in _providers)
-            {
-                provider.ResetCache();
-            }
-        }
-
-        foreach (var context in contexts)
-        {
-            context.ConfigurationChanged();
-        }
-
         uint? appId;
         lock (_gate)
         {
@@ -1198,7 +1119,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         var managed = Managed(appId);
         if (!error)
         {
-            BroadcastArtwork(appId, message, managed);
+            _owner.BroadcastArtwork(this, appId, message, managed);
         }
 
         lock (_gate)
@@ -1336,20 +1257,11 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 
     private static SteamArtworkBrowserTab[] ConfiguredTabs(ArtworkConfig configuration)
     {
-        var visibility = new Dictionary<string, bool>(StringComparer.Ordinal)
-        {
-            ["grid"] = configuration.ShowGrid,
-            ["wide"] = configuration.ShowWide,
-            ["hero"] = configuration.ShowHero,
-            ["logo"] = configuration.ShowLogo,
-            ["icon"] = configuration.ShowIcon,
-            [ManageTab] = configuration.ShowManage
-        };
         var lookup = AllTabs.ToDictionary(tab => tab.Id, StringComparer.Ordinal);
         SteamArtworkBrowserTab[] tabs =
         [
             .. configuration.TabOrder.Split(',', StringSplitOptions.RemoveEmptyEntries)
-                .Where(id => visibility.GetValueOrDefault(id) && lookup.ContainsKey(id))
+                .Where(id => configuration.IsTabVisible(id) && lookup.ContainsKey(id))
                 .Distinct(StringComparer.Ordinal)
                 .Select(id => lookup[id])
         ];

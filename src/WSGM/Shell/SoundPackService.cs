@@ -49,7 +49,7 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
     private SoundPackState _state = new([], "", false, null, "Not checked yet.", [], 0, 0);
 
     internal SoundPackService(SoundPackLibrary library, Func<string> readSelected, Action<string> saveSelected,
-        Func<string?> steamDirectory, Action<string>? report = null, ThemeStoreClient? store = null)
+        Func<string?> steamDirectory, ThemeStoreClient store, Action<string>? report = null)
     {
         _library = library;
         _readSelected = readSelected;
@@ -57,7 +57,7 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
         _steamDirectory = steamDirectory;
         _shutdownToken = _shutdown.Token;
         _report = report ?? Log.Warn;
-        _store = store ?? new ThemeStoreClient();
+        _store = store;
         _state = _state with { Selected = readSelected() };
     }
 

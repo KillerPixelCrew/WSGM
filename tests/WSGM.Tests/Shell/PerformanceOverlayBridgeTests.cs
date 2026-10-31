@@ -150,16 +150,16 @@ public sealed class PerformanceOverlayBridgeTests
         var profiles = Profiles();
         await using var service = Service(profiles);
         FakeCpuBoostApi api = new();
-        ApplicationPerformanceReconciler reconciler = new(profiles, () => null, api.Owner());
-        using PerformanceOverlayBridge bridge = new(service, profiles, reconciler: reconciler);
+        CpuBoostService cpuBoost = new(profiles, api.Owner());
+        using PerformanceOverlayBridge bridge = new(service, profiles, cpuBoost: cpuBoost);
         api.Values[false] = 2;
         TaskCompletionSource refreshed = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        reconciler.CpuBoostChanged += () => refreshed.TrySetResult();
+        cpuBoost.Changed += () => refreshed.TrySetResult();
 
         bridge.RefreshWindowsState();
         await refreshed.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
-        Assert.Equal(CpuBoostMode.Aggressive, reconciler.CpuBoostStatus?.OnAc);
+        Assert.Equal(CpuBoostMode.Aggressive, cpuBoost.Status?.OnAc);
         Assert.Contains("read", api.Calls);
     }
 }

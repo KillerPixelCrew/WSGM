@@ -252,7 +252,7 @@ public sealed class SteamGraphicsServiceTests
         var row = Snapshot(Placed(Range("graphics.sharpen", CapabilityProfileScope.Switched))).Sections[0]
             .Capabilities[0];
 
-        Assert.Equal(accepted, SteamGraphicsService.TryValue(row, Json(json), out var value));
+        Assert.Equal(accepted, SteamCapabilityRows.TryValue(row, Json(json), out var value));
         if (accepted)
         {
             Assert.Equal(expected, value?.IntegerValue);
@@ -264,10 +264,10 @@ public sealed class SteamGraphicsServiceTests
     {
         var row = Snapshot(Placed(Choice("graphics.choice"))).Sections[0].Capabilities[0];
 
-        Assert.True(SteamGraphicsService.TryValue(row, Json("\"off\""), out var value));
+        Assert.True(SteamCapabilityRows.TryValue(row, Json("\"off\""), out var value));
         Assert.Equal("off", value?.ChoiceValue);
-        Assert.False(SteamGraphicsService.TryValue(row, Json("\"boost\""), out _));
-        Assert.False(SteamGraphicsService.TryValue(row, Json("true"), out _));
+        Assert.False(SteamCapabilityRows.TryValue(row, Json("\"boost\""), out _));
+        Assert.False(SteamCapabilityRows.TryValue(row, Json("true"), out _));
     }
 
     [Fact]

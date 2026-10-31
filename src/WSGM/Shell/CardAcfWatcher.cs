@@ -6,7 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
 using WSGM.Core;
-using WSGM.Interop;
 
 namespace WSGM.Shell;
 
@@ -18,8 +17,8 @@ namespace WSGM.Shell;
 ///     Only file-NAME events are watched: an install creates its appmanifest immediately
 ///     and an uninstall deletes it, while download progress only rewrites file contents —
 ///     so a multi-gigabyte download does not re-sync every few seconds.
-///     Mounts change (insert/eject/format), so the watcher set is reconciled on the same
-///     volume arrival/removal notification <see cref="CardVolumeMonitor" /> reacts to.
+///     Mounts change (insert/eject/format), so the watcher set is reconciled from each settled
+///     storage read of <see cref="RemovableDriveManager" />, the same one <see cref="CardVolumeMonitor" /> follows.
 ///     The watchers hold directory handles on the cards, which would make WSGM veto its
 ///     own Safe Eject (FSCTL_LOCK_VOLUME needs the volume otherwise unopened) — the eject
 ///     and format flows hold a <see cref="Suspend" /> scope for their whole run, and
@@ -28,17 +27,19 @@ namespace WSGM.Shell;
 internal sealed class CardAcfWatcher : IDisposable
 {
     private readonly CancellationTokenSource _cts = new();
+
+    /// <summary>The session's storage owner, whose settled reads say which volumes are mounted.</summary>
+    private readonly RemovableDriveManager _drives;
+
     private readonly object _gate = new();
 
     private readonly SteamUiReadiness _readiness;
     private readonly Timer _reconcile;
-    private readonly bool _registered;
     private readonly SteamClient _steam;
     private readonly ConfigStore _store;
     private readonly CancellationToken _token;
 
     private readonly Dictionary<char, FileSystemWatcher> _watchers = new();
-    private readonly MessageWindow _window;
 
     /// <summary>
     ///     1 while a deferred boot sync is waiting or running. Its wait outlives many
@@ -50,30 +51,22 @@ internal sealed class CardAcfWatcher : IDisposable
     private bool _disposed;
     private int _suspensions;
 
-    private CardAcfWatcher(MessageWindow window, ConfigStore store, SteamClient steam, SteamUiReadiness readiness)
+    private CardAcfWatcher(
+        RemovableDriveManager drives, ConfigStore store, SteamClient steam, SteamUiReadiness readiness)
     {
+        _drives = drives;
         _store = store;
         _steam = steam;
         _readiness = readiness;
         _token = _cts.Token;
-        _window = window;
         _reconcile = new Timer(_ => Reconcile(), null, Timeout.Infinite, Timeout.Infinite);
-        _registered = window.RegisterVolumeNotifications();
-        if (_registered)
-        {
-            window.VolumeChanged += OnVolumeChanged;
-        }
+        drives.TopologyChanged += OnTopologyChanged;
     }
 
-    /// <summary>Stops watching and ends this watcher's volume notification claim. UI thread.</summary>
+    /// <summary>Stops watching and unsubscribes from storage changes. UI thread.</summary>
     public void Dispose()
     {
-        if (_registered)
-        {
-            _window.VolumeChanged -= OnVolumeChanged;
-            _window.DeregisterVolumeNotifications();
-        }
-
+        _drives.TopologyChanged -= OnTopologyChanged;
         _cts.Cancel();
         lock (_gate)
         {
@@ -93,15 +86,15 @@ internal sealed class CardAcfWatcher : IDisposable
     }
 
     /// <summary>Creates the session's watcher and watches the cards already mounted. UI thread.</summary>
-    /// <param name="window">The session's message window, which outlives this watcher.</param>
+    /// <param name="drives">The session's storage owner, which outlives this watcher.</param>
     /// <param name="store">The configuration store the card libraries are read from.</param>
     /// <param name="steam">The session's Steam client the tab syncs run through.</param>
     /// <param name="readiness">The session's Steam UI readiness, which a sync waits on.</param>
-    /// <returns>A running watcher owned by the caller; dispose before the borrowed message window and Steam services.</returns>
+    /// <returns>A running watcher owned by the caller; dispose before the borrowed storage owner and Steam services.</returns>
     internal static CardAcfWatcher StartNew(
-        MessageWindow window, ConfigStore store, SteamClient steam, SteamUiReadiness readiness)
+        RemovableDriveManager drives, ConfigStore store, SteamClient steam, SteamUiReadiness readiness)
     {
-        var watcher = new CardAcfWatcher(window, store, steam, readiness);
+        var watcher = new CardAcfWatcher(drives, store, steam, readiness);
         watcher._reconcile.Change(TimeSpan.Zero, Timeout.InfiniteTimeSpan);
         return watcher;
     }
@@ -144,14 +137,14 @@ internal sealed class CardAcfWatcher : IDisposable
         }
     }
 
-    private void OnVolumeChanged(bool _)
+    /// <summary>Runs on the storage owner's worker after a settled read changed the volumes or disks.</summary>
+    private void OnTopologyChanged()
     {
         lock (_gate)
         {
             if (!_disposed)
             {
-                // The notification precedes the mount and its letter; settle first.
-                _reconcile.Change(CardVolumeMonitor.SettleDelay, Timeout.InfiniteTimeSpan);
+                _reconcile.Change(TimeSpan.Zero, Timeout.InfiniteTimeSpan);
             }
         }
     }
@@ -161,20 +154,16 @@ internal sealed class CardAcfWatcher : IDisposable
         try
         {
             var mounted = new HashSet<char>();
-            foreach (var drive in DriveInfo.GetDrives())
+            // Every ready disk volume, internal ones included: a library on any of them has a tab.
+            foreach (var volume in _drives.Inventory.Volumes.Where(volume => volume.Ready))
             {
                 try
                 {
-                    if (!drive.IsReady)
-                    {
-                        continue;
-                    }
-
-                    var root = Path.Combine(drive.Name, SteamLibraryVdf.CardFolderName);
-                    if (File.Exists(Path.Combine(root, "libraryfolder.vdf"))
+                    var root = Path.Combine(volume.MountPath, SteamLibraryVdf.CardFolderName);
+                    if (File.Exists(Path.Combine(root, SteamLibraryMarker.MarkerFileName))
                         && Directory.Exists(Path.Combine(root, "steamapps")))
                     {
-                        mounted.Add(char.ToUpperInvariant(drive.Name[0]));
+                        mounted.Add(char.ToUpperInvariant(volume.Letter));
                     }
                 }
                 catch
@@ -223,7 +212,7 @@ internal sealed class CardAcfWatcher : IDisposable
             watcher.Created += (_, _) => Debounce();
             watcher.Deleted += (_, _) => Debounce();
             watcher.Renamed += (_, _) => Debounce();
-            // Buffer overflow or the drive vanished; the removal notification's
+            // Buffer overflow or the drive vanished; the next storage read's
             // reconcile disposes or replaces the watcher.
             watcher.Error += (_, _) => Debounce();
             _watchers[letter] = watcher;

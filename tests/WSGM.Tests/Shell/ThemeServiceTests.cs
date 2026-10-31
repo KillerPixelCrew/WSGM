@@ -106,7 +106,7 @@ public sealed class ThemeServiceTests : IDisposable
         using var service = Service();
         await service.SetEnabledAsync("Dark", true, CancellationToken.None);
 
-        var item = service.ReadExtensionsItem();
+        var item = Section(service).ReadExtensionsItem();
 
         Assert.Equal("wsgm.themes", item.Id);
         Assert.Equal("1 of 1 enabled", item.Detail);
@@ -116,17 +116,17 @@ public sealed class ThemeServiceTests : IDisposable
         Assert.Equal(["", "Night.profile"], settings[0].Choices);
         Assert.Equal(["None", "Night"], settings[0].ChoiceLabels);
         Assert.Equal("", settings[0].TextValue);
-        Assert.Equal((ThemeService.ExtensionsKey("theme", "Dark"), "boolean", true, "v2.1 · Squishy"),
+        Assert.Equal((Key("theme", "Dark"), "boolean", true, "v2.1 · Squishy"),
             (settings[1].Key, settings[1].Kind, settings[1].BooleanValue, settings[1].Description));
         Assert.Equal(
-            (ThemeService.ExtensionsKey("patch", "Dark", "Accent"), "text", "Orange",
-                ThemeService.ExtensionsKey("theme", "Dark")),
+            (Key("patch", "Dark", "Accent"), "text", "Orange",
+                Key("theme", "Dark")),
             (settings[2].Key, settings[2].Kind, settings[2].TextValue, settings[2].Parent));
-        Assert.Equal((ThemeService.ExtensionsKey("component", "Dark", "Accent", "Tint"), "color", "#102030"),
+        Assert.Equal((Key("component", "Dark", "Accent", "Tint"), "color", "#102030"),
             (settings[3].Key, settings[3].Kind, settings[3].TextValue));
-        Assert.Equal((ThemeService.ExtensionsKey("patch", "Dark", "Glow"), "boolean", false),
+        Assert.Equal((Key("patch", "Dark", "Glow"), "boolean", false),
             (settings[4].Key, settings[4].Kind, settings[4].BooleanValue));
-        Assert.Equal((ThemeService.ExtensionsKey("patch", "Dark", "Blur"), "number", 1.0),
+        Assert.Equal((Key("patch", "Dark", "Blur"), "number", 1.0),
             (settings[5].Key, settings[5].Kind, settings[5].NumberValue));
         Assert.Equal(["Off", "Low", "High"], settings[5].Choices);
     }
@@ -144,21 +144,21 @@ public sealed class ThemeServiceTests : IDisposable
                            """, ("d.css", ".d{}"), ("b.css", ".b{}"), ("g.css", ".g{}"), ("l.css", ".l{}"));
         using var service = Service();
 
-        Assert.True((await service.ConfigureExtensionAsync(ThemeService.ExtensionsKey("theme", "Dark"), Json("true"),
+        Assert.True((await Section(service).ConfigureExtensionAsync(Key("theme", "Dark"), Json("true"),
                 CancellationToken.None))
             .Succeeded);
         Assert.True(
-            (await service.ConfigureExtensionAsync(ThemeService.ExtensionsKey("patch", "Dark", "Accent"),
+            (await Section(service).ConfigureExtensionAsync(Key("patch", "Dark", "Accent"),
                 Json("\"Blue\""), CancellationToken.None))
             .Succeeded);
-        Assert.True((await service.ConfigureExtensionAsync(ThemeService.ExtensionsKey("patch", "Dark", "Glow"),
+        Assert.True((await Section(service).ConfigureExtensionAsync(Key("patch", "Dark", "Glow"),
                 Json("true"), CancellationToken.None))
             .Succeeded);
-        Assert.True((await service.ConfigureExtensionAsync(ThemeService.ExtensionsKey("patch", "Dark", "Blur"),
+        Assert.True((await Section(service).ConfigureExtensionAsync(Key("patch", "Dark", "Blur"),
                 Json("1"), CancellationToken.None))
             .Succeeded);
-        Assert.True((await service.ConfigureExtensionAsync(
-            ThemeService.ExtensionsKey("component", "Dark", "Accent", "Tint"), Json("\"#abcdef\""),
+        Assert.True((await Section(service).ConfigureExtensionAsync(
+            Key("component", "Dark", "Accent", "Tint"), Json("\"#abcdef\""),
             CancellationToken.None)).Succeeded);
 
         var css = service.ReadStyles().Styles.Select(style => style.Css).ToList();
@@ -166,11 +166,11 @@ public sealed class ThemeServiceTests : IDisposable
             css.Where(text => !text.StartsWith(":root", StringComparison.Ordinal)));
         Assert.Contains(css, text => text.Contains("--tint: #abcdef;"));
 
-        Assert.False((await service.ConfigureExtensionAsync(ThemeService.ExtensionsKey("patch", "Dark", "Blur"),
+        Assert.False((await Section(service).ConfigureExtensionAsync(Key("patch", "Dark", "Blur"),
                 Json("9"), CancellationToken.None))
             .Succeeded);
-        Assert.False((await service.ConfigureExtensionAsync("nonsense", Json("1"), CancellationToken.None)).Succeeded);
-        Assert.False((await service.ConfigureExtensionAsync(ThemeService.ExtensionsKey("patch", "Dark", "Gone"),
+        Assert.False((await Section(service).ConfigureExtensionAsync("nonsense", Json("1"), CancellationToken.None)).Succeeded);
+        Assert.False((await Section(service).ConfigureExtensionAsync(Key("patch", "Dark", "Gone"),
                 Json("\"x\""), CancellationToken.None))
             .Succeeded);
     }
@@ -187,11 +187,11 @@ public sealed class ThemeServiceTests : IDisposable
         using var service = Service();
         var before = service.StylesRevision;
 
-        await service.ConfigureExtensionAsync("profile", Json("\"Night.profile\""), CancellationToken.None);
+        await Section(service).ConfigureExtensionAsync("profile", Json("\"Night.profile\""), CancellationToken.None);
         Assert.Equal("Night.profile", service.ReadState().SelectedPreset);
         Assert.Equal([".d{}"], service.ReadStyles().Styles.Select(style => style.Css));
 
-        await service.ConfigureExtensionAsync("profile", Json("\"Day.profile\""), CancellationToken.None);
+        await Section(service).ConfigureExtensionAsync("profile", Json("\"Day.profile\""), CancellationToken.None);
         Assert.Equal("Day.profile", service.ReadState().SelectedPreset);
         Assert.Equal([".l{}"], service.ReadStyles().Styles.Select(style => style.Css));
         Assert.True(service.StylesRevision > before);
@@ -205,7 +205,7 @@ public sealed class ThemeServiceTests : IDisposable
         service.ConfigurationChanged();
         await service.SetEnabledAsync("Dark", true, CancellationToken.None);
         Assert.Empty(service.ReadStyles().Styles);
-        Assert.Equal("Off in Settings", service.ReadExtensionsItem().Detail);
+        Assert.Equal("Off in Settings", Section(service).ReadExtensionsItem().Detail);
     }
 
     [Fact]
@@ -218,9 +218,9 @@ public sealed class ThemeServiceTests : IDisposable
 
         Assert.Single(_writes);
         Assert.Equal(["Dark"], _config.HiddenThemes);
-        Assert.DoesNotContain(service.ReadExtensionsItem().Settings!,
-            setting => setting.Key == ThemeService.ExtensionsKey("theme", "Dark"));
-        Assert.Equal("0 of 1 enabled · 1 hidden", service.ReadExtensionsItem().Detail);
+        Assert.DoesNotContain(Section(service).ReadExtensionsItem().Settings!,
+            setting => setting.Key == Key("theme", "Dark"));
+        Assert.Equal("0 of 1 enabled · 1 hidden", Section(service).ReadExtensionsItem().Detail);
         Assert.True(service.ReadState().Themes.Single().Hidden);
     }
 
@@ -228,16 +228,20 @@ public sealed class ThemeServiceTests : IDisposable
     public async Task TheSectionsActionsOpenThePageOnTheRightTab()
     {
         using var service = Service();
+        using var page = service.CreateBrowserSession("settings");
+        var section = new ThemeQuickAccessSection(service, page);
 
-        var browse = await service.ActivateExtensionAsync(ThemeService.ExtensionsBrowseId, CancellationToken.None);
+        var browse = await section.ActivateExtensionAsync(ThemeQuickAccessSection.ExtensionsBrowseId,
+            CancellationToken.None);
         Assert.Equal("/wsgm/themes", browse.Payload?.GetProperty("route").GetString());
-        Assert.Equal("browse", service.ReadState().ActiveTab);
+        Assert.Equal("browse", page.ReadState().ActiveTab);
 
-        var manage = await service.ActivateExtensionAsync(ThemeService.ExtensionsManageId, CancellationToken.None);
+        var manage = await section.ActivateExtensionAsync(ThemeQuickAccessSection.ExtensionsManageId,
+            CancellationToken.None);
         Assert.Equal("/wsgm/themes", manage.Payload?.GetProperty("route").GetString());
-        Assert.Equal("installed", service.ReadState().ActiveTab);
+        Assert.Equal("installed", page.ReadState().ActiveTab);
 
-        Assert.False((await service.ActivateExtensionAsync("wsgm.themes.nope", CancellationToken.None)).Succeeded);
+        Assert.False((await section.ActivateExtensionAsync("wsgm.themes.nope", CancellationToken.None)).Succeeded);
         Assert.False((await service.UpdateAllAsync(CancellationToken.None)).Succeeded);
     }
 
@@ -256,6 +260,17 @@ public sealed class ThemeServiceTests : IDisposable
         Assert.Null(service.ReadState().Error);
     }
 
+    // The section reads and commands the service only; the page session matters to its two opening actions.
+    private static string Key(string kind, params string[] names)
+    {
+        return ThemeQuickAccessSection.ExtensionsKey(kind, names);
+    }
+
+    private static ThemeQuickAccessSection Section(ThemeService service)
+    {
+        return new ThemeQuickAccessSection(service, service.CreateBrowserSession("browse"));
+    }
+
     private static JsonElement Json(string text)
     {
         using var document = JsonDocument.Parse(text);
@@ -267,10 +282,10 @@ public sealed class ThemeServiceTests : IDisposable
     {
         WriteTheme("dark", """{ "name": "Steam: Dark", "inject": { "d.css": ["QuickAccess"] } }""", ("d.css", ".d{}"));
         using var service = Service();
-        var key = ThemeService.ExtensionsKey("theme", "Steam: Dark");
+        var key = Key("theme", "Steam: Dark");
 
-        Assert.Contains(service.ReadExtensionsItem().Settings!, setting => setting.Key == key);
-        Assert.True((await service.ConfigureExtensionAsync(key, Json("true"), CancellationToken.None)).Succeeded);
+        Assert.Contains(Section(service).ReadExtensionsItem().Settings!, setting => setting.Key == key);
+        Assert.True((await Section(service).ConfigureExtensionAsync(key, Json("true"), CancellationToken.None)).Succeeded);
         Assert.True(service.ReadState().Themes.Single().Enabled);
         Assert.DoesNotContain(':', key[(key.IndexOf(':') + 1)..]);
     }

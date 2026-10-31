@@ -7,9 +7,9 @@ namespace WSGM.Shell;
 
 /// <summary>
 ///     Owns one surface’s theme browse state; disposing cancels its queries without disposing the shared theme
-///     service.
+///     service. The owner’s commands go to <see cref="ISteamThemesBackend" /> directly.
 /// </summary>
-internal interface IThemeBrowseSession : ISteamThemesBackend, IChangeSource, IDisposable
+internal interface IThemeBrowseSession : IChangeSource, IDisposable
 {
     /// <summary>Local tab selection; changing it directly does not publish a state notification.</summary>
     string Tab { get; set; }
@@ -21,21 +21,43 @@ internal interface IThemeBrowseSession : ISteamThemesBackend, IChangeSource, IDi
     /// <summary>Requests cancellation of browse and detail queries without joining them or publishing a notification.</summary>
     void CancelQueries();
 
-    /// <summary>Persists whether theme styles are active.</summary>
-    /// <param name="enabled">Whether the shared theme service should publish styles.</param>
-    /// <param name="cancellationToken">Cancels waiting and cooperative persistence work.</param>
-    /// <returns>The persistence outcome; all surfaces observe the shared setting.</returns>
-    Task<SteamUiCommandResult> SetThemesEnabledAsync(bool enabled, CancellationToken cancellationToken);
+    /// <summary>Shows one of the page's tabs.</summary>
+    /// <param name="tab">browse, installed, profiles or settings.</param>
+    /// <param name="cancellationToken">Request cancellation signal; it does not revoke work already accepted by the owner.</param>
+    /// <returns>Whether the active-tab state was updated.</returns>
+    Task<SteamUiCommandResult> SetTabAsync(string tab, CancellationToken cancellationToken);
 
-    /// <summary>Changes the shared class-translation branch used by themes.</summary>
-    /// <param name="branch">Supported translation branch name.</param>
-    /// <param name="cancellationToken">Cancels waiting and cooperative work.</param>
-    /// <returns>The command acceptance or refusal; subsequent translation loading may publish further changes.</returns>
-    Task<SteamUiCommandResult> SetTranslationsBranchAsync(string branch, CancellationToken cancellationToken);
+    /// <summary>Asks the store for the first page matching a filter, order and search.</summary>
+    /// <param name="filter">Store filter id; empty selects all themes.</param>
+    /// <param name="order">Store sort id; empty selects the default order.</param>
+    /// <param name="search">Search text; empty adds no text restriction.</param>
+    /// <param name="cancellationToken">Request cancellation signal; it does not revoke work already accepted by the owner.</param>
+    /// <returns>Acceptance of the browse request; results and errors arrive through publications.</returns>
+    Task<SteamUiCommandResult> BrowseAsync(string filter, string order, string search,
+        CancellationToken cancellationToken);
+
+    /// <summary>Asks the store for the next page of the current listing.</summary>
+    /// <param name="cancellationToken">Request cancellation signal; it does not revoke work already accepted by the owner.</param>
+    /// <returns>Whether another page was accepted, or a refusal while loading or after the final result.</returns>
+    Task<SteamUiCommandResult> LoadMoreAsync(CancellationToken cancellationToken);
+
+    /// <summary>Opens one store listing's details.</summary>
+    /// <param name="id">DeckThemes store theme id.</param>
+    /// <param name="cancellationToken">Request cancellation signal; it does not revoke work already accepted by the owner.</param>
+    /// <returns>Acceptance of the detail request; loading completes through published state.</returns>
+    Task<SteamUiCommandResult> OpenAsync(string id, CancellationToken cancellationToken);
+
+    /// <summary>Closes the details.</summary>
+    /// <param name="cancellationToken">Request cancellation signal; it does not revoke work already accepted by the owner.</param>
+    /// <returns>A successful result after closing the detail selection.</returns>
+    Task<SteamUiCommandResult> CloseDetailAsync(CancellationToken cancellationToken);
 }
 
-/// <summary>Owns one surface’s animation selection and detail state over a borrowed shared library.</summary>
-internal interface IAnimationBrowseSession : ISteamAnimationsBackend, IChangeSource, IDisposable
+/// <summary>
+///     Owns one surface’s animation selection and detail state over a borrowed shared library. The owner’s
+///     commands go to <see cref="ISteamAnimationsBackend" /> directly.
+/// </summary>
+internal interface IAnimationBrowseSession : IChangeSource, IDisposable
 {
     /// <summary>Local tab selection; changing it directly does not publish a state notification.</summary>
     string Tab { get; set; }
@@ -44,10 +66,34 @@ internal interface IAnimationBrowseSession : ISteamAnimationsBackend, IChangeSou
     /// <returns>Shared library state combined with this session’s tab and detail selection.</returns>
     SteamAnimationsState ReadState();
 
-    /// <summary>Finds a local preview for an installed movie.</summary>
-    /// <param name="id">Animation library identifier.</param>
-    /// <returns>Local preview path, or null when no installed preview is available.</returns>
-    string? PreviewPath(string id);
+    /// <summary>Shows one of the page's tabs.</summary>
+    /// <param name="tab">browse, library or settings.</param>
+    /// <param name="cancellationToken">Request cancellation signal; it does not revoke work already accepted by the owner.</param>
+    /// <returns>Whether the tab state was updated.</returns>
+    Task<SteamUiCommandResult> SetTabAsync(string tab, CancellationToken cancellationToken);
+
+    /// <summary>Lists what matches a sort and search, fetching the repository once.</summary>
+    /// <param name="sort">Published sort id; unknown ids fall back to the default order.</param>
+    /// <param name="search">Case-insensitive movie search text; empty shows all matching movies.</param>
+    /// <param name="cancellationToken">Request cancellation signal; it does not revoke work already accepted by the owner.</param>
+    /// <returns>Acceptance of the browse state; repository loading completes through publications.</returns>
+    Task<SteamUiCommandResult> BrowseAsync(string sort, string search, CancellationToken cancellationToken);
+
+    /// <summary>Shows the next page of what matches.</summary>
+    /// <param name="cancellationToken">Request cancellation signal; it does not revoke work already accepted by the owner.</param>
+    /// <returns>Whether the visible result window was advanced; no remaining items is a successful no-op.</returns>
+    Task<SteamUiCommandResult> BrowseMoreAsync(CancellationToken cancellationToken);
+
+    /// <summary>Opens one movie for a closer look.</summary>
+    /// <param name="id">Id in the current repository listing or installed library.</param>
+    /// <param name="cancellationToken">Request cancellation signal; it does not revoke work already accepted by the owner.</param>
+    /// <returns>Whether the detail selection exists and was opened.</returns>
+    Task<SteamUiCommandResult> OpenAsync(string id, CancellationToken cancellationToken);
+
+    /// <summary>Closes the closer look.</summary>
+    /// <param name="cancellationToken">Request cancellation signal; it does not revoke work already accepted by the owner.</param>
+    /// <returns>A successful result after clearing the detail selection.</returns>
+    Task<SteamUiCommandResult> CloseDetailAsync(CancellationToken cancellationToken);
 }
 
 /// <summary>Owns one artwork browsing lifetime; dispose when the surface closes.</summary>
@@ -66,7 +112,7 @@ internal interface IArtworkBrowseSession : ISteamArtworkBrowserBackend, IChangeS
 
     /// <summary>Queries Steam’s game list within the browsing lifetime.</summary>
     /// <returns>Available games or a result describing why the list could not be read.</returns>
-    Task<OverlayLibraryResult> ReadGamesAsync();
+    Task<SteamLibraryReadResult> ReadGamesAsync();
 
     /// <summary>Reads the opened game’s saved logo placement.</summary>
     /// <returns>The saved placement, or null when absent or unreadable; callers use default placement.</returns>

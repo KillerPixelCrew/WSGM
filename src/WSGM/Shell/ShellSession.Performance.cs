@@ -10,9 +10,6 @@ namespace WSGM.Shell;
 
 public sealed partial class ShellSession
 {
-    private int _pairedFrameLimit = -1;
-    private long _pairedOperatingPoint = -1;
-
     /// <summary>Hands a foreground application change to the running-application monitor.</summary>
     /// <param name="executable">Foreground executable file name.</param>
     /// <param name="imagePath">Its full image path, or null when the process could not be opened.</param>
@@ -185,12 +182,12 @@ public sealed partial class ShellSession
 
         // Raw observed and desired watts: a device that has neither shows no figure, never the ceiling.
         views ??= coordinator.Capabilities.Snapshot();
-        var tdp = PowerLimitProjection.Project(views);
+        var tdp = IntegerRangeProjection.PowerLimit(views);
         var autoTdp = _autoTdp?.Status;
         var enabled = _autoTdp?.Enabled ?? false;
         var running = enabled && autoTdp?.State is AutoTdpState.Controlling;
         var reportedTdpWatts = tdp.Available
-            ? tdp.ObservedWatts ?? tdp.DesiredWatts
+            ? tdp.Observed ?? tdp.Desired
             : null;
         var tdpWatts = enabled && autoTdp?.Watts is { } automaticWatts
             ? automaticWatts
@@ -208,8 +205,8 @@ public sealed partial class ShellSession
     /// <summary>A boost limit's raw watts, or null when the device does not publish that limit.</summary>
     private static int? BoostWatts(IReadOnlyList<DeviceCapabilityView> views, CapabilityRole role)
     {
-        var limit = PowerLimitProjection.Project(views, role);
-        return limit.Available ? limit.ObservedWatts ?? limit.DesiredWatts : null;
+        var limit = IntegerRangeProjection.PowerLimit(views, role);
+        return limit.Available ? limit.Observed ?? limit.Desired : null;
     }
 
     internal static string AutoTdpActivity(bool enabled, AutoTdpStatus? status)
@@ -271,47 +268,7 @@ public sealed partial class ShellSession
         // A frame limit below AutoTDP's target lowers the deadline; the rows hear about it from here.
         _autoTdp?.RefreshPrerequisites();
 
-        ApplyRefreshPairing(state.Desired.FrameLimit ?? 0, false);
-    }
-
-    /// <summary>Pairs the display cadence to a frame limit, unless that pairing is already held.</summary>
-    /// <param name="limit">The desired frame limit, or zero for uncapped.</param>
-    /// <param name="force">
-    ///     Re-applies the pairing for the limit already latched. Set after a resume: the limit did not
-    ///     change, but the panel behind it was re-established by the driver and may have come back at
-    ///     its default rate, which the latch would otherwise hide until the user moved the cap twice.
-    /// </param>
-    private void ApplyRefreshPairing(int limit, bool force)
-    {
-        if (_refreshPairing is not { } pairing)
-        {
-            return;
-        }
-
-        var point = pairing.OperatingPointRevision;
-        if (limit == _pairedFrameLimit && point == _pairedOperatingPoint && !force)
-        {
-            return;
-        }
-
-        _pairedFrameLimit = limit;
-        _pairedOperatingPoint = point;
-
-        // Uncapped hands the display back: there is no cadence left to pair against, and holding a
-        // reduced refresh rate after the cap is gone would cap frames by the back door. A forced
-        // pass is the exception: with no cap there is no WSGM-driven rate to undo, and restoring
-        // would overwrite a rate the user set by hand before the sleep.
-        if (limit <= 0)
-        {
-            if (!force)
-            {
-                _ = pairing.Restore();
-            }
-
-            return;
-        }
-
-        _ = pairing.ApplyForCap(limit);
+        _refreshPairing?.Pair(state.Desired.FrameLimit ?? 0, false);
     }
 
     /// <summary>Whether WSGM may change RTSS. Overlay-test always may, against its simulated adapter.</summary>

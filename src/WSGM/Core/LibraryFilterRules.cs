@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Linq;
 
 namespace WSGM.Core;
@@ -8,14 +7,8 @@ internal static class LibraryFilterRules
 {
     /// <summary>Recursively replaces null fields and removes null child entries.</summary>
     /// <param name="node">Non-null root of an acyclic mutable filter tree.</param>
-    /// <returns>An empty diagnostic list; this structural repair does not validate predicate meaning.</returns>
-    internal static IReadOnlyList<string> Normalize(FilterNode node)
-    {
-        NormalizeNode(node);
-        return [];
-    }
-
-    private static void NormalizeNode(FilterNode node)
+    /// <remarks>This structural repair does not validate predicate meaning.</remarks>
+    internal static void Normalize(FilterNode node)
     {
         node.CollectionId ??= "";
         node.Pattern ??= "";
@@ -25,7 +18,7 @@ internal static class LibraryFilterRules
         node.AppIds ??= [];
         foreach (var child in node.Children)
         {
-            NormalizeNode(child);
+            Normalize(child);
         }
     }
 }

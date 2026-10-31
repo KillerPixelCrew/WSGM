@@ -15,25 +15,25 @@ public sealed partial class NativeQamSemanticServicesTests
     {
         var view = PrimaryLimitView("pl1");
 
-        var projection = PowerLimitProjection.Project([view]);
+        var projection = IntegerRangeProjection.PowerLimit([view]);
 
         Assert.True(projection.Available);
         Assert.Equal("pl1", projection.InstanceId);
-        Assert.Equal(8, projection.MinimumWatts);
-        Assert.Equal(30, projection.MaximumWatts);
-        Assert.Equal(1, projection.StepWatts);
-        Assert.Equal(18, projection.DesiredWatts);
-        Assert.Equal(17, projection.ObservedWatts);
+        Assert.Equal(8, projection.Minimum);
+        Assert.Equal(30, projection.Maximum);
+        Assert.Equal(1, projection.Step);
+        Assert.Equal(18, projection.Desired);
+        Assert.Equal(17, projection.Observed);
         Assert.Equal("applying", projection.Progress);
     }
 
     [Fact]
     public void TdpProjectionFailsClosedWhenPrimaryLimitIsAmbiguous()
     {
-        var projection = PowerLimitProjection.Project([PrimaryLimitView("first"), PrimaryLimitView("second")]);
+        var projection = IntegerRangeProjection.PowerLimit([PrimaryLimitView("first"), PrimaryLimitView("second")]);
 
         Assert.False(projection.Available);
-        Assert.Null(projection.MinimumWatts);
+        Assert.Null(projection.Minimum);
         Assert.Contains("ambiguous", projection.StatusText, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -63,7 +63,7 @@ public sealed partial class NativeQamSemanticServicesTests
         var state = DeviceCoordinatorNativeQamTdpService.ProjectPowerLimits([pl1, pl2]);
         Assert.Equal(17, state.Sustained.ObservedWatts);
         Assert.Equal(30, state.Boost.ObservedWatts);
-        Assert.Equal("vendor.boost", PowerLimitProjection.Project(
+        Assert.Equal("vendor.boost", IntegerRangeProjection.PowerLimit(
             [pl1, pl2], CapabilityRole.PowerSlowLimit).CapabilityId);
 
         pl1 = pl1 with
@@ -232,11 +232,10 @@ public sealed partial class NativeQamSemanticServicesTests
     [InlineData("null", false)]
     public void DescriptorValueParsingUsesCurrentBoundsAndRejectsDifferentWireKinds(string payload, bool expected)
     {
-        var descriptor = IntegerDeviceView("fan", CapabilityRole.FanDuty, DisplayKey.FanSpeed,
-            15, 100, 40, 35).Descriptor;
+        var row = CapabilityRowProjection.ToOverlayCapability(IntegerDeviceView("fan", CapabilityRole.FanDuty,
+            DisplayKey.FanSpeed, 15, 100, 40, 35), new HashSet<string>());
         using var document = JsonDocument.Parse(payload);
-        Assert.Equal(expected, DeviceCoordinatorNativeQamDeviceControlsService.TryReadControlValue(
-            document.RootElement, descriptor, out _));
+        Assert.Equal(expected, SteamCapabilityRows.TryValue(row, document.RootElement, out _));
     }
 
     [Fact]
@@ -292,7 +291,8 @@ public sealed partial class NativeQamSemanticServicesTests
             PerformanceServiceNativeQamAdapter.ProjectFrameLimit(state, true);
         Assert.True(frame.Available);
         Assert.Equal(0, frame.MinimumFps);
-        Assert.Equal(1000, frame.MaximumFps);
+        // The overlay's ceiling, not RTSS's 1000: both sliders offer the same caps.
+        Assert.Equal(PerformanceProjection.MaximumFrameLimit, frame.MaximumFps);
         Assert.Equal(45, frame.DesiredFps);
         Assert.Equal(44, frame.ObservedFps);
     }

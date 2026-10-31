@@ -58,7 +58,7 @@ The store (`Core/Notes/NoteStore.cs`) lives under `%LOCALAPPDATA%\WSGM\notes`:
   never rewrites a screenshot and the same image is stored once;
 - `notes.json`, the screenshot countdown preference and the last known game names.
 
-A page that does not parse is moved aside as `*.bad.<time>.json` and never overwritten. A page
+A page that does not parse is moved aside as `*.json.corrupt-<time>` and never overwritten. A page
 written by a newer format is shown read-only. Images that no page refers to are deleted only when
 the store first loads, before any editor exists, so an undo or a conflict copy can never point at an
 image that cleanup already removed. Content is never length-limited; validation checks types,

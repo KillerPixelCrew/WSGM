@@ -368,7 +368,7 @@ public sealed class ExplorerShellPolicyTests
             TaskCreationOptions.RunContinuationsAsynchronously);
 
         var completion =
-            ExplorerShellAnchor.CompleteCommandReadAsync(
+            ExplorerShellAnchorProcess.CompleteCommandReadAsync(
                 Task.FromException<string?>(new IOException("Injected broken pipe.")),
                 async () =>
                 {

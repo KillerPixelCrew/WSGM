@@ -15,10 +15,16 @@ internal static class EmulatorPortableProfiles
             or "ryujinx" or "suyu" or "armsx2";
     }
 
+    /// <summary>Gets the folder beside the executable that holds an emulator's portable data.</summary>
+    /// <param name="id">Emulator definition id.</param>
+    /// <returns>The data folder name, or empty when the data lives beside the executable.</returns>
     internal static string Alias(string id)
     {
         return id switch
         {
+            "eden" => "user",
+            "rpcs3" => "portable",
+            "dolphin" => "User",
             "azahar" => "user",
             "citron" => "user",
             "suyu" => "user",

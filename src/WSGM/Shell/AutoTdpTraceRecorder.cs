@@ -387,12 +387,7 @@ internal sealed class AutoTdpTraceSystemContext : IDisposable
         {
             if (WindowsPower.TryGetStatus(out var power))
             {
-                row.AcPower = power.ACLineStatus switch
-                {
-                    0 => false,
-                    1 => true,
-                    _ => null
-                };
+                row.AcPower = PowerSource.OnAc(power);
                 row.BatteryPercent = power.BatteryLifePercent == 255 ? null : power.BatteryLifePercent;
             }
 

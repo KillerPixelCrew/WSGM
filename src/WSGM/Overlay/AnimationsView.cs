@@ -33,16 +33,17 @@ public sealed partial class AnimationsView : ServiceSubView
     /// <param name="service">The service, or null when the overlay closes or the session has none.</param>
     internal void Attach(AnimationService? service)
     {
-        AttachSession(service?.CreateBrowserSession());
+        AttachSession(service?.CreateBrowserSession("library"), service);
     }
 
     /// <summary>Replaces and disposes the previous surface-local browser, then follows the new session on the UI thread.</summary>
     /// <param name="session">Owned browser session; null detaches. Do not pass the currently attached instance again.</param>
-    internal void AttachSession(IAnimationBrowseSession? session)
+    /// <param name="service">The shared owner the movie commands go to; null with a null session.</param>
+    internal void AttachSession(IAnimationBrowseSession? session, ISteamAnimationsBackend? service)
     {
         _browser?.Dispose();
         _browser = session;
-        _service = session;
+        _service = service;
         AttachSource(session);
     }
 

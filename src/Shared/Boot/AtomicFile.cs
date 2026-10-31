@@ -2,6 +2,7 @@
 // of Log and ConfigStore and carries explicit usings.
 
 using System;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -18,6 +19,21 @@ namespace WSGM.Core;
 internal static class AtomicFile
 {
     private static readonly UTF8Encoding Utf8NoBom = new(false);
+
+    /// <summary>
+    ///     Moves an unreadable file aside as <c>&lt;path&gt;.corrupt-&lt;UTC time&gt;</c>, so it is kept for recovery
+    ///     and never written over.
+    /// </summary>
+    /// <param name="path">The file that did not parse.</param>
+    /// <returns>The path the file now has.</returns>
+    /// <exception cref="IOException">The file could not be moved, including when that name already exists.</exception>
+    /// <exception cref="UnauthorizedAccessException">The file or its folder denies the move.</exception>
+    internal static string SetAside(string path)
+    {
+        var aside = path + ".corrupt-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture);
+        File.Move(path, aside, false);
+        return aside;
+    }
 
     /// <summary>Replaces <paramref name="path" /> with UTF-8 text.</summary>
     /// <param name="path">The file to replace.</param>

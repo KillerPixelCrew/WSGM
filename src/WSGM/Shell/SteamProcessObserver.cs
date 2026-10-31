@@ -51,8 +51,8 @@ internal sealed class SteamProcessObserver
         try
         {
             // Both lookups keep only this session's processes and skip one that exits mid-read.
-            helpers = WindowFinder.FindProcessIds(HelperProcessName);
-            steam = WindowFinder.FindProcessIds(ClientProcessName);
+            helpers = ProcessLookup.FindProcessIds(HelperProcessName);
+            steam = ProcessLookup.FindProcessIds(ClientProcessName);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

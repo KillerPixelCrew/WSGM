@@ -18,22 +18,6 @@ namespace WSGM.Core;
 /// </remarks>
 public static class SteamLibraryFolders
 {
-    /// <summary>Blocking wrapper for worker-thread callers (never call on the UI thread).</summary>
-    /// <param name="steam">The session's Steam client.</param>
-    /// <param name="libraryPath">The library folder, e.g. <c>E:\SteamLibrary</c>.</param>
-    /// <param name="label">A label to apply after adding, or null or empty for none.</param>
-    /// <param name="replaceExisting">
-    ///     True when the caller has just CREATED the library at this path, which makes every prior
-    ///     registration there stale by definition. See <see cref="SteamInstallFolders.AddAsync" />.
-    /// </param>
-    /// <returns>The live outcome.</returns>
-    public static SteamLibraryAddResult AddLibrary(
-        SteamClient steam, string libraryPath, string? label = null, bool replaceExisting = false)
-    {
-        return steam.InstallFolders.AddAsync(libraryPath, label, replaceExisting)
-            .GetAwaiter().GetResult();
-    }
-
     /// <summary>
     ///     Removes the live Steam library whose registration carries <paramref name="contentId" />. Only
     ///     that id's own path is passed to Steam, so a reused card-reader drive letter cannot select a

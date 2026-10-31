@@ -87,7 +87,8 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
 
     public event Action? Changed;
 
-    public EmulatorSnapshot ReadState()
+    /// <summary>The manager's live snapshot, for commands that act on current state.</summary>
+    internal EmulatorSnapshot ReadState()
     {
         return _manager.GetSnapshot();
     }

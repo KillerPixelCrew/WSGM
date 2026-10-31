@@ -48,7 +48,7 @@ public sealed class ArtworkView : ServiceSubView
 
     /// <summary>Creates a surface-local browser from the shared artwork owner.</summary>
     /// <param name="source">Borrowed durable owner, or null to dispose and detach this view's browser.</param>
-    internal void Attach(SteamArtworkBrowserSource? source)
+    internal void Attach(ArtworkBrowser? source)
     {
         AttachSession(source?.CreateViewSession());
     }

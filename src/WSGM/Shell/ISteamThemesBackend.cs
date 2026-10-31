@@ -5,44 +5,13 @@ using SteamUiToolkit;
 
 namespace WSGM.Shell;
 
-/// <summary>Answers theme commands shared by Steam pages and overlay browse sessions.</summary>
+/// <summary>Answers the theme owner's commands, which every surface sends to the shared service.</summary>
 /// <remarks>
 ///     Accepted store and installation work belongs to the service lifetime; observe Busy, Loading and Error for
 ///     completion. Display names do not substitute for store or installed-theme identities.
 /// </remarks>
 internal interface ISteamThemesBackend
 {
-    /// <summary>Shows one of the page's tabs.</summary>
-    /// <param name="tab">browse, installed, profiles or settings.</param>
-    /// <param name="cancellationToken">Request cancellation signal; it does not revoke work already accepted by the owner.</param>
-    /// <returns>Whether the active-tab state was updated.</returns>
-    Task<SteamUiCommandResult> SetTabAsync(string tab, CancellationToken cancellationToken);
-
-    /// <summary>Asks the store for the first page matching a filter, order and search.</summary>
-    /// <param name="filter">Store filter id; empty selects all themes.</param>
-    /// <param name="order">Store sort id; empty selects the default order.</param>
-    /// <param name="search">Search text; empty adds no text restriction.</param>
-    /// <param name="cancellationToken">Request cancellation signal; it does not revoke work already accepted by the owner.</param>
-    /// <returns>Acceptance of the browse request; results and errors arrive through publications.</returns>
-    Task<SteamUiCommandResult> BrowseAsync(string filter, string order, string search,
-        CancellationToken cancellationToken);
-
-    /// <summary>Asks the store for the next page of the current listing.</summary>
-    /// <param name="cancellationToken">Request cancellation signal; it does not revoke work already accepted by the owner.</param>
-    /// <returns>Whether another page was accepted, or a refusal while loading or after the final result.</returns>
-    Task<SteamUiCommandResult> LoadMoreAsync(CancellationToken cancellationToken);
-
-    /// <summary>Opens one store listing's details.</summary>
-    /// <param name="id">DeckThemes store theme id.</param>
-    /// <param name="cancellationToken">Request cancellation signal; it does not revoke work already accepted by the owner.</param>
-    /// <returns>Acceptance of the detail request; loading completes through published state.</returns>
-    Task<SteamUiCommandResult> OpenAsync(string id, CancellationToken cancellationToken);
-
-    /// <summary>Closes the details.</summary>
-    /// <param name="cancellationToken">Request cancellation signal; it does not revoke work already accepted by the owner.</param>
-    /// <returns>A successful result after closing the detail selection.</returns>
-    Task<SteamUiCommandResult> CloseDetailAsync(CancellationToken cancellationToken);
-
     /// <summary>Installs a theme from the store, with the dependencies it lacks.</summary>
     /// <param name="id">DeckThemes store theme id.</param>
     /// <param name="cancellationToken">Request cancellation signal; it does not revoke work already accepted by the owner.</param>
@@ -127,4 +96,16 @@ internal interface ISteamThemesBackend
     /// <param name="cancellationToken">Request cancellation signal; it does not revoke work already accepted by the owner.</param>
     /// <returns>A successful result after clearing both status messages.</returns>
     Task<SteamUiCommandResult> DismissAsync(CancellationToken cancellationToken);
+
+    /// <summary>Persists whether theme styles are active.</summary>
+    /// <param name="enabled">Whether the shared theme service should publish styles.</param>
+    /// <param name="cancellationToken">Cancels waiting and cooperative persistence work.</param>
+    /// <returns>The persistence outcome; all surfaces observe the shared setting.</returns>
+    Task<SteamUiCommandResult> SetThemesEnabledAsync(bool enabled, CancellationToken cancellationToken);
+
+    /// <summary>Changes the shared class-translation branch used by themes.</summary>
+    /// <param name="branch">Supported translation branch name.</param>
+    /// <param name="cancellationToken">Cancels waiting and cooperative work.</param>
+    /// <returns>The command acceptance or refusal; subsequent translation loading may publish further changes.</returns>
+    Task<SteamUiCommandResult> SetTranslationsBranchAsync(string branch, CancellationToken cancellationToken);
 }

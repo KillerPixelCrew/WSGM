@@ -39,16 +39,19 @@ internal static class SteamThemesSurface
     /// <param name="enabled">Whether state may be published; patch installation is coordinated separately.</param>
     /// <param name="read">Reads the current model; null skips this publication without retracting the previous state.</param>
     /// <param name="revision">The model's revision, so an unchanged model is not serialized again.</param>
-    /// <param name="backend">Answers user operations.</param>
+    /// <param name="browse">The page's own store browsing, tab and detail.</param>
+    /// <param name="backend">Answers the shared theme owner's operations.</param>
     /// <param name="id">Module identity for diagnostics.</param>
-    /// <returns>A module borrowing its backend and readers; construction does not install its patch.</returns>
+    /// <returns>A module borrowing its backends and readers; construction does not install its patch.</returns>
     public static ISteamUiModule Module(
         Func<bool> enabled,
         Func<ValueTask<SteamThemesState?>> read,
         Func<long> revision,
+        IThemeBrowseSession browse,
         ISteamThemesBackend backend,
         string id = "themes")
     {
+        ArgumentNullException.ThrowIfNull(browse);
         ArgumentNullException.ThrowIfNull(backend);
         return new SteamUiModule(
             id,
@@ -59,14 +62,14 @@ internal static class SteamThemesSurface
             ],
             [
                 SteamUiModuleBuilder.Command<string>(PatchId, "setTab", TryReadTab,
-                    backend.SetTabAsync, "The themes tab payload is invalid."),
+                    browse.SetTabAsync, "The themes tab payload is invalid."),
                 SteamUiModuleBuilder.Command<BrowseRequest>(PatchId, "browse", TryReadBrowse,
-                    (request, token) => backend.BrowseAsync(request.Filter, request.Order, request.Search, token),
+                    (request, token) => browse.BrowseAsync(request.Filter, request.Order, request.Search, token),
                     "The themes browse payload is invalid."),
-                SteamUiModuleBuilder.Command(PatchId, "loadMore", backend.LoadMoreAsync),
+                SteamUiModuleBuilder.Command(PatchId, "loadMore", browse.LoadMoreAsync),
                 SteamUiModuleBuilder.Command<string>(PatchId, "open", TryReadId,
-                    backend.OpenAsync, "The theme id payload is invalid."),
-                SteamUiModuleBuilder.Command(PatchId, "closeDetail", backend.CloseDetailAsync),
+                    browse.OpenAsync, "The theme id payload is invalid."),
+                SteamUiModuleBuilder.Command(PatchId, "closeDetail", browse.CloseDetailAsync),
                 SteamUiModuleBuilder.Command<string>(PatchId, "install", TryReadId,
                     backend.InstallAsync, "The theme id payload is invalid."),
                 SteamUiModuleBuilder.Command<string>(PatchId, "update", TryReadName,

@@ -71,7 +71,7 @@ public static class Program
         // semantics across a shell transition. It must run before logging, package discovery,
         // elevation, Avalonia, or any other WSGM service. The mode accepts no executable or
         // argument input and can start only the canonical Windows Explorer path.
-        if (ExplorerShellAnchor.TryRunProcessMode(args, out var anchorExitCode))
+        if (ExplorerShellAnchorProcess.TryRunProcessMode(args, out var anchorExitCode))
         {
             return anchorExitCode;
         }
@@ -166,7 +166,7 @@ public static class Program
         {
             Log.Info(
                 $"Run mode: {_startupOptions.Mode} (service boot, elevated={ElevationCheck.IsCurrentProcessElevated()}, " +
-                $"session {WindowFinder.CurrentSessionId})");
+                $"session {ProcessLookup.CurrentSessionId})");
         }
         else
         {
@@ -306,7 +306,7 @@ public static class Program
         // registration and sign-in start changed underneath it. Ask it to shut down normally,
         // which restores Explorer itself; the start below then finds the desktop running.
         if (UpdateExitWatcher.RequestResidentShellExit(TimeSpan.FromSeconds(45))
-            && ExplorerShellAnchor.HasRecoveryOwner(WindowFinder.CurrentSessionId))
+            && ExplorerShellAnchor.HasRecoveryOwner(ProcessLookup.CurrentSessionId))
         {
             // The resident left without stopping its Explorer anchor (a crash, or a forced exit
             // past its cleanup deadline), so that anchor is restoring Explorer now that its owner
@@ -861,7 +861,7 @@ public static class Program
 
             if (!ExplorerControl.IsDesktopShellRunning())
             {
-                if (ExplorerShellAnchor.HasRecoveryOwner(WindowFinder.CurrentSessionId))
+                if (ExplorerShellAnchor.HasRecoveryOwner(ProcessLookup.CurrentSessionId))
                 {
                     // The verified medium/jobless anchor restores Explorer after this process
                     // actually exits. Starting one here would race that exact owner and the

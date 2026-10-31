@@ -235,7 +235,7 @@ public partial class OverlayWindow
     }
 
 
-    internal void AttachArtwork(SteamArtworkBrowserSource? artwork)
+    internal void AttachArtwork(ArtworkBrowser? artwork)
     {
         ArtworkHost.Attach(artwork);
     }

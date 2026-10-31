@@ -227,10 +227,16 @@ public sealed partial class ShellSession
 
         TryStart("startup app watcher", () => _startupWatcher ??= new StartupAppWatcher(_config.StartupApps)
         {
-            IsLaunchSuppressed = path => _desktopHost?.IsApplicationLaunchSuppressed(path) == true,
-            LaunchGeneration = path => _desktopHost?.ApplicationLaunchGeneration(path) ?? 0
+            IsLaunchSuppressed = path => _desktopHost?.IsApplicationLaunchSuppressed(path) == true
         });
         WatchConfig();
+    }
+
+    // A takeover forgets the listed integrations' watch state, so a relaunch queued before it never fires
+    // after even a very short takeover.
+    private void ForgetDesktopAppRelaunches()
+    {
+        Dispatcher.UIThread.Post(() => _startupWatcher?.Forget(DesktopAppLifecycle.MatchesPath));
     }
 
     /// <summary>
@@ -490,6 +496,7 @@ public sealed partial class ShellSession
                 : BootTakeoverResult.DesktopRestoreRequired;
         }
 
+        ForgetDesktopAppRelaunches();
         var exited = await _desktopHost!.ExitExplorerAndWaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
         // Posting Explorer's orderly-exit command is irreversible. A desktop
         // request that landed during the bounded wait must recover by starting
@@ -629,7 +636,7 @@ public sealed partial class ShellSession
         try
         {
             return path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-                   && WindowFinder.FindProcessIds(
+                   && ProcessLookup.FindProcessIds(
                        Path.GetFileNameWithoutExtension(path)).Count > 0;
         }
         catch

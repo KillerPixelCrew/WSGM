@@ -44,7 +44,7 @@ public sealed class FanCurvePresetTests
 
         foreach (var (preset, celsius, expected) in cases)
         {
-            Assert.Equal(expected, FanCurvePresets.DutyAt(preset, celsius));
+            Assert.Equal(expected, FanCurvePresets.DutyAt(FanCurvePresetTable.HandheldCompanion, preset, celsius));
         }
     }
 
@@ -52,14 +52,14 @@ public sealed class FanCurvePresetTests
     public void BetweenGridPointsThePresetInterpolates()
     {
         // Default is 50 at 50 °C and 70 at 60 °C, so the midpoint is 60.
-        Assert.Equal(60, FanCurvePresets.DutyAt(FanCurvePreset.Default, 55));
+        Assert.Equal(60, FanCurvePresets.DutyAt(FanCurvePresetTable.HandheldCompanion, FanCurvePreset.Default, 55));
     }
 
     [Fact]
     public void TemperaturesOutsideTheSampledRangeClampRatherThanExtrapolate()
     {
-        Assert.Equal(20, FanCurvePresets.DutyAt(FanCurvePreset.Quiet, -40));
-        Assert.Equal(100, FanCurvePresets.DutyAt(FanCurvePreset.Quiet, 500));
+        Assert.Equal(20, FanCurvePresets.DutyAt(FanCurvePresetTable.HandheldCompanion, FanCurvePreset.Quiet, -40));
+        Assert.Equal(100, FanCurvePresets.DutyAt(FanCurvePresetTable.HandheldCompanion, FanCurvePreset.Quiet, 500));
     }
 
     /// The temperatures in a fan table are the firmware's breakpoints. A preset says how hard to
@@ -68,7 +68,7 @@ public sealed class FanCurvePresetTests
     public void SamplingOntoADeviceCurveKeepsItsOwnTemperatures()
     {
         var sampled =
-            FanCurvePresets.SampleOnto(FanCurvePreset.Quiet, ClawTable());
+            FanCurvePresets.SampleOnto(FanCurvePresetTable.HandheldCompanion, FanCurvePreset.Quiet, ClawTable());
 
         Assert.Equal(
             ClawTable().Select(point => point.Input),
@@ -79,7 +79,7 @@ public sealed class FanCurvePresetTests
     public void SamplingOntoADeviceCurveTakesThePresetsDuties()
     {
         var sampled =
-            FanCurvePresets.SampleOnto(FanCurvePreset.Aggressive, ClawTable());
+            FanCurvePresets.SampleOnto(FanCurvePresetTable.HandheldCompanion, FanCurvePreset.Aggressive, ClawTable());
 
         Assert.Equal(
             [40, 50, 70, 80, 90, 100],
@@ -93,9 +93,18 @@ public sealed class FanCurvePresetTests
     {
         int[][] shapes =
         [
-            [.. FanCurvePresets.SampleOnto(FanCurvePreset.Quiet, ClawTable()).Select(p => p.Output)],
-            [.. FanCurvePresets.SampleOnto(FanCurvePreset.Default, ClawTable()).Select(p => p.Output)],
-            [.. FanCurvePresets.SampleOnto(FanCurvePreset.Aggressive, ClawTable()).Select(p => p.Output)]
+            [
+                .. FanCurvePresets.SampleOnto(FanCurvePresetTable.HandheldCompanion, FanCurvePreset.Quiet, ClawTable())
+                    .Select(p => p.Output)
+            ],
+            [
+                .. FanCurvePresets.SampleOnto(FanCurvePresetTable.HandheldCompanion, FanCurvePreset.Default, ClawTable())
+                    .Select(p => p.Output)
+            ],
+            [
+                .. FanCurvePresets.SampleOnto(FanCurvePresetTable.HandheldCompanion, FanCurvePreset.Aggressive, ClawTable())
+                    .Select(p => p.Output)
+            ]
         ];
 
         Assert.NotEqual(shapes[0], shapes[1]);
@@ -108,7 +117,7 @@ public sealed class FanCurvePresetTests
     {
         foreach (var preset in Enum.GetValues<FanCurvePreset>())
         {
-            var sampled = FanCurvePresets.SampleOnto(preset, ClawTable());
+            var sampled = FanCurvePresets.SampleOnto(FanCurvePresetTable.HandheldCompanion, preset, ClawTable());
             for (var index = 1; index < sampled.Count; index++)
             {
                 Assert.True(
@@ -121,7 +130,7 @@ public sealed class FanCurvePresetTests
     [Fact]
     public void ADeviceThatPublishedNoCurveGetsNothingRatherThanAnInventedOne()
     {
-        Assert.Empty(FanCurvePresets.SampleOnto(FanCurvePreset.Default, []));
+        Assert.Empty(FanCurvePresets.SampleOnto(FanCurvePresetTable.HandheldCompanion, FanCurvePreset.Default, []));
     }
 
     /// Only the Atlas has a measured table of its own; every other definition keeps HandheldCompanion's.

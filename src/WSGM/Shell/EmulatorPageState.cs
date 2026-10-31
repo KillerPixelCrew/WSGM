@@ -29,7 +29,6 @@ internal sealed record EmulatorProgressState(bool Busy, string Status);
 /// <summary>The emulator tool's commands, independent of library scans and Steam writes.</summary>
 internal interface IEmulatorBackend : IChangeSource
 {
-    EmulatorSnapshot ReadState();
     EmulatorPageState ReadPageState();
     EmulatorProgressState ReadProgressState();
     Task<SteamUiCommandResult> CancelAsync(CancellationToken cancellationToken);

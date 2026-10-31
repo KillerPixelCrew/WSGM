@@ -125,7 +125,7 @@ public sealed class PhysicalGlyphPlansTests
     [Fact]
     public void GlyphSelectionViewReportsGenericFallbackWithoutClaimingDeviceArtwork()
     {
-        var row = DeviceOverlayBridge.PhysicalGlyphSelectionView(
+        var row = DeviceHostRows.PhysicalGlyphSelectionView(
             DeviceGlyphSelection.Automatic,
             new PhysicalGlyphSelectionResult(
                 null,

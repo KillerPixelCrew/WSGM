@@ -533,7 +533,7 @@ internal static class LibraryTabManager
         string libraryPath, string contentId, string label)
     {
         const string markerBehind = "The drive still carries its old name.";
-        var marker = Path.Combine(libraryPath, "libraryfolder.vdf");
+        var marker = Path.Combine(libraryPath, SteamLibraryMarker.MarkerFileName);
         try
         {
             if (!File.Exists(marker))

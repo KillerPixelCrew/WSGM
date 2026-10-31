@@ -262,8 +262,7 @@ public sealed partial class ShellSession
 
         if (_refreshPairing?.SetStrategy(config.Performance.FrameLimitStrategy) == true)
         {
-            _pairedFrameLimit = -1;
-            ApplyRefreshPairing(performance.Current.Desired.FrameLimit ?? 0, true);
+            _refreshPairing.Pair(performance.Current.Desired.FrameLimit ?? 0, true);
         }
 
         performance.ApplyOsdCustomization(RtssOsdCustomSettings.FromConfig(config.Performance));

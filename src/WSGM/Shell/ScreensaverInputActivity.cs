@@ -1,6 +1,6 @@
 using System;
 using SteamUiToolkit;
-using WindowsDeviceControl;
+using WSGM.Core;
 using WSGM.Interop;
 
 namespace WSGM.Shell;
@@ -20,10 +20,7 @@ internal sealed class ScreensaverInputActivity
             return null;
         }
 
-        bool? onBattery = WindowsPower.TryGetStatus(out var power) && power.ACLineStatus != 255
-            ? power.ACLineStatus == 0
-            : null;
-        return input with { OnBattery = onBattery };
+        return input with { OnBattery = PowerSource.ReadOnAc() is { } onAc ? !onAc : null };
     }
 
     /// <summary>Observes one successful session input sample, preserving wrap and query-failure semantics.</summary>

@@ -71,7 +71,7 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
 
             var key = KeyFor(descriptor.CapabilityId, descriptor.InstanceId);
             _views[key] = view;
-            var value = Value(Shown(view));
+            var value = Value(Shown(row, descriptor));
             var kind = PluginUiKind.Status;
             PluginSetting? argument = null;
             // ReSharper disable once SwitchStatementMissingSomeEnumCasesNoDefault
@@ -144,11 +144,11 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
                 continue;
             }
 
+            var row = presentation.Capabilities.FirstOrDefault(item =>
+                item.CapabilityId == view.Descriptor.CapabilityId && item.InstanceId == view.Descriptor.InstanceId);
             states.Add(new PluginStatePublication(identity, _generation, ++_sequence, key,
-                Value(Shown(view)), PluginStateOrigin.HardwareReadback));
-            var enabled = presentation.Capabilities.Any(item => item.CapabilityId == view.Descriptor.CapabilityId
-                                                                && item.InstanceId == view.Descriptor.InstanceId &&
-                                                                item.CanInvoke);
+                Value(Shown(row, view.Descriptor)), PluginStateOrigin.HardwareReadback));
+            var enabled = row?.CanInvoke == true;
             states.Add(new PluginStatePublication(identity, _generation, ++_sequence, "enabled." + key,
                 new PluginValue(enabled), PluginStateOrigin.HardwareReadback));
         }
@@ -193,19 +193,18 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
             .ToLowerInvariant();
     }
 
-    /// <summary>What a widget shows: the value last read or written, else the desired one, else a start value.</summary>
+    /// <summary>What a widget shows: the overlay row's value, else a start value.</summary>
+    /// <param name="row">The overlay's row for the capability, or null when it shows none.</param>
+    /// <param name="descriptor">The capability's descriptor, for the start value.</param>
     /// <remarks>A control is never withheld for want of a readback.</remarks>
-    private static CapabilityValue? Shown(DeviceCapabilityView view)
+    private static CapabilityValue? Shown(DeviceOverlayCapability? row, CapabilityDescriptor descriptor)
     {
-        var descriptor = view.Descriptor;
-        return view.Projection.State.ObservedValue ?? view.Projection.DesiredValue ?? descriptor.ValueKind switch
+        return row?.CurrentValue ?? descriptor.ValueKind switch
         {
-            CapabilityValueKind.Integer when descriptor.Minimum is { } minimum =>
-                new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = minimum },
-            CapabilityValueKind.Boolean => new CapabilityValue
-                { Kind = CapabilityValueKind.Boolean, BooleanValue = false },
+            CapabilityValueKind.Integer when descriptor.Minimum is { } minimum => CapabilityValue.Integer(minimum),
+            CapabilityValueKind.Boolean => CapabilityValue.Boolean(false),
             CapabilityValueKind.Choice when descriptor.Choices.Count > 0 =>
-                new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = descriptor.Choices[0].Value },
+                CapabilityValue.Choice(descriptor.Choices[0].Value),
             _ => null
         };
     }

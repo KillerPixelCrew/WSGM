@@ -16,7 +16,7 @@ public sealed class SteamNativeSettingsServiceTests
     [InlineData("hsla(0, 0%, 100%, 1)", 0xFFFFFF)]
     public void SavedOpaqueColorPreservesRgb(string css, int expected)
     {
-        Assert.True(SteamNativeSettingsService.TryColor(JsonSerializer.SerializeToElement(css), out var color));
+        Assert.True(SteamCapabilityRows.TryColor(JsonSerializer.SerializeToElement(css), out var color));
         Assert.Equal(expected, color);
     }
 
@@ -29,7 +29,7 @@ public sealed class SteamNativeSettingsServiceTests
     [InlineData("#GGGGGG")]
     public void MalformedOrTransparentColorCannotReachDevice(string css)
     {
-        Assert.False(SteamNativeSettingsService.TryColor(JsonSerializer.SerializeToElement(css), out _));
+        Assert.False(SteamCapabilityRows.TryColor(JsonSerializer.SerializeToElement(css), out _));
     }
 
     [Fact]

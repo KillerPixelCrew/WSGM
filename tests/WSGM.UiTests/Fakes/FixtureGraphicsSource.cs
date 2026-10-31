@@ -77,7 +77,7 @@ internal sealed class FixtureGraphicsSource : IGraphicsOverlaySource
                 .Where(capability => capability.View.Descriptor.Role is CapabilityRole.VariableRefreshRate)
                 .Select(capability => new PublishedCapability(capability.View, PluginId))
         ])!;
-        return DeviceOverlayBridge.ToOverlayCapability(vrr.View, declaredSections) with
+        return CapabilityRowProjection.ToOverlayCapability(vrr.View, declaredSections) with
         {
             GpuPluginId = vrr.GpuPluginId,
             PluginSectionId = null,
@@ -106,7 +106,7 @@ internal sealed class FixtureGraphicsSource : IGraphicsOverlaySource
                     ProfileScope = descriptor.ProfileScope,
                     ApplyTiming = descriptor.ApplyTiming
                 }, null) { Publisher = key };
-                return new GpuCapabilityView(view, DeviceOverlayBridge.OverrideIdFor(view, null));
+                return new GpuCapabilityView(view, CapabilityRowProjection.OverrideIdFor(view, null));
             })
         ]);
     }

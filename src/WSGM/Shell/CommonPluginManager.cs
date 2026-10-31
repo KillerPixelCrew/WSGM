@@ -27,21 +27,6 @@ internal sealed record CommonPluginInstanceView(
     string? Error,
     bool SteamCefEnabled = false);
 
-/// <summary>Opens and closes the capability channel of each <c>wsgm.gpu</c> instance.</summary>
-internal interface ICapabilityChannelRegistry
-{
-    /// <summary>Creates the channel before the plugin is admitted, so its router sees every publication.</summary>
-    /// <param name="identity">The plugin instance.</param>
-    /// <param name="manifest">Its manifest, whose capability roles the channel enforces.</param>
-    /// <param name="plugin">The plugin's capability surface.</param>
-    /// <returns>The channel to admit the plugin with.</returns>
-    PluginCapabilityChannel Open(PluginInstanceIdentity identity, PluginManifest manifest, ICapabilityPlugin plugin);
-
-    /// <summary>Ends a channel once its plugin stopped or failed to start.</summary>
-    /// <param name="channel">The channel.</param>
-    void Close(PluginCapabilityChannel channel);
-}
-
 /// <summary>
 ///     Owns enabled non-device instances independently of the Device master switch, including the graphics
 ///     packages <see cref="CommonPluginEnablement" /> enables by default.
@@ -49,7 +34,7 @@ internal interface ICapabilityChannelRegistry
 internal sealed class CommonPluginManager
 {
     private readonly Func<IReadOnlyList<DisplayAdapterIdentity>> _adapters;
-    private readonly ICapabilityChannelRegistry? _capabilityChannels;
+    private readonly GpuCoordinator? _capabilityChannels;
     private readonly Dictionary<PluginInstanceIdentity, Entry> _entries = [];
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly PluginHost _host;
@@ -82,7 +67,7 @@ internal sealed class CommonPluginManager
     /// <param name="store">Persists frontend failures so packages never reload automatically after an error.</param>
     internal CommonPluginManager(PluginHost host, string installedRoot, string stateRoot,
         Func<CommonInstalledPlugin, CancellationToken, Task<LoadedPluginPackage<IPlugin>>>? load = null,
-        ICapabilityChannelRegistry? capabilityChannels = null,
+        GpuCoordinator? capabilityChannels = null,
         Func<IReadOnlyList<DisplayAdapterIdentity>>? adapters = null, ConfigStore? store = null)
     {
         _host = host;

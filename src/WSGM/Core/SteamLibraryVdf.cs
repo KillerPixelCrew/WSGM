@@ -172,7 +172,9 @@ public static class SteamLibraryVdf
     /// <returns>The unescaped registered path, or null when the id is absent.</returns>
     public static string? PathForContentId(string vdf, string contentId)
     {
-        return ValueForContentId(vdf, "path", contentId);
+        return ReadRegistrations(vdf)
+            .FirstOrDefault(registration => string.Equals(registration.ContentId, contentId, StringComparison.Ordinal))
+            ?.Path;
     }
 
     /// <summary>Finds the label belonging to a specific content-id registration.</summary>
@@ -442,59 +444,9 @@ public static class SteamLibraryVdf
     }
 
     /// <summary>
-    ///     Reads every top-level registration's path and content id,
-    ///     each taken from ITS OWN block — index-zipping separate
-    ///     <see cref="ValuesOf" /> lists silently mispairs them when a block lacks a
-    ///     key.
-    /// </summary>
-    /// <param name="vdf">The current libraryfolders configuration text.</param>
-    /// <returns>A new list in file order, preserving missing path/contentid values as null.</returns>
-    public static List<ConfigEntry> ReadEntries(string vdf)
-    {
-        var entries = new List<ConfigEntry>();
-        var inEntry = false;
-        string? path = null, contentId = null;
-        foreach (var rawLine in vdf.Split('\n'))
-        {
-            var line = rawLine.TrimEnd('\r');
-            if (IsTopLevelEntry(line))
-            {
-                if (inEntry)
-                {
-                    entries.Add(new ConfigEntry(path, contentId));
-                }
-
-                inEntry = true;
-                path = contentId = null;
-                continue;
-            }
-
-            if (!inEntry)
-            {
-                continue;
-            }
-
-            if (TryReadValue(line, "path", out var candidatePath))
-            {
-                path = candidatePath;
-            }
-            else if (TryReadValue(line, "contentid", out var candidateId))
-            {
-                contentId = candidateId;
-            }
-        }
-
-        if (inEntry)
-        {
-            entries.Add(new ConfigEntry(path, contentId));
-        }
-
-        return entries;
-    }
-
-    /// <summary>
-    ///     Reads every top-level registration with its label and the app ids of its <c>apps</c> block,
-    ///     each taken from its own block like <see cref="ReadEntries" />.
+    ///     Reads every top-level registration with its path, content id, label and the app ids of its
+    ///     <c>apps</c> block, each taken from its own block: index-zipping separate <see cref="ValuesOf" />
+    ///     lists silently mispairs them when a block lacks a key.
     /// </summary>
     /// <param name="vdf">The current libraryfolders configuration text.</param>
     /// <returns>The registrations in file order.</returns>
@@ -815,15 +767,6 @@ public static class SteamLibraryVdf
         updated = vdf[..close] + entry + vdf[close..];
         return true;
     }
-
-    /// <summary>
-    ///     One top-level registration's key facts, as
-    ///     <see cref="ReadEntries" /> reports them. Null means the block carries no
-    ///     such line.
-    /// </summary>
-    /// <param name="Path">The unescaped library path.</param>
-    /// <param name="ContentId">The library's stable identity.</param>
-    public readonly record struct ConfigEntry(string? Path, string? ContentId);
 
     /// <summary>One top-level registration as <see cref="ReadRegistrations" /> reports it.</summary>
     /// <param name="Path">The unescaped library path, or null when the block carries none.</param>

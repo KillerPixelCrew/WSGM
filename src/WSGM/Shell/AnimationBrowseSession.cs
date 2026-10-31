@@ -1,28 +1,45 @@
 using System;
-using System.Globalization;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
+using WSGM.Core;
 
 namespace WSGM.Shell;
 
+/// <summary>One surface's tab, sort, search and detail over the shared boot-movie owner.</summary>
+/// <remarks>
+///     The Steam page and the overlay each hold one. The sorted order is kept until the catalog, the sort or the
+///     search changes; only the page shown is projected, since the repository lists thousands.
+/// </remarks>
 internal sealed class AnimationBrowseSession : IAnimationBrowseSession
 {
+    private readonly Lock _gate = new();
     private readonly AnimationService _owner;
     private string? _detailId;
-    private string _search = "";
+    private IReadOnlyList<AnimationListing>? _order;
+    private IReadOnlyList<AnimationListing>? _orderedCatalog;
+    private long _revision;
+    private string _search = string.Empty;
     private int _shown = AnimationService.BrowsePage;
     private string _sort = SteamAnimationsSurface.Sorts[0].Id;
 
-    internal AnimationBrowseSession(AnimationService owner)
+    /// <summary>Creates a session over the shared owner.</summary>
+    /// <param name="owner">The boot-movie owner, whose changes this session republishes.</param>
+    /// <param name="tab">The tab this surface opens on.</param>
+    internal AnimationBrowseSession(AnimationService owner, string tab)
     {
         _owner = owner;
+        Tab = tab;
         owner.Changed += Publish;
     }
 
+    /// <summary>Advances with every change of the owner's state or this session's own.</summary>
+    internal long Revision => _owner.Revision + Interlocked.Read(ref _revision);
+
     /// <inheritdoc />
-    public string Tab { get; set; } = "library";
+    public string Tab { get; set; }
 
     /// <inheritdoc />
     public event Action? Changed;
@@ -36,50 +53,89 @@ internal sealed class AnimationBrowseSession : IAnimationBrowseSession
     /// <inheritdoc />
     public SteamAnimationsState ReadState()
     {
+        var revision = Revision;
         var shared = _owner.ReadState();
         var catalog = _owner.Catalog;
-        var entries = catalog.Where(item => item.Name.Contains(_search, StringComparison.OrdinalIgnoreCase));
-        entries = _sort switch
+        lock (_gate)
         {
-            "name" => entries.OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase),
-            "popular" => entries.OrderByDescending(item => item.Downloads),
-            "liked" => entries.OrderByDescending(item => item.Likes),
-            "oldest" => entries.OrderBy(item =>
-                DateTimeOffset.TryParse(item.Updated, CultureInfo.InvariantCulture, out var date)
-                    ? date
-                    : DateTimeOffset.MinValue),
-            _ => entries.OrderByDescending(item =>
-                DateTimeOffset.TryParse(item.Updated, CultureInfo.InvariantCulture, out var date)
-                    ? date
-                    : DateTimeOffset.MinValue)
-        };
-        var matched = entries.ToArray();
-        var local = shared.Library.Select(item => item.Id).ToHashSet();
-        var browse = new SteamAnimationsBrowse(_sort, SteamAnimationsSurface.Sorts, _search,
-            matched.Take(_shown).Select(item => AnimationService.ProjectListing(item, local.Contains(item.Id)))
-                .ToArray(),
-            matched.Length, catalog.Count, shared.Browse.Loading, shared.Browse.Error);
-        return shared with
-        {
-            ActiveTab = Tab, Browse = browse,
-            Detail = shared.Library.Concat(browse.Items).FirstOrDefault(item => item.Id == _detailId)
-        };
+            if (_order is null || !ReferenceEquals(catalog, _orderedCatalog))
+            {
+                if (!ReferenceEquals(catalog, _orderedCatalog))
+                {
+                    _shown = AnimationService.BrowsePage;
+                }
+
+                _order = [.. Ordered(catalog)];
+                _orderedCatalog = catalog;
+            }
+
+            var downloaded = shared.Library.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
+            var browse = new SteamAnimationsBrowse(
+                _sort,
+                SteamAnimationsSurface.Sorts,
+                _search,
+                [
+                    .. _order.Take(_shown)
+                        .Select(listing => AnimationService.ProjectListing(listing, downloaded.Contains(listing.Id)))
+                ],
+                _order.Count,
+                catalog.Count,
+                shared.Browse.Loading,
+                shared.Browse.Error);
+            return shared with
+            {
+                ActiveTab = Tab,
+                Browse = browse,
+                Detail = _detailId is { } id ? _owner.ReadItem(id) : null,
+                Revision = revision
+            };
+        }
     }
 
     /// <inheritdoc />
     public Task<SteamUiCommandResult> BrowseAsync(string sort, string search, CancellationToken token)
     {
-        _sort = sort;
-        _search = search;
-        _shown = AnimationService.BrowsePage;
-        Publish();
-        return _owner.Catalog.Count == 0 ? _owner.RefreshAsync(token) : Task.FromResult(SteamUiCommandResult.Applied);
+        sort = SteamAnimationsSurface.Sorts.Any(candidate => candidate.Id == sort)
+            ? sort
+            : SteamAnimationsSurface.Sorts[0].Id;
+        search = search.Trim();
+        bool changed;
+        lock (_gate)
+        {
+            changed = sort != _sort || search != _search;
+            _sort = sort;
+            _search = search;
+            if (changed)
+            {
+                _order = null;
+                _shown = AnimationService.BrowsePage;
+            }
+        }
+
+        // Asking again for what is shown changes nothing, so a view that asks whenever the list is
+        // empty cannot redraw itself in a loop. A first fetch publishes through the owner.
+        _owner.EnsureCatalog();
+        if (changed)
+        {
+            Publish();
+        }
+
+        return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
     /// <inheritdoc />
     public Task<SteamUiCommandResult> BrowseMoreAsync(CancellationToken token)
     {
-        _shown += AnimationService.BrowsePage;
+        lock (_gate)
+        {
+            if (_order is null || _shown >= _order.Count)
+            {
+                return Task.FromResult(SteamUiCommandResult.Applied);
+            }
+
+            _shown += AnimationService.BrowsePage;
+        }
+
         Publish();
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
@@ -88,20 +144,28 @@ internal sealed class AnimationBrowseSession : IAnimationBrowseSession
     public Task<SteamUiCommandResult> SetTabAsync(string tab, CancellationToken cancellationToken)
     {
         Tab = tab;
+        lock (_gate)
+        {
+            _detailId = null;
+        }
+
         Publish();
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
     /// <inheritdoc />
-    public Task<SteamUiCommandResult> RefreshAsync(CancellationToken cancellationToken)
-    {
-        return _owner.RefreshAsync(cancellationToken);
-    }
-
-    /// <inheritdoc />
     public Task<SteamUiCommandResult> OpenAsync(string id, CancellationToken cancellationToken)
     {
-        _detailId = id;
+        if (_owner.ReadItem(id) is null)
+        {
+            return Task.FromResult(new SteamUiCommandResult(false, "That movie is not listed."));
+        }
+
+        lock (_gate)
+        {
+            _detailId = id;
+        }
+
         Publish();
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
@@ -109,67 +173,37 @@ internal sealed class AnimationBrowseSession : IAnimationBrowseSession
     /// <inheritdoc />
     public Task<SteamUiCommandResult> CloseDetailAsync(CancellationToken cancellationToken)
     {
-        _detailId = null;
+        lock (_gate)
+        {
+            _detailId = null;
+        }
+
         Publish();
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> DownloadAsync(string id, CancellationToken cancellationToken)
+    /// <summary>The catalog in this session's search and sort. Called under the gate.</summary>
+    private IEnumerable<AnimationListing> Ordered(IReadOnlyList<AnimationListing> catalog)
     {
-        return _owner.DownloadAsync(id, cancellationToken);
-    }
+        IEnumerable<AnimationListing> items = catalog;
+        if (_search.Length > 0)
+        {
+            items = items.Where(listing => listing.Name.Contains(_search, StringComparison.OrdinalIgnoreCase));
+        }
 
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> DeleteAsync(string id, CancellationToken cancellationToken)
-    {
-        return _owner.DeleteAsync(id, cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> SelectAsync(string id, CancellationToken cancellationToken)
-    {
-        return _owner.SelectAsync(id, cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> ShuffleAsync(CancellationToken cancellationToken)
-    {
-        return _owner.ShuffleAsync(cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> SetShuffleOnStartAsync(bool shuffle, CancellationToken cancellationToken)
-    {
-        return _owner.SetShuffleOnStartAsync(shuffle, cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> SetBootVolumeAsync(int volume, CancellationToken cancellationToken)
-    {
-        return _owner.SetBootVolumeAsync(volume, cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> AddFileAsync(string path, CancellationToken cancellationToken)
-    {
-        return _owner.AddFileAsync(path, cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> DismissAsync(CancellationToken cancellationToken)
-    {
-        return _owner.DismissAsync(cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public string? PreviewPath(string id)
-    {
-        return _owner.PreviewPath(id);
+        return _sort switch
+        {
+            "oldest" => items.OrderBy(listing => AnimationService.When(listing.Updated)),
+            "name" => items.OrderBy(listing => listing.Name, StringComparer.OrdinalIgnoreCase),
+            "popular" => items.OrderByDescending(listing => listing.Downloads),
+            "liked" => items.OrderByDescending(listing => listing.Likes),
+            _ => items.OrderByDescending(listing => AnimationService.When(listing.Updated))
+        };
     }
 
     private void Publish()
     {
+        Interlocked.Increment(ref _revision);
         Changed?.Invoke();
     }
 }

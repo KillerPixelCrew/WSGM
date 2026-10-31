@@ -472,32 +472,7 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
             return cached;
         }
 
-        Bitmap? bitmap = null;
-        if (File.Exists(entry.Executable))
-        {
-            NativeMethods.ExtractIconExW(entry.Executable, 0, out var large, out var small, 1);
-            try
-            {
-                var icon = large != 0 ? large : small;
-                if (icon != 0)
-                {
-                    bitmap = IconRasterizer.Rasterize(icon, size: 32);
-                }
-            }
-            finally
-            {
-                if (large != 0)
-                {
-                    NativeMethods.DestroyIcon(large);
-                }
-
-                if (small != 0)
-                {
-                    NativeMethods.DestroyIcon(small);
-                }
-            }
-        }
-
+        var bitmap = File.Exists(entry.Executable) ? IconRasterizer.FromExecutable(entry.Executable, size: 32) : null;
         _icons[key] = bitmap;
         return bitmap;
     }
@@ -569,7 +544,7 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         try
         {
             name = process.ProcessName;
-            if (process.SessionId != WindowFinder.CurrentSessionId || process.HasExited)
+            if (process.SessionId != ProcessLookup.CurrentSessionId || process.HasExited)
             {
                 return null;
             }

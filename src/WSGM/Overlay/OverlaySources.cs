@@ -39,7 +39,7 @@ internal sealed record OverlaySources(
     AnimationService? Animations = null,
     IGraphicsOverlaySource? Graphics = null,
     SoundPackService? Sounds = null,
-    SteamArtworkBrowserSource? Artwork = null,
+    ArtworkBrowser? Artwork = null,
     DisplayModeAccess? DisplayModes = null,
     NativeQamPowerProfileService? PowerProfiles = null,
     IEmulatorBackend? Emulators = null,

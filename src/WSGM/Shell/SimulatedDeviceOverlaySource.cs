@@ -94,7 +94,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 },
                 true,
                 DescriptorStatus.Available),
-            AutoTdp: DeviceOverlayBridge.AutoTdpView(
+            AutoTdp: DeviceHostRows.AutoTdpView(
                 _autoTdp,
                 _autoTdp
                     ? new AutoTdpStatus(
@@ -105,7 +105,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                         "steam:preview",
                         "Preview only; no power write is made.")
                     : null),
-            Controller: DeviceOverlayBridge.ControllerView(
+            Controller: DeviceHostRows.ControllerView(
                 true,
                 new ControllerManagerStatus(
                     ControllerManagementState.Active,
@@ -115,7 +115,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     "Preview only; no virtual controller is created.")),
             // The recovery row is deliberately shown in the preview even though nothing is faulted,
             // because laying it out is exactly what --overlay-test is for. Pressing it does nothing.
-            Recovery: DeviceOverlayBridge.RecoveryView(DeviceCycleState.Faulted),
+            Recovery: DeviceHostRows.RecoveryView(DeviceCycleState.Faulted),
             Capabilities:
             [
                 new DeviceOverlayCapability(
@@ -324,7 +324,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
             },
             GlyphMode = (DeviceGlyphSelection)_glyphSelection,
             PluginSections = PreviewSections,
-            AutoTdpTarget = DeviceOverlayBridge.AutoTdpTargetRow(_autoTdp,
+            AutoTdpTarget = DeviceHostRows.AutoTdpTargetRow(_autoTdp,
                 new AutoTdpTargetView(_autoTdpTarget, _autoTdpTarget, false))
         };
     }
@@ -424,7 +424,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
     public Task CycleControllerTargetAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        _controllerTarget = DeviceOverlayBridge.NextTarget(_controllerTarget);
+        _controllerTarget = DeviceHostRows.NextTarget(_controllerTarget);
         Changed?.Invoke();
         return Task.CompletedTask;
     }

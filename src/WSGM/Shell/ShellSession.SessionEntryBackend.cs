@@ -230,6 +230,7 @@ public sealed partial class ShellSession
 
         public async Task<bool> ExitExplorerAndWaitAsync()
         {
+            session.ForgetDesktopAppRelaunches();
             try
             {
                 return await DesktopHost.ExitExplorerAndWaitAsync(SessionModes.ExplorerExitTimeout,

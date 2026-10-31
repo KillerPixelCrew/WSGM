@@ -98,7 +98,7 @@ public sealed partial class ShellSession
         _resolutions?.InvalidateOptions();
         _scaledResolutions?.Invalidate();
         _refreshPairing?.Invalidate();
-        _steamUi?.RefreshDisplayState();
+        _steamUi?.QueueStatePublication();
         // Steam can rebuild its window for a new display; ask the page whether WSGM is still in it.
         RequestSteamUiHealthCheck();
         if (_builtinGpu is { } drivers)

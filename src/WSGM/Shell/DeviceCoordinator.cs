@@ -6,7 +6,6 @@ using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 using LibHandheld;
-using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Glyphs;
@@ -497,15 +496,6 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
             cancellationToken: _lifetime.Token).ConfigureAwait(false);
     }
 
-    /// <summary>The power source, or null when Windows cannot say.</summary>
-    /// <returns>True on AC, false on battery, or null when the Windows query fails or reports unknown status.</returns>
-    internal static bool? ReadOnAcPower()
-    {
-        return WindowsPower.TryGetStatus(out var power) && power.ACLineStatus is 0 or 1
-            ? power.ACLineStatus == 1
-            : null;
-    }
-
     private async Task<CapabilityCommandResult> ExecutePresetCapabilityAsync(
         string id, CapabilityValue value, bool persist, CancellationToken token)
     {
@@ -690,7 +680,7 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var sessionId = (uint)WindowFinder.CurrentSessionId;
+            var sessionId = (uint)ProcessLookup.CurrentSessionId;
             coordinator = new DeviceCoordinator(
                 config, store,
                 sessionId,
@@ -705,7 +695,7 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
                 DetectDeviceAsync,
                 HandheldDeviceRuntime.CreateAsync,
                 callback => EffectivePowerModeNotification.Register(callback),
-                ReadOnAcPower,
+                PowerSource.ReadOnAc,
                 Task.Delay,
                 (id, snapshot) => new DeviceCoordinatorDiagnosticsServer(id, snapshot));
         }

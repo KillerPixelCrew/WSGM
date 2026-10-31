@@ -135,7 +135,7 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
                         {
                             CapabilityId = CapabilityIds.FanCurve, Role = CapabilityRole.FanCurve,
                             ValueKind = CapabilityValueKind.Curve,
-                            CurveInputs = Enumerable.Range(0, 11).Select(index => index * 10).ToArray(),
+                            CurveInputs = FanCurvePresets.SoftwareCurveInputs,
                             Display = new CapabilityDisplay
                             {
                                 Key = DisplayKey.Custom, CustomLabel = "Software fan curve"

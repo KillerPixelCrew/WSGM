@@ -40,9 +40,10 @@ internal static class EmulatorPortable
             "pcsx2" when File.Exists(Path.Combine(program, "portable.txt")) => Path.GetFullPath(Path.Combine(program,
                 File.ReadAllText(Path.Combine(program, "portable.txt")).Trim())),
             "pcsx2" when File.Exists(Path.Combine(program, "portable.ini")) => program,
-            "eden" when Directory.Exists(Path.Combine(program, "user")) => Path.Combine(program, "user"),
-            "rpcs3" when Directory.Exists(Path.Combine(program, "portable")) => Path.Combine(program, "portable"),
-            "dolphin" when File.Exists(Path.Combine(program, "portable.txt")) => Path.Combine(program, "User"),
+            "eden" or "rpcs3" when Directory.Exists(Path.Combine(program, EmulatorPortableProfiles.Alias(id))) =>
+                Path.Combine(program, EmulatorPortableProfiles.Alias(id)),
+            "dolphin" when File.Exists(Path.Combine(program, "portable.txt")) =>
+                Path.Combine(program, EmulatorPortableProfiles.Alias(id)),
             _ when EmulatorPortableProfiles.Supports(id) => EmulatorPortableProfiles.ReadExternal(id, program),
             _ => throw new InvalidDataException(Instruction(id))
         };
@@ -113,15 +114,16 @@ internal static class EmulatorPortable
                     }
 
                     break;
-                case "eden": VerifyDirectory(program, "user", installed.DataPath); break;
-                case "rpcs3": VerifyDirectory(program, "portable", installed.DataPath); break;
+                case "eden" or "rpcs3":
+                    VerifyDirectory(program, EmulatorPortableProfiles.Alias(installed.DefinitionId), installed.DataPath);
+                    break;
                 case "dolphin":
                     if (!File.Exists(Path.Combine(program, "portable.txt")))
                     {
                         throw new InvalidDataException("Dolphin's portable marker is missing. Use Repair.");
                     }
 
-                    VerifyDirectory(program, "User", installed.DataPath);
+                    VerifyDirectory(program, EmulatorPortableProfiles.Alias(installed.DefinitionId), installed.DataPath);
                     break;
                 default:
                     if (!EmulatorPortableProfiles.Supports(installed.DefinitionId))
@@ -694,7 +696,11 @@ internal static class EmulatorPortable
         }
     }
 
-    private static bool Same(string left, string right)
+    /// <summary>Compares two paths after normalizing them and trimming one trailing separator.</summary>
+    /// <param name="left">First path.</param>
+    /// <param name="right">Second path.</param>
+    /// <returns>Whether both name the same location, ignoring case.</returns>
+    internal static bool Same(string left, string right)
     {
         return Path.TrimEndingDirectorySeparator(Path.GetFullPath(left))
             .Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(right)), StringComparison.OrdinalIgnoreCase);

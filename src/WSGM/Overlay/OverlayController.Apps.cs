@@ -131,8 +131,8 @@ public sealed partial class OverlayController
             // same-named exe running from elsewhere to the foreground.
             var expected = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.System), "Taskmgr.exe");
-            var pids = WindowFinder.FindProcessIds("Taskmgr");
-            pids.RemoveWhere(pid => !WindowFinder.ProcessImagePathEquals(pid, expected));
+            var pids = ProcessLookup.FindProcessIds("Taskmgr");
+            pids.RemoveWhere(pid => !ProcessLookup.ProcessImagePathEquals(pid, expected));
             var hwnd = WindowFinder.FindWindow(pids, null);
             if (hwnd != 0)
             {
@@ -253,7 +253,7 @@ public sealed partial class OverlayController
                 await Task.Run(() =>
                 {
                     var steamPids = refreshSteamPids
-                        ? WindowFinder.FindProcessIds(Steam.ProcessNames)
+                        ? ProcessLookup.FindProcessIds(Steam.ProcessNames)
                         : cachedSteamPids;
                     return (steamPids, WindowFinder.ListSwitchableWindows());
                 }).ConfigureAwait(false);

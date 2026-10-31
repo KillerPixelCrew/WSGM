@@ -32,6 +32,12 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     private static readonly TimeSpan RetryDelay = TimeSpan.FromMilliseconds(500);
 
     /// <summary>
+    ///     How long to let Windows finish mounting before reading storage. The notification fires while the
+    ///     volume is still arriving; reading drive letters immediately sees the state from before the change.
+    /// </summary>
+    private static readonly TimeSpan SettleDelay = TimeSpan.FromSeconds(3);
+
+    /// <summary>
     ///     Serializes eject attempts: one device at a time, so two rows
     ///     cannot interleave their lock/eject sequences.
     /// </summary>
@@ -43,6 +49,9 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     private StorageInventory _inventory = StorageInventory.Empty;
 
     private int _refreshing;
+
+    /// <summary>1 when a refresh was asked for while one was running; that one then reads again.</summary>
+    private int _refreshPending;
     private DispatcherTimer? _settle;
     private DispatcherTimer? _timer;
     private MessageWindow? _window;
@@ -79,7 +88,10 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     /// </remarks>
     internal StorageInventory Inventory => Volatile.Read(ref _inventory);
 
-    /// <summary>Raised on the inventory worker when any volume's mount, identity or readiness changes.</summary>
+    /// <summary>
+    ///     Raised on the inventory worker when any volume's mount, identity or readiness changes, or any
+    ///     external disk's facts change.
+    /// </summary>
     internal event Action? TopologyChanged;
 
     /// <summary>
@@ -195,7 +207,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
         // collapses the burst one device produces into a single snapshot.
         if (_settle is null)
         {
-            _settle = new DispatcherTimer { Interval = CardVolumeMonitor.SettleDelay };
+            _settle = new DispatcherTimer { Interval = SettleDelay };
             _settle.Tick += (_, _) =>
             {
                 _settle?.Stop();
@@ -207,11 +219,15 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
         _settle.Start();
     }
 
-    /// <summary>Re-enumerates off the UI thread, at most one at a time.</summary>
+    /// <summary>
+    ///     Re-enumerates off the UI thread, at most one at a time. A request during a read runs once more
+    ///     after it, since the card monitors and the format list follow these reads alone.
+    /// </summary>
     private void QueueRefresh()
     {
         if (Interlocked.CompareExchange(ref _refreshing, 1, 0) != 0)
         {
+            Interlocked.Exchange(ref _refreshPending, 1);
             return;
         }
 
@@ -221,8 +237,11 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
             {
                 var inventory = StorageInventory.Read();
                 var previous = Volatile.Read(ref _inventory);
+                // Disks count too: a letterless or reformatted card changes no volume row.
                 var topologyChanged = !previous.Volumes.OrderBy(volume => volume.Letter)
-                    .SequenceEqual(inventory.Volumes.OrderBy(volume => volume.Letter));
+                                          .SequenceEqual(inventory.Volumes.OrderBy(volume => volume.Letter))
+                                      || !previous.ExternalDisks.OrderBy(disk => disk.Number)
+                                          .SequenceEqual(inventory.ExternalDisks.OrderBy(disk => disk.Number));
                 Volatile.Write(ref _inventory, inventory);
                 if (topologyChanged)
                 {
@@ -239,6 +258,10 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
             finally
             {
                 Interlocked.Exchange(ref _refreshing, 0);
+                if (Interlocked.Exchange(ref _refreshPending, 0) == 1)
+                {
+                    QueueRefresh();
+                }
             }
         });
     }

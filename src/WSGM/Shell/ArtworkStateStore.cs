@@ -114,10 +114,10 @@ internal sealed class ArtworkStateStore
         }
         catch (JsonException ex)
         {
-            var aside = $"{_path}.corrupt-{DateTime.UtcNow:yyyyMMddHHmmss}";
+            string aside;
             try
             {
-                File.Move(_path, aside, false);
+                aside = AtomicFile.SetAside(_path);
             }
             catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
             {

@@ -62,10 +62,10 @@ public sealed class DevicePageCaptureTests
             Detail = "Device integration active",
             Capabilities =
             [
-                .. views.Select(view => DeviceOverlayBridge.ToOverlayCapability(view, ids)),
+                .. views.Select(view => CapabilityRowProjection.ToOverlayCapability(view, ids)),
                 graphics.VariableRefreshRow(ids)
             ],
-            PluginSections = DeviceOverlayBridge.ProjectSections(sections),
+            PluginSections = CapabilityRowProjection.ProjectSections(sections),
             Recovery = null
         };
         using FakeDevice device = new();

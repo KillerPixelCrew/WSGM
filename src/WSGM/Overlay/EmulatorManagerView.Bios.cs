@@ -10,7 +10,7 @@ public sealed partial class EmulatorManagerView
     private void RenderBios()
     {
         var page = _service?.ReadPageState();
-        var snapshot = _service?.ReadState();
+        var snapshot = page?.Emulators;
         if (page is null || snapshot is null)
         {
             RenderMessage("BIOS & firmware", "Emulator information is not available in this session.");
@@ -19,21 +19,21 @@ public sealed partial class EmulatorManagerView
 
         var body = NewStack("BIOS & firmware");
         body.Children.Add(ManagerTabs(snapshot, "bios"));
-        AddEmulatorStatus(body, snapshot);
+        var progress = AddEmulatorStatus(body);
         body.Children.Add(Caption("BIOS folder · " + page.Bios.Folder));
         body.Children.Add(
             Caption("EmuDeck layout · MD5 checked against retrobios. Unhashed files are marked Present."));
         Commands(body,
-            Tagged(Row("Change…", "", null, snapshot.Busy
+            Tagged(Row("Change…", "", null, progress.Busy
                 ? null
                 : () => _ = RunSafelyAsync(ChooseFolder(), "BIOS folder")), "bios.folder"),
-            Tagged(Row("Add files…", "", null, snapshot.Busy
+            Tagged(Row("Add files…", "", null, progress.Busy
                 ? null
                 : () => _ = RunSafelyAsync(AddFiles("", false), "BIOS files")), "bios.add"),
-            Tagged(Row("Add folder…", "", null, snapshot.Busy
+            Tagged(Row("Add folder…", "", null, progress.Busy
                 ? null
                 : () => _ = RunSafelyAsync(AddFiles("", true), "BIOS files")), "bios.add.folder"),
-            Tagged(Row("Verify", "", null, snapshot.Busy
+            Tagged(Row("Verify", "", null, progress.Busy
                 ? null
                 : () => Run(_service!.VerifyBiosAsync)), "bios.verify"));
         if (!page.Bios.Checked)
@@ -71,10 +71,10 @@ public sealed partial class EmulatorManagerView
             }
 
             Commands(group, Tagged(Row("Add files…", "", null,
-                        snapshot.Busy ? null : () => _ = RunSafelyAsync(AddFiles(id, false), "BIOS files")),
+                        progress.Busy ? null : () => _ = RunSafelyAsync(AddFiles(id, false), "BIOS files")),
                     "bios.add:" + id),
                 Tagged(Row("Relink emulators", "", null,
-                        snapshot.Busy ? null : () => Run(token => _service!.RelinkBiosAsync(id, token))),
+                        progress.Busy ? null : () => Run(token => _service!.RelinkBiosAsync(id, token))),
                     "bios.relink:" + id));
             foreach (var installed in snapshot.Installations.Where(item => item.Systems.Contains(id)
                                                                            && item.DataPolicy.Prerequisites.Any(rule =>

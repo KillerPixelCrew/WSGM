@@ -130,7 +130,7 @@ internal sealed class LaunchedWindowFocus : IDisposable
                 return;
             }
 
-            var steam = WindowFinder.FindProcessIds(Steam.ProcessNames);
+            var steam = ProcessLookup.FindProcessIds(Steam.ProcessNames);
             NativeMethods.GetWindowThreadProcessId(window, out var processId);
             var foregroundProcessId = 0u;
             if (foreground != 0)

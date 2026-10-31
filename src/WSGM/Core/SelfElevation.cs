@@ -56,7 +56,7 @@ public static class SelfElevation
         try
         {
             var psi = new ProcessStartInfo(exe,
-                string.Join(' ', args.Append(RelaunchMarker).Select(Quote)))
+                string.Join(' ', args.Append(RelaunchMarker).Select(WindowsCommandLine.Quote)))
             {
                 UseShellExecute = true,
                 Verb = "runas"
@@ -145,18 +145,5 @@ public static class SelfElevation
             Log.Warn($"{description} not applied: {ex.Message}");
             return null;
         }
-    }
-
-    /// <summary>
-    ///     Quotes one argument per CommandLineToArgvW's rules: embedded quotes
-    ///     are backslash-escaped, backslash runs before a quote (including the closing
-    ///     one) are doubled, and empty args become "" — a bare Contains-space wrap would
-    ///     corrupt args like a quoted path ending in a backslash.
-    /// </summary>
-    /// <param name="arg">One non-null argument, including an empty string.</param>
-    /// <returns>A command-line token preserving the argument when parsed by Windows.</returns>
-    internal static string Quote(string arg)
-    {
-        return WindowsCommandLine.Quote(arg);
     }
 }

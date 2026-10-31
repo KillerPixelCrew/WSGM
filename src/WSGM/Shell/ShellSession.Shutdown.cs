@@ -505,8 +505,10 @@ public sealed partial class ShellSession
             .ConfigureAwait(false);
         await UiStepAsync(failures, "Disposing the artwork browser during application shutdown failed", () =>
         {
+            // Disposes the Steam page's session with every other.
             _artwork?.Dispose();
             _artwork = null;
+            _artworkPage = null;
         }).ConfigureAwait(false);
 
         // 10. Native providers: the Steam storage bridge, then the drive manager with its message-window

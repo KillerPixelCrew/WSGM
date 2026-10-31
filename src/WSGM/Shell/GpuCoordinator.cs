@@ -58,7 +58,7 @@ internal sealed record PublishedCapability(DeviceCapabilityView View, string? Gp
 ///     built-in drivers' lifecycles belong to <see cref="BuiltinGpuService" />. Independent third-party
 ///     publishers retain <see cref="CommonPluginManager" /> ownership. Both use the same profile routers.
 /// </remarks>
-internal sealed partial class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposable
+internal sealed partial class GpuCoordinator : IAsyncDisposable
 {
     private static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan SyncBudget = TimeSpan.FromSeconds(15);
@@ -155,6 +155,14 @@ internal sealed partial class GpuCoordinator : ICapabilityChannelRegistry, IAsyn
         }
     }
 
+    /// <summary>
+    ///     Opens a <c>wsgm.gpu</c> instance's capability channel before the plugin is admitted, so its router sees
+    ///     every publication.
+    /// </summary>
+    /// <param name="identity">The plugin instance.</param>
+    /// <param name="manifest">Its manifest, whose capability roles the channel enforces.</param>
+    /// <param name="plugin">The plugin's capability surface.</param>
+    /// <returns>The channel to admit the plugin with.</returns>
     public PluginCapabilityChannel Open(PluginInstanceIdentity identity, PluginManifest manifest,
         ICapabilityPlugin plugin)
     {
@@ -162,6 +170,8 @@ internal sealed partial class GpuCoordinator : ICapabilityChannelRegistry, IAsyn
         return Open(identity, manifest.Name, manifest.Capabilities, plugin);
     }
 
+    /// <summary>Ends a channel once its plugin stopped or failed to start.</summary>
+    /// <param name="channel">The channel.</param>
     public void Close(PluginCapabilityChannel channel)
     {
         ArgumentNullException.ThrowIfNull(channel);
@@ -345,7 +355,7 @@ internal sealed partial class GpuCoordinator : ICapabilityChannelRegistry, IAsyn
             publisher.Router.Sections,
             [
                 .. publisher.Router.Snapshot()
-                    .Select(view => new GpuCapabilityView(view, DeviceOverlayBridge.OverrideIdFor(view, layers)))
+                    .Select(view => new GpuCapabilityView(view, CapabilityRowProjection.OverrideIdFor(view, layers)))
             ]);
     }
 

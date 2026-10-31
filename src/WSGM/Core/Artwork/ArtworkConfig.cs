@@ -48,6 +48,23 @@ public sealed class ArtworkConfig
     /// <summary>Whether the Manage tab is offered.</summary>
     public bool ShowManage { get; set; } = true;
 
+    /// <summary>Whether this configuration offers one tab.</summary>
+    /// <param name="id">The tab id.</param>
+    /// <returns>The tab's Show switch, or true for an id without one.</returns>
+    internal bool IsTabVisible(string id)
+    {
+        return id switch
+        {
+            "grid" => ShowGrid,
+            "wide" => ShowWide,
+            "hero" => ShowHero,
+            "logo" => ShowLogo,
+            "icon" => ShowIcon,
+            "manage" => ShowManage,
+            _ => true
+        };
+    }
+
     /// <summary>Builds the change key for provider cache invalidation.</summary>
     /// <returns>A credential-bearing comparison string; never log or publish it.</returns>
     internal string ProviderSignature()

@@ -44,7 +44,7 @@ public sealed class ProcessorTuningControlsTests
                     "Saved processor overrides cleared. Restart Windows to restore firmware defaults for: GPU clock, CPU temperature limit.") : null
             }
         }, null);
-        var reset = DeviceOverlayBridge.ToOverlayCapability(view, new HashSet<string>());
+        var reset = CapabilityRowProjection.ToOverlayCapability(view, new HashSet<string>());
         body.Children.Add(new DeviceCapabilityControl(reset, descriptor.CapabilityId,
             (_, _) => throw new InvalidOperationException("Unexpected hardware write"),
             _ => throw new InvalidOperationException("Unexpected reset"), null));

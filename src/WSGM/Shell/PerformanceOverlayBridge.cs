@@ -15,16 +15,6 @@ namespace WSGM.Shell;
 /// </summary>
 internal sealed class PerformanceOverlayBridge : IDisposable
 {
-    /// <summary>
-    ///     The top of the frame-limit slider, in frames per second.
-    /// </summary>
-    /// <remarks>
-    ///     280 rather than whatever RTSS reports it will accept (1000). The slider has to be crossable
-    ///     on a thumbstick, and a range that reaches a thousand makes every rate anyone actually uses
-    ///     live in its first third. This covers every panel a handheld drives, internal or attached.
-    /// </remarks>
-    private const int MaximumFrameLimit = 280;
-
     /// <summary>The processor boost row's id, shared with the value writer.</summary>
     internal const string CpuBoostRowId = "cpu-boost";
 
@@ -46,7 +36,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
 
     private readonly Func<(int Minimum, int Maximum)?> _panelFrameLimitRange;
     private readonly ProfileService _profiles;
-    private readonly ApplicationPerformanceReconciler? _reconciler;
+    private readonly CpuBoostService? _cpuBoost;
     private readonly PerformanceService _service;
     private bool _disposed;
 
@@ -58,25 +48,25 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     ///     the Quick Access row. Null while no display has been enumerated — overlay-test has no
     ///     pairing service at all — and the slider then falls back to what RTSS alone will accept.
     /// </param>
-    /// <param name="reconciler">
-    ///     The carrier of the per-application processor boost mode, which this projects as a third
-    ///     row. Null, or one without processor boost, leaves the section to RTSS alone.
+    /// <param name="cpuBoost">
+    ///     The owner of Windows' processor boost mode, which this projects as a third row. Null, or one
+    ///     without processor boost, leaves the section to RTSS alone.
     /// </param>
     internal PerformanceOverlayBridge(
         PerformanceService service,
         ProfileService profiles,
         Func<(int Minimum, int Maximum)?>? panelFrameLimitRange = null,
-        ApplicationPerformanceReconciler? reconciler = null)
+        CpuBoostService? cpuBoost = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
         _panelFrameLimitRange = panelFrameLimitRange ?? (static () => null);
-        _reconciler = reconciler is { CpuBoostAvailable: true } ? reconciler : null;
+        _cpuBoost = cpuBoost is { Available: true } ? cpuBoost : null;
         _service.StateChanged += OnStateChanged;
         _profiles.Changed += OnProfilesChanged;
-        if (_reconciler is not null)
+        if (_cpuBoost is not null)
         {
-            _reconciler.CpuBoostChanged += OnCpuBoostChanged;
+            _cpuBoost.Changed += OnCpuBoostChanged;
         }
     }
 
@@ -150,9 +140,9 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         _disposed = true;
         _service.StateChanged -= OnStateChanged;
         _profiles.Changed -= OnProfilesChanged;
-        if (_reconciler is not null)
+        if (_cpuBoost is not null)
         {
-            _reconciler.CpuBoostChanged -= OnCpuBoostChanged;
+            _cpuBoost.Changed -= OnCpuBoostChanged;
         }
     }
 
@@ -161,7 +151,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     public void RefreshWindowsState()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (_reconciler is not null)
+        if (_cpuBoost is not null)
         {
             // Windows is read when the panel opens, not on every render: the row then shows what
             // is in effect rather than what the last transition wrote, without a native call on
@@ -174,7 +164,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     {
         try
         {
-            await _reconciler!.RefreshCpuBoostAsync().ConfigureAwait(false);
+            await _cpuBoost!.RefreshAsync().ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -310,14 +300,13 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     /// </remarks>
     private DescriptorRow? BuildCpuBoostRow(PerformanceState state)
     {
-        if (_reconciler?.CpuBoostStatus is not { Supported: true } status)
+        if (_cpuBoost?.View(_profiles.Current.Layers) is not { } view)
         {
             return null;
         }
 
-        var preference = _profiles.Current.Layers.Value(values => values.CpuBoost);
-        var effective = preference.Value ?? status.OnAc;
-        var layer = preference.Source switch
+        var effective = view.Effective;
+        var layer = view.Source switch
         {
             ProfileSource.Game when state.Target?.RtssProfileName is { Length: > 0 } profile =>
                 $"Game override · {profile}",
@@ -325,20 +314,17 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             ProfileSource.Global => "From Global",
             _ => "Not set · Windows keeps its own value"
         };
-        var sources = status.OnAc == status.OnBattery
-            ? "Applies to both plugged in and battery."
-            : "Plugged in and battery currently differ; choosing sets both.";
         return BuildRow(
                 CpuBoostRowId,
                 "CPU boost mode",
-                $"{layer} · {sources}",
+                $"{layer} · {view.SourcesText}",
                 effective is { } mode ? CpuBoost.NameFor(mode) : "Not set by WSGM",
                 true,
                 DescriptorStatus.Available) with
             {
                 Options = [.. CpuBoost.Offered.Select(option => new DescriptorOption((int)option.Mode, option.Name))],
                 Value = effective is { } current ? (int)current : null,
-                OverrideId = preference.Source is ProfileSource.Game ? nameof(ProfileField.CpuBoost) : null
+                OverrideId = view.Source is ProfileSource.Game ? nameof(ProfileField.CpuBoost) : null
             };
     }
 
@@ -372,9 +358,9 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         if (rowId == CpuBoostRowId)
         {
             var mode = (CpuBoostMode)value;
-            if (_reconciler is not null && Enum.IsDefined(mode))
+            if (_cpuBoost is not null && Enum.IsDefined(mode))
             {
-                await _reconciler.SetCpuBoostFromUserAsync(mode, cancellationToken).ConfigureAwait(false);
+                await _cpuBoost.SetFromUserAsync(mode, cancellationToken).ConfigureAwait(false);
             }
 
             return;
@@ -524,22 +510,10 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             PerformanceCommandPhase.Rejected
                 or PerformanceCommandPhase.Failed => state.Command.Diagnostic ??
                                                      "The last RTSS command did not complete.",
-            _ => state.Probe.Availability switch
-            {
-                RtssAvailability.Ready => state.Target switch
-                {
-                    null => "RTSS · global profile",
-                    { RtssProfileName: { Length: > 0 } profile } => $"RTSS · {profile}",
-                    { SteamAppId: { } appId } => $"Steam AppID {appId} · executable pending",
-                    _ => "Foreground application · executable pending"
-                },
-                RtssAvailability.Unknown => "Checking RTSS…",
-                RtssAvailability.NotInstalled => "RTSS is not installed.",
-                RtssAvailability.NotRunning => "RTSS is not running.",
-                RtssAvailability.Incompatible => "The installed RTSS version is not supported.",
-                RtssAvailability.AdapterUnavailable => "The RTSS profile API is unavailable.",
-                _ => state.Probe.Diagnostic ?? "RTSS performance controls are unavailable."
-            }
+            _ => state.Probe.Availability is RtssAvailability.Ready
+                ? PerformanceProjection.TargetText(state.Target)
+                : PerformanceProjection.UnavailableText(state.Probe.Availability)
+                  ?? state.Probe.Diagnostic ?? "RTSS performance controls are unavailable."
         };
     }
 
@@ -675,19 +649,9 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     /// </remarks>
     private DescriptorRange FrameLimitRange(RtssCapabilities capabilities)
     {
-        var ceiling = Math.Min(MaximumFrameLimit, capabilities.MaximumFrameLimit);
-        DescriptorRange fallback = new(
-            Math.Max(0, capabilities.MinimumFrameLimit),
-            ceiling,
-            1);
-        if (_panelFrameLimitRange() is not { } panel)
-        {
-            return fallback;
-        }
-
-        var floor = Math.Max(capabilities.MinimumFrameLimit, panel.Minimum);
-        var top = Math.Min(panel.Maximum, ceiling);
-        return top >= floor ? new DescriptorRange(0, top, 1, floor) : fallback;
+        var (minimum, maximum, fromPanel) =
+            PerformanceProjection.FrameLimitBounds(capabilities, _panelFrameLimitRange());
+        return fromPanel ? new DescriptorRange(0, maximum, 1, minimum) : new DescriptorRange(minimum, maximum, 1);
     }
 
     /// <summary>The named notches this RTSS build accepts, in order.</summary>

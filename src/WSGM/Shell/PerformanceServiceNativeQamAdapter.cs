@@ -465,8 +465,13 @@ internal sealed class PerformanceServiceNativeQamAdapter :
         var panelMinimum = NativeQamPerfProjection.LowestOption(caps);
         var panelMaximum = caps.Aggregate(0, Math.Max);
 
-        int? minimum = panelMinimum > 0 ? panelMinimum : supported ? capabilities!.MinimumFrameLimit : null;
-        int? maximum = panelMaximum > 0 ? panelMaximum : supported ? capabilities!.MaximumFrameLimit : null;
+        // The overlay's bounds: the panel's band, else RTSS's floor, both under the shared ceiling.
+        (int Minimum, int Maximum, bool FromPanel)? bounds = supported
+            ? PerformanceProjection.FrameLimitBounds(capabilities!,
+                panelMinimum > 0 && panelMaximum > 0 ? (panelMinimum, panelMaximum) : null)
+            : null;
+        var minimum = bounds?.Minimum;
+        var maximum = bounds?.Maximum;
         return new SteamFrameLimitState(
             available,
             minimum,
@@ -551,25 +556,13 @@ internal sealed class PerformanceServiceNativeQamAdapter :
 
         if (!available)
         {
-            return NativeQamUi.Text(state.Probe.Diagnostic ?? state.Probe.Availability switch
-            {
-                RtssAvailability.NotInstalled => "RTSS is not installed.",
-                RtssAvailability.NotRunning => "RTSS is not running.",
-                RtssAvailability.Incompatible => "The installed RTSS version is incompatible.",
-                RtssAvailability.AdapterUnavailable => "The RTSS profile adapter is unavailable.",
-                _ => "RTSS performance control is not currently available."
-            });
+            // The overlay's order: a known availability's sentence, else the probe's own diagnostic.
+            return NativeQamUi.Text(PerformanceProjection.UnavailableText(state.Probe.Availability)
+                                    ?? state.Probe.Diagnostic
+                                    ?? "RTSS performance control is not currently available.");
         }
 
-        return state.Target switch
-        {
-            null => "RTSS global profile",
-            { RtssProfileName: { Length: > 0 } profile } =>
-                NativeQamUi.Text($"RTSS application profile: {profile}"),
-            { SteamAppId: { } appId } => NativeQamUi.Text(
-                $"Steam AppID {appId}; waiting for its foreground executable."),
-            _ => "Waiting for the foreground application's executable profile."
-        };
+        return NativeQamUi.Text(PerformanceProjection.TargetText(state.Target));
     }
 
     private static string PhaseFailure(PerformanceCommandPhase phase)

@@ -2,7 +2,7 @@ using WSGM.Core;
 
 namespace WSGM.Tests.Core;
 
-public sealed class SelfElevationTests
+public sealed class WindowsCommandLineTests
 {
     [Theory]
     [InlineData("plain", "plain")]
@@ -14,6 +14,6 @@ public sealed class SelfElevationTests
     [InlineData("say \"hello\"", "\"say \\\"hello\\\"\"")]
     public void QuoteUsesCommandLineToArgvWCompatibleEscaping(string argument, string expected)
     {
-        Assert.Equal(expected, SelfElevation.Quote(argument));
+        Assert.Equal(expected, WindowsCommandLine.Quote(argument));
     }
 }

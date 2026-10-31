@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Core;
@@ -108,6 +109,10 @@ internal static class FanCurvePresets
     /// <summary>The temperature step between preset samples, in °C.</summary>
     private const int SampleStepCelsius = 10;
 
+    /// <summary>The inputs of WSGM's software fan curve: 0, 10, … 100 °C.</summary>
+    internal static IReadOnlyList<int> SoftwareCurveInputs { get; } =
+        Array.AsReadOnly(Enumerable.Range(0, 11).Select(index => index * SampleStepCelsius).ToArray());
+
     /// <summary>The table for one exact device definition; HandheldCompanion's shapes for every other device.</summary>
     /// <param name="deviceDefinitionId">The running definition, or null without one.</param>
     internal static FanCurvePresetTable For(string? deviceDefinitionId)
@@ -131,13 +136,21 @@ internal static class FanCurvePresets
         };
     }
 
-    /// <summary>The HandheldCompanion preset's duty at one temperature, interpolated between its samples.</summary>
-    /// <param name="preset">The preset to read.</param>
-    /// <param name="celsius">The temperature to evaluate at.</param>
-    /// <returns>A duty percentage in 0..100.</returns>
-    internal static int DutyAt(FanCurvePreset preset, int celsius)
+    /// <summary>A table's Default preset on the given inputs, clamped to the control's duty range.</summary>
+    /// <param name="table">The device's table.</param>
+    /// <param name="inputs">The curve's temperatures.</param>
+    /// <param name="minimum">The lowest duty the control accepts.</param>
+    /// <param name="maximum">The highest duty the control accepts.</param>
+    /// <returns>One point per input.</returns>
+    internal static CurvePoint[] DefaultCurve(FanCurvePresetTable table, IReadOnlyList<int> inputs, int minimum,
+        int maximum)
     {
-        return DutyAt(FanCurvePresetTable.HandheldCompanion, preset, celsius);
+        ArgumentNullException.ThrowIfNull(inputs);
+        return
+        [
+            .. inputs.Select(input =>
+                new CurvePoint(input, Math.Clamp(DutyAt(table, FanCurvePreset.Default, input), minimum, maximum)))
+        ];
     }
 
     /// <summary>A table's preset duty at one temperature, interpolated between its samples.</summary>
@@ -161,15 +174,6 @@ internal static class FanCurvePresets
         var lowerCelsius = lower * SampleStepCelsius;
         var span = samples[upper] - samples[lower];
         return samples[lower] + (clamped - lowerCelsius) * span / SampleStepCelsius;
-    }
-
-    /// <summary>Fits a HandheldCompanion preset onto the temperatures a device's own curve uses.</summary>
-    /// <param name="preset">The preset to fit.</param>
-    /// <param name="current">The curve the device published, whose inputs are kept.</param>
-    /// <returns>A curve with the same inputs and the preset's duties, or empty when there is none.</returns>
-    internal static IReadOnlyList<CurvePoint> SampleOnto(FanCurvePreset preset, IReadOnlyList<CurvePoint> current)
-    {
-        return SampleOnto(FanCurvePresetTable.HandheldCompanion, preset, current);
     }
 
     /// <summary>Fits a table's preset onto the temperatures a device's own curve uses.</summary>

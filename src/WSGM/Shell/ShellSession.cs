@@ -26,6 +26,7 @@ namespace WSGM.Shell;
 public sealed partial class ShellSession
 {
     private readonly ApplicationPerformanceReconciler _applicationProfiles;
+    private readonly CpuBoostService _cpuBoost;
     private readonly bool _desktopResident;
 
     // The one owner of the display-off timeouts: the overlay's Power page and the rows WSGM adds to
@@ -74,8 +75,11 @@ public sealed partial class ShellSession
     private SessionActivation? _activation;
     private AnimationService? _animations;
 
-    /// <summary>The artwork browser behind Steam's Change Artwork page, or null in overlay-test.</summary>
-    private SteamArtworkBrowserSource? _artwork;
+    /// <summary>The artwork browser's shared owner, or null in overlay-test.</summary>
+    private ArtworkBrowser? _artwork;
+
+    /// <summary>The browsing behind Steam's Change Artwork page, which the Game Library opens too; or null.</summary>
+    private SteamArtworkBrowserSource? _artworkPage;
 
     /// <summary>
     ///     The one audio manager for this session, shared by the quick access sheet's status pills and
@@ -283,8 +287,9 @@ public sealed partial class ShellSession
         _profiles = new ProfileService(config.Profiles,
             overlayTestOnly ? MutateSimulatedProfilesAsync() : MutateProfilesAsync);
         // Overlay-test must not write Windows power policy, so it gets no processor boost.
+        _cpuBoost = new CpuBoostService(_profiles, overlayTestOnly ? null : _power.CpuBoost);
         _applicationProfiles = new ApplicationPerformanceReconciler(_profiles, () => _deviceCoordinator,
-            overlayTestOnly ? null : _power.CpuBoost, () => _gpu);
+            _cpuBoost, () => _gpu);
         _cefMasterEnabled = config.Cef.Enabled;
         // One transport and one client for the session. The real shell opens the transport only
         // through the readiness gate, once it is running and knows whether Steam is cold-starting
@@ -393,7 +398,7 @@ public sealed partial class ShellSession
                 // channel of every graphics package the manager starts has a router waiting for it.
                 // Variable refresh set on a graphics package's control is saved as the device's is.
                 TryStart("graphics capability router", () =>
-                    _gpu = new GpuCoordinator(UiThread.Post, _profiles, _pluginHost, DeviceCoordinator.ReadOnAcPower,
+                    _gpu = new GpuCoordinator(UiThread.Post, _profiles, _pluginHost, PowerSource.ReadOnAc,
                         _applicationProfiles.PersistManualVariableRefresh));
                 if (_gpu is { } graphics)
                 {
@@ -743,7 +748,7 @@ public sealed partial class ShellSession
             _performance,
             _profiles,
             () => _refreshPairing?.FrameLimitRange(),
-            _applicationProfiles)
+            _cpuBoost)
         {
             LivePublishers = LiveCapabilityPublishers
         };
@@ -900,8 +905,11 @@ public sealed partial class ShellSession
             // thing by an eject without either knowing about the other.
             // The card ACF watcher is handed to both managers by ApplyCardServices, which creates it.
             _drives.EjectObserver = _libraryPolicy;
+            var drives = _drives;
+            var formats = _formats = new SdFormatManager(_store, _shutdownCancellation.Token, _steamClient);
+            // The format targets follow every storage read that changed the topology, not a second walk.
+            drives.TopologyChanged += () => formats.Refresh(drives.Inventory);
             TryStart("removable drive manager", _drives.Start);
-            _formats = new SdFormatManager(_store, _shutdownCancellation.Token, _steamClient);
 
             // Over the same two managers the overlay's storage flows use. Steam's revived pages are
             // a second surface on one backend, not a second implementation. The format switch is
@@ -925,17 +933,22 @@ public sealed partial class ShellSession
             _libraryManager = new LibraryManagerService(_store, () => _steamClient, () => _config);
             _libraryManager.Start();
         });
-        TryStart("artwork browser", () => _artwork = new SteamArtworkBrowserSource(
-            () => _config.Artwork, new ArtworkStateStore(_store.Context.Root), steam));
+        TryStart("artwork browser", () =>
+        {
+            _artwork = new ArtworkBrowser(() => _config.Artwork, new ArtworkStateStore(_store.Context.Root), steam);
+            _artworkPage = _artwork.CreateViewSession();
+        });
 
         // The Steam themes: CSSLoader-compatible themes from DeckThemes, kept in WSGM's own folder
         // and published into every Big Picture window through the toolkit. Reads the session's live
         // config and writes its own fields one at a time through the store.
+        // One DeckThemes client for the themes and the sound packs, which browse the same store.
+        var themeStore = new ThemeStoreClient();
         TryStart("Steam themes", () =>
         {
             _themes = new ThemeService(
                 new ThemeLoader(ThemePaths.DefaultRoot(_store.Context)),
-                new ThemeStoreClient(),
+                themeStore,
                 () => _config.Themes,
                 change => CommitWsgmSetting(config => change(config.Themes), false),
                 () => Steam.InstallDirectory);
@@ -947,7 +960,8 @@ public sealed partial class ShellSession
             _sounds = new SoundPackService(new SoundPackLibrary(SoundPackLibrary.DefaultRoot(_store.Context)),
                 () => _config.Sounds.Selected,
                 id => CommitWsgmSetting(config => config.Sounds.Selected = id, false),
-                () => Steam.InstallDirectory);
+                () => Steam.InstallDirectory,
+                themeStore);
             Log.Observe(_sounds.RefreshAsync(_shutdownCancellation.Token), "Sound pack startup refresh", true);
             _sounds.SetHostState(_config.Cef.Enabled, null);
         });
@@ -1030,7 +1044,7 @@ public sealed partial class ShellSession
                     SteamArtwork.ApplyManyFromUrlsAsync(steam, appId, images, _config.Artwork, token),
                 (id, name, target, removeEmptyProfile, token) =>
                     _profiles.SetApplicationControllerTargetAsync(id, name, target, removeEmptyProfile, token),
-                openArtwork: _artwork is { } artwork ? artwork.OpenAsync : null,
+                openArtwork: _artworkPage is { } artwork ? artwork.OpenAsync : null,
                 controllerManaged: () => _config.DeviceIntegration is
                     { Enabled: true, ControllerManagementEnabled: true },
                 updateSettings: change => CommitWsgmSetting(config => change(config.GameLibrary), false).GameLibrary,
@@ -1073,9 +1087,9 @@ public sealed partial class ShellSession
         var state = GameModeCardServicePolicy.Decide(
             gameModeActive, _overlayTestOnly, _cefMasterEnabled);
 
-        if (state.WatchAppManifests && _messageWindow is { } watchWindow && _steamClient is { } steam)
+        if (state.WatchAppManifests && _drives is { } watchDrives && _steamClient is { } steam)
         {
-            _cardAcfWatcher ??= CardAcfWatcher.StartNew(watchWindow, _store, steam, _steamUiReadiness);
+            _cardAcfWatcher ??= CardAcfWatcher.StartNew(watchDrives, _store, steam, _steamUiReadiness);
         }
         else
         {
@@ -1095,13 +1109,13 @@ public sealed partial class ShellSession
             _formats.CardWatcher = _cardAcfWatcher;
         }
 
-        if (state.ReconcileSteamLibraries && _messageWindow is { } volumeWindow)
+        if (state.ReconcileSteamLibraries && _drives is { } volumeDrives)
         {
-            // Card swaps are reconciled against Steam's install-folder list on the
-            // volume notification itself. The callback refreshes both consumers of
+            // Card swaps are reconciled against Steam's install-folder list on the drive
+            // manager's settled storage read. The callback refreshes both consumers of
             // the changed library membership after Steam accepts the reconcile.
             _cardVolumes ??= CardVolumeMonitor.StartNew(
-                volumeWindow,
+                volumeDrives,
                 () => _cefMasterEnabled,
                 () =>
                 {
@@ -1442,7 +1456,10 @@ public sealed partial class ShellSession
                 }
 
                 _steamPowerMenu = new SteamPowerMenuBackend(_inGameMode, SwitchToDesktopFromSteamAsync);
-                _steamGraphics = _gpu is { } gpu ? new SteamGraphicsService(new GraphicsOverlayBridge(gpu)) : null;
+                // Steam reads the overlay's graphics projection; the session disposes it after the host.
+                _steamGraphics = _graphicsOverlay is GraphicsOverlayBridge graphics
+                    ? new SteamGraphicsService(graphics)
+                    : null;
                 SteamUiBackends backends = new()
                 {
                     Performance = _performance,
@@ -1472,7 +1489,7 @@ public sealed partial class ShellSession
                     Storage = _steamStorage,
                     DisplayTimeouts = _displayTimeouts,
                     PluginSteamUi = _pluginSteamUi,
-                    Artwork = _artwork,
+                    Artwork = _artworkPage,
                     LibraryImport = _libraryImport,
                     Emulators = _emulatorTool,
                     LibraryManager = _libraryManager,
@@ -1481,8 +1498,8 @@ public sealed partial class ShellSession
                     LaunchActions = _launchActions,
                     ScaledResolutions = _scaledResolutions,
                     WsgmSettings = _wsgmSettings,
-                    CpuBoost = _applicationProfiles.CpuBoostAvailable
-                        ? new NativeQamCpuBoostService(_applicationProfiles, _profiles)
+                    CpuBoost = _cpuBoost.Available
+                        ? new NativeQamCpuBoostService(_cpuBoost, _profiles)
                         : null,
                     ChordMirror = _chordMirror,
                     PowerMenu = _steamPowerMenu,

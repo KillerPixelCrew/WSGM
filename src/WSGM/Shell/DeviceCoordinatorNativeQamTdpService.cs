@@ -101,8 +101,8 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
     internal static SteamPowerLimitState ProjectPowerLimits(IReadOnlyList<DeviceCapabilityView> views)
     {
         return new SteamPowerLimitState(
-            ToRange(PowerLimitProjection.Project(views)),
-            ToRange(PowerLimitProjection.Project(views, CapabilityRole.PowerSlowLimit)));
+            ToRange(IntegerRangeProjection.PowerLimit(views)),
+            ToRange(IntegerRangeProjection.PowerLimit(views, CapabilityRole.PowerSlowLimit)));
     }
 
     /// <summary>The slider's view of a power limit.</summary>
@@ -113,11 +113,11 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
     ///     for, else the ceiling, so a device that cannot read its limits still gets a slider position.
     ///     The overlay reads the raw projection and shows no figure in that case.
     /// </remarks>
-    private static SteamPowerLimitRangeState ToRange(PowerLimitProjection limit)
+    private static SteamPowerLimitRangeState ToRange(IntegerRangeProjection limit)
     {
         return new SteamPowerLimitRangeState(
-            limit.Available, limit.MinimumWatts, limit.MaximumWatts, limit.StepWatts,
-            limit.ObservedWatts ?? limit.DesiredWatts ?? limit.MaximumWatts, limit.Progress, limit.StatusText);
+            limit.Available, limit.Minimum, limit.Maximum, limit.Step,
+            limit.Observed ?? limit.Desired ?? limit.Maximum, limit.Progress, limit.StatusText);
     }
 
     private async Task<SteamUiCommandResult> SetLimitAsync(
@@ -131,12 +131,12 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
             return new SteamUiCommandResult(false, UnavailableText);
         }
 
-        var limit = PowerLimitProjection.Project(_coordinator.Capabilities.Snapshot(), role);
+        var limit = IntegerRangeProjection.PowerLimit(_coordinator.Capabilities.Snapshot(), role);
         if (!limit.Available
             || limit.CapabilityId is not { } capabilityId
-            || limit.MinimumWatts is not { } minimum
-            || limit.MaximumWatts is not { } maximum
-            || limit.StepWatts is not { } step
+            || limit.Minimum is not { } minimum
+            || limit.Maximum is not { } maximum
+            || limit.Step is not { } step
             || CapabilityProjection.ValidInteger(CapabilityValue.Integer(watts), minimum, maximum, step) is null)
         {
             return new SteamUiCommandResult(false,

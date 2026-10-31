@@ -45,7 +45,7 @@ internal sealed record DeviceOverlaySnapshot(
 
     /// <summary>Plugin-declared overlay sections in presentation order.</summary>
     public IReadOnlyList<DeviceOverlayPluginSection> PluginSections { get; init; } =
-        DeviceOverlayBridge.ProjectSections(DeviceSections.All);
+        CapabilityRowProjection.ProjectSections(DeviceSections.All);
 
     /// <summary>AutoTDP's frame-rate target slider, or null while AutoTDP is off.</summary>
     public DescriptorRow? AutoTdpTarget { get; init; }

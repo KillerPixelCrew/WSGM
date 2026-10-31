@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,34 +11,30 @@ using WSGM.Core;
 
 namespace WSGM.Shell;
 
-/// <summary>Owns CSSLoader-compatible theme browsing, installation and active styles for Steam and the overlay.</summary>
+/// <summary>Owns CSSLoader-compatible theme installation and active styles for Steam and the overlay.</summary>
 /// <remarks>
 ///     Folder-only commands await completion. Store requests run in the background and publish progress
 ///     through <see cref="Changed" />; failures await an explicit retry. The toolkit consumes the revisioned
-///     cascade from <see cref="ReadStyles" />.
+///     cascade from <see cref="ReadStyles" />. Store browsing belongs to each surface's
+///     <see cref="ThemeBrowseSession" />.
 /// </remarks>
-internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSource, IExtensionsTabSection
+internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSource
 {
-    /// <summary>The section's item id.</summary>
-    internal const string ExtensionsId = "wsgm.themes";
-
-    /// <summary>The action that opens the Browse tab.</summary>
-    internal const string ExtensionsBrowseId = "wsgm.themes.browse";
-
-    /// <summary>The action that opens the Installed tab.</summary>
-    internal const string ExtensionsManageId = "wsgm.themes.manage";
-
-    /// <summary>The action that installs every update.</summary>
-    internal const string ExtensionsUpdateAllId = "wsgm.themes.update-all";
-
-    /// <summary>The action that reads the folder again.</summary>
-    internal const string ExtensionsRefreshId = "wsgm.themes.refresh";
-
     // The selected-preset text while more than one preset is enabled. CSS Loader's own wording.
     private const string MultiplePresetsSelected = "Invalid State";
 
-    /// <summary>How long a failed translation fetch waits before the next try, as CSS Loader waits.</summary>
-    private static readonly TimeSpan TranslationsRetry = TimeSpan.FromSeconds(60);
+    /// <summary>The listing a snapshot carries before a browse session adds its own.</summary>
+    private static readonly SteamThemesBrowse EmptyBrowse = new(
+        ThemeStoreQuery.AllFilter,
+        ThemeStoreQuery.DefaultOrder,
+        string.Empty,
+        new Dictionary<string, int>(StringComparer.Ordinal),
+        [ThemeStoreQuery.DefaultOrder],
+        [],
+        0,
+        0,
+        false,
+        null);
 
     private readonly ThemeStoreClient _client;
 
@@ -60,20 +54,12 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     private readonly Lock _sync = new();
 
     // The store operation and every background task this service started and has not seen finish:
-    // store reads, installs, the junction, the translations loop and update checks. The session joins them.
+    // browse sessions' store reads, installs, the junction, the translations loop and update checks. The
+    // session joins them.
     private readonly ServiceOperation _operation;
+    private readonly ThemeTranslations _translations;
     private readonly Action<Action<ThemesConfig>> _writeConfig;
-    private string _activeTab = "browse";
-    private string? _browseError;
-    private ThemeStoreFilters? _browseFilters;
-    private List<SteamThemesStoreItem> _browseItems = [];
-    private bool _browseLoading;
-    private int _browsePage;
-    private ThemeStoreQuery _browseQuery = ThemeStoreQuery.Default;
-    private int _browseSequence;
-    private int _browseTotal;
     private ThemesConfig _config;
-    private SteamThemesDetail? _detail;
     private bool _disposed;
 
     // What the loader held after its last change, published under _sync for every reader.
@@ -85,8 +71,6 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     private SteamThemeState? _styles;
     private bool _stylesDirty = true;
     private long _stylesRevision;
-    private int _translationsCount;
-    private DateTimeOffset? _translationsFetched;
     private Dictionary<string, (string Status, string? Latest, string? Id)> _updates = new(StringComparer.Ordinal);
 
     /// <summary>Creates the service.</summary>
@@ -110,6 +94,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         _steamDirectory = steamDirectory;
         _config = readConfig();
         _operation = new ServiceOperation(_sync);
+        _translations = new ThemeTranslations(client, loader.Root, WantsBetaTranslations, ApplyTranslations);
     }
 
     /// <summary>The revision of the state <see cref="ReadState" /> answers.</summary>
@@ -142,290 +127,6 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         _disposed = true;
         // The source stays undisposed: work still finishing reads its token, and it holds no timer.
         _shutdown.Cancel();
-    }
-
-    /// <inheritdoc />
-    public string SectionId => ExtensionsId;
-
-    /// <summary>The Quick Access section: the profile, every theme not hidden, and its patches under it.</summary>
-    /// <returns>The item.</returns>
-    public SteamExtensionsTabItem ReadExtensionsItem()
-    {
-        var state = ReadState();
-        List<SteamExtensionsTabAction> actions =
-        [
-            new(ExtensionsBrowseId, "Browse themes…"),
-            new(ExtensionsManageId, "Manage…")
-        ];
-        if (state.Updates > 0)
-        {
-            actions.Add(new SteamExtensionsTabAction(ExtensionsUpdateAllId, $"Update all ({state.Updates})"));
-        }
-
-        actions.Add(new SteamExtensionsTabAction(ExtensionsRefreshId, "Refresh"));
-
-        List<SteamExtensionsTabSetting> settings = [];
-        if (state.Presets.Count > 0)
-        {
-            settings.Add(new SteamExtensionsTabSetting(
-                "profile", "Profile", "text",
-                TextValue: state.Presets.Any(preset => preset.Name == state.SelectedPreset) ? state.SelectedPreset : "",
-                Choices: ["", .. state.Presets.Select(preset => preset.Name)],
-                ChoiceLabels: ["None", .. state.Presets.Select(preset => preset.DisplayName)]));
-        }
-
-        foreach (var theme in state.Themes.Where(theme => !theme.Hidden))
-        {
-            var key = ExtensionsKey("theme", theme.Name);
-            var description = theme.Status == ThemeStates.Outdated
-                ? $"Update available · {theme.Author}"
-                : string.IsNullOrEmpty(theme.Author)
-                    ? theme.Version
-                    : $"{theme.Version} · {theme.Author}";
-            settings.Add(new SteamExtensionsTabSetting(key, theme.DisplayName, "boolean", theme.Enabled,
-                Description: description, Highlight: theme.Status == ThemeStates.Outdated));
-            foreach (var patch in theme.Patches)
-            {
-                var patchKey = ExtensionsKey("patch", theme.Name, patch.Name);
-                switch (patch.Type)
-                {
-                    case "checkbox":
-                        settings.Add(new SteamExtensionsTabSetting(
-                            patchKey, patch.Name, "boolean", patch.Value == "Yes", Parent: key));
-                        break;
-                    case "slider":
-                        settings.Add(new SteamExtensionsTabSetting(
-                            patchKey, patch.Name, "number",
-                            NumberValue: Math.Max(0, patch.Options.ToList().IndexOf(patch.Value)),
-                            Choices: patch.Options, Parent: key));
-                        break;
-                    case "none":
-                        break;
-                    default:
-                        settings.Add(new SteamExtensionsTabSetting(
-                            patchKey, patch.Name, "text", TextValue: patch.Value, Choices: patch.Options, Parent: key));
-                        break;
-                }
-
-                foreach (var component in patch.Components.Where(component => component.On == patch.Value))
-                {
-                    settings.Add(new SteamExtensionsTabSetting(
-                        ExtensionsKey("component", theme.Name, patch.Name, component.Name),
-                        component.Name,
-                        component.Type == "color-picker" ? "color" : "text",
-                        TextValue: component.Value,
-                        Parent: key));
-                }
-            }
-        }
-
-        var hiddenCount = state.Themes.Count(theme => theme.Hidden);
-        var detail = !state.Settings.Enabled
-            ? "Off in Settings"
-            : state.Themes.Count == 0
-                ? "No themes installed"
-                : $"{state.Themes.Count(theme => theme.Enabled)} of {state.Themes.Count} enabled"
-                  + (state.Updates > 0 ? $" · {state.Updates} update{(state.Updates == 1 ? "" : "s")}" : string.Empty)
-                  + (hiddenCount > 0 ? $" · {hiddenCount} hidden" : string.Empty);
-        return new SteamExtensionsTabItem(
-            ExtensionsId,
-            "Themes",
-            string.Empty,
-            state.Busy ? "Working…" : "Ready",
-            detail,
-            actions,
-            settings,
-            state.Revision);
-    }
-
-    /// <summary>Answers one of the section's actions.</summary>
-    /// <param name="id">The action id.</param>
-    /// <param name="cancellationToken">Cancels waiting.</param>
-    /// <returns>The result, carrying the page's route for the two that open it.</returns>
-    public async Task<SteamUiCommandResult> ActivateExtensionAsync(string id, CancellationToken cancellationToken)
-    {
-        switch (id)
-        {
-            case ExtensionsBrowseId:
-                await SetTabAsync("browse", cancellationToken).ConfigureAwait(false);
-                return SteamUiCommandResult.Route(SteamThemesSurface.Route);
-            case ExtensionsManageId:
-                await SetTabAsync("installed", cancellationToken).ConfigureAwait(false);
-                return SteamUiCommandResult.Route(SteamThemesSurface.Route);
-            case ExtensionsUpdateAllId:
-                return await UpdateAllAsync(cancellationToken).ConfigureAwait(false);
-            case ExtensionsRefreshId:
-                return await RefreshAsync(cancellationToken).ConfigureAwait(false);
-            default:
-                return new SteamUiCommandResult(false, "That entry is no longer available.");
-        }
-    }
-
-    /// <summary>Answers one of the section's settings.</summary>
-    /// <param name="key">The setting key.</param>
-    /// <param name="value">The value.</param>
-    /// <param name="cancellationToken">Cancels waiting.</param>
-    /// <returns>The result.</returns>
-    public Task<SteamUiCommandResult> ConfigureExtensionAsync(
-        string key, JsonElement value, CancellationToken cancellationToken)
-    {
-        if (key == "profile")
-        {
-            return value.ValueKind == JsonValueKind.String
-                ? SetProfileAsync(value.GetString() ?? string.Empty, cancellationToken)
-                : Task.FromResult(new SteamUiCommandResult(false, "The profile value is invalid."));
-        }
-
-        // A key names its theme, patch or component by a digest of the names, found again by
-        // building the same digest over what is installed now: names may hold any character, and a
-        // key stays inside the tab's bound however long they are.
-        var state = ReadState();
-        foreach (var theme in state.Themes)
-        {
-            if (key == ExtensionsKey("theme", theme.Name))
-            {
-                return value.ValueKind is JsonValueKind.True or JsonValueKind.False
-                    ? SetEnabledAsync(theme.Name, value.GetBoolean(), cancellationToken)
-                    : Task.FromResult(new SteamUiCommandResult(false, "The theme value is invalid."));
-            }
-
-            foreach (var patch in theme.Patches)
-            {
-                if (key == ExtensionsKey("patch", theme.Name, patch.Name))
-                {
-                    var option = value.ValueKind switch
-                    {
-                        JsonValueKind.True => "Yes",
-                        JsonValueKind.False => "No",
-                        JsonValueKind.Number when value.TryGetInt32(out var index) && index >= 0
-                            && index < patch.Options.Count =>
-                            patch.Options[index],
-                        JsonValueKind.String => value.GetString(),
-                        _ => null
-                    };
-                    return option is null
-                        ? Task.FromResult(new SteamUiCommandResult(false, "The patch value is invalid."))
-                        : SetPatchAsync(theme.Name, patch.Name, option, cancellationToken);
-                }
-
-                foreach (var component in patch.Components)
-                {
-                    if (key == ExtensionsKey("component", theme.Name, patch.Name, component.Name))
-                    {
-                        return value.ValueKind == JsonValueKind.String
-                            ? SetComponentAsync(theme.Name, patch.Name, component.Name,
-                                value.GetString() ?? string.Empty, cancellationToken)
-                            : Task.FromResult(new SteamUiCommandResult(false, "The component value is invalid."));
-                    }
-                }
-            }
-        }
-
-        return Task.FromResult(new SteamUiCommandResult(false, "That setting is no longer available."));
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> SetTabAsync(string tab, CancellationToken cancellationToken)
-    {
-        lock (_sync)
-        {
-            _activeTab = tab;
-            _detail = null;
-        }
-
-        Publish(false);
-        return Task.FromResult(SteamUiCommandResult.Applied);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> BrowseAsync(
-        string filter, string order, string search, CancellationToken cancellationToken)
-    {
-        ThemeStoreQuery query;
-        int sequence;
-        lock (_sync)
-        {
-            query = new ThemeStoreQuery(
-                1,
-                ThemeStoreQuery.Default.PerPage,
-                filter.Length == 0 ? ThemeStoreQuery.AllFilter : filter,
-                order.Length == 0 ? ThemeStoreQuery.DefaultOrder : order,
-                search);
-            _browseQuery = query;
-            _browseItems = [];
-            _browseTotal = 0;
-            _browsePage = 0;
-            _browseLoading = true;
-            _browseError = null;
-            sequence = ++_browseSequence;
-        }
-
-        Publish(false);
-        _operation.Track(Task.Run(() => FetchPageAsync(query, sequence, false, _shutdown.Token)));
-        return Task.FromResult(SteamUiCommandResult.Applied);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> LoadMoreAsync(CancellationToken cancellationToken)
-    {
-        ThemeStoreQuery query;
-        int sequence;
-        lock (_sync)
-        {
-            if (_browseLoading)
-            {
-                return Task.FromResult(new SteamUiCommandResult(false, "The store is still answering."));
-            }
-
-            if (_browseItems.Count >= _browseTotal)
-            {
-                return Task.FromResult(new SteamUiCommandResult(false, "Every matching theme is listed."));
-            }
-
-            query = _browseQuery with { Page = _browsePage + 1 };
-            _browseQuery = query;
-            _browseLoading = true;
-            _browseError = null;
-            sequence = ++_browseSequence;
-        }
-
-        Publish(false);
-        _operation.Track(Task.Run(() => FetchPageAsync(query, sequence, true, _shutdown.Token)));
-        return Task.FromResult(SteamUiCommandResult.Applied);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> OpenAsync(string id, CancellationToken cancellationToken)
-    {
-        SteamThemesStoreItem? listing;
-        lock (_sync)
-        {
-            listing = _browseItems.FirstOrDefault(item => item.Id == id);
-            _detail = new SteamThemesDetail(
-                listing ?? new SteamThemesStoreItem(id, string.Empty, "Loading…", string.Empty, string.Empty, [],
-                    string.Empty, null, 0, 0, null, ThemeStates.None),
-                string.Empty,
-                [],
-                [],
-                true,
-                null);
-        }
-
-        Publish(false);
-        _operation.Track(Task.Run(() => FetchDetailAsync(id, _shutdown.Token)));
-        return Task.FromResult(SteamUiCommandResult.Applied);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> CloseDetailAsync(CancellationToken cancellationToken)
-    {
-        lock (_sync)
-        {
-            _detail = null;
-        }
-
-        Publish(false);
-        return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
     /// <inheritdoc />
@@ -728,7 +429,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     /// <param name="enabled">Whether themes are installed.</param>
     /// <param name="cancellationToken">Unused; the change is immediate.</param>
     /// <returns>Whether the setting was saved.</returns>
-    internal Task<SteamUiCommandResult> SetThemesEnabledAsync(bool enabled, CancellationToken cancellationToken)
+    public Task<SteamUiCommandResult> SetThemesEnabledAsync(bool enabled, CancellationToken cancellationToken)
     {
         return Task.FromResult(ChangeConfig(config => config.Enabled = enabled, true));
     }
@@ -737,7 +438,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     /// <param name="branch">One of the <see cref="ThemeTranslationBranch" /> values.</param>
     /// <param name="cancellationToken">Unused; the change is immediate.</param>
     /// <returns>Whether the setting was saved, or why it was refused.</returns>
-    internal Task<SteamUiCommandResult> SetTranslationsBranchAsync(string branch,
+    public Task<SteamUiCommandResult> SetTranslationsBranchAsync(string branch,
         CancellationToken cancellationToken)
     {
         if (branch is not (ThemeTranslationBranch.Auto or ThemeTranslationBranch.Stable
@@ -750,20 +451,10 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         var result = ChangeConfig(config => config.TranslationsBranch = branch, true);
         if (result.Succeeded && branchChanged)
         {
-            _operation.Track(Task.Run(() => FetchTranslationsOnceAsync(_shutdown.Token)));
+            _operation.Track(Task.Run(() => _translations.FetchOnceAsync(_shutdown.Token)));
         }
 
         return Task.FromResult(result);
-    }
-
-    /// <summary>The Quick Access key of a theme, a patch or a component.</summary>
-    /// <param name="kind"><c>theme</c>, <c>patch</c> or <c>component</c>.</param>
-    /// <param name="names">The theme's name, then the patch's and the component's as the kind needs.</param>
-    /// <returns>The kind and a digest of the names: no name's characters reach the key.</returns>
-    internal static string ExtensionsKey(string kind, params string[] names)
-    {
-        var digest = SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\0', names)));
-        return kind + ":" + Convert.ToHexString(digest, 0, 8);
     }
 
     /// <summary>Writes one change to the themes' configuration and shows it at once.</summary>
@@ -820,7 +511,11 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
                 Log.Warn($"Themes: the themes folder could not be created: {ex.Message}");
             }
 
-            LoadTranslationsFile();
+            if (_translations.LoadFile() is { } saved)
+            {
+                _loader.SetMappings(saved);
+            }
+
             _loader.Load();
             Capture();
         }
@@ -867,7 +562,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
             $"Themes: {installed.Count} themes read from {_loader.Root}, "
             + $"{installed.Count(theme => theme.Enabled)} enabled, {refused} refused.");
         Publish(true);
-        _operation.Track(Task.Run(() => FetchTranslationsLoopAsync(_shutdown.Token)));
+        _operation.Track(Task.Run(() => _translations.RunUntilFetchedAsync(_shutdown.Token)));
         _operation.Track(Task.Run(() => CheckUpdatesAsync(_shutdown.Token)));
     }
 
@@ -932,8 +627,11 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         }
     }
 
-    /// <summary>What the page, the section and the overlay draw.</summary>
-    /// <returns>A snapshot combining current configuration, installed themes and this service’s browse/progress state.</returns>
+    /// <summary>What the page, the section and the overlay draw, apart from a surface's browsing.</summary>
+    /// <returns>
+    ///     A snapshot of the current configuration, installed themes and progress, with an empty listing and no
+    ///     detail; a <see cref="ThemeBrowseSession" /> adds its own.
+    /// </returns>
     internal SteamThemesState ReadState()
     {
         lock (_sync)
@@ -955,32 +653,21 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
             }
 
             var selected = presets.Where(preset => preset.Enabled).Select(preset => preset.Name).ToList();
-            var browse = new SteamThemesBrowse(
-                _browseQuery.Filter,
-                _browseQuery.Order,
-                _browseQuery.Search,
-                _browseFilters?.Filters ?? new Dictionary<string, int>(StringComparer.Ordinal),
-                _browseFilters?.Orders ?? [ThemeStoreQuery.DefaultOrder],
-                _browseItems,
-                _browseTotal,
-                _browsePage,
-                _browseLoading,
-                _browseError);
             var settings = new SteamThemesSettings(
                 _config.Enabled,
                 _config.TranslationsBranch,
                 _steamBeta,
-                _translationsCount,
-                _translationsFetched?.ToString("u", CultureInfo.InvariantCulture),
+                _translations.Count,
+                _translations.Fetched?.ToString("u", CultureInfo.InvariantCulture),
                 _loader.Root,
                 _steamLink);
             return new SteamThemesState(
-                _activeTab,
+                string.Empty,
                 themes,
                 presets,
                 selected.Count == 1 ? selected[0] : selected.Count > 1 ? MultiplePresetsSelected : string.Empty,
-                browse,
-                _detail,
+                EmptyBrowse,
+                null,
                 settings,
                 _loadErrors,
                 _operation.Busy,
@@ -1097,107 +784,6 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         _operation.Track(Task.Run(() => CheckUpdatesAsync(_shutdown.Token)));
     }
 
-    private async Task FetchPageAsync(ThemeStoreQuery query, int sequence, bool append,
-        CancellationToken cancellationToken)
-    {
-        ThemeStoreFilters? filters = null;
-        ThemePage? page = null;
-        string? error = null;
-        try
-        {
-            if (_browseFilters is null)
-            {
-                try
-                {
-                    filters = await _client.FiltersAsync(cancellationToken).ConfigureAwait(false);
-                }
-                catch (ThemeStoreException ex)
-                {
-                    Log.Warn($"Themes: the store's filters could not be read: {ex.Message}");
-                }
-            }
-
-            page = await _client.QueryAsync(query, cancellationToken).ConfigureAwait(false);
-        }
-        catch (ThemeStoreException ex)
-        {
-            error = ex.Message;
-        }
-        catch (OperationCanceledException)
-        {
-            return;
-        }
-
-        lock (_sync)
-        {
-            if (sequence != _browseSequence)
-            {
-                return;
-            }
-
-            _browseFilters ??= filters;
-            _browseLoading = false;
-            _browseError = error;
-            if (page is not null)
-            {
-                var items = page.Items.Select(ProjectListing).ToList();
-                _browseItems = append ? [.. _browseItems, .. items] : items;
-                _browseTotal = page.Total;
-                _browsePage = query.Page;
-            }
-        }
-
-        Publish(false);
-    }
-
-    private async Task FetchDetailAsync(string id, CancellationToken cancellationToken)
-    {
-        ThemeStoreDetails? details = null;
-        string? error = null;
-        try
-        {
-            details = await _client.GetAsync(id, cancellationToken).ConfigureAwait(false);
-        }
-        catch (ThemeStoreException ex)
-        {
-            error = ex.Message;
-        }
-        catch (OperationCanceledException)
-        {
-            return;
-        }
-
-        lock (_sync)
-        {
-            if (_detail is null || _detail.Item.Id != id)
-            {
-                return;
-            }
-
-            if (details is null)
-            {
-                _detail = _detail with { Loading = false, Error = error };
-            }
-            else
-            {
-                var installed = _installed.Select(theme => theme.Name).ToHashSet(StringComparer.Ordinal);
-                _detail = new SteamThemesDetail(
-                    ProjectListing(details.Summary),
-                    details.Description,
-                    [.. details.Summary.ImageIds.Select(_client.BlobUrl)],
-                    [
-                        .. details.Dependencies.Select(dependency => new SteamThemesDependency(
-                            dependency.Id, dependency.Name, dependency.DisplayName,
-                            installed.Contains(dependency.Name)))
-                    ],
-                    false,
-                    null);
-            }
-        }
-
-        Publish(false);
-    }
-
     private async Task CheckUpdatesAsync(CancellationToken cancellationToken)
     {
         List<(string Name, string Id, string Version)> installed;
@@ -1253,119 +839,27 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         Publish(false);
     }
 
-    private async Task FetchTranslationsLoopAsync(CancellationToken cancellationToken)
+    private bool WantsBetaTranslations()
     {
-        // Every minute until one fetch succeeds, as CSS Loader retries; a later branch change asks
-        // again on its own.
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            if (await FetchTranslationsOnceAsync(cancellationToken).ConfigureAwait(false))
-            {
-                return;
-            }
-
-            try
-            {
-                await Task.Delay(TranslationsRetry, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                return;
-            }
-        }
-    }
-
-    private async Task<bool> FetchTranslationsOnceAsync(CancellationToken cancellationToken)
-    {
-        bool beta;
         lock (_sync)
         {
-            beta = _config.TranslationsBranch switch
+            return _config.TranslationsBranch switch
             {
                 ThemeTranslationBranch.Beta => true,
                 ThemeTranslationBranch.Stable => false,
                 _ => _steamBeta
             };
         }
+    }
 
-        string text;
-        try
-        {
-            text = await _client.TranslationsAsync(beta, cancellationToken).ConfigureAwait(false);
-        }
-        catch (ThemeStoreException ex)
-        {
-            Log.Change("themes.translations", $"Themes: class translations not fetched: {ex.Message}", LogLevel.Warn);
-            return false;
-        }
-        catch (OperationCanceledException)
-        {
-            return false;
-        }
-
-        ThemeClassMappings mappings;
-        try
-        {
-            mappings = ThemeClassMappings.Parse(text);
-        }
-        catch (JsonException ex)
-        {
-            Log.Warn($"Themes: the class translations could not be read: {ex.Message}");
-            return false;
-        }
-
-        try
-        {
-            Directory.CreateDirectory(_loader.Root);
-            AtomicFile.WriteText(Path.Combine(_loader.Root, ThemePaths.TranslationsFileName), text, false);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            Log.Warn($"Themes: the class translations could not be kept: {ex.Message}");
-        }
-
+    private void ApplyTranslations(ThemeClassMappings mappings)
+    {
         lock (_loaderWork)
         {
             _loader.SetMappings(mappings);
         }
 
-        lock (_sync)
-        {
-            _translationsCount = mappings.Count;
-            _translationsFetched = DateTimeOffset.UtcNow;
-            _stylesDirty = true;
-        }
-
-        Log.Change("themes.translations",
-            $"Themes: {mappings.Count} class translations fetched from the {(beta ? "beta" : "stable")} table.");
         Publish(true);
-        return true;
-    }
-
-    /// <summary>Reads the saved class translations into the loader. Called with <c>_loaderWork</c> held.</summary>
-    private void LoadTranslationsFile()
-    {
-        var path = Path.Combine(_loader.Root, ThemePaths.TranslationsFileName);
-        try
-        {
-            if (!File.Exists(path))
-            {
-                return;
-            }
-
-            var mappings = ThemeClassMappings.Parse(File.ReadAllText(path));
-            var fetched = File.GetLastWriteTimeUtc(path);
-            _loader.SetMappings(mappings);
-            lock (_sync)
-            {
-                _translationsCount = mappings.Count;
-                _translationsFetched = fetched;
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-        {
-            Log.Warn($"Themes: the saved class translations could not be read: {ex.Message}");
-        }
     }
 
     private SteamThemesInstalled Project(ThemeSnapshot snapshot, bool hidden)
@@ -1387,11 +881,24 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
             snapshot.Dependencies);
     }
 
-    internal ThemeBrowseSession CreateBrowserSession()
+    /// <summary>Creates one surface's store browsing over this service.</summary>
+    /// <param name="tab">The tab the surface opens on.</param>
+    /// <returns>A session the surface owns and disposes; its reads end with this service.</returns>
+    internal ThemeBrowseSession CreateBrowserSession(string tab)
     {
-        return new ThemeBrowseSession(this, _client, _shutdown.Token);
+        return new ThemeBrowseSession(this, _client, tab, _shutdown.Token);
     }
 
+    /// <summary>Joins a browse session's store read to the work the session shutdown waits for.</summary>
+    /// <param name="work">The read.</param>
+    internal void Track(Task work)
+    {
+        _operation.Track(work);
+    }
+
+    /// <summary>Projects one store listing with its installed state now.</summary>
+    /// <param name="summary">The listing.</param>
+    /// <returns>The listing as the pages draw it.</returns>
     internal SteamThemesStoreItem BrowserItem(ThemeStoreSummary summary)
     {
         lock (_sync)

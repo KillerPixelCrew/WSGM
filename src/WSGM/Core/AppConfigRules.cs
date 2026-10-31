@@ -143,7 +143,7 @@ internal static class AppConfigRules
         {
             tab.Name ??= "";
             tab.FilterTree ??= new FilterNode { Kind = FilterKind.Merge };
-            diagnostics.AddRange(LibraryFilterRules.Normalize(tab.FilterTree));
+            LibraryFilterRules.Normalize(tab.FilterTree);
         }
 
         AssignMissingTabIds(config.CustomTabs);

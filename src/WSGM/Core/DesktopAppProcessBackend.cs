@@ -24,7 +24,7 @@ internal sealed class DesktopAppProcessBackend(UserDataContext context) : IDeskt
             {
                 foreach (var process in processes)
                 {
-                    if (process.HasExited || process.SessionId != WindowFinder.CurrentSessionId)
+                    if (process.HasExited || process.SessionId != ProcessLookup.CurrentSessionId)
                     {
                         continue;
                     }
@@ -81,7 +81,7 @@ internal sealed class DesktopAppProcessBackend(UserDataContext context) : IDeskt
             }
 
             // PID reuse is not authority to stop a new process, even with the same filename.
-            if (process.SessionId != WindowFinder.CurrentSessionId
+            if (process.SessionId != ProcessLookup.CurrentSessionId
                 || process.StartTime.ToUniversalTime() != instance.StartTime
                 || !string.Equals(NativeShellProcess.TryGetImagePath(checked((uint)process.Id)),
                     instance.ExecutablePath,

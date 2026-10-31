@@ -85,12 +85,12 @@ public sealed partial class ThemesView
 
         options.AddRange(state.Presets.Select(profile => (profile.Name, profile.DisplayName)));
         body.Children.Add(ChoiceRow("Selected profile", options, state.SelectedPreset,
-            name => Run(token => _browser!.SetProfileAsync(name, token))));
+            name => Run(token => _owner!.SetProfileAsync(name, token))));
         body.Children.Add(Tagged(Row("Create profile", "Save the enabled themes and their settings", Icons.CopyDoc,
             state.Busy
                 ? null
                 : () => EditText("Profile name", "", 0,
-                    name => Run(token => _browser!.CreateProfileAsync(name, token)))), "profiles.create"));
+                    name => Run(token => _owner!.CreateProfileAsync(name, token)))), "profiles.create"));
         foreach (var profile in state.Presets)
         {
             var name = profile.Name;
@@ -99,7 +99,7 @@ public sealed partial class ThemesView
                 state.Busy
                     ? null
                     : () => ConfirmCommand("Delete profile", "Delete " + profile.DisplayName + "?",
-                        token => _browser!.DeleteAsync(name, token))), "profile.delete:" + name));
+                        token => _owner!.DeleteAsync(name, token))), "profile.delete:" + name));
         }
     }
 
@@ -109,7 +109,7 @@ public sealed partial class ThemesView
         var settings = state.Settings;
         body.Children.Add(ToggleRow("Install themes into Steam", settings.Enabled,
             enabled => Run(token =>
-                _browser!.SetThemesEnabledAsync(enabled, token))));
+                _owner!.SetThemesEnabledAsync(enabled, token))));
         body.Children.Add(ChoiceRow("Class translations",
             new[]
             {
@@ -118,15 +118,15 @@ public sealed partial class ThemesView
             },
             settings.TranslationsBranch,
             value => Run(token =>
-                _browser!.SetTranslationsBranchAsync(value, token))));
+                _owner!.SetTranslationsBranchAsync(value, token))));
         body.Children.Add(Caption(
             $"Translations: {settings.Translations} names; fetched {settings.TranslationsFetched ?? "not yet"}"));
         body.Children.Add(Caption("Themes folder: " + settings.ThemesPath));
         body.Children.Add(Caption("Steam themes_custom: " + settings.SteamLink));
         body.Children.Add(Tagged(
             Row("Refresh", "Reload themes and check updates", Icons.Restart,
-                state.Busy ? null : () => Run(_browser!.RefreshAsync)), "refresh"));
-        body.Children.Add(Tagged(Row("Dismiss notice", "", Icons.Close, () => Run(_browser!.DismissAsync)), "dismiss"));
+                state.Busy ? null : () => Run(_owner!.RefreshAsync)), "refresh"));
+        body.Children.Add(Tagged(Row("Dismiss notice", "", Icons.Close, () => Run(_owner!.DismissAsync)), "dismiss"));
     }
 
     private Control ThemeSlider(string name, ThemePatchSnapshot patch)
@@ -139,7 +139,7 @@ public sealed partial class ThemesView
             {
                 if (index >= 0 && index < patch.Options.Count)
                 {
-                    Run(token => _browser!.SetPatchAsync(name, patch.Name, patch.Options[index], token));
+                    Run(token => _owner!.SetPatchAsync(name, patch.Name, patch.Options[index], token));
                 }
             });
         body.Children.Add(slider);
@@ -158,13 +158,13 @@ public sealed partial class ThemesView
                 Tag = "component.color:" + theme + ":" + patch + ":" + component.Name
             };
             picker.Commit = chosen => Run(token =>
-                _browser!.SetComponentAsync(theme, patch, component.Name, ThemeColorText(chosen), token));
+                _owner!.SetComponentAsync(theme, patch, component.Name, ThemeColorText(chosen), token));
             body.Children.Add(picker);
         }
 
         body.Children.Add(Tagged(Row("Edit value", component.Value, Icons.CopyDoc,
                 () => EditText(component.Name, component.Value, 0,
-                    value => Run(token => _browser!.SetComponentAsync(theme, patch, component.Name, value, token)))),
+                    value => Run(token => _owner!.SetComponentAsync(theme, patch, component.Name, value, token)))),
             "component.value:" + theme + ":" + patch + ":" + component.Name));
         return body;
     }

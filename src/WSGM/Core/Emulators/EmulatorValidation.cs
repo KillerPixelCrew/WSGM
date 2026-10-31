@@ -73,11 +73,7 @@ internal static class EmulatorValidation
                 FileCleanup.TryDelete(Path.Combine(program, "portable.txt"));
             }
 
-            var alias = installed.DefinitionId switch
-            {
-                "eden" => "user", "rpcs3" => "portable", "dolphin" => "User",
-                _ => EmulatorPortableProfiles.Alias(installed.DefinitionId)
-            };
+            var alias = EmulatorPortableProfiles.Alias(installed.DefinitionId);
             if (alias.Length > 0)
             {
                 EmulatorPackages.DeleteOwned(Path.Combine(program, alias), installed.Root);

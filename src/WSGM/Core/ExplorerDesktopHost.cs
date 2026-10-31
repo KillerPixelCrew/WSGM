@@ -28,7 +28,6 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
     private readonly SemaphoreSlim _operationGate = new(1, 1);
     private readonly int _sessionId;
     private ExplorerShellAnchor? _anchor;
-    private int _desktopAppsGeneration;
 
     // Held from the integration stop until a verified Normal or Degraded restore restarts them; a
     // failed restore keeps it, so the launch sequence never starts a listed integration meanwhile.
@@ -44,7 +43,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
     {
         _context = context;
         _desktopApps = new DesktopAppLifecycle(new DesktopAppProcessBackend(context), Log.Warn);
-        _sessionId = WindowFinder.CurrentSessionId;
+        _sessionId = ProcessLookup.CurrentSessionId;
     }
 
     private static string ExplorerPath => ExplorerControl.ExplorerPath;
@@ -269,14 +268,6 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
         return Volatile.Read(ref _desktopAppsSuspended) != 0 && DesktopAppLifecycle.MatchesPath(path);
     }
 
-    /// <summary>Reads the takeover generation used to reject stale integration launch decisions.</summary>
-    /// <param name="path">Configured executable or protocol target.</param>
-    /// <returns>The current generation for cataloged integrations, or zero for unrelated targets.</returns>
-    internal int ApplicationLaunchGeneration(string path)
-    {
-        return DesktopAppLifecycle.MatchesPath(path) ? Volatile.Read(ref _desktopAppsGeneration) : 0;
-    }
-
     /// <summary>
     ///     Stops captured desktop integrations before the irreversible Explorer exit.
     ///     A refused or partial app exit preserves Explorer; the caller must run the shared desktop
@@ -294,7 +285,6 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
         {
             ThrowIfDisposalRequested();
             Volatile.Write(ref _desktopAppsSuspended, 1);
-            Interlocked.Increment(ref _desktopAppsGeneration);
             var stopped = await _desktopApps.StopAsync(cancellationToken).ConfigureAwait(false);
             // The transition's shared desktop-return sequence owns every failed exit, including
             // partial shutdown. Never infer a preserved desktop from a surviving Explorer PID.
