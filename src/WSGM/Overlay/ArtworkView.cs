@@ -190,7 +190,7 @@ public sealed class ArtworkView : ServiceSubView
         body.Children.Add(ToolTabs(state.ActiveTab, state.Tabs.Select(tab =>
             (tab.Id, tab.Label, (Action)(() => Run(token => _source.SelectTabAsync(tab.Id, token))))).ToArray()));
         AddStatus(body, state.Loading, state.Error, state.Notice);
-        if (state.ActiveTab == SteamArtworkBrowserSource.ManageTab)
+        if (state.ActiveTab == ArtworkBrowserTabs.ManageTab)
         {
             RenderManage(body, state);
         }

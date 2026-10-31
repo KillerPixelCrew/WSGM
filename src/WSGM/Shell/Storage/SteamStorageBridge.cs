@@ -16,10 +16,10 @@ namespace WSGM.Shell;
 /// </summary>
 /// <remarks>
 ///     Every action here delegates to the manager that already owns it: <see cref="RemovableDriveManager" />
-///     for eject and <see cref="SdFormatManager" /> for format and library registration. Nothing is
-///     reimplemented for Steam's benefit, so the identity checks, the volume-GUID resolution, the
-///     backup-and-splice of Steam's library file and the staged destructive sequence are the same code
-///     whichever surface asked — which is the whole point of the issue this satisfies.
+///     for eject, <see cref="SdFormatManager" /> for format and its <see cref="SteamLibraryProvisioner" />
+///     for library registration. Nothing is reimplemented for Steam's benefit, so the identity checks,
+///     the volume-GUID resolution, the backup-and-splice of Steam's library file and the staged
+///     destructive sequence are the same code whichever surface asked — which is the whole point of the issue this satisfies.
 ///     <para>
 ///         Formatting stays behind its own switch, defaulting off. Steam's page can offer it to a controller
 ///         press, and this repository treats erasing a card as an attended operation; the switch is what
@@ -137,7 +137,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
                 return Refuse("Formatting from Steam's pages is switched off in WSGM Settings.");
             }
 
-            if (_formats.Busy)
+            if (_formats.Progress.Busy)
             {
                 return Refuse("Another format is already running.");
             }
@@ -162,9 +162,9 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
             // the same time and decide the add was a mistake.
             _policy?.ClearEjected(path);
 
-            // The manager registers the folder with the running client and reconciles Steam's own
+            // The provisioner registers the folder with the running client and reconciles Steam's own
             // library file; a drive root becomes <root>SteamLibrary, which is Steam's own layout.
-            await _formats.AddLibraryAsync(path).ConfigureAwait(false);
+            await _formats.Libraries.AddLibraryAsync(path).ConfigureAwait(false);
             return SteamUiCommandResult.Applied;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -234,7 +234,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
             return Refuse("That drive is no longer present.");
         }
 
-        if (_formats.Busy)
+        if (_formats.Progress.Busy)
         {
             return Refuse("Another format is already running.");
         }
@@ -280,7 +280,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
             foreach (var letter in letters)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (await SdFormatManager.TrimAsync(letter).ConfigureAwait(false))
+                if (await Diskpart.RetrimAsync(letter).ConfigureAwait(false))
                 {
                     trimmed++;
                 }

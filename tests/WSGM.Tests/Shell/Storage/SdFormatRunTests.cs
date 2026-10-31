@@ -40,7 +40,7 @@ public sealed partial class SdFormatTests
         Assert.Contains(run.Config.Store.Read().RequireConfig().CardLibraries, card => card.ContentId == "999");
         Assert.True(File.Exists(Path.Combine(run.LibraryPath, "steam.dll")));
         Assert.Contains("New card", File.ReadAllText(run.MarkerPath));
-        Assert.False(run.Manager.Busy);
+        Assert.False(run.Manager.Progress.Busy);
         Assert.Same(run.Manager.Completion, run.RunTask);
     }
 
@@ -180,7 +180,7 @@ public sealed partial class SdFormatTests
         await run.StartAsync();
 
         Assert.Empty(run.Events);
-        Assert.False(run.Manager.Busy);
+        Assert.False(run.Manager.Progress.Busy);
         Assert.True(SteamLibraryVdf.IsContentIdRegistered(run.LibraryConfigText, "222"));
     }
 
@@ -296,7 +296,7 @@ public sealed partial class SdFormatTests
 
         Assert.False(run.Success);
         Assert.Equal(["clean"], run.Stages);
-        Assert.Contains("may have been erased", run.Manager.StatusText);
+        Assert.Contains("may have been erased", run.Manager.Progress.StatusText);
         Assert.Equal(markerSurvives, SteamLibraryVdf.IsContentIdRegistered(run.LibraryConfigText, "222"));
         Assert.Equal(markerSurvives,
             run.Config.Store.Read().RequireConfig().CardLibraries.Any(card => card.ContentId == "222"));
@@ -313,7 +313,7 @@ public sealed partial class SdFormatTests
 
         Assert.False(run.Success);
         Assert.Equal(["clean", "format"], run.Stages);
-        Assert.Contains("format result is unknown", run.Manager.StatusText);
+        Assert.Contains("format result is unknown", run.Manager.Progress.StatusText);
         Assert.DoesNotContain("delay", run.Events);
         Assert.DoesNotContain("marker", run.Events);
     }
@@ -334,10 +334,10 @@ public sealed partial class SdFormatTests
 
         Assert.False(run.Success);
         Assert.Equal(["clean"], run.Stages);
-        Assert.Contains("may have been erased", run.Manager.StatusText);
+        Assert.Contains("may have been erased", run.Manager.Progress.StatusText);
         Assert.True(SteamLibraryVdf.IsContentIdRegistered(run.LibraryConfigText, "222"));
         Assert.Contains(run.Config.Store.Read().RequireConfig().CardLibraries, card => card.ContentId == "222");
-        Assert.False(run.Manager.Busy);
+        Assert.False(run.Manager.Progress.Busy);
     }
 
     [Theory]
@@ -366,12 +366,12 @@ public sealed partial class SdFormatTests
         await run.StartAsync();
 
         Assert.False(run.Success);
-        Assert.Contains("stopped during shutdown", run.Manager.StatusText);
+        Assert.Contains("stopped during shutdown", run.Manager.Progress.StatusText);
         Assert.Equal(beforeClean ? 0 : 1, run.Stages.Count);
         Assert.Equal(beforeClean, SteamLibraryVdf.IsContentIdRegistered(run.LibraryConfigText, "222"));
         Assert.Equal(beforeClean,
             run.Config.Store.Read().RequireConfig().CardLibraries.Any(card => card.ContentId == "222"));
-        Assert.False(run.Manager.Busy);
+        Assert.False(run.Manager.Progress.Busy);
     }
 
     [Theory]
@@ -431,7 +431,7 @@ public sealed partial class SdFormatTests
 
         await run.StartAsync();
 
-        Assert.True(run.Success, run.Manager.StatusText + "\n" + string.Join("\n", run.Logs));
+        Assert.True(run.Success, run.Manager.Progress.StatusText + "\n" + string.Join("\n", run.Logs));
         Assert.False(Directory.Exists(Path.Combine(run.LetterRootPath, "SteamLibrary")));
         var volumeLibrary = Path.Combine(run.VolumeRootPath, "SteamLibrary");
         Assert.True(Directory.Exists(Path.Combine(volumeLibrary, "steamapps")));
@@ -453,7 +453,7 @@ public sealed partial class SdFormatTests
         await run.StartAsync();
 
         Assert.True(run.Success);
-        Assert.Contains("changed before it could be added", run.Manager.StatusText);
+        Assert.Contains("changed before it could be added", run.Manager.Progress.StatusText);
         Assert.Empty(run.LiveAdds);
         Assert.True(File.Exists(Path.Combine(originalRoot, "SteamLibrary", "libraryfolder.vdf")));
         Assert.False(Directory.Exists(run.LetterRootPath));
@@ -470,7 +470,7 @@ public sealed partial class SdFormatTests
 
         Assert.False(run.Success);
         Assert.Equal(["clean", "format", "assign"], run.Stages);
-        Assert.Contains("could not keep drive letter E:", run.Manager.StatusText);
+        Assert.Contains("could not keep drive letter E:", run.Manager.Progress.StatusText);
         Assert.False(File.Exists(run.MarkerPath));
         Assert.DoesNotContain("retrim", run.Events);
     }
@@ -642,7 +642,7 @@ public sealed partial class SdFormatTests
                     Identity.SizeBytes, Identity.BusType, ['E'], false)
             ]);
             Entry = Assert.Single(Manager.Targets);
-            Manager.Finished += (_, success) => Success = success;
+            Manager.Progress.Finished += (_, success) => Success = success;
         }
 
         internal SdFormatManager Manager { get; }

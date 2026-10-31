@@ -220,7 +220,7 @@ public sealed partial class OverlayController : IDisposable
         if (formats is not null)
         {
             _formatManager = formats;
-            _formatManager.Finished += OnFormatFinished;
+            _formatManager.Progress.Finished += OnFormatFinished;
         }
 
         _config = config;
@@ -331,7 +331,7 @@ public sealed partial class OverlayController : IDisposable
         if (_formatManager is not null)
         {
             // The composition owns the format manager; only the subscription is ours.
-            _formatManager.Finished -= OnFormatFinished;
+            _formatManager.Progress.Finished -= OnFormatFinished;
         }
 
         if (_hotkey is not null)

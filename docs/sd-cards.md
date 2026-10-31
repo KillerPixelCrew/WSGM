@@ -6,7 +6,10 @@ letter. Registering a card's library with a running Steam, the duplicate-registr
 makes a swapped card show the previous card's games, and the reconcile on volume arrival and removal
 are in [steam-cef.md](steam-cef.md) ("Registering a library with a running Steam"). The format
 mechanism and volume-arrival wait are described below; the implementation is
-[`SdFormatManager.cs`](../src/WSGM/Shell/SdFormatManager.cs).
+[`SdFormatManager.cs`](../src/WSGM/Shell/Storage/SdFormatManager.cs), with the disk stages in
+[`Diskpart.cs`](../src/WSGM/Shell/Storage/Diskpart.cs) and Steam library creation and Add Steam
+Library registration in
+[`SteamLibraryProvisioner.cs`](../src/WSGM/Shell/Storage/SteamLibraryProvisioner.cs).
 
 Format SD Card is reached through Overlay Tools > Storage. Card Manager stays focused on tracked
 library management; formatting keeps the same picker and explicit erase confirmation. Card Manager
@@ -208,10 +211,11 @@ pointer. It is separate from the in-window picker used by Library Importer and c
 format flow itself is controller-accessible: choose a disk, review the erase confirmation, edit the
 volume/library name through the overlay keyboard, and explicitly start the operation.
 
-`SdFormatManager.FormatAsync` serializes runs with `_formatGate`. Its operations seam separates
-orchestration from the Windows disk and Steam calls. After checking elevation and strictly
-validating the initial target, it suspends media watching and removes the existing Steam library
-registration. It then:
+`SdFormatManager.FormatAsync` and `SteamLibraryProvisioner.AddLibraryAsync` share one
+`StorageRunProgress`, which serializes their runs and publishes the busy state, stage and terminal
+message the overlay and Steam surfaces show. The manager's operations seam separates orchestration
+from the Windows disk and Steam calls. After checking elevation and strictly validating the initial
+target, it suspends media watching and removes the existing Steam library registration. It then:
 
 1. Reopens the physical disk and rechecks identity before `clean` and creating a primary partition.
 2. Waits up to 20 seconds for the new volume to appear, then attempts a quick NTFS format using 128
@@ -238,7 +242,7 @@ destructive operation.
 | Eject                     | `Shell/Storage/RemovableDriveManager.cs`, `RemovableDriveEntries.cs`                                                                                                                                     | Reconcile eject rows, revalidate targets and invoke the library observer before media leaves.                                                |
 | Registration policy       | `Shell/Library/LibraryPolicy.cs`, `CardVolumeMonitor.cs`, `CardAcfWatcher.cs`                                                                                                                            | Decide registration and retained eject intent, detect volume/manifest changes, and recheck scanned identity before acting.                   |
 | Library identity and tabs | `Shell/Library/SdCardLibraryCatalog.cs`, `LibraryTabManager.cs`, `LibraryManagerService.cs`, `SteamLibraryMarker.cs`, `Core/Library/SteamLibraryFolders.cs`, `SteamLibraryVdf.cs`, `SteamLibraryTabs.cs` | Follow medium-owned labels and content IDs, edit guarded VDF structures and materialize custom tabs; the manager owns every sync's lifetime. |
-| Formatting                | `Shell/Storage/SdFormatManager.cs`, `SdFormatEntries.cs`                                                                                                                                                 | Own target validation, serialized destructive stages, library creation and failure reporting.                                                |
+| Formatting                | `Shell/Storage/SdFormatManager.cs`, `Diskpart.cs`, `SteamLibraryProvisioner.cs`, `StorageRunProgress.cs`, `SdFormatEntries.cs`                                                                           | Own target validation, serialized destructive stages, library creation and failure reporting.                                                |
 | Steam projection          | `Shell/Storage/SteamStorageBridge.cs`                                                                                                                                                                    | Expose the session's storage owners through the toolkit's Steam storage surface.                                                             |
 | Overlay projection        | `Overlay/OverlayWindow.Storage.cs`, `CardManagerView.cs`, `LibraryTabsView.cs`, `EjectPanel.axaml.cs`                                                                                                    | Present intent and progress using the shared managers, without a second storage policy.                                                      |
 

@@ -102,7 +102,7 @@ manual pass under the contributor guide's manual-first policy.
 | Session policy                | `Shell/Sounds/SoundPackService.cs`: serialized actions, selection persistence, detached data URLs, publication revision and decoder-status reconciliation.                                                           |
 | Overlay and preview           | `Overlay/SoundsView.cs` projects the service; `SoundPackService` owns a WindowsDeviceControl `AudioFilePreview` for Media Foundation playback and invalidates outgoing preview requests.                             |
 | Steam page                    | `Shell/Sounds/SteamSoundsSurface.cs` projects the service (state revision, listings with installed versions) and maps the page's commands onto it; `Core/SteamUiAssets/Source/sounds.ts` draws Installed and Browse. |
-| Host composition              | `Shell/Steam/SteamUiSessionHost.cs` registers `SteamSoundOverrideSurface.Module` with CEF host-surface enablement, the current revision and `ReportPlaybackStatus`. Custom QAM rows need not be enabled.             |
+| Host composition              | `Shell/Steam/SteamUiModuleCatalog.cs` registers `SteamSoundOverrideSurface.Module` with CEF host-surface enablement, the current revision and `ReportPlaybackStatus`. Custom QAM rows need not be enabled.           |
 | Steam playback                | Toolkit `Surfaces/SteamSoundOverrideSurface.cs` and `SteamUiAssets/Source/gates/sound-overrides.ts` validate status, decode replacement variants and restore the claimed audio-manager member.                       |
 
 The [toolkit sound contract](../external/steam-ui-toolkit/docs/sound-overrides.md) defines the wire

@@ -5,73 +5,6 @@ namespace WSGM.Tests.Shell;
 
 public sealed partial class SdFormatTests
 {
-    // ---- diskpart script ----
-
-    [Fact]
-    public void PartitionScriptCleansAndCreatesOnePrimaryPartition()
-    {
-        Assert.Equal(
-            "select disk 3\r\n"
-            + "clean\r\n"
-            + "create partition primary\r\n",
-            SdFormatManager.BuildDiskpartPartitionScript(3));
-    }
-
-    [Fact]
-    public void PartitionScriptNeverFormats()
-    {
-        var script = SdFormatManager.BuildDiskpartPartitionScript(3);
-
-        Assert.DoesNotContain("format", script);
-        Assert.DoesNotContain("assign", script);
-    }
-
-    [Fact]
-    public void FormatScriptSelectsTheNewPartitionAndFormatsOnly()
-    {
-        Assert.Equal(
-            "select disk 3\r\n"
-            + "select partition 1\r\n"
-            + "format fs=ntfs quick unit=128k label=\"Games\"\r\n",
-            SdFormatManager.BuildDiskpartFormatScript(3));
-    }
-
-    [Fact]
-    public void FormatScriptNeverCleansOrAssigns()
-    {
-        var script = SdFormatManager.BuildDiskpartFormatScript(3);
-
-        Assert.DoesNotContain("clean", script);
-        Assert.DoesNotContain("assign", script);
-    }
-
-    [Fact]
-    public void DiskpartScriptQuotesTheGivenLabel()
-    {
-        Assert.Contains(
-            "label=\"My Games\"\r\n",
-            SdFormatManager.BuildDiskpartFormatScript(1, "My Games"));
-    }
-
-    [Fact]
-    public void AssignScriptPreservesTheCardsDriveLetter()
-    {
-        Assert.Equal(
-            "select disk 3\r\n"
-            + "select partition 1\r\n"
-            + "assign letter=E\r\n",
-            SdFormatManager.BuildDiskpartAssignScript(3, 'E'));
-    }
-
-    [Fact]
-    public void AssignScriptNeverCleansOrFormats()
-    {
-        var script = SdFormatManager.BuildDiskpartAssignScript(3, 'E');
-
-        Assert.DoesNotContain("clean", script);
-        Assert.DoesNotContain("format", script);
-    }
-
     [Theory]
     [InlineData(null, "Games")]
     [InlineData("   ", "Games")]
@@ -81,21 +14,6 @@ public sealed partial class SdFormatTests
     public void LabelsAreSanitizedForDiskpartAndSteam(string? input, string expected)
     {
         Assert.Equal(expected, SdFormatManager.SanitizeLabel(input));
-    }
-
-    [Fact]
-    public void ALetterlessCardGetsABareAssign()
-    {
-        var script = SdFormatManager.BuildDiskpartAssignScript(3, '\0');
-
-        Assert.EndsWith("assign\r\n", script);
-        Assert.DoesNotContain("assign letter=", script);
-    }
-
-    [Fact]
-    public void DiskpartScriptNeverIssuesCleanAll()
-    {
-        Assert.DoesNotContain("clean all", SdFormatManager.BuildDiskpartPartitionScript(0));
     }
 
     // ---- bus labelling ----
@@ -290,20 +208,6 @@ public sealed partial class SdFormatTests
                 false, true, false,
                 0L, -1,
                 256_000_000_000L, NativeStorage.BusTypeSd));
-    }
-
-    // ---- add-library path resolution ----
-
-    [Theory]
-    [InlineData("D:", @"D:\SteamLibrary")]
-    [InlineData(@"D:\", @"D:\SteamLibrary")]
-    [InlineData(@"D:\Games", @"D:\Games")]
-    [InlineData(@"\\nas\media\steam", @"\\nas\media\steam")]
-    [InlineData(@"E:\SteamLibrary\", @"E:\SteamLibrary")]
-    public void DriveRootsGetTheSteamLibrarySubfolderOthersAreUsedAsIs(
-        string picked, string expected)
-    {
-        Assert.Equal(expected, SdFormatManager.ResolveLibraryRoot(picked));
     }
 
     // ---- native struct parsing ----

@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using SteamUiToolkit;
 using WSGM.Core;
 
@@ -11,12 +14,17 @@ namespace WSGM.Shell;
 ///     The Steam Change Artwork page and each overlay view browse through their own
 ///     <see cref="SteamArtworkBrowserSource" />, created here. This owner resets the providers' caches when the
 ///     credentials change, reopens each session's game when the tab layout or credentials change, and tells the
-///     other sessions on the same game what one session applied.
+///     other sessions on the same game what one session applied. Every session writes through the one
+///     <see cref="Writer" /> and looks official artwork up through the shared SteamGridDB provider here.
 /// </remarks>
 internal sealed class ArtworkBrowser : IDisposable
 {
     private readonly object _gate = new();
     private readonly List<SteamArtworkBrowserSource> _sessions = [];
+
+    /// <summary>The SteamGridDB provider among <see cref="Providers" />, which alone knows official artwork.</summary>
+    private readonly SteamGridDbProvider? _steamGridDb;
+
     private bool _disposed;
     private string _providerSignature;
     private string _tabSignature;
@@ -34,6 +42,8 @@ internal sealed class ArtworkBrowser : IDisposable
         Store = store;
         Steam = steam ?? throw new ArgumentNullException(nameof(steam));
         Providers = providers ?? ArtworkSearch.Providers;
+        _steamGridDb = Providers.OfType<SteamGridDbProvider>().FirstOrDefault();
+        Writer = new SteamArtworkWriter(Steam, readConfiguration);
         var configuration = readConfiguration();
         _tabSignature = configuration.TabSignature();
         _providerSignature = configuration.ProviderSignature();
@@ -50,6 +60,9 @@ internal sealed class ArtworkBrowser : IDisposable
 
     /// <summary>The artwork providers every session searches.</summary>
     internal IReadOnlyList<IArtworkProvider> Providers { get; }
+
+    /// <summary>Writes artwork and logo placement to <see cref="Steam" /> for every session.</summary>
+    internal SteamArtworkWriter Writer { get; }
 
     /// <summary>Disposes every session still open.</summary>
     public void Dispose()
@@ -146,6 +159,54 @@ internal sealed class ArtworkBrowser : IDisposable
         foreach (var session in sessions)
         {
             session.ShowArtwork(appId, message, managed);
+        }
+    }
+
+    /// <summary>Looks up a slot's official artwork for a game on SteamGridDB.</summary>
+    /// <param name="asset">The slot.</param>
+    /// <param name="appId">The game's Steam app id.</param>
+    /// <param name="selected">The game match the session uses, or null for the Steam app id.</param>
+    /// <param name="config">The current artwork configuration, which carries the SteamGridDB key.</param>
+    /// <param name="cancellationToken">Ends the lookup.</param>
+    /// <returns>
+    ///     The official images, or none without a key, for a shortcut that has no SteamGridDB match, or when the
+    ///     lookup failed.
+    /// </returns>
+    internal async Task<IReadOnlyList<SgdbOfficialAsset>> LoadOfficialAssetsAsync(
+        ArtworkAsset asset,
+        uint appId,
+        ArtworkGameMatch? selected,
+        ArtworkConfig config,
+        CancellationToken cancellationToken)
+    {
+        var key = SteamGridDbProvider.ResolveKey(config);
+        if (key.Length == 0 || _steamGridDb is null)
+        {
+            return [];
+        }
+
+        try
+        {
+            if (selected is { ProviderId: "steamgriddb" }
+                && int.TryParse(selected.Id, NumberStyles.None, CultureInfo.InvariantCulture, out var gameId))
+            {
+                return await _steamGridDb.GetOfficialAssetsForGameAsync(asset, gameId, key, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            return SteamApps.IsShortcutAppId(appId)
+                ? []
+                : await _steamGridDb.GetOfficialAssetsForSteamAppAsync(asset, appId, key, cancellationToken)
+                    .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Steam artwork page: official artwork lookup failed: {ex.Message}");
+            return [];
         }
     }
 }

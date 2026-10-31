@@ -788,10 +788,11 @@ and a settings reload share the same choke point (`PersistentSteamUiTransport.Se
 write reports whether it was never sent, sent but unanswered (`Unknown`), refused or applied; an
 `Unknown` write is reported once and never retried. `SteamCef` keeps only the remote-debugging
 opt-in and pure endpoint/JavaScript validation. `Shell\Steam\SteamUiSessionHost.cs` is the one owner
-of state publication and command dispatch: its projections are a publication table and its
-`(patchId, command)` dispatch is a handler table, which keeps every refusal on one diagnostic path.
-`SteamUiPatchManager` is the only patch scheduler; one incompatible patch does not disable another,
-and a `SharedJSContext` generation change cancels commands authorized against the replaced document.
+of state publication and command dispatch: the projections its `SteamUiModuleCatalog` declares are a
+publication table and its `(patchId, command)` dispatch is a handler table, which keeps every
+refusal on one diagnostic path. `SteamUiPatchManager` is the only patch scheduler; one incompatible
+patch does not disable another, and a `SharedJSContext` generation change cancels commands
+authorized against the replaced document.
 
 The bootstrap patch fingerprints four literal modules (TDP availability gate, TDP component,
 performance actions, read-only profile projection), each found exactly once (live Steam client,

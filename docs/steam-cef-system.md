@@ -299,18 +299,21 @@ within the same deadline.
 ## 4. The session host
 
 `Shell\Steam\SteamUiSessionHost.cs` owns one `SteamUiBridgeHost` over the embedded bootstrap asset,
-one `SteamUiPatchManager`, one `SteamUiModuleSet` and one `SteamUiModuleRuntime`. It registers the
-bootstrap patch first and every module's patches after it, starts with everything disabled, and
-follows the transport's generation events and every service's change event, hearing the device
-coordinator's capability and configuration changes once for all the device rows. The session builds
-every backend behind the surfaces (`SteamUiBackends`) and disposes them after the host. It derives
-every surface switch from the configuration into one `SteamUiSurfaceSwitches` record, from host
-creation, a reload, the Big Picture restore, the master switch and glyph profile changes alike, and
-hands it to the host's single `Apply`. The host derives every patch switch from that record under
-one lock, so the last apply wins over an earlier one and over a retraction in progress. Surface
-observation registers the toolkit's bounded overlay-activation callback while CEF is enabled,
-independently of custom QAM rows. Generation changes reinstall it; disabling CEF removes it. Unknown
-overlay activation after a reload remains unknown until a fresh event.
+one `SteamUiPatchManager`, one `SteamUiModuleSet` and one `SteamUiModuleRuntime`. Its
+`SteamUiModuleCatalog` builds the surface adapters over `SteamUiBackends`, declares the host's
+modules and composes the ready plugins' modules beside them; `SteamUiPatchSwitches` derives each
+patch switch. It registers the bootstrap patch first and every module's patches after it, starts
+with everything disabled, and follows the transport's generation events and every service's change
+event, hearing the device coordinator's capability and configuration changes once for all the device
+rows. The session builds every backend behind the surfaces (`SteamUiBackends`) and disposes them
+after the host. It derives every surface switch from the configuration into one
+`SteamUiSurfaceSwitches` record, from host creation, a reload, the Big Picture restore, the master
+switch and glyph profile changes alike, and hands it to the host's single `Apply`. The host derives
+every patch switch from that record under one lock, so the last apply wins over an earlier one and
+over a retraction in progress. Surface observation registers the toolkit's bounded
+overlay-activation callback while CEF is enabled, independently of custom QAM rows. Generation
+changes reinstall it; disabling CEF removes it. Unknown overlay activation after a reload remains
+unknown until a fresh event.
 
 OEM Steam QAM and Overlay actions borrow the same transport to replay the toolkit's native button
 handler on an exact observed process/app identity and CEF generation. The session's controller
@@ -319,7 +322,7 @@ retries a command whose execution is uncertain.
 
 ### Modules and their commands
 
-`SteamUiSessionHost.CreateModules` is the host-module inventory. Toolkit factories own reusable
+`SteamUiModuleCatalog.CreateModules` is the host-module inventory. Toolkit factories own reusable
 patches and command vocabulary; WSGM factories own product pages, download sorting, glyph delivery
 and guide-chord/controller-capability hooks. The runtime's module set derives the bridge allowlist
 from the actual registrations. Common-plugin modules are composed separately and may be replaced
@@ -345,9 +348,9 @@ while the session runs.
 ### Patch and publication policy
 
 `SteamUiSurfaceSwitches.From` derives policy from the current configuration, and
-`SteamUiSessionHost.SetPatchStates` applies it to the actual patch registry. Do not maintain a fixed
-patch count: optional services, multiple patches per module and dynamic frontend modules change the
-set.
+`SteamUiPatchSwitches.SetPatchStates` applies it to the actual patch registry. Do not maintain a
+fixed patch count: optional services, multiple patches per module and dynamic frontend modules
+change the set.
 
 | Switch or condition                 | What remains active                                                                                                                                                                      |
 | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -781,7 +784,7 @@ The findings behind each of these are in [steam-cef.md](steam-cef.md).
 | Library data         | toolkit `SteamLibraryData`, `Core\Library\LibraryFilter.cs`                                                                    | read-only: lists collections, games and store tags; WSGM's compiled filter predicates are batched into one evaluation by `LibraryFilter.EvaluateAsync`                                                                                                                                                                                                                                                                                                                                                                                                                                        | —                                                             |
 | Downloads            | toolkit `SteamDownloadActivity`, `Core\Steam\SteamDownloadSort.cs`                                                             | overview is a one-shot `RegisterForDownloadOverview` with immediate unregister (keep-awake, screen-off mute); the sort gate transforms the header on the JSX claim, builds buttons from Valve's `Focusable`, renumbers through `SetQueueIndex` every 120 ms                                                                                                                                                                                                                                                                                                                                   | `Cef.DownloadQueueSort`                                       |
 | Launch configuration | `Core\Steam\SteamLaunchConfig.cs`, `Core\Steam\SteamCustomLaunchCommand.cs`, toolkit `SteamApps`                               | reads through `RegisterForAppDetails` (3 s timeout, unregister); writes `SetAppLaunchOptions` for titles, `SetShortcutExe` + `SetShortcutLaunchOptions` for shortcuts, verbatim, 400 ms settle; clipboard fallback with CEF off                                                                                                                                                                                                                                                                                                                                                               | —                                                             |
-| Artwork              | `Core\Artwork\`, `Shell\SteamArtworkBrowser*`, toolkit `SteamApps`, `SteamPageSurface`                                         | the page searches providers in parallel, the Game Library's automatic match asks them in order; SteamGridDB and Screenscraper.fr over HTTPS, each behind its own gate, bounded downloads, format from the image's bytes; native tabbed Steam route; clear/apply through the running client                                                                                                                                                                                                                                                                                                    | `Cef.Enabled`                                                 |
+| Artwork              | `Core\Artwork\`, `Shell\Artwork\`, toolkit `SteamApps`, `SteamPageSurface`                                                     | the page searches providers in parallel, the Game Library's automatic match asks them in order; SteamGridDB and Screenscraper.fr over HTTPS, each behind its own gate, bounded downloads, format from the image's bytes; native tabbed Steam route; clear/apply through the running client                                                                                                                                                                                                                                                                                                    | `Cef.Enabled`                                                 |
 | Game Library         | `Core\Library\`, `Shell\GameLibrary*`, toolkit `SteamApps`, `SteamLibraryData`, `SteamFilePickerSurface`, `library-capsule.ts` | ten sources, each detected on its own and read together; Xbox packages classified by runtime with one Store catalog lookup per package family, remembered for the session; launcher titles as exact command routes; artwork candidates gathered in the background and picked before saving; the library read in one call per scan or run; shortcuts written through the running client one at a time with a settle, a new id confirmed in the toolkit by a before/after library diff which is the authority and its fields read back, an unconfirmed write stops the run and is never retried | `Cef.Enabled`                                                 |
 | Libraries            | `Core\Library\SteamLibraryFolders.cs`, `Core\Library\SteamLibraryVdf.cs`, toolkit `SteamInstallFolders`                        | `AddInstallFolder` on the running client after purging same-path registrations; removal iterates one snapshot; WSGM resolves a card's content id to one path first and refuses an ambiguous one; `libraryfolders.vdf` splice with Steam closed                                                                                                                                                                                                                                                                                                                                                | `Cef.SdFormat`                                                |
 
@@ -794,7 +797,7 @@ answer at once and finish in the background.
 
 | Patch id                     | Backend                             | Republished on                               | On config reload         |
 | ---------------------------- | ----------------------------------- | -------------------------------------------- | ------------------------ |
-| `steam-ui.pages`             | `SteamUiSessionHost.ReadPages`      | the host's page set                          | nothing                  |
+| `steam-ui.pages`             | `SteamUiModuleCatalog.ReadPages`    | the host's page set                          | nothing                  |
 | `steam-ui.extensions-tab`    | `SteamExtensionsTabBackend`         | plugin changes, `GameLibraryService.Changed` | nothing                  |
 | `steam-ui.game-context-menu` | `SteamGameContextMenuBackend`       | plugin changes                               | nothing                  |
 | `steam-ui.power-menu`        | `SteamPowerMenuBackend`             | its `Changed`, when the session mode changes | nothing                  |
@@ -1253,8 +1256,8 @@ Release.
 
 Applying is provider-independent: one toolkit `SetCustomArtworkForApp` call, whichever source
 supplied the bytes. Provider settings, search state, the page renderer, local files, logo placement
-and manage/reset behavior all live in `Core\Artwork\` and `Shell\SteamArtworkBrowser*`, on the
-host-owned page route.
+and manage/reset behavior all live in `Core\Artwork\` and `Shell\Artwork\`, on the host-owned page
+route.
 
 ## 9. Configuration
 

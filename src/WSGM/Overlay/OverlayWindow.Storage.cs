@@ -59,7 +59,7 @@ public partial class OverlayWindow
 
     private void OnFormatTargetChosen(object? sender, RoutedEventArgs e)
     {
-        if (_format is null || _format.Busy
+        if (_format is null || _format.Progress.Busy
                             || (sender as Control)?.DataContext is not FormatTargetEntry entry)
         {
             return;
@@ -180,7 +180,7 @@ public partial class OverlayWindow
         FormatHeading.Text = "Add Steam Library";
         ShowFormatState(false, false, true);
         OpenStorageFormat();
-        await _format.AddLibraryAsync(path);
+        await _format.Libraries.AddLibraryAsync(path);
     }
 
     private void ShowFormatState(bool pick, bool confirm, bool progress)

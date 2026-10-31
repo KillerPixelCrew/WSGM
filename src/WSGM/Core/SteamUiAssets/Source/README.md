@@ -87,14 +87,14 @@ bridge uses to replace a script a previous build left running.
 
 ## From renderer to backend
 
-`Shell/SteamUiSessionHost` composes the single toolkit bridge with WSGM surface factories:
-`SteamArtworkBrowserSurface`, `SteamLibraryImportSurface`, `SteamWsgmSettingsSurface`,
-`SteamThemesSurface`, `SteamAnimationsSurface`, `SteamCardManagerSurface` and
-`SteamLibraryTabsSurface`. Their service readings become publications; these renderers subscribe
-through `registerSteamPage`, send their exact semantic commands back through the bridge, and let the
-service validate/save the result. One `SteamPageSurface` merges routes, so a page renderer does not
-claim the router independently. `page-kit.ts` shares the Themes and Animations command/tab/banner
-plumbing; it has no standalone route or backend.
+`Shell/Steam/SteamUiSessionHost` composes the single toolkit bridge with the WSGM surface factories
+its `SteamUiModuleCatalog` declares: `SteamArtworkBrowserSurface`, `SteamLibraryImportSurface`,
+`SteamWsgmSettingsSurface`, `SteamThemesSurface`, `SteamAnimationsSurface`,
+`SteamCardManagerSurface` and `SteamLibraryTabsSurface`. Their service readings become publications;
+these renderers subscribe through `registerSteamPage`, send their exact semantic commands back
+through the bridge, and let the service validate/save the result. One `SteamPageSurface` merges
+routes, so a page renderer does not claim the router independently. `page-kit.ts` shares the Themes
+and Animations command/tab/banner plumbing; it has no standalone route or backend.
 
 Host pages follow CEF master enablement and remain available with custom Quick Access rows off.
 Sound packs have no renderer fragment here: the overlay owns their browser and preview, while the
