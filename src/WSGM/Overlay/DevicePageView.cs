@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -10,6 +11,7 @@ using Avalonia.Media;
 using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Core;
+using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
@@ -42,6 +44,13 @@ public sealed class DevicePageView : Panel
     };
 
     private CollapsibleSection? _pinsFold;
+    private DevicePrerequisiteSource? _prerequisites;
+
+    // The integration switch and device the banner was last read for; nothing else changes its answer.
+    private (bool Enabled, string Device)? _prerequisitesFor;
+
+    private bool _prerequisitesReading;
+    private bool _prerequisitesStale;
     private DeviceGroupRenderer? _renderer;
 
     /// <summary>Lays out the Device and GPU panes; <see cref="Configure" /> supplies the renderer.</summary>
@@ -88,6 +97,9 @@ public sealed class DevicePageView : Panel
 
     /// <summary>The plugin widget pin toggles, shown on the Overview below the group choices.</summary>
     internal StackPanel WidgetPins { get; } = new() { Spacing = 8 };
+
+    /// <summary>Completes when the current prerequisite read has been published to the banner.</summary>
+    internal Task PrerequisitesRefresh { get; private set; } = Task.CompletedTask;
 
     /// <summary>The rail key of the page shown last, or null before the first.</summary>
     internal string? Shown { get; private set; }
@@ -175,10 +187,83 @@ public sealed class DevicePageView : Panel
         return false;
     }
 
+    /// <summary>Supplies the reader behind the missing-prerequisites banner and reads it.</summary>
+    /// <param name="prerequisites">The reader, or null in a preview with no session behind it.</param>
+    internal void AttachPrerequisites(DevicePrerequisiteSource? prerequisites)
+    {
+        _prerequisites = prerequisites;
+        ReadPrerequisites();
+    }
+
+    /// <summary>Reads the prerequisites again when the integration switch or the device changed.</summary>
+    /// <param name="device">The current Device snapshot.</param>
+    /// <remarks>
+    ///     The read checks files, a driver and the registry, and only the definition and the switch change
+    ///     what it finds, so a value or telemetry change does not repeat it.
+    /// </remarks>
+    internal void FollowPrerequisites(DeviceOverlaySnapshot device)
+    {
+        (bool Enabled, string Device) subject = (device.Visible, device.Detail);
+        if (_prerequisitesFor == subject)
+        {
+            return;
+        }
+
+        _prerequisitesFor = subject;
+        ReadPrerequisites();
+    }
+
+    /// <summary>Renders what a device package on this install is missing, if anything.</summary>
+    private void ReadPrerequisites()
+    {
+        // The read opens every package in the Plugins folder, so it runs on a worker and the banner
+        // fills in when it lands. One read runs at a time; a refresh asked for meanwhile reads once
+        // more after it.
+        if (_prerequisites is not { } source)
+        {
+            ShowPrerequisites(new DevicePrerequisiteAdvice(""));
+            return;
+        }
+
+        if (_prerequisitesReading)
+        {
+            _prerequisitesStale = true;
+            return;
+        }
+
+        _prerequisitesReading = true;
+        PrerequisitesRefresh = ReadPrerequisitesAsync(source);
+        Log.Observe(PrerequisitesRefresh, "Overlay device prerequisites");
+    }
+
+    private async Task ReadPrerequisitesAsync(DevicePrerequisiteSource source)
+    {
+        try
+        {
+            var advice = await Task.Run(() => source.Read());
+            if (ReferenceEquals(_prerequisites, source))
+            {
+                ShowPrerequisites(advice);
+            }
+        }
+        finally
+        {
+            _prerequisitesReading = false;
+            if (_prerequisitesStale)
+            {
+                _prerequisitesStale = false;
+                ReadPrerequisites();
+            }
+        }
+    }
+
     /// <summary>Says what a device package on this install is missing, if anything.</summary>
     /// <param name="advice">The advice from the last read.</param>
-    internal void ShowPrerequisites(DevicePrerequisiteAdvice advice)
+    private void ShowPrerequisites(DevicePrerequisiteAdvice advice)
     {
+        // No page check: the banner is part of the Device pane, so that pane's own visibility is the gate.
+        // It stays up on the Device sub-pages too, which is where someone hunting a dead device most likely
+        // ends up.
         // The banner only explains: INV-020 keeps driver installation in setup, because the USB/IP
         // install restarts every USB 3.0 hub and would take the pad, the touch digitiser and the
         // keyboard away from whoever is holding the machine.

@@ -35,8 +35,8 @@ public sealed class DevicePrerequisiteBannerTests
     {
         var window = fixture.Overlay();
         UiFixture.Named<Control>(window, "DevicePage").IsVisible = true;
-        window.AttachDevicePrerequisites(source);
-        await window.DevicePrerequisitesRefresh;
+        window.DevicePage.AttachPrerequisites(source);
+        await window.DevicePage.PrerequisitesRefresh;
         return window;
     }
 

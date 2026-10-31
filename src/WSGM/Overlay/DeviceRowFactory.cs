@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,8 +10,77 @@ using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
-public partial class OverlayWindow
+/// <summary>
+///     Creates the row controls of every described Device, GPU, performance and pinned group, each with the
+///     commands of the source it came from.
+/// </summary>
+/// <remarks>
+///     The sources are the window's borrowed device, graphics and performance projections, read when a command
+///     runs, so a row always acts through the source attached now. A command acts only on a row that is still
+///     published and invokable; one that throws never takes the sheet with it, and one cancelled by the sheet
+///     closing is not logged as a failure.
+/// </remarks>
+internal sealed class DeviceRowFactory
 {
+    private readonly Func<bool> _closed;
+    private readonly Func<IDeviceOverlaySource?> _device;
+    private readonly Func<IGraphicsOverlaySource?> _graphics;
+    private readonly CancellationToken _lifetime;
+    private readonly Action<IDeviceOverlaySource, DeviceOverlayCapability> _openColor;
+    private readonly Func<PerformanceOverlayBridge?> _performance;
+
+    /// <summary>Creates the factory over the window's sources.</summary>
+    /// <param name="device">The device source, or null without one.</param>
+    /// <param name="graphics">The graphics source, or null without one.</param>
+    /// <param name="performance">The performance source, or null without one.</param>
+    /// <param name="openColor">Opens the colour editor for a device colour capability.</param>
+    /// <param name="lifetime">Ends with the sheet, which cancels running commands.</param>
+    /// <param name="closed">Whether the sheet has closed, after which no command starts.</param>
+    internal DeviceRowFactory(Func<IDeviceOverlaySource?> device, Func<IGraphicsOverlaySource?> graphics,
+        Func<PerformanceOverlayBridge?> performance, Action<IDeviceOverlaySource, DeviceOverlayCapability> openColor,
+        CancellationToken lifetime, Func<bool> closed)
+    {
+        _device = device;
+        _graphics = graphics;
+        _performance = performance;
+        _openColor = openColor;
+        _lifetime = lifetime;
+        _closed = closed;
+    }
+
+    /// <summary>The Controller page's glyph preview, which holds the input test's sample lease.</summary>
+    internal GlyphInputPreview GlyphPreview { get; } = new();
+
+    /// <summary>WSGM's composite views by pin id: each call makes a new view for a page or a pinned copy.</summary>
+    internal Dictionary<string, Func<Control>> Views { get; } = [];
+
+    /// <summary>Creates one row of a described group with the commands of its source.</summary>
+    /// <param name="row">The row.</param>
+    /// <param name="key">Its focus key, already scoped for a pinned copy.</param>
+    /// <returns>The row control.</returns>
+    internal Control Create(DeviceRow row, string key)
+    {
+        switch (row)
+        {
+            case DeviceRow.Capability { Graphics: true } graphics:
+                return CreateGraphicsCapabilityRow(graphics.Value, key);
+            case DeviceRow.Capability capability:
+                return CreateDeviceCapabilityRow(capability.Value, key, capability.Marker);
+            case DeviceRow.Host host:
+                return CreateHostRow(host, key);
+            case DeviceRow.Performance performance:
+                return CreatePerformanceRow(performance.Value, key);
+            case DeviceRow.GlyphPreview preview:
+                return GlyphPreview.Show(preview.Value);
+            case DeviceRow.View view:
+                var control = Views[view.Id]();
+                control.Tag = key;
+                return control;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(row));
+        }
+    }
+
     /// <summary>
     ///     Runs one Device, Graphics or Performance command with the shared cancellation and logging.
     /// </summary>
@@ -25,16 +95,16 @@ public partial class OverlayWindow
     private async Task RunCommandAsync<TSource>(TSource? source, string description,
         Func<TSource, CancellationToken, Task> command) where TSource : class
     {
-        if (source is null || _closed)
+        if (source is null || _closed())
         {
             return;
         }
 
         try
         {
-            await command(source, _deviceLifetime.Token);
+            await command(source, _lifetime);
         }
-        catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
         }
         catch (Exception ex)
@@ -53,41 +123,14 @@ public partial class OverlayWindow
 
     private void WriteDeviceValue(DeviceOverlayCapability capability, CapabilityValue value)
     {
-        if (_deviceBridge is not { } bridge || _closed
-                                            || CurrentDeviceCapability(bridge, capability) is not { } current)
+        if (_device() is not { } bridge || _closed()
+                                        || CurrentDeviceCapability(bridge, capability) is not { } current)
         {
             return;
         }
 
         _ = RunCommandAsync(bridge, $"Device value write {capability.CapabilityId}",
             (source, token) => source.InvokeAsync(current with { NextValue = value }, token));
-    }
-
-    /// <summary>Creates one row of a described group with the commands of its source.</summary>
-    /// <param name="row">The row.</param>
-    /// <param name="key">Its focus key, already scoped for a pinned copy.</param>
-    /// <returns>The row control.</returns>
-    private Control CreateDeviceRow(DeviceRow row, string key)
-    {
-        switch (row)
-        {
-            case DeviceRow.Capability { Graphics: true } graphics:
-                return CreateGraphicsCapabilityRow(graphics.Value, key);
-            case DeviceRow.Capability capability:
-                return CreateDeviceCapabilityRow(capability.Value, key, capability.Marker);
-            case DeviceRow.Host host:
-                return CreateHostRow(host, key);
-            case DeviceRow.Performance performance:
-                return CreatePerformanceRow(performance.Value, key);
-            case DeviceRow.GlyphPreview preview:
-                return _glyphPreview.Show(preview.Value);
-            case DeviceRow.View view:
-                var control = _devicePins.Views[view.Id]();
-                control.Tag = key;
-                return control;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(row));
-        }
     }
 
     /// <summary>A host-owned Device row: its selection's choice, the AutoTDP target slider, or an action or reading.</summary>
@@ -97,7 +140,7 @@ public partial class OverlayWindow
         if (host.Selection is { } selection)
         {
             return new DeviceCapabilityControl(descriptor, selection, key, value => _ = RunCommandAsync(
-                _deviceBridge, descriptor.Title,
+                _device(), descriptor.Title,
                 (source, token) => source.SetHostSelectionAsync(descriptor.Id, value, token)), UseGlobalOnDevice);
         }
 
@@ -105,11 +148,11 @@ public partial class OverlayWindow
         {
             // The target slider follows the switch, directly under it, while AutoTDP is on.
             DeviceHostRowIds.AutoTdpTarget => new DeviceCapabilityControl(descriptor, key, _ => Task.CompletedTask,
-                value => _ = RunCommandAsync(_deviceBridge, $"AutoTDP target set to {value} FPS",
+                value => _ = RunCommandAsync(_device(), $"AutoTDP target set to {value} FPS",
                     (source, token) => source.SetAutoTdpTargetAsync(value, token)), UseGlobalOnDevice),
             // Recovery is an action on the device cycle itself rather than on the device. It appears only
             // while there is something to recover.
-            DeviceHostRowIds.Retry => new DeviceCapabilityControl(descriptor, key, _ => RunCommandAsync(_deviceBridge,
+            DeviceHostRowIds.Retry => new DeviceCapabilityControl(descriptor, key, _ => RunCommandAsync(_device(),
                 "Device integration retry", (source, token) => source.RetryDeviceCycleAsync(token))),
             _ => new DeviceCapabilityControl(descriptor, key, _ => Task.CompletedTask, null, UseGlobalOnDevice)
         };
@@ -117,7 +160,7 @@ public partial class OverlayWindow
 
     private Task UseGlobalOnDevice(string overrideId)
     {
-        return RunCommandAsync(_deviceBridge, "Use global",
+        return RunCommandAsync(_device(), "Use global",
             (source, token) => source.UseGlobalAsync(overrideId, token));
     }
 
@@ -127,7 +170,7 @@ public partial class OverlayWindow
             {
                 // The row may have been republished since it was drawn; act only on a row that is still
                 // published and invokable.
-                if (_performanceSource is not { } source
+                if (_performance() is not { } source
                     || source.Snapshot() is not { Visible: true } snapshot
                     || snapshot.ProfileRows.Concat(snapshot.Rows)
                         .FirstOrDefault(row => row.Id == seen.Id) is not { CanInvoke: true } current)
@@ -138,9 +181,9 @@ public partial class OverlayWindow
                 await RunCommandAsync(source, $"Performance command {current.Id}",
                     (performance, token) => performance.InvokeAsync(current, token));
             },
-            value => _ = RunCommandAsync(_performanceSource, $"Performance row '{descriptor.Id}' set to {value}",
+            value => _ = RunCommandAsync(_performance(), $"Performance row '{descriptor.Id}' set to {value}",
                 (source, token) => source.SetValueAsync(descriptor.Id, value, token)),
-            overrideId => RunCommandAsync(_performanceSource, $"Use global for '{overrideId}'",
+            overrideId => RunCommandAsync(_performance(), $"Use global for '{overrideId}'",
                 (source, token) => source.UseGlobalAsync(overrideId, token)));
     }
 
@@ -148,13 +191,13 @@ public partial class OverlayWindow
     {
         return new DeviceCapabilityControl(capability, key, WriteGraphicsValue, seen =>
                 seen.ValueKind == CapabilityValueKind.Color
-                || _graphicsSource is not { } source || CurrentGraphicsCapability(source, seen) is not { } current
+                || _graphics() is not { } source || CurrentGraphicsCapability(source, seen) is not { } current
                     ? Task.CompletedTask
                     : RunCommandAsync(source, $"Graphics action {current.CapabilityId}",
                         (graphics, token) => graphics.WriteAsync(current,
                             current.SupportsAction ? null : current.NextValue, token)),
             null,
-            id => RunCommandAsync(_graphicsSource, "Graphics use global",
+            id => RunCommandAsync(_graphics(), "Graphics use global",
                 (source, token) => source.UseGlobalAsync(id, token)));
     }
 
@@ -169,8 +212,8 @@ public partial class OverlayWindow
     private void WriteGraphicsValue(DeviceOverlayCapability capability, CapabilityValue value)
     {
         // The editor may report after the row was republished; it belongs to the descriptor the user saw.
-        if (_graphicsSource is not { } source || _closed
-                                              || CurrentGraphicsCapability(source, capability) is not { } current)
+        if (_graphics() is not { } source || _closed()
+                                          || CurrentGraphicsCapability(source, capability) is not { } current)
         {
             return;
         }
@@ -184,16 +227,15 @@ public partial class OverlayWindow
     {
         return new DeviceCapabilityControl(capability, key, WriteDeviceValue, async seen =>
         {
-            if (_deviceBridge is not { } bridge || _closed
-                                                || CurrentDeviceCapability(bridge, seen) is not { } current)
+            if (_device() is not { } bridge || _closed()
+                                            || CurrentDeviceCapability(bridge, seen) is not { } current)
             {
                 return;
             }
 
             if (current.ValueKind == CapabilityValueKind.Color)
             {
-                DeviceColorHost.Open(bridge, current);
-                EnterSubView(OverlayPage.DeviceColor);
+                _openColor(bridge, current);
                 return;
             }
 

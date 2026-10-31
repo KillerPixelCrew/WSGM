@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
-using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
@@ -17,9 +16,6 @@ namespace WSGM.Overlay;
 
 public partial class OverlayWindow
 {
-    /// <summary>Completes when the current prerequisite read has been published to the banner.</summary>
-    internal Task DevicePrerequisitesRefresh { get; private set; } = Task.CompletedTask;
-
     /// <summary>Moves focus to Device when the destination is available; otherwise leaves the current tab.</summary>
     internal void SelectDeviceDestination()
     {
@@ -32,76 +28,6 @@ public partial class OverlayWindow
     private void OnDeviceChanged()
     {
         QueueLiveRefresh(DeviceLiveRefresh);
-    }
-
-    /// <summary>Reads the prerequisites again when the integration switch or the device changed.</summary>
-    /// <param name="device">The current Device snapshot.</param>
-    /// <remarks>
-    ///     The read checks files, a driver and the registry, and only the definition and the switch change
-    ///     what it finds, so a value or telemetry change does not repeat it.
-    /// </remarks>
-    private void RefreshDevicePrerequisites(DeviceOverlaySnapshot device)
-    {
-        (bool Enabled, string Device) subject = (device.Visible, device.Detail);
-        if (_devicePrerequisitesFor == subject)
-        {
-            return;
-        }
-
-        _devicePrerequisitesFor = subject;
-        RefreshDevicePrerequisites();
-    }
-
-    /// <summary>Renders what a device package on this install is missing, if anything.</summary>
-    private void RefreshDevicePrerequisites()
-    {
-        // The read opens every package in the Plugins folder, so it runs on a worker and the banner
-        // fills in when it lands. One read runs at a time; a refresh asked for meanwhile reads once
-        // more after it.
-        if (_devicePrerequisites is not { } source)
-        {
-            ShowDevicePrerequisites(new DevicePrerequisiteAdvice(""));
-            return;
-        }
-
-        if (_devicePrerequisitesReading)
-        {
-            _devicePrerequisitesStale = true;
-            return;
-        }
-
-        _devicePrerequisitesReading = true;
-        DevicePrerequisitesRefresh = ReadDevicePrerequisitesAsync(source);
-        Log.Observe(DevicePrerequisitesRefresh, "Overlay device prerequisites");
-    }
-
-    private async Task ReadDevicePrerequisitesAsync(DevicePrerequisiteSource source)
-    {
-        try
-        {
-            var advice = await Task.Run(() => source.Read());
-            if (ReferenceEquals(_devicePrerequisites, source))
-            {
-                ShowDevicePrerequisites(advice);
-            }
-        }
-        finally
-        {
-            _devicePrerequisitesReading = false;
-            if (_devicePrerequisitesStale)
-            {
-                _devicePrerequisitesStale = false;
-                RefreshDevicePrerequisites();
-            }
-        }
-    }
-
-    private void ShowDevicePrerequisites(DevicePrerequisiteAdvice advice)
-    {
-        // No page check: the banner is part of the Device pane, so that pane's own visibility is the gate.
-        // It stays up on the Device sub-pages too, which is where someone hunting a dead device most likely
-        // ends up.
-        DevicePage.ShowPrerequisites(advice);
     }
 
     /// <summary>
@@ -169,7 +95,7 @@ public partial class OverlayWindow
             {
                 ConfigureTabs(device);
                 RefreshNavigationHints();
-                RefreshDevicePrerequisites(device);
+                DevicePage.FollowPrerequisites(device);
             }
 
             var graphics = graphicsChanged ? _graphicsSource?.Snapshot() ?? GraphicsOverlaySnapshot.Empty : null;
@@ -399,6 +325,30 @@ public partial class OverlayWindow
     /// <param name="controllerPage">Whether the page that draws the samples is showing.</param>
     private void ObserveGlyphInput(bool controllerPage)
     {
-        _glyphPreview.Observe(controllerPage && !_closed ? _deviceBridge : null);
+        _rows.GlyphPreview.Observe(controllerPage && !_closed ? _deviceBridge : null);
+    }
+
+    private void RefreshPerformancePanel()
+    {
+        RefreshPerformancePanel(_performanceSource?.Snapshot());
+    }
+
+    /// <summary>Follows a performance change in the header profile switch and on Tools > Performance.</summary>
+    /// <param name="snapshot">The performance snapshot, or null without a performance source.</param>
+    /// <remarks>Quick access draws its pinned copy in the same pass.</remarks>
+    private void RefreshPerformancePanel(PerformanceOverlaySnapshot? snapshot)
+    {
+        if (_closed)
+        {
+            return;
+        }
+
+        _profileScope.Refresh();
+
+        // The first render runs when the window opens.
+        if (_opened)
+        {
+            PanelSystemPerformance.Show(snapshot, _navigation.IsVisible(OverlayDestination.Device));
+        }
     }
 }

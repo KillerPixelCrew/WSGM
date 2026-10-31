@@ -19,23 +19,24 @@ internal sealed class DevicePins
     private readonly Func<GraphicsOverlaySnapshot?> _graphics;
     private readonly Func<PerformanceOverlaySnapshot?> _performance;
     private readonly DeviceGroupRenderer _renderer;
+    private readonly IReadOnlyDictionary<string, Func<Control>> _views;
 
     /// <summary>Creates the source over the window's snapshot readers.</summary>
     /// <param name="renderer">Draws every pinned group.</param>
+    /// <param name="views">WSGM's composite views by pin id.</param>
     /// <param name="device">Reads the Device snapshot, or null without a device source.</param>
     /// <param name="performance">Reads the performance snapshot, or null without one.</param>
     /// <param name="graphics">Reads the graphics snapshot, or null without one.</param>
-    internal DevicePins(DeviceGroupRenderer renderer, Func<DeviceOverlaySnapshot?> device,
+    internal DevicePins(DeviceGroupRenderer renderer, IReadOnlyDictionary<string, Func<Control>> views,
+        Func<DeviceOverlaySnapshot?> device,
         Func<PerformanceOverlaySnapshot?> performance, Func<GraphicsOverlaySnapshot?> graphics)
     {
         _renderer = renderer;
+        _views = views;
         _device = device;
         _performance = performance;
         _graphics = graphics;
     }
-
-    /// <summary>WSGM's composite views by pin id: each call makes a new view for a page or a pinned copy.</summary>
-    internal Dictionary<string, Func<Control>> Views { get; } = [];
 
     /// <summary>Starts one pass over the pin list with the snapshots its caller already read.</summary>
     /// <param name="device">The Device snapshot of this pass, or null to read it when a pin needs it.</param>
@@ -79,7 +80,7 @@ internal sealed class DevicePins
             var group = DevicePages.Pinned(id, NeedsDevice(id) ? Device() : null,
                 id == DevicePages.PerformanceId ? Performance() : null,
                 id.StartsWith(GraphicsSectionPins.Prefix, StringComparison.Ordinal) ? Graphics() : null,
-                _owner.Views.ContainsKey);
+                _owner._views.ContainsKey);
             var available = group is not null;
             group ??= DevicePages.Unavailable(id);
             return group is null
@@ -94,7 +95,7 @@ internal sealed class DevicePins
             return id.StartsWith("section.", StringComparison.Ordinal)
                    && id != DevicePages.PerformanceId
                    && !id.StartsWith(GraphicsSectionPins.Prefix, StringComparison.Ordinal)
-                   && !_owner.Views.ContainsKey(id);
+                   && !_owner._views.ContainsKey(id);
         }
 
         private DeviceOverlaySnapshot? Device()

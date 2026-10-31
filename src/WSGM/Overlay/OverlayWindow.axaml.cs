@@ -28,12 +28,12 @@ public partial class OverlayWindow : Window
 
     private readonly CancellationTokenSource _deviceLifetime = new();
 
+    // Creates each described row with the commands of its source.
+    private readonly DeviceRowFactory _rows;
+
     // Draws every Device, GPU, performance and pinned group description.
     private readonly DeviceGroupRenderer _deviceRenderer;
     private readonly Action<OverlayWindow> _dock;
-
-    /// <summary>The Controller page's glyph preview, which holds the input test's sample lease.</summary>
-    private readonly GlyphInputPreview _glyphPreview = new();
 
     private readonly OverlayNavigation _navigation = new();
 
@@ -55,14 +55,9 @@ public partial class OverlayWindow : Window
     private bool _closed;
 
     private IDeviceOverlaySource? _deviceBridge;
+    private IGraphicsOverlaySource? _graphicsSource;
     // Set while the Device panel is hidden and a refresh was asked for; it renders when shown again.
     private bool _devicePanelStale;
-    private DevicePrerequisiteSource? _devicePrerequisites;
-
-    // The integration switch and device the banner was last read for; nothing else changes its answer.
-    private (bool Enabled, string Device)? _devicePrerequisitesFor;
-    private bool _devicePrerequisitesReading;
-    private bool _devicePrerequisitesStale;
 
     private ChoiceRowSelection? _hybridCoreSelection;
 
@@ -139,9 +134,15 @@ public partial class OverlayWindow : Window
         AppsStrip.DataContext = switcher;
         StatusZone.DataContext = status;
         _pins = new QuickAccessPins(this, PinnedGrid, PinToast, PinToastText, PinToastHint);
-        _deviceRenderer = new DeviceGroupRenderer(CreateDeviceRow,
+        _rows = new DeviceRowFactory(() => _deviceBridge, () => _graphicsSource, () => _performanceSource,
+            (bridge, capability) =>
+            {
+                DeviceColorHost.Open(bridge, capability);
+                EnterSubView(OverlayPage.DeviceColor);
+            }, _deviceLifetime.Token, () => _closed);
+        _deviceRenderer = new DeviceGroupRenderer(_rows.Create,
             (id, title, pinned) => CreateSectionHeader(id, title, pinned), session.ExpandedSections);
-        _devicePins = new DevicePins(_deviceRenderer, () => _deviceBridge?.Snapshot(),
+        _devicePins = new DevicePins(_deviceRenderer, _rows.Views, () => _deviceBridge?.Snapshot(),
             () => _performanceSource?.Snapshot(), () => _graphicsSource?.Snapshot());
         foreach (var view in SubViews.Where(view => view.PinId is not null))
         {

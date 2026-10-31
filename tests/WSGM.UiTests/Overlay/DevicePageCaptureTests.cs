@@ -330,9 +330,9 @@ public sealed class DevicePageCaptureTests
     {
         await using var claw = await ClawOverlay.CreateAsync(width, height);
         var window = claw.Window;
-        window.AttachDevicePrerequisites(new DevicePrerequisiteSource(() =>
+        window.DevicePage.AttachPrerequisites(new DevicePrerequisiteSource(() =>
             new DevicePrerequisiteState(true, true, false, false, [SetupComponent.ControllerStack])));
-        await window.DevicePrerequisitesRefresh;
+        await window.DevicePage.PrerequisitesRefresh;
         UiFixture.OpenSections(window);
         ClosePinChoices(window);
         ScrollToTop(window);
