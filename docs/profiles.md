@@ -2,7 +2,7 @@
 
 What a Global and a per-game profile are, how a value resolves, which surfaces write where, and what
 Steam's per-game toggle and reset do. The store is `AppConfig.Profiles` (`Core\Profiles\`); the one
-owner is `Shell\ProfileService`.
+owner is `Shell\Profiles\ProfileService`.
 
 ## A game profile holds only what was changed for that game
 
@@ -191,14 +191,15 @@ drops device values with no key.
 [ProfileEdits](../src/WSGM/Core/Profiles/ProfileEdits.cs) performs value edits. These are policy
 functions and do not touch hardware.
 
-[RunningApplicationCoordinator](../src/WSGM/Shell/RunningApplicationCoordinator.cs) delivers the
-single running-application answer to [ProfileService](../src/WSGM/Shell/ProfileService.cs).
-ProfileService serializes persistence and publishes the resulting snapshot. Consumers then apply
-that snapshot:
-[ApplicationPerformanceReconciler](../src/WSGM/Shell/ApplicationPerformanceReconciler.cs) for
-performance policy, [DeviceCoordinator](../src/WSGM/Shell/DeviceCoordinator.cs) for device values,
-and [GpuCoordinator](../src/WSGM/Shell/GpuCoordinator.cs) for independent graphics publishers.
-[DeviceDesiredWriteAdmission](../src/WSGM/Shell/DeviceDesiredWriteAdmission.cs) decides whether a
-desired device value may be restored, while
-[DeviceLightingRestore](../src/WSGM/Shell/DeviceLightingRestore.cs) adds the lighting attempt
+[RunningApplicationCoordinator](../src/WSGM/Shell/Applications/RunningApplicationCoordinator.cs)
+delivers the single running-application answer to
+[ProfileService](../src/WSGM/Shell/Profiles/ProfileService.cs). ProfileService serializes
+persistence and publishes the resulting snapshot. Consumers then apply that snapshot:
+[ApplicationPerformanceReconciler](../src/WSGM/Shell/Performance/ApplicationPerformanceReconciler.cs)
+for performance policy, [DeviceCoordinator](../src/WSGM/Shell/Device/DeviceCoordinator.cs) for
+device values, and [GpuCoordinator](../src/WSGM/Shell/Graphics/GpuCoordinator.cs) for independent
+graphics publishers.
+[DeviceDesiredWriteAdmission](../src/WSGM/Shell/Device/DeviceDesiredWriteAdmission.cs) decides
+whether a desired device value may be restored, while
+[DeviceLightingRestore](../src/WSGM/Shell/Device/DeviceLightingRestore.cs) adds the lighting attempt
 budget. Neither readback nor an automatic restore writes new profile preferences.

@@ -83,15 +83,15 @@ in time, described below.
 
 Each tick the service reads what it reads today and passes it in one sample:
 
-| Field                                   | Source                                               | Use                                                                    |
-| --------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------- |
-| Window identity                         | RTSS `dwTime0`, `dwTime1`                            | Dedupe. A window already judged is skipped entirely.                   |
-| Window duration, frames, mean frametime | RTSS window                                          | Ratio and severity.                                                    |
-| Target frametime                        | AutoTDP target, or a lower active RTSS frame limit   | Deadline. Part of the context key.                                     |
-| Last frame                              | RTSS `dwFrameTime`, microseconds                     | A hiatus that ended inside the window.                                 |
-| Sample age                              | RTSS window                                          | Time since the last present, for a hiatus still in progress.           |
-| GPU load, CPU load                      | `RtssOsdMetricsSource`, shared with the OSD renderer | Tertiary evidence. Absent values disable only the rules that use them. |
-| Limits                                  | Plugin descriptor                                    | Minimum, maximum, step.                                                |
+| Field                                   | Source                                              | Use                                                                    |
+| --------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------- |
+| Window identity                         | RTSS `dwTime0`, `dwTime1`                           | Dedupe. A window already judged is skipped entirely.                   |
+| Window duration, frames, mean frametime | RTSS window                                         | Ratio and severity.                                                    |
+| Target frametime                        | AutoTDP target, or a lower active RTSS frame limit  | Deadline. Part of the context key.                                     |
+| Last frame                              | RTSS `dwFrameTime`, microseconds                    | A hiatus that ended inside the window.                                 |
+| Sample age                              | RTSS window                                         | Time since the last present, for a hiatus still in progress.           |
+| GPU load, CPU load                      | `SystemMetricsSource`, shared with the OSD renderer | Tertiary evidence. Absent values disable only the rules that use them. |
+| Limits                                  | Plugin descriptor                                   | Minimum, maximum, step.                                                |
 
 Time is measured from RTSS window timestamps, not from tick count, so tick jitter and missed ticks
 neither speed up nor slow down a dwell. Every dwell below is a sum of fresh window durations.

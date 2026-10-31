@@ -1,9 +1,9 @@
 # Configuration, persistence and live reload
 
 This describes the persistence contract from a Settings edit to the resident session and logon
-service. Field meanings live beside [`AppConfig`](../src/WSGM/Core/AppConfig.cs) and its nested
-configuration types. Profile inheritance is documented in [profiles](profiles.md); this guide covers
-how the document is read and changed safely.
+service. Field meanings live beside [`AppConfig`](../src/WSGM/Core/Config/AppConfig.cs) and its
+nested configuration types. Profile inheritance is documented in [profiles](profiles.md); this guide
+covers how the document is read and changed safely.
 
 ## Files and owners
 
@@ -26,7 +26,7 @@ editor copy has the production persistence shape.
 
 ## Reads distinguish absence from failure
 
-[`ConfigReadResult`](../src/WSGM/Core/ConfigReadResult.cs) is deliberately classified:
+[`ConfigReadResult`](../src/WSGM/Core/Config/ConfigReadResult.cs) is deliberately classified:
 
 | Outcome      | Configuration value                                | Consequence                                                               |
 | ------------ | -------------------------------------------------- | ------------------------------------------------------------------------- |
@@ -48,12 +48,12 @@ the existing manifest untouched after a failed read.
 
 ## Repair and migration
 
-[`ConfigRepair`](../src/WSGM/Core/ConfigRepair.cs) first parses an object-shaped JSON document.
-Missing or non-integer schema versions read as schema 0, the unversioned 2.0 format. Known enum
-fields are repaired using generated metadata and their own default template; an invalid nullable
-enum can become null. Wrong structural shapes and oversized unparseable numeric values are not
-turned into invented preferences. `AppConfigRules.Normalize` then enforces the application's value
-rules and reports diagnostics.
+[`ConfigRepair`](../src/WSGM/Core/Config/ConfigRepair.cs) first parses an object-shaped JSON
+document. Missing or non-integer schema versions read as schema 0, the unversioned 2.0 format. Known
+enum fields are repaired using generated metadata and their own default template; an invalid
+nullable enum can become null. Wrong structural shapes and oversized unparseable numeric values are
+not turned into invented preferences. `AppConfigRules.Normalize` then enforces the application's
+value rules and reports diagnostics.
 
 The current schema is `AppConfig.CurrentSchemaVersion` (1). Migration from schema 0 changes an
 editor-authored display layout's old rotation value 1 to 0, meaning keep the current rotation. A
@@ -71,11 +71,11 @@ not lossless forward compatibility.
 
 ## Writer transactions
 
-[`ConfigStore.Transaction`](../src/WSGM/Core/ConfigStore.cs) acquires the mutex and reads the latest
-valid document while holding it. Its nested `ConfigTransaction` owns that fresh configuration,
-optional old-schema copy and lock until disposal. It is thread-affine: acquire, save and dispose on
-the same thread. Do not hold it across `await`, start a nested writer on the same store, or call the
-store's `Read()` from inside it.
+[`ConfigStore.Transaction`](../src/WSGM/Core/Config/ConfigStore.cs) acquires the mutex and reads the
+latest valid document while holding it. Its nested `ConfigTransaction` owns that fresh
+configuration, optional old-schema copy and lock until disposal. It is thread-affine: acquire, save
+and dispose on the same thread. Do not hold it across `await`, start a nested writer on the same
+store, or call the store's `Read()` from inside it.
 
 `Save()` publishes explicitly; disposal alone never saves. A replacement document can be passed to
 `Save(replacement)`, which updates the transaction's `Read` reference. The shared `AtomicFile`
@@ -98,7 +98,7 @@ part of the save happened.
 
 ## The service projection
 
-[`BootManifestWriter`](../src/WSGM/Core/BootManifestWriter.cs) writes the shared
+[`BootManifestWriter`](../src/WSGM/Core/Session/BootManifestWriter.cs) writes the shared
 [`BootManifest`](../src/Shared/Boot/BootManifest.cs) format. It contains its own schema version,
 Game Mode boot and Desktop-resident choices, elevation intent and the installed executable path.
 `StartAtSignIn` gates both startup choices; `StartMode` chooses between them. The service need not

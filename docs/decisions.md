@@ -58,15 +58,15 @@ normally; a Steam client or launch wrapper that remains is a setup refusal, neve
 Details in [setup](setup.md#the-exit-events-are-a-cross-version-contract).
 
 **One config file, one lock.** Config lives at `%LOCALAPPDATA%\WSGM\config.json`
-(`Core\ConfigStore`, System.Text.Json source generation; a new scalar property needs no context
-change). `Program` builds one `UserDataContext` (data root and mutex name) and one `ConfigStore`
-over it, and passes them to everything that reads or writes per-user state; nothing derives the root
-from the logger or the environment on its own. The registry snapshots inside the config belong to
-the install lifecycle and feature code never clobbers them. `ConfigStore.Transaction()` is the
-single cross-process writer scope: the Settings save holds it across the config write and the
-splash-asset promotion, while the multi-megabyte image copies happen outside it (sidecars are
-per-transaction unique). A writer is never nested; a second writer or a read on the writer's thread
-is refused rather than stacking 2 s timeouts.
+(`Core\Config\ConfigStore`, System.Text.Json source generation; a new scalar property needs no
+context change). `Program` builds one `UserDataContext` (data root and mutex name) and one
+`ConfigStore` over it, and passes them to everything that reads or writes per-user state; nothing
+derives the root from the logger or the environment on its own. The registry snapshots inside the
+config belong to the install lifecycle and feature code never clobbers them.
+`ConfigStore.Transaction()` is the single cross-process writer scope: the Settings save holds it
+across the config write and the splash-asset promotion, while the multi-megabyte image copies happen
+outside it (sidecars are per-transaction unique). A writer is never nested; a second writer or a
+read on the writer's thread is refused rather than stacking 2 s timeouts.
 
 **Config schema.** `AppConfig.SchemaVersion` is 1; a 2.0 file has none and reads as 0. Reading
 migrates an older file in memory, rewriting only stored values whose meaning changed (2.0's

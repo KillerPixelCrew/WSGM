@@ -3,8 +3,8 @@
 Notes is a small game notebook available in WSGM's Overlay (Tools > Notes, pinnable to Quick access)
 and in Steam's Big Picture and in-game overlay (Quick Access > Extensions > Notes, route
 `/wsgm/notes`). Both surfaces read and write the same WSGM-owned pages through one session service,
-`Shell/NotesService`. Notes stay on this PC: nothing is uploaded, synchronized or sent to a search
-provider.
+`Shell/Notes/NotesService`. Notes stay on this PC: nothing is uploaded, synchronized or sent to a
+search provider.
 
 The notebook chooser keeps the current game or Global scope visible. Pages appear as preview cards
 with their first text, content types, edited date and pin/read-only status. A blank notebook

@@ -598,7 +598,7 @@ internal static partial class NativeMethods
     internal static partial bool GetTokenInformation(nint tokenHandle, int tokenInformationClass, nint tokenInformation,
         uint tokenInformationLength, out uint returnLength);
 
-    // ---- RTSS OSD metrics (Core\RtssOsd) ----
+    // ---- RTSS OSD metrics (Core\Performance\SystemMetricsSource) ----
     // FILETIME pairs as raw 64-bit ticks; kernel time includes idle.
     [LibraryImport("kernel32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

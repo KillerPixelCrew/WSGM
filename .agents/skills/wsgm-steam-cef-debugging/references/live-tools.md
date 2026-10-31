@@ -29,7 +29,7 @@ disconnected and continue code/log/bundle inspection offline while the user fini
 
 Corroborate the logs with a ready, responsive Big Picture window. WSGM's own current-run records can
 help: `BootSplash.OnBigPictureDetected` writes
-`Big Picture window detected — dismissing boot splash.`, and `ShellSession.SteamUi` writes
+`Big Picture window detected — dismissing boot splash.`, and `SteamUiServices` writes
 `Steam UI transport open: Big Picture window is up.`. These confirm the window/policy observations
 made by WSGM; neither is a substitute for the required Steam-log evidence. `Steam started.` alone
 means process liveness, not completed Big Picture initialization.

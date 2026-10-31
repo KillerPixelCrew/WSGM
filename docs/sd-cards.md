@@ -61,9 +61,9 @@ travels with the media, so it cannot be attributed to the wrong card:
 
 ## One owner decides whether a removable library is registered
 
-`Shell\LibraryPolicy` owns every transition: adopt, eject, format, and what an arriving or departing
-volume means. `CardVolumeMonitor` detects and reports; it does not decide. Both eject surfaces, the
-overlay's panel and Steam's revived storage page, reach it through
+`Shell\Library\LibraryPolicy` owns every transition: adopt, eject, format, and what an arriving or
+departing volume means. `CardVolumeMonitor` detects and reports; it does not decide. Both eject
+surfaces, the overlay's panel and Steam's revived storage page, reach it through
 `RemovableDriveManager.EjectObserver`, so an eject means the same thing whichever was pressed and
 the drive manager still knows nothing about Steam libraries.
 
@@ -236,17 +236,17 @@ destructive operation.
 
 ## Code ownership and verification
 
-| Area                      | Source under `src/WSGM`                                                                                                                                                                                  | Responsibility                                                                                                                               |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Inventory                 | `Shell/Storage/StorageInventory.cs`, `Interop/NativeStorage.cs`                                                                                                                                          | Detached mounted-volume and physical-interface inventory; Windows disk, volume and ejection calls.                                           |
-| Eject                     | `Shell/Storage/RemovableDriveManager.cs`, `RemovableDriveEntry.cs`, `EjectableDevice.cs`                                                                                                                 | Reconcile eject rows, revalidate targets and invoke the library observer before media leaves.                                                |
-| Registration policy       | `Shell/Library/LibraryPolicy.cs`, `CardVolumeMonitor.cs`, `CardAcfWatcher.cs`                                                                                                                            | Decide registration and retained eject intent, detect volume/manifest changes, and recheck scanned identity before acting.                   |
-| Library identity and tabs | `Shell/Library/SdCardLibraryCatalog.cs`, `LibraryTabManager.cs`, `LibraryManagerService.cs`, `SteamLibraryMarker.cs`, `Core/Library/SteamLibraryFolders.cs`, `SteamLibraryVdf.cs`, `SteamLibraryTabs.cs` | Follow medium-owned labels and content IDs, edit guarded VDF structures and materialize custom tabs; the manager owns every sync's lifetime. |
-| Formatting                | `Shell/Storage/SdFormatManager.cs`, `Diskpart.cs`, `SteamLibraryProvisioner.cs`, `StorageRunProgress.cs`, `SdFormatOperations.cs`, `FormatTarget.cs`, `FormatTargetEntry.cs`                             | Own target validation, serialized destructive stages, library creation and failure reporting.                                                |
-| Steam projection          | `Shell/Storage/SteamStorageBridge.cs`                                                                                                                                                                    | Expose the session's storage owners through the toolkit's Steam storage surface.                                                             |
-| Overlay projection        | `Overlay/OverlayWindow.Storage.cs`, `CardManagerView.cs`, `LibraryTabsView.cs`, `EjectPanel.axaml.cs`                                                                                                    | Present intent and progress using the shared managers, without a second storage policy.                                                      |
+| Area                      | Source under `src/WSGM`                                                                                                                                                                                                | Responsibility                                                                                                                               |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Inventory                 | `Shell/Storage/StorageInventory.cs`, `Interop/NativeStorage.cs`                                                                                                                                                        | Detached mounted-volume and physical-interface inventory; Windows disk, volume and ejection calls.                                           |
+| Eject                     | `Shell/Storage/RemovableDriveManager.cs`, `RemovableDriveEntry.cs`, `EjectableDevice.cs`                                                                                                                               | Reconcile eject rows, revalidate targets and invoke the library observer before media leaves.                                                |
+| Registration policy       | `Shell/Library/LibraryPolicy.cs`, `Shell/Storage/CardVolumeMonitor.cs`, `CardAcfWatcher.cs`                                                                                                                            | Decide registration and retained eject intent, detect volume/manifest changes, and recheck scanned identity before acting.                   |
+| Library identity and tabs | `Shell/Library/SdCardLibraryCatalog.cs`, `LibraryTabManager.cs`, `LibraryManagerService.cs`, `Shell/Storage/SteamLibraryMarker.cs`, `Core/Library/SteamLibraryFolders.cs`, `SteamLibraryVdf.cs`, `SteamLibraryTabs.cs` | Follow medium-owned labels and content IDs, edit guarded VDF structures and materialize custom tabs; the manager owns every sync's lifetime. |
+| Formatting                | `Shell/Storage/SdFormatManager.cs`, `Diskpart.cs`, `SteamLibraryProvisioner.cs`, `StorageRunProgress.cs`, `SdFormatOperations.cs`, `FormatTarget.cs`, `FormatTargetEntry.cs`                                           | Own target validation, serialized destructive stages, library creation and failure reporting.                                                |
+| Steam projection          | `Shell/Storage/SteamStorageBridge.cs`                                                                                                                                                                                  | Expose the session's storage owners through the toolkit's Steam storage surface.                                                             |
+| Overlay projection        | `Overlay/OverlayWindow.Storage.cs`, `CardManagerView.cs`, `LibraryTabsView.cs`, `EjectPanel.axaml.cs`                                                                                                                  | Present intent and progress using the shared managers, without a second storage policy.                                                      |
 
-Storage, marker, VDF and policy regression cases live under `tests/WSGM.Tests/Shell` and
-`tests/WSGM.Tests/Core`; UI route checks live under `tests/WSGM.UiTests`. They use temporary paths,
-synthetic inventories and operation delegates. They do not format or eject live media and do not
-replace attended validation of a particular reader or Windows storage stack.
+Storage, marker, VDF and policy regression cases live under `tests/WSGM.Tests/Shell/Storage`,
+`Shell/Library` and `Core/Library`; UI route checks live under `tests/WSGM.UiTests`. They use
+temporary paths, synthetic inventories and operation delegates. They do not format or eject live
+media and do not replace attended validation of a particular reader or Windows storage stack.

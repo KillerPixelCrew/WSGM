@@ -40,7 +40,7 @@ The existing implementation already supplies these parts:
 | `src/WSGM/Core/Library/ImportStateStore.cs`                                                                                               | Device-owned `library-import.json`, detached records, atomic writes and import ownership             |
 | `src/Shared/Library/ManagedContentModels.cs`                                                                                              | Stable content IDs, volume-bound paths, required companion files, mount resolution and shared checks |
 | `src/WSGM/Shell/Library/GameLibraryService.cs`, `.Roms.cs`, `GameLibraryScanner.cs`, `GameLibraryApplier.cs`, `GameLibraryCardStorage.cs` | Discovery, import planning/apply, availability publication and explicit recheck                      |
-| `src/WSGM/Shell/ManagedShortcutMonitor.cs`                                                                                                | Session-owned startup, volume-change, resume and metadata-change reconciliation                      |
+| `src/WSGM/Shell/Library/ManagedShortcutMonitor.cs`                                                                                        | Session-owned startup, volume-change, resume and metadata-change reconciliation                      |
 | `src/WSGM/Core/Library/Sources/ShortcutFolderSource.cs`                                                                                   | `.lnk` target, arguments and working directory adoption; direct managed launch route                 |
 | `src/WSGM/Interop/ShellLink.cs`                                                                                                           | Windows shortcut resolution without searching for moved files or rewriting shortcuts                 |
 | `src/WSGM.PackagedLaunch/Session/ManagedContentLaunch.cs`                                                                                 | Launch-time content validation, friendly refusal and explicit Retry                                  |
@@ -231,13 +231,13 @@ import-owned profile state. It never erases ROMs, PC-game files, saves, user pro
 artwork. Reuse existing cleanup helpers and their ownership rules, specifically
 `ReleaseControllerTargetAsync(appId, OwnsProfile)` and the existing collection-sync path. Defer
 running-title cleanup using the session's `RunningApplicationMonitor`/`SteamRunningAppPairing` state
-from `Shell/RunningApplicationTarget.cs`. Unknown running state also defers cleanup; do not
-terminate the game. A rename alone does not break `OwnsRecorded`. On confirmed content deletion,
-leave a command-edited shortcut untouched and release only its local mapping/receipt. Do not run
-Steam collection, artwork or profile mutations for that edited shortcut, and do not repeatedly
-attempt deletion in the background. The current Conflict rows cannot settle ownership; do not assume
-a nonexistent cleanup action. For content that still exists, keep the existing import conflict
-behavior unchanged.
+from `Shell/Applications/RunningApplicationMonitor.cs`. Unknown running state also defers cleanup;
+do not terminate the game. A rename alone does not break `OwnsRecorded`. On confirmed content
+deletion, leave a command-edited shortcut untouched and release only its local mapping/receipt. Do
+not run Steam collection, artwork or profile mutations for that edited shortcut, and do not
+repeatedly attempt deletion in the background. The current Conflict rows cannot settle ownership; do
+not assume a nonexistent cleanup action. For content that still exists, keep the existing import
+conflict behavior unchanged.
 
 ## Interrupted operations and recovery
 

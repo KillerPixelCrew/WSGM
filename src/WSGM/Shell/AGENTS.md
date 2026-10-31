@@ -4,6 +4,20 @@ Shell owns Explorer and session transitions, the tray host, live managers and in
 destructive storage workflows. Read docs/boot-and-shell.md, docs/device-integration.md, and docs/sd-cards.md before
 changing these paths.
 
+## Layout
+
+- Shell is grouped into one folder per feature (Session, Desktop, Device, Controller, Library, Storage, Steam and so
+  on). docs/source-map.md lists every folder and what it owns. A folder is not a namespace: every type here is in
+  `WSGM.Shell`, so moving a file between folders changes no code.
+- Each top-level type has its own file, named after it. Put a new file in the folder of the owner it belongs to. A
+  feature's Steam surface and native Quick Access adapters sit in that feature's folder, not under Steam.
+- Session/ShellSession is the composition root. It builds focused parts (IntegrationServices, PerformanceServices,
+  SteamUiServices, StorageServices, LibraryServices, SystemServices, OverlayTools, SessionBoot and the others) over one
+  SessionState, starts them in a fixed order, applies config reloads to them in a fixed order and runs the one ordered
+  shutdown through ShutdownSteps. A new session-owned service joins the part that owns its feature, with its own slice
+  of that shutdown, rather than another ShellSession field.
+- Tests mirror the layout under tests/WSGM.Tests/Shell/<Feature>/.
+
 ## Session and integration
 
 - Startup and teardown are serialized and fail open to a usable Windows session. Explorer recovery is idempotent and

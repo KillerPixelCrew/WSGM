@@ -64,9 +64,9 @@ takes.
 
 ### Sleeping again after an unexplained wake
 
-`Core\ModernStandbyPolicy` decides, and `Shell\ModernStandbyGuard` owns the subscriptions, the timer
-and the attempt count. Off by default and switched on from Settings > System > Power: it decides on
-its own to suspend the machine, so it is the user's to enable.
+`Core\Power\ModernStandbyPolicy` decides, and `Shell\Power\ModernStandbyGuard` owns the
+subscriptions, the timer and the attempt count. Off by default and switched on from Settings >
+System > Power: it decides on its own to suspend the machine, so it is the user's to enable.
 
 WSGM changes no power settings and arms no wake sources for it. The machine wakes normally and the
 guard only decides whether to put it back, so nothing global is left altered and nothing needs
@@ -95,8 +95,8 @@ escape.
 
 #### What the settings page reports
 
-`Core\ModernStandbyDiagnostics` reads Windows' own account for the row under the toggle. It reports
-three things and refuses a fourth:
+`Core\Power\ModernStandbyDiagnostics` reads Windows' own account for the row under the toggle. It
+reports three things and refuses a fourth:
 
 - whether the machine does S0 low-power idle at all, so a machine that cannot use the feature is
   told plainly instead of being offered it;
@@ -120,10 +120,10 @@ an attended measurement nobody has done yet.
 
 ### Processor core preference
 
-`Core\HybridCores` offers the same class of control for a hybrid CPU, on the Device Power page
-beside the energy plan and as a second dropdown on Steam's Performance tab. Both surfaces drive the
-one policy, so a change from either is the same write and the next read on the other reports it.
-Neither caches: activating a power scheme can carry a different preference with it.
+`Core\Performance\HybridCores` offers the same class of control for a hybrid CPU, on the Device
+Power page beside the energy plan and as a second dropdown on Steam's Performance tab. Both surfaces
+drive the one policy, so a change from either is the same write and the next read on the other
+reports it. Neither caches: activating a power scheme can carry a different preference with it.
 
 WSGM writes only Windows' thread scheduling policy for ordinary and short-running threads, which
 Windows itself names: performant processors, prefer performant, efficient, prefer efficient,
@@ -181,9 +181,9 @@ validation; WSGM owns Windows access.
 
 ### Processor boost mode
 
-`Core\CpuBoost` is Handheld Companion's "CPU boost mode" as a per-game profile value, ported because
-some games run better with boost off (Doom: The Dark Ages) and others with it on (Sonic Frontiers).
-It writes Windows' `PERFBOOSTMODE` processor setting exactly as HC does
+`Core\Performance\CpuBoost` is Handheld Companion's "CPU boost mode" as a per-game profile value,
+ported because some games run better with boost off (Doom: The Dark Ages) and others with it on
+(Sonic Frontiers). It writes Windows' `PERFBOOSTMODE` processor setting exactly as HC does
 (`PerformanceManager.RequestPerfBoostMode`, `PowerScheme.WritePowerCfg`): HC's five choices,
 Disabled, Enabled, Aggressive, Efficient enabled and Efficient aggressive, as values 0 to 4; the
 setting revealed in Windows' own power options; plugged-in and battery written to the same value on
@@ -481,12 +481,13 @@ depends entirely on the notifications.
 ### A face button wakes a dark display
 
 Windows does not count gamepad input as activity, so a display the idle timeout switched off came
-back only for the power button. `Shell\ControllerDisplayWake` follows the same session display
-signal and, while it reports off, turns an A, B, X or Y press on the managed controller into one
-injected zero-distance mouse move, which Windows does count. The press itself is withheld from the
-game until released, so waking Big Picture does not also activate the focused item. It needs Device
-Integration and an unlocked session: a lock suspends the device cycle, and the lock screen does not
-accept injected input. The log records `Display off: a controller face button woke the display.`
+back only for the power button. `Shell\Controller\ControllerDisplayWake` follows the same session
+display signal and, while it reports off, turns an A, B, X or Y press on the managed controller into
+one injected zero-distance mouse move, which Windows does count. The press itself is withheld from
+the game until released, so waking Big Picture does not also activate the focused item. It needs
+Device Integration and an unlocked session: a lock suspends the device cycle, and the lock screen
+does not accept injected input. The log records
+`Display off: a controller face button woke the display.`
 
 ### The mute claim keeps the endpoint it muted
 
@@ -522,16 +523,16 @@ These are the remote test surface; keep their shape.
 
 ## Keep-awake wake lock
 
-`Core\WakeLock.cs` adapts Windows Device Control's `WindowsPowerRequest`, which owns the native
-handle and reason buffer. A system request blocks standby while held. The display still times out,
-but Wi-Fi and Steam keep running, which is what lets downloads survive "screen off" on a Modern
-Standby handheld. Downloads during real Modern Standby sleep are impossible for a Win32 application
-(DAM suspends every desktop process, no opt-out), so keep-awake is the whole feature, the same model
-as SteamOS "Display-Off Downloads". Windows limits it: indefinite on AC; on battery the request is
-force-terminated about 5 min after the sleep timeout expires; the power button always wins.
-Historical Claw evidence from 2026-08-12 covered the download hold across screen-off, the
-then-current manual cycle, indicator and idle-timeout rows. It does not validate the redesigned
-selectors introduced for #114.
+`Shell\Power\KeepAwakeService.cs` holds Windows Device Control's `WindowsPowerRequest` directly, one
+request per hold; the library owns the native handle and reason buffer. A system request blocks
+standby while held. The display still times out, but Wi-Fi and Steam keep running, which is what
+lets downloads survive "screen off" on a Modern Standby handheld. Downloads during real Modern
+Standby sleep are impossible for a Win32 application (DAM suspends every desktop process, no
+opt-out), so keep-awake is the whole feature, the same model as SteamOS "Display-Off Downloads".
+Windows limits it: indefinite on AC; on battery the request is force-terminated about 5 min after
+the sleep timeout expires; the power button always wins. Historical Claw evidence from 2026-08-12
+covered the download hold across screen-off, the then-current manual cycle, indicator and
+idle-timeout rows. It does not validate the redesigned selectors introduced for #114.
 
 There are two independent holds, each its own request so `powercfg /requests` attributes them.
 
@@ -756,14 +757,14 @@ write is verified; the split itself is not.
 
 | Concern                                    | WSGM policy and lifecycle                                                                                                                                                                                                                                                                                        |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Windows scheme, mode and processor policy  | [WindowsPowerPolicy](../src/WSGM/Core/WindowsPowerPolicy.cs), [PowerSchemes](../src/WSGM/Core/PowerSchemes.cs), [WindowsPowerModes](../src/WSGM/Core/WindowsPowerModes.cs)                                                                                                                                       |
-| Device presets and AC/DC assignments       | [DevicePowerPresets](../src/WSGM/Shell/DevicePowerPresets.cs), [DevicePowerAssignments](../src/WSGM/Shell/DevicePowerAssignments.cs), [PowerLimitProjection](../src/WSGM/Shell/PowerLimitProjection.cs)                                                                                                          |
-| Display entry and return                   | [GameModeEntryTransaction](../src/WSGM/Shell/GameModeEntryTransaction.cs), [DesktopReturnSequence](../src/WSGM/Shell/DesktopReturnSequence.cs), [GameModeReturnRecovery](../src/WSGM/Shell/GameModeReturnRecovery.cs)                                                                                            |
-| Connected-display settling and diagnostics | [DisplayArrivalWaiter](../src/WSGM/Shell/DisplayArrivalWaiter.cs), [DisplayLayoutDiagnostics](../src/WSGM/Shell/DisplayLayoutDiagnostics.cs)                                                                                                                                                                     |
-| Resolution, cadence and scaling            | [DisplayResolutionService](../src/WSGM/Core/DisplayResolutionService.cs), [RefreshRatePairingService](../src/WSGM/Core/RefreshRatePairingService.cs), [DisplayScale](../src/WSGM/Core/DisplayScale.cs)                                                                                                           |
-| Audio profile capture/apply                | [AudioProfileService](../src/WSGM/Shell/AudioProfileService.cs)                                                                                                                                                                                                                                                  |
+| Windows scheme, mode and processor policy  | [WindowsPowerPolicy](../src/WSGM/Core/Power/WindowsPowerPolicy.cs), [PowerSchemes](../src/WSGM/Core/Power/PowerSchemes.cs), [WindowsPowerModes](../src/WSGM/Core/Power/WindowsPowerModes.cs)                                                                                                                     |
+| Device presets and AC/DC assignments       | [DevicePowerPolicy](../src/WSGM/Shell/Device/DevicePowerPolicy.cs), [DevicePowerPresets](../src/WSGM/Shell/Device/DevicePowerPresets.cs), [DevicePowerAssignments](../src/WSGM/Shell/Device/DevicePowerAssignments.cs), [IntegerRangeProjection](../src/WSGM/Shell/Device/IntegerRangeProjection.cs)             |
+| Display entry and return                   | [GameModeEntryTransaction](../src/WSGM/Shell/Desktop/GameModeEntryTransaction.cs), [DesktopReturnSequence](../src/WSGM/Shell/Desktop/DesktopReturnSequence.cs), [GameModeReturnRecovery](../src/WSGM/Shell/Desktop/GameModeReturnRecovery.cs)                                                                    |
+| Connected-display settling and diagnostics | [DisplayArrivalWaiter](../src/WSGM/Shell/Display/DisplayArrivalWaiter.cs), [DisplayLayoutDiagnostics](../src/WSGM/Shell/Display/DisplayLayoutDiagnostics.cs)                                                                                                                                                     |
+| Resolution, cadence and scaling            | [DisplayResolutionService](../src/WSGM/Core/Display/DisplayResolutionService.cs), [RefreshRatePairingService](../src/WSGM/Core/Display/RefreshRatePairingService.cs), [DisplayScale](../src/WSGM/Core/Display/DisplayScale.cs)                                                                                   |
+| Audio profile capture/apply                | [AudioProfileService](../src/WSGM/Shell/Audio/AudioProfileService.cs)                                                                                                                                                                                                                                            |
 | Session display signals and download mute  | [ShellDisplayPresence](../src/WSGM/Shell/Display/ShellDisplayPresence.cs), [ShellDisplayChangeSignal](../src/WSGM/Shell/Display/ShellDisplayChangeSignal.cs), [DisplayPowerSignal](../src/WSGM/Shell/Display/DisplayPowerSignal.cs), [DisplayOffMuteService](../src/WSGM/Shell/Display/DisplayOffMuteService.cs) |
-| Keep awake and timeout choices             | [KeepAwakeService](../src/WSGM/Shell/KeepAwakeService.cs), [WakeLock](../src/WSGM/Core/WakeLock.cs), [DisplayTimeouts](../src/WSGM/Shell/DisplayTimeouts.cs)                                                                                                                                                     |
+| Keep awake and timeout choices             | [KeepAwakeService](../src/WSGM/Shell/Power/KeepAwakeService.cs), [WakeLockHolders](../src/WSGM/Core/Power/WakeLockHolders.cs), [DisplayTimeouts](../src/WSGM/Shell/Display/DisplayTimeouts.cs)                                                                                                                   |
 
 Reusable Windows calls and their result contracts are documented in the
 [Windows Device Control reference](../external/windows-device-control/README.md). GPU-specific

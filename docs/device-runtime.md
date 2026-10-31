@@ -123,7 +123,7 @@ labels still say `package`; they identify the native family, not a loaded plugin
 - [Handheld contributions](handheld-contributions.md): adding exact definitions, protocols and
   fixtures.
 - [Device integration](device-integration.md): product settings and integration boundaries.
-- `Shell/DeviceCoordinator`, `HandheldDeviceRuntime` and `HandheldUiProjection`: application
+- `Shell/Device/DeviceCoordinator`, `HandheldDeviceRuntime` and `HandheldUiProjection`: application
   ownership and adaptation.
 
 Source coverage and regression fixtures do not establish physical validation of every model.

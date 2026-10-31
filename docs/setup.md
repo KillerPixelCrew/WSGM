@@ -110,11 +110,11 @@ are read as language-neutral XML from `schtasks /Query /XML`, because the table 
 Matching compares the resolved executable against Steam's own path, and an unquoted command is
 resolved the way Windows resolves it, by successive prefixes rather than the first space.
 
-`Core\SteamAutostartTakeover` disables an entry the way Task Manager's Startup tab does, by writing
-Windows' own `StartupApproved` bytes, or by disabling the task. Nothing is deleted. The previous
-state is recorded in `SteamAutostartDisabled` before the write, so an interrupted takeover is still
-undoable. A recording failure refuses the write. Task disable trusts the command's exit code;
-approval writes record their exact marker bytes once and trust the accepted write, with no
+`Core\Steam\SteamAutostartTakeover` disables an entry the way Task Manager's Startup tab does, by
+writing Windows' own `StartupApproved` bytes, or by disabling the task. Nothing is deleted. The
+previous state is recorded in `SteamAutostartDisabled` before the write, so an interrupted takeover
+is still undoable. A recording failure refuses the write. Task disable trusts the command's exit
+code; approval writes record their exact marker bytes once and trust the accepted write, with no
 confirming read. Recording or write failures stay pending. Restore only undoes an entry that still
 carries WSGM's own value, so a decision the user made afterwards always wins. HKLM and task changes
 need elevation and go through the `--disable-steam-autostart` one-shot, which rescans and takes no
@@ -169,10 +169,11 @@ takeover accepted applies it again, like the Steam autostart takeover.
 ## Native handheld support without the controller prerequisites
 
 The directly linked library can recognize a handheld on a Minimal or Desktop install even when the
-controller stack was not installed. `Core\DevicePrerequisites` checks native handheld availability,
-Device Integration, `libviiper.dll` beside WSGM and the HidHide control device. When something is
-missing, the overlay's Device page carries a banner naming it: the overlay because it is the surface
-a person opens, and the Device page because that is where someone whose device is not working goes.
+controller stack was not installed. `Core\Device\DevicePrerequisites` checks native handheld
+availability, Device Integration, `libviiper.dll` beside WSGM and the HidHide control device. When
+something is missing, the overlay's Device page carries a banner naming it: the overlay because it
+is the surface a person opens, and the Device page because that is where someone whose device is not
+working goes.
 
 The banner offers **Enable Device Integration** and nothing else, and the split is not cosmetic.
 Device Integration is WSGM's own setting. The virtual controller needs a kernel driver, and INV-020
@@ -259,11 +260,11 @@ installed; only a fresh install or explicit package choice supplies a new activa
 
 ## Updates
 
-While the session runs, `Shell\UpdateMonitor` asks GitHub for the latest WSGM release once a day
-(`Core\UpdateChecker`), two minutes after start at the earliest, and only when **Check for updates**
-is on in Settings > System. The latest-release endpoint never returns a prerelease, and a failed or
-offline check changes nothing. The result is kept in `%LOCALAPPDATA%\WSGM\update.json`, which
-Settings reads; nothing is downloaded until the user asks.
+While the session runs, `Shell\Session\UpdateMonitor` asks GitHub for the latest WSGM release once a
+day (`Core\Setup\UpdateChecker`), two minutes after start at the earliest, and only when **Check for
+updates** is on in Settings > System. The latest-release endpoint never returns a prerelease, and a
+failed or offline check changes nothing. The result is kept in `%LOCALAPPDATA%\WSGM\update.json`,
+which Settings reads; nothing is downloaded until the user asks.
 
 Before offering a release, the check reads its `bundle.json`. An installed community plugin the new
 bundle does not carry, because its pinned commit did not build against the new SDK, is named with
@@ -416,7 +417,7 @@ step without undoing the successful application transaction. A quiet `/update` f
 | [`Engine/RtssInstaller.cs`](../src/WSGM.Setup/Engine/RtssInstaller.cs), [`Engine/WebViewRuntimeInstaller.cs`](../src/WSGM.Setup/Engine/WebViewRuntimeInstaller.cs), [`Install-UsbipDriver.ps1`](../src/WSGM.Setup/Install-UsbipDriver.ps1) | Component-specific presence/version checks, pinned payload validation and installer execution                               |
 | [`WSGM.Install`](../src/WSGM.Install)                                                                                                                                                                                                      | Shared bundle schema, machine/display inventory, ranked offers, component roles, account identity and update-failure record |
 | [`Shared/Install/InstallLayout.cs`](../src/Shared/Install/InstallLayout.cs)                                                                                                                                                                | Product roots and pending-transaction admission shared with the logon service                                               |
-| [`Core/Setup/SetupAnswers.cs`](../src/WSGM/Core/SetupAnswers.cs), [`Core/Setup/Installer.cs`](../src/WSGM/Core/Installer.cs) and [`Program.cs`](../src/WSGM/Program.cs)                                                                    | Export/apply user choices and runtime-owned restoration one-shots                                                           |
+| [`Core/Setup/SetupAnswers.cs`](../src/WSGM/Core/Setup/SetupAnswers.cs), [`Core/Setup/Installer.cs`](../src/WSGM/Core/Setup/Installer.cs) and [`Program.cs`](../src/WSGM/Program.cs)                                                        | Export/apply user choices and runtime-owned restoration one-shots                                                           |
 | [`build.ps1`](../build.ps1) and [`eng/build-bundle.ps1`](../eng/build-bundle.ps1)                                                                                                                                                          | Explicit payload allowlist, source-built native components, curated packages and final setup executable                     |
 
 See [development](development.md) for building the payload and [logging](logging.md) for the

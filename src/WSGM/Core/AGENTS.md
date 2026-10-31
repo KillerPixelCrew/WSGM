@@ -3,6 +3,16 @@
 Core owns nonvisual product policy, configuration, integration lifetimes, package management, Steam coordination, and
 recovery primitives. Native ABI declarations remain in Interop; UI presentation remains in its feature scope.
 
+## Layout
+
+- Core is grouped into one folder per feature (Config, Desktop, Device, Library, Performance, Session, Steam and so
+  on). docs/source-map.md lists every folder and what it owns. A folder is not a namespace: every type here is in
+  `WSGM.Core`, so moving a file between folders changes no code.
+- Each top-level type has its own file, named after it. Put a new file in the folder of the owner it belongs to and
+  create a subfolder only where one already exists (`Library/Sources`, `SteamUiAssets/Source`). Core keeps the
+  persisted and pure half of a feature; its live owner sits in the Shell folder of the same name.
+- Tests mirror the layout under tests/WSGM.Tests/Core/<Feature>/.
+
 ## State and lifetime
 
 - ConfigStore is the authority for per-user configuration. Preserve strict validation, atomic replacement, serialized
@@ -32,10 +42,10 @@ recovery primitives. Native ABI declarations remain in Interop; UI presentation 
 
 ## Steam boundaries
 
-- SharedJSContext is the Steam execution surface for CEF modules and stores; Shell/SteamUiSessionHost owns the bridge,
-  patch manager, modules, runtime, and their lifetime. Use the toolkit's module resolver for literal lookups or unique
-  source fingerprints, and JSON-encode values across the JavaScript boundary. Features must not implement registry scans
-  or raw require.
+- SharedJSContext is the Steam execution surface for CEF modules and stores; Shell/Steam/SteamUiSessionHost owns the
+  bridge, patch manager, modules, runtime, and their lifetime. Use the toolkit's module resolver for literal lookups or
+  unique source fingerprints, and JSON-encode values across the JavaScript boundary. Features must not implement
+  registry scans or raw require.
 - Keep CEF debugger sockets loopback-only. Artwork queries request static assets, require HTTPS, and cap downloads at
   16 MiB; an image's format is read from its first bytes, never its URL, and its declared size from its header. Those
   checks do not validate MIME headers or decode the image. Each provider paces its requests and downloads behind its own

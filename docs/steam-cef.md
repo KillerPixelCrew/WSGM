@@ -678,7 +678,7 @@ re-applying reads them back through `LaunchWrapperCommand.OriginalLaunchOptions`
 real titles only.
 
 Configuring a shortcut destroys its original Target, so the pre-change values are snapshotted into
-`AppConfig.LaunchWrappers` before the write. `SteamLaunchConfig.OriginalsFrom` unwraps an
+`AppConfig.LaunchWrappers` before the write. `LaunchWrapperCommand.OriginalsFrom` unwraps an
 already-wrapped game (the command may have been pasted by hand or the config reset) so the snapshot
 never records WSGM's own wrapper as the original, and re-applying keeps the first snapshot.
 

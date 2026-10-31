@@ -16,9 +16,9 @@ built into `external/libgpu-driver-interact`. Keep their independent enablement 
 - `external/libhandheld/src/LibHandheld/Contracts` owns public semantic handheld values.
 - `Families/` owns exact model facts, protocols and provenance. Read its nearest `AGENTS.md` before
   editing Claw or Ally code. Preserve every invariant from those former package guides.
-- WSGM `Shell/HandheldDevice*`, `DeviceCoordinator` and `Input/` own application policy, profiles,
-  physical-controller routing, virtual targets and UI projection. Family code does not know UI
-  layout.
+- WSGM `Shell/Device/HandheldDevice*`, `DeviceCoordinator` and `Input/` own application policy,
+  profiles, physical-controller routing, virtual targets and UI projection. Family code does not
+  know UI layout.
 - `HandheldDevice.Detect(identity)` is pure and exact. It returns no definition for unsupported
   hardware. Never add a broad CPU/manufacturer fallback or open native handles during detection.
 - `Create(definition, identity, stateDirectory, diagnostics)` uses the chosen definition and
