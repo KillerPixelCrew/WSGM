@@ -169,8 +169,8 @@ public sealed class CardManagerView : OverlaySubView
         var state = $"{card.GameCount} games · {marker}";
         if (card.HasCapacity)
         {
-            state += $" · {LibraryManagerService.FormatBytes(card.FreeBytes)} free of "
-                     + LibraryManagerService.FormatBytes(card.CapacityBytes);
+            state += $" · {LibraryCardView.FormatBytes(card.FreeBytes)} free of "
+                     + LibraryCardView.FormatBytes(card.CapacityBytes);
         }
 
         return state + (card.Enabled ? "" : " · tab off") + (card.Hidden ? " · hidden" : "");
@@ -197,9 +197,9 @@ public sealed class CardManagerView : OverlaySubView
         var stack = NewStack(card.Name);
         stack.Children.Add(Caption(card.Inserted ? "Currently inserted." : "Not inserted (remembered)."));
         stack.Children.Add(Caption(card.HasCapacity
-            ? $"{LibraryManagerService.FormatBytes(card.UsedBytes)} used · "
-              + $"{LibraryManagerService.FormatBytes(card.FreeBytes)} free · "
-              + $"{LibraryManagerService.FormatBytes(card.CapacityBytes)} in all"
+            ? $"{LibraryCardView.FormatBytes(card.UsedBytes)} used · "
+              + $"{LibraryCardView.FormatBytes(card.FreeBytes)} free · "
+              + $"{LibraryCardView.FormatBytes(card.CapacityBytes)} in all"
               + (card.Inserted ? "" : " (last reading)")
             : "Size not read yet; connect the card once."));
         stack.Children.Add(Row("Rename", card.Name, Icons.CopyDoc, () =>

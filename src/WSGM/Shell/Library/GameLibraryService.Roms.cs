@@ -12,6 +12,7 @@ namespace WSGM.Shell;
 
 internal sealed partial class GameLibraryService
 {
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> AddRomSourceAsync(RomSourceConfig source, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -96,6 +97,7 @@ internal sealed partial class GameLibraryService
         }
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> RemoveRomSourceAsync(string id, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -114,6 +116,7 @@ internal sealed partial class GameLibraryService
         });
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> AddManualSourceAsync(ManualShortcutConfig source,
         CancellationToken cancellationToken)
     {
@@ -145,6 +148,7 @@ internal sealed partial class GameLibraryService
         }
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SetRomEmulatorAsync(string id, string installationId, string coreId,
         CancellationToken cancellationToken)
     {
@@ -158,13 +162,13 @@ internal sealed partial class GameLibraryService
 
             try
             {
-                var defaults = RomDefaults(content);
+                var defaults = GameLibraryEmulators.RomDefaults(ReadSettings(), content);
                 var selected = content.Copy();
                 selected.EmulatorInstallationId =
                     installationId.Length == 0 ? defaults.Installation : installationId;
                 selected.CoreId = installationId.Length == 0 ? defaults.Core : coreId;
                 selected.FollowSystemPreference = selected.EmulatorInstallationId.Length == 0;
-                var store = ReadEmulatorStore();
+                var store = _emulators.ReadStore();
                 if (installationId.Length > 0)
                 {
                     var receipt = store.Installations.FirstOrDefault(value => value.Id == installationId)
@@ -190,6 +194,7 @@ internal sealed partial class GameLibraryService
         });
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> RemoveManualSourceAsync(string id, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -208,6 +213,7 @@ internal sealed partial class GameLibraryService
         });
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SetRomTitleAsync(string id, string name, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -229,6 +235,7 @@ internal sealed partial class GameLibraryService
         });
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SetRomArgumentsAsync(string id, IReadOnlyList<string> arguments,
         CancellationToken cancellationToken)
     {
@@ -246,7 +253,7 @@ internal sealed partial class GameLibraryService
             }
 
             entry.ArgumentsOverride = [.. arguments];
-            var defaults = RomDefaults(content);
+            var defaults = GameLibraryEmulators.RomDefaults(ReadSettings(), content);
             content.Arguments = arguments.Count > 0 ? [.. arguments] : [.. defaults.Arguments];
             entry.ContentChanged = true;
             entry.Selected = true;
@@ -254,6 +261,7 @@ internal sealed partial class GameLibraryService
         });
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SetCleanupAsync(string id, bool cleanup, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -285,54 +293,22 @@ internal sealed partial class GameLibraryService
         }, true);
     }
 
+    /// <inheritdoc />
     public IReadOnlyList<RomSystemProfile> ReadRomSystems()
     {
-        _ = ReadRomState();
-        return [RomProfiles.Automatic, .. _romSystems ?? RomProfiles.All];
+        var (_, systems) = _emulators.Read();
+        return [RomProfiles.Automatic, .. systems];
     }
 
+    /// <inheritdoc />
     public RomEmulatorState ReadRomState()
     {
-        lock (_gate)
-        {
-            _romEmulators ??= _emulators?.ReadRomState() ?? RomEmulatorState.Empty;
-            _romSystems ??= _emulators?.ReadPageState().RomSystems ?? RomProfiles.All;
-            return _romEmulators;
-        }
-    }
-
-    private (string Installation, string Core, IReadOnlyList<string> Arguments) RomDefaults(
-        ManagedContentRecord content)
-    {
-        var settings = ReadSettings();
-        if (content.SourceId == "manual")
-        {
-            var manual = settings.ManualSources.FirstOrDefault(source => source.Id == content.SourceKey);
-            return (manual?.EmulatorInstallationId ?? "", manual?.CoreId ?? "", manual?.RomArguments ?? []);
-        }
-
-        var library = settings.RomSources.FirstOrDefault(source => source.Id == content.SourceId);
-        return (library?.EmulatorInstallationId ?? "", library?.CoreId ?? "", library?.Arguments ?? []);
-    }
-
-    private static IEnumerable<string> ContentNotes(ManagedContentRecord? content)
-    {
-        if (content is null)
-        {
-            yield break;
-        }
-
-        yield return "Location: " + content.Location;
-        yield return "Content: " + content.BackingPath.AbsolutePath;
-        foreach (var companion in content.RequiredPaths)
-        {
-            yield return "Required companion: " + companion.AbsolutePath;
-        }
+        return _emulators.Read().State;
     }
 
     private Task<SteamUiCommandResult> SaveSources(Action<GameLibraryConfig> change)
     {
-        return Task.FromResult(ChangeSettings(change, ScanOrQueue, settled: UpdateEmulatorDependencies));
+        return Task.FromResult(ChangeSettings(change, _scanner.ScanOrQueue, settled: UpdateEmulatorDependencies));
     }
 
     private static string? RomArgumentsRefusal(IReadOnlyList<string> arguments)
@@ -342,65 +318,5 @@ internal sealed partial class GameLibraryService
                    !arguments.Any(argument => argument.Contains("{rom}", StringComparison.Ordinal)))
             ? "Arguments must contain {rom} and cannot contain a NUL character."
             : null;
-    }
-
-    private EmulatorStore ReadEmulatorStore()
-    {
-        return _emulators?.ReadStore() ?? new EmulatorStore();
-    }
-
-    private void OnEmulatorsChanged()
-    {
-        lock (_gate)
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _romEmulators = null;
-            _romSystems = null;
-            _sourceCache = null;
-            Publish();
-        }
-
-        UpdateEmulatorDependencies();
-        Notify();
-    }
-
-    /// <summary>Counts emulator dependencies again and asks the tracker to check the shortcuts.</summary>
-    internal void NotifyManagedEntriesChanged()
-    {
-        UpdateEmulatorDependencies();
-        _tracker?.Request();
-    }
-
-    private void UpdateEmulatorDependencies()
-    {
-        if (_emulators is null)
-        {
-            return;
-        }
-
-        var store = ReadEmulatorStore();
-        var settings = ReadSettings();
-
-        string Selected(string systemId, string installationId)
-        {
-            return installationId.Length > 0
-                ? installationId
-                : ManagedContentStorage.PreferredSystem(store, systemId)?.InstallationId ?? "";
-        }
-
-        var sources = settings.RomSources.Select(source => Selected(source.SystemId, source.EmulatorInstallationId))
-            .Concat(settings.ManualSources.Where(source => source.RomPath is not null)
-                .Select(source => Selected(source.SystemId, source.EmulatorInstallationId)))
-            .GroupBy(id => id, StringComparer.Ordinal)
-            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
-        var titles = _store.CountEmulatorDependencies(store);
-
-        _emulators.UpdateDependencies(store.Installations.Select(installation => new EmulatorDependencyCount(
-            installation.Id, sources.GetValueOrDefault(installation.Id),
-            titles?.GetValueOrDefault(installation.Id))).ToArray());
     }
 }

@@ -1175,13 +1175,15 @@ screensaver gate in both orders.
 
 The overlay's card manager and tab builder are also Quick Access tools, so Game Mode storage and
 library management does not need the overlay. Both are projections of one session-owned
-`Shell\LibraryManagerService`: it reads `LibraryTabManager`'s card model, custom tabs and strip
-order into two states, answers every operation of both surfaces through the manager's one rename,
-tab, hide, forget, save and order paths, and rebuilds its reading on `LibraryTabManager.Changed`,
-which every manager write and every sync's merged drive scan raises. A change made in Steam
-therefore redraws the overlay's list, a card inserted or ejected refreshes Steam's page through the
-same sync the card monitor already runs, and nothing in CEF holds card identity, naming, tab
-construction or configuration writes of its own.
+`Shell\LibraryManagerService`: it reads `SdCardLibraryCatalog`'s card model, custom tabs and strip
+order into two states, answers every operation of both surfaces through the catalog's one rename,
+tab, hide and forget paths and its own save and order paths, and rereads after each of its own
+writes. Every library-tab sync runs through it too (the boot sync, the card ACF watcher, the
+background sync after a write and a push's fallback), so a sync's merged drive scan becomes its next
+reading without another scan, and its stop and completion join them at shutdown. A change made in
+Steam therefore redraws the overlay's list, a card inserted or ejected refreshes Steam's page
+through the same sync the card monitor already runs, and nothing in CEF holds card identity, naming,
+tab construction or configuration writes of its own.
 
 Each card carries the capacity and free space read when it was last mounted
 (`CardLibraryConfig.CapacityBytes`, `FreeBytes`, refreshed by every drive scan), so a disconnected
@@ -1204,8 +1206,10 @@ tab editor edits a draft of one tab in the page and sends the whole tab back as 
 service validates it (a name, at least one complete filter, including the title pattern its
 evaluator can run), places a new tab after the last and stores it through
 `LibraryTabManager.SaveCustomTabsAsync`. Moves and native-tab hiding go through
-`LibraryTabManager.SaveTabOrder` one press at a time; the service keeps the pressed-to order while
-those chained writes land so a refresh in between cannot put an older order back.
+`LibraryTabOrderWriter`, which saves the newest pressed order through
+`LibraryTabManager.SaveTabOrderAsync` once the presses pause and then shows it in Steam; the service
+keeps the pressed-to order while the writer runs so a refresh in between cannot put an older order
+back.
 
 ### Artwork sources
 

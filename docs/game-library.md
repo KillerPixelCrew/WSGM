@@ -117,7 +117,11 @@ sources ──detect/discover──▶ games ──plan──▶ entries ──c
 | Choices, records | `Core\Library\ImportStateStore.cs`                                                                             | What the user decided per title (mode or route, "don't import", artwork picks, a fixed match) and what WSGM created.                                                                                                       |
 | Artwork stage    | `Shell\Library\GameLibraryArtwork.cs`                                                                          | Candidates per title and artwork type, gathered in the background after a scan, and each title's match and status. It only gathers.                                                                                        |
 | Artwork core     | `Core\Artwork\`: `ArtworkSearch`, the providers, `ArtworkRequestGate`, `ArtworkDownload`, `SteamArtwork`       | The automatic match and the merged search, each provider's pacing and memory, downloads, and applying an image to Steam by the format its bytes declare. Shared with the artwork page.                                     |
-| Service          | `Shell\Library\GameLibraryService.cs`                                                                          | Scanning, choices, picks, cycling and bulk fills, applying, the controller override; every label both surfaces show; publishes the state both surfaces render.                                                             |
+| Service          | `Shell\Library\GameLibraryService.cs`, `GameLibraryService.Roms.cs`                                            | The command surface both surfaces call (choices, picks, cycling and bulk fills, sources, ROMs), the review and the scan and apply lifecycle; publishes the state both surfaces render.                                     |
+| Scan             | `Shell\Library\GameLibraryScanner.cs`                                                                          | The sources, their detection and counts, and the scan that plans against Steam and lays stored choices and the selection over the review.                                                                                  |
+| Apply            | `Shell\Library\GameLibraryApplier.cs`, `GameLibraryApplyRun.cs`                                                | Removing, writing and decorating each selected title with a re-read before every write, the controller override, artwork and the Steam collections.                                                                        |
+| Projection       | `Shell\Library\GameLibraryProjection.cs`, `GameLibraryEntryState.cs`                                           | Every label, group, route and artwork slot both surfaces show, projected from each entry's plan and the user's choices.                                                                                                    |
+| Cards, emulators | `Shell\Library\GameLibraryCardStorage.cs`, `GameLibraryEmulators.cs`                                           | Binding titles to the card they are on, each card's game list, Repair and Use this card; the cached ROM choices and the emulator dependency counts.                                                                        |
 | Steam page       | `Shell\Library\SteamLibraryImportSurface.cs`, `Core\SteamUiAssets\Source\library-import.ts`                    | Surface one: route `/wsgm/library-import`.                                                                                                                                                                                 |
 | Toolkit          | `external\steam-ui-toolkit`                                                                                    | The page gate and modal frame, the capsule drawn with Steam's own library classes, a folder and file picker Steam does not have, the confirmed shortcut add, the one-call shortcut read, and state delivered in parts.     |
 | Overlay view     | `Overlay\GameLibraryView.cs`                                                                                   | Surface two: sources, review and apply, one level at a time.                                                                                                                                                               |
@@ -130,11 +134,13 @@ stores, toolkit-backed shortcut delegates, artwork providers and controller-prof
 `GameLibraryService` distinguishes an unreadable whole library from an empty one and maps a
 sent-but-unconfirmed add to an uncertain result. Such an add is not repeated automatically.
 
-`ScanAsync` starts a generation with its own cancellation token. Discovery and the whole-library
-read produce inputs for the pure `ImportPlan`; stored choices are reapplied and stable entry IDs are
-preserved. `GameLibraryArtwork` fills candidates asynchronously and signals changes. A newer
-generation or shutdown invalidates old work. `ReadState` supplies the compact review and its
-revision, while `ReadDetails`/artwork-option requests supply detail on demand.
+`ScanAsync` starts a generation with its own cancellation token and hands the work to
+`GameLibraryScanner`. Discovery and the whole-library read produce inputs for the pure `ImportPlan`;
+stored choices are reapplied and stable entry IDs are preserved. `ApplyAsync` hands the selection to
+`GameLibraryApplier`, which removes, writes and decorates each title in turn. `GameLibraryArtwork`
+fills candidates asynchronously and signals changes. A newer generation or shutdown invalidates old
+work. `ReadState` supplies the compact review and its revision, while `ReadDetails`/artwork-option
+requests supply detail on demand.
 
 Both command adapters call that same service: `SteamLibraryImportSurface` connects the CEF page to
 it, and `IGameLibraryOverlaySource` in `Shell/Session/OverlayToolSessions.cs` supplies the Overlay.

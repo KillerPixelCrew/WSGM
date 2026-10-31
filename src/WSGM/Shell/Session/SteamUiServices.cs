@@ -85,13 +85,15 @@ internal sealed class SteamUiServices
     /// <param name="modes">Reads the session's mode coordinator, which exists once the UI-thread start built it.</param>
     /// <param name="becameReady">Runs when the transport opens, for the one-shot jobs that wait for Steam.</param>
     /// <param name="applyCardServices">Re-decides the card services after the master switch moved.</param>
+    /// <param name="libraryManager">Reads the library manager the tab boot sync runs through, once it exists.</param>
     internal SteamUiServices(
         SessionState state,
         IntegrationServices integrations,
         PerformanceServices performance,
         Func<SessionModes?> modes,
         Action becameReady,
-        Action applyCardServices)
+        Action applyCardServices,
+        Func<LibraryManagerService?> libraryManager)
     {
         _state = state;
         _integrations = integrations;
@@ -117,7 +119,7 @@ internal sealed class SteamUiServices
             Client = new SteamClient(Transport);
         }
 
-        TabBootSync = new LibraryTabBootSync(state.Store, Client, Readiness, () => state.ShutdownRequested,
+        TabBootSync = new LibraryTabBootSync(libraryManager, Readiness, () => state.ShutdownRequested,
             state.ShutdownToken);
     }
 

@@ -142,8 +142,9 @@ public sealed class ShellSession
             _cpuBoost, () => _integrations.Gpu);
         _performance = new PerformanceServices(_state, _profiles, _cpuBoost, _applicationProfiles, _integrations);
         _steamUi = new SteamUiServices(_state, _integrations, _performance, () => _modes,
-            () => _library!.SteamUiReady(), () => _storage!.ApplyCardServices(_state.InGameMode));
-        _storage = new StorageServices(_state, _steamUi);
+            () => _library!.SteamUiReady(), () => _storage!.ApplyCardServices(_state.InGameMode),
+            () => _library!.LibraryManager);
+        _storage = new StorageServices(_state, _steamUi, () => _library!.LibraryManager);
         _library = new LibraryServices(_state, _steamUi);
         _tools = new OverlayTools(_state, _steamUi, _library, _performance);
         _system = new SystemServices(_state);
@@ -1039,8 +1040,6 @@ public sealed class ShellSession
         steps.Step("Closing Steam UI admission failed", _steamUi.CloseHostAdmission);
         _integrations.CloseAdmission(steps);
         steps.Step("Cancelling library tab boot sync failed", _steamUi.TabBootSync.Cancel);
-        var libraryTabWork = Task.CompletedTask;
-        steps.Step("Closing library tab admission failed", () => libraryTabWork = LibraryTabManager.CloseAsync());
         _system.DetachControllers(steps);
         steps.Step("Closing profile admission failed", _profiles.Close);
         steps.Step("Closing profile fan-out admission failed", () => _performance.FanOut?.Close());
@@ -1126,10 +1125,11 @@ public sealed class ShellSession
         // Owners the Steam host no longer reaches; AutoTDP already stopped with the device.
         await _performance.DisposeRunningApplicationsAsync(steps).ConfigureAwait(false);
 
-        // 8. Steam. The master-switch applies, the Big Picture restore, the tab boot sync and the
-        //    library-tab work started before shutdown and none starts again; join what is left.
+        // 8. Steam. The master-switch applies, the Big Picture restore and the tab boot sync started
+        //    before shutdown and none starts again; join what is left. The library manager's tab syncs,
+        //    order writes and pushes are joined with the rest of its work.
         await steps.JoinAsync("Steam UI and library tab work",
-            Task.WhenAll(_steamUi.Work, _steamUi.TabBootSync.Completion, libraryTabWork)).ConfigureAwait(false);
+            Task.WhenAll(_steamUi.Work, _steamUi.TabBootSync.Completion)).ConfigureAwait(false);
         await _library.FinishSteamWorkAsync(steps, reason is ApplicationShutdownReason.Uninstall)
             .ConfigureAwait(false);
         await steps.StepAsync("Disposing the Steam UI session during application shutdown failed",

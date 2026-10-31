@@ -13,10 +13,10 @@ namespace WSGM.Tests.Shell;
 /// </summary>
 public class CardNameAuthorityTests
 {
-    private static LibraryTabManager.Discovered Card(
+    private static DiscoveredCard Card(
         string contentId, string markerLabel, string fallbackName = "Library (E:)")
     {
-        return new LibraryTabManager.Discovered(contentId, fallbackName, [], markerLabel);
+        return new DiscoveredCard(contentId, fallbackName, [], markerLabel);
     }
 
     private static AppConfig ConfigWith(params (string ContentId, string Name)[] cards)
@@ -45,7 +45,7 @@ public class CardNameAuthorityTests
     {
         var config = new AppConfig();
 
-        LibraryTabManager.MergeDiscovery(config, [Card("777", "Indies")]);
+        SdCardLibraryCatalog.MergeDiscovery(config, [Card("777", "Indies")]);
 
         var card = Assert.Single(config.CardLibraries);
         Assert.Equal("777", card.ContentId);
@@ -58,7 +58,7 @@ public class CardNameAuthorityTests
     {
         var config = new AppConfig();
 
-        LibraryTabManager.MergeDiscovery(config, [Card("777", "")]);
+        SdCardLibraryCatalog.MergeDiscovery(config, [Card("777", "")]);
 
         Assert.Equal("Library (E:)", NameOf(config, "777"));
     }
@@ -70,7 +70,7 @@ public class CardNameAuthorityTests
         // because it is written into the card's marker.
         var config = ConfigWith(("777", "SDCard9"));
 
-        LibraryTabManager.MergeDiscovery(config, [Card("777", "Retro")]);
+        SdCardLibraryCatalog.MergeDiscovery(config, [Card("777", "Retro")]);
 
         Assert.Equal("Retro", NameOf(config, "777"));
     }
@@ -84,7 +84,7 @@ public class CardNameAuthorityTests
         // reads that label, so each card keeps the name on its own media.
         var config = ConfigWith(("9696", "SDCard9"), ("1010", "SDCard10"));
 
-        LibraryTabManager.MergeDiscovery(config, [Card("1010", "SDCard10")]);
+        SdCardLibraryCatalog.MergeDiscovery(config, [Card("1010", "SDCard10")]);
 
         Assert.Equal("SDCard9", NameOf(config, "9696"));
         Assert.Equal("SDCard10", NameOf(config, "1010"));
@@ -98,7 +98,7 @@ public class CardNameAuthorityTests
         // drive-letter guess.
         var config = ConfigWith(("777", "Handhelds"));
 
-        LibraryTabManager.MergeDiscovery(config, [Card("777", "")]);
+        SdCardLibraryCatalog.MergeDiscovery(config, [Card("777", "")]);
 
         Assert.Equal("Handhelds", NameOf(config, "777"));
     }
@@ -109,7 +109,7 @@ public class CardNameAuthorityTests
         var config = ConfigWith(("9696", "SDCard9"), ("1010", "SDCard10"));
         config.CardLibraries.Single(card => card.ContentId == "9696").AppIds.Add(4242);
 
-        LibraryTabManager.MergeDiscovery(config, [Card("1010", "SDCard10")]);
+        SdCardLibraryCatalog.MergeDiscovery(config, [Card("1010", "SDCard10")]);
 
         var ejected = config.CardLibraries.Single(card => card.ContentId == "9696");
         Assert.Equal("SDCard9", ejected.Name);
@@ -122,7 +122,7 @@ public class CardNameAuthorityTests
         var config = new AppConfig();
         config.ForgottenInsertedCardIds.Add("777");
 
-        LibraryTabManager.MergeDiscovery(config, [Card("777", "Indies")]);
+        SdCardLibraryCatalog.MergeDiscovery(config, [Card("777", "Indies")]);
 
         Assert.Empty(config.CardLibraries);
         Assert.Equal(["777"], config.ForgottenInsertedCardIds);
@@ -134,7 +134,7 @@ public class CardNameAuthorityTests
         var config = new AppConfig();
         config.ForgottenInsertedCardIds.Add("777");
 
-        LibraryTabManager.MergeDiscovery(config, []);
+        SdCardLibraryCatalog.MergeDiscovery(config, []);
 
         Assert.Empty(config.ForgottenInsertedCardIds);
     }
@@ -145,9 +145,9 @@ public class CardNameAuthorityTests
         var config = ConfigWith(("777", "Indies"));
         config.CardLibraries[0].AppIds.AddRange([1L, 2L]);
 
-        LibraryTabManager.MergeDiscovery(
+        SdCardLibraryCatalog.MergeDiscovery(
             config,
-            [new LibraryTabManager.Discovered("777", "Library (E:)", [3L], "Indies")]);
+            [new DiscoveredCard("777", "Library (E:)", [3L], "Indies")]);
 
         Assert.Equal([3L], config.CardLibraries[0].AppIds);
     }
@@ -174,7 +174,7 @@ public class CardNameAuthorityTests
         using var temp = new TemporaryDirectory();
         var library = NewLibrary(temp, "777", "SDCard9");
 
-        Assert.Null(LibraryTabManager.TrySetMarkerLabel(library, "777", "Handhelds"));
+        Assert.Null(SdCardLibraryCatalog.TrySetMarkerLabel(library, "777", "Handhelds"));
 
         Assert.True(SteamLibraryMarker.TryRead(library, out var id, out var label));
         Assert.Equal("777", id);
@@ -190,7 +190,7 @@ public class CardNameAuthorityTests
         using var temp = new TemporaryDirectory();
         var library = NewLibrary(temp, "1010", "SDCard10");
 
-        var note = LibraryTabManager.TrySetMarkerLabel(library, "9696", "Handhelds");
+        var note = SdCardLibraryCatalog.TrySetMarkerLabel(library, "9696", "Handhelds");
 
         Assert.Equal("The drive still carries its old name.", note);
         Assert.True(SteamLibraryMarker.TryRead(library, out var id, out var label));
@@ -205,7 +205,7 @@ public class CardNameAuthorityTests
 
         Assert.Equal(
             "The drive still carries its old name.",
-            LibraryTabManager.TrySetMarkerLabel(temp.Root, "777", "Handhelds"));
+            SdCardLibraryCatalog.TrySetMarkerLabel(temp.Root, "777", "Handhelds"));
     }
 
     [Fact]
@@ -217,7 +217,7 @@ public class CardNameAuthorityTests
             Path.Combine(library, "libraryfolder.vdf"),
             "\"libraryfolder\"\n{\n\t\"contentid\"\t\t\"777\"\n}\n");
 
-        Assert.Null(LibraryTabManager.TrySetMarkerLabel(library, "777", "Handhelds"));
+        Assert.Null(SdCardLibraryCatalog.TrySetMarkerLabel(library, "777", "Handhelds"));
 
         Assert.True(SteamLibraryMarker.TryRead(library, out _, out var label));
         Assert.Equal("Handhelds", label);
@@ -229,8 +229,8 @@ public class CardNameAuthorityTests
         using var temp = new TemporaryDirectory();
         var library = NewLibrary(temp, "777", "SDCard9");
 
-        Assert.Null(LibraryTabManager.TrySetMarkerLabel(library, "777", "Handhelds"));
-        Assert.Null(LibraryTabManager.TrySetMarkerLabel(library, "777", "Retro"));
+        Assert.Null(SdCardLibraryCatalog.TrySetMarkerLabel(library, "777", "Handhelds"));
+        Assert.Null(SdCardLibraryCatalog.TrySetMarkerLabel(library, "777", "Retro"));
 
         var marker = File.ReadAllText(Path.Combine(library, "libraryfolder.vdf"));
         Assert.Single(SteamLibraryVdf.ValuesOf(marker, "label"));
@@ -245,7 +245,7 @@ public class CardNameAuthorityTests
         using var temp = new TemporaryDirectory();
         var library = NewLibrary(temp, "777", "SDCard9");
 
-        Assert.Null(LibraryTabManager.TrySetMarkerLabel(library, "777", "Handhelds"));
+        Assert.Null(SdCardLibraryCatalog.TrySetMarkerLabel(library, "777", "Handhelds"));
 
         Assert.Equal(
             ["libraryfolder.vdf"],
@@ -261,9 +261,9 @@ public class CardNameAuthorityTests
         var library = NewLibrary(temp, "777", "SDCard9");
         var config = ConfigWith(("777", "SDCard9"));
 
-        Assert.Null(LibraryTabManager.TrySetMarkerLabel(library, "777", "Handhelds"));
+        Assert.Null(SdCardLibraryCatalog.TrySetMarkerLabel(library, "777", "Handhelds"));
         Assert.True(SteamLibraryMarker.TryRead(library, out _, out var label));
-        LibraryTabManager.MergeDiscovery(config, [Card("777", label)]);
+        SdCardLibraryCatalog.MergeDiscovery(config, [Card("777", label)]);
 
         Assert.Equal("Handhelds", NameOf(config, "777"));
     }
@@ -274,10 +274,10 @@ public class CardNameAuthorityTests
         // One sync merges twice: into the snapshot it builds tabs from, then into the
         // freshly locked config it saves.
         var config = ConfigWith(("777", "SDCard9"));
-        List<LibraryTabManager.Discovered> scan = [Card("777", "Retro")];
+        List<DiscoveredCard> scan = [Card("777", "Retro")];
 
-        LibraryTabManager.MergeDiscovery(config, scan);
-        LibraryTabManager.MergeDiscovery(config, scan);
+        SdCardLibraryCatalog.MergeDiscovery(config, scan);
+        SdCardLibraryCatalog.MergeDiscovery(config, scan);
 
         Assert.Equal("Retro", NameOf(config, "777"));
         Assert.Single(config.CardLibraries);

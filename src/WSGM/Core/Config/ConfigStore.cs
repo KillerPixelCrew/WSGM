@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
@@ -120,6 +121,29 @@ public sealed class ConfigStore
         }
 
         return transaction.Config;
+    }
+
+    /// <summary>
+    ///     Applies an edit through <see cref="Update" /> on a worker thread, saving whenever it changed the
+    ///     document, and answers what the edit computed.
+    /// </summary>
+    /// <typeparam name="T">The value the edit returns to the caller.</typeparam>
+    /// <param name="edit">Mutates only the caller's fields and returns a detached value.</param>
+    /// <param name="cancellationToken">Cancels the work before it starts.</param>
+    /// <returns>The edit's result once the configuration update finished.</returns>
+    public Task<T> UpdateAsync<T>(Func<AppConfig, T> edit, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        return Task.Run(() =>
+        {
+            T result = default!;
+            Update(config =>
+            {
+                result = edit(config);
+                return true;
+            });
+            return result;
+        }, cancellationToken);
     }
 
     /// <summary>

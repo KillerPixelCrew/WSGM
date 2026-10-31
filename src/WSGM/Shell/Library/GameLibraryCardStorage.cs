@@ -10,75 +10,44 @@ using WSGM.Core;
 
 namespace WSGM.Shell;
 
-internal sealed partial class GameLibraryService
+/// <summary>
+///     The Game Library's removable storage: binds discovered titles to the cards they are on, offers
+///     each connected card's titles as a source, keeps each card's game list in step with the titles
+///     imported to and removed from it, and runs the immediate Repair and Use this card commands.
+/// </summary>
+/// <remarks>
+///     Card writes take the availability tracker's storage gate; the immediate commands also take the
+///     owner's storage lane, which scans and applies hold for their whole run.
+/// </remarks>
+/// <param name="owner">The service whose review and lifecycle the immediate commands follow.</param>
+/// <param name="store">The import records, libraries and inventory the cards are matched against.</param>
+/// <param name="tracker">The session's shortcut availability tracker, or null in an isolated importer.</param>
+internal sealed class GameLibraryCardStorage(
+    GameLibraryService owner,
+    ImportStateStore store,
+    ShortcutAvailabilityTracker? tracker)
 {
-    // Scan, apply and the immediate storage commands share this lane; card writes also take the tracker's gate.
-    private readonly SemaphoreSlim _storageLane = new(1, 1);
-    private readonly ShortcutAvailabilityTracker? _tracker;
+    /// <summary>The session's availability tracker, or null in an isolated importer.</summary>
+    internal ShortcutAvailabilityTracker? Tracker { get; } = tracker;
 
     /// <summary>The tracker's latest result, or an empty one in an isolated importer.</summary>
-    private ShortcutAvailabilitySnapshot Tracked => _tracker?.Current ?? ShortcutAvailabilitySnapshot.Empty;
+    internal ShortcutAvailabilitySnapshot Tracked => Tracker?.Current ?? ShortcutAvailabilitySnapshot.Empty;
 
-    private uint CaptureAccount(IReadOnlyList<ExistingShortcut> shortcuts)
-    {
-        if (shortcuts is not SteamShortcutSnapshot snapshot)
-        {
-            throw new InvalidOperationException("Steam's account could not be confirmed. Recheck before importing.");
-        }
-        RequireAccount(snapshot.AccountId);
-        return snapshot.AccountId;
-    }
-
-    private void RequireAccount(uint accountId)
-    {
-        if (_store.ActiveAccountId != accountId)
-        {
-            throw new InvalidOperationException("The Steam account changed. Recheck before continuing.");
-        }
-    }
-
-    /// <summary>Whether a record's content can travel on its card: a directly launched recipe bound to a volume.</summary>
-    private static bool PortableContent(ManagedContentRecord content)
-    {
-        return content.SourceKind is LibrarySourceKind.Rom or LibrarySourceKind.Folder or LibrarySourceKind.Manual
-               && content.BackingPath.VolumeId.Length > 0;
-    }
-
-    private static bool StorageFailure(Exception exception) => exception is IOException or InvalidDataException
+    /// <summary>Whether an exception is one a card, a store file or its contents can raise.</summary>
+    /// <param name="exception">The exception.</param>
+    /// <returns>True for an I/O, access, format or import-state failure.</returns>
+    internal static bool IsStorageFailure(Exception exception) => exception is IOException or InvalidDataException
         or UnauthorizedAccessException or JsonException or ArgumentException or ImportStateException;
 
-    private static bool SameId(string first, string second) =>
-        string.Equals(first, second, StringComparison.OrdinalIgnoreCase);
-
-    private void OnAvailabilityChanged()
+    /// <summary>Asks the tracker to check every shortcut again.</summary>
+    internal void RequestCheck()
     {
-        lock (_gate)
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            // The connected cards are sources too; the next read lists the ones in the drives now.
-            _sourceCache = null;
-            Publish();
-        }
-
-        Notify();
-    }
-
-    /// <summary>The tracker's status for an entry's shortcut, by app id, else by its managed content id.</summary>
-    private ShortcutStatus? StatusOf(Entry entry)
-    {
-        var tracked = Tracked;
-        return tracked.Find(entry.AppId)
-               ?? (entry.Game.Content is { } content
-                   ? tracked.Shortcuts.FirstOrDefault(status => status.ContentId == content.Id)
-                   : null);
+        Tracker?.Request();
     }
 
     /// <summary>Offers each connected card's titles for import, on this device or another.</summary>
-    private IEnumerable<ILibrarySource> ManifestSources()
+    /// <returns>One source per connected card.</returns>
+    internal IEnumerable<ILibrarySource> ManifestSources()
     {
         var cards = Tracked.Cards;
         if (cards.Count == 0)
@@ -86,7 +55,7 @@ internal sealed partial class GameLibraryService
             return [];
         }
 
-        var local = _store.InventoryEntries().Select(entry => entry.Content).OfType<ManagedContentRecord>()
+        var local = store.InventoryEntries().Select(entry => entry.Content).OfType<ManagedContentRecord>()
             .DistinctBy(content => content.Id).ToDictionary(content => content.Id, StringComparer.Ordinal);
         return cards.Select(pair => (ILibrarySource)new ManifestLibrarySource(new StorageLibraryRecord
         {
@@ -95,54 +64,12 @@ internal sealed partial class GameLibraryService
         }, local)).ToArray();
     }
 
-    /// <summary>Gives a launcher title on removable storage its own executable as the managed route.</summary>
-    /// <remarks>
-    ///     Like Steam ROM Manager: the game's executable becomes a portable recipe that enters the card's list,
-    ///     launches through the content check and follows its volume across drive letters. Every other route keeps
-    ///     no content record; its shortcut's own folder decides its availability.
-    /// </remarks>
-    private DiscoveredGame TrackLauncherStorage(DiscoveredGame game)
-    {
-        if (game.Content is not null || game.InstallPath.Length == 0 || !Path.IsPathFullyQualified(game.InstallPath)
-            || game.CommandRoutes.FirstOrDefault(route => route is { Id: "direct", Follows: false }) is not { } direct
-            || !StoragePaths.IsUnder(game.InstallPath, direct.Target))
-        {
-            return game;
-        }
-
-        var root = ManagedContentStorage.CapturePath(game.InstallPath, true);
-        if (Tracked.Volumes.FirstOrDefault(volume => volume.Removable && SameId(volume.VolumeId, root.VolumeId))
-            is not { } storage)
-        {
-            return game;
-        }
-
-        var directory = direct.StartDirectory.Length > 0
-            ? direct.StartDirectory : Path.GetDirectoryName(direct.Target) ?? "";
-        var managed = ManagedContentStorage.CreateRecord(game.SourceId, game.Key, game.Name,
-            LibrarySourceKind.Folder, storage.Name, direct.Target, binding: ManagedContentStorage.BindPath(root, direct.Target));
-        managed.SourceRoot = root;
-        managed.Program = managed.BackingPath.Copy();
-        managed.WorkingDirectory = ManagedContentStorage.BindPath(root, directory, true);
-        managed.RawArguments = direct.LaunchOptions;
-        return game with
-        {
-            Content = managed,
-            Routes = game.CommandRoutes.Select(route => ReferenceEquals(route, direct)
-                ? route with
-                {
-                    Id = "managed", ManagedId = managed.Id,
-                    Evidence = route.Evidence + " WSGM checks its storage first, so it follows the card across drive letters."
-                }
-                : route).ToArray()
-        };
-    }
-
     /// <summary>Binds discovered portable content to the card it is on, adopting the card's own title id.</summary>
     /// <param name="game">The title as its source found it.</param>
     /// <param name="launcher">Whether its source is a third-party launcher, whose titles may gain the managed route.</param>
     /// <param name="known">The device's records by content id, so a known title keeps its identity.</param>
-    private DiscoveredGame BindDiscoveredContent(DiscoveredGame game, bool launcher,
+    /// <returns>The title bound to its card, or unchanged when it is on none.</returns>
+    internal DiscoveredGame BindDiscoveredContent(DiscoveredGame game, bool launcher,
         IReadOnlyDictionary<string, ImportedEntry> known)
     {
         if (launcher)
@@ -192,16 +119,18 @@ internal sealed partial class GameLibraryService
     }
 
     /// <summary>Adds an imported title to its card's list before its shortcut is written.</summary>
+    /// <param name="entry">The title being imported through the managed route.</param>
+    /// <param name="token">Cancels the card write.</param>
     /// <remarks>
     ///     A card without a list gets one. A card whose list this device does not use yet refuses until the user
     ///     chooses Use this card. Only the managed route stores content.
     /// </remarks>
-    private async Task PublishImportedContentAsync(Entry entry, CancellationToken token)
+    internal async Task PublishImportedContentAsync(GameLibraryEntryState entry, CancellationToken token)
     {
         var content = entry.Game.Content!;
         var volume = Tracked.Volumes.FirstOrDefault(item => item.Removable
                                                             && SameId(item.VolumeId, content.BackingPath.VolumeId));
-        if (_tracker is null || !PortableContent(content) || volume is null)
+        if (Tracker is null || !PortableContent(content) || volume is null)
         {
             return;
         }
@@ -211,11 +140,11 @@ internal sealed partial class GameLibraryService
             throw new InvalidDataException("Two connected cards carry this library. Remove one before importing.");
         }
 
-        await _tracker.StorageGate.WaitAsync(token).ConfigureAwait(false);
+        await Tracker.StorageGate.WaitAsync(token).ConfigureAwait(false);
         try
         {
             var volumeId = volume.VolumeId;
-            var libraries = _store.Libraries();
+            var libraries = store.Libraries();
             var known = libraries.FirstOrDefault(item => SameId(item.VolumeId, volumeId));
             StorageLibraryManifest manifest;
             long? revision;
@@ -267,34 +196,36 @@ internal sealed partial class GameLibraryService
 
             library.ManifestRevision = manifest.Revision;
             library.Name = volume.Name;
-            _store.SaveLibrary(library);
+            store.SaveLibrary(library);
             content.LibraryId = library.Id;
             content.Location = volume.Name;
-            _store.SaveInventory(new ImportedEntry
+            store.SaveInventory(new ImportedEntry
             {
                 Source = entry.Plan.Source, Key = entry.Plan.Key, Name = content.Name, Content = content.Copy()
             });
         }
         finally
         {
-            _tracker.StorageGate.Release();
+            Tracker.StorageGate.Release();
         }
     }
 
     /// <summary>Takes a removed title off its card's list, when the accepted card is in and nothing else uses it.</summary>
+    /// <param name="content">The removed title's managed content.</param>
+    /// <param name="token">Cancels the card write.</param>
     /// <returns>A problem to report, or null; a card that is out keeps its entry.</returns>
-    private async Task<string?> RemoveFromCardAsync(ManagedContentRecord content, CancellationToken token)
+    internal async Task<string?> RemoveFromCardAsync(ManagedContentRecord content, CancellationToken token)
     {
-        if (_tracker is null || content.LibraryId.Length == 0
-                             || _store.InventoryEntries().Any(entry => entry.Content?.Id == content.Id))
+        if (Tracker is null || content.LibraryId.Length == 0
+                            || store.InventoryEntries().Any(entry => entry.Content?.Id == content.Id))
         {
             return null;
         }
 
-        await _tracker.StorageGate.WaitAsync(token).ConfigureAwait(false);
+        await Tracker.StorageGate.WaitAsync(token).ConfigureAwait(false);
         try
         {
-            if (_store.Libraries().FirstOrDefault(item => SameId(item.Id, content.LibraryId)) is not { } library
+            if (store.Libraries().FirstOrDefault(item => SameId(item.Id, content.LibraryId)) is not { } library
                 || !SameId(library.VolumeId, content.BackingPath.VolumeId)
                 || ManagedContentStorage.MountOf(library.VolumeId) is null)
             {
@@ -311,41 +242,49 @@ internal sealed partial class GameLibraryService
             manifest.Revision = checked(revision + 1);
             StorageLibraryStorage.Publish(library.VolumeId, manifest, revision);
             library.ManifestRevision = manifest.Revision;
-            _store.SaveLibrary(library);
+            store.SaveLibrary(library);
             return null;
         }
-        catch (Exception ex) when (StorageFailure(ex) && ex is not ImportStateException)
+        catch (Exception ex) when (IsStorageFailure(ex) && ex is not ImportStateException)
         {
             return $"{content.Name} was removed from Steam, but its card's game list could not be updated: {ex.Message}";
         }
         finally
         {
-            _tracker.StorageGate.Release();
+            Tracker.StorageGate.Release();
         }
     }
 
     /// <summary>Checks every shortcut again now, and answers once that pass has finished.</summary>
-    public Task<SteamUiCommandResult> RecheckAvailabilityAsync(CancellationToken cancellationToken)
+    /// <param name="cancellationToken">Cancels waiting for the pass.</param>
+    /// <returns>The pass's outcome, or a refusal in an isolated importer.</returns>
+    internal Task<SteamUiCommandResult> RecheckAsync(CancellationToken cancellationToken)
     {
-        return _tracker?.RecheckAsync(cancellationToken)
+        return Tracker?.RecheckAsync(cancellationToken)
                ?? Task.FromResult(new SteamUiCommandResult(false, "Storage checks are not available in this session."));
     }
 
     /// <summary>The Steam details page's Recheck: one pass, then whether the shortcut is tracked at all.</summary>
+    /// <param name="appId">The shortcut's app id.</param>
+    /// <param name="cancellationToken">Cancels waiting for the pass.</param>
+    /// <returns>The pass's outcome, or why the shortcut has nothing to check.</returns>
     internal async Task<SteamUiCommandResult> RecheckShortcutAsync(uint appId, CancellationToken cancellationToken)
     {
-        var result = await RecheckAvailabilityAsync(cancellationToken).ConfigureAwait(false);
+        var result = await RecheckAsync(cancellationToken).ConfigureAwait(false);
         return result.Succeeded && Tracked.Find(appId) is null
             ? new SteamUiCommandResult(false, "This shortcut has nothing on local storage to check.")
             : result;
     }
 
     /// <summary>Rebuilds a mounted card's missing or damaged game list from the titles this device knows, now.</summary>
-    public Task<SteamUiCommandResult> RepairLibraryAsync(string id, CancellationToken cancellationToken)
+    /// <param name="id">The card library's UUID.</param>
+    /// <param name="cancellationToken">Cancels request admission and the lane wait.</param>
+    /// <returns>The recheck after the repair, or why it failed.</returns>
+    internal Task<SteamUiCommandResult> RepairLibraryAsync(string id, CancellationToken cancellationToken)
     {
         return StorageCommandAsync(id, "Repair library", token =>
         {
-            var known = _store.Libraries().FirstOrDefault(item => SameId(item.Id, id))
+            var known = store.Libraries().FirstOrDefault(item => SameId(item.Id, id))
                         ?? throw new InvalidDataException("That library is no longer known. Choose Recheck.");
             if (ManagedContentStorage.MountOf(known.VolumeId) is null)
             {
@@ -357,7 +296,7 @@ internal sealed partial class GameLibraryService
                 Id = known.Id, Name = known.Name, Revision = checked(known.ManifestRevision + 1),
                 Entries =
                 [
-                    .. _store.InventoryEntries().Select(entry => entry.Content).OfType<ManagedContentRecord>()
+                    .. store.InventoryEntries().Select(entry => entry.Content).OfType<ManagedContentRecord>()
                         .Where(content => SameId(content.LibraryId, id) && SameId(content.BackingPath.VolumeId, known.VolumeId))
                         .DistinctBy(content => content.Id)
                         .Select(content => StorageLibraryStorage.FromManaged(content, known.VolumeId, content.Location))
@@ -368,12 +307,15 @@ internal sealed partial class GameLibraryService
             StorageLibraryStorage.Repair(known, manifest);
             known.ManifestRevision = manifest.Revision;
             known.RepairRequired = false;
-            _store.SaveLibrary(known);
+            store.SaveLibrary(known);
         }, cancellationToken);
     }
 
     /// <summary>Launches a connected card's titles from the volume it is on now, accepting that binding immediately.</summary>
-    public Task<SteamUiCommandResult> UseLibraryAsync(string id, CancellationToken cancellationToken)
+    /// <param name="id">The card library's UUID.</param>
+    /// <param name="cancellationToken">Cancels request admission and the lane wait.</param>
+    /// <returns>The recheck after the binding, or why it failed.</returns>
+    internal Task<SteamUiCommandResult> UseLibraryAsync(string id, CancellationToken cancellationToken)
     {
         return StorageCommandAsync(id, "Use this card", token =>
         {
@@ -391,7 +333,7 @@ internal sealed partial class GameLibraryService
             };
             var recipes = manifest.Entries.ToDictionary(item => item.Id, StringComparer.Ordinal);
             List<ImportedEntry> rebound = [];
-            foreach (var entry in _store.InventoryEntries().Where(entry => entry.Content is { } content
+            foreach (var entry in store.InventoryEntries().Where(entry => entry.Content is { } content
                          && SameId(content.LibraryId, id)))
             {
                 var local = entry.Content!.Copy();
@@ -410,11 +352,11 @@ internal sealed partial class GameLibraryService
             }
 
             token.ThrowIfCancellationRequested();
-            _store.SaveInventories(rebound);
-            _store.SaveLibrary(candidate);
-            lock (_gate)
+            store.SaveInventories(rebound);
+            store.SaveLibrary(candidate);
+            lock (owner.Gate)
             {
-                foreach (var entry in _entries.Values)
+                foreach (var entry in owner.Entries.Values)
                 {
                     if (rebound.FirstOrDefault(item => item.Source == entry.Plan.Source && item.Key == entry.Plan.Key)
                         is { Content: { } accepted })
@@ -430,50 +372,103 @@ internal sealed partial class GameLibraryService
     private async Task<SteamUiCommandResult> StorageCommandAsync(string id, string action,
         Action<CancellationToken> command, CancellationToken cancellationToken)
     {
-        lock (_gate)
+        lock (owner.Gate)
         {
-            if (Guard() is { } refusal)
+            if (owner.Guard() is { } refusal)
             {
                 return refusal;
             }
         }
 
-        if (_tracker is null || id.Length == 0)
+        if (Tracker is null || id.Length == 0)
         {
             return new SteamUiCommandResult(false, "That storage is no longer listed.");
         }
 
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _shutdown.Token);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, owner.ShutdownToken);
         try
         {
-            await _storageLane.WaitAsync(linked.Token).ConfigureAwait(false);
+            await owner.StorageLane.WaitAsync(linked.Token).ConfigureAwait(false);
             try
             {
-                await _tracker.StorageGate.WaitAsync(linked.Token).ConfigureAwait(false);
+                await Tracker.StorageGate.WaitAsync(linked.Token).ConfigureAwait(false);
                 try
                 {
                     await Task.Run(() => command(linked.Token), linked.Token).ConfigureAwait(false);
                 }
                 finally
                 {
-                    _tracker.StorageGate.Release();
+                    Tracker.StorageGate.Release();
                 }
             }
             finally
             {
-                _storageLane.Release();
+                owner.StorageLane.Release();
             }
         }
-        catch (Exception ex) when (StorageFailure(ex) || ex is InvalidOperationException)
+        catch (Exception ex) when (IsStorageFailure(ex) || ex is InvalidOperationException)
         {
             Log.Change("library.storage.action." + id, $"{action} failed: {ex.Message}");
             return new SteamUiCommandResult(false, ex.Message);
         }
 
         Log.Change("library.storage.action." + id, $"{action} done.");
-        NotifyManagedEntriesChanged();
-        return await _tracker.RecheckAsync(cancellationToken).ConfigureAwait(false);
+        owner.NotifyManagedEntriesChanged();
+        return await Tracker.RecheckAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>Gives a launcher title on removable storage its own executable as the managed route.</summary>
+    /// <remarks>
+    ///     Like Steam ROM Manager: the game's executable becomes a portable recipe that enters the card's list,
+    ///     launches through the content check and follows its volume across drive letters. Every other route keeps
+    ///     no content record; its shortcut's own folder decides its availability.
+    /// </remarks>
+    private DiscoveredGame TrackLauncherStorage(DiscoveredGame game)
+    {
+        if (game.Content is not null || game.InstallPath.Length == 0 || !Path.IsPathFullyQualified(game.InstallPath)
+            || game.CommandRoutes.FirstOrDefault(route => route is { Id: "direct", Follows: false }) is not { } direct
+            || !StoragePaths.IsUnder(game.InstallPath, direct.Target))
+        {
+            return game;
+        }
+
+        var root = ManagedContentStorage.CapturePath(game.InstallPath, true);
+        if (Tracked.Volumes.FirstOrDefault(volume => volume.Removable && SameId(volume.VolumeId, root.VolumeId))
+            is not { } storage)
+        {
+            return game;
+        }
+
+        var directory = direct.StartDirectory.Length > 0
+            ? direct.StartDirectory : Path.GetDirectoryName(direct.Target) ?? "";
+        var managed = ManagedContentStorage.CreateRecord(game.SourceId, game.Key, game.Name,
+            LibrarySourceKind.Folder, storage.Name, direct.Target, binding: ManagedContentStorage.BindPath(root, direct.Target));
+        managed.SourceRoot = root;
+        managed.Program = managed.BackingPath.Copy();
+        managed.WorkingDirectory = ManagedContentStorage.BindPath(root, directory, true);
+        managed.RawArguments = direct.LaunchOptions;
+        return game with
+        {
+            Content = managed,
+            Routes = game.CommandRoutes.Select(route => ReferenceEquals(route, direct)
+                ? route with
+                {
+                    Id = "managed", ManagedId = managed.Id,
+                    Evidence = route.Evidence + " WSGM checks its storage first, so it follows the card across drive letters."
+                }
+                : route).ToArray()
+        };
+    }
+
+    /// <summary>Whether a record's content can travel on its card: a directly launched recipe bound to a volume.</summary>
+    private static bool PortableContent(ManagedContentRecord content)
+    {
+        return content.SourceKind is LibrarySourceKind.Rom or LibrarySourceKind.Folder or LibrarySourceKind.Manual
+               && content.BackingPath.VolumeId.Length > 0;
+    }
+
+    private static bool SameId(string first, string second) =>
+        string.Equals(first, second, StringComparison.OrdinalIgnoreCase);
 
     private static void RebindVolume(ManagedContentRecord content, string volumeId)
     {

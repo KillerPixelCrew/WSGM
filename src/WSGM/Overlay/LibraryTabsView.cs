@@ -32,7 +32,7 @@ public sealed class LibraryTabsView : OverlaySubView
     // The service's table, so both surfaces offer the same kinds in the same order.
     private static readonly (FilterKind Kind, string Label, string Desc)[] FilterKinds =
     [
-        .. LibraryManagerService.FilterKinds.Select(kind =>
+        .. LibraryTabFilterKind.All.Select(kind =>
             (Enum.Parse<FilterKind>(kind.Kind), kind.Label, kind.Description))
     ];
 

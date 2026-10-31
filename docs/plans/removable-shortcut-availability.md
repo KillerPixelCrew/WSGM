@@ -35,17 +35,17 @@ Source, deployment and media validation of that first implementation are recorde
 
 The existing implementation already supplies these parts:
 
-| Owner                                                                            | Reuse                                                                                                |
-| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `src/WSGM/Core/Library/ImportStateStore.cs`                                      | Device-owned `library-import.json`, detached records, atomic writes and import ownership             |
-| `src/Shared/Library/ManagedContentModels.cs`                                     | Stable content IDs, volume-bound paths, required companion files, mount resolution and shared checks |
-| `src/WSGM/Shell/Library/GameLibraryService.cs` and `.Roms.cs`                    | Discovery, import planning/apply, availability publication and explicit recheck                      |
-| `src/WSGM/Shell/ManagedShortcutMonitor.cs`                                       | Session-owned startup, volume-change, resume and metadata-change reconciliation                      |
-| `src/WSGM/Core/Library/Sources/ShortcutFolderSource.cs`                          | `.lnk` target, arguments and working directory adoption; direct managed launch route                 |
-| `src/WSGM/Interop/ShellLink.cs`                                                  | Windows shortcut resolution without searching for moved files or rewriting shortcuts                 |
-| `src/WSGM.PackagedLaunch/Session/ManagedContentLaunch.cs`                        | Launch-time content validation, friendly refusal and explicit Retry                                  |
-| `src/WSGM/Shell/Library/LibraryBadges.cs` and toolkit `SteamLibraryBadgeSurface` | Shared availability/location publication, card styling and details-page recheck                      |
-| `src/WSGM/Overlay/GameLibraryView.Roms.cs`                                       | Existing location, availability and recheck controls                                                 |
+| Owner                                                                                                                                     | Reuse                                                                                                |
+| ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `src/WSGM/Core/Library/ImportStateStore.cs`                                                                                               | Device-owned `library-import.json`, detached records, atomic writes and import ownership             |
+| `src/Shared/Library/ManagedContentModels.cs`                                                                                              | Stable content IDs, volume-bound paths, required companion files, mount resolution and shared checks |
+| `src/WSGM/Shell/Library/GameLibraryService.cs`, `.Roms.cs`, `GameLibraryScanner.cs`, `GameLibraryApplier.cs`, `GameLibraryCardStorage.cs` | Discovery, import planning/apply, availability publication and explicit recheck                      |
+| `src/WSGM/Shell/ManagedShortcutMonitor.cs`                                                                                                | Session-owned startup, volume-change, resume and metadata-change reconciliation                      |
+| `src/WSGM/Core/Library/Sources/ShortcutFolderSource.cs`                                                                                   | `.lnk` target, arguments and working directory adoption; direct managed launch route                 |
+| `src/WSGM/Interop/ShellLink.cs`                                                                                                           | Windows shortcut resolution without searching for moved files or rewriting shortcuts                 |
+| `src/WSGM.PackagedLaunch/Session/ManagedContentLaunch.cs`                                                                                 | Launch-time content validation, friendly refusal and explicit Retry                                  |
+| `src/WSGM/Shell/Library/LibraryBadges.cs` and toolkit `SteamLibraryBadgeSurface`                                                          | Shared availability/location publication, card styling and details-page recheck                      |
+| `src/WSGM/Overlay/GameLibraryView.Roms.cs`                                                                                                | Existing location, availability and recheck controls                                                 |
 
 Today the authoritative content records are local only. Runtime checks can report missing files, but
 do not implement the agreed automatic pruning. Import planning explicitly retains missing

@@ -13,7 +13,11 @@ namespace WSGM.Shell;
 /// </summary>
 /// <param name="state">The session's live state.</param>
 /// <param name="steamUi">The Steam client, readiness, master switch and tab boot sync the card services use.</param>
-internal sealed class StorageServices(SessionState state, SteamUiServices steamUi)
+/// <param name="libraryManager">Reads the library manager the card ACF watcher syncs the tabs through, once it exists.</param>
+internal sealed class StorageServices(
+    SessionState state,
+    SteamUiServices steamUi,
+    Func<LibraryManagerService?> libraryManager)
 {
     private LibraryBadgeWatcher? _badgeWatcher;
     private CardAcfWatcher? _cardAcfWatcher;
@@ -98,7 +102,7 @@ internal sealed class StorageServices(SessionState state, SteamUiServices steamU
     {
         try
         {
-            LibraryBadges.Update(state.Config, LibraryTabManager.PresentCardContentIds());
+            LibraryBadges.Update(state.Config, SdCardLibraryCatalog.PresentCardContentIds());
         }
         catch (Exception ex)
         {
@@ -120,9 +124,10 @@ internal sealed class StorageServices(SessionState state, SteamUiServices steamU
         var decision = GameModeCardServicePolicy.Decide(
             gameModeActive, state.OverlayTestOnly, steamUi.MasterEnabled);
 
-        if (decision.WatchAppManifests && Drives is { } watchDrives && steamUi.Client is { } steam)
+        if (decision.WatchAppManifests && Drives is { } watchDrives && steamUi.Client is not null
+            && libraryManager() is { } manager)
         {
-            _cardAcfWatcher ??= CardAcfWatcher.StartNew(watchDrives, state.Store, steam, steamUi.Readiness);
+            _cardAcfWatcher ??= CardAcfWatcher.StartNew(watchDrives, manager, steamUi.Readiness);
         }
         else
         {

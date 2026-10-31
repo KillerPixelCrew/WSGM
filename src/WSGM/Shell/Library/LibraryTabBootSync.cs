@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using SteamUiToolkit;
 using WSGM.Core;
 
 namespace WSGM.Shell;
@@ -11,14 +10,15 @@ namespace WSGM.Shell;
 ///     then injects the tabs and pushes the badge map. A request supersedes the pass in flight; a cancel
 ///     drops it and any request not yet started.
 /// </summary>
-/// <param name="store">The configuration the pass reads.</param>
-/// <param name="steam">The session's Steam client, or null in overlay-test, where a pass does nothing.</param>
+/// <param name="libraryManager">
+///     Reads the session's library manager, which runs the sync, or null in overlay-test, where a pass does
+///     nothing.
+/// </param>
 /// <param name="readiness">The session's Steam UI readiness the pass waits on.</param>
 /// <param name="stopping">Whether the session is stopping, after which no request is accepted.</param>
 /// <param name="lifetime">The session's lifetime; cancelling it ends the worker.</param>
 internal sealed class LibraryTabBootSync(
-    ConfigStore store,
-    SteamClient? steam,
+    Func<LibraryManagerService?> libraryManager,
     SteamUiReadiness readiness,
     Func<bool> stopping,
     CancellationToken lifetime)
@@ -100,9 +100,9 @@ internal sealed class LibraryTabBootSync(
 
                 try
                 {
-                    if (steam is not null)
+                    if (libraryManager() is { } manager)
                     {
-                        await LibraryTabManager.SyncOnBootAsync(store, steam, readiness, pass.Token)
+                        await manager.SyncTabsOnBootAsync(readiness, pass.Token)
                             .ConfigureAwait(false);
                     }
                 }

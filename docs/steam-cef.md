@@ -495,17 +495,17 @@ and the tab reappears untouched when unhidden). `patchTabs` records `W.nativeTab
 predicate over `appStore`; keep it Steam-free and unit-tested. Card and genre tabs use the same
 injection.
 
-Sync is reactive: `LibraryTabManager.SyncAllAsync` re-injects after every builder change, and
+Sync is reactive: `LibraryTabManager.SyncAsync` re-injects after every builder change, and
 reordering uses the cheap `PushOrderAsync` (order and hidden set only). Order saves commit in press
 order, and pushes run one at a time with only the newest order reaching Steam. A sync over unchanged
 cards writes nothing to `config.json`, and an unchanged card reading publishes nothing to the badge.
-Background syncs, saves and pushes are joined at shutdown. The boot sync starts when the transport
-gate opens (Big Picture is up, in game mode) and waits inside Steam for `webpackChunksteamui`,
-`collectionStore`, `appStore` and the bridge's tab claim. Only a sync that placed the tabs is done;
-one that did not, such as a reachable but failed filter evaluation, runs again at the gate's next
-ready edge, and any card or builder change syncs in the meantime. The badge needs no retry of its
-own since it moved into the patch lifecycle: its reading is replaced by every sync and reaches Steam
-when the bridge does.
+Every sync, save and push runs as an operation of `LibraryManagerService`, whose completion the
+session joins at shutdown. The boot sync starts when the transport gate opens (Big Picture is up, in
+game mode) and waits inside Steam for `webpackChunksteamui`, `collectionStore`, `appStore` and the
+bridge's tab claim. Only a sync that placed the tabs is done; one that did not, such as a reachable
+but failed filter evaluation, runs again at the gate's next ready edge, and any card or builder
+change syncs in the meantime. The badge needs no retry of its own since it moved into the patch
+lifecycle: its reading is replaced by every sync and reaches Steam when the bridge does.
 
 The accepted fragility is the two things that move on a major Steam UI update: the dispatcher slot
 name and the `Library_FilteredByHeader` marker. Kill switch: `window.__wsgm.disableTabs()`; a Steam

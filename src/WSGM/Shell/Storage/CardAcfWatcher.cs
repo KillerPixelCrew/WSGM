@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using SteamUiToolkit;
 using WSGM.Core;
 
 namespace WSGM.Shell;
@@ -33,10 +32,10 @@ internal sealed class CardAcfWatcher : IDisposable
 
     private readonly object _gate = new();
 
+    private readonly LibraryManagerService _library;
+
     private readonly SteamUiReadiness _readiness;
     private readonly Timer _reconcile;
-    private readonly SteamClient _steam;
-    private readonly ConfigStore _store;
     private readonly CancellationToken _token;
 
     private readonly Dictionary<char, FileSystemWatcher> _watchers = new();
@@ -52,11 +51,10 @@ internal sealed class CardAcfWatcher : IDisposable
     private int _suspensions;
 
     private CardAcfWatcher(
-        RemovableDriveManager drives, ConfigStore store, SteamClient steam, SteamUiReadiness readiness)
+        RemovableDriveManager drives, LibraryManagerService library, SteamUiReadiness readiness)
     {
         _drives = drives;
-        _store = store;
-        _steam = steam;
+        _library = library;
         _readiness = readiness;
         _token = _cts.Token;
         _reconcile = new Timer(_ => Reconcile(), null, Timeout.Infinite, Timeout.Infinite);
@@ -87,14 +85,13 @@ internal sealed class CardAcfWatcher : IDisposable
 
     /// <summary>Creates the session's watcher and watches the cards already mounted. UI thread.</summary>
     /// <param name="drives">The session's storage owner, which outlives this watcher.</param>
-    /// <param name="store">The configuration store the card libraries are read from.</param>
-    /// <param name="steam">The session's Steam client the tab syncs run through.</param>
+    /// <param name="library">The session's library manager the tab syncs run through.</param>
     /// <param name="readiness">The session's Steam UI readiness, which a sync waits on.</param>
     /// <returns>A running watcher owned by the caller; dispose before the borrowed storage owner and Steam services.</returns>
     internal static CardAcfWatcher StartNew(
-        RemovableDriveManager drives, ConfigStore store, SteamClient steam, SteamUiReadiness readiness)
+        RemovableDriveManager drives, LibraryManagerService library, SteamUiReadiness readiness)
     {
-        var watcher = new CardAcfWatcher(drives, store, steam, readiness);
+        var watcher = new CardAcfWatcher(drives, library, readiness);
         watcher._reconcile.Change(TimeSpan.Zero, Timeout.InfiniteTimeSpan);
         return watcher;
     }
@@ -249,11 +246,11 @@ internal sealed class CardAcfWatcher : IDisposable
         {
             if (!_readiness.IsReady)
             {
-                // SyncOnBootAsync waits for Big Picture's next ready edge. A card finishing
+                // SyncTabsOnBootAsync waits for Big Picture's next ready edge. A card finishing
                 // several installs during a cold boot fires one ACF event per game,
                 // and without this gate each would start its own loop — they would
                 // then all clear the readiness gate at once and run
-                // SyncAllDetailedAsync concurrently against the same collectionStore,
+                // the tab sync concurrently against the same collectionStore,
                 // which is exactly the interleaving LibraryTabManager's single-flight
                 // discipline exists to prevent. A second event while one is pending is
                 // dropped, not queued: the pending sync reads current state anyway.
@@ -267,7 +264,7 @@ internal sealed class CardAcfWatcher : IDisposable
                 {
                     Log.Info(
                         "Card watcher: Steam UI is still starting; deferring automatic tab sync.");
-                    await LibraryTabManager.SyncOnBootAsync(_store, _steam, _readiness, _token).ConfigureAwait(false);
+                    await _library.SyncTabsOnBootAsync(_readiness, _token).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -277,8 +274,8 @@ internal sealed class CardAcfWatcher : IDisposable
                 return;
             }
 
-            var summary = await LibraryTabManager.SyncAllAsync(_store, _steam, _token).ConfigureAwait(false);
-            Log.Info($"Card watcher: {summary}");
+            var result = await _library.SyncTabsAsync(_token).ConfigureAwait(false);
+            Log.Info($"Card watcher: {result.Summary}");
         }
         catch (OperationCanceledException)
         {

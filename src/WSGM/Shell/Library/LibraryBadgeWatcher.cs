@@ -103,7 +103,7 @@ internal sealed class LibraryBadgeWatcher : IDisposable
 
             try
             {
-                LibraryBadges.Update(_store.Read().RequireConfig(), LibraryTabManager.PresentCardContentIds());
+                LibraryBadges.Update(_store.Read().RequireConfig(), SdCardLibraryCatalog.PresentCardContentIds());
             }
             catch (Exception ex)
             {

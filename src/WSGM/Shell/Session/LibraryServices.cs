@@ -94,7 +94,7 @@ internal sealed class LibraryServices(SessionState state, SteamUiServices steamU
         ShellSession.TryStart("library manager", () =>
         {
             LibraryManager = new LibraryManagerService(state.Store, () => steamUi.Client, () => state.Config);
-            LibraryManager.Start();
+            LibraryManager.RequestRefresh();
         });
         ShellSession.TryStart("artwork browser", () =>
         {
