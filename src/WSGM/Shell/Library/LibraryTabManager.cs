@@ -340,32 +340,35 @@ internal sealed class LibraryTabManager(ConfigStore store)
         });
     }
 
-    /// <summary>Writes the builder's custom tabs.</summary>
-    /// <param name="tabs">Every tab the builder holds.</param>
-    /// <param name="baseline">
-    ///     Ids of the tabs the builder loaded. One missing from <paramref name="tabs" /> was deleted
-    ///     there; a tab added elsewhere since is kept.
-    /// </param>
-    /// <returns>Completion after the editor’s changes are merged and saved.</returns>
-    internal Task SaveCustomTabsAsync(IReadOnlyList<CustomTabConfig> tabs, IReadOnlySet<string> baseline)
+    /// <summary>Writes one custom tab, replacing the stored tab with its id or adding it after the others.</summary>
+    /// <param name="tab">The tab to store.</param>
+    /// <returns>Completion after the tab is saved.</returns>
+    internal Task SaveCustomTabAsync(CustomTabConfig tab)
     {
         return store.UpdateAsync<object?>(config =>
         {
-            var wanted = tabs.Select(static tab => tab.Id).ToHashSet(StringComparer.Ordinal);
-            config.CustomTabs.RemoveAll(tab => baseline.Contains(tab.Id) && !wanted.Contains(tab.Id));
-            foreach (var tab in tabs)
+            var index = config.CustomTabs.FindIndex(existing => existing.Id == tab.Id);
+            if (index >= 0)
             {
-                var index = config.CustomTabs.FindIndex(existing => existing.Id == tab.Id);
-                if (index >= 0)
-                {
-                    config.CustomTabs[index] = tab;
-                }
-                else
-                {
-                    config.CustomTabs.Add(tab);
-                }
+                config.CustomTabs[index] = tab;
+            }
+            else
+            {
+                config.CustomTabs.Add(tab);
             }
 
+            return null;
+        });
+    }
+
+    /// <summary>Removes one custom tab from the configuration.</summary>
+    /// <param name="id">The tab's id.</param>
+    /// <returns>Completion after the removal is saved.</returns>
+    internal Task DeleteCustomTabAsync(string id)
+    {
+        return store.UpdateAsync<object?>(config =>
+        {
+            config.CustomTabs.RemoveAll(tab => tab.Id == id);
             return null;
         });
     }

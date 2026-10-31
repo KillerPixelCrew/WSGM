@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
@@ -19,7 +18,6 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
     private readonly Action<string> _openUrl;
     private EmulatorBiosState? _bios;
     private long _catalogRevision;
-    private long _choicesRevision;
     private EmulatorCoreStatus[] _coreStatus = [];
     private EmulatorDependencyCount[] _dependencies = [];
     private bool _disposed;
@@ -45,7 +43,6 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
 
     internal long CatalogRevision => Interlocked.Read(ref _catalogRevision);
     internal long ProgressRevision => Interlocked.Read(ref _progressRevision);
-    internal long ChoicesRevision => Interlocked.Read(ref _choicesRevision);
 
     /// <summary>The session's admitted operation, including cancellation and staging cleanup.</summary>
     internal Task OperationCompletion
@@ -99,7 +96,7 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
         {
             var romState = ReadRomStateCore();
             return _pageState ??= new EmulatorPageState(_snapshot, _systems!, romState.Choices, _dependencies,
-                RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "arm64" : "x64")
+                EmulatorPackages.HostArchitecture)
             {
                 Bios = _manager.ReadBiosState(),
                 ShortcutStatus = _shortcutStatus,
@@ -342,7 +339,6 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
             _romState = null;
             _pageState = null;
             Interlocked.Increment(ref _catalogRevision);
-            Interlocked.Increment(ref _choicesRevision);
         }
 
         ChoicesChanged?.Invoke();

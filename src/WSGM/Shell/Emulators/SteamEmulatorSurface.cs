@@ -92,16 +92,13 @@ internal static class SteamEmulatorSurface
         value = default;
         if (!SteamUiPayload.HasExactly(payload, 3)
             || !SteamUiPayload.TryReadNonBlankString(payload, "installationId", out var id)
-            || !payload.TryGetProperty("enabled", out var enabled)
-            || enabled.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
-            || !payload.TryGetProperty("launchMode", out var mode) || mode.ValueKind != JsonValueKind.Number
-            || !mode.TryGetInt32(out var launchMode)
-            || launchMode is < 0 or > 3)
+            || !SteamUiPayload.TryReadBoolean(payload, "enabled", out var enabled)
+            || !SteamUiPayload.TryReadInt(payload, "launchMode", minimum: 0, maximum: 3, out var launchMode))
         {
             return false;
         }
 
-        value = new ShortcutRequest(id, enabled.GetBoolean(), launchMode);
+        value = new ShortcutRequest(id, enabled, launchMode);
         return true;
     }
 

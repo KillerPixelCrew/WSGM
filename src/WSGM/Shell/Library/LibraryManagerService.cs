@@ -445,16 +445,11 @@ internal sealed class LibraryManagerService : IDisposable
             var existing = string.IsNullOrWhiteSpace(tab.Id)
                 ? null
                 : stored.FirstOrDefault(t => string.Equals(t.Id, tab.Id, StringComparison.Ordinal));
-            var saved = new CustomTabConfig
-            {
-                Id = existing?.Id ?? (string.IsNullOrWhiteSpace(tab.Id) ? Guid.NewGuid().ToString("N") : tab.Id),
-                Name = name,
-                Enabled = tab.Enabled,
-                Position = existing?.Position ?? (stored.Count == 0 ? 0 : stored.Max(t => t.Position) + 1),
-                Categories = tab.Categories,
-                FilterTree = tab.FilterTree.Clone()
-            };
-            await _tabs.SaveCustomTabsAsync([saved], new HashSet<string>()).ConfigureAwait(false);
+            var saved = tab.Copy();
+            saved.Id = existing?.Id ?? (string.IsNullOrWhiteSpace(tab.Id) ? Guid.NewGuid().ToString("N") : tab.Id);
+            saved.Name = name;
+            saved.Position = existing?.Position ?? (stored.Count == 0 ? 0 : stored.Max(t => t.Position) + 1);
+            await _tabs.SaveCustomTabAsync(saved).ConfigureAwait(false);
             StartQuietSync("builder");
             token.ThrowIfCancellationRequested();
             await ReprojectAsync(token).ConfigureAwait(false);
@@ -475,8 +470,7 @@ internal sealed class LibraryManagerService : IDisposable
                 return new SteamUiCommandResult(false, "That tab is no longer there.");
             }
 
-            await _tabs.SaveCustomTabsAsync([], new HashSet<string>(StringComparer.Ordinal) { id })
-                .ConfigureAwait(false);
+            await _tabs.DeleteCustomTabAsync(id).ConfigureAwait(false);
             StartQuietSync("builder");
             token.ThrowIfCancellationRequested();
             await ReprojectAsync(token).ConfigureAwait(false);
@@ -812,7 +806,7 @@ internal sealed class LibraryManagerService : IDisposable
             }
 
             var views = cards ?? SdCardLibraryCatalog.ProjectCards(config, reading?.Present ?? PresentCards());
-            var tabs = config.CustomTabs.OrderBy(tab => tab.Position).Select(Clone).ToList();
+            var tabs = config.CustomTabs.OrderBy(tab => tab.Position).Select(tab => tab.Copy()).ToList();
             var order = LibraryTabManager.BuildTabOrder(config);
             var choices = config.CardLibraries.Select(card => new LibraryTabCardChoice(card.ContentId, card.Name))
                 .ToList();
@@ -841,19 +835,6 @@ internal sealed class LibraryManagerService : IDisposable
             // is in fact still tracked.
             Mutate(snapshot => snapshot with { Error = "Couldn't read your cards. Try again." });
         }
-    }
-
-    private static CustomTabConfig Clone(CustomTabConfig tab)
-    {
-        return new CustomTabConfig
-        {
-            Id = tab.Id,
-            Name = tab.Name,
-            Enabled = tab.Enabled,
-            Position = tab.Position,
-            Categories = tab.Categories,
-            FilterTree = tab.FilterTree.Clone()
-        };
     }
 
     private void Mutate(Func<LibraryManagerSnapshot, LibraryManagerSnapshot> change)

@@ -215,6 +215,29 @@ public static class StorageLibraryStorage
         }
     }
 
+    /// <summary>Whether every file a card entry needs, its backing path and each required companion, is on the card.</summary>
+    /// <param name="entry">The card entry.</param>
+    /// <param name="volumeId">The card's volume.</param>
+    /// <param name="context">The shared probe context of one availability pass, or null for a single check.</param>
+    /// <returns>True when each path reads as present.</returns>
+    public static bool FilesPresent(StorageLibraryContent entry, string volumeId,
+        ManagedContentCheckContext? context = null)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        return new[] { entry.BackingPath }.Concat(entry.RequiredPaths).All(path =>
+            InspectPath(volumeId, path.RelativePath, path.Directory, context) == ContentPathState.Present);
+    }
+
+    /// <summary>Whether a record's content can travel on its card: a directly launched recipe bound to a volume.</summary>
+    /// <param name="content">The managed content.</param>
+    /// <returns>True for ROM, folder and manual content with a bound volume.</returns>
+    public static bool IsPortable(ManagedContentRecord content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        return content.SourceKind is LibrarySourceKind.Rom or LibrarySourceKind.Folder or LibrarySourceKind.Manual
+               && content.BackingPath.VolumeId.Length > 0;
+    }
+
     /// <summary>Finds a unique existing portable recipe; a conflict throws rather than guessing an ID.</summary>
     public static StorageLibraryContent? Match(StorageLibraryManifest manifest, ManagedContentRecord content)
     {

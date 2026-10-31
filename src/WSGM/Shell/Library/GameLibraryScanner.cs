@@ -487,14 +487,6 @@ internal sealed class GameLibraryScanner(
             {
                 notes.Add(ex.Message);
             }
-        }
-
-        lock (owner.Gate)
-        {
-            if (!owner.IsCurrent(generation))
-            {
-                return;
-            }
 
             IReadOnlyList<ImportChoice> choices;
             try

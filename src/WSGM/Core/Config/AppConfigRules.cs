@@ -51,7 +51,7 @@ internal static class AppConfigRules
         config.Artwork ??= new ArtworkConfig();
         diagnostics.AddRange(ArtworkRules.Normalize(config.Artwork));
         config.GameLibrary ??= new GameLibraryConfig();
-        diagnostics.AddRange(GameLibraryRules.Normalize(config.GameLibrary));
+        GameLibraryRules.Normalize(config.GameLibrary);
         config.Themes ??= new ThemesConfig();
         diagnostics.AddRange(ThemeRules.Normalize(config.Themes));
         config.Animations ??= new AnimationsConfig();

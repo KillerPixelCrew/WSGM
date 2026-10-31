@@ -327,8 +327,7 @@ internal sealed class EmulatorShortcutSync : IDisposable
                 entry.AppId = fresh.AppId;
                 entry.ConfirmedUtc = DateTime.UtcNow.ToString("O");
                 _store.Save(entry);
-                if (!CommandShortcut.Same(fresh, fields.Target, fields.LaunchOptions)
-                    || !CommandShortcut.SameFolder(fresh.StartDirectory, fields.StartDirectory))
+                if (!CommandShortcut.Matches(fresh, fields))
                 {
                     entry.PendingLaunch = fields;
                     _store.Save(entry);
@@ -375,9 +374,7 @@ internal sealed class EmulatorShortcutSync : IDisposable
             return library.SingleOrDefault(item => item.AppId == entry.AppId);
         }
 
-        var matches = library.Where(item => CommandShortcut.Same(item, entry.Target, entry.LaunchOptions)
-                                             && CommandShortcut.SameFolder(item.StartDirectory, entry.StartDirectory))
-            .ToArray();
+        var matches = library.Where(item => ImportPlan.OwnsRecorded(item, entry)).ToArray();
         return matches.Length switch
         {
             0 => null,
@@ -390,15 +387,13 @@ internal sealed class EmulatorShortcutSync : IDisposable
     {
         if (entry.PendingLaunch is { } pending)
         {
-            if (CommandShortcut.Same(live, pending.Target, pending.LaunchOptions)
-                && CommandShortcut.SameFolder(live.StartDirectory, pending.StartDirectory))
+            if (CommandShortcut.Matches(live, pending))
             {
                 entry.Target = pending.Target;
                 entry.StartDirectory = pending.StartDirectory;
                 entry.LaunchOptions = pending.LaunchOptions;
             }
-            else if (!CommandShortcut.Same(live, entry.Target, entry.LaunchOptions)
-                     || !CommandShortcut.SameFolder(live.StartDirectory, entry.StartDirectory))
+            else if (!ImportPlan.OwnsRecorded(live, entry))
             {
                 throw new InvalidOperationException($"{entry.Name}: its pending shortcut update could not be reconciled. Nothing was changed.");
             }
@@ -409,8 +404,7 @@ internal sealed class EmulatorShortcutSync : IDisposable
             _store.Save(entry);
         }
 
-        if (!CommandShortcut.Same(live, entry.Target, entry.LaunchOptions)
-            || !CommandShortcut.SameFolder(live.StartDirectory, entry.StartDirectory))
+        if (!ImportPlan.OwnsRecorded(live, entry))
         {
             throw new InvalidOperationException($"{entry.Name}: its Steam shortcut was edited outside WSGM. Nothing was changed.");
         }

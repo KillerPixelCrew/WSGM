@@ -71,8 +71,6 @@ internal static class LibraryBadges
     /// </remarks>
     internal static void Update(AppConfig config, IReadOnlySet<string> presentContentIds)
     {
-        ArgumentNullException.ThrowIfNull(config);
-        ArgumentNullException.ThrowIfNull(presentContentIds);
         Update(config, presentContentIds, ReadLibraryFolders());
     }
 

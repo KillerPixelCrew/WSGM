@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -261,13 +262,18 @@ public sealed partial class GameLibraryView : ServiceSubView
 
             if (entry.Packaged)
             {
-                stack.Children.Add(ChoiceRow("Input mode",
-                    new[]
-                    {
-                        (nameof(ImportMode.ControllerOnly), "Controller only"),
-                        (nameof(ImportMode.SteamIntegration), "Steam integration")
-                    }, entry.Mode,
-                    mode => ChooseMode(entry, mode)));
+                // The same options the Steam page offers: the overlay route only where one is validated.
+                List<(string, string)> modes =
+                [
+                    (nameof(ImportMode.ControllerOnly), GameLibraryProjection.ModeLabel(ImportMode.ControllerOnly))
+                ];
+                if (entry.CanUseSteamIntegration)
+                {
+                    modes.Add((nameof(ImportMode.SteamIntegration),
+                        GameLibraryProjection.ModeLabel(ImportMode.SteamIntegration)));
+                }
+
+                stack.Children.Add(ChoiceRow("Input mode", modes, entry.Mode, mode => ChooseMode(entry, mode)));
             }
         }
 

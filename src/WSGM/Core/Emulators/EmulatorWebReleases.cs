@@ -52,14 +52,8 @@ internal static class EmulatorWebReleases
         else if (source.ChecksumFile == "{asset}.sha256")
         {
             var checksum = await network.TextAsync(asset.Uri.AbsoluteUri + ".sha256", token).ConfigureAwait(false);
-            var match = Regex.Match(checksum.Trim(), "^([a-fA-F0-9]{64})(?:\\s|$)",
-                RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
-            if (!match.Success)
-            {
-                throw new InvalidDataException("The publisher's checksum file contains no SHA-256.");
-            }
-
-            hash = match.Groups[1].Value.ToLowerInvariant();
+            hash = UpdateChecker.ParseHash(checksum)
+                   ?? throw new InvalidDataException("The publisher's checksum file contains no SHA-256.");
         }
 
         return new EmulatorRelease(version, asset.Uri.AbsoluteUri + ":" + hash, page.AbsoluteUri, "WebPage",

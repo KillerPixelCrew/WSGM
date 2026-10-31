@@ -224,10 +224,6 @@ public sealed partial class EmulatorManager : IDisposable
             var checks = requests.Select(async request =>
             {
                 var (definition, channel) = request;
-                var targetArchitecture =
-                    RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.Arm64
-                        ? "arm64"
-                        : "x64";
                 await requestsGate.WaitAsync(token).ConfigureAwait(false);
                 try
                 {
@@ -249,7 +245,7 @@ public sealed partial class EmulatorManager : IDisposable
                     {
                         return new EmulatorOffer
                         {
-                            DefinitionId = definition.Id, Channel = channel, Architecture = targetArchitecture,
+                            DefinitionId = definition.Id, Channel = channel, Architecture = EmulatorPackages.HostArchitecture,
                             Error = ex.Message
                         };
                     }
@@ -484,7 +480,6 @@ public sealed partial class EmulatorManager : IDisposable
         var program = Path.Combine(stage, "program");
         var downloads = Path.Combine(stage, "downloads");
         var data = Path.Combine(_folders.DataRoot, id);
-        const bool ownsData = true;
         var archive = Path.Combine(downloads, release.Asset.Name);
         try
         {
@@ -543,7 +538,7 @@ public sealed partial class EmulatorManager : IDisposable
                 SteamShortcutLaunchMode = previous?.SteamShortcutLaunchMode ?? 2,
                 Channel = channel, Architecture = architecture, Version = release.Version, ReleaseId = release.Id,
                 Root = installRoot, ExecutablePath = Path.Combine(versionRoot, relativeExecutable), DataPath = data,
-                OwnsData = ownsData, PreviousExecutablePath = previous?.ExecutablePath ?? "",
+                OwnsData = true, PreviousExecutablePath = previous?.ExecutablePath ?? "",
                 SourceUrl = release.Asset.Url,
                 PackageName = release.Asset.Name,
                 Source = release.Provider, Sha256 = hash, ExpectedSha256 = release.Asset.Sha256,
@@ -623,10 +618,7 @@ public sealed partial class EmulatorManager : IDisposable
                     {
                         PackageHashes = EmulatorPackages.PreserveArchives(downloads, candidate.PackageCachePath)
                     };
-                    if (ownsData)
-                    {
-                        Directory.CreateDirectory(data);
-                    }
+                    Directory.CreateDirectory(data);
 
                     EmulatorDataBinding.Configure(candidate);
                     EmulatorPortable.Verify(candidate);
@@ -940,9 +932,7 @@ public sealed partial class EmulatorManager : IDisposable
 
     private static string Architecture(EmulatorPackageDefinition definition)
     {
-        var architecture = RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.Arm64
-            ? "arm64"
-            : "x64";
+        var architecture = EmulatorPackages.HostArchitecture;
         if (RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.X64
             && !definition.Architectures.Contains(architecture, StringComparer.Ordinal)
             && definition.Architectures.Contains("x86", StringComparer.Ordinal))

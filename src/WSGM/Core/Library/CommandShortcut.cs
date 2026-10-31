@@ -147,8 +147,7 @@ public static class CommandShortcut
 
         if (route.IsManaged || !route.Follows)
         {
-            return Same(shortcut, fields.Target, fields.LaunchOptions)
-                   && SameFolder(shortcut.StartDirectory, fields.StartDirectory);
+            return Matches(shortcut, fields);
         }
 
         return SameProgram(shortcut.Target, fields.Target)
@@ -190,6 +189,17 @@ public static class CommandShortcut
         ArgumentNullException.ThrowIfNull(shortcut);
         return SameProgram(shortcut.Target, target)
                && string.Equals(shortcut.LaunchOptions.Trim(), launchOptions.Trim(), StringComparison.Ordinal);
+    }
+
+    /// <summary>Whether a live shortcut runs exactly these composed fields, start folder included.</summary>
+    /// <param name="shortcut">The shortcut Steam reports.</param>
+    /// <param name="fields">The fields that were or would be written.</param>
+    /// <returns>True when the program, the arguments and the start folder agree.</returns>
+    public static bool Matches(ExistingShortcut shortcut, ShortcutFields fields)
+    {
+        ArgumentNullException.ThrowIfNull(fields);
+        return Same(shortcut, fields.Target, fields.LaunchOptions)
+               && SameFolder(shortcut.StartDirectory, fields.StartDirectory);
     }
 
     /// <summary>Removes the surrounding whitespace and quotes Steam may store around a Target or Start In.</summary>

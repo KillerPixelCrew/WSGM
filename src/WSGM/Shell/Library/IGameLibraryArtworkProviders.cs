@@ -16,10 +16,10 @@ internal interface IGameLibraryArtworkProviders
     /// <returns>An opaque configuration fingerprint for invalidating cached candidates; do not display or log it.</returns>
     string Signature();
 
-    string? PauseReason(string providerId)
-    {
-        return null;
-    }
+    /// <summary>Why further requests to one provider are paused, or null when they may proceed.</summary>
+    /// <param name="providerId">The provider's identifier.</param>
+    /// <returns>A user-facing pause reason, or null when the provider may be asked.</returns>
+    string? PauseReason(string providerId);
 
     /// <summary>The automatic match: the first provider, in preference order, that knows the title.</summary>
     /// <exception cref="ArtworkProviderException">A provider that should have been asked could not be.</exception>

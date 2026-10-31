@@ -26,9 +26,6 @@ public static class XboxRuntimeClassifier
     /// <summary>The launch helper a GDK title activates.</summary>
     private const string GameLaunchHelper = "gamelaunchhelper.exe";
 
-    /// <summary>The capability a packaged Win32 application needs to run outside a sandbox.</summary>
-    private const string RunFullTrust = "runFullTrust";
-
     /// <summary>The package family every GDK title depends on.</summary>
     private const string GamingServices = "Microsoft.GamingServices";
 

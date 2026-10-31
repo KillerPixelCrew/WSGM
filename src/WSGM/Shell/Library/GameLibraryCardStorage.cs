@@ -77,7 +77,7 @@ internal sealed class GameLibraryCardStorage(
             game = TrackLauncherStorage(game);
         }
 
-        if (game.Content is not { } content || !PortableContent(content))
+        if (game.Content is not { } content || !StorageLibraryStorage.IsPortable(content))
         {
             return game;
         }
@@ -130,7 +130,7 @@ internal sealed class GameLibraryCardStorage(
         var content = entry.Game.Content!;
         var volume = Tracked.Volumes.FirstOrDefault(item => item.Removable
                                                             && SameId(item.VolumeId, content.BackingPath.VolumeId));
-        if (Tracker is null || !PortableContent(content) || volume is null)
+        if (Tracker is null || !StorageLibraryStorage.IsPortable(content) || volume is null)
         {
             return;
         }
@@ -173,13 +173,9 @@ internal sealed class GameLibraryCardStorage(
             }
 
             var portable = StorageLibraryStorage.FromManaged(content, volumeId, content.Location);
-            foreach (var path in new[] { portable.BackingPath }.Concat(portable.RequiredPaths))
+            if (!StorageLibraryStorage.FilesPresent(portable, volumeId))
             {
-                if (StorageLibraryStorage.InspectPath(volumeId, path.RelativePath, path.Directory)
-                    != ContentPathState.Present)
-                {
-                    throw new IOException("The game files could not be found on the card.");
-                }
+                throw new IOException("The game files could not be found on the card.");
             }
 
             var library = known ?? new StorageLibraryRecord { Id = manifest.Id, VolumeId = volumeId };
@@ -458,13 +454,6 @@ internal sealed class GameLibraryCardStorage(
                 }
                 : route).ToArray()
         };
-    }
-
-    /// <summary>Whether a record's content can travel on its card: a directly launched recipe bound to a volume.</summary>
-    private static bool PortableContent(ManagedContentRecord content)
-    {
-        return content.SourceKind is LibrarySourceKind.Rom or LibrarySourceKind.Folder or LibrarySourceKind.Manual
-               && content.BackingPath.VolumeId.Length > 0;
     }
 
     private static bool SameId(string first, string second) =>

@@ -47,18 +47,12 @@ public interface IGameLibraryBackend
     /// <summary>Rebuilds a connected card's missing or damaged game list from the titles WSGM knows, immediately.</summary>
     /// <param name="id">The card library's UUID.</param>
     /// <param name="cancellationToken">Cancels request admission.</param>
-    Task<SteamUiCommandResult> RepairLibraryAsync(string id, CancellationToken cancellationToken)
-    {
-        return Task.FromResult(SteamUiCommandResult.Refused);
-    }
+    Task<SteamUiCommandResult> RepairLibraryAsync(string id, CancellationToken cancellationToken);
 
     /// <summary>Makes this device launch a connected card's titles from the volume it is on now, immediately.</summary>
     /// <param name="id">The card library's UUID.</param>
     /// <param name="cancellationToken">Cancels request admission.</param>
-    Task<SteamUiCommandResult> UseLibraryAsync(string id, CancellationToken cancellationToken)
-    {
-        return Task.FromResult(SteamUiCommandResult.Refused);
-    }
+    Task<SteamUiCommandResult> UseLibraryAsync(string id, CancellationToken cancellationToken);
 
     /// <summary>Scans the ticked sources. Writes nothing to Steam.</summary>
     /// <param name="cancellationToken">Cancels request admission; accepted background work uses the owning service’s lifetime.</param>

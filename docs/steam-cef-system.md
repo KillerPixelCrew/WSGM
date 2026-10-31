@@ -1212,7 +1212,7 @@ Extensions row at the next publication, so the tab never offers a manager that c
 tab editor edits a draft of one tab in the page and sends the whole tab back as `saveTab`; the
 service validates it (a name, at least one complete filter, including the title pattern its
 evaluator can run), places a new tab after the last and stores it through
-`LibraryTabManager.SaveCustomTabsAsync`. Moves and native-tab hiding go through
+`LibraryTabManager.SaveCustomTabAsync`. Moves and native-tab hiding go through
 `LibraryTabOrderWriter`, which saves the newest pressed order through
 `LibraryTabManager.SaveTabOrderAsync` once the presses pause and then shows it in Steam; the service
 keeps the pressed-to order while the writer runs so a refresh in between cannot put an older order

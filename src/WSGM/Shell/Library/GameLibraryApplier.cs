@@ -170,22 +170,17 @@ internal sealed class GameLibraryApplier(
         {
             var accountSnapshot = await readLibrary(cancellationToken).ConfigureAwait(false);
             var accountId = CaptureAccount(accountSnapshot);
-            if (store.LegacyCollections().Count > 0)
+            if (readCollections is null && store.LegacyCollections().Count > 0)
             {
-                if (readCollections is null)
-                {
-                    problems.Add("Steam collections could not be checked. Legacy collection changes remain pending.");
-                    return;
-                }
-
-                var observed = await readCollections(accountId, cancellationToken).ConfigureAwait(false);
-                RequireAccount(accountId);
-                store.BindLegacyCollections(accountId, observed);
+                problems.Add("Steam collections could not be checked. Legacy collection changes remain pending.");
+                return;
             }
+
+            await ObserveLegacyCollectionsAsync(accountId, cancellationToken).ConfigureAwait(false);
 
             var settings = owner.ReadSettings();
             var names = GameLibraryScanner.SourceNames(sources());
-            foreach (var system in emulators.CachedSystems)
+            foreach (var system in emulators.Read().Systems)
             {
                 names.TryAdd("rom-system:" + system.Id, system.Name);
             }

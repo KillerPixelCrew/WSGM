@@ -1066,7 +1066,6 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 return cached;
             }
 
-            _ = _emulators.Read();
             _published = GameLibraryProjection.BuildState(
                 ReadSettings(),
                 _scanner.Sources(),

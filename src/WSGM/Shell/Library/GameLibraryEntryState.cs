@@ -11,8 +11,6 @@ namespace WSGM.Shell;
 /// <param name="game">What its source discovered, or a stand-in for a title no longer installed.</param>
 internal sealed class GameLibraryEntryState(string id, ImportPlanEntry plan, DiscoveredGame game)
 {
-    private readonly ImportChoice _choice = new();
-
     /// <summary>The stable id, kept across scans.</summary>
     internal string Id { get; } = id;
 
@@ -23,11 +21,7 @@ internal sealed class GameLibraryEntryState(string id, ImportPlanEntry plan, Dis
     internal DiscoveredGame Game { get; set; } = game;
 
     /// <summary>The title name the user gave a ROM, or empty.</summary>
-    internal string TitleName
-    {
-        get => _choice.TitleName;
-        set => _choice.TitleName = value;
-    }
+    internal string TitleName { get; set; } = "";
 
     /// <summary>The title name the shortcut was last recorded with.</summary>
     internal string RecordedTitleName { get; set; } = "";
@@ -36,38 +30,22 @@ internal sealed class GameLibraryEntryState(string id, ImportPlanEntry plan, Dis
     internal bool RenameRequested => TitleName.Length > 0 && TitleName != RecordedTitleName;
 
     /// <summary>The emulator installation the user picked for a ROM, or empty for the source default.</summary>
-    internal string EmulatorOverride
-    {
-        get => _choice.EmulatorInstallationId;
-        set => _choice.EmulatorInstallationId = value;
-    }
+    internal string EmulatorOverride { get; set; } = "";
 
     /// <summary>The core the user picked for a ROM, or empty for the source default.</summary>
-    internal string CoreOverride
-    {
-        get => _choice.CoreId;
-        set => _choice.CoreId = value;
-    }
+    internal string CoreOverride { get; set; } = "";
 
     /// <summary>Whether the managed content's launch changed since it was recorded.</summary>
     internal bool ContentChanged { get; set; }
 
     /// <summary>Whether the user selected the imported managed shortcut for cleanup.</summary>
-    internal bool Cleanup
-    {
-        get => _choice.Cleanup;
-        set => _choice.Cleanup = value;
-    }
+    internal bool Cleanup { get; set; }
 
     /// <summary>The plan a cleanup replaced, restored when the cleanup is cancelled.</summary>
     internal ImportPlanEntry? BeforeCleanup { get; set; }
 
     /// <summary>The arguments the user typed for a ROM, or empty for the source default.</summary>
-    internal List<string> ArgumentsOverride
-    {
-        get => _choice.Arguments;
-        set => _choice.Arguments = value;
-    }
+    internal List<string> ArgumentsOverride { get; set; } = [];
 
     /// <summary>The input mode a packaged title would launch with.</summary>
     internal ImportMode Mode { get; set; }

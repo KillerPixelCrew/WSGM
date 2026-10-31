@@ -170,16 +170,23 @@ public sealed partial class EmulatorManager
                 }
             }
 
-            VerifyBios(token);
             if (copied == 0)
             {
                 throw new InvalidDataException(
                     "No recognized BIOS files were found. Preserve the EmuDeck folder layout.");
             }
 
-            RelinkBios(token, systemId, installFirmware: firmwareAdded);
-            Mutate(store => store with { BiosFolder = folder }, false);
-            VerifyBios(token);
+            // The copied files are shown verified even when linking them to an emulator fails.
+            try
+            {
+                RelinkBios(token, systemId, installFirmware: firmwareAdded);
+                Mutate(store => store with { BiosFolder = folder }, false);
+            }
+            finally
+            {
+                VerifyBios(token);
+            }
+
             SetStatus(
                 $"Added {copied} BIOS files and linked installed emulators. Firmware packages use Install firmware.");
             return Task.CompletedTask;

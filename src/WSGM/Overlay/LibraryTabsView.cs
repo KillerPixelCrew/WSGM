@@ -323,7 +323,7 @@ public sealed class LibraryTabsView : OverlaySubView
     {
         _listShown = false;
         _editingOriginal = existing;
-        _editing = existing is null ? new CustomTabConfig { Id = Guid.NewGuid().ToString("N") } : Clone(existing);
+        _editing = existing is null ? new CustomTabConfig { Id = Guid.NewGuid().ToString("N") } : existing.Copy();
         Navigate(RenderTabEditor);
     }
 
@@ -982,18 +982,5 @@ public sealed class LibraryTabsView : OverlaySubView
     private static string Cond(FilterNode node)
     {
         return node.Condition == ThresholdCondition.Above ? "≥" : "<";
-    }
-
-    private static CustomTabConfig Clone(CustomTabConfig t)
-    {
-        return new CustomTabConfig
-        {
-            Id = t.Id,
-            Name = t.Name,
-            Enabled = t.Enabled,
-            Position = t.Position,
-            Categories = t.Categories,
-            FilterTree = t.FilterTree.Clone()
-        };
     }
 }

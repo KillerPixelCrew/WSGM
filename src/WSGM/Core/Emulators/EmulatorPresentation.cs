@@ -53,7 +53,7 @@ internal static class EmulatorPresentation
 
     internal static string SystemName(string id)
     {
-        return RomProfiles.ForInstallations([]).FirstOrDefault(system => system.Id == id)?.Name ?? id;
+        return RomProfiles.All.FirstOrDefault(system => system.Id == id)?.Name ?? id;
     }
 
     internal static string SystemGroup(string id)

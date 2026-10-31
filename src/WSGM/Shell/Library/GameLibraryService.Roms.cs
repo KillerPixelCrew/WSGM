@@ -101,14 +101,6 @@ internal sealed partial class GameLibraryService
     public Task<SteamUiCommandResult> RemoveRomSourceAsync(string id, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
-        {
-            if (Guard() is { } blocked)
-            {
-                return Task.FromResult(blocked);
-            }
-        }
-
         return SaveSources(settings =>
         {
             settings.RomSources.RemoveAll(source => source.Id == id);
@@ -198,14 +190,6 @@ internal sealed partial class GameLibraryService
     public Task<SteamUiCommandResult> RemoveManualSourceAsync(string id, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
-        {
-            if (Guard() is { } blocked)
-            {
-                return Task.FromResult(blocked);
-            }
-        }
-
         return SaveSources(settings =>
         {
             settings.ManualSources.RemoveAll(source => source.Id == id);

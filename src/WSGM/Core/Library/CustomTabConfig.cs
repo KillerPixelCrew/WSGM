@@ -34,4 +34,13 @@ public sealed class CustomTabConfig
     ///     tab's AND/OR; its children are the filters.
     /// </summary>
     public FilterNode FilterTree { get; set; } = new() { Kind = FilterKind.Merge };
+
+    /// <summary>Copies the tab and its filter tree.</summary>
+    /// <returns>A detached draft suitable for editing without mutating the current configuration.</returns>
+    internal CustomTabConfig Copy()
+    {
+        var copy = (CustomTabConfig)MemberwiseClone();
+        copy.FilterTree = FilterTree.Clone();
+        return copy;
+    }
 }

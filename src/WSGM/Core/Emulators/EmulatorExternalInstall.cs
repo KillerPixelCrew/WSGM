@@ -116,12 +116,9 @@ internal static class EmulatorExternalInstall
     {
         using var stream = File.OpenRead(path);
         using PEReader reader = new(stream);
-        return reader.PEHeaders.CoffHeader.Machine switch
-        {
-            Machine.Amd64 => "x64",
-            Machine.I386 => "x86",
-            Machine.Arm64 => "arm64",
-            _ => throw new InvalidDataException("This Windows emulator architecture is unsupported.")
-        };
+        var architecture = EmulatorPackages.PeArchitecture(reader);
+        return architecture.Length > 0
+            ? architecture
+            : throw new InvalidDataException("This Windows emulator architecture is unsupported.");
     }
 }

@@ -33,18 +33,6 @@ internal sealed class GameLibraryEmulators(EmulatorService? service)
         }
     }
 
-    /// <summary>The parser systems last read, or the built-in profiles before any read.</summary>
-    internal IReadOnlyList<RomSystemProfile> CachedSystems
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return _romSystems ?? RomProfiles.All;
-            }
-        }
-    }
-
     /// <summary>Drops the cached choices and systems, so the next read asks the emulator manager again.</summary>
     internal void Invalidate()
     {

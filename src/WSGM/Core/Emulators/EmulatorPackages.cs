@@ -4,6 +4,8 @@ using System.Globalization;
 using System.IO;
 using System.IO.Hashing;
 using System.Linq;
+using System.Reflection.PortableExecutable;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -16,6 +18,10 @@ namespace WSGM.Core;
 
 internal sealed class EmulatorPackages(EmulatorNetwork network)
 {
+    /// <summary>The package architecture this machine runs natively: <c>arm64</c> or <c>x64</c>.</summary>
+    internal static string HostArchitecture =>
+        RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "arm64" : "x64";
+
     private static readonly Dictionary<string, string[]> SystemAliases = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Nintendo - Nintendo Entertainment System"] = ["nes"], ["nes"] = ["nes"],
@@ -38,6 +44,9 @@ internal sealed class EmulatorPackages(EmulatorNetwork network)
         ["NEC - PC Engine - TurboGrafx 16"] = ["pcengine"], ["pc_engine"] = ["pcengine"],
         ["arcade"] = ["arcade"], ["MAME"] = ["arcade"]
     };
+
+    /// <summary>The RetroArch asset bundles every install downloads and every repair restores.</summary>
+    private static readonly string[] RetroArchBundles = ["info", "assets", "autoconfig", "database-rdb", "database-cursors"];
 
     public string CoreCatalogueRevision { get; private set; } = "";
 
@@ -97,7 +106,7 @@ internal sealed class EmulatorPackages(EmulatorNetwork network)
     public async Task<EmulatorCore[]> RepairCoresAsync(EmulatorInstallation installed, string programRoot,
         string downloads, Action<string> progress, CancellationToken cancellationToken)
     {
-        foreach (var name in new[] { "info", "assets", "autoconfig", "database-rdb", "database-cursors" })
+        foreach (var name in RetroArchBundles)
         {
             var archive = Path.Combine(downloads, name + ".zip");
             // Retained assets are the installed version's assets, not today's moving Buildbot bundle.
@@ -251,7 +260,7 @@ internal sealed class EmulatorPackages(EmulatorNetwork network)
             }
         }
 
-        foreach (var asset in new[] { "info", "assets", "autoconfig", "database-rdb", "database-cursors" })
+        foreach (var asset in RetroArchBundles)
         {
             progress("RetroArch: installing " + asset);
             var archive = Path.Combine(downloadRoot, asset + ".zip");
@@ -384,5 +393,19 @@ internal sealed class EmulatorPackages(EmulatorNetwork network)
 
         return (crc.GetCurrentHashAsUInt32().ToString("x8", CultureInfo.InvariantCulture),
             Convert.ToHexStringLower(sha.GetHashAndReset()));
+    }
+
+    /// <summary>The package architecture a Windows image was built for.</summary>
+    /// <param name="image">The executable's PE image.</param>
+    /// <returns><c>x64</c>, <c>arm64</c> or <c>x86</c>; empty for any other machine type.</returns>
+    internal static string PeArchitecture(PEReader image)
+    {
+        return image.PEHeaders.CoffHeader.Machine switch
+        {
+            Machine.Amd64 => "x64",
+            Machine.Arm64 => "arm64",
+            Machine.I386 => "x86",
+            _ => ""
+        };
     }
 }

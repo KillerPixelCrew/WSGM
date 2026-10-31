@@ -462,11 +462,8 @@ internal sealed class ShortcutAvailabilityTracker : IAsyncDisposable
     private void AdoptLegacyContent(IReadOnlyList<ObservedVolume> volumes, IReadOnlyDictionary<string, CardRead> reads,
         Dictionary<string, ConnectedCard> connected, ManagedContentCheckContext context, CancellationToken token)
     {
-        var legacy = _store.InventoryEntries().Where(entry => entry.Content is
-            {
-                LibraryId.Length: 0, BackingPath.VolumeId.Length: > 0,
-                SourceKind: LibrarySourceKind.Rom or LibrarySourceKind.Folder or LibrarySourceKind.Manual
-            })
+        var legacy = _store.InventoryEntries().Where(entry => entry.Content is { LibraryId.Length: 0 } content
+                                                             && StorageLibraryStorage.IsPortable(content))
             .GroupBy(entry => entry.Content!.BackingPath.VolumeId, StringComparer.OrdinalIgnoreCase);
         foreach (var group in legacy)
         {
@@ -539,11 +536,7 @@ internal sealed class ShortcutAvailabilityTracker : IAsyncDisposable
         try
         {
             var entry = StorageLibraryStorage.FromManaged(content, volumeId, content.Location);
-            return new[] { entry.BackingPath }.Concat(entry.RequiredPaths).All(path =>
-                StorageLibraryStorage.InspectPath(volumeId, path.RelativePath, path.Directory, context)
-                == ContentPathState.Present)
-                ? entry
-                : null;
+            return StorageLibraryStorage.FilesPresent(entry, volumeId, context) ? entry : null;
         }
         catch (InvalidDataException ex)
         {
