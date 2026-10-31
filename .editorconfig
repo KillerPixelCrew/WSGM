@@ -9,8 +9,10 @@ indent_style = space
 indent_size = 4
 
 [*.{cs,csx}]
-dotnet_sort_system_directives_first = true
-dotnet_separate_import_directive_groups = false
+# Rider orders using directives (jb cleanupcode in the gate). Its "System first" also places
+# Windows.* namespaces first, which Roslyn's import formatter rejects, and dotnet format only runs
+# that formatter when one of these two options is written here. Both tools default to System
+# first with no blank lines between groups, so the options stay at their defaults unwritten.
 csharp_new_line_before_open_brace = all
 csharp_indent_case_contents = true
 # Rider is the formatting authority. Its layout puts a case block's braces at the case label's
