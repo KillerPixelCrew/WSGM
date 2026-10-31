@@ -38,7 +38,7 @@ public sealed class OverlayControllerLifecycleTests
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             controller.OnPinToggleRequested("home.steam");
             controller.OnPinToggleRequested("home.desktop");
-            Assert.False(controller.PinWrites.IsCompleted);
+            Assert.False(controller.Pins.Writes.IsCompleted);
             // The watcher can still publish the first save while the second is queued.
             controller.ApplyConfig(new AppConfig { QuickAccessPins = ["home.steam"] });
             controller.OnPinToggleRequested("system.standby");
@@ -48,7 +48,7 @@ public sealed class OverlayControllerLifecycleTests
         {
             release.Set();
             await holdingStore.WaitAsync(TimeSpan.FromSeconds(5));
-            await controller.PinWrites.WaitAsync(TimeSpan.FromSeconds(5));
+            await controller.Pins.Writes.WaitAsync(TimeSpan.FromSeconds(5));
         }
 
         Assert.Equal(["home.steam", "home.desktop", "system.standby"],
@@ -75,7 +75,7 @@ public sealed class OverlayControllerLifecycleTests
             new SessionModes(config, null), audio, radios, drives, previewOnly: true);
         controller.OnPinToggleRequested("home.steam");
         controller.OnPinToggleRequested("home.desktop");
-        await controller.PinWrites;
+        await controller.Pins.Writes;
         Assert.Equal(["home.steam"], config.QuickAccessPins);
         Assert.Equal(["home.steam"], fixture.Store.Read().RequireConfig().QuickAccessPins);
     }

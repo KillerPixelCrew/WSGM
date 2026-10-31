@@ -8,7 +8,7 @@ public sealed partial class OverlayController
 {
     private void ActivateProgram(string id)
     {
-        if (_disposed || _overlay is not { } window || _sources.Programs is not { } programs)
+        if (_disposed || _overlay is not { } window || _services.Sources.Programs is not { } programs)
         {
             return;
         }

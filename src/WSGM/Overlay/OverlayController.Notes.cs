@@ -21,7 +21,7 @@ public sealed partial class OverlayController
     /// </remarks>
     private void AttachNotes(OverlayWindow overlay)
     {
-        var notes = _sources.Notes;
+        var notes = _services.Sources.Notes;
         overlay.NotesHost.Attach(notes);
         if (notes is null)
         {
@@ -142,7 +142,7 @@ public sealed partial class OverlayController
 
     private void DisposeNotes()
     {
-        _sources.Notes?.OverlayCapturePorts = null;
+        _services.Sources.Notes?.OverlayCapturePorts = null;
     }
 
     /// <summary>Leaves and returns to the WSGM overlay for a Notes screenshot.</summary>

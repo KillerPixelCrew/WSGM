@@ -26,18 +26,18 @@ public sealed class QuickAccessSheetTests
     // The SteamOS map: left/right are Steam's, top/bottom are WSGM's. The bottom
     // edge is explorer's in desktop mode and stays ignored there.
     [Theory]
-    [InlineData(ScreenEdge.Top, false, OverlayController.SwipeAction.QuickAccess)]
-    [InlineData(ScreenEdge.Top, true, OverlayController.SwipeAction.QuickAccess)]
-    [InlineData(ScreenEdge.Bottom, false, OverlayController.SwipeAction.QuickAccessApps)]
-    [InlineData(ScreenEdge.Bottom, true, OverlayController.SwipeAction.None)] // desktop: explorer owns the edge
-    [InlineData(ScreenEdge.Left, false, OverlayController.SwipeAction.SteamMenu)]
-    [InlineData(ScreenEdge.Left, true, OverlayController.SwipeAction.SteamMenu)]
-    [InlineData(ScreenEdge.Right, false, OverlayController.SwipeAction.SteamQuickAccess)]
-    [InlineData(ScreenEdge.Right, true, OverlayController.SwipeAction.SteamQuickAccess)]
+    [InlineData(ScreenEdge.Top, false, OverlayActivation.SwipeAction.QuickAccess)]
+    [InlineData(ScreenEdge.Top, true, OverlayActivation.SwipeAction.QuickAccess)]
+    [InlineData(ScreenEdge.Bottom, false, OverlayActivation.SwipeAction.QuickAccessApps)]
+    [InlineData(ScreenEdge.Bottom, true, OverlayActivation.SwipeAction.None)] // desktop: explorer owns the edge
+    [InlineData(ScreenEdge.Left, false, OverlayActivation.SwipeAction.SteamMenu)]
+    [InlineData(ScreenEdge.Left, true, OverlayActivation.SwipeAction.SteamMenu)]
+    [InlineData(ScreenEdge.Right, false, OverlayActivation.SwipeAction.SteamQuickAccess)]
+    [InlineData(ScreenEdge.Right, true, OverlayActivation.SwipeAction.SteamQuickAccess)]
     public void EdgeSwipeRoutesToTheSteamOsLayout(
-        object edge, bool explorerRunning, OverlayController.SwipeAction expected)
+        object edge, bool explorerRunning, object expected)
     {
-        Assert.Equal(expected, OverlayController.DecideSwipe((ScreenEdge)edge, explorerRunning));
+        Assert.Equal((OverlayActivation.SwipeAction)expected, OverlayActivation.DecideSwipe((ScreenEdge)edge, explorerRunning));
     }
 
     [Theory]
