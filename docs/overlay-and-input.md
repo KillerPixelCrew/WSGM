@@ -16,7 +16,7 @@ covers the other executables and libraries.
 | Resident composition             | `Shell/Session/ShellSession.cs`, `Overlay/OverlaySources.cs`                                                                                                                | Supply the session's services; the window borrows them. `SimulatedDeviceOverlaySource` and `SimulatedGraphicsOverlaySource` provide preview publications.                                                                                                                                                                                                                                                   |
 | Overlay lifetime                 | `Overlay/OverlayController.cs` and `.Lease`, `.Apps`, `.Gestures`, `.Keyboard`, `.Power` partials                                                                           | Activation, capture claims, Steam Input claims, close deferral, focus return and pending-operation cancellation.                                                                                                                                                                                                                                                                                            |
 | Window and routes                | `Overlay/OverlayWindow.axaml`, `.axaml.cs`, `.Navigation`, `.Workspace`, `.Rail`, `.Placement`, `.Surfaces`                                                                 | Build the visual tree, select the display, fit scaling, remember sections and confine in-window surfaces. `OverlayPage.cs` holds stable page identities; the `SubViews` table declares parent/leave behavior.                                                                                                                                                                                               |
-| Capability presentation          | `Overlay/OverlayWindow.Device*`, `.Graphics`, `.Performance`, `.Pins`, `CapabilityRowRenderer.cs`, `DescriptorControlView.cs`                                               | Reconcile descriptor rows and pinned sections; report user intent through the supplied device, graphics or performance bridge.                                                                                                                                                                                                                                                                              |
+| Capability presentation          | `Overlay/DevicePages.cs`, `DevicePage`, `DeviceGroup`, `DeviceRow`, `DeviceGroupRenderer.cs`, `DevicePageView.cs`, `OverlayWindow.Device*`, `.Pins`                         | Describe each Device, GPU, performance and pinned page from the snapshots, draw it with one keyed renderer, and report user intent through the supplied device, graphics or performance bridge.                                                                                                                                                                                                             |
 | Utility and content presentation | `Overlay/StatusPanel.cs`, `RadioPanel`, `AudioPanel`, `EjectPanel`, `KeyboardPanel`, `ServiceSubView.cs`, `OverlaySubView.cs`, `OverlayProgress.cs`                         | Own transient presentation, nested navigation and subscriptions. `ThemesView`, `AnimationsView`, `SoundsView`, `ArtworkView` and `GameLibraryView` borrow durable services. A level that shows running work registers it with `ServiceSubView.SetLiveContent`, so a publication that changes only the progress updates its `OverlayProgress` in place and only a change to what the level draws redraws it. |
 | UI input                         | `Input/SdlGamepads.cs`, `GamepadService.cs`, `GamepadNavigation.cs`, `FocusSearch.cs`, `Overlay/OverlayInput.cs`                                                            | One SDL owner, UI sampling, edge/repeat decisions, focused-control dispatch and navigation.                                                                                                                                                                                                                                                                                                                 |
 | Managed input                    | `Shell/Controller/ControllerManager.cs`, `ControllerForwarding.cs`, `UiCaptureState.cs`, `Input/ManagedControllerRouter.cs`, `ManagedUiPad.cs`, `ControllerOutputRouter.cs` | Publish managed pad state to UI and suspend/resume game forwarding around capture. Physical transport and firmware interpretation belong to LibHandheld.                                                                                                                                                                                                                                                    |
@@ -112,10 +112,10 @@ the Card Manager to Steam library. Switching destination unwinds nested views, t
 remembered primary section.
 
 `OverlayNavigation` owns stable routes and section IDs. `OverlayWindow`'s `SubViews` table declares
-the host, parent and teardown for nested pages. Add a nested page through that owner, so Back,
-DefaultFocusTarget and leaving the destination agree. Pages are in-window controls, while selector
-popups keep their owning ComboBox as the controller target. The fixed Back control stays reachable
-when the content scrolls.
+the host, parent, entry and teardown for nested pages, the Device section and GPU pages included.
+Add a nested page through that owner, so Back, DefaultFocusTarget and leaving the destination agree.
+Pages are in-window controls, while selector popups keep their owning ComboBox as the controller
+target. The fixed Back control stays reachable when the content scrolls.
 
 ## Device sections, performance profiles and lighting color
 
@@ -137,8 +137,18 @@ enum value per section. Rows are grouped under declared category headings in sor
 order, with full-width folding groups stacked vertically. The SDK's closed prominence and pairing
 hints guide presentation without allowing plugin markup. A section that vanishes while its page is
 open renders a plain "no longer available" line, and a page whose section the snapshot no longer
-publishes returns to the Device root. Leaving a page releases the glyph sample lease and redraws
-both panels.
+publishes returns to the Device root. Device sections and the GPU page are sub-views of the one
+`DevicePageView`: entering one draws its description, and leaving releases the glyph sample lease
+and draws the page beneath.
+
+Each page is a description built once per refresh (`DevicePages`): an ordered list of groups, each
+with its pin id, title and pin title, fold policy, rows and nested groups. Shell owns the split into
+groups (`DeviceOverlayGroups`), including the Power page's lead limits, fan group and titles and the
+Controller page's leading configuration. The Overview is the per-application toggle above the Power
+page's groups; the pin chooser and Quick Access read the same groups. `DeviceGroupRenderer` turns a
+description into controls and keys what it drew by group id: an unchanged group refreshes its rows
+in place, a changed one is rebuilt alone, and nested groups in the shared Power fold are matched on
+their own. Pinned copies take their `pin:` scope as they are created.
 
 Quick Access pins saved while Device drew WSGM-owned fallback pages (`section.device.power`,
 `.controller`, `.controller-and-motion`, `.lighting` and `.diagnostics`) are read as the
@@ -201,14 +211,15 @@ zone's color editor claimed a per-zone brightness the firmware does not have.
 ## Collapsible groups and GPU preparation
 
 Device capability groups, power assignments, manual power, Windows energy plans, performance,
-display and common plugin categories use `CollapsibleSection`, backed by the same native Expander as
-Processor cores. The title and optional summary form one vertically centered header block; summary
-headers have extra height and line spacing. Its focusable header follows the QAM's folding model:
-activation toggles the mounted body, Left collapses and Right expands while the header has focus,
-and Down enters expanded controls through normal navigation. Collapsing a focused body returns focus
-to its header before hiding it. Pinning remains an independent, vertically centered tack icon
-button. Its tooltip names the action and its accent color marks a pinned section. Hidden bodies keep
-their state and subscriptions but leave controller and Tab navigation.
+Processor cores, the Overview's Quick Access pins, display and common plugin categories use
+`CollapsibleSection` over the native Expander. The title and optional summary form one vertically
+centered header block; summary headers have extra height and line spacing. Its focusable header
+follows the QAM's folding model: activation toggles the mounted body, Left collapses and Right
+expands while the header has focus, and Down enters expanded controls through normal navigation.
+Collapsing a focused body returns focus to its header before hiding it. Pinning remains an
+independent, vertically centered tack icon button. Its tooltip names the action and its accent color
+marks a pinned section. Hidden bodies keep their state and subscriptions but leave controller and
+Tab navigation.
 
 Groups start folded, matching QAM. Device, pinned and plugin group expansion is remembered by stable
 section identity for the resident session, including Overlay reopen. Unlike QAM's small
@@ -226,7 +237,7 @@ backend and no duplicate common-action renderer.
 | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | Device power, thermals and capabilities                        | Fold task/category groups; retain curve and color editors as deep pages.                                                      |
 | Windows energy plan, assignments, manual power and performance | Independent folding groups; keep live editor instances during telemetry.                                                      |
-| Controller and motion                                          | Stack full-width folds for glyphs, output configuration and plugin categories.                                                |
+| Controller and motion                                          | Stack full-width folds: one configuration group for output and glyphs, then plugin categories.                                |
 | Display                                                        | Fold brightness and display-mode controls together.                                                                           |
 | Common plugins and GPU                                         | Fold declared categories, retaining normal host action routing.                                                               |
 | Quick Access                                                   | Fold whole pinned groups with a separate pin action.                                                                          |

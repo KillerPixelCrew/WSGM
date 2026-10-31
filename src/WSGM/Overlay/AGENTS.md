@@ -15,6 +15,9 @@ Read docs/overlay-and-input.md, "In-window surfaces", for utility, keyboard, cre
   DevicePluginSection route plus a section ID rather than new enum values.
 - Shell publishes the Device pages and gives every row, host row and performance row its section. Draw and count only
   what it publishes; never add WSGM-owned fallback pages, folding rules or seeded rail counts in the Overlay.
+- Every Device, GPU, Tools performance and Quick Access group is a `DevicePages` description drawn by the one
+  `DeviceGroupRenderer`. Change the description, not the controls: no per-page flags, host panels or moving controls
+  between parents. Page layout rules, such as the Power page's groups, belong in Shell's `DeviceOverlayGroups`.
 - OverlayController owns lifetime and integration sequencing. Views and controls render state and report intent; they do
   not mutate ConfigStore or acquire leases directly.
 - Capture, focus, cursor, and input-lease transitions are paired operations. Every close, cancellation, failure, and

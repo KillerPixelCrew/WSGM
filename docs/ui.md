@@ -64,16 +64,16 @@ a selected section stays marked when focus enters the controls. The compositor b
 canvas, its blur setting and what happens when it is unavailable are in
 [overlay and input](overlay-and-input.md#the-quick-access-sheet).
 
-The controls plane uses bordered groups with 12-DIP separation and 12-DIP inner padding. Folding
-section headings use the native Expander styling shared with Processor cores, with an independent
-pin button. Their mounted bodies remain available for reconciliation while folded. Section state and
-the page audit are in
-[overlay and input](overlay-and-input.md#collapsible-groups-and-gpu-preparation). Supporting
-captions stay distinct from headings. Empty descriptions reserve no space. Labels and values are
-centered beside 36-DIP dropdowns, whose closed and popup surfaces use the deck palette. Fan curves
-sit in their group with their presets below the graph. Windows energy plans, power assignments and
-manual power each have a group of their own. Pinned sections keep their natural height, so short
-sections leave no large empty blocks between controls.
+The controls plane uses bordered groups with 12-DIP separation and 12-DIP inner padding. Every fold,
+Processor cores and the Overview's Quick Access pins included, is a persisted `CollapsibleSection`
+over the native Expander styling, with an independent pin button where the group can be pinned.
+Their mounted bodies remain available for reconciliation while folded. Section state and the page
+audit are in [overlay and input](overlay-and-input.md#collapsible-groups-and-gpu-preparation).
+Supporting captions stay distinct from headings. Empty descriptions reserve no space. Labels and
+values are centered beside 36-DIP dropdowns, whose closed and popup surfaces use the deck palette.
+Fan curves sit in their group with their presets below the graph. Windows energy plans, power
+assignments and manual power each have a group of their own. Pinned sections keep their natural
+height, so short sections leave no large empty blocks between controls.
 
 Game Mode lowers Windows scaling to 100%, and the overlay keeps using WSGM's saved desktop-DPI
 preference from `DisplayScale.GetUiScalePercent`. Desktop Mode uses native window DPI without
@@ -118,8 +118,10 @@ and `Icons` (stroke-style `StreamGeometry`). Stroke icons use `Fill={x:Null}` so
 detail stays visible.
 
 Descriptor rows keep semantic ids independent of placement. The performance projection renders its
-per-application toggle at the top of the Device overview and its value controls beside Device power;
-the window adds a placement-specific focus prefix when it creates each `DescriptorControlView`. Do
+per-application toggle at the top of the Device overview and its value controls beside Device power.
+`DeviceCapabilityControl` is the one row control for capabilities, host rows and performance rows;
+the renderer gives a pinned copy its `pin:` focus key as it creates it. The header's profile switch
+and the Overview toggle are two placements of one state and write it through the same command. Do
 not clone state or command logic to place the same control twice: the descriptor and its bridge stay
 the one owner, and each rendered row keeps a stable focus key.
 
@@ -210,11 +212,12 @@ Atlas startup reads the active stock profile's PL1/PL2 values from the EC. The s
 retained separately for later custom edits. Stock startup does not show unknown TDP merely because
 Manual is inactive; unavailable getters still leave writes usable.
 
-Every device's Power detail page has one outer Power expander containing Windows energy plans,
+Every device's Power detail page has one shared Power fold containing Windows energy plans,
 AC/battery preset assignments, manual power controls and firmware power controls. Subheadings retain
-their existing Quick Access pin actions without introducing separate power expanders. Pinned
-sections keep their independent folds. The shared view also covers integration disabled and devices
-without firmware power controls; Windows plans remain independently available.
+their existing Quick Access pin actions without introducing separate power folds; the fan group
+folds on its own after it. Pinned sections keep their independent folds. The shared view also covers
+integration disabled and devices without firmware power controls; Windows plans remain independently
+available.
 
 The device integration defines the preset list; both surfaces list every published preset in order.
 Atlas assignments offer Battery Saver, Efficiency, Light, Quiet, Balanced, Turbo, Full Power and
@@ -223,15 +226,16 @@ Manual, from 8/8 W up to Full Power at the firmware-advertised 40/65 W maxima, w
 power mode. Custom uses the manual controls. Selecting a firmware scenario pauses AutoTDP so its
 next write cannot overwrite that selection.
 
-The Device Overview shows the per-application profile switch, then the same Power and Fans folds as
-the Power page while device integration publishes power controls, then Performance, beside the
+The Device Overview shows the per-application profile switch, then the Power page's groups (the
+Power and Fans folds, Performance and Processor cores) under the same ids and keys, beside the
 persistent section rail. The rail lists each published page that draws rows, the shared Power, RGB,
 Controller and Info pages and any declared sections, with a badge counting those rows; it never
 shows a second Overview. Available sections and Quick Access pin choices keep stable identities.
 Windows energy plans are visible directly, including with integration disabled. Power holds the
 assignments and device-specific groups for manual power and display, fans, charging and automatic
-control; profile details and reset are collapsible. Controller stacks button glyph selection above
-controller output and explains unavailable output. Normal capability persistence and readback
+control; profile details and reset are collapsible. Controller leads with one Configuration group,
+the same group the pin list and Quick Access show: controller output, button glyph selection and its
+preview, with a caption in place of unavailable output. Normal capability persistence and readback
 details are tooltips, and faults stay visible in their rows. Device groups stack vertically at full
 width and share native folding headers with vertically centered titles. The closed SDK prominence
 and pairing hints guide their presentation. FluentAvalonia footer rows hold real sliders, numeric
@@ -261,10 +265,11 @@ take the Power variable refresh row from the same fixture through
 destination with an Intel-shaped simulated publication, described in
 [overlay and input](overlay-and-input.md#graphics-sections).
 
-Live value refreshes keep row and editor instances and their drafts. A descriptor generation,
-availability or layout identity change can rebuild the affected groups; those refreshes preserve
-scroll position and suppress accidental bring-into-view, while explicit navigation keeps its normal
-focus scrolling.
+Live value refreshes keep row and editor instances and their drafts. Each page is a `DevicePage`
+description, and `DeviceGroupRenderer` keys its groups by pin id: a group whose layout changed is
+rebuilt alone, so turning AutoTDP on rebuilds its configuration group and leaves the limits, the fan
+curve draft and the Power fold in place. Those refreshes preserve scroll position and suppress
+accidental bring-into-view, while explicit navigation keeps its normal focus scrolling.
 
 ## Readable controls and pins
 
