@@ -1246,7 +1246,7 @@ public sealed class ShellSession
                 SteamLifecycle.ExitBigPicture();
             }
 
-            DisplayScale.ApplyDesktopMode(_state.Store, _state.Store.Read().RequireConfig());
+            DisplayScale.RestoreSaved(_state.Store, _state.Store.Read().RequireConfig());
         }
         catch (Exception ex)
         {

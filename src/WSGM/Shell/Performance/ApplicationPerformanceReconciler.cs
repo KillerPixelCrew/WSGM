@@ -1,9 +1,7 @@
 using System;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
-using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Shell;
 
@@ -77,7 +75,7 @@ internal sealed class ApplicationPerformanceReconciler(
         }
 
         var coordinator = readCoordinator();
-        var power = FindPowerLimitCapability(coordinator);
+        var power = coordinator is null ? null : AutoTdpPowerCapability.FindPrimary(coordinator.Capabilities.Snapshot());
         var vrr = FindVariableRefreshCapability();
         // Each value keeps its own identity and records it only once its capability was there to take
         // it. A graphics package publishing variable refresh before the device package publishes its
@@ -193,17 +191,6 @@ internal sealed class ApplicationPerformanceReconciler(
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted,
             TaskScheduler.Default);
-    }
-
-    private static DeviceCapabilityView? FindPowerLimitCapability(DeviceCoordinator? coordinator)
-    {
-        return coordinator?.Capabilities.Snapshot().FirstOrDefault(view =>
-            view.Descriptor is
-            {
-                Role: CapabilityRole.PowerSustainedLimit,
-                SupportsWrite: true,
-                ValueKind: CapabilityValueKind.Integer
-            });
     }
 
     private PublishedCapability? FindVariableRefreshCapability()

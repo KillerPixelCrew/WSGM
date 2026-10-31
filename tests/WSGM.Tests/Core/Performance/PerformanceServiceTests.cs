@@ -313,7 +313,7 @@ public sealed class PerformanceServiceTests
             Interlocked.Increment(ref starts);
             adapter.Probe = FakeRtssAdapter.ReadyProbe;
             started.TrySetResult();
-            return Task.FromResult(false);
+            return false;
         });
         await using var service = LaunchService(adapter, profiles, launcher);
         await started.Task.WaitAsync(TimeSpan.FromSeconds(2));
@@ -352,7 +352,7 @@ public sealed class PerformanceServiceTests
         {
             Interlocked.Increment(ref starts);
             started.TrySetResult();
-            return Task.FromResult(false);
+            return false;
         });
         await using var service = LaunchService(adapter, profiles, launcher, false);
         await service.RefreshAsync();
@@ -373,13 +373,16 @@ public sealed class PerformanceServiceTests
         Action? exit = null;
         WatchLease lease = new();
         TaskCompletionSource starting = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        TaskCompletionSource<bool> release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        using ManualResetEventSlim release = new();
         var starts = 0;
         RtssLauncher launcher = new(_ =>
         {
             Interlocked.Increment(ref starts);
             starting.TrySetResult();
-            return release.Task;
+            // The start holds the refresh in flight. It runs under the launcher's lock, as a real
+            // process start does, so the second exit below waits on another thread.
+            release.Wait(TimeSpan.FromSeconds(5));
+            return false;
         }, (_, callback) =>
         {
             exit = callback;
@@ -392,10 +395,11 @@ public sealed class PerformanceServiceTests
         exit();
         await starting.Task.WaitAsync(TimeSpan.FromSeconds(2));
         var concurrentRefresh = service.RefreshAsync();
-        exit();
+        var secondExit = Task.Run(exit);
         Assert.Equal(1, starts);
         adapter.Probe = FakeRtssAdapter.ReadyProbe;
-        release.SetResult(false);
+        release.Set();
+        await secondExit;
         await concurrentRefresh;
         await service.DisposeAsync();
         exit();
@@ -418,7 +422,7 @@ public sealed class PerformanceServiceTests
             Interlocked.Increment(ref starts);
             adapter.Probe = FakeRtssAdapter.ReadyProbe;
             started.TrySetResult();
-            return Task.FromResult(false);
+            return false;
         }, (_, _) =>
         {
             watching.TrySetResult();
@@ -457,7 +461,7 @@ public sealed class PerformanceServiceTests
             Interlocked.Increment(ref starts);
             adapter.Probe = FakeRtssAdapter.ReadyProbe;
             started.TrySetResult();
-            return Task.FromResult(false);
+            return false;
         }, (_, callback) =>
         {
             adapter.Probe = adapter.Probe with { Availability = RtssAvailability.NotRunning };
@@ -759,7 +763,6 @@ public sealed class PerformanceServiceTests
 
         public Task<RtssReadback> ReadAsync(
             string rtssProfileName,
-            long generation,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();

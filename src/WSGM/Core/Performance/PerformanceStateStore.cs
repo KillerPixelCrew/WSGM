@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Threading;
 
 namespace WSGM.Core;
@@ -24,7 +23,6 @@ internal sealed class PerformanceStateStore
         null,
         "RTSS discovery has not run.");
 
-    private readonly Dictionary<long, string> _commandProfiles = [];
     private readonly Lock _gate = new();
     private readonly TimeProvider _timeProvider;
     private long _commandSequence;
@@ -167,17 +165,6 @@ internal sealed class PerformanceStateStore
         }
     }
 
-    /// <summary>Records which RTSS profile a command is about to write, for its outcome line.</summary>
-    /// <param name="sequence">The command.</param>
-    /// <param name="profile">The profile description; empty for the global profile.</param>
-    internal void RecordCommandProfile(long sequence, string profile)
-    {
-        lock (_gate)
-        {
-            _commandProfiles[sequence] = profile;
-        }
-    }
-
     /// <summary>Publishes an unavailable probe: no readback, no presentation state.</summary>
     /// <param name="probe">The probe that was not ready.</param>
     internal void PublishUnavailable(RtssProbe probe)
@@ -299,11 +286,14 @@ internal sealed class PerformanceStateStore
 
     /// <summary>Publishes a command's phase, unless a newer command already reported, and logs a terminal outcome.</summary>
     /// <param name="command">The command state.</param>
+    /// <param name="appliedProfile">
+    ///     The RTSS profile the command addresses (empty for global), or null before it is known; the
+    ///     outcome line then names the current target's profile.
+    /// </param>
     /// <returns>The same command state, for the caller to return.</returns>
-    internal PerformanceCommandState UpdateCommand(PerformanceCommandState command)
+    internal PerformanceCommandState UpdateCommand(PerformanceCommandState command, string? appliedProfile = null)
     {
         PerformanceState next;
-        string? appliedProfile;
         lock (_gate)
         {
             if (command.Sequence >= _state.Command.Sequence)
@@ -312,12 +302,6 @@ internal sealed class PerformanceStateStore
             }
 
             next = _state;
-            _commandProfiles.TryGetValue(command.Sequence, out appliedProfile);
-            if (command.Phase is not (PerformanceCommandPhase.Queued
-                or PerformanceCommandPhase.Applying))
-            {
-                _commandProfiles.Remove(command.Sequence);
-            }
         }
 
         LogCommandOutcome(command, next, appliedProfile);

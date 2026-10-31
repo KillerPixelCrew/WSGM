@@ -107,14 +107,14 @@ public sealed class DisplayArrivalWaiterTests
     {
         // The settle delay is real time in production and nothing here needs to spend it; the
         // waiter's ordering is what these tests are about.
-        return new DisplayArrivalWaiter(presence, signal, static (_, token) =>
+        return new DisplayArrivalWaiter(presence.Observe, signal.WaitForChangeAsync, static (_, token) =>
         {
             token.ThrowIfCancellationRequested();
             return Task.CompletedTask;
         });
     }
 
-    private sealed class Presence(IReadOnlyList<DisplayArrangement?> observations) : IDisplayPresence
+    private sealed class Presence(IReadOnlyList<DisplayArrangement?> observations)
     {
         internal int Reads { get; private set; }
 
@@ -137,7 +137,7 @@ public sealed class DisplayArrivalWaiterTests
         }
     }
 
-    private sealed class Signal : IDisplayChangeSignal
+    private sealed class Signal
     {
         internal int Waits { get; private set; }
 

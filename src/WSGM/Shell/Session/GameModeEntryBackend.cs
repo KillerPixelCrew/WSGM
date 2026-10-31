@@ -55,9 +55,10 @@ internal sealed class GameModeEntryBackend(
 
     private DisplayArrivalWaiter CreateArrivalWaiter()
     {
+        var window = displayChangeWindow();
         return new DisplayArrivalWaiter(
-            new ShellDisplayPresence(),
-            new ShellDisplayChangeSignal(displayChangeWindow()),
+            DisplayLayouts.Observe,
+            (backstop, token) => ShellDisplayChangeSignal.WaitForChangeAsync(window, backstop, token),
             Task.Delay);
     }
 

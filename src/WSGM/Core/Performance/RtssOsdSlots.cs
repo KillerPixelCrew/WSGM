@@ -11,12 +11,8 @@ namespace WSGM.Core;
 /// </summary>
 internal static class RtssOsdSlots
 {
-    // The server writes dwSignature = 'RTSS' as a C multichar constant, so the DWORD VALUE is
-    // 0x52545353 and the bytes in memory read "SSTR". Live-verified on RTSS 2.21 (2026-09-01);
-    // the byte-order-mirrored 0x53535452 is the value that never matches a real server. Same
-    // header the frametime reader walks: signature, version, app fields, then the OSD fields.
-    private const uint Signature = 0x52545353;
-    private const int HeaderVersionOffset = 4;
+    // Same header the frametime reader walks: signature and version (both on RtssMappedRegion),
+    // the app fields, then the OSD fields.
     private const int HeaderOsdEntrySizeOffset = 20;
     private const int HeaderOsdArrOffsetOffset = 24;
     private const int HeaderOsdArrSizeOffset = 28;
@@ -154,12 +150,12 @@ internal static class RtssOsdSlots
         entrySize = 0;
         arrayOffset = 0;
         arraySize = 0;
-        if (region.Capacity < HeaderOsdBusyOffset + 4 || region.ReadUInt32(0) != Signature)
+        if (region.Capacity < HeaderOsdBusyOffset + 4 || region.ReadUInt32(0) != RtssMappedRegion.Signature)
         {
             return false;
         }
 
-        version = region.ReadUInt32(HeaderVersionOffset);
+        version = region.ReadUInt32(RtssMappedRegion.HeaderVersionOffset);
         entrySize = region.ReadUInt32(HeaderOsdEntrySizeOffset);
         arrayOffset = region.ReadUInt32(HeaderOsdArrOffsetOffset);
         arraySize = region.ReadUInt32(HeaderOsdArrSizeOffset);

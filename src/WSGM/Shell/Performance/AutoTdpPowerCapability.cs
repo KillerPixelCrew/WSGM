@@ -58,14 +58,24 @@ internal sealed class AutoTdpPowerCapability
     /// <returns>The capability, or null when the device publishes none.</returns>
     internal DeviceCapabilityView? FindPrimary()
     {
-        return _capabilities()
-            .FirstOrDefault(view =>
-                view.Descriptor is
-                {
-                    Role: CapabilityRole.PowerSustainedLimit,
-                    SupportsWrite: true,
-                    ValueKind: CapabilityValueKind.Integer
-                });
+        return FindPrimary(_capabilities());
+    }
+
+    /// <summary>
+    ///     The one definition of the primary power limit: the first writable integer sustained-power
+    ///     capability. AutoTDP, the manual power path and the per-application restore all use it.
+    /// </summary>
+    /// <param name="views">The published capability views.</param>
+    /// <returns>The capability, or null when none qualifies.</returns>
+    internal static DeviceCapabilityView? FindPrimary(IEnumerable<DeviceCapabilityView> views)
+    {
+        return views.FirstOrDefault(view =>
+            view.Descriptor is
+            {
+                Role: CapabilityRole.PowerSustainedLimit,
+                SupportsWrite: true,
+                ValueKind: CapabilityValueKind.Integer
+            });
     }
 
     /// <summary>Finds the limit the primary declares as its pair.</summary>

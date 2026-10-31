@@ -113,13 +113,13 @@ public sealed class CommonPluginManagerTests
             () => [new DisplayAdapterIdentity("8086", "7D55", @"PCI\VEN_8086")]);
         var configuration = new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true };
         await manager.ReconcileAsync([configuration], CancellationToken.None);
-        var identity = Assert.Single(coordinator.Publishers()).Identity;
+        var identity = Assert.Single(coordinator.Snapshots()).Publisher.Identity;
 
         configuration.Enabled = false;
         await manager.ReconcileAsync([configuration], CancellationToken.None);
 
         Assert.NotNull(Assert.Single(manager.Snapshot()).Error);
-        Assert.Empty(coordinator.Publishers());
+        Assert.Empty(coordinator.Snapshots());
         var manifest = manager.Catalog.Common.Single().Manifest;
         Assert.False(coordinator.Open(identity, manifest, plugin).IsClosed);
         await Assert.ThrowsAsync<AggregateException>(() => manager.StopAsync(Deadline));

@@ -271,7 +271,7 @@ internal sealed class PerformanceServices(
     internal NativeQamPerfSupport ReadNativeQamPerfSupport()
     {
         var pairing = RefreshPairing;
-        var options = pairing?.FrameLimitOptions() ?? [];
+        var (options, paired) = pairing?.FrameLimitChoices() ?? ([], new Dictionary<int, int>());
         // The same predicate the pairing service decides by, not a second copy of the comparison:
         // under either coupled strategy the pairing policy owns the refresh rate, so Steam's manual
         // refresh row must not be offered at all — a user setting it would watch the next frame-cap
@@ -300,37 +300,11 @@ internal sealed class PerformanceServices(
             refreshRates.Count > 0 ? refreshRates.Max() : null,
             vrrEnabled,
             refreshRates.Count > 0 ? PrimaryDisplayModes.ReadCurrentRefreshRate() : null,
-            ReadPairedRefreshRates(pairing, options, manualRefresh),
+            // None under the uncoupled strategy, where a cap changes no display state and the row
+            // therefore has no rate to name — which is also what makes the label collapse from
+            // "60 FPS (60 Hz)" to plain "60 FPS" without a second flag saying so.
+            manualRefresh || paired.Count == 0 ? null : paired,
             refreshRates);
-    }
-
-    /// <summary>The refresh rate each offered cap will be presented at.</summary>
-    /// <remarks>
-    ///     Built here rather than in the injected half so the pairing policy stays one decision in one
-    ///     place. Empty under the uncoupled strategy, where a cap changes no display state and the row
-    ///     therefore has no rate to name — which is also what makes the label collapse from
-    ///     "60 FPS (60 Hz)" to plain "60 FPS" without a second flag saying so.
-    /// </remarks>
-    private static Dictionary<int, int>? ReadPairedRefreshRates(
-        RefreshRatePairingService? pairing,
-        IReadOnlyList<int> options,
-        bool uncoupled)
-    {
-        if (uncoupled || pairing is null || options.Count == 0)
-        {
-            return null;
-        }
-
-        Dictionary<int, int> paired = new(options.Count);
-        foreach (var cap in options)
-        {
-            if (cap > 0 && pairing.SelectRefreshHz(cap) is { } hz)
-            {
-                paired[cap] = hz;
-            }
-        }
-
-        return paired.Count > 0 ? paired : null;
     }
 
     private async Task ApplyRunningApplicationTargetAsync(

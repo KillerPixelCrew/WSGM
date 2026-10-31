@@ -104,9 +104,9 @@ internal static class DisplayScale
     }
 
     /// <summary>
-    ///     Recovery path for clean exit, panic, uninstall and shell repair. Restores any
-    ///     pending scaling snapshot; the layout a Game Mode session owes the desktop is separate and
-    ///     belongs to <see cref="GameModeLaunchRecovery" />.
+    ///     Recovery path for clean exit, the return to the desktop, panic, uninstall and shell repair.
+    ///     Restores any pending scaling snapshot; the layout a Game Mode session owes the desktop is
+    ///     separate and belongs to <see cref="GameModeLaunchRecovery" />.
     /// </summary>
     /// <param name="store">Strict persistence holding the latest per-display recovery entries.</param>
     /// <param name="config">Session snapshot whose recovery list is updated after the restoration attempt.</param>
@@ -116,15 +116,6 @@ internal static class DisplayScale
         var persisted = store.Read().RequireConfig();
         RestoreDpiSnapshot(store, persisted);
         config.SavedDisplayScaleEntries = persisted.SavedDisplayScaleEntries;
-    }
-
-    /// <summary>Handles an intentional transition into desktop mode.</summary>
-    /// <param name="store">Strict persistence holding the latest per-display recovery entries.</param>
-    /// <param name="config">Session snapshot whose recovery list is updated after the restoration attempt.</param>
-    /// <remarks>Disconnected or failed targets retain recovery entries. A failed strict read propagates without a write.</remarks>
-    public static void ApplyDesktopMode(ConfigStore store, AppConfig config)
-    {
-        RestoreSaved(store, config);
     }
 
     private static void RestoreDpiSnapshot(ConfigStore store, AppConfig config)
@@ -233,7 +224,7 @@ internal static class DisplayScale
             if (sources.Count > 0 &&
                 DisplayScaling.TryReadRange(sources[0].Target, out var current, out var recommended, out _))
             {
-                return PickUiScalePercent(null, (uint)current, (uint)recommended);
+                return PickUiScalePercent((uint)current, (uint)recommended);
             }
         }
         catch (Exception ex)
@@ -245,20 +236,16 @@ internal static class DisplayScale
     }
 
     /// <summary>
-    ///     The pure UI-scale decision: a valid saved desktop percent wins;
-    ///     otherwise the larger of the current and Windows-recommended scale (in game
-    ///     mode current is the forced 100, so recommended carries panels whose
-    ///     desktop already ran at 100%).
+    ///     The pure UI-scale decision once no saved desktop percent applies: the larger of the current
+    ///     and Windows-recommended scale (in game mode current is the forced 100, so recommended carries
+    ///     panels whose desktop already ran at 100%).
     /// </summary>
-    /// <param name="savedPercent">The pre-game-mode snapshot value, or null.</param>
     /// <param name="currentPercent">The display's current scale percent.</param>
     /// <param name="recommendedPercent">The display's Windows-recommended percent.</param>
-    /// <returns>A saved 100–500 percent value, otherwise the larger current/recommended value with a 100 percent floor.</returns>
-    public static uint PickUiScalePercent(int? savedPercent, uint currentPercent, uint recommendedPercent)
+    /// <returns>The larger current/recommended value with a 100 percent floor.</returns>
+    public static uint PickUiScalePercent(uint currentPercent, uint recommendedPercent)
     {
-        return savedPercent is >= 100 and <= 500
-            ? (uint)savedPercent
-            : Math.Max(Math.Max(currentPercent, recommendedPercent), 100);
+        return Math.Max(Math.Max(currentPercent, recommendedPercent), 100);
     }
 
     /// <summary>

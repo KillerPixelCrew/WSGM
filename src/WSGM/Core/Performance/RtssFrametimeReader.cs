@@ -24,17 +24,10 @@ namespace WSGM.Core;
 /// </remarks>
 internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
 {
-    private const string MapName = "RTSSSharedMemoryV2";
-
-    // The server writes dwSignature = 'RTSS' as a C multichar constant: the DWORD VALUE is
-    // 0x52545353 and the bytes in memory read "SSTR". The byte-order-mirrored 0x53535452 shipped
-    // here first and made Parse refuse every real mapping — the reader reported "no samples"
-    // silently. Live-verified on RTSS 2.21 (2026-09-01, OSD work).
-    private const uint Signature = 0x52545353;
     private const uint MinimumVersion = 0x0002_0000;
 
-    // Header, all DWORD: signature, version, appEntrySize, appArrOffset, appArrSize.
-    private const int HeaderVersionOffset = 4;
+    // Header, all DWORD: signature, version (both on RtssMappedRegion), appEntrySize, appArrOffset,
+    // appArrSize.
     private const int HeaderAppEntrySizeOffset = 8;
     private const int HeaderAppArrOffsetOffset = 12;
     private const int HeaderAppArrSizeOffset = 16;
@@ -56,7 +49,6 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
     /// </remarks>
     private const long MaximumAgeMs = 2000;
 
-    /// <summary>Upper bound on entries walked, whatever the header claims.</summary>
     private bool _disposed;
 
     private MemoryMappedFile? _map;
@@ -95,7 +87,7 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
     private IReadOnlyList<RtssFrametimeSample> ReadLiveCore()
     {
         var live = Parse(
-            new AccessorRegion(_view!),
+            new RtssMappedRegion(_view!),
             Environment.TickCount64,
             out var incompatible);
         if (incompatible)
@@ -120,8 +112,8 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
     {
         ArgumentNullException.ThrowIfNull(region);
         incompatible = false;
-        if (region.ReadUInt32(0) != Signature
-            || region.ReadUInt32(HeaderVersionOffset) < MinimumVersion)
+        if (region.ReadUInt32(0) != RtssMappedRegion.Signature
+            || region.ReadUInt32(RtssMappedRegion.HeaderVersionOffset) < MinimumVersion)
         {
             incompatible = true;
             return [];
@@ -196,7 +188,7 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
 
         try
         {
-            _map = MemoryMappedFile.OpenExisting(MapName, MemoryMappedFileRights.Read);
+            _map = MemoryMappedFile.OpenExisting(RtssMappedRegion.MapName, MemoryMappedFileRights.Read);
             _view = _map.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
             return true;
         }
@@ -216,20 +208,5 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
         _view = null;
         _map?.Dispose();
         _map = null;
-    }
-
-    private sealed class AccessorRegion(MemoryMappedViewAccessor view) : IRtssRegion
-    {
-        public long Capacity => view.Capacity;
-
-        public uint ReadUInt32(long offset)
-        {
-            return view.ReadUInt32(offset);
-        }
-
-        public void ReadBytes(long offset, byte[] buffer, int count)
-        {
-            view.ReadArray(offset, buffer, 0, count);
-        }
     }
 }

@@ -10,19 +10,12 @@ namespace WSGM.Shell;
 /// <summary>Samples the Windows power state, and the sensors when the control path did not.</summary>
 /// <remarks>
 ///     Read-only. The control path reads the sensors before its decision and puts the sample on the
-///     row, and that value wins; this source is the fallback for a host that supplied none, and it
-///     only reads what RTSS's provider already publishes rather than starting one of its own.
+///     row, and that value wins; this source is the fallback for a tick that supplied none, and it
+///     reads the session's shared sensor sample rather than starting a provider of its own.
 /// </remarks>
-internal sealed class AutoTdpTraceSystemContext : IDisposable
+/// <param name="metrics">The session's shared sensor reader, the one AutoTDP consults.</param>
+internal sealed class AutoTdpTraceSystemContext(Func<RtssOsdMetrics> metrics)
 {
-    private readonly SystemMetricsSource _metrics = new();
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        _metrics.Dispose();
-    }
-
     /// <summary>Fills the power and sensor columns of a tick row.</summary>
     /// <param name="row">The row.</param>
     internal void Sample(AutoTdpTraceRow row)
@@ -43,14 +36,9 @@ internal sealed class AutoTdpTraceSystemContext : IDisposable
             // The trace records what it could read; a missing power field stays empty.
         }
 
-        if (row.Metrics is not null)
-        {
-            return;
-        }
-
         try
         {
-            row.Metrics = _metrics.Sample();
+            row.Metrics ??= metrics();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {

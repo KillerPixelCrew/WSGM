@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -160,7 +159,7 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
                     }
 
                     var definition = BuiltinGpuDrivers.All.First(driver => driver.Vendor == vendor);
-                    var directory = Path.Combine(_store.Context.Root, "GpuState", definition.Id);
+                    var directory = BuiltinGpuDrivers.StateDirectory(_store.Context, definition);
                     entry = new Entry(definition, _createDriver(definition, directory));
                     _entries.Add(vendor, entry);
                     // Register the actual owned startup before shutdown can see the entry. Only the

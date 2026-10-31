@@ -1,6 +1,5 @@
 using System;
 using System.Threading.Tasks;
-using Avalonia.Threading;
 using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Interop;
@@ -100,17 +99,10 @@ internal sealed class VolumeButtonService : IDisposable
                 Log.Info($"Volume button {command} applied to the default audio endpoint " +
                          $"({percentage}%, muted={muted != 0}).");
                 // The write already happened above; hand the landed state to the audio owner so the
-                // taskbar slider matches at once. Steam's own volume display shows the change.
+                // taskbar slider matches at once. It marshals to the UI thread itself. Steam's own
+                // volume display shows the change.
                 VolumeFeedback.Play();
-                Dispatcher.UIThread.Post(() =>
-                {
-                    if (_disposed || !_gameModeActive)
-                    {
-                        return;
-                    }
-
-                    _audio.NoteExternalVolume(percentage, muted != 0);
-                });
+                _audio.NoteExternalVolume(percentage, muted != 0);
             }
             else
             {

@@ -11,13 +11,18 @@ namespace WSGM.Shell;
 /// <summary>
 ///     Waits without a deadline for requested monitors and two matching topology fingerprints 500 ms apart.
 /// </summary>
-/// <param name="presence">Synchronous topology reader; Win32 read failures count as unsettled observations.</param>
-/// <param name="signal">Change hints with a five-second polling backstop when no hint arrives.</param>
+/// <param name="observe">
+///     Synchronous topology reader, <see cref="DisplayLayouts.Observe" /> in production; a
+///     <see cref="Win32Exception" /> from a driver mid-change counts as an unsettled observation.
+/// </param>
+/// <param name="waitForChange">
+///     Waits for the next display-change hint, or the given backstop when none arrives, or cancellation.
+/// </param>
 /// <param name="delay">Cancellable delay used between candidate stable observations.</param>
 /// <remarks>Call off the UI thread: observations are synchronous. Fingerprints exclude HDR, scaling and rotation.</remarks>
 internal sealed class DisplayArrivalWaiter(
-    IDisplayPresence presence,
-    IDisplayChangeSignal signal,
+    Func<DisplayArrangement> observe,
+    Func<TimeSpan, CancellationToken, Task> waitForChange,
     Func<TimeSpan, CancellationToken, Task> delay)
 {
     /// <summary>How long the observation must hold still before it is believed.</summary>
@@ -56,7 +61,7 @@ internal sealed class DisplayArrivalWaiter(
             }
 
             stable = null;
-            await signal.WaitForChangeAsync(Backstop, cancellationToken).ConfigureAwait(false);
+            await waitForChange(Backstop, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -92,7 +97,7 @@ internal sealed class DisplayArrivalWaiter(
     {
         try
         {
-            return presence.Observe();
+            return observe();
         }
         catch (Win32Exception)
         {

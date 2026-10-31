@@ -11,7 +11,6 @@ namespace WSGM.Core;
 /// </summary>
 internal sealed class RtssOsdWriter : IDisposable
 {
-    private const string MapName = "RTSSSharedMemoryV2";
     private const string Owner = "WSGM";
     private bool _disposed;
 
@@ -31,7 +30,7 @@ internal sealed class RtssOsdWriter : IDisposable
         {
             if (_view is not null)
             {
-                var region = new AccessorRegion(_view);
+                var region = new RtssMappedRegion(_view);
                 var released = RtssOsdSlots.Release(region, Owner);
                 var deadline = Environment.TickCount64 + 200;
                 while (!released && Environment.TickCount64 < deadline)
@@ -68,7 +67,7 @@ internal sealed class RtssOsdWriter : IDisposable
 
         try
         {
-            var written = RtssOsdSlots.TryWrite(new AccessorRegion(_view!), Owner, text);
+            var written = RtssOsdSlots.TryWrite(new RtssMappedRegion(_view!), Owner, text);
             Log.Change(
                 "rtss-osd-slot",
                 written
@@ -95,7 +94,7 @@ internal sealed class RtssOsdWriter : IDisposable
 
         try
         {
-            _map = MemoryMappedFile.OpenExisting(MapName, MemoryMappedFileRights.ReadWrite);
+            _map = MemoryMappedFile.OpenExisting(RtssMappedRegion.MapName, MemoryMappedFileRights.ReadWrite);
             _view = _map.CreateViewAccessor(0, 0, MemoryMappedFileAccess.ReadWrite);
             Log.Change("rtss-osd-map", "RTSS OSD mapping open for writing.");
             return true;
@@ -119,58 +118,5 @@ internal sealed class RtssOsdWriter : IDisposable
         _view = null;
         _map?.Dispose();
         _map = null;
-    }
-
-    private sealed class AccessorRegion(MemoryMappedViewAccessor view) : IRtssOsdRegion
-    {
-        public long Capacity => view.Capacity;
-
-        public uint ReadUInt32(long offset)
-        {
-            return view.ReadUInt32(offset);
-        }
-
-        public void WriteUInt32(long offset, uint value)
-        {
-            view.Write(offset, value);
-        }
-
-        public void ReadBytes(long offset, byte[] buffer, int count)
-        {
-            view.ReadArray(offset, buffer, 0, count);
-        }
-
-        public void WriteBytes(long offset, byte[] buffer, int count)
-        {
-            view.WriteArray(offset, buffer, 0, count);
-        }
-
-        public unsafe bool TryAcquireBusy(long offset)
-        {
-            byte* pointer = null;
-            view.SafeMemoryMappedViewHandle.AcquirePointer(ref pointer);
-            try
-            {
-                return Interlocked.CompareExchange(ref *(int*)(pointer + offset), 1, 0) == 0;
-            }
-            finally
-            {
-                view.SafeMemoryMappedViewHandle.ReleasePointer();
-            }
-        }
-
-        public unsafe void ReleaseBusy(long offset)
-        {
-            byte* pointer = null;
-            view.SafeMemoryMappedViewHandle.AcquirePointer(ref pointer);
-            try
-            {
-                Volatile.Write(ref *(int*)(pointer + offset), 0);
-            }
-            finally
-            {
-                view.SafeMemoryMappedViewHandle.ReleasePointer();
-            }
-        }
     }
 }

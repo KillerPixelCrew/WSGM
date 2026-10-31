@@ -8,17 +8,16 @@ namespace WSGM.Core;
 
 /// <summary>
 ///     Starts and watches the verified RTSS installation, without owning the process lifetime.
-///     Concurrent starts share one in-flight guard.
+///     Its one caller, the performance refresh, runs one refresh at a time, so starts never overlap.
 /// </summary>
 internal sealed class RtssLauncher : IDisposable
 {
-    private readonly Func<string, Task<bool>> _start;
+    private readonly Func<string, bool> _start;
     private readonly Lock _watchGate = new();
     private readonly Func<int, Action, IDisposable?> _watchProcess;
     private bool _disposed;
     private (int ProcessId, long Generation)? _failedProcess;
     private (int ProcessId, long Generation)? _process;
-    private int _starting;
     private IDisposable? _watch;
     private object? _watchIdentity;
 
@@ -26,10 +25,10 @@ internal sealed class RtssLauncher : IDisposable
     /// <param name="start">Starts the executable; injected so tests never launch anything.</param>
     /// <param name="watchProcess">Watches the verified process without owning its lifetime.</param>
     internal RtssLauncher(
-        Func<string, Task<bool>>? start = null,
+        Func<string, bool>? start = null,
         Func<int, Action, IDisposable?>? watchProcess = null)
     {
-        _start = start ?? StartDetachedAsync;
+        _start = start ?? StartDetached;
         _watchProcess = watchProcess ?? WatchProcess;
     }
 
@@ -70,24 +69,19 @@ internal sealed class RtssLauncher : IDisposable
                && !string.IsNullOrWhiteSpace(probe.ExecutablePath);
     }
 
-    /// <summary>Starts RTSS if it is needed, not running, and no start is settling.</summary>
+    /// <summary>Starts RTSS if it is needed and not running, then waits until it is ready.</summary>
     /// <param name="probe">The most recent probe.</param>
     /// <param name="enabled">Whether the user has performance control switched on.</param>
-    /// <param name="cancellationToken">Prevents admission or ends the settle delay; cannot undo a process start.</param>
-    /// <param name="ready">Optional caller-owned readiness probe; ends settling as soon as RTSS is usable.</param>
+    /// <param name="ready">Caller-owned readiness probe; ends settling as soon as RTSS is usable.</param>
+    /// <param name="cancellationToken">Prevents admission or ends the settle wait; cannot undo a process start.</param>
     /// <returns>Whether process creation succeeded; readiness is established by a later probe.</returns>
     internal async Task<bool> TryStartAsync(
         RtssProbe probe,
         bool enabled,
-        CancellationToken cancellationToken = default,
-        Func<CancellationToken, Task<bool>>? ready = null)
+        Func<CancellationToken, Task<bool>> ready,
+        CancellationToken cancellationToken = default)
     {
         if (!ShouldStart(probe, enabled))
-        {
-            return false;
-        }
-
-        if (Interlocked.CompareExchange(ref _starting, 1, 0) != 0)
         {
             return false;
         }
@@ -96,7 +90,6 @@ internal sealed class RtssLauncher : IDisposable
         try
         {
             var executable = probe.ExecutablePath!;
-            Task<bool> start;
             lock (_watchGate)
             {
                 if (_disposed || cancellationToken.IsCancellationRequested)
@@ -105,11 +98,10 @@ internal sealed class RtssLauncher : IDisposable
                 }
 
                 Log.Info($"RTSS is installed but not running; starting it: {executable}");
-                start = _start(executable);
+                created = _start(executable);
             }
 
-            var started = await start.ConfigureAwait(false);
-            if (!started)
+            if (!created)
             {
                 Log.Warn(
                     "RTSS did not start; performance controls stay unavailable until the next "
@@ -117,33 +109,24 @@ internal sealed class RtssLauncher : IDisposable
                 return false;
             }
 
-            created = true;
-            // Keep start admission closed, but do not impose ten seconds on a ready RTSS.
-            if (ready is null)
+            var deadline = Environment.TickCount64 + (long)SettleTimeout.TotalMilliseconds;
+            while (Environment.TickCount64 < deadline)
             {
-                await Task.Delay(SettleTimeout, cancellationToken).ConfigureAwait(false);
-            }
-            else
-            {
-                var deadline = Environment.TickCount64 + (long)SettleTimeout.TotalMilliseconds;
-                while (Environment.TickCount64 < deadline)
+                cancellationToken.ThrowIfCancellationRequested();
+                lock (_watchGate)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    lock (_watchGate)
+                    if (_disposed)
                     {
-                        if (_disposed)
-                        {
-                            return true;
-                        }
+                        return true;
                     }
-
-                    if (await ready(cancellationToken).ConfigureAwait(false))
-                    {
-                        break;
-                    }
-
-                    await Task.Delay(TimeSpan.FromMilliseconds(200), cancellationToken).ConfigureAwait(false);
                 }
+
+                if (await ready(cancellationToken).ConfigureAwait(false))
+                {
+                    break;
+                }
+
+                await Task.Delay(TimeSpan.FromMilliseconds(200), cancellationToken).ConfigureAwait(false);
             }
 
             return true;
@@ -156,10 +139,6 @@ internal sealed class RtssLauncher : IDisposable
         {
             Log.Warn($"Starting RTSS failed: {ex.Message}");
             return false;
-        }
-        finally
-        {
-            Volatile.Write(ref _starting, 0);
         }
     }
 
@@ -266,7 +245,7 @@ internal sealed class RtssLauncher : IDisposable
     ///     shortcut does; it loads plugins and profiles relative to it. The direct process start
     ///     avoids a shell verb; RTSS still controls its own GUI windows.
     /// </remarks>
-    private static Task<bool> StartDetachedAsync(string executable)
+    private static bool StartDetached(string executable)
     {
         ProcessStartInfo start = new(executable)
         {
@@ -275,6 +254,6 @@ internal sealed class RtssLauncher : IDisposable
             WorkingDirectory = Path.GetDirectoryName(executable) ?? string.Empty
         };
         using var process = Process.Start(start);
-        return Task.FromResult(process is not null);
+        return process is not null;
     }
 }

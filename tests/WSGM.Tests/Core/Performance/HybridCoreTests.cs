@@ -231,11 +231,11 @@ public sealed class HybridCoreTests
     public void TheDescriptionNamesThePowerSourcesOnlyWhenTheyDisagree()
     {
         HybridCoreStatus same = new(true, 4, 4, [], HybridCoreMode.Automatic, HybridCoreMode.Automatic);
-        Assert.Contains("both battery and plugged in", HybridCoreSelection.Describe(same), StringComparison.Ordinal);
+        Assert.Contains("both battery and plugged in", HybridCores.Describe(same), StringComparison.Ordinal);
 
         HybridCoreStatus split = new(
             true, 4, 4, [], HybridCoreMode.PreferPerformance, HybridCoreMode.PreferEfficiency);
-        Assert.Contains("currently differ", HybridCoreSelection.Describe(split), StringComparison.Ordinal);
+        Assert.Contains("currently differ", HybridCores.Describe(split), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -243,7 +243,7 @@ public sealed class HybridCoreTests
     {
         HybridCoreStatus foreign = new(true, 4, 4, [], null, HybridCoreMode.Automatic);
 
-        Assert.Contains("was not set by WSGM", HybridCoreSelection.Describe(foreign), StringComparison.Ordinal);
+        Assert.Contains("was not set by WSGM", HybridCores.Describe(foreign), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -251,7 +251,7 @@ public sealed class HybridCoreTests
     {
         Assert.Contains(
             "nothing to choose",
-            HybridCoreSelection.Describe(new HybridCoreStatus(false, 0, 0, [], null, null)),
+            HybridCores.Describe(new HybridCoreStatus(false, 0, 0, [], null, null)),
             StringComparison.Ordinal);
     }
 
@@ -260,7 +260,7 @@ public sealed class HybridCoreTests
     {
         Assert.Contains(
             "4 performance and 4 efficiency cores",
-            HybridCoreSelection.Describe(new HybridCoreStatus(true, 4, 4, [], HybridCoreMode.Automatic,
+            HybridCores.Describe(new HybridCoreStatus(true, 4, 4, [], HybridCoreMode.Automatic,
                 HybridCoreMode.Automatic)),
             StringComparison.Ordinal);
     }

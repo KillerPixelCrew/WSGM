@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
@@ -463,7 +462,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
         // Zero is "off" and is never a slider position, so it is filtered out of both bookends.
         var caps = support?.FrameLimitOptions ?? [];
         var panelMinimum = NativeQamPerfProjection.LowestOption(caps);
-        var panelMaximum = caps.Aggregate(0, Math.Max);
+        var panelMaximum = NativeQamPerfProjection.HighestOption(caps);
 
         // The overlay's bounds: the panel's band, else RTSS's floor, both under the shared ceiling.
         (int Minimum, int Maximum, bool FromPanel)? bounds = supported

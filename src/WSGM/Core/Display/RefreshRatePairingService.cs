@@ -208,7 +208,7 @@ internal sealed class RefreshRatePairingService
 
         if (accepted.Contains(refreshHz))
         {
-            return ApplyRate(refreshHz, revision);
+            return ApplyRate(refreshHz, revision, captureOriginal: false);
         }
 
         Log.Warn(
@@ -217,13 +217,30 @@ internal sealed class RefreshRatePairingService
         return false;
     }
 
-    /// <summary>The frame caps worth offering under the current strategy.</summary>
-    /// <returns>Caps, ascending, with zero first for uncapped.</returns>
-    internal IReadOnlyList<int> FrameLimitOptions()
+    /// <summary>The frame caps worth offering under the current strategy, and the rate each is presented at.</summary>
+    /// <returns>
+    ///     Caps, ascending, with zero first for uncapped; and the paired refresh rate for every cap that
+    ///     moves the display, empty when none does. Both come from one discovery snapshot.
+    /// </returns>
+    /// <remarks>
+    ///     The paired rates are the read-only half of <see cref="ApplyForCap" />, for labelling a cap the
+    ///     user is still dragging through. Same policy, same snapshot, no display call.
+    /// </remarks>
+    internal (IReadOnlyList<int> Options, IReadOnlyDictionary<int, int> PairedRates) FrameLimitChoices()
     {
         var (strategy, advertised, accepted) =
             Snapshot();
-        return FrameLimitPairing.FrameLimitOptions(strategy, advertised, accepted);
+        var options = FrameLimitPairing.FrameLimitOptions(strategy, advertised, accepted);
+        Dictionary<int, int> paired = [];
+        foreach (var cap in options)
+        {
+            if (cap > 0 && FrameLimitPairing.SelectRefreshHz(strategy, cap, advertised, accepted) is { } hz)
+            {
+                paired[cap] = hz;
+            }
+        }
+
+        return (options, paired);
     }
 
     /// <summary>The two ends of the cap range this panel can hold.</summary>
@@ -239,20 +256,6 @@ internal sealed class RefreshRatePairingService
         var (strategy, advertised, accepted) =
             Snapshot();
         return FrameLimitPairing.FrameLimitRange(strategy, advertised, accepted);
-    }
-
-    /// <summary>The refresh rate a cap would be presented at, without applying anything.</summary>
-    /// <param name="capFps">The frame cap being considered.</param>
-    /// <returns>The paired rate, or null when the refresh rate would be left alone.</returns>
-    /// <remarks>
-    ///     The read-only half of <see cref="ApplyForCap" />, for labelling a cap the user is still
-    ///     dragging through. Same policy, same snapshot, no display call.
-    /// </remarks>
-    internal int? SelectRefreshHz(int capFps)
-    {
-        var (strategy, advertised, accepted) =
-            Snapshot();
-        return FrameLimitPairing.SelectRefreshHz(strategy, capFps, advertised, accepted);
     }
 
     /// <summary>
@@ -280,13 +283,7 @@ internal sealed class RefreshRatePairingService
             return null;
         }
 
-        if (revision != OperatingPointRevision)
-        {
-            return null;
-        }
-
-        CaptureOriginal();
-        return revision == OperatingPointRevision && ApplyRate(rate, revision) ? rate : null;
+        return ApplyRate(rate, revision, captureOriginal: true) ? rate : null;
     }
 
     /// <summary>
@@ -359,18 +356,12 @@ internal sealed class RefreshRatePairingService
         _ = ApplyForCap(limit);
     }
 
-    private void CaptureOriginal()
+    /// <summary>Records the target's current rate the first time this service moves it.</summary>
+    /// <param name="point">The operating point the write is about to address.</param>
+    private void CaptureOriginal(DisplayOperatingPoint point)
     {
-        RefreshOperatingPoint(force: true);
-        DisplayOperatingPoint? point;
         lock (_gate)
         {
-            point = _operatingPoint;
-            if (point is null)
-            {
-                return;
-            }
-
             if (_originals.ContainsKey(point.Target.DevicePath))
             {
                 return;
@@ -378,18 +369,25 @@ internal sealed class RefreshRatePairingService
         }
 
         // Capture from this target, never a primary display that may have changed meanwhile.
-        var current = _readTargetRate(point.Target);
-        RefreshOperatingPoint(force: true);
-        lock (_gate)
+        if (_readTargetRate(point.Target) is { } rate)
         {
-            if (current is { } rate && point == _operatingPoint)
+            lock (_gate)
             {
                 _originals.TryAdd(point.Target.DevicePath, (point.Target, rate));
             }
         }
     }
 
-    private bool ApplyRate(int rate, long expectedRevision)
+    /// <summary>Writes a rate to the display the caller's revision describes.</summary>
+    /// <param name="rate">The rate to apply.</param>
+    /// <param name="expectedRevision">The revision the caller chose the rate against.</param>
+    /// <param name="captureOriginal">Whether to record the target's rate first, so it can be restored.</param>
+    /// <returns>Whether the write landed; false when the display changed since the caller looked.</returns>
+    /// <remarks>
+    ///     The one forced re-read before the write: the caller read the display once at its start, and
+    ///     a change since then, notified or not, fails the revision check here.
+    /// </remarks>
+    private bool ApplyRate(int rate, long expectedRevision, bool captureOriginal)
     {
         RefreshOperatingPoint(force: true);
         DisplayOperatingPoint? point;
@@ -403,7 +401,17 @@ internal sealed class RefreshRatePairingService
             point = _operatingPoint;
         }
 
-        return point is not null && _restoreTarget(point.Target, rate);
+        if (point is null)
+        {
+            return false;
+        }
+
+        if (captureOriginal)
+        {
+            CaptureOriginal(point);
+        }
+
+        return _restoreTarget(point.Target, rate);
     }
 
     private void RefreshOperatingPoint(bool force = false)

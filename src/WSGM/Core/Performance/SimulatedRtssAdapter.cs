@@ -73,15 +73,10 @@ internal sealed class SimulatedRtssAdapter : IRtssAdapter
     /// <inheritdoc />
     public Task<RtssReadback> ReadAsync(
         string rtssProfileName,
-        long generation,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (generation != 1)
-        {
-            throw new InvalidOperationException("Simulated RTSS generation changed.");
-        }
 
         var values = _profiles.TryGetValue(rtssProfileName, out var profile)
             ? profile
@@ -97,7 +92,7 @@ internal sealed class SimulatedRtssAdapter : IRtssAdapter
     {
         cancellationToken.ThrowIfCancellationRequested();
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (request.Generation != 1 || !Capabilities.IsValid(request.Control, request.Value))
+        if (!Capabilities.IsValid(request.Control, request.Value))
         {
             return Task.FromResult(new RtssApplyResult(false, "Simulated request is invalid."));
         }

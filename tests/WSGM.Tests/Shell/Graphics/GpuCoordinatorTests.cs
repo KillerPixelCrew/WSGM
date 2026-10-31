@@ -163,14 +163,15 @@ public sealed class GpuCoordinatorTests
         var refused = await coordinator.ExecuteAsync(GpuInstance.PluginId, "graphics.toggle", null, Flag(true));
         Assert.Equal(CommandOutcome.Rejected, refused.Outcome);
         Assert.Equal(0, plugin.Commands);
-        Assert.Single(coordinator.Publishers());
+        // Closed admission publishes nothing, while the publisher's channel stays open until disposal.
+        Assert.Empty(coordinator.Snapshots());
         Assert.False(channel.IsClosed);
         Assert.Throws<InvalidOperationException>(() => coordinator.Open(
             new PluginInstanceIdentity(GpuInstance.PluginId, "other"), Manifest(), plugin));
 
         await coordinator.DisposeAsync();
         Assert.True(channel.IsClosed);
-        Assert.Empty(coordinator.Publishers());
+        Assert.Empty(coordinator.Snapshots());
     }
 
     [Fact]
@@ -361,6 +362,6 @@ public sealed class GpuCoordinatorTests
         var reopened = coordinator.Open(GpuInstance, Manifest(), plugin);
 
         Assert.False(reopened.IsClosed);
-        Assert.Single(coordinator.Publishers());
+        Assert.Single(coordinator.Snapshots());
     }
 }

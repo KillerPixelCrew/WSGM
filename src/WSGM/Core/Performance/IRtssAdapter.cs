@@ -45,20 +45,18 @@ internal interface IRtssAdapter : IAsyncDisposable
     /// <returns>Current availability, identity, and verified bounds.</returns>
     Task<RtssProbe> ProbeAsync(CancellationToken cancellationToken);
 
-    /// <summary>Reads the profile after verifying the expected RTSS identity.</summary>
+    /// <summary>Reads the profile from the RTSS instance the preceding ready probe found.</summary>
     /// <param name="rtssProfileName">Executable profile name, or empty for global.</param>
-    /// <param name="generation">Expected generation from a ready probe.</param>
     /// <param name="cancellationToken">Cancels admission; an in-progress native call may finish.</param>
     /// <returns>The observed profile values and timestamp.</returns>
     Task<RtssReadback> ReadAsync(
         string rtssProfileName,
-        long generation,
         CancellationToken cancellationToken);
 
     /// <summary>Validates and writes one control without requiring readback.</summary>
-    /// <param name="request">Profile, value, and expected generation.</param>
+    /// <param name="request">Profile, control, and value.</param>
     /// <param name="cancellationToken">Cancels admission; an in-progress native call may finish.</param>
-    /// <returns>The mutation result; native or identity failures may throw.</returns>
+    /// <returns>The mutation result; native failures may throw.</returns>
     Task<RtssApplyResult> ApplyAsync(
         RtssApplyRequest request,
         CancellationToken cancellationToken);

@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using LibGPUDriverInteract;
 using WindowsDeviceControl;
 using WSGM.Core;
-using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Shell;
 
@@ -34,8 +33,7 @@ internal static class DisplayGpuProfileService
             cancellationToken.ThrowIfCancellationRequested();
             var result = await graphics.ExecuteDisplayPreferenceAsync(preference, cancellationToken)
                 .ConfigureAwait(false);
-            if (result.Outcome is not (CommandOutcome.Applied or CommandOutcome.AppliedUnverified
-                or CommandOutcome.AppliedVerified))
+            if (!result.Outcome.IsApplied())
             {
                 failures.Add($"{preference.Target?.FriendlyName ?? "Driver-wide"} / {preference.CapabilityId}: "
                              + (result.Reason?.Detail ?? result.Outcome.ToString()));

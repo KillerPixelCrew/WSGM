@@ -49,7 +49,7 @@ internal sealed class AutoTdpTraceRecorder : IAsyncDisposable
     /// <summary>Creates a recorder and starts its writer.</summary>
     /// <param name="directory">Folder the CSV files go into.</param>
     /// <param name="device">The installed device package identity.</param>
-    /// <param name="context">Windows power and sensor sampling owned by the recorder, or null for none.</param>
+    /// <param name="context">Windows power and sensor sampling, or null for none.</param>
     internal AutoTdpTraceRecorder(
         string directory,
         Func<(string? Package, string? Version)> device,
@@ -87,7 +87,6 @@ internal sealed class AutoTdpTraceRecorder : IAsyncDisposable
         }
 
         await _writerTask.ConfigureAwait(false);
-        _context?.Dispose();
     }
 
     /// <summary>The default trace folder beside <c>wsgm.log</c>.</summary>

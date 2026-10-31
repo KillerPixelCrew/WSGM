@@ -111,7 +111,7 @@ public sealed class RefreshRatePairingServiceTests
 
         harness.Service.ApplyForCap(30);
         harness.Service.ApplyForCap(60);
-        _ = harness.Service.FrameLimitOptions();
+        _ = harness.Service.FrameLimitChoices();
         _ = harness.Service.AcceptedRates();
         harness.Service.TryApplyManual(60, 0);
 
@@ -123,7 +123,7 @@ public sealed class RefreshRatePairingServiceTests
     {
         Harness harness = new();
         harness.Service.SetStrategy(FrameLimitStrategy.FrameDoubling);
-        var options = harness.Service.FrameLimitOptions();
+        var options = harness.Service.FrameLimitChoices().Options;
         var reads = harness.OperatingPointReads;
 
         for (var publication = 0; publication < 10; publication++)
@@ -131,11 +131,7 @@ public sealed class RefreshRatePairingServiceTests
             _ = harness.Service.OperatingPointRevision;
             _ = harness.Service.AcceptedRates();
             _ = harness.Service.FrameLimitRange();
-            Assert.Equal(options, harness.Service.FrameLimitOptions());
-            foreach (var cap in options)
-            {
-                _ = harness.Service.SelectRefreshHz(cap);
-            }
+            Assert.Equal(options, harness.Service.FrameLimitChoices().Options);
         }
 
         Assert.Equal(reads, harness.OperatingPointReads);
@@ -147,12 +143,12 @@ public sealed class RefreshRatePairingServiceTests
     public void InvalidationDoesNotReadTheDriverAndNextPublicationRefreshesTheSnapshot()
     {
         Harness harness = new();
-        _ = harness.Service.FrameLimitOptions();
+        _ = harness.Service.FrameLimitChoices();
         var reads = harness.OperatingPointReads;
 
         harness.Service.Invalidate();
         Assert.Equal(reads, harness.OperatingPointReads);
-        _ = harness.Service.FrameLimitOptions();
+        _ = harness.Service.FrameLimitChoices();
 
         Assert.True(harness.OperatingPointReads > reads);
         Assert.Equal(2, harness.AcceptedReads);
@@ -177,7 +173,7 @@ public sealed class RefreshRatePairingServiceTests
             },
             () => Point("display", 1920), (_, _) => true, _ => 120);
 
-        Parallel.For(0, 20, _ => service.FrameLimitOptions());
+        Parallel.For(0, 20, _ => service.FrameLimitChoices());
 
         Assert.Equal(1, acceptedReads);
         Assert.Equal(1, advertisedReads);

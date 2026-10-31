@@ -248,14 +248,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
         Wifi.Dispose();
         StopScanning();
         Pairing.Dispose();
-        if (_timer is null)
-        {
-            return;
-        }
-
-        _timer.Stop();
-        _timer.Tick -= OnTick;
-        _timer = null;
+        Stop();
     }
 
     /// <summary>
@@ -633,31 +626,15 @@ public sealed class RadioManager : ObservableObject, IDisposable
             return;
         }
 
-        var device = change.Device;
-        ApplyDeviceChange(
-            change.Kind,
-            device.Id,
-            device.Name,
-            device.Paired,
-            device.CanPair,
-            device.Connected,
-            device.Container);
+        ApplyDeviceChange(change.Kind, change.Device);
     }
 
     /// <summary>Applies one watcher event to the device list.</summary>
     /// <param name="change">What the watcher reported.</param>
-    /// <param name="id">The device id.</param>
-    /// <param name="name">The display name.</param>
-    /// <param name="paired">Whether it is paired.</param>
-    /// <param name="canPair">Whether it can be paired.</param>
-    /// <param name="connected">Whether it has a live connection.</param>
-    /// <param name="container">The device container id, or empty.</param>
-    private void ApplyDeviceChange(
-        WindowsRadio.BluetoothChangeKind change, string id, string name, bool paired,
-        bool canPair, bool connected, string container)
+    /// <param name="changed">The endpoint it reported it for.</param>
+    private void ApplyDeviceChange(WindowsRadio.BluetoothChangeKind change, WindowsRadio.BluetoothDevice changed)
     {
-        var logical = _bluetoothCatalog.Apply(change,
-            new WindowsRadio.BluetoothDevice(id, name, paired, canPair, connected, container));
+        var logical = _bluetoothCatalog.Apply(change, changed);
         // One pass over the current rows instead of a search per device: rows by logical id, and
         // for each endpoint the positions of the rows that list it.
         var rowsById = new Dictionary<string, BluetoothDeviceEntry>(StringComparer.Ordinal);

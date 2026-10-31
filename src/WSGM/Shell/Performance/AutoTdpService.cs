@@ -243,7 +243,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
     ///     The deadline moves with the profile target and with a frame limit below it, neither of which
     ///     touches the setting or the controller's state, so the rows hear about it here.
     /// </remarks>
-    internal void RefreshPrerequisites()
+    /// <returns>The availability it evaluated, for a tick to act on the same evaluation.</returns>
+    internal AutoTdpAvailability RefreshPrerequisites()
     {
         var availability = Availability;
         var enabled = Enabled;
@@ -259,6 +260,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
         {
             StatusChanged?.Invoke(Status);
         }
+
+        return availability;
     }
 
     /// <summary>The deadline AutoTDP judges frame delivery against.</summary>
@@ -572,7 +575,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     /// <returns>A task completing when the tick and any write it dispatched finished.</returns>
     internal async Task TickAsync(CancellationToken cancellationToken)
     {
-        RefreshPrerequisites();
+        var availability = RefreshPrerequisites();
         if (!Volatile.Read(ref _enabled))
         {
             return;
@@ -604,6 +607,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             try
             {
                 await TickForApplicationAsync(
+                    availability,
                     running,
                     runningGeneration,
                     writeCancellation,
@@ -625,6 +629,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     }
 
     /// <summary>Runs one tick against a captured application and its cancellation lifetime.</summary>
+    /// <param name="availability">The availability this tick evaluated before it started.</param>
     /// <param name="running">The application snapshot captured for this tick.</param>
     /// <param name="runningGeneration">The snapshot generation that may publish its result.</param>
     /// <param name="writeCancellation">Cancels the write when this application is retired.</param>
@@ -632,6 +637,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     /// <param name="elapsedMs">This tick's reading of the control clock.</param>
     /// <param name="trace">The trace row this tick fills, or null when the trace is off.</param>
     private async Task TickForApplicationAsync(
+        AutoTdpAvailability availability,
         RunningApplicationTargetSnapshot? running,
         long runningGeneration,
         CancellationTokenSource writeCancellation,
@@ -646,7 +652,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             trace.RunningGeneration = runningGeneration;
         }
 
-        if (_power.FindPrimary() is not { } power || !Availability.Available)
+        if (_power.FindPrimary() is not { } power || !availability.Available)
         {
             Publish(
                 AutoTdpState.Unavailable,
@@ -654,7 +660,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 null,
                 null,
                 running?.ApplicationId,
-                Availability.Detail,
+                availability.Detail,
                 expectedRunningGeneration: runningGeneration);
             return;
         }

@@ -90,20 +90,10 @@ internal static class RtssOsdContent
     {
         ArgumentNullException.ThrowIfNull(custom);
         ArgumentNullException.ThrowIfNull(metrics);
-        List<string> rows = [];
         powerStatus ??= RtssOsdPowerStatus.Empty;
-        var tdpRow = Row(TdpEntry(powerStatus, true));
-        var autoTdpRow = Row(AutoTdpEntry(powerStatus, true));
-        if (tdpRow.Length > 0)
-        {
-            rows.Add(tdpRow);
-        }
 
-        if (autoTdpRow.Length > 0)
-        {
-            rows.Add(autoTdpRow);
-        }
-
+        // Compose drops the empty rows: an unavailable power entry or a hidden widget.
+        List<string> rows = [Row(TdpEntry(powerStatus, true)), Row(AutoTdpEntry(powerStatus, true))];
         // ReSharper disable once LoopCanBeConvertedToQuery
         foreach (var name in custom.Order)
         {
@@ -126,11 +116,7 @@ internal static class RtssOsdContent
                     Entry("FPS", FpsColor, true, FpsElements(custom.Fps == 2)),
                 _ => null
             };
-            var row = Row(entry);
-            if (row.Length > 0)
-            {
-                rows.Add(row);
-            }
+            rows.Add(Row(entry));
         }
 
         return Compose([.. rows]);
@@ -325,7 +311,6 @@ internal static class RtssOsdContent
         {
             "GB" => "0.0",
             "W" or "%" or "C" or "h" or "min" => "00",
-            "MB" => "0",
             _ => "0.##"
         };
         return value.ToString(format, CultureInfo.InvariantCulture);

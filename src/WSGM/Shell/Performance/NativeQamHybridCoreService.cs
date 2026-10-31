@@ -90,9 +90,9 @@ internal sealed class NativeQamHybridCoreService(HybridCores cores) : ISteamHybr
                     {
                         // Published as unavailable rather than withheld. No options hides the row, and
                         // the reason still reaches the component host's render outcomes, so an absent
-                        // control can be told from a broken one.
+                        // control can be told from a broken one. The overlay shows the same sentence.
                         return new SteamHybridCoreState(false, [], string.Empty,
-                            "This processor has one kind of core, so there is nothing to choose.");
+                            HybridCores.Describe(status));
                     }
 
                     return new SteamHybridCoreState(
@@ -104,7 +104,7 @@ internal sealed class NativeQamHybridCoreService(HybridCores cores) : ISteamHybr
                         // Empty when the machine is set to a placement WSGM does not offer. Naming one
                         // of its own modes there would claim WSGM put it there.
                         status.OnAc is { } active ? HybridCores.IdFor(active) : string.Empty,
-                        string.IsNullOrEmpty(_status) ? Describe(status) : _status);
+                        string.IsNullOrEmpty(_status) ? HybridCores.Describe(status) : _status);
                 }
                 catch (Exception ex)
                 {
@@ -112,18 +112,5 @@ internal sealed class NativeQamHybridCoreService(HybridCores cores) : ISteamHybr
                 }
             }
         }));
-    }
-
-    private static string Describe(HybridCoreStatus status)
-    {
-        var cores = $"{status.PerformanceCores} performance and {status.EfficiencyCores} efficiency cores.";
-        if (status.OnAc is null || status.OnBattery is null)
-        {
-            return $"{cores} The current preference was not set by WSGM.";
-        }
-
-        return status.OnAc == status.OnBattery
-            ? $"{cores} Applies to both battery and plugged in."
-            : $"{cores} Plugged in and battery currently differ; choosing sets both.";
     }
 }

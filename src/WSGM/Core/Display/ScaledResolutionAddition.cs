@@ -23,7 +23,7 @@ public sealed record ScaledResolutionAddition
     /// <summary>Whether the persisted identity and dimensions are usable.</summary>
     [JsonIgnore]
     public bool Valid => !string.IsNullOrWhiteSpace(DisplayPath) && !string.IsNullOrWhiteSpace(AdapterIdentity)
-        && Width is >= 100 and <= 15999 && Height is >= 100 and <= 15999;
+        && new ScaledResolutionSize(Width, Height).Valid;
 
     /// <inheritdoc />
     public override string ToString() => $"{Width} × {Height}";

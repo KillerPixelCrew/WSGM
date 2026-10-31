@@ -76,11 +76,11 @@ The performance contract takes its desired frame limit and overlay level from th
 each resolved on its own from the game's profile, then Global ([profiles](profiles.md)). It also
 takes adapter-published frame-limit and overlay-level bounds; one serialized command path with
 origin/correlation diagnostics; distinct requested, applying, deferred, applied, rejected, failed
-and externally-changed outcomes; a process-generation check before each write, so a command
-addressed to an RTSS that restarted fails rather than landing on the new process; and polling for
-the service lifetime, bounded to 250 ms through 30 s (5 s by default). A write publishes the written
-value as observed, and the next poll reads it back. External changes and RTSS availability are
-detected on that cadence, even when neither performance UI has been opened.
+and externally-changed outcomes; a fresh probe inside the command gate before each read and write,
+so a command always reaches the RTSS process that probe found; and polling for the service lifetime,
+bounded to 250 ms through 30 s (5 s by default). A write publishes the written value as observed,
+and the next poll reads it back. External changes and RTSS availability are detected on that
+cadence, even when neither performance UI has been opened.
 
 ### Configurable application profiles
 
@@ -189,7 +189,8 @@ boundary in both directions, and everything behind it speaks notches.
 
 Those notch names are what the overlay's Performance overlay row offers, as a dropdown built from
 the levels the adapter actually publishes. A cycling button that read "On" for every one of 1 to 4
-made four different overlays indistinguishable in the one place they are chosen. The frame limit
+made four different overlays indistinguishable in the one place they are chosen; the row's read-only
+form, shown while RTSS is unavailable and on pinned copies, uses the same names. The frame limit
 beside it is a slider, zero reading "Off", because the preset ladder it used to cycle through could
 not reach a rate the ladder did not contain. Both write through
 `PerformanceOverlayBridge.SetValueAsync`, which refuses a value the adapter does not accept rather
@@ -284,10 +285,10 @@ and restart. The unconditional 5 s poll is the backstop for a missed exit notifi
 
 - Only the executable discovery already verified. The launcher never resolves a path itself or takes
   one from configuration.
-- Only on a NotRunning probe. One in-flight guard spans launch and a bounded readiness check, so
-  concurrent refreshes cannot start another copy. The service probes every 200 ms for up to ten
-  seconds and applies saved values as soon as RTSS is ready. A failed start releases the guard
-  immediately.
+- Only on a NotRunning probe. The session refresh runs one refresh at a time and holds the launch
+  and its bounded readiness check, so no second copy can start meanwhile. The service probes every
+  200 ms for up to ten seconds and applies saved values as soon as RTSS is ready. A failed start
+  ends that refresh immediately.
 - Integration off means probes without launches or writes. WSGM never kills RTSS; its detached
   process continues running after WSGM exits.
 
@@ -394,13 +395,13 @@ These source defects were corrected:
 | [Steam disabled](../src/WSGM/Shell/Applications/RunningApplicationMonitor.cs#L225)        | Foreground-only expiry stopped with CEF observation. Liveness polling continues without CEF calls.                                                                                      |
 | [Startup readiness](../src/WSGM/Core/Performance/PerformanceService.cs)                   | A fixed ten-second delay plus the normal poll delayed ready RTSS. Readiness now ends settling early.                                                                                    |
 | [RTSS exit watch](../src/WSGM/Core/Performance/RtssLauncher.cs)                           | PID-only watch deduplication missed a replacement reusing that PID. Identity includes the probe generation.                                                                             |
-| [Native admission](../src/WSGM/Core/Performance/RtssNativeAdapter.cs#L353)                | Cached readiness could admit an operation after RTSS replacement. Each operation checks fresh identity.                                                                                 |
+| [Native admission](../src/WSGM/Core/Performance/RtssNativeAdapter.cs#L335)                | Cached readiness could admit an operation after RTSS replacement. Each operation follows a fresh probe in the same gate.                                                                |
 | [First OSD text](../src/WSGM/Core/Performance/RtssOsdRenderer.cs#L223)                    | Optional sensors blocked publication, including FPS-only level 1. Level 1 never samples; richer layouts publish first.                                                                  |
 | [Sensor startup](../src/WSGM/Core/Performance/SystemMetricsSource.cs)                     | An unknown RTSS location consumed the provider cooldown. Only an actual start attempt consumes it.                                                                                      |
 | [Slot transaction](../src/WSGM/Core/Performance/RtssOsdSlots.cs#L38)                      | Busy writes claimed ownership and reported success; failures could retain the flag. Claim, write, notification and release are synchronized, with truthful retry and `finally` cleanup. |
 | [OSD clearing](../src/WSGM/Core/Performance/RtssOsdRenderer.cs#L193)                      | A failed clear parked forever. Previously published content is retried before parking; an unpublished display needs no clear.                                                           |
 | [Integration off](../src/WSGM/Core/Performance/PerformanceStateStore.cs)                  | Empty desired state left the renderer on. Disabling clears only WSGM's OSD and preserves the preference.                                                                                |
-| [Presentation drift](../src/WSGM/Core/Performance/RtssNativeAdapter.cs#L333)              | Cached selector readback hid closed RTSS OSD gates. Presentation health is checked and repaired separately from the selector.                                                           |
+| [Presentation drift](../src/WSGM/Core/Performance/RtssNativeAdapter.cs#L312)              | Cached selector readback hid closed RTSS OSD gates. Presentation health is checked and repaired separately from the selector.                                                           |
 | [Tick rollover](../src/WSGM/Core/Performance/RtssFrametimeReader.cs#L154)                 | A measurement crossing the 32-bit rollover was discarded. Unsigned interval arithmetic preserves it.                                                                                    |
 
 One separate telemetry finding remains:

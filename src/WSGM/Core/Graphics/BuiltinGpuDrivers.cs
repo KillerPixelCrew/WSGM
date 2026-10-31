@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using LibGPUDriverInteract;
 
@@ -14,6 +15,34 @@ internal static class BuiltinGpuDrivers
         new(GpuVendor.Amd, "wsgm.gpu.amd", "AMD graphics"),
         new(GpuVendor.Nvidia, "wsgm.gpu.nvidia", "NVIDIA graphics")
     ];
+
+    /// <summary>The folder a driver keeps its persistent library state in.</summary>
+    /// <param name="context">The user-data context.</param>
+    /// <param name="driver">The driver.</param>
+    /// <returns><c>&lt;root&gt;\GpuState\&lt;driver id&gt;</c>, the same for the session and standalone Settings.</returns>
+    internal static string StateDirectory(UserDataContext context, BuiltinGpuDriver driver)
+    {
+        return Path.Combine(context.Root, "GpuState", driver.Id);
+    }
+
+    /// <summary>Creates a driver whose library log reaches wsgm.log at each entry's own level.</summary>
+    /// <param name="driver">The driver to create.</param>
+    /// <param name="stateDirectory">Its persistent state folder, normally <see cref="StateDirectory" />.</param>
+    /// <returns>The unstarted driver.</returns>
+    internal static GpuDriver Create(BuiltinGpuDriver driver, string stateDirectory)
+    {
+        return GpuDriver.Create(driver.Vendor, stateDirectory, entry =>
+        {
+            var text = $"Graphics/{driver.Name}/{entry.Scope}: {entry.Message}";
+            switch (entry.Level)
+            {
+                case GpuLogLevel.Error: Log.Error(text); break;
+                case GpuLogLevel.Warn: Log.Warn(text); break;
+                case GpuLogLevel.Info: Log.Info(text); break;
+                default: throw new ArgumentOutOfRangeException(nameof(entry));
+            }
+        });
+    }
 
     internal static bool Contains(string id)
     {

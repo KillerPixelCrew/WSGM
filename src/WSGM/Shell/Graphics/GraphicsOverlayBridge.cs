@@ -34,12 +34,7 @@ internal sealed class GraphicsOverlayBridge : IGraphicsOverlaySource
     /// <inheritdoc />
     public GraphicsOverlaySnapshot Snapshot()
     {
-        return Project(
-        [
-            .. _gpu.Publishers()
-                .Select(publisher => _gpu.Snapshot(publisher.Identity.PluginId))
-                .OfType<GpuPublisherSnapshot>()
-        ]);
+        return Project(_gpu.Snapshots());
     }
 
     /// <inheritdoc />

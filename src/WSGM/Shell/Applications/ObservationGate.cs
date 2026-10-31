@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace WSGM.Core;
+namespace WSGM.Shell;
 
 /// <summary>Counts observation leases and wakes a poll loop when the first one arrives.</summary>
 /// <remarks>

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -45,8 +44,9 @@ internal sealed class StandaloneScaledResolutionOwner
             foreach (var definition in desired.Where(definition => !_drivers.ContainsKey(definition.Vendor)))
             {
                 _lifetime.Token.ThrowIfCancellationRequested();
-                var driver = GpuDriver.Create(definition.Vendor, Path.Combine(_store.Context.Root, "Graphics", definition.Id),
-                    entry => Log.Info($"Graphics/{definition.Name}/{entry.Scope}: {entry.Message}"));
+                // The session's state folder: the library's persistent state belongs to the driver,
+                // not to whichever owner started it.
+                var driver = BuiltinGpuDrivers.Create(definition, BuiltinGpuDrivers.StateDirectory(_store.Context, definition));
                 _drivers.Add(definition.Vendor, driver);
                 await driver.StartAsync(_lifetime.Token).ConfigureAwait(false);
             }

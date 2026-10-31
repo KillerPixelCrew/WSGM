@@ -77,6 +77,30 @@ internal sealed class HybridCores(PowerSchemes schemes, IHybridCoreApi api)
         return null;
     }
 
+    /// <summary>Says what is in effect, naming each power source only when the two disagree.</summary>
+    /// <param name="status">Published support and AC/battery choices.</param>
+    /// <returns>The one status sentence the overlay and Steam's Quick Access both show.</returns>
+    internal static string Describe(HybridCoreStatus status)
+    {
+        ArgumentNullException.ThrowIfNull(status);
+        if (!status.Supported)
+        {
+            return "This processor has one kind of core, so there is nothing to choose.";
+        }
+
+        var cores = $"{status.PerformanceCores} performance and {status.EfficiencyCores} efficiency cores.";
+        if (status.OnAc is null || status.OnBattery is null)
+        {
+            // Something outside WSGM wrote a placement WSGM does not offer. Saying which of its own
+            // modes is active would be a claim about a value it did not set.
+            return $"{cores} The current preference was not set by WSGM.";
+        }
+
+        return status.OnAc == status.OnBattery
+            ? $"{cores} Applies to both battery and plugged in."
+            : $"{cores} Plugged in and battery currently differ; choosing sets both.";
+    }
+
     /// <summary>The stable id a mode is published under, independent of its display name.</summary>
     /// <remarks>
     ///     One vocabulary for every surface. The overlay picks a mode from the list directly, but Steam

@@ -20,13 +20,12 @@ public sealed class PerformanceOverlayBridgeTests
         bridge.RefreshWindowsState();
         await service.RefreshAsync();
 
-        var before = bridge.Snapshot();
-        var overlay = before.Rows.Single(row => row.Id == "overlay-level");
-        await bridge.InvokeAsync(overlay, CancellationToken.None);
+        Assert.Equal("Extended", bridge.Snapshot().Rows.Single(row => row.Id == "overlay-level").TrailingText);
+        Assert.True(await bridge.CycleOverlayLevelAsync("overlay", CancellationToken.None));
 
         var after = bridge.Snapshot();
         Assert.True(after.Visible);
-        Assert.Equal("3", after.Rows.Single(row => row.Id == "overlay-level").TrailingText);
+        Assert.Equal("Full", after.Rows.Single(row => row.Id == "overlay-level").TrailingText);
         Assert.Equal(3, service.Current.Desired.OverlayLevel);
     }
 
@@ -111,8 +110,7 @@ public sealed class PerformanceOverlayBridgeTests
         Assert.Equal(1, toggleRows);
         Assert.Equal(before.ProfileRows.Count - toggleRows + before.Rows.Count + 1, power.Count);
 
-        await bridge.InvokeAsync(before.ProfileRows.Single(row =>
-            row.Id == "application-profile"));
+        await bridge.SetValueAsync("application-profile", 1);
 
         var after = bridge.Snapshot();
         // The profile owner holds the switch; RTSS follows it through the fan-out.

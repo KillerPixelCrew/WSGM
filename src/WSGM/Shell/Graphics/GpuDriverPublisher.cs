@@ -30,17 +30,7 @@ internal sealed class GpuDriverPublisher : ICapabilityPublisher, IBuiltinGpuDriv
     {
         _coordinator = coordinator;
         Definition = definition;
-        _driver = GpuDriver.Create(definition.Vendor, stateDirectory, entry =>
-        {
-            var text = $"Graphics/{definition.Name}/{entry.Scope}: {entry.Message}";
-            switch (entry.Level)
-            {
-                case GpuLogLevel.Error: Log.Error(text); break;
-                case GpuLogLevel.Warn: Log.Warn(text); break;
-                case GpuLogLevel.Info: Log.Info(text); break;
-                default: throw new ArgumentOutOfRangeException(nameof(entry));
-            }
-        });
+        _driver = BuiltinGpuDrivers.Create(definition, stateDirectory);
         _driver.DescriptorsChanged += OnDescriptors;
         _driver.StateChanged += OnState;
         _driver.StatusChanged += OnStatus;

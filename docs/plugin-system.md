@@ -203,9 +203,9 @@ rules.
 
 The UI reaches graphics capabilities only through the coordinator:
 
-- `Publishers()` lists each running publisher with its name, profile key and health.
-- `Snapshot(pluginId)` returns its sections and each capability's view, with the projection (desired
-  and Global values, profile scope, apply timing), the last result and the override id.
+- `Snapshots()` returns every running publisher, with its name, profile key and health, its sections
+  and each capability's view: the projection (desired and Global values, profile scope, apply
+  timing), the last result and the override id. `Snapshot(pluginId)` returns one of them.
 - `ExecuteAsync(pluginId, capabilityId, instanceId, value, origin)` writes one value and, for the
   user, saves it by its scope.
 - `UseGlobalAsync(overrideId)` clears exactly that publisher's game value.

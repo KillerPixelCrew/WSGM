@@ -626,6 +626,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
     /// </summary>
     /// <param name="percent">The volume the writer landed on, 0-100.</param>
     /// <param name="muted">The mute state the writer landed on.</param>
+    /// <remarks>Callable from any thread; the slider update is posted to the UI thread.</remarks>
     internal void NoteExternalVolume(int percent, bool muted)
     {
         Interlocked.Increment(ref _volumeRevision);

@@ -11,14 +11,20 @@ namespace WSGM.Shell;
 ///     nothing, every wait falls back to the backstop delay and the waiter still finds the display on
 ///     its next look.
 /// </summary>
-/// <param name="window">
-///     Borrowed display-notification window; null uses only the backstop delay. Each wait revokes its own
-///     event handler.
-/// </param>
-internal sealed class ShellDisplayChangeSignal(DisplayChangeWindow? window) : IDisplayChangeSignal
+internal static class ShellDisplayChangeSignal
 {
-    /// <inheritdoc />
-    public async Task WaitForChangeAsync(TimeSpan backstop, CancellationToken cancellationToken)
+    /// <summary>Waits for the next hint, the backstop delay, or cancellation.</summary>
+    /// <param name="window">
+    ///     Borrowed display-notification window; null uses only the backstop delay. Each wait revokes its
+    ///     own event handler.
+    /// </param>
+    /// <param name="backstop">How long to wait when no hint arrives.</param>
+    /// <param name="cancellationToken">Cancels the wait.</param>
+    /// <returns>A task that completes on a hint or after the backstop.</returns>
+    internal static async Task WaitForChangeAsync(
+        DisplayChangeWindow? window,
+        TimeSpan backstop,
+        CancellationToken cancellationToken)
     {
         if (window is null)
         {

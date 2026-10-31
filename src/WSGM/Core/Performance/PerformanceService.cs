@@ -365,7 +365,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         // the adapter gate so UI commands can still observe and report the unavailable state.
         if (launchProbe is not null)
         {
-            await _launcher.TryStartAsync(launchProbe, Enabled, admission.Token, RefreshStartedRtssAsync)
+            await _launcher.TryStartAsync(launchProbe, Enabled, RefreshStartedRtssAsync, admission.Token)
                 .ConfigureAwait(false);
             _launcher.Watch(Current.Probe, _refresh.Kick);
         }
@@ -449,12 +449,17 @@ internal sealed class PerformanceService : IAsyncDisposable
         CancellationToken boundedCancellation,
         CancellationToken callerCancellation)
     {
-        PerformanceCommandState Command(PerformanceCommandPhase phase, string? diagnostic = null)
+        // The RTSS profile this command addresses, for its outcome line; null until it is known.
+        string? appliedProfile = null;
+
+        PerformanceCommandState Report(PerformanceCommandPhase phase, string? diagnostic = null)
         {
-            return new PerformanceCommandState(sequence, origin, correlationId, control, value, phase, diagnostic);
+            return _store.UpdateCommand(
+                new PerformanceCommandState(sequence, origin, correlationId, control, value, phase, diagnostic),
+                appliedProfile);
         }
 
-        _store.UpdateCommand(Command(PerformanceCommandPhase.Applying));
+        Report(PerformanceCommandPhase.Applying);
 
         try
         {
@@ -462,17 +467,17 @@ internal sealed class PerformanceService : IAsyncDisposable
             _store.PublishProbe(probe);
             if (probe.Availability != RtssAvailability.Ready || probe.Capabilities is null)
             {
-                return _store.UpdateCommand(Command(
+                return Report(
                     PerformanceCommandPhase.Rejected,
-                    probe.Diagnostic ?? "RTSS is unavailable."));
+                    probe.Diagnostic ?? "RTSS is unavailable.");
             }
 
             if (!probe.Capabilities.Supports(control)
                 || !probe.Capabilities.IsValid(control, value))
             {
-                return _store.UpdateCommand(Command(
+                return Report(
                     PerformanceCommandPhase.Rejected,
-                    "The requested value is outside the adapter's verified bounds."));
+                    "The requested value is outside the adapter's verified bounds.");
             }
 
             if (updateDesired)
@@ -495,11 +500,11 @@ internal sealed class PerformanceService : IAsyncDisposable
                 catch (Exception ex)
                 {
                     Log.Error("Persisting the RTSS profile value failed", ex);
-                    return _store.UpdateCommand(Command(
+                    return Report(
                         PerformanceCommandPhase.Failed,
                         ex is ArgumentException or InvalidOperationException
                             ? ex.Message
-                            : "The performance preference could not be persisted."));
+                            : "The performance preference could not be persisted.");
                 }
 
                 _store.AcceptSaved(saved);
@@ -510,53 +515,51 @@ internal sealed class PerformanceService : IAsyncDisposable
             // Avoid creating per-executable profiles without opt-in. Existing profiles still need
             // updating because their explicit values override the global profile.
             var profile = EffectiveRtssProfile(target, applicationOptedIn);
-            _store.RecordCommandProfile(
-                sequence,
-                target is null
-                    ? string.Empty
-                    : target.RtssProfileName is null
-                        ? $"pending application {target.ApplicationId}"
-                        : profile);
+            appliedProfile = target is null
+                ? string.Empty
+                : target.RtssProfileName is null
+                    ? $"pending application {target.ApplicationId}"
+                    : profile;
 
             _store.Raise(Current);
 
             if (control == PerformanceControl.FrameLimit && target is { RtssProfileName: null or "" })
             {
-                return _store.UpdateCommand(Command(
+                return Report(
                     PerformanceCommandPhase.Deferred,
                     "The application preference was saved and will apply when its foreground "
-                    + "executable is known."));
+                    + "executable is known.");
             }
 
             // HandheldCompanion's RTSSPlatform.SetTargetFPS: load the profile, set the property, save
             // it, update the profiles and move on. The written value is published as observed until
             // the next poll reads the profile back.
             var applied = await _adapter.ApplyAsync(
-                new RtssApplyRequest(profile, control, value, probe.Generation),
+                new RtssApplyRequest(profile, control, value),
                 boundedCancellation).ConfigureAwait(false);
             if (!applied.Applied)
             {
-                return _store.UpdateCommand(Command(
+                return Report(
                     PerformanceCommandPhase.Rejected,
-                    applied.Diagnostic ?? "RTSS rejected the profile update."));
+                    applied.Diagnostic ?? "RTSS rejected the profile update.");
             }
 
             _store.PublishWritten(control, value);
-            return _store.UpdateCommand(Command(PerformanceCommandPhase.Applied));
+            return Report(PerformanceCommandPhase.Applied);
         }
         catch (OperationCanceledException)
         {
-            return _store.UpdateCommand(Command(
+            return Report(
                 PerformanceCommandPhase.Failed,
                 callerCancellation.IsCancellationRequested
                     ? "The caller cancelled after RTSS command processing began."
-                    : "RTSS did not finish within the bounded command timeout."));
+                    : "RTSS did not finish within the bounded command timeout.");
         }
         catch (Exception ex)
         {
             Log.Error("RTSS performance command failed", ex);
             _store.MarkDegraded(ex.Message);
-            return _store.UpdateCommand(Command(PerformanceCommandPhase.Failed, ex.Message));
+            return Report(PerformanceCommandPhase.Failed, ex.Message);
         }
     }
 
@@ -605,7 +608,6 @@ internal sealed class PerformanceService : IAsyncDisposable
         // never-written application profile.
         var readback = await _adapter.ReadAsync(
             EffectiveRtssProfile(target, applicationOptedIn),
-            probe.Generation,
             cancellationToken).ConfigureAwait(false);
         if (target is { RtssProfileName: null or "" })
         {

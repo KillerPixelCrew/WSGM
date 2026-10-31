@@ -466,7 +466,7 @@ are in `src\Avalonia.LiveBackdrop\README.md` and `docs\overlay-and-input.md`.
 **RTSS starts with WSGM and stays running (2026-10-03).** Enabled integration probes immediately,
 starts only the verified executable when it is absent, and restarts a discovered or started process
 after its exit. The session poll remains active without a performance UI. There is no restart
-cooldown; one in-flight launch guard includes the 10 s initialization settle. Disabled integration
-never launches or writes, and WSGM never kills RTSS. An unresolved game executable holds only the
-frame limit; the overlay level applies through the global profile meanwhile. Details are in
-[RTSS integration](rtss.md#wsgm-starts-rtss).
+cooldown; the one-at-a-time session refresh owns the launch and its 10 s initialization settle.
+Disabled integration never launches or writes, and WSGM never kills RTSS. An unresolved game
+executable holds only the frame limit; the overlay level applies through the global profile
+meanwhile. Details are in [RTSS integration](rtss.md#wsgm-starts-rtss).

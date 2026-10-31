@@ -287,18 +287,27 @@ internal sealed partial class GpuCoordinator : IAsyncDisposable
     /// </summary>
     internal event Action? Changed;
 
-    /// <summary>The running graphics publishers.</summary>
-    /// <returns>Each publisher with its health, in the order they started.</returns>
-    internal IReadOnlyList<GpuPublisherView> Publishers()
+    /// <summary>Every running graphics publisher's sections and capabilities.</summary>
+    /// <returns>
+    ///     One page per publisher, in the order they started, read against one health snapshot; empty once
+    ///     admission closed.
+    /// </returns>
+    internal IReadOnlyList<GpuPublisherSnapshot> Snapshots()
     {
         GpuPublisher[] publishers;
         lock (_gate)
         {
+            if (_disposed || _lifetime.IsCancellationRequested)
+            {
+                return [];
+            }
+
             publishers = [.. _publishers];
         }
 
         var health = HealthSnapshot();
-        return [.. publishers.Select(publisher => publisher.Describe(health))];
+        var layers = _profiles.Current.Layers;
+        return [.. publishers.Select(publisher => Snapshot(publisher, health, layers))];
     }
 
     /// <summary>One publisher's sections and capabilities.</summary>
@@ -306,19 +315,9 @@ internal sealed partial class GpuCoordinator : IAsyncDisposable
     /// <returns>The page, or null when that plugin is not running.</returns>
     internal GpuPublisherSnapshot? Snapshot(string pluginId)
     {
-        if (Find(pluginId) is not { } publisher)
-        {
-            return null;
-        }
-
-        var layers = _profiles.Current.Layers;
-        return new GpuPublisherSnapshot(
-            publisher.Describe(HealthSnapshot()),
-            publisher.Router.Sections,
-            [
-                .. publisher.Router.Snapshot()
-                    .Select(view => new GpuCapabilityView(view, CapabilityRowProjection.OverrideIdFor(view, layers)))
-            ]);
+        return Find(pluginId) is { } publisher
+            ? Snapshot(publisher, HealthSnapshot(), _profiles.Current.Layers)
+            : null;
     }
 
     /// <summary>Every published capability that matches, across all graphics publishers.</summary>
@@ -586,6 +585,20 @@ internal sealed partial class GpuCoordinator : IAsyncDisposable
                 Log.Warn($"Graphics {publisher.ProfileKey}: profile apply failed: {ex.Message}");
             }
         }
+    }
+
+    private static GpuPublisherSnapshot Snapshot(
+        GpuPublisher publisher,
+        IReadOnlyList<PluginHealthPublication> health,
+        ProfileLayers layers)
+    {
+        return new GpuPublisherSnapshot(
+            publisher.Describe(health),
+            publisher.Router.Sections,
+            [
+                .. publisher.Router.Snapshot()
+                    .Select(view => new GpuCapabilityView(view, CapabilityRowProjection.OverrideIdFor(view, layers)))
+            ]);
     }
 
     private GpuPublisher? Find(string pluginId)

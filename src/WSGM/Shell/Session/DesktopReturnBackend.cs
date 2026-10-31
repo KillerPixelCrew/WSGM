@@ -36,7 +36,7 @@ internal sealed class DesktopReturnBackend(
     {
         var current = modes.Store.Read().RequireConfig();
         _recovery = current.GameModeLaunchRecovery;
-        DisplayScale.ApplyDesktopMode(modes.Store, current);
+        DisplayScale.RestoreSaved(modes.Store, current);
         var services = hooks.Entry;
         var layoutWarning = await services.ApplyReturnLayoutAsync(layout, _recovery).ConfigureAwait(false);
         if (layoutWarning is not null)

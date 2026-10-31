@@ -90,7 +90,7 @@ internal sealed class HybridCoreSelection(HybridCores cores, bool readOnly = fal
             }
 
             Status = status;
-            Detail = Describe(status);
+            Detail = HybridCores.Describe(status);
             if (readOnly)
             {
                 Detail += " Preview only; changes are disabled.";
@@ -118,29 +118,5 @@ internal sealed class HybridCoreSelection(HybridCores cores, bool readOnly = fal
                 Changed?.Invoke();
             }
         }
-    }
-
-    /// <summary>Says what is in effect, naming each power source only when the two disagree.</summary>
-    /// <param name="status">Published support and AC/battery choices.</param>
-    /// <returns>A user-facing support, error or policy summary.</returns>
-    internal static string Describe(HybridCoreStatus status)
-    {
-        ArgumentNullException.ThrowIfNull(status);
-        if (!status.Supported)
-        {
-            return "This processor has one kind of core, so there is nothing to choose.";
-        }
-
-        var cores = $"{status.PerformanceCores} performance and {status.EfficiencyCores} efficiency cores.";
-        if (status.OnAc is null || status.OnBattery is null)
-        {
-            // Something outside WSGM wrote a placement WSGM does not offer. Saying which of its own
-            // modes is active would be a claim about a value it did not set.
-            return $"{cores} The current preference was not set by WSGM.";
-        }
-
-        return status.OnAc == status.OnBattery
-            ? $"{cores} Applies to both battery and plugged in."
-            : $"{cores} Plugged in and battery currently differ; applying sets both.";
     }
 }

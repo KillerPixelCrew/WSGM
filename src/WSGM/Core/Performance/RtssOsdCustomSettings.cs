@@ -29,15 +29,11 @@ internal sealed record RtssOsdCustomSettings(
     private static readonly string[] KnownWidgets =
         ["TIME", "GPU", "CPU", "VRAM", "RAM", "BATT", "FPS"];
 
-    /// <summary>HandheldCompanion's defaults: its shipped order, every widget at full detail.</summary>
-    internal static readonly RtssOsdCustomSettings Default =
-        new("Time,GPU,CPU,VRAM,RAM,BATT,FPS", 2, 2, 2, 2, 2, 2, 2);
-
-    private RtssOsdCustomSettings(
-        string KnownWidgets, int Time, int Fps, int Cpu, int Ram, int Gpu, int Vram, int Battery)
-        : this(ParseOrder(KnownWidgets), Time, Fps, Cpu, Ram, Gpu, Vram, Battery)
-    {
-    }
+    /// <summary>
+    ///     The configuration defaults (HandheldCompanion's shipped order, every widget at full detail),
+    ///     taken from <see cref="PerformanceConfig" /> so there is one copy.
+    /// </summary>
+    internal static readonly RtssOsdCustomSettings Default = FromConfig(new PerformanceConfig());
 
     /// <summary>
     ///     Builds the settings from the persisted configuration, dropping unknown widget

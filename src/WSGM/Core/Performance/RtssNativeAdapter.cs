@@ -92,10 +92,9 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
     /// <inheritdoc />
     public async Task<RtssReadback> ReadAsync(
         string rtssProfileName,
-        long generation,
         CancellationToken cancellationToken)
     {
-        RequireReady(generation, cancellationToken);
+        RequireReady(cancellationToken);
         return await Task.Run(
             () => ReadCore(rtssProfileName),
             cancellationToken).ConfigureAwait(false);
@@ -107,16 +106,7 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
-        // ReSharper disable once SwitchStatementHandlesSomeKnownEnumValuesWithDefault
-        switch (request.Control)
-        {
-            case PerformanceControl.FrameLimit when request.Value is < 0 or > 1000:
-                return new RtssApplyResult(false, "The frame-limit value is outside the verified RTSS range.");
-            case PerformanceControl.OverlayLevel when request.Value is < 0 or > MaximumOverlayLevel:
-                return new RtssApplyResult(false, "The overlay level is outside the supported range.");
-        }
-
-        RequireReady(request.Generation, cancellationToken);
+        RequireReady(cancellationToken);
         return await Task.Run(() => ApplyCore(request), cancellationToken).ConfigureAwait(false);
     }
 
@@ -223,13 +213,7 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         }
 
         api.LoadProfile(request.RtssProfileName);
-        var (property, propertyValue) = request.Control switch
-        {
-            PerformanceControl.FrameLimit =>
-                (FrameLimitProperty, checked((uint)request.Value)),
-            _ => (string.Empty, 0u)
-        };
-        if (property.Length == 0 || !api.TrySetUInt32(property, propertyValue))
+        if (!api.TrySetUInt32(FrameLimitProperty, checked((uint)request.Value)))
         {
             return new RtssApplyResult(false, "RTSS rejected the performance-profile value.");
         }
@@ -244,7 +228,6 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         IReadOnlyList<string> profiles,
         out string? refusal)
     {
-        var changed = false;
         List<string> changedProfiles = [];
         foreach (var profile in profiles)
         {
@@ -263,11 +246,10 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
             }
 
             api.SaveProfile(profile);
-            changed = true;
             changedProfiles.Add(profile);
         }
 
-        if (changed)
+        if (changedProfiles.Count > 0)
         {
             api.UpdateProfiles();
         }
@@ -347,21 +329,13 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         return enabled;
     }
 
-    // The service probes inside its adapter gate immediately before every read or write, so the
-    // cached probe already names the process generation the caller saw; probing again here doubled
-    // the registry, file and process work of every poll and command.
-    private void RequireReady(
-        long generation,
-        CancellationToken cancellationToken)
+    // The service probes inside its adapter gate immediately before every read or write and stops
+    // unless that probe was ready, so the loaded API already belongs to the process the caller saw.
+    // ReadCore and ApplyCore throw when no API is loaded.
+    private void RequireReady(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (_lastProbe is not { Availability: RtssAvailability.Ready } probe
-            || probe.Generation != generation)
-        {
-            throw new InvalidOperationException(
-                "RTSS availability or process generation changed before the operation.");
-        }
     }
 
     private void EnsureApi(RtssProbe probe)

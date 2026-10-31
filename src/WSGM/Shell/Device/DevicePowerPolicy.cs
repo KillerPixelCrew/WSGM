@@ -134,7 +134,7 @@ internal sealed class DevicePowerPolicy
             () => _definition() is { } matched
                 ? (matched.FamilyId, HandheldDeviceRuntime.SourceVersion)
                 : (null, null),
-            new AutoTdpTraceSystemContext());
+            new AutoTdpTraceSystemContext(autoTdpMetrics));
         AutoTdp = new AutoTdpService(
             _autoTdpFrametimes,
             _capabilities.Snapshot,
@@ -445,12 +445,7 @@ internal sealed class DevicePowerPolicy
                 return;
             }
 
-            var power = _capabilities.Snapshot().FirstOrDefault(view => view.Descriptor is
-            {
-                Role: CapabilityRole.PowerSustainedLimit,
-                SupportsWrite: true,
-                ValueKind: CapabilityValueKind.Integer
-            });
+            var power = AutoTdpPowerCapability.FindPrimary(_capabilities.Snapshot());
             if (power is null || PowerAssignments.HasCurrentAssignment)
             {
                 return;

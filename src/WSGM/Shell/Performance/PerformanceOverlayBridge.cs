@@ -227,7 +227,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
 
         rows.InsertRange(0,
         [
-            BuildRow(
+            new DescriptorRow(
                     "frame-limit",
                     "Frame limit",
                     DescribeLayer(state.FrameLimitLayer, state.Target),
@@ -239,7 +239,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
                     Value = PreferredValue(state, PerformanceControl.FrameLimit) ?? 0,
                     OverrideId = state.FrameLimitLayer is ProfileSource.Game ? nameof(ProfileField.FrameLimit) : null
                 },
-            BuildRow(
+            new DescriptorRow(
                     "overlay-level",
                     "Performance overlay",
                     DescribeLayer(state.OverlayLevelLayer, state.Target),
@@ -263,7 +263,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         [
             BuildApplicationRow(state),
             BuildActiveProfileRow(state),
-            BuildRow(
+            new DescriptorRow(
                     "application-profile",
                     "Per-application settings",
                     state.Target is null
@@ -280,14 +280,14 @@ internal sealed class PerformanceOverlayBridge : IDisposable
                     Options = [new DescriptorOption(0, "Off"), new DescriptorOption(1, "On")],
                     Value = state.ApplicationProfileEnabled ? 1 : 0
                 },
-            BuildRow(
+            new DescriptorRow(
                 "reset-profile",
                 "Reset performance profile",
                 state.ApplicationProfileEnabled
                     ? "Clear every value this game overrides, so it uses Global again."
                     : "Clear the Global frame limit, overlay, power, refresh, processor boost and AutoTDP target values.",
                 "Reset",
-                true,
+                CanInvoke: true,
                 DescriptorStatus.None)
         ];
     }
@@ -314,12 +314,12 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             ProfileSource.Global => "From Global",
             _ => "Not set · Windows keeps its own value"
         };
-        return BuildRow(
+        return new DescriptorRow(
                 CpuBoostRowId,
                 "CPU boost mode",
                 $"{layer} · {view.SourcesText}",
                 effective is { } mode ? CpuBoost.NameFor(mode) : "Not set by WSGM",
-                true,
+                CanInvoke: true,
                 DescriptorStatus.Available) with
             {
                 Options = [.. CpuBoost.Offered.Select(option => new DescriptorOption((int)option.Mode, option.Name))],
@@ -329,12 +329,15 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     }
 
     /// <summary>Writes an exact value to the control one of the value rows owns.</summary>
-    /// <param name="rowId">The row being set, <c>frame-limit</c> or <c>overlay-level</c>.</param>
+    /// <param name="rowId">
+    ///     The row being set: <c>frame-limit</c>, <c>overlay-level</c>, <c>application-profile</c> or the
+    ///     processor boost row.
+    /// </param>
     /// <param name="value">The value the slider settled on, or the option that was chosen.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
     /// <returns>A task completing once the write has been attempted.</returns>
     /// <remarks>
-    ///     The counterpart to <see cref="InvokeAsync" />, which advances a row that is pressed. A row
+    ///     The counterpart to <see cref="InvokeAsync" />, which runs a row that is pressed. A row
     ///     carrying a range or options is not pressed, so it never reaches that path and never needs a
     ///     "what comes next" rule — the control already knows the value the user asked for.
     /// </remarks>
@@ -388,37 +391,26 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Runs the one pressed performance row, the profile reset.</summary>
+    /// <param name="row">The pressed row.</param>
+    /// <param name="cancellationToken">Cancels the reset.</param>
+    /// <returns>A task completing once the reset has been saved.</returns>
+    /// <remarks>
+    ///     Every other actionable row carries options or a range and is set through
+    ///     <see cref="SetValueAsync" />, so it never arrives here.
+    /// </remarks>
     public async Task InvokeAsync(
         DescriptorRow row,
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(row);
-        PerformanceControl? control = row.Id switch
+        if (row.Id != "reset-profile")
         {
-            "overlay-level" => PerformanceControl.OverlayLevel,
-            _ => null
-        };
-        if (control is { } performanceControl)
-        {
-            await SetNextAsync(performanceControl, "overlay", cancellationToken).ConfigureAwait(false);
-            return;
+            throw new InvalidOperationException("The performance row is not actionable.");
         }
 
-        switch (row.Id)
-        {
-            case "application-profile" when Current.Target is { } target:
-                await _profiles.SetGameEnabledAsync(
-                    !Current.ApplicationProfileEnabled,
-                    target.ApplicationId,
-                    cancellationToken).ConfigureAwait(false);
-                return;
-            case "reset-profile":
-                await _profiles.ResetAsync(cancellationToken).ConfigureAwait(false);
-                return;
-            default:
-                throw new InvalidOperationException("The performance row is not actionable.");
-        }
+        await _profiles.ResetAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Cycles the overlay level through the same policy the UI row owns.</summary>
@@ -438,10 +430,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             return false;
         }
 
-        var result = await SetNextAsync(
-            PerformanceControl.OverlayLevel,
-            origin,
-            cancellationToken).ConfigureAwait(false);
+        var result = await CycleOverlayAsync(origin, cancellationToken).ConfigureAwait(false);
         return result.Phase is PerformanceCommandPhase.Applied
             or PerformanceCommandPhase.Deferred;
     }
@@ -451,8 +440,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     ///     The frame limit does not: it is a slider now, and an OEM button that stepped it one notch at
     ///     a time through a 280-value range would be a button that does nothing useful.
     /// </remarks>
-    private async Task<PerformanceCommandState> SetNextAsync(
-        PerformanceControl control,
+    private async Task<PerformanceCommandState> CycleOverlayAsync(
         string origin,
         CancellationToken cancellationToken)
     {
@@ -461,7 +449,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
                            ?? throw new InvalidOperationException("RTSS capabilities are unavailable.");
         var next = NextOverlayLevel(state, capabilities);
         return await _service.SetAsync(
-            control,
+            PerformanceControl.OverlayLevel,
             next,
             origin,
             Guid.NewGuid().ToString("N"),
@@ -481,23 +469,6 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     private void OnProfilesChanged(ProfileSnapshot snapshot, ProfileChangeKind kind)
     {
         Changed?.Invoke();
-    }
-
-    private static DescriptorRow BuildRow(
-        string id,
-        string title,
-        string description,
-        string trailing,
-        bool canInvoke,
-        DescriptorStatus status)
-    {
-        return new DescriptorRow(
-            id,
-            title,
-            description,
-            trailing,
-            canInvoke,
-            status);
     }
 
     private static string DescribeStatus(PerformanceState state)
@@ -551,12 +522,12 @@ internal sealed class PerformanceOverlayBridge : IDisposable
                 $"Foreground application profile {profile}.",
             _ => "An application identity is active but its executable is not known yet."
         };
-        return BuildRow(
+        return new DescriptorRow(
             "detected-application",
             "Detected application",
             description,
             trailing,
-            false,
+            CanInvoke: false,
             state.Target is null ? DescriptorStatus.Stale : DescriptorStatus.Available);
     }
 
@@ -567,12 +538,12 @@ internal sealed class PerformanceOverlayBridge : IDisposable
                 ? $"Settings are stored for {profile}."
                 : "Settings are stored for this application and will reach RTSS once its executable is known."
             : "The detected application inherits WSGM's global performance settings.";
-        return BuildRow(
+        return new DescriptorRow(
             "active-profile",
             "Active performance profile",
             description,
             state.ApplicationProfileEnabled ? "Application" : "Global",
-            false,
+            CanInvoke: false,
             state.ApplicationProfileEnabled && state.Target?.RtssProfileName is not { Length: > 0 }
                 ? DescriptorStatus.Warning
                 : DescriptorStatus.Available);
@@ -591,14 +562,20 @@ internal sealed class PerformanceOverlayBridge : IDisposable
 
     private static string FormatOverlayLevel(PerformanceState state)
     {
-        var value = PreferredValue(state, PerformanceControl.OverlayLevel);
-        return value switch
+        if (PreferredValue(state, PerformanceControl.OverlayLevel) is not { } value)
         {
-            0 => "Off",
-            1 => "On",
-            null => "Unavailable",
-            _ => value.Value.ToString(CultureInfo.InvariantCulture)
-        };
+            return "Unavailable";
+        }
+
+        foreach (var (level, label) in OverlayLevelNames)
+        {
+            if (level == value)
+            {
+                return label;
+            }
+        }
+
+        return value.ToString(CultureInfo.InvariantCulture);
     }
 
     private static int? PreferredValue(PerformanceState state, PerformanceControl control)

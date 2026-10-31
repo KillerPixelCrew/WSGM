@@ -26,7 +26,7 @@ public sealed class RtssLauncherTests
     [Fact]
     public async Task AReadyRtssDoesNotWaitThroughTheFixedStartupDelay()
     {
-        using RtssLauncher launcher = new(_ => Task.FromResult(true));
+        using RtssLauncher launcher = new(_ => true);
         var probes = 0;
 
         var started = await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), enabled: true,
@@ -87,32 +87,11 @@ public sealed class RtssLauncherTests
         {
             started.Add(path);
             cancellation.Cancel();
-            return Task.FromResult(true);
+            return true;
         });
-        Assert.True(await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true, cancellation.Token));
+        Assert.True(await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true, NotReady,
+            cancellation.Token));
         Assert.Equal([@"C:\Program Files (x86)\RivaTuner Statistics Server\RTSS.exe"], started);
-    }
-
-    [Fact]
-    public async Task AStartInFlightBlocksAnotherStartAndCancellationReleasesIt()
-    {
-        var starts = 0;
-        TaskCompletionSource<bool> starting = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        using CancellationTokenSource cancellation = new();
-        using RtssLauncher launcher = new(_ =>
-        {
-            starts++;
-            return starting.Task;
-        });
-        var first = launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true, cancellation.Token);
-        Assert.False(await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true));
-        cancellation.Cancel();
-        starting.SetResult(true);
-        Assert.True(await first);
-        using CancellationTokenSource secondCancellation = new();
-        secondCancellation.CancelAfter(TimeSpan.FromMilliseconds(20));
-        Assert.True(await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true, secondCancellation.Token));
-        Assert.Equal(2, starts);
     }
 
     [Theory]
@@ -124,10 +103,10 @@ public sealed class RtssLauncherTests
         using RtssLauncher launcher = new(_ =>
         {
             starts++;
-            return throws ? throw new InvalidOperationException("access denied") : Task.FromResult(false);
+            return throws ? throw new InvalidOperationException("access denied") : false;
         });
-        Assert.False(await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true));
-        Assert.False(await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true));
+        Assert.False(await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true, NotReady));
+        Assert.False(await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true, NotReady));
         Assert.Equal(2, starts);
     }
 
@@ -138,12 +117,13 @@ public sealed class RtssLauncherTests
         RtssLauncher launcher = new(_ =>
         {
             starts++;
-            return Task.FromResult(false);
+            return false;
         });
         Assert.False(
-            await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true, new CancellationToken(true)));
+            await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true, NotReady,
+                new CancellationToken(true)));
         launcher.Dispose();
-        Assert.False(await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true));
+        Assert.False(await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true, NotReady));
         Assert.Equal(0, starts);
     }
 
@@ -236,6 +216,11 @@ public sealed class RtssLauncherTests
     {
         return new RtssProbe(availability, "7.3.7",
             @"C:\Program Files (x86)\RivaTuner Statistics Server\RTSS.exe", 0, null, "test");
+    }
+
+    private static Task<bool> NotReady(CancellationToken cancellationToken)
+    {
+        return Task.FromResult(false);
     }
 
     private sealed class WatchLease : IDisposable
