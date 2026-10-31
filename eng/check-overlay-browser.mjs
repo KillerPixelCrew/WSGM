@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import {
+  declarations,
   fragment,
   instantiate,
   loadAsset,
@@ -12,7 +13,11 @@ const asset = loadAsset(
   process.argv[2] ??
     fileURLToPath(new URL("../src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js", import.meta.url)),
 );
-const source = fragment(asset, "overlay-browser.ts");
+// The helper reads Steam's route-table tokens from the shared gate helpers.
+const source =
+  declarations(asset, "gate-helpers.ts", ["RouteTableTokens"]) +
+  "\n" +
+  fragment(asset, "overlay-browser.ts");
 const route = "/native-external-browser";
 const makeHistory = () => {
   const listeners = new Set();

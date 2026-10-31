@@ -1439,6 +1439,8 @@
   // titled section, and PanelSectionRow, which lays one control out inside it. Both come from the one
   // layout module that names them together; null when either is not a unique match there.
   const PanelLayoutTokens = ["PanelSectionTitle", "PanelSectionRow", "spinner"];
+  // Steam's route table, which names every Big Picture path including the external web browser.
+  const RouteTableTokens = ["GameAPIOSK:", "/gameapiosk"];
   /**
    * Resolves both native Quick Access section and row components.
    * @param runtime Shared module resolver.
@@ -1579,6 +1581,28 @@
     step(button === SteamGamepadButton.TriggerRight ? 1 : -1);
   };
   /**
+   * The documents of Steam's popup windows, as its popup manager lists them, with each popup's name.
+   * A navigating popup may refuse its document; that popup is skipped and read again by the next caller.
+   * @returns Each readable popup document once per popup; empty when the manager is absent.
+   */
+  const steamPopupDocuments = () => {
+    const found = [];
+    let popups = [];
+    try {
+      const manager = window.g_PopupManager;
+      if (typeof manager?.GetPopups === "function") popups = Array.from(manager.GetPopups() ?? []);
+    } catch {
+      return found;
+    }
+    for (const popup of popups) {
+      try {
+        const doc = popup?.m_popup?.document;
+        if (doc) found.push({ document: doc, name: String(popup?.m_strName ?? "") });
+      } catch {}
+    }
+    return found;
+  };
+  /**
    * The Steam window an interaction happened in: Big Picture's main window or one game's overlay window.
    * In a game, Quick Access and the side menus are drawn in that game's overlay window, so a page opened
    * from them belongs there rather than in the hidden main window. Resolve it when the user acts: the
@@ -1654,6 +1678,25 @@
     if (!history || typeof history.push !== "function") return false;
     history.push(route);
     return true;
+  };
+  /**
+   * Asks the host to activate one entry drawn in a Steam side panel, and opens the page it may answer
+   * with. The panel is closed first: a page opened behind it is, on a controller, a dead button.
+   * @param patchId Command namespace that owns the entry.
+   * @param id The entry's id.
+   */
+  const activateSteamPanelEntry = (patchId, id) => {
+    // Read while the panel is open: over a game the panel, and the page, are the game overlay's.
+    const owner = steamInteractionWindow();
+    void request(patchId, "activate", { id }).then(
+      (answer) => {
+        if (answer?.route && closeSteamSideMenus(owner)) navigateSteamRoute(answer.route, owner);
+      },
+      () => {
+        // The host's refusal is already logged, and the entry stays truthful on the next state
+        // publication. A rejected press must not tear down the panel.
+      },
+    );
   };
   // Whether a source calls `call` and every such call passes a single argument. Counting the
   // arguments reads what the author wrote, however the minifier then names and spells them.
@@ -2867,7 +2910,7 @@
       (value) => typeof value === "function" && String(value).includes(".useContext("),
     );
     const routes = runtime.exported(
-      ["GameAPIOSK:", "/gameapiosk"],
+      [...RouteTableTokens],
       (value) => typeof value?.GamepadUI?.ExternalWeb === "function",
     );
     const externalPath = routes?.GamepadUI?.ExternalWeb();
@@ -3375,14 +3418,9 @@
     let lastError = "";
     let unsubscribe = null;
     let unsubscribeRefusal = null;
-    const listeners = new Set();
-    const notify = () => {
-      for (const listener of [...listeners]) {
-        try {
-          listener();
-        } catch {}
-      }
-    };
+    // What the frame redraws on: the gate's resolution, its state and refusals, and its removal.
+    const local = createLocalStore();
+    const notify = local.changed;
     const context = {
       react: () => react,
       ui: () => ui,
@@ -3451,12 +3489,7 @@
     // component declared inside the renderer would be a new type each time: React would remount the
     // page and drop its state and the controller's focus.
     function SteamPageFrame(props) {
-      const [, setRevision] = react.useState(0);
-      react.useEffect(() => {
-        const listener = () => setRevision((value) => value + 1);
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-      }, []);
+      react.useSyncExternalStore(local.subscribe, local.revision, local.revision);
       // After the hooks, so a render that finds the gate removed calls the same ones.
       if (!ui) {
         return react.createElement(
@@ -3531,9 +3564,7 @@
   function createPluginFrontends() {
     const documents = () => {
       const docs = new Set([document]);
-      for (const popup of window.g_PopupManager?.GetPopups?.() ?? []) {
-        if (popup?.m_popup?.document) docs.add(popup.m_popup.document);
-      }
+      for (const popup of steamPopupDocuments()) docs.add(popup.document);
       return [...docs];
     };
     const reactRuntime = () => resolveReact(getWebpackRuntime("plugin-frontends"));
@@ -5351,7 +5382,7 @@
           { key },
           h(ui.valueField, {
             name: row.label,
-            description: steamSettingDescription(ui, row),
+            description: common.description,
             focusable: false,
             value: null,
           }),
@@ -5478,7 +5509,7 @@
         return h(ui.valueField, {
           key,
           name: row.label,
-          description: steamSettingDescription(ui, row),
+          description: common.description,
           focusable: false,
           value: h(
             ui.focusable,
@@ -5538,7 +5569,7 @@
           h(ui.valueField, {
             name: row.label,
             value: null,
-            description: steamSettingDescription(ui, row),
+            description: common.description,
             focusable: false,
           }),
           ...values.map((value, index) =>
@@ -5572,7 +5603,7 @@
         return h(ui.valueField, {
           key,
           name: row.label,
-          description: steamSettingDescription(ui, row),
+          description: common.description,
           focusable: false,
           value: h(
             ui.dialogButton,
@@ -5585,7 +5616,7 @@
           key,
           name: row.label,
           value: row.text ?? "",
-          description: steamSettingDescription(ui, row),
+          description: common.description,
         });
       default:
         // A kind this build does not know is shown as its label and nothing else, never as a
@@ -5594,7 +5625,7 @@
           key,
           name: row.label,
           value: "",
-          description: steamSettingDescription(ui, row),
+          description: common.description,
         });
     }
   };
@@ -6906,7 +6937,7 @@
       }
       const buildApi = () => ({
         GetDevices: () =>
-          request(patchId, "getDevices", null, 0).then((state) => ({
+          request(patchId, "getDevices", null).then((state) => ({
             activeOutputDeviceId: numberFor(state?.activeOutputDeviceId ?? ""),
             activeInputDeviceId: numberFor(state?.activeInputDeviceId ?? ""),
             overrideOutputDeviceId: NO_DEVICE,
@@ -7719,24 +7750,8 @@
       react.useEffect(() => subscribe(patchId, redraw), []);
       const h = react.createElement;
       const items = desired.items;
-      const activate = (id) => {
-        // The window the tab is drawn in, read while its flyout is still open: over a game that is the
-        // game's overlay window, and the page opens there.
-        const owner = steamInteractionWindow();
-        void request(patchId, "activate", { id }).then(
-          (answer) => {
-            // An action may answer with a page to open. The panel is closed first: this tab is
-            // rendered inside the Quick Access flyout, so navigating with it open leaves the page
-            // behind the panel, which on a controller is indistinguishable from a dead button.
-            if (answer?.route && closeSteamSideMenus(owner))
-              navigateSteamRoute(answer.route, owner);
-          },
-          () => {
-            // The host's refusal is already logged and the row remains truthful on the next state
-            // publication. A rejected click must not tear down the whole Quick Access panel.
-          },
-        );
-      };
+      // The tab is drawn inside the Quick Access flyout, which closes before any page it opens.
+      const activate = (id) => activateSteamPanelEntry(patchId, id);
       // The row renderer's change: a committed value is sent against the configuration it was made
       // against. A value the setting cannot take is refused here rather than sent to be refused.
       const change = (item, setting) =>
@@ -8143,12 +8158,10 @@
               if (currentAppId === null) return;
               // The window the menu was used in; a game's overlay opens the page itself.
               const owner = steamInteractionWindow();
-              void request(
-                patchId,
-                "activate",
-                { appId: currentAppId, id: item.id },
-                nextActionGeneration(patchId),
-              ).then(
+              void request(patchId, "activate", {
+                appId: currentAppId,
+                id: item.id,
+              }).then(
                 (answer) => {
                   if (answer?.route) navigateSteamRoute(answer.route, owner);
                 },
@@ -8258,12 +8271,9 @@
     };
     // Keep the exact class transform for later parent renders too. The ref retains the actual native
     // instance, so multi-select uses GetTargetApps rather than guessing from the overview prop.
-    const captureMenu = (create, candidate, props, key) => {
-      if (typeof candidate !== "function") return;
-      const prototype = candidate.prototype;
-      if (!prototype) return;
-      // MobX may put render on an accessor or an observer superclass. Do not read it: that
-      // executes the observer getter before React supplies an instance. Match authored methods.
+    // MobX may put render on an accessor or an observer superclass. Do not read it: that executes
+    // the observer getter before React supplies an instance. Match authored methods.
+    const menuShaped = (prototype) => {
       const descriptor = (name) => {
         let owner = prototype;
         while (owner && owner !== Object.prototype) {
@@ -8272,14 +8282,24 @@
           owner = Object.getPrototypeOf(owner);
         }
       };
-      const methods = MenuTokens.map(descriptor);
-      if (
-        !methods.every(
-          (method) => typeof method?.value === "function" || typeof method?.get === "function",
-        ) ||
-        typeof descriptor(ActionMethod)?.value !== "function"
-      )
-        return;
+      return (
+        MenuTokens.every((name) => {
+          const method = descriptor(name);
+          return typeof method?.value === "function" || typeof method?.get === "function";
+        }) && typeof descriptor(ActionMethod)?.value === "function"
+      );
+    };
+    // Every element Steam creates passes the capture, so each component type is judged once. A class
+    // keeps the methods it was defined with, and this gate's own claims keep them functions.
+    const shapes = new WeakMap();
+    const captureMenu = (create, candidate, props, key) => {
+      if (typeof candidate !== "function" || !candidate.prototype) return;
+      let shaped = shapes.get(candidate);
+      if (shaped === undefined) {
+        shaped = menuShaped(candidate.prototype);
+        shapes.set(candidate, shaped);
+      }
+      if (!shaped) return;
       if (menuComponent && candidate !== menuComponent) {
         ambiguous = true;
         lastError = "Competing native game menu classes were observed";
@@ -8342,6 +8362,9 @@
         createClaimKeys,
         (original) =>
           function SteamUiGameContextMenuCreate(type, props, ...children) {
+            // Only a class can be the menu; anything else is created untouched, unexamined.
+            if (typeof type !== "function" || !type.prototype)
+              return original.call(react, type, props, ...children);
             const supplied = children.length
               ? { ...props, children: children.length === 1 ? children[0] : children }
               : props;
@@ -10154,7 +10177,7 @@
         .find((candidate) => candidate.key === row.key);
       if (!installed || !current || current.disabled)
         return Promise.reject(new Error("This setting is unavailable."));
-      return request(patchId, "set", { key: row.key, value }, nextActionGeneration(patchId));
+      return request(patchId, "set", { key: row.key, value });
     };
     function SteamUiNativeSettingsSections({ id }) {
       react.useSyncExternalStore(local.subscribe, local.revision);
@@ -10257,20 +10280,8 @@
     const nativeReactRoots = () => {
       const documents = new Set();
       if (typeof document !== "undefined") documents.add(document);
-      // The same known popup handles the theme gate reads. A navigating popup may refuse its document.
-      try {
-        const manager = window.g_PopupManager;
-        if (typeof manager?.GetPopups === "function") {
-          let visited = 0;
-          for (const popup of manager.GetPopups() ?? []) {
-            if (visited++ >= 256) break;
-            try {
-              const doc = popup?.m_popup?.document;
-              if (doc) documents.add(doc);
-            } catch {}
-          }
-        }
-      } catch {}
+      // The same popup documents the theme gate reads.
+      for (const popup of steamPopupDocuments().slice(0, 256)) documents.add(popup.document);
       const found = new Set();
       for (const doc of documents) {
         try {
@@ -10517,20 +10528,8 @@
     const iconOf = (item) =>
       (item.glyph ? renderSteamGlyph(react, item.glyph) : null) ??
       (item.icon && icon ? icon(item.icon) : null);
-    const activate = (id) => {
-      // Read while the menu is open: over a game the menu, and the page, are the game overlay's.
-      const owner = steamInteractionWindow();
-      void request(patchId, "activate", { id }, nextActionGeneration(patchId)).then(
-        (answer) => {
-          // An action may answer with a page to open. The menu is a side panel, so it is
-          // closed first; a page opened behind it is, on a controller, a dead button.
-          if (answer?.route && closeSteamSideMenus(owner)) navigateSteamRoute(answer.route, owner);
-        },
-        () => {
-          // The host's refusal is already logged; a rejected press must not break the menu.
-        },
-      );
-    };
+    // The main menu is a side panel, which closes before any page it opens.
+    const activate = (id) => activateSteamPanelEntry(patchId, id);
     // One added entry, drawn by Valve's own component. An entry with a route uses the route entry,
     // which matches the route for its active state and navigates with Valve's own action exactly as
     // Library does; the route is held to the bounds navigateSteamRoute applies, and is only followed
@@ -11227,6 +11226,14 @@
     let hostPages = [];
     const mounted = createMountedAdoption();
     let pages = [];
+    // The host's pages, then the ones plugin frontends contribute.
+    const composePages = () => [
+      ...hostPages,
+      ...pluginFrontendItems("page").map((slot) => ({
+        ...slot.value,
+        template: slot.id,
+      })),
+    ];
     let lastOutcome = "never rendered";
     let observedRoutes = [];
     const descendCache = new Map();
@@ -11327,10 +11334,10 @@
     };
     const pageDescender = (type) =>
       function SteamUiPageDescend(props) {
-        return descend(type(props), 0);
+        return descend(type(props));
       };
-    const descend = (element, depth) => {
-      if (depth > MaximumDescent || !react.isValidElement(element)) return element;
+    const descend = (element) => {
+      if (!react.isValidElement(element)) return element;
       const replaced = replaceRouteList(element, 0);
       if (replaced !== element) return replaced;
       return descendInto(react, element, descendCache, pageDescender) ?? element;
@@ -11403,7 +11410,7 @@
       const claim = claimMember(memo, "type", claimKeys, (original) => {
         if (typeof original !== "function") return original;
         return function SteamUiPageRouter(props) {
-          return descend(original(props), 0);
+          return descend(original(props));
         };
       });
       if (!claim.ok) {
@@ -11431,13 +11438,14 @@
       Object.defineProperty(routeSwitchWrapper, "__steamUiPageSwitchOriginal", {
         value: originalSwitch,
       });
-      routeSwitchFiber.type = routeSwitchWrapper;
-      if (routeSwitchFiber.alternate) routeSwitchFiber.alternate.type = routeSwitchWrapper;
+      retargetFiber(routeSwitchFiber, routeSwitchWrapper);
       // The claim reaches the next mount only; the router already on screen is adopted, or the claim
       // is correct and inert until the user happens to remount it. See createMountedAdoption.
       mounted.adopt(memo, memo.type);
       installed = true;
       lastError = "";
+      // Plugin pages already loaded are drawn from the start; neither subscription replays them.
+      pages = composePages();
       unsubscribe = subscribe(patchId, (state) => {
         const declared = Array.isArray(state?.pages) ? state.pages : [];
         const next = declared.filter(
@@ -11454,25 +11462,13 @@
         // The wrappers read `pages` from their closure, so a publication changes nothing React can
         // see on its own. Only a changed list earns a render: the class above the router is the one
         // asked, and its render re-runs every route, the configurator's edit session included.
-        if (!publicationChanged(pages, next)) return;
+        if (!publicationChanged(hostPages, next)) return;
         hostPages = next;
-        pages = [
-          ...hostPages,
-          ...pluginFrontendItems("page").map((slot) => ({
-            ...slot.value,
-            template: slot.id,
-          })),
-        ];
+        pages = composePages();
         mounted.rerender();
       });
       unsubscribePlugins = subscribePluginFrontends(() => {
-        pages = [
-          ...hostPages,
-          ...pluginFrontendItems("page").map((slot) => ({
-            ...slot.value,
-            template: slot.id,
-          })),
-        ];
+        pages = composePages();
         mounted.rerender();
       });
       return { ok: true, installed: true, reclaimed: claim.reclaimed };
@@ -11632,7 +11628,7 @@
         UpdateSettings: (payload) => {
           const delta = decodeSettingsUpdate(payload);
           if (delta === null) return Promise.reject(new Error(lastError));
-          return request(patchId, "updateSettings", { delta }, 0);
+          return request(patchId, "updateSettings", { delta });
         },
         RegisterForStateChanges: () => ({
           unregister: () => {},
@@ -11778,7 +11774,7 @@
       return null;
     };
     const activate = () => {
-      void request(patchId, "switchToDesktop", {}, nextActionGeneration(patchId)).catch(() => {
+      void request(patchId, "switchToDesktop", {}).catch(() => {
         // A refusal stays host-authoritative and must not make Steam's menu fail.
       });
     };
@@ -11900,7 +11896,6 @@
   function createScreensaverSettings() {
     const patchId = "steam-ui.screensaver";
     const MemoName = "screensaverSettings";
-    const RouteTokens = ["GameAPIOSK:", "/gameapiosk"];
     const SectionTokens = ['"#Settings_Customization_Screensaver"', "ForceScreensaver"];
     const PluggedInSetting = "system_idle_screensaver_ac_sec";
     const BatterySetting = "system_idle_screensaver_battery_sec";
@@ -12161,7 +12156,7 @@
       }
       dropdown = fields.dropdown;
       const pages = runtime.exported(
-        [...RouteTokens],
+        [...RouteTableTokens],
         (value) => typeof value?.Settings?.Customization === "function",
       );
       route = pages.Settings.Customization();
@@ -12819,22 +12814,7 @@
           // A window mid-navigation can refuse every read; it is looked at again next pass.
         }
       };
-      const manager = popupManager();
-      if (manager) {
-        let popups = [];
-        try {
-          popups = Array.from(manager.GetPopups() ?? []);
-        } catch {
-          popups = [];
-        }
-        for (const popup of popups) {
-          try {
-            consider(popup?.m_popup?.document, String(popup?.m_strName ?? ""));
-          } catch {
-            // As above.
-          }
-        }
-      }
+      for (const popup of steamPopupDocuments()) consider(popup.document, popup.name);
       walkFibers(reactRootFibers(), MaximumMountedNodes, (fiber) => {
         if (fiber.tag !== HostPortalTag) return false;
         const container = fiber.stateNode?.containerInfo;
@@ -13255,9 +13235,10 @@
       listeners.add(listener);
       return () => listeners.delete(listener);
     };
-    // Every row command carries a fresh action generation, so its echo can be matched to the write.
+    // Every row command carries a fresh action generation, which request allocates, so its echo can
+    // be matched to the write.
     const sendCommand = (definition, command, payload) =>
-      request(definition.patchId, command, payload, nextActionGeneration(definition.patchId));
+      request(definition.patchId, command, payload);
     // A controlled switch's change: a boolean that differs from what the device reports is sent, and
     // its refusal goes to `refuse` for the row's description; the next change clears it ("").
     const toggleCommand = (definition, state, refuse) => (enabled) => {
@@ -15641,12 +15622,24 @@
           fallbackKey: "steam-ui-quick-settings-root",
         },
       ];
+      // What each memoized array was answered with. useMemo hands back the same array until its
+      // dependencies change, so a cached array is scanned once and the tab list keeps one identity,
+      // which spares the wrapped panels a render on every render of the tab host. The wrappers above
+      // are fixed for this closure, so an answer never goes stale.
+      const answered = new WeakMap();
       // The tab array passes through the one useMemo claim every surface shares (ownership.ts).
       const transformTabs = (value) => {
         // Every useMemo result in the client passes through here. A tab list holds tab objects, so an
         // empty array, or one that starts with a string or number, is answered before any filtering.
         if (!Array.isArray(value) || !value.length) return value;
         if (typeof value[0] === "string" || typeof value[0] === "number") return value;
+        const known = answered.get(value);
+        if (known) return known;
+        const result = wrapTabs(value);
+        answered.set(value, result);
+        return result;
+      };
+      const wrapTabs = (value) => {
         // Many memoized arrays hold objects too; only one with a tab's panel element is worth copying.
         let tabs = false;
         for (let index = 0; index < value.length && !tabs; index++) {
