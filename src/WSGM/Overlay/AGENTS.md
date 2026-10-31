@@ -18,7 +18,16 @@ Read docs/overlay-and-input.md, "In-window surfaces", for utility, keyboard, cre
 - Every Device, GPU, Tools performance and Quick Access group is a `DevicePages` description drawn by the one
   `DeviceGroupRenderer`. Change the description, not the controls: no per-page flags, host panels or moving controls
   between parents. Page layout rules, such as the Power page's groups, belong in Shell's `DeviceOverlayGroups`.
-- OverlayController owns lifetime and integration sequencing. Views and controls render state and report intent; they do
+- OverlayWindow is the shell: header, destinations and rail, workspace selection, navigation and Back, live-refresh
+  coalescing, and surface and placement hosting. A destination page is a page view of its own (`*Page`, one per file)
+  that owns its controls, handlers and requests; register it in the `SubViews` table rather than adding XAML or
+  handlers to the window.
+- Each Quick Access pin source resolves its own ids to a title, availability and control (`QuickAccessPins`,
+  `ProgramsView.ResolvePin`, `DevicePins`). Add a pin kind to its source, not as another id-prefix test in the
+  window; a pinnable Tools section declares its pin id in its `SubViews` entry.
+- OverlayController owns lifetime and integration sequencing; `OverlayActivation`, `QuickAccessPinStore`,
+  `OverlayPowerState`, `OverlayOpenApps` and `OverlaySheetServices` own summon triggers, pins, Windows power state, the
+  Open apps strip and per-sheet service wiring. Views and controls render state and report intent; they do
   not mutate ConfigStore or acquire leases directly.
 - Capture, focus, cursor, and input-lease transitions are paired operations. Every close, cancellation, failure, and
   superseded open must release what it acquired.

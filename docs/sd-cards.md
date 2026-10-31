@@ -199,12 +199,13 @@ slipped into a reader whose volume already exists raises no notification.
 ## Storage routes and the formatting transaction
 
 `OverlayWindow.Navigation.cs` registers `SteamStorageFormat` under `SystemStorage` in the Tools
-destination. `OverlayWindow.Storage.cs` opens that route, drawn by `StorageFormatView`, from Format
-SD Card and Add Steam Library; the Steam Library page also offers Add Steam Library, which selects
-Tools > Storage before opening it. Back and Cancel return to Storage, and leaving clears the pending
-target. Card Manager is a separate `SteamCardManager` route under Steam Library and has no format
-command. `ShowSdCard` and `ShowCardManager` are independently derived from `Cef.Enabled` and their
-own feature switches, so formatting does not depend on Card Manager being enabled.
+destination. `StoragePage` and `SteamLibraryPage` open that route, drawn by `StorageFormatView`,
+from Format SD Card and Add Steam Library; the Steam Library page also offers Add Steam Library,
+which selects Tools > Storage before opening it. Back and Cancel return to Storage, and leaving
+clears the pending target. Card Manager is a separate `SteamCardManager` route under Steam Library
+and has no format command. `ShowSdCard` and `ShowCardManager` are independently derived from
+`Cef.Enabled` and their own feature switches, so formatting does not depend on Card Manager being
+enabled.
 
 The file/folder picker for Add Steam Library is still the native Avalonia storage dialog and needs a
 pointer. It is separate from the in-window picker used by Library Importer and content tools. The
