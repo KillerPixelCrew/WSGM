@@ -15,11 +15,7 @@ internal static class SteamEmulatorSurface
     internal const string GateName = "emulatorManager";
 
     internal static ISteamUiPatch Patch { get; } = SteamPagePatch.Create(
-        PatchId, GateName, "emulator-manager-v2:steam-page", "Emulator manager",
-        [
-            SteamPageProbe.React, SteamPageProbe.Focusable, SteamPageProbe.Fields, SteamPageProbe.Modal,
-            SteamPageProbe.ShowModal
-        ]);
+        PatchId, GateName, "emulator-manager-v2:steam-page", "Emulator manager");
 
     internal static ISteamUiModule Module(Func<bool> enabled, EmulatorService backend)
     {

@@ -31,11 +31,7 @@ internal static class SteamArtworkBrowserSurface
         PatchId,
         GateName,
         "steam-artwork-browser-v3:steam-page",
-        "Artwork browser",
-        [
-            SteamPageProbe.React, SteamPageProbe.Focusable, SteamPageProbe.Fields, SteamPageProbe.Tabs,
-            SteamPageProbe.Modal, SteamPageProbe.ShowModal
-        ]);
+        "Artwork browser");
 
     /// <summary>The concrete route that opens this page for one game.</summary>
     /// <param name="appId">The game the page should open on.</param>

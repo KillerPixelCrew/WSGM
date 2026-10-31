@@ -28,11 +28,7 @@ internal static class SteamThemesSurface
         PatchId,
         GateName,
         "steam-themes-v1:steam-page",
-        "Themes page",
-        [
-            SteamPageProbe.React, SteamPageProbe.Focusable, SteamPageProbe.Fields, SteamPageProbe.Tabs,
-            SteamPageProbe.Modal, SteamPageProbe.ShowModal
-        ]);
+        "Themes page");
 
     /// <summary>Declares the page's state and its exact command vocabulary.</summary>
     /// <param name="enabled">Whether state may be published; patch installation is coordinated separately.</param>

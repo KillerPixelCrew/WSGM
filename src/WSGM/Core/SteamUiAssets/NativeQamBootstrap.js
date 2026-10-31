@@ -1926,16 +1926,7 @@
     }
     return { visited, stopped: false };
   };
-  // The mounted fibers drawing one component: those whose element type is the memo or function that
-  // was claimed. The walk covers the tree on screen, so each mounted instance answers once.
-  const mountedFibersOf = (roots, elementType, bound) => {
-    const fibers = [];
-    walkFibers(roots, bound, (fiber) => {
-      if (fiber.elementType === elementType) fibers.push(fiber);
-    });
-    return fibers;
-  };
-  // Where a fiber's real props are kept while an adoption render is forced; see adoptMountedType.
+  // Where a fiber's real props are kept while an adoption render is forced; see claimComponent.
   const AdoptedPropsKey = "__steamUiAdoptedProps";
   const MaximumAncestors = 64;
   // Asks the nearest class component above a fiber to render again. Steam's router switch is a
@@ -1978,27 +1969,6 @@
   // Whether a fiber has a parent link on either side; a fiber sitting directly under a React root
   // never had one, so only one that had a parent and lost it has been detached.
   const fiberAttached = (fiber) => !!(fiber.return || fiber.alternate?.return);
-  // Brings a claim on a component's `type` to the instances already on screen.
-  //
-  // A claim on a memo's `type` reaches the next mount only: when React mounts a memo it resolves the
-  // function once and caches it on the fiber as `type`, and every later render of that fiber reads
-  // the cache, not the memo. Big Picture mounts its router, Home, the Quick Access view and the menu
-  // at boot and keeps them, so a claim alone is inert until the user happens to remount one; the
-  // carousel (2026-09-22) and every page gate (2026-09-24) shipped that way. Answers the fibers
-  // adopted and whether a render was requested; without a class ancestor the adoption still holds
-  // and takes effect on the instance's next render.
-  const adoptMountedType = (roots, elementType, replacement, bound) => {
-    const fibers = [];
-    let scheduled = false;
-    for (const fiber of mountedFibersOf(roots, elementType, bound)) {
-      if (fiber.type === replacement) continue;
-      retargetFiber(fiber, replacement);
-      invalidateFiberProps(fiber);
-      fibers.push(fiber);
-      scheduled = requestRender(fiber) || scheduled;
-    }
-    return { fibers, adopted: fibers.length, scheduled };
-  };
   // The node bound mounted trees are walked under. The router sits about a hundred levels down the
   // live tree and the popups are shallower, so this is generous; it exists to stop a cyclic or
   // pathological tree, not to limit a legitimate search.
@@ -2011,34 +1981,110 @@
   // (2026-09-26). A wrapper reads its state from a closure, so the only publications that need a
   // render are the ones that changed it.
   const publicationChanged = (previous, next) => JSON.stringify(previous) !== JSON.stringify(next);
-  // One claimed component's mounted instances, for the life of a gate's install.
+  // One claimed component and every mounted instance running it, for the life of a gate's install.
   //
-  // Adoption walks the tree once and keeps the fibers it adopted. Everything after that is over that
-  // list rather than the tree: a publication asks them to render again (the wrapper reads the gate's
-  // state from a closure, so the props have not changed and a memo with equal props bails out exactly
-  // as it did before adoption); status counts them; release hands them back. Publications arrive
-  // several times a second while a user browses artwork and status is read on every verify, so a
-  // tree walk on either was a full 60000-node pass on the UI thread for a number that never changed.
-  // A fiber React has since unmounted is dropped when next seen; the claim on the memo's `type`
-  // reaches any instance mounted after adoption on its own.
-  const createMountedAdoption = (bound = MaximumMountedNodes) => {
+  // A claim on a memo's `type` reaches the next mount only: when React mounts a memo it resolves the
+  // function once and caches it on the fiber as `type`, and every later render of that fiber reads the
+  // cache, not the memo. Big Picture mounts its router, Home, the Quick Access view and the menu at boot
+  // and keeps them, so a claim alone is inert until the user happens to remount one; the carousel
+  // (2026-09-22) and every page gate (2026-09-24) shipped that way. So the mounted instances are
+  // adopted: each fiber drawing the component has its `type` retargeted on both sides, its props
+  // invalidated so a memo cannot bail out, and a render asked of its nearest class ancestor.
+  //
+  //   host   the memo (or any object) whose `type` member is claimed; its mounted instances are the
+  //          fibers whose elementType is the host. Null when the component has no public handle at
+  //          all, such as the main menu's popup host or the router's own switch.
+  //   keys   the claim's durable marker keys. Every wrapper this builds carries them, the host's and
+  //          each `match` one alike, so a later evaluation recognises it, never stacks a second
+  //          wrapper on it, and release finds it wherever React kept it.
+  //   wrap   builds the wrapper around the displaced function. It must add no hooks of its own: an
+  //          adopted fiber keeps the hook list its original built.
+  //   match  also adopts a fiber this answers true for, given the fiber and its type with any claim
+  //          of ours seen through; each original gets its own cached wrapper.
+  //   roots  the fiber roots to walk; SharedJSContext's own React roots by default.
+  //   bound  how many fibers one walk visits at most.
+  //
+  // Release hands back every fiber whose type is a wrapper of this claim, on both fiber sides: the
+  // ones adopted at install and every instance React mounted from the claimed memo since, which a list
+  // kept at install cannot know about. Each handed-back fiber is invalidated and asked to render, so
+  // the original draws again now rather than on whatever render happens next.
+  const claimComponent = (options) => {
+    const { host = null, keys, wrap, match, bound = MaximumMountedNodes } = options;
+    const roots = options.roots ?? (() => reactRootFibers());
+    // A wrapper for each original a `match` fiber drew, built once: a fresh identity per render
+    // would remount the subtree.
+    const wrappers = new Map();
     // Each adopted fiber with whether it had a parent when adopted; see fiberAttached.
-    let entries = [];
-    let replacement = null;
+    let adopted = new Map();
+    let hostWrapper = null;
     let scheduled = false;
-    const live = () => {
-      entries = entries.filter(({ fiber, hadParent }) => !hadParent || fiberAttached(fiber));
-      return entries.map(({ fiber }) => fiber);
+    const marked = (original) => {
+      let wrapper = wrappers.get(original);
+      if (!wrapper) {
+        wrapper = wrap(original);
+        defineHidden(wrapper, keys.marker, true);
+        defineHidden(wrapper, keys.original, {
+          kind: "steam-ui-property-snapshot-v1",
+          hadOwn: true,
+          value: original,
+        });
+        wrappers.set(original, wrapper);
+      }
+      return wrapper;
     };
+    // What a fiber should draw while the claim holds, or null for a fiber that is not this claim's.
+    const replacementFor = (fiber) => {
+      if (host && fiber.elementType === host) return hostWrapper;
+      if (!match) return null;
+      const original = unclaimedValue(fiber.type, keys);
+      if (typeof original !== "function" || !match(fiber, original)) return null;
+      return marked(original);
+    };
+    const adopt = () => {
+      let count = 0;
+      walkFibers(roots(), bound, (fiber) => {
+        const replacement = replacementFor(fiber);
+        if (!replacement) return;
+        if (fiber.type !== replacement) {
+          retargetFiber(fiber, replacement);
+          invalidateFiberProps(fiber);
+          scheduled = requestRender(fiber) || scheduled;
+        }
+        if (!adopted.has(fiber)) count++;
+        adopted.set(fiber, fiberAttached(fiber));
+      });
+      return count;
+    };
+    const live = () => {
+      for (const [fiber, hadParent] of [...adopted]) {
+        if (hadParent && !fiberAttached(fiber)) adopted.delete(fiber);
+      }
+      return [...adopted.keys()];
+    };
+    let reclaimed = false;
+    if (host) {
+      const claim = claimMember(host, "type", keys, (original) => {
+        if (typeof original !== "function")
+          throw new TypeError("claimed component is not a function");
+        return wrap(original);
+      });
+      if (!claim.ok) return { ok: false, error: claim.error };
+      reclaimed = claim.reclaimed;
+      hostWrapper = host.type;
+    }
+    adopt();
     return {
-      adopt: (elementType, wrapper) => {
-        replacement = wrapper;
-        const result = adoptMountedType(reactRootFibers(), elementType, wrapper, bound);
-        entries = result.fibers.map((fiber) => ({ fiber, hadParent: fiberAttached(fiber) }));
-        scheduled = result.scheduled;
-        return result;
-      },
-      rerender: () => {
+      ok: true,
+      reclaimed,
+      /** The marked wrapper for an original, so another path that creates it draws the same one. */
+      wrapperFor: marked,
+      /**
+       * Asks every adopted instance to render again; `rescan` first walks the tree for instances
+       * mounted since, which a `match` claim with none of its instances left also does on its own.
+       * @returns How many instances were asked.
+       */
+      rerender: (rescan = false) => {
+        if (rescan || (match && live().length === 0)) adopt();
         let asked = 0;
         for (const fiber of live()) {
           invalidateFiberProps(fiber);
@@ -2046,26 +2092,330 @@
         }
         return asked;
       },
-      release: (original) => {
-        for (const { fiber } of entries) {
-          if (fiber.type === replacement) retargetFiber(fiber, original);
-        }
-        entries = [];
-        replacement = null;
-        scheduled = false;
-      },
-      // `stale` is an adopted instance still drawing something other than the wrapper: a render
-      // that has not happened yet, or a type React reset underneath us.
+      /** Whether the host still carries this claim's wrapper; a claim without a host holds while installed. */
+      held: () => !host || memberClaimed(host, "type", keys),
+      // `stale` is an adopted instance still drawing something other than its wrapper: a render that
+      // has not happened yet, or a type React reset underneath us.
       status: () => {
         const fibers = live();
         return {
           adopted: fibers.length,
           scheduled,
-          stale: fibers.filter((fiber) => fiber.type !== replacement).length,
+          stale: fibers.filter((fiber) => !claimed(fiber.type, keys)).length,
         };
+      },
+      release: () => {
+        if (host) {
+          const released = releaseMember(host, "type", keys);
+          if (!released.ok) return released;
+        }
+        const handed = new Set();
+        const handBack = (fiber) => {
+          let changed = false;
+          for (const side of [fiber, fiber.alternate]) {
+            if (side && claimed(side.type, keys)) {
+              side.type = unclaimedValue(side.type, keys);
+              changed = true;
+            }
+          }
+          if (changed) handed.add(fiber);
+        };
+        walkFibers(roots(), bound, handBack);
+        for (const fiber of adopted.keys()) handBack(fiber);
+        for (const fiber of handed) {
+          invalidateFiberProps(fiber);
+          requestRender(fiber);
+        }
+        adopted = new Map();
+        wrappers.clear();
+        hostWrapper = null;
+        scheduled = false;
+        return { ok: true, released: handed.size };
       },
     };
   };
+  // The record of what one install took. Each entry is released in reverse order on a failed install
+  // and on removal; an entry whose release fails stays, with everything taken before it, so the next
+  // removal retries exactly what is left. `held` proves an entry is still in place for verification.
+  const createGateLedger = () => {
+    const entries = [];
+    let reclaimed = false;
+    const add = (name, release, held = () => true) => {
+      entries.push({ name, release, held });
+    };
+    // A claim primitive's outcome, recorded only when it took.
+    const taken = (name, outcome, release, held) => {
+      if (outcome.ok) {
+        reclaimed ||= outcome.reclaimed === true;
+        add(name, release, held);
+      }
+      return outcome;
+    };
+    const ledger = {
+      /** Records something taken outside the primitives below, with how to give it back. */
+      add,
+      /** Runs `cleanup` on release; for timers, listeners and nodes a gate created. */
+      cleanup: (name, cleanup) =>
+        add(name, () => {
+          cleanup();
+          return { ok: true };
+        }),
+      member: (host, member, keys, replacement) =>
+        taken(
+          `member ${member}`,
+          claimMember(host, member, keys, replacement),
+          () => releaseMember(host, member, keys),
+          () => memberClaimed(host, member, keys),
+        ),
+      value: (host, field, keys, next) =>
+        taken(
+          `value ${field}`,
+          claimValue(host, field, keys, next),
+          () => releaseValue(host, field, keys),
+          () => claimed(host, keys),
+        ),
+      accessor: (host, property, keys, getter) =>
+        taken(
+          `accessor ${property}`,
+          claimAccessor(host, property, keys, getter),
+          () => releaseAccessor(host, property, keys),
+          () => claimed(Object.getOwnPropertyDescriptor(host ?? {}, property)?.get, keys),
+        ),
+      namespace: (host, name, marker, factory) =>
+        taken(
+          `namespace ${name}`,
+          supplyNamespace(host, name, marker, factory),
+          () => withdrawNamespace(host, name, marker),
+          () => claimed(host?.[name], { marker, original: marker }),
+        ),
+      memo: (host, name, transform) =>
+        taken(
+          `memo ${name}`,
+          interceptMemo(host, name, transform),
+          () => releaseMemo(host, name),
+          () => memoIntercepted(host, name),
+        ),
+      elements: (host, name, transform) =>
+        taken(
+          `elements ${name}`,
+          interceptElements(host, name, transform),
+          () => releaseElements(host, name),
+          () => elementsIntercepted(host, name),
+        ),
+      component: (options) => {
+        const component = claimComponent(options);
+        if (component.ok) {
+          reclaimed ||= component.reclaimed;
+          add("component", component.release, component.held);
+        }
+        return component;
+      },
+      /** Subscribes to a publication until release. */
+      subscribe: (patchId, callback) => {
+        const unsubscribe = subscribe(patchId, callback);
+        add(`subscription ${patchId}`, () => {
+          unsubscribe();
+          return { ok: true };
+        });
+      },
+      /** Subscribes to a publication's refusals until release. */
+      subscribeRefusal: (patchId, callback) => {
+        const unsubscribe = subscribeRefusal(patchId, callback);
+        add(`refusals ${patchId}`, () => {
+          unsubscribe();
+          return { ok: true };
+        });
+      },
+    };
+    const unwind = () => {
+      while (entries.length) {
+        const entry = entries[entries.length - 1];
+        let result;
+        try {
+          result = entry.release();
+        } catch (error) {
+          return { ok: false, error: `${entry.name}: ${String(error)}` };
+        }
+        if (result && typeof result === "object" && result.ok === false) {
+          return { ok: false, error: `${entry.name}: ${result.error ?? "release failed"}` };
+        }
+        entries.pop();
+      }
+      reclaimed = false;
+      return { ok: true };
+    };
+    const held = () =>
+      entries.every((entry) => {
+        try {
+          return entry.held() === true;
+        } catch {
+          return false;
+        }
+      });
+    return { ledger, unwind, held, size: () => entries.length, reclaimed: () => reclaimed };
+  };
+  /**
+   * Builds one gate's lifecycle from what differs between gates: how it finds its handles, what it
+   * claims with them and what it reports.
+   *
+   * `find(runtime)` is pure: it reads Steam and answers `{ready, handles, facts}`, `{notReady}` when
+   * what it needs is not mounted or constructed yet (Big Picture closed, Quick Access never opened),
+   * or `{incompatible}` when the client does not have it (a module that moved or matches twice). It
+   * writes nothing, so `probe()` is `find` without binding. While the gate is installed `probe()`
+   * answers from the handles it holds: a find that sees its own claims could otherwise call a holding
+   * gate incompatible, and the manager would retract it on every poll.
+   *
+   * `bind(handles, ledger)` takes everything through the ledger and answers a refusal string, or
+   * extra fields for the install result. A refusal or a throw unwinds what was taken, in reverse.
+   * Removal unwinds the same way and stays installed when a step fails, so it can be retried.
+   * `unbind()` resets what the gate keeps for itself once nothing is held any more.
+   *
+   * `status()` has one shape for every gate, which the host verifies with one predicate:
+   * `installed`, `resolved`, `held` (every ledger entry still in place and `holds(handles)`),
+   * `claims` (ledger entries outstanding) and `lastError`, after the gate's own `status(handles)`.
+   * @returns The gate: install, remove, status, probe, `installed()`, and any `api` members.
+   */
+  function defineGate(definition) {
+    const record = createGateLedger();
+    let handles = null;
+    let facts = {};
+    let installed = false;
+    let lastError = "";
+    const search = () => {
+      let runtime;
+      try {
+        runtime = getWebpackRuntime(definition.name);
+      } catch (error) {
+        return { notReady: `Steam modules unavailable: ${String(error)}` };
+      }
+      try {
+        return definition.find(runtime) ?? { incompatible: "find answered nothing" };
+      } catch (error) {
+        return { incompatible: `${definition.name} find failed: ${String(error)}` };
+      }
+    };
+    const answer = (found) => {
+      if ("ready" in found && found.ready === true) {
+        return { ok: true, outcome: "ready", facts: found.facts ?? {} };
+      }
+      if ("notReady" in found) {
+        return { ok: false, outcome: "notReady", reason: found.notReady, facts: found.facts ?? {} };
+      }
+      const refused = found;
+      return {
+        ok: false,
+        outcome: "incompatible",
+        reason: String(refused.incompatible),
+        facts: refused.facts ?? {},
+      };
+    };
+    const resetLocal = () => {
+      handles = null;
+      facts = {};
+      try {
+        definition.unbind?.();
+      } catch {
+        // What a gate keeps for itself is reset again by the next install.
+      }
+    };
+    const probe = () =>
+      installed ? { ok: true, outcome: "ready", installed: true, facts } : answer(search());
+    const install = () => {
+      if (installed) return { ok: true, alreadyInstalled: true };
+      if (record.size()) {
+        const residue = record.unwind();
+        if (!residue.ok) {
+          lastError = `an earlier install could not be rolled back: ${residue.error}`;
+          return { ok: false, error: lastError };
+        }
+      }
+      const found = search();
+      if (!("ready" in found && found.ready === true)) {
+        const refused = answer(found);
+        lastError = refused.reason ?? refused.outcome;
+        return { ok: false, error: lastError, outcome: refused.outcome };
+      }
+      handles = found.handles;
+      facts = found.facts ?? {};
+      // Installed while binding, so a wrapper Steam renders during the bind already draws.
+      installed = true;
+      let refusal = null;
+      let extras = {};
+      try {
+        const bound = definition.bind(found.handles, record.ledger);
+        if (typeof bound === "string") refusal = bound;
+        else if (bound && typeof bound === "object") extras = bound;
+      } catch (error) {
+        refusal = String(error);
+      }
+      if (refusal !== null) {
+        installed = false;
+        const rolledBack = record.unwind();
+        resetLocal();
+        lastError = rolledBack.ok ? refusal : `${refusal}; rollback failed: ${rolledBack.error}`;
+        return { ok: false, error: lastError };
+      }
+      lastError = "";
+      return { ok: true, installed: true, reclaimed: record.reclaimed(), ...extras };
+    };
+    const remove = () => {
+      if (!installed && !record.size()) return { ok: true, absent: true };
+      const released = record.unwind();
+      if (!released.ok) {
+        lastError = released.error ?? `${definition.name} release failed`;
+        return { ok: false, error: lastError };
+      }
+      installed = false;
+      resetLocal();
+      return { ok: true, removed: true };
+    };
+    const holds = () => {
+      if (!installed || !handles || !record.held()) return false;
+      try {
+        return definition.holds ? definition.holds(handles) === true : true;
+      } catch {
+        return false;
+      }
+    };
+    const status = () => {
+      let own = {};
+      try {
+        own = definition.status?.(handles) ?? {};
+      } catch (error) {
+        own = { statusError: String(error) };
+      }
+      return {
+        ...own,
+        ok: true,
+        gate: definition.name,
+        installed,
+        resolved: !!handles,
+        held: holds(),
+        claims: record.size(),
+        lastError,
+      };
+    };
+    return {
+      ...(definition.api ?? {}),
+      install,
+      remove,
+      status,
+      probe,
+      /** Whether the gate is installed: from the start of its bind until its removal. */
+      installed: () => installed,
+    };
+  }
+  // Shorthands for what `find` answers.
+  const gateReady = (handles, facts = {}) => ({
+    ready: true,
+    handles,
+    facts,
+  });
+  const gateNotReady = (reason, facts = {}) => ({ notReady: reason, facts });
+  const gateIncompatible = (reason, facts = {}) => ({
+    incompatible: reason,
+    facts,
+  });
   // Whether every token is in a function's source. The source is taken once per function: a walk
   // over a mounted tree meets the same few component types thousands of times.
   const sourceTexts = new WeakMap();
@@ -2077,68 +2427,6 @@
       sourceTexts.set(fn, source);
     }
     return tokens.every((token) => source.includes(token));
-  };
-  // The mounted instances of a component that has no public handle at all, kept by the fiber.
-  //
-  // Steam's main-menu popup host is such a component: a module-local function the popup mounts
-  // directly under a React root, exported nowhere, with the menu's memo export absent from that
-  // render path entirely. The only handle is the mounted fiber, which decky-loader's tabs hook adopts
-  // the same way: each fiber whose source carries the tokens has its `type` swapped for the wrapper
-  // `wrapFor` builds for its original. `adopt` walks only while no adopted host is still mounted, so
-  // running it on every publication catches a host Steam recreated without paying a tree walk for
-  // the one it did not.
-  const createSourceAdoption = (tokens, wrapFor, bound = MaximumMountedNodes) => {
-    // Each adopted fiber's original, the wrapper it was given and whether it had a parent when
-    // adopted; see fiberAttached.
-    const adopted = new Map();
-    const prune = () => {
-      for (const [fiber, { hadParent }] of [...adopted]) {
-        if (hadParent && !fiberAttached(fiber)) adopted.delete(fiber);
-      }
-    };
-    return {
-      adopt: () => {
-        prune();
-        if (adopted.size > 0) return 0;
-        let count = 0;
-        walkFibers(reactRootFibers(), bound, (fiber) => {
-          const type = fiber.type;
-          if (adopted.has(fiber) || !sourceMatches(type, tokens)) return false;
-          const wrapper = wrapFor(type);
-          adopted.set(fiber, { original: type, wrapper, hadParent: fiberAttached(fiber) });
-          retargetFiber(fiber, wrapper);
-          invalidateFiberProps(fiber);
-          requestRender(fiber);
-          count++;
-          return false;
-        });
-        return count;
-      },
-      release: () => {
-        // Only a fiber still drawing our wrapper is handed back; a type something else set since
-        // is not ours to overwrite.
-        for (const [fiber, { original, wrapper }] of adopted) {
-          if (fiber.type === wrapper) retargetFiber(fiber, original);
-        }
-        adopted.clear();
-      },
-      count: () => {
-        prune();
-        return adopted.size;
-      },
-    };
-  };
-  // Hands adopted instances back to the function the claim displaced. No render is requested: the
-  // original draws again whenever the page next renders, and a wrapper left on screen until then
-  // passes Steam's tree through once its gate is removed.
-  const releaseMountedType = (roots, elementType, replacement, original, bound) => {
-    let released = 0;
-    for (const fiber of mountedFibersOf(roots, elementType, bound)) {
-      if (fiber.type !== replacement) continue;
-      retargetFiber(fiber, original);
-      released++;
-    }
-    return released;
   };
   // @fragment icons.ts
   // Original 24×24 glyphs for native Steam rows; filled with currentColor and sized by the host.
@@ -3405,7 +3693,9 @@
   }
   // @fragment page-gate.ts
   /**
-   * Registers a renderer and generation-bound gate for one host page.
+   * Registers a renderer and generation-bound gate for one host page. The gate is a `defineGate`
+   * gate: its probe resolves `components(runtime)` and requires every name in `required`, and never
+   * calls `prepare`, which only the install runs.
    * @param definition Stable renderer/gate/patch identities, component requirements and lifecycle callbacks.
    * @returns Live page accessors; removal clears UI and state while the React instance may remain available.
    */
@@ -3415,9 +3705,6 @@
     let react = null;
     let state = null;
     let refusal = null;
-    let lastError = "";
-    let unsubscribe = null;
-    let unsubscribeRefusal = null;
     // What the frame redraws on: the gate's resolution, its state and refusals, and its removal.
     const local = createLocalStore();
     const notify = local.changed;
@@ -3427,63 +3714,48 @@
       state: () => state,
       refusal: () => refusal,
     };
-    const resolve = () => {
-      const runtime = getWebpackRuntime(definition.template);
+    // Pure: the components and the required list, never `prepare`, which acquires resources.
+    const find = (runtime) => {
       const resolved = definition.components(runtime);
       const missing = definition.required.filter((name) => !resolved?.[name]);
       if (missing.length) {
-        lastError = `Native Steam components unavailable: ${missing.join(", ")}`;
-        return false;
+        return gateIncompatible(`Native Steam components unavailable: ${missing.join(", ")}`, {
+          missing,
+        });
       }
-      const refused = definition.prepare?.(resolved, runtime) ?? null;
-      if (refused) {
-        lastError = refused;
-        return false;
-      }
-      ui = resolved;
-      react = resolved.react;
-      return true;
+      return gateReady({ resolved, runtime }, { components: definition.required.length });
     };
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
-      if (!attemptResolution(resolve, (error) => (lastError = String(error)))) {
+    const gate = defineGate({
+      name: definition.gate,
+      find,
+      bind: ({ resolved, runtime }, ledger) => {
+        const refused = definition.prepare?.(resolved, runtime) ?? null;
+        if (refused) return refused;
+        if (definition.release) ledger.cleanup("page resources", definition.release);
+        ui = resolved;
+        react = resolved.react;
+        ledger.subscribe(definition.patchId, (next) => {
+          state = next;
+          notify();
+        });
+        ledger.subscribeRefusal(definition.patchId, (reason) => {
+          refusal = reason;
+          notify();
+        });
+        // A mounted page draws nothing from the moment the gate is removed, rather than the
+        // controls it last had.
+        ledger.cleanup("page state", () => {
+          state = null;
+          refusal = null;
+          ui = null;
+        });
+        notify();
+      },
+      unbind: () => {
         ui = null;
         notify();
-        return { ok: false, error: lastError };
-      }
-      installed = true;
-      lastError = "";
-      unsubscribe = subscribe(definition.patchId, (next) => {
-        state = next;
-        notify();
-      });
-      unsubscribeRefusal = subscribeRefusal(definition.patchId, (reason) => {
-        refusal = reason;
-        notify();
-      });
-      notify();
-      return { ok: true, installed: true };
-    };
-    // A mounted page draws nothing from now on, rather than the controls it last had.
-    const remove = () => {
-      installed = false;
-      unsubscribe = endSubscription(unsubscribe);
-      unsubscribeRefusal = endSubscription(unsubscribeRefusal);
-      state = null;
-      refusal = null;
-      ui = null;
-      definition.release?.();
-      notify();
-      return { ok: true, removed: true };
-    };
-    const status = () => ({
-      ok: true,
-      installed,
-      resolved: !!ui,
-      subscribed: !!unsubscribe,
-      refused: refusal,
-      lastError,
-      ...(definition.status?.() ?? {}),
+      },
+      status: () => ({ refused: refusal, ...(definition.status?.() ?? {}) }),
     });
     // One component for the life of the asset. The page host draws it on every router render, and a
     // component declared inside the renderer would be a new type each time: React would remount the
@@ -3502,7 +3774,7 @@
               opacity: 0.8,
             },
           },
-          lastError || "Loading…",
+          gate.status().lastError || "Loading…",
         );
       }
       // The root must take focus so Back reaches page navigation before the router stack.
@@ -3519,7 +3791,7 @@
       react ??= hostReact;
       return react.createElement(SteamPageFrame, { page });
     });
-    registerGate(definition.gate, { install, remove, status });
+    registerGate(definition.gate, gate);
     return context;
   }
   // @fragment plugin-frontends.ts
@@ -4007,7 +4279,22 @@
       return { ok: true };
     };
     return {
-      probe: () => ({ ok: !!reactRuntime() }),
+      // The standard probe answer: a frontend needs Steam's React and nothing else of the client.
+      probe: () => {
+        let react;
+        try {
+          react = reactRuntime();
+        } catch (error) {
+          return {
+            ok: false,
+            outcome: "notReady",
+            reason: `Steam modules unavailable: ${String(error)}`,
+          };
+        }
+        return react
+          ? { ok: true, outcome: "ready", facts: { react: 1 } }
+          : { ok: false, outcome: "incompatible", reason: "React runtime was not a unique match" };
+      },
       load,
       status,
       unload,
@@ -6689,13 +6976,12 @@
   // @fragment gates/audio.ts
   /**
    * Adapts Steam audio RPCs to host state and commands without claiming a real native audio backend.
-   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   * @returns The defineGate gate; remove must release it before its bridge is replaced.
    */
   function createAudioNamespace() {
     const patchId = "steam-ui.audio";
-    let installed = false;
-    let lastError = "";
-    let unsubscribe = null;
+    // What the last store cleanup on removal could not hand back; the namespace is gone regardless.
+    let storeError = "";
     // Every registration Steam makes at construction. Held here so a state push can reach them and
     // so removal drops them all rather than leaving callbacks pointed at a torn-down bridge.
     const callbacks = {
@@ -6781,18 +7067,8 @@
       typeof value === "object" &&
       "m_bAvailable" in value &&
       typeof value.RegisterOrUpdateDevice === "function";
-    // One store for the gate's life: the store is a singleton and every publication asks for it. The
-    // bridge shares one resolver, so a lookup that failed is simply tried again next time.
-    let cachedStore = null;
-    const liveStore = () => {
-      if (cachedStore) return cachedStore;
-      try {
-        cachedStore = getWebpackRuntime("audio-store").exported(AudioStoreTokens, isAudioStore);
-      } catch {
-        return null;
-      }
-      return cachedStore;
-    };
+    // The running store, held from the find that installed the gate: it is a singleton.
+    let liveStore = null;
     const flVolumeOf = (value) => {
       if (value === null || value === undefined || !Number.isFinite(Number(value))) return null;
       return Math.min(1, Math.max(0, Number(value) / 100));
@@ -6804,7 +7080,7 @@
     let lastFlOutputVolume = null;
     let lastFlInputVolume = null;
     const onState = (state) => {
-      if (!installed || !state || !Array.isArray(state.devices)) return;
+      if (!gate.installed() || !state || !Array.isArray(state.devices)) return;
       const flOutputVolume = flVolumeOf(state.volumePercent) ?? 0;
       const flInputVolume = flVolumeOf(state.inputVolumePercent);
       const outputVolumeChanged =
@@ -6856,7 +7132,7 @@
       known = seen;
       // The registrations above only reach a store constructed after the namespace existed. The
       // running one has to be fed through its own path, and told it is available at all.
-      const store = liveStore();
+      const store = liveStore;
       if (!store) return;
       try {
         originalStoreState ??= {
@@ -6928,127 +7204,137 @@
         // a client rebuilt around a different store simply shows no audio section.
       }
     };
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
-      const system = window.SteamClient?.System;
-      if (!system) {
-        lastError = "SteamClient.System unavailable";
-        return { ok: false, error: lastError };
-      }
-      const buildApi = () => ({
-        GetDevices: () =>
-          request(patchId, "getDevices", null).then((state) => ({
-            activeOutputDeviceId: numberFor(state?.activeOutputDeviceId ?? ""),
-            activeInputDeviceId: numberFor(state?.activeInputDeviceId ?? ""),
-            overrideOutputDeviceId: NO_DEVICE,
-            overrideInputDeviceId: NO_DEVICE,
-            vecDevices: Array.isArray(state?.devices)
-              ? state.devices.map((device) =>
-                  toDevice(
-                    device,
-                    flVolumeOf(state?.volumePercent) ?? 0,
-                    flVolumeOf(state?.inputVolumePercent),
-                  ),
-                )
-              : [],
-          })),
-        // Empty until a session mixer exists. Steam then lists no per-application entries, which is
-        // the honest outcome rather than inventing volumes it cannot move.
-        GetApps: () => Promise.resolve({ rgApps: [] }),
-        SetDefaultDeviceOverride: (id, direction) => {
-          // Steam hands back the number this side minted; the host only knows the GUID.
-          const guid = guidFor(id);
-          if (!guid) return Promise.resolve();
-          return request(patchId, "setDefaultDevice", {
-            id: guid,
-            input: direction === AudioDirection.Input,
-          });
-        },
-        // (deviceId, DIRECTION, volume) — three arguments. Read off the store's own device class
-        // 2026-08-30: setDeviceVolume(e,t) calls SetDeviceVolume(this.m_id, e, t). The host declared
-        // two parameters and so read the DIRECTION as the volume: dragging the slider sent
-        // Math.round(1 * 100) or Math.round(0 * 100), which is why every drag set 100% or 0% and
-        // the log showed "Taskbar volume set to 100%" the moment the slider was touched.
-        //
-        SetDeviceVolume: (id, direction, volume) => {
-          if (direction !== AudioDirection.Output && direction !== AudioDirection.Input) {
-            return Promise.resolve();
-          }
-          return request(patchId, "setVolume", {
-            percent: Math.round(Math.min(1, Math.max(0, Number(volume) || 0)) * 100),
-            input: direction === AudioDirection.Input,
-          });
-        },
-        SetAppVolume: () => Promise.resolve(),
-        ClearDefaultDeviceOverride: () => Promise.resolve(),
-        RegisterForServiceConnectionStateChanges: register("serviceConnection"),
-        RegisterForDeviceAdded: register("deviceAdded"),
-        RegisterForDeviceRemoved: register("deviceRemoved"),
-        RegisterForDeviceVolumeChanged: register("deviceVolumeChanged"),
-        RegisterForVolumeButtonPressed: register("volumeButtonPressed"),
-        RegisterForAppAdded: register("appAdded"),
-        RegisterForAppRemoved: register("appRemoved"),
-        RegisterForAppVolumeChanged: register("appVolumeChanged"),
-      });
-      // Refusing a real backend and reclaiming our own orphan are both the primitive's job now; the
-      // reasoning for each lives with it.
-      const supplied = supplyNamespace(system, "Audio", ownedMarker, buildApi);
-      if (!supplied.ok) {
-        lastError = supplied.error;
-        return { ok: false, error: lastError };
-      }
-      installed = true;
-      lastError = "";
-      unsubscribe = subscribe(patchId, onState);
-      return { ok: true, installed: true };
-    };
-    const remove = () => {
-      if (!installed) return { ok: true, absent: true };
-      // Released first: a failed withdrawal leaves the gate installed with everything it knows, so
-      // the next remove retries it instead of answering absent over a namespace still in place.
-      const withdrawn = withdrawNamespace(window.SteamClient?.System, "Audio", ownedMarker);
-      if (!withdrawn.ok) {
-        lastError = withdrawn.error ?? "audio namespace withdrawal failed";
-        return { ok: false, error: lastError };
-      }
-      installed = false;
-      unsubscribe = endSubscription(unsubscribe);
-      for (const slot of Object.keys(callbacks)) callbacks[slot] = null;
-      const store = liveStore();
-      if (store) {
-        try {
-          for (const id of known) store.m_mapAudioDevices?.delete(id);
-          // Only what a publication displaced; a store that was never fed keeps its own values.
-          if (originalStoreState) {
-            store.m_bAvailable = originalStoreState.available;
-            store.m_activeOutputDeviceId = originalStoreState.output;
-            store.m_activeInputDeviceId = originalStoreState.input;
-          }
-        } catch (error) {
-          lastError = "audio store cleanup failed: " + String(error);
+    const buildApi = () => ({
+      GetDevices: () =>
+        request(patchId, "getDevices", null).then((state) => ({
+          activeOutputDeviceId: numberFor(state?.activeOutputDeviceId ?? ""),
+          activeInputDeviceId: numberFor(state?.activeInputDeviceId ?? ""),
+          overrideOutputDeviceId: NO_DEVICE,
+          overrideInputDeviceId: NO_DEVICE,
+          vecDevices: Array.isArray(state?.devices)
+            ? state.devices.map((device) =>
+                toDevice(
+                  device,
+                  flVolumeOf(state?.volumePercent) ?? 0,
+                  flVolumeOf(state?.inputVolumePercent),
+                ),
+              )
+            : [],
+        })),
+      // Empty until a session mixer exists. Steam then lists no per-application entries, which is
+      // the honest outcome rather than inventing volumes it cannot move.
+      GetApps: () => Promise.resolve({ rgApps: [] }),
+      SetDefaultDeviceOverride: (id, direction) => {
+        // Steam hands back the number this side minted; the host only knows the GUID.
+        const guid = guidFor(id);
+        if (!guid) return Promise.resolve();
+        return request(patchId, "setDefaultDevice", {
+          id: guid,
+          input: direction === AudioDirection.Input,
+        });
+      },
+      // (deviceId, DIRECTION, volume) — three arguments. Read off the store's own device class
+      // 2026-08-30: setDeviceVolume(e,t) calls SetDeviceVolume(this.m_id, e, t). The host declared
+      // two parameters and so read the DIRECTION as the volume: dragging the slider sent
+      // Math.round(1 * 100) or Math.round(0 * 100), which is why every drag set 100% or 0% and
+      // the log showed "Taskbar volume set to 100%" the moment the slider was touched.
+      SetDeviceVolume: (id, direction, volume) => {
+        if (direction !== AudioDirection.Output && direction !== AudioDirection.Input) {
+          return Promise.resolve();
         }
-      }
-      known = [];
-      lastFlOutputVolume = null;
-      lastFlInputVolume = null;
-      originalStoreState = null;
-      return { ok: true, removed: true };
-    };
-    const status = () => ({
-      ok: true,
-      installed,
-      namespacePresent: !!window.SteamClient?.System?.Audio,
-      registrations: Object.keys(callbacks).filter((slot) => callbacks[slot] !== null),
-      knownDevices: known.length,
-      lastError,
+        return request(patchId, "setVolume", {
+          percent: Math.round(Math.min(1, Math.max(0, Number(volume) || 0)) * 100),
+          input: direction === AudioDirection.Input,
+        });
+      },
+      SetAppVolume: () => Promise.resolve(),
+      ClearDefaultDeviceOverride: () => Promise.resolve(),
+      RegisterForServiceConnectionStateChanges: register("serviceConnection"),
+      RegisterForDeviceAdded: register("deviceAdded"),
+      RegisterForDeviceRemoved: register("deviceRemoved"),
+      RegisterForDeviceVolumeChanged: register("deviceVolumeChanged"),
+      RegisterForVolumeButtonPressed: register("volumeButtonPressed"),
+      RegisterForAppAdded: register("appAdded"),
+      RegisterForAppRemoved: register("appRemoved"),
+      RegisterForAppVolumeChanged: register("appVolumeChanged"),
     });
-    return { install, remove, status };
+    // Pure. A real audio backend at SteamClient.System.Audio is a client this gate stands aside for;
+    // one carrying our marker is our own, from this bridge or the one it replaced. The store has to be
+    // reachable because the running one already computed its availability at construction.
+    const find = (runtime) => {
+      const system = window.SteamClient?.System;
+      if (!system) return gateNotReady("SteamClient.System unavailable");
+      const audioStore = runtime.count(AudioStoreTokens);
+      const namespace = system.Audio;
+      const namespaceAbsent =
+        !namespace || claimed(namespace, { marker: ownedMarker, original: ownedMarker });
+      let store = null;
+      try {
+        store = runtime.exported(AudioStoreTokens, isAudioStore);
+      } catch {
+        // Absent or ambiguous; reported below.
+      }
+      const facts = {
+        audioStore,
+        audioNamespaceAbsent: namespaceAbsent,
+        storeSingletonReachable: !!store,
+      };
+      if (audioStore !== 1)
+        return gateIncompatible("the audio store module was not a unique match", facts);
+      if (!namespaceAbsent) return gateIncompatible("a native audio backend is present", facts);
+      if (!store) return gateIncompatible("the audio store singleton is not reachable", facts);
+      return gateReady({ system, store }, facts);
+    };
+    const gate = defineGate({
+      name: "audio",
+      find,
+      bind: ({ system, store }, ledger) => {
+        liveStore = store;
+        storeError = "";
+        // Last out: once the namespace is withdrawn, the running store is handed back what a
+        // publication displaced, and Steam's registrations are dropped rather than left pointing
+        // at a torn-down bridge.
+        ledger.cleanup("audio store", () => {
+          for (const slot of Object.keys(callbacks)) callbacks[slot] = null;
+          try {
+            for (const id of known) store.m_mapAudioDevices?.delete(id);
+            // Only what a publication displaced; a store that was never fed keeps its own values.
+            if (originalStoreState) {
+              store.m_bAvailable = originalStoreState.available;
+              store.m_activeOutputDeviceId = originalStoreState.output;
+              store.m_activeInputDeviceId = originalStoreState.input;
+            }
+          } catch (error) {
+            storeError = "audio store cleanup failed: " + String(error);
+          }
+        });
+        // Refusing a real backend and reclaiming our own orphan are both the primitive's job; the
+        // reasoning for each lives with it.
+        const supplied = ledger.namespace(system, "Audio", ownedMarker, buildApi);
+        if (!supplied.ok) return supplied.error;
+        ledger.subscribe(patchId, onState);
+      },
+      unbind: () => {
+        liveStore = null;
+        known = [];
+        lastFlOutputVolume = null;
+        lastFlInputVolume = null;
+        originalStoreState = null;
+      },
+      status: () => ({
+        namespacePresent: !!window.SteamClient?.System?.Audio,
+        registrations: Object.keys(callbacks).filter((slot) => callbacks[slot] !== null),
+        knownDevices: known.length,
+        storeError,
+      }),
+    });
+    return gate;
   }
   registerGate("audio", createAudioNamespace());
   // @fragment gates/bluetooth.ts
   /**
    * Supplies Steam Bluetooth service responses and notifications from host publications.
-   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   * @returns The defineGate gate; remove must release it before its bridge is replaced.
    */
   function createBluetoothService() {
     const patchId = "steam-ui.bluetooth";
@@ -7057,36 +7343,51 @@
       marker: "__steamUiOwnedBluetoothService",
       original: "__steamUiOriginalBluetoothServiceMethod",
     };
-    const replaced = new Set();
-    let installed = false;
+    // Every method the gate replaces, and the ones Steam's pairing UI calls, which the stub must have.
+    const Replaced = [
+      "GetState",
+      "GetDeviceDetails",
+      "GetAdapterDetails",
+      "SetDiscovering",
+      "Pair",
+      "CancelPair",
+      "Connect",
+      "Disconnect",
+      "Forget",
+      "SetTrusted",
+      "SetWakeAllowed",
+    ];
+    const Operations = [
+      "GetState",
+      "SetDiscovering",
+      "Pair",
+      "CancelPair",
+      "Connect",
+      "Disconnect",
+      "Forget",
+      "SetTrusted",
+      "SetWakeAllowed",
+      "GetDeviceDetails",
+    ];
+    // Why the last forwarded operation failed.
     let lastError = "";
-    let unsubscribe = null;
     // Steam's own device and adapter shapes, which are not ours to describe: the store reads them
     // and the host only carries them through from the state it was given.
     let latest = { is_service_available: false, adapters: [], devices: [] };
-    // Resolved once, at install. Every state push invalidates through the same resolver, and removal
-    // hands the methods back on the stub they were claimed on.
+    // The resolver and the stub the gate was installed against: every state push invalidates through
+    // the same resolver, and removal hands the methods back on the stub they were claimed on.
     let req = null;
     let stub = null;
-    const serviceStub = (req) => {
-      try {
-        return req.exported(
-          ["BluetoothManager.GetState#1"],
-          (value) =>
-            !!value &&
-            typeof value === "object" &&
-            typeof value.GetState === "function" &&
-            typeof value.Pair === "function",
-        );
-      } catch {
-        return null;
-      }
-    };
+    const isServiceStub = (value) =>
+      !!value &&
+      typeof value === "object" &&
+      typeof value.GetState === "function" &&
+      typeof value.Pair === "function";
     const invalidate = () => invalidateQuery(req, queryKey);
     // The host sends its own field names and the mapping into Steam's lives here, so the client's
     // schema stays in the half that has to change when the client is rebuilt.
     const onState = (state) => {
-      if (!installed || !state) return;
+      if (!gate.installed() || !state) return;
       const devices = Array.isArray(state.devices) ? state.devices : [];
       latest = {
         is_service_available: state.available === true,
@@ -7121,95 +7422,106 @@
       };
       invalidate();
     };
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
-      req = getWebpackRuntime("bluetooth-service");
-      stub = serviceStub(req);
-      if (!stub || typeof stub.GetState !== "function") {
-        lastError = "BluetoothManagerService stub unavailable";
-        return { ok: false, error: lastError };
-      }
-      const forward = (command) => (payload) =>
-        request(patchId, command, payload ?? null).then(
-          () => {
-            lastError = "";
-            return transportReply({ success: true });
-          },
-          (error) => {
-            lastError = String(error);
-            return transportFailure({ success: false, error: lastError });
-          },
-        );
-      // A member claim per method, so the stub's own method is what removal hands back and a bridge
-      // replaced in place reclaims its predecessor's overlay instead of wrapping it.
-      const replace = (name, replacement) => {
-        const claim = claimMember(stub, name, methodKeys, () => replacement);
-        if (!claim.ok) throw new Error(claim.error);
-        replaced.add(name);
-      };
+    const forward = (command) => (payload) =>
+      request(patchId, command, payload ?? null).then(
+        () => {
+          lastError = "";
+          return transportReply({ success: true });
+        },
+        (error) => {
+          lastError = String(error);
+          return transportFailure({ success: false, error: lastError });
+        },
+      );
+    const replacements = {
+      GetState: () => Promise.resolve(transportReply(latest)),
+      GetDeviceDetails: (payload) => {
+        const id = payload?.device ?? payload?.id;
+        const device = latest.devices.find((entry) => entry.id === id) ?? null;
+        return Promise.resolve(transportReply({ device }));
+      },
+      GetAdapterDetails: () =>
+        Promise.resolve(transportReply({ adapter: latest.adapters[0] ?? null })),
+      SetDiscovering: forward("setDiscovering"),
+      Pair: forward("pair"),
+      CancelPair: forward("cancelPair"),
+      Connect: forward("connect"),
+      Disconnect: forward("disconnect"),
+      Forget: forward("forget"),
+      SetTrusted: forward("setTrusted"),
+      SetWakeAllowed: forward("setWakeAllowed"),
+    };
+    const replacedCount = () =>
+      stub ? Replaced.filter((name) => memberClaimed(stub, name, methodKeys)).length : 0;
+    // Pure. The stub and the query client by what they are: the September 2026 beta renumbered the
+    // modules this gate used to name. The query client must be reachable, because availability rides
+    // a react-query with infinite stale time, and without an invalidation the row keeps reading the
+    // unavailable answer whatever the methods return.
+    const find = (runtime) => {
+      let found;
       try {
-        replace("GetState", () => Promise.resolve(transportReply(latest)));
-        replace("GetDeviceDetails", (payload) => {
-          const id = payload?.device ?? payload?.id;
-          const device = latest.devices.find((entry) => entry.id === id) ?? null;
-          return Promise.resolve(transportReply({ device }));
-        });
-        replace("GetAdapterDetails", () =>
-          Promise.resolve(transportReply({ adapter: latest.adapters[0] ?? null })),
-        );
-        replace("SetDiscovering", forward("setDiscovering"));
-        replace("Pair", forward("pair"));
-        replace("CancelPair", forward("cancelPair"));
-        replace("Connect", forward("connect"));
-        replace("Disconnect", forward("disconnect"));
-        replace("Forget", forward("forget"));
-        replace("SetTrusted", forward("setTrusted"));
-        replace("SetWakeAllowed", forward("setWakeAllowed"));
+        found = runtime.exported(["BluetoothManager.GetState#1"], isServiceStub);
       } catch (error) {
-        lastError = String(error);
-        for (const name of replaced) releaseMember(stub, name, methodKeys);
-        replaced.clear();
-        return { ok: false, error: lastError };
+        return gateIncompatible(`BluetoothManagerService stub unavailable: ${String(error)}`);
       }
-      installed = true;
-      lastError = "";
-      unsubscribe = subscribe(patchId, onState);
-      invalidate();
-      return { ok: true, installed: true, replaced: replaced.size };
+      const missing = Operations.filter((name) => typeof found[name] !== "function");
+      const descriptor = Object.getOwnPropertyDescriptor(found, "GetState");
+      const facts = {
+        operationsPresent: missing.length === 0,
+        missing,
+        methodsWritable:
+          claimed(found.GetState, methodKeys) ||
+          (descriptor?.writable === true && descriptor.configurable === true),
+        queryCacheReachable: !!resolveQueryClient(runtime),
+      };
+      if (missing.length)
+        return gateIncompatible(`Bluetooth service lacks ${missing.join(", ")}`, facts);
+      if (!facts.methodsWritable)
+        return gateIncompatible("Bluetooth service methods are not writable", facts);
+      if (!facts.queryCacheReachable)
+        return gateIncompatible("the query client was not a unique match", facts);
+      return gateReady({ runtime, service: found }, facts);
     };
-    const remove = () => {
-      if (!installed) return { ok: true, absent: true };
-      // Every method is released before the gate forgets it is installed, so a failed release is
-      // retried by the next remove rather than left in Steam behind an "absent" answer.
-      for (const name of replaced) {
-        const released = releaseMember(stub, name, methodKeys);
-        if (!released.ok) {
-          lastError = released.error ?? "Bluetooth service method release failed";
-          return { ok: false, error: lastError };
+    const gate = defineGate({
+      name: "bluetooth",
+      find,
+      bind: ({ runtime, service }, ledger) => {
+        req = runtime;
+        stub = service;
+        // Last out: once every method is Steam's again, the panel reads its own answer.
+        ledger.cleanup("bluetooth state", () => {
+          latest = { is_service_available: false, adapters: [], devices: [] };
+          invalidate();
+        });
+        // A member claim per method, so the stub's own method is what removal hands back and a
+        // bridge replaced in place reclaims its predecessor's overlay instead of wrapping it.
+        for (const name of Replaced) {
+          const claim = ledger.member(stub, name, methodKeys, () => replacements[name]);
+          if (!claim.ok) return claim.error;
         }
-        replaced.delete(name);
-      }
-      installed = false;
-      unsubscribe = endSubscription(unsubscribe);
-      latest = { is_service_available: false, adapters: [], devices: [] };
-      invalidate();
-      return { ok: true, removed: true };
-    };
-    const status = () => ({
-      ok: true,
-      installed,
-      replaced: replaced.size,
-      available: latest.is_service_available,
-      devices: latest.devices.length,
-      lastError,
+        ledger.subscribe(patchId, onState);
+        invalidate();
+        return { replaced: replacedCount() };
+      },
+      holds: () => replacedCount() > 0,
+      unbind: () => {
+        req = null;
+        stub = null;
+      },
+      status: () => ({
+        replaced: replacedCount(),
+        available: latest.is_service_available,
+        devices: latest.devices.length,
+        operationError: lastError,
+      }),
     });
-    return { install, remove, status };
+    return gate;
   }
   registerGate("bluetooth", createBluetoothService());
   // @fragment gates/brightness.ts
   /**
    * Binds Steam brightness controls to host display state and brightness commands.
-   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   * @returns The defineGate gate; remove must release it before its bridge is replaced.
    */
   function createBrightnessGate() {
     const patchId = "steam-ui.brightness";
@@ -7227,15 +7539,16 @@
       marker: "__steamUiOwnedSetBrightness",
       original: "__steamUiOriginalSetBrightness",
     };
-    let installed = false;
+    // Why the last brightness write or state projection failed.
     let lastError = "";
-    let unsubscribe = null;
     let lastPercent = null;
     let lastRevision = -1;
     let applyingState = false;
     let requestVersion = 0;
     let pendingWrite = false;
     let confirmedState = null;
+    // The display store the gate was installed against: a singleton, held from its find.
+    let displayStore = null;
     // The display settings store by what it is: the one module holding the brightness observable,
     // and the one exported class on it with a singleton Get() whose body declares that observable.
     // Client builds renumber the module (the September 2026 beta did), so no id is kept.
@@ -7244,22 +7557,8 @@
       typeof value === "function" &&
       typeof value.Get === "function" &&
       String(value).includes("m_flDisplayBrightness");
-    // One store for the gate's life: the store is a singleton and every publication and status read
-    // asks for it. The bridge shares one resolver, so a lookup that failed is simply tried again.
-    let cachedStore = null;
-    const displayStore = () => {
-      if (cachedStore) return cachedStore;
-      try {
-        const runtime = getWebpackRuntime("brightness-store");
-        cachedStore = runtime.exported(DisplayStoreTokens, isDisplayStoreClass).Get() ?? null;
-      } catch {
-        return null;
-      }
-      return cachedStore;
-    };
-    const settings = () => displayStore()?.m_msgSettings ?? null;
     const onState = (state) => {
-      if (!installed || !state) return;
+      if (!gate.installed() || !state) return;
       const percent = Number(state.percent);
       const revision = Number(state.revision);
       if (
@@ -7275,7 +7574,7 @@
       confirmedState = { percent, revision };
       if (pendingWrite) return;
       try {
-        const observable = displayStore()?.m_flDisplayBrightness;
+        const observable = displayStore?.m_flDisplayBrightness;
         applyingState = true;
         if (
           observable?.Set &&
@@ -7293,122 +7592,108 @@
     // The slider's writes, taken over at the one method it calls. Same replace-not-stack rule as
     // the Manager's GetState: the overlay carries the stub it replaced, so a bridge replaced in
     // place unwinds to the client's own method instead of wrapping a dead closure.
-    const overrideSetter = () => {
+    const setBrightness = () => (flBrightness) => {
+      if (!gate.installed() || applyingState) return Promise.resolve();
+      const value = Number(flBrightness);
+      if (!Number.isFinite(value) || value < 0 || value > 1) return Promise.resolve();
+      const percent = Math.round(value * 100);
+      if (!pendingWrite && percent === lastPercent) return Promise.resolve();
+      const version = ++requestVersion;
+      pendingWrite = true;
+      return request(patchId, "setBrightness", { percent })
+        .then((readback) => {
+          if (!gate.installed() || version !== requestVersion) return;
+          pendingWrite = false;
+          onState(readback);
+          // A later external observation can already have arrived while this request completed.
+          if (confirmedState) onState(confirmedState);
+        })
+        .catch((error) => {
+          if (!gate.installed() || version !== requestVersion) return;
+          pendingWrite = false;
+          lastError = "brightness write failed: " + String(error);
+          if (confirmedState) onState(confirmedState);
+        });
+    };
+    // Pure. The settings message is built when Quick Settings first mounts its display section, so
+    // a store or a message without the flag yet is a client still loading: not ready, never an
+    // incompatible build. A client already reporting brightness available needs nothing from the
+    // host and is left alone, unless the flag is this gate's own earlier reveal, surviving a bridge
+    // replaced in place: refusing that is the teardown trap. Revealing the row also needs the native
+    // backend, or the result is a slider that moves and changes nothing.
+    const find = (runtime) => {
+      let storeClass;
+      try {
+        storeClass = runtime.exported(DisplayStoreTokens, isDisplayStoreClass);
+      } catch (error) {
+        return gateIncompatible(`the display store was not a unique match: ${String(error)}`);
+      }
+      const store = storeClass.Get() ?? null;
+      const message = store?.m_msgSettings ?? null;
       const display = window.SteamClient?.System?.Display;
-      if (!display || typeof display.SetBrightness !== "function") {
-        lastError = "SteamClient.System.Display.SetBrightness unavailable";
-        return false;
+      const facts = {
+        fieldPresent: !!message && field in message,
+        revealable: !!message && (message[field] !== true || claimed(message, availability)),
+        backendPresent:
+          !!display &&
+          typeof display.SetBrightness === "function" &&
+          typeof display.RegisterForBrightnessChanges === "function",
+      };
+      if (!message) return gateNotReady("display settings message unavailable", facts);
+      if (!facts.fieldPresent)
+        return gateNotReady("display settings have no brightness flag yet", facts);
+      if (!facts.backendPresent) {
+        return gateIncompatible("SteamClient.System.Display brightness backend unavailable", facts);
       }
-      const claim = claimMember(display, "SetBrightness", setter, () => (flBrightness) => {
-        if (!installed || applyingState) return Promise.resolve();
-        const value = Number(flBrightness);
-        if (!Number.isFinite(value) || value < 0 || value > 1) return Promise.resolve();
-        const percent = Math.round(value * 100);
-        if (!pendingWrite && percent === lastPercent) return Promise.resolve();
-        const version = ++requestVersion;
-        pendingWrite = true;
-        return request(patchId, "setBrightness", { percent })
-          .then((readback) => {
-            if (!installed || version !== requestVersion) return;
-            pendingWrite = false;
-            onState(readback);
-            // A later external observation can already have arrived while this request completed.
-            if (confirmedState) onState(confirmedState);
-          })
-          .catch((error) => {
-            if (!installed || version !== requestVersion) return;
-            pendingWrite = false;
-            lastError = "brightness write failed: " + String(error);
-            if (confirmedState) onState(confirmedState);
-          });
-      });
-      if (!claim.ok) {
-        lastError = claim.error;
-        return false;
-      }
-      return true;
+      if (!facts.revealable)
+        return gateIncompatible("the client already reports brightness available", facts);
+      return gateReady({ store, message, display }, facts);
     };
-    const restoreSetter = () => {
-      const released = releaseMember(
-        window.SteamClient?.System?.Display ?? null,
-        "SetBrightness",
-        setter,
-      );
-      if (!released.ok) {
-        lastError = released.error ?? "brightness setter release failed";
-      }
-      return released.ok;
-    };
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
-      const message = settings();
-      if (!message || !(field in message)) {
-        lastError = "display settings message unavailable";
-        return { ok: false, error: lastError };
-      }
-      // A client already reporting brightness available needs nothing from the host, and overwriting
-      // the flag would mean restoring a value that was never ours to change. Available AND MARKED
-      // is different: that is this gate's own earlier reveal, surviving a bridge replaced in
-      // place, and refusing it is the teardown trap. Both cases are the claim primitive's job now.
-      const claim = claimValue(message, field, availability, true);
-      if (!claim.ok) {
-        lastError = claim.error;
-        return { ok: false, error: lastError };
-      }
-      if (!overrideSetter()) {
+    const gate = defineGate({
+      name: "brightness",
+      find,
+      bind: ({ store, message, display }, ledger) => {
+        displayStore = store;
+        lastPercent = null;
+        lastRevision = -1;
+        confirmedState = null;
+        lastError = "";
+        // Late completions after removal are ignored, and a reinstall starts a fresh sequence.
+        ledger.cleanup("brightness requests", () => {
+          ++requestVersion;
+          pendingWrite = false;
+        });
+        const revealed = ledger.value(message, field, availability, true);
+        if (!revealed.ok) return revealed.error;
         // Revealing a slider whose writes go into the stub is the broken state this gate shipped
-        // with; the reveal is undone rather than left half-working.
-        releaseValue(message, field, availability);
-        return { ok: false, error: lastError };
-      }
-      installed = true;
-      lastPercent = null;
-      lastRevision = -1;
-      confirmedState = null;
-      lastError = "";
-      unsubscribe = subscribe(patchId, onState);
-      return { ok: true, installed: true, available: message[field] === true };
-    };
-    const remove = () => {
-      if (!installed) return { ok: true, absent: true };
-      // Both claims are released before anything is forgotten: a failed release leaves the gate
-      // installed, so the next remove retries what is left (a released claim answers ok again).
-      if (!restoreSetter()) return { ok: false, error: lastError };
-      const message = settings();
-      if (message) {
-        const released = releaseValue(message, field, availability);
-        if (!released.ok) {
-          lastError = released.error ?? "brightness release failed";
-          return { ok: false, error: lastError };
-        }
-      }
-      installed = false;
-      ++requestVersion;
-      pendingWrite = false;
-      unsubscribe = endSubscription(unsubscribe);
-      return message ? { ok: true, removed: true } : { ok: true, removed: true, storeGone: true };
-    };
-    const status = () => {
-      const message = settings();
-      return {
-        ok: true,
-        installed,
-        available: message ? message[field] === true : false,
+        // with; a setter that cannot be claimed unwinds the reveal with it.
+        const owned = ledger.member(display, "SetBrightness", setter, setBrightness);
+        if (!owned.ok) return owned.error;
+        ledger.subscribe(patchId, onState);
+        return { available: message[field] === true };
+      },
+      holds: ({ message }) => message[field] === true,
+      unbind: () => {
+        displayStore = null;
+      },
+      status: (handles) => ({
+        available: handles ? handles.message[field] === true : false,
         setterOwned: memberClaimed(window.SteamClient?.System?.Display, "SetBrightness", setter),
         lastPercent,
         lastRevision,
         pendingWrite,
-        observable: displayStore()?.m_flDisplayBrightness?.m_currentValue ?? null,
-        lastError,
-      };
-    };
-    return { install, remove, status };
+        observable: displayStore?.m_flDisplayBrightness?.m_currentValue ?? null,
+        operationError: lastError,
+      }),
+    });
+    return gate;
   }
   registerGate("brightness", createBrightnessGate());
   // @fragment gates/elements.ts
   /**
    * Exposes the shared JSX transform claim to scripts outside this bundle.
-   * @returns Named transform registration, removal and ownership checks; registrations belong to this bridge.
+   * @returns Named transform registration, removal and ownership checks, and the standard probe;
+   * registrations belong to this bridge. It installs nothing of its own, so it is not a patch.
    */
   function createElementsGate() {
     // The bridge's shared resolver, so no chunk is pushed on every registration and check.
@@ -7439,13 +7724,37 @@
         return false;
       }
     };
-    return { register, unregister, registered };
+    // The standard probe answer: whether the JSX runtime the transforms ride resolves. Steam's modules
+    // not loadable yet is not ready; a runtime that is absent or matches twice is incompatible.
+    const probe = () => {
+      let modules;
+      try {
+        modules = getWebpackRuntime("elements");
+      } catch (error) {
+        return {
+          ok: false,
+          outcome: "notReady",
+          reason: `Steam modules unavailable: ${String(error)}`,
+          facts: {},
+        };
+      }
+      const jsx = modules.count([...JsxRuntimeTokens]);
+      return jsx === 1
+        ? { ok: true, outcome: "ready", facts: { jsx } }
+        : {
+            ok: false,
+            outcome: "incompatible",
+            reason: "JSX runtime was not a unique match",
+            facts: { jsx },
+          };
+    };
+    return { register, unregister, registered, probe };
   }
   registerGate("elements", createElementsGate());
   // @fragment gates/extensions-tab.ts
   /**
    * Contributes the host Extensions tab through the shared Quick Access memo claim.
-   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   * @returns The defineGate gate; remove must release it before its bridge is replaced.
    */
   function createExtensionsTab() {
     const patchId = "steam-ui.extensions-tab";
@@ -7498,16 +7807,12 @@
       "smallButton",
       "valueField",
     ];
-    let runtime;
     let react;
     let ui = null;
     let panel = null;
     let icon = null;
     let memo = null;
-    let installed = false;
-    let unsubscribe = null;
-    let unsubscribeFolds = null;
-    let unsubscribePlugins = null;
+    let view = null;
     let nextPluginTabKey = 1100;
     const pluginTabLists = new Set();
     let desired = { items: [], revision: 0 };
@@ -7516,9 +7821,7 @@
     const folds = createSteamFolds();
     let openSections = null;
     let lastOutcome = "never rendered";
-    let lastError = "";
     const descenderCache = new Map();
-    const mounted = createMountedAdoption();
     // Valve's tab array the tab was last pushed into, so removal can take it out again.
     let insertedInto = null;
     // Only what the renderer needs to draw a row: the right types, and text where a label goes. No
@@ -7912,27 +8215,34 @@
         mapChildren(react, element, (kid) => descend(kid, depth + 1, visible))
       );
     };
-    const resolve = () => {
-      runtime = getWebpackRuntime("extensions-tab");
-      ui = resolveSteamSettingsComponents(runtime);
-      panel = resolveSteamPanelComponents(runtime);
-      const missing = ExtensionsTabRequired.filter((name) => !ui?.[name]);
-      if (!panel) missing.push("panel section and row");
+    // Pure: every Steam component the tab draws with, the Quick Access module and its one memo export
+    // whose component draws the browser view, selected by what it draws through the gate's own claim,
+    // with a `type` the claim can replace and restore. The memo is an export, so nothing has to be
+    // mounted; the views on screen are adopted at install.
+    const find = (runtime) => {
+      const resolvedUi = resolveSteamSettingsComponents(runtime);
+      const resolvedPanel = resolveSteamPanelComponents(runtime);
+      const missing = ExtensionsTabRequired.filter((name) => !resolvedUi?.[name]);
+      if (!resolvedPanel) missing.push("panel section and row");
+      const components = {
+        react: resolvedUi?.react ? 1 : 0,
+        focusable: resolvedUi?.focusable ? 1 : 0,
+        controls: resolvedUi?.toggleField ? 1 : 0,
+        panel: resolvedPanel ? 1 : 0,
+      };
       if (missing.length) {
-        lastError = `Native Steam components unavailable: ${missing.join(", ")}`;
-        ui = null;
-        panel = null;
-        return false;
+        return gateIncompatible(`Native Steam components unavailable: ${missing.join(", ")}`, {
+          ...components,
+          missing,
+        });
       }
-      react = ui.react;
-      icon = createIconRenderer(react);
       const qam = runtime.findUnique([QamToken]);
-      if (!qam) {
-        lastError = "Quick Access module was not a unique match";
-        return false;
-      }
+      if (!qam)
+        return gateIncompatible("Quick Access module was not a unique match", {
+          qamModule: 0,
+          ...components,
+        });
       const exports = runtime(qam[0]);
-      // Through the gate's own claim, or a re-resolve while the claim is held finds no memo.
       const candidates = Object.keys(exports).filter((name) => {
         const value = exports[name];
         return (
@@ -7941,117 +8251,127 @@
           sourceMatches(unclaimedValue(value.type, claimKeys), [QamToken])
         );
       });
-      if (candidates.length !== 1) {
-        lastError = `Quick Access memo was ${candidates.length ? "ambiguous" : "absent"}`;
-        return false;
+      const found = candidates.length === 1 ? exports[candidates[0]] : null;
+      const descriptor = found ? Object.getOwnPropertyDescriptor(found, "type") : null;
+      const facts = {
+        qamModule: 1,
+        memoExports: candidates.length,
+        claimable: descriptor?.writable === true && descriptor.configurable === true,
+        claimed: !!found && memberClaimed(found, "type", claimKeys),
+        ...components,
+      };
+      if (!found) {
+        return gateIncompatible(
+          `Quick Access memo was ${candidates.length ? "ambiguous" : "absent"}`,
+          facts,
+        );
       }
-      memo = exports[candidates[0]];
-      return true;
+      if (!facts.claimed && !facts.claimable) {
+        return gateIncompatible(
+          "the Quick Access memo's type is not writable and configurable",
+          facts,
+        );
+      }
+      return gateReady({ ui: resolvedUi, panel: resolvedPanel, memo: found }, facts);
     };
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
-      if (
-        !attemptResolution(
-          resolve,
-          (error) => (lastError = "Extensions tab resolution failed: " + String(error)),
-        )
-      ) {
-        return { ok: false, error: lastError };
-      }
-      const claim = claimMember(memo, "type", claimKeys, (original) => {
-        if (typeof original !== "function") return original;
-        return function SteamUiExtensionsTabRoot(props) {
-          return descend(original(props), 0, props?.visible);
-        };
-      });
-      if (!claim.ok) {
-        lastError = claim.error;
-        return { ok: false, error: lastError };
-      }
-      installed = true;
-      lastError = "";
-      // The claim reaches the next mount only, and the Quick Access view is mounted at boot and kept.
-      mounted.adopt(memo, memo.type);
-      unsubscribe = subscribe(patchId, (state) => {
-        const items = Array.isArray(state?.items)
-          ? state.items.filter(usableItem).map(drawable)
-          : [];
-        const next = {
-          items,
-          revision: Number.isSafeInteger(state?.revision) ? state.revision : 0,
-        };
-        // The wrapper reads `desired` from its closure, so a publication changes nothing React can
-        // see on its own, and an unchanged one needs no render at all.
-        if (!publicationChanged(desired, next)) return;
-        desired = next;
-        mounted.rerender();
-      });
-      // The folds arrive on their own publication and redraw the tab the same way.
-      unsubscribeFolds = subscribe(SteamFoldsPatchId, (state) => {
-        openSections = folds.normalize(state);
-        mounted.rerender();
-      });
-      unsubscribePlugins = subscribePluginFrontends(() => {
-        for (const tabs of pluginTabLists)
-          for (let index = tabs.length - 1; index >= 0; index--)
-            if (
-              tabs[index]?.steamUiPluginTab &&
-              !pluginFrontendItems("tab").some((slot) => slot.id === tabs[index].steamUiPluginTab)
-            )
-              tabs.splice(index, 1);
-        mounted.rerender();
-      });
-      return { ok: true, installed: true, reclaimed: claim.reclaimed };
-    };
-    // Ownership is given up before the gate forgets it owns anything: a failed release otherwise
-    // leaves the claim live while every later remove() answers `absent` and never retries it.
-    const remove = () => {
-      if (!installed) return { ok: true, absent: true };
-      const released = releaseMember(memo, "type", claimKeys);
-      if (!released.ok) {
-        lastError = released.error ?? "Extensions tab release failed";
-        return { ok: false, error: lastError };
-      }
-      mounted.release(memo.type);
-      // Out of Valve's array again: removal restores exactly what was displaced.
-      if (insertedInto) {
-        const at = insertedInto.findIndex((tab) => tab && tab.steamUiExtensionsTab === true);
-        if (at >= 0) insertedInto.splice(at, 1);
-        insertedInto = null;
-      }
-      installed = false;
-      unsubscribe = endSubscription(unsubscribe);
-      unsubscribeFolds = endSubscription(unsubscribeFolds);
-      unsubscribePlugins = endSubscription(unsubscribePlugins);
+    const removePluginTabs = () => {
       for (const tabs of pluginTabLists)
         for (let index = tabs.length - 1; index >= 0; index--)
           if (tabs[index]?.steamUiPluginTab) tabs.splice(index, 1);
       pluginTabLists.clear();
-      desired = { items: [], revision: 0 };
-      descenderCache.clear();
-      lastOutcome = "removed";
-      return { ok: true, removed: true };
     };
-    const status = () => ({
-      ok: true,
-      installed,
-      resolved: !!memo,
-      nativeComponentsResolved: !!ui && !!panel,
-      claimed: memberClaimed(memo, "type", claimKeys),
-      items: desired.items.length,
-      revision: desired.revision,
-      // Whether the claim reached the views already on screen; a claim that adopted nothing is inert.
-      mounted: mounted.status(),
-      lastOutcome,
-      lastError,
+    const gate = defineGate({
+      name: "extensions-tab",
+      find,
+      bind: (handles, ledger) => {
+        ui = handles.ui;
+        panel = handles.panel;
+        react = ui.react;
+        icon = createIconRenderer(react);
+        memo = handles.memo;
+        // Out of Valve's array again on removal, after the claim is handed back: removal restores
+        // exactly what was displaced.
+        ledger.cleanup("tabs", () => {
+          if (insertedInto) {
+            const at = insertedInto.findIndex((tab) => tab && tab.steamUiExtensionsTab === true);
+            if (at >= 0) insertedInto.splice(at, 1);
+            insertedInto = null;
+          }
+          removePluginTabs();
+        });
+        // The claim reaches the next mount only, and the Quick Access view is mounted at boot and
+        // kept, so the views on screen are adopted.
+        const claimed = ledger.component({
+          host: memo,
+          keys: claimKeys,
+          wrap: (original) =>
+            function SteamUiExtensionsTabRoot(props) {
+              return descend(original(props), 0, props?.visible);
+            },
+        });
+        if (!claimed.ok) return claimed.error;
+        view = claimed;
+        ledger.subscribe(patchId, (state) => {
+          const items = Array.isArray(state?.items)
+            ? state.items.filter(usableItem).map(drawable)
+            : [];
+          const next = {
+            items,
+            revision: Number.isSafeInteger(state?.revision) ? state.revision : 0,
+          };
+          // The wrapper reads `desired` from its closure, so a publication changes nothing React
+          // can see on its own, and an unchanged one needs no render at all.
+          if (!publicationChanged(desired, next)) return;
+          desired = next;
+          claimed.rerender();
+        });
+        // The folds arrive on their own publication and redraw the tab the same way.
+        ledger.subscribe(SteamFoldsPatchId, (state) => {
+          openSections = folds.normalize(state);
+          claimed.rerender();
+        });
+        ledger.cleanup(
+          "plugin frontends",
+          subscribePluginFrontends(() => {
+            for (const tabs of pluginTabLists)
+              for (let index = tabs.length - 1; index >= 0; index--)
+                if (
+                  tabs[index]?.steamUiPluginTab &&
+                  !pluginFrontendItems("tab").some(
+                    (slot) => slot.id === tabs[index].steamUiPluginTab,
+                  )
+                )
+                  tabs.splice(index, 1);
+            claimed.rerender();
+          }),
+        );
+      },
+      // Drawn with Steam's own components only: the tab holds while they are resolved.
+      holds: () => !!ui && !!panel,
+      unbind: () => {
+        view = null;
+        desired = { items: [], revision: 0 };
+        descenderCache.clear();
+        lastOutcome = "removed";
+      },
+      status: () => ({
+        nativeComponentsResolved: !!ui && !!panel,
+        claimed: memberClaimed(memo, "type", claimKeys),
+        items: desired.items.length,
+        revision: desired.revision,
+        // Whether the claim reached the views already on screen; a claim that adopted nothing is
+        // inert.
+        mounted: view?.status() ?? { adopted: 0, scheduled: false, stale: 0 },
+        lastOutcome,
+      }),
     });
-    return { install, remove, status };
+    return gate;
   }
   registerGate("extensionsTab", createExtensionsTab());
   // @fragment gates/game-context-menu.ts
   /**
    * Adds host actions to Steam game context menus while preserving native entries.
-   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   * @returns The defineGate gate; remove must release it before its bridge is replaced.
    */
   // Trusted host renderers receive only the native types observed on this exact menu.
   const steamGameContextMenuRenderers = new Map();
@@ -8072,17 +8392,18 @@
     const MenuTokens = ["GetTargetApps", "BuildManageSubmenu", "GetPrimaryActionMenuItem"];
     // How deep into Steam's own menu tree the item list is looked for; it bounds the walk, not the items.
     const MaximumDepth = 10;
-    let runtime;
     let react;
     let menuComponent = null;
     let itemType = null;
     let submenuType = null;
     let jsxRuntime;
-    let installed = false;
-    let unsubscribe = null;
+    // The ledger of the install in progress: the native menu class is claimed when it is first
+    // created, after the install, and those claims are unwound with the rest.
+    let held = null;
     let desired = { items: [], revision: 0 };
     let lastOutcome = "never rendered";
-    let lastError = "";
+    // Why the last native menu could not be used, kept apart from the gate's own install error.
+    let menuError = "";
     let ambiguous = false;
     let nativeObserved = false;
     let nativeRefused = false;
@@ -8093,7 +8414,7 @@
       itemNotificationQueued = true;
       queueMicrotask(() => {
         itemNotificationQueued = false;
-        if (installed) local.changed();
+        if (gate.installed()) local.changed();
       });
     };
     const validItem = (item) =>
@@ -8108,7 +8429,7 @@
         const appId = Array.isArray(apps) && apps.length === 1 ? apps[0]?.appid : null;
         return Number.isSafeInteger(appId) && appId > 0 ? appId : null;
       } catch (error) {
-        lastError = "Game menu app lookup failed: " + String(error);
+        menuError = "Game menu app lookup failed: " + String(error);
         return null;
       }
     };
@@ -8128,7 +8449,13 @@
     // slot instead, so the observer's own render includes them on every later data update.
     function SteamUiGameContextMenuItems({ context }) {
       react.useSyncExternalStore(local.subscribe, local.revision, local.revision);
-      if (!installed || ambiguous || nativeRefused || !itemType || desired.items.length === 0)
+      if (
+        !gate.installed() ||
+        ambiguous ||
+        nativeRefused ||
+        !itemType ||
+        desired.items.length === 0
+      )
         return null;
       const appId = appIdFor(context.instance);
       if (appId === null) return null;
@@ -8153,7 +8480,7 @@
           {
             key: `steam-ui-game-context-menu-${item.id}`,
             onSelected: () => {
-              if (!installed || ambiguous || nativeRefused) return;
+              if (!gate.installed() || ambiguous || nativeRefused) return;
               const currentAppId = appIdFor(context.instance);
               if (currentAppId === null) return;
               // The window the menu was used in; a game's overlay opens the page itself.
@@ -8175,19 +8502,26 @@
         );
       });
     }
-    const resolve = () => {
-      runtime = getWebpackRuntime("game-context-menu");
-      react = resolveReact(runtime);
-      if (!react) {
-        lastError = "React runtime was not a unique match";
-        return false;
+    // Pure: React and the JSX runtime, which observation needs and nothing else. The native menu
+    // class is recognised by its methods when Steam first creates one, so where Steam's private
+    // factory lives is required by nothing.
+    const find = (runtime) => {
+      const resolvedReact = resolveReact(runtime);
+      if (!resolvedReact)
+        return gateIncompatible("React runtime was not a unique match", { react: 0 });
+      let jsx;
+      try {
+        jsx = runtime.resolve([...JsxRuntimeTokens]);
+      } catch (error) {
+        return gateIncompatible(`JSX runtime was not a unique match: ${String(error)}`, {
+          react: 1,
+          jsx: 0,
+        });
       }
-      jsxRuntime = runtime.resolve([...JsxRuntimeTokens]);
-      if (!jsxRuntime) {
-        lastError = "JSX runtime was not a unique match";
-        return false;
+      if (typeof jsx?.jsx !== "function" || typeof jsx?.jsxs !== "function") {
+        return gateIncompatible("JSX runtime was not a unique match", { react: 1, jsx: 0 });
       }
-      return true;
+      return gateReady({ react: resolvedReact, jsx }, { react: 1, jsx: 1 });
     };
     const observeAction = (instance, original, args) => {
       const actions = react.Children.toArray(instance.props?.additionalActions);
@@ -8195,25 +8529,25 @@
       if (own) own.props.context.instance = instance;
       const result = original.apply(instance, args);
       if (!Array.isArray(result?.rgCanAdd) || !Array.isArray(result?.rgCanRemove)) {
-        if (installed) {
+        if (gate.installed()) {
           nativeRefused = true;
-          lastError = "Observed game menu returned incompatible collection actions";
+          menuError = "Observed game menu returned incompatible collection actions";
           notifyAfterRender();
         }
         return result;
       }
-      if (installed) nativeObserved = true;
+      if (gate.installed()) nativeObserved = true;
       const nativeItems = [
         ...(Array.isArray(result?.rgCanAdd) ? result.rgCanAdd : []),
         ...(Array.isArray(result?.rgCanRemove) ? result.rgCanRemove : []),
       ];
       const found = nativeItems.map((element) => findItemType(element)).find(Boolean);
-      if (installed && found && found !== itemType) {
+      if (gate.installed() && found && found !== itemType) {
         itemType = found;
         // A native action is produced during its parent's render. Notify mounted host children
         // after that render, never synchronously update a sibling from inside it.
         notifyAfterRender();
-      } else if (installed && !itemType) {
+      } else if (gate.installed() && !itemType) {
         lastOutcome = "native action item type absent";
       }
       return result;
@@ -8223,9 +8557,11 @@
         return;
       }
       if (menuComponent) {
-        lastError = "Game context menu component changed while claimed";
+        menuError = "Game context menu component changed while claimed";
         return;
       }
+      const ledger = held;
+      if (!ledger) return;
       const claim = claimMember(
         candidate.prototype,
         ActionMethod,
@@ -8236,7 +8572,7 @@
           },
       );
       if (!claim.ok) {
-        lastError = "Game context menu action claim failed: " + claim.error;
+        menuError = "Game context menu action claim failed: " + claim.error;
         return;
       }
       const manageClaim = claimMember(
@@ -8247,7 +8583,7 @@
           function SteamUiGameContextMenuManage(...args) {
             const result = original.apply(this, args);
             if (
-              installed &&
+              gate.installed() &&
               react.isValidElement(result) &&
               typeof result.props?.label === "string"
             ) {
@@ -8263,11 +8599,24 @@
       );
       if (!manageClaim.ok) {
         releaseMember(candidate.prototype, ActionMethod, actionClaimKeys);
-        lastError = "Game context submenu claim failed: " + manageClaim.error;
+        menuError = "Game context submenu claim failed: " + manageClaim.error;
         return;
       }
+      // Both methods go on the install's ledger as one claim, so removal hands them back with the
+      // rest and a failed release of either is retried.
+      const prototype = candidate.prototype;
+      ledger.add(
+        "native menu methods",
+        () => {
+          const action = releaseMember(prototype, ActionMethod, actionClaimKeys);
+          return action.ok ? releaseMember(prototype, ManageMethod, actionClaimKeys) : action;
+        },
+        () =>
+          memberClaimed(prototype, ActionMethod, actionClaimKeys) &&
+          memberClaimed(prototype, ManageMethod, actionClaimKeys),
+      );
       menuComponent = candidate;
-      lastError = "";
+      menuError = "";
     };
     // Keep the exact class transform for later parent renders too. The ref retains the actual native
     // instance, so multi-select uses GetTargetApps rather than guessing from the overview prop.
@@ -8302,7 +8651,7 @@
       if (!shaped) return;
       if (menuComponent && candidate !== menuComponent) {
         ambiguous = true;
-        lastError = "Competing native game menu classes were observed";
+        menuError = "Competing native game menu classes were observed";
         notifyAfterRender();
         return;
       }
@@ -8315,12 +8664,12 @@
         context.instance = instance;
         const cleanup = typeof nativeRef === "function" ? nativeRef(instance) : undefined;
         if (nativeRef && typeof nativeRef === "object") nativeRef.current = instance;
-        if (installed) local.changed();
+        if (gate.installed()) local.changed();
         if (typeof cleanup === "function") {
           return () => {
             context.instance = null;
             cleanup();
-            if (installed) local.changed();
+            if (gate.installed()) local.changed();
           };
         }
       };
@@ -8340,129 +8689,108 @@
         key,
       );
     };
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
-      if (
-        !attemptResolution(
-          resolve,
-          (error) => (lastError = "Game context menu resolution failed: " + String(error)),
-        )
-      ) {
-        return { ok: false, error: lastError };
-      }
-      const claim = interceptElements(jsxRuntime, patchId, captureMenu);
-      if (!claim.ok) {
-        lastError = claim.error ?? "Game context menu JSX interception failed";
-        return { ok: false, error: lastError };
-      }
-      // Popup hosts may construct native menu classes through React instead of JSX.
-      const createClaim = claimMember(
-        react,
-        "createElement",
-        createClaimKeys,
-        (original) =>
-          function SteamUiGameContextMenuCreate(type, props, ...children) {
-            // Only a class can be the menu; anything else is created untouched, unexamined.
-            if (typeof type !== "function" || !type.prototype)
-              return original.call(react, type, props, ...children);
-            const supplied = children.length
-              ? { ...props, children: children.length === 1 ? children[0] : children }
-              : props;
-            const replacement = captureMenu(
-              (candidate, next, key) =>
-                original.call(react, candidate, key === undefined ? next : { ...next, key }),
-              type,
-              supplied,
-              props?.key,
-            );
-            return replacement === undefined
-              ? original.call(react, type, props, ...children)
-              : replacement;
-          },
-      );
-      if (!createClaim.ok) {
-        releaseElements(jsxRuntime, patchId);
-        lastError = "Game context menu React interception failed: " + createClaim.error;
-        return { ok: false, error: lastError };
-      }
-      installed = true;
-      lastError = "";
-      unsubscribe = subscribe(patchId, (state) => {
-        const items = Array.isArray(state?.items) ? state.items.filter(validItem) : [];
-        desired = {
-          items,
-          revision: Number.isSafeInteger(state?.revision) ? state.revision : 0,
-        };
+    const gate = defineGate({
+      name: "game-context-menu",
+      find,
+      bind: (handles, ledger) => {
+        react = handles.react;
+        jsxRuntime = handles.jsx;
+        held = ledger;
+        // Released last, after every claim taken on its account.
+        ledger.cleanup("menu state", () => {
+          held = null;
+        });
+        const claim = ledger.elements(jsxRuntime, patchId, captureMenu);
+        if (!claim.ok) return claim.error ?? "Game context menu JSX interception failed";
+        // Popup hosts may construct native menu classes through React instead of JSX.
+        const createClaim = ledger.member(
+          react,
+          "createElement",
+          createClaimKeys,
+          (original) =>
+            function SteamUiGameContextMenuCreate(type, props, ...children) {
+              // Only a class can be the menu; anything else is created untouched, unexamined.
+              if (typeof type !== "function" || !type.prototype)
+                return original.call(react, type, props, ...children);
+              const supplied = children.length
+                ? { ...props, children: children.length === 1 ? children[0] : children }
+                : props;
+              const replacement = captureMenu(
+                (candidate, next, key) =>
+                  original.call(react, candidate, key === undefined ? next : { ...next, key }),
+                type,
+                supplied,
+                props?.key,
+              );
+              return replacement === undefined
+                ? original.call(react, type, props, ...children)
+                : replacement;
+            },
+        );
+        if (!createClaim.ok)
+          return "Game context menu React interception failed: " + createClaim.error;
+        ledger.subscribe(patchId, (state) => {
+          const items = Array.isArray(state?.items) ? state.items.filter(validItem) : [];
+          desired = {
+            items,
+            revision: Number.isSafeInteger(state?.revision) ? state.revision : 0,
+          };
+          local.changed();
+        });
+        return { observing: true };
+      },
+      // Observation holds while one native menu class is in use: competing classes or an
+      // incompatible native result are refusals the host must see, not a working menu.
+      holds: () => !ambiguous && !nativeRefused,
+      unbind: () => {
+        held = null;
+        desired = { items: [], revision: 0 };
+        menuComponent = null;
+        itemType = null;
+        submenuType = null;
+        ambiguous = false;
+        nativeObserved = false;
+        nativeRefused = false;
+        menuError = "";
+        lastOutcome = "removed";
         local.changed();
-      });
-      return { ok: true, installed: true, observing: true };
-    };
-    // Both claims go back before the gate forgets it holds them. Clearing `installed` and
-    // `menuComponent` first would answer `absent` on every later remove() while the action claim and
-    // the JSX interception were still live, with nothing left that names what to release.
-    const remove = () => {
-      if (!installed) return { ok: true, absent: true };
-      const releasedElements = releaseElements(jsxRuntime, patchId);
-      const releasedAction = releaseMember(menuComponent?.prototype, ActionMethod, actionClaimKeys);
-      const releasedManage = releaseMember(menuComponent?.prototype, ManageMethod, actionClaimKeys);
-      const releasedCreate = releaseMember(react, "createElement", createClaimKeys);
-      if (!releasedAction.ok || !releasedElements.ok || !releasedManage.ok || !releasedCreate.ok) {
-        lastError =
-          releasedAction.error ??
-          releasedElements.error ??
-          releasedManage.error ??
-          releasedCreate.error ??
-          "Game context menu release failed";
-        return { ok: false, error: lastError };
-      }
-      installed = false;
-      unsubscribe = endSubscription(unsubscribe);
-      desired = { items: [], revision: 0 };
-      menuComponent = null;
-      itemType = null;
-      submenuType = null;
-      ambiguous = false;
-      nativeObserved = false;
-      nativeRefused = false;
-      lastOutcome = "removed";
-      local.changed();
-      return { ok: true, removed: true };
-    };
-    const status = () => ({
-      ok: true,
-      installed,
-      resolved: !!runtime && !!react,
-      observing:
-        installed &&
-        elementsIntercepted(jsxRuntime, patchId) &&
-        memberClaimed(react, "createElement", createClaimKeys),
-      ambiguous,
-      nativeObserved,
-      nativeRefused,
-      itemTypeResolved: !!itemType,
-      submenuTypeResolved: !!submenuType,
-      nativeMenuState: !installed
-        ? "removed"
-        : ambiguous || nativeRefused
-          ? "refused"
-          : nativeObserved
-            ? "native-menu-observed"
-            : menuComponent
-              ? "native-class-held"
-              : "awaiting-native-menu",
-      menuClaimed: memberClaimed(menuComponent?.prototype, ActionMethod, actionClaimKeys),
-      items: desired.items.length,
-      revision: desired.revision,
-      lastOutcome,
-      lastError,
+      },
+      status: () => {
+        const installed = gate.installed();
+        return {
+          observing:
+            installed &&
+            elementsIntercepted(jsxRuntime, patchId) &&
+            memberClaimed(react, "createElement", createClaimKeys),
+          ambiguous,
+          nativeObserved,
+          nativeRefused,
+          itemTypeResolved: !!itemType,
+          submenuTypeResolved: !!submenuType,
+          nativeMenuState: !installed
+            ? "removed"
+            : ambiguous || nativeRefused
+              ? "refused"
+              : nativeObserved
+                ? "native-menu-observed"
+                : menuComponent
+                  ? "native-class-held"
+                  : "awaiting-native-menu",
+          menuClaimed: memberClaimed(menuComponent?.prototype, ActionMethod, actionClaimKeys),
+          items: desired.items.length,
+          revision: desired.revision,
+          lastOutcome,
+          menuError,
+        };
+      },
     });
-    return { install, remove, status };
+    return gate;
   }
   registerGate("gameContextMenu", createGameContextMenu());
   // @fragment gates/home-carousel.ts
   /**
-   * Replaces only the matched home-carousel collection using shared memo ownership.
-   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   * Replaces only the matched home-carousel collection by claiming Home's memo.
+   * @returns The defineGate gate; remove must release it before its bridge is replaced.
    */
   function createHomeCarousel() {
     const patchId = "steam-ui.home-carousel";
@@ -8482,20 +8810,15 @@
     // tree, not a legitimate search through a window with a whole library mounted.
     const MaximumNodesVisited = 250000;
     const ContainerClass = "steam-ui-home-carousel";
-    let runtime;
     let react;
     let home = null;
     let useObserver = null;
-    let installed = false;
-    let lastError = "";
-    let unsubscribe = null;
     // The host's instruction, replaced whole on each publication.
     let policy = { includeUninstalled: false, disconnected: new Set() };
     const local = createLocalStore();
     let lastOutcome = "never rendered";
     let lastReport = "";
-    // The Homes on screen at install, kept so status counts them without walking the tree.
-    const mounted = createMountedAdoption(MaximumNodesVisited);
+    let lastSearch = { roots: 0, visited: 0, homeRoutes: 0, page: "", mounted: 0 };
     let cached = null;
     const carouselChecks = new WeakMap();
     const carouselCache = new Map();
@@ -8755,9 +9078,9 @@
         react.useSyncExternalStore(local.subscribe, local.revision);
         const inputs = tracked ? tracked(readInputs, "SteamUiHomeCarousel") : readInputs();
         const tree = inner(props);
-        const output = installed ? retarget(tree, inputs) : tree;
+        const output = gate.installed() ? retarget(tree, inputs) : tree;
         // Reported after the render rather than from it; `report` drops a repeat of the same counts.
-        const counts = installed ? cached?.counts : null;
+        const counts = gate.installed() ? cached?.counts : null;
         react.useEffect(() => {
           if (counts) report(counts);
         }, [counts]);
@@ -8785,14 +9108,12 @@
     // Home from the router's route list. The list is found by content — the array holding a route for
     // /library/home — and the page element under that route names the Home memo. Bounded and
     // read-only; the memo is one object whichever window renders it, so claiming it reaches them all.
-    // Until Big Picture has built its tree there is no route list to find, and the patch manager
-    // probes again. What the walk saw is kept for `status` and the refusal, so a miss on a new
-    // client says which assumption failed without anyone attaching to Steam.
-    let lastSearch = { roots: 0, visited: 0, homeRoutes: 0, page: "" };
-    const findHome = () => {
+    // What the walk saw is answered with it, so a miss on a new client says which assumption failed
+    // without anyone attaching to Steam.
+    const findHome = (react) => {
       let found = null;
       const roots = reactRootFibers();
-      const search = { roots: roots.length, visited: 0, homeRoutes: 0, page: "" };
+      const search = { roots: roots.length, visited: 0, homeRoutes: 0, page: "", mounted: 0 };
       const walk = walkFibers(roots, MaximumNodesVisited, (node) => {
         // A Fragment's fiber holds its children array as the props themselves.
         const props = node.memoizedProps;
@@ -8813,128 +9134,126 @@
         return !!found;
       });
       search.visited = walk.visited;
-      lastSearch = search;
-      return found;
-    };
-    const resolve = () => {
-      runtime = getWebpackRuntime("home-carousel");
-      const resolvedReact = resolveReact(runtime);
-      if (!resolvedReact) {
-        lastError = "React runtime was not a unique match";
-        return false;
+      // Homes already on screen: Big Picture starts on Home, and install adopts each of them.
+      if (found) {
+        walkFibers(roots, MaximumNodesVisited, (node) => {
+          if (node.elementType === found) search.mounted++;
+        });
       }
-      react = resolvedReact;
+      return { home: found, search };
+    };
+    // Pure: everything the claim needs, or which fact is missing. A Home that is not mounted is Big
+    // Picture closed or still building its tree, which is not ready; a client without the module, the
+    // stores or a claimable Home is incompatible.
+    const find = (runtime) => {
+      const react = resolveReact(runtime);
+      if (!react) return gateIncompatible("React runtime was not a unique match");
       if (
         typeof react.useSyncExternalStore !== "function" ||
         typeof react.useEffect !== "function" ||
         typeof react.memo !== "function"
       ) {
-        lastError = "React runtime lacks useSyncExternalStore, useEffect or memo";
-        return false;
+        return gateIncompatible("React runtime lacks useSyncExternalStore, useEffect or memo");
       }
       if (!runtime.findUnique(["HomeTabsActive", CarouselTokens[0]])) {
-        lastError = "Home module was not a unique match";
-        return false;
-      }
-      if (
-        typeof collectionStore()?.GetCollection !== "function" ||
-        typeof appStore()?.GetAppOverviewByAppID !== "function"
-      ) {
-        lastError = "collection or app store is unavailable";
-        return false;
+        return gateIncompatible("Home module was not a unique match", { homeModule: 0 });
       }
       // Wanted, not required: without it the carousel still follows the host and Steam's own list,
       // and an install elsewhere shows on its next render. `status.tracking` says which.
-      useObserver = findUseObserver(runtime);
-      home = findHome();
+      const tracking = findUseObserver(runtime);
+      const stores =
+        typeof collectionStore()?.GetCollection === "function" &&
+        typeof appStore()?.GetAppOverviewByAppID === "function";
+      const { home, search } = findHome(react);
+      const facts = {
+        homeModule: 1,
+        homeFound: home ? 1 : 0,
+        stores,
+        observer: tracking ? 1 : 0,
+        ...search,
+      };
+      if (!stores) return gateNotReady("collection or app store is unavailable", facts);
       if (!home) {
-        lastError =
-          `Home was not found in the router's route list (roots=${lastSearch.roots} ` +
-          `visited=${lastSearch.visited} homeRoutes=${lastSearch.homeRoutes} page=${lastSearch.page || "-"})`;
-        return false;
+        const where =
+          `roots=${search.roots} visited=${search.visited} homeRoutes=${search.homeRoutes} ` +
+          `page=${search.page || "-"}`;
+        return search.homeRoutes === 0
+          ? gateNotReady(`the router is not mounted (${where})`, facts)
+          : gateIncompatible(`the /library/home route does not draw Home (${where})`, facts);
       }
-      return true;
+      const descriptor = Object.getOwnPropertyDescriptor(home, "type");
+      if (
+        !memberClaimed(home, "type", claimKeys) &&
+        !(descriptor?.writable === true && descriptor.configurable === true)
+      ) {
+        return gateIncompatible("Home's type is not writable and configurable", facts);
+      }
+      return gateReady({ react, home, useObserver: tracking, search }, facts);
     };
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
-      const resolved = attemptResolution(resolve, (error) => {
-        lastError = "home carousel resolution failed: " + String(error);
-      });
-      if (!resolved) return { ok: false, error: lastError };
-      // Home renders through this memo wherever the router draws it. The wrapper adds no hooks, so
-      // a Home already on screen can be adopted into it without remounting.
-      const claim = claimMember(home, "type", claimKeys, (original) => {
-        if (typeof original !== "function") return original;
-        return function SteamUiHome(props) {
-          const tree = original(props);
-          return installed ? decorate(tree, 0) : tree;
-        };
-      });
-      if (!claim.ok) {
-        lastError = claim.error;
-        return { ok: false, error: lastError };
-      }
-      installed = true;
-      lastError = "";
-      const { adopted } = mounted.adopt(home, home.type);
-      unsubscribe = subscribe(patchId, (published) => {
-        const ids = Array.isArray(published?.disconnectedAppIds)
-          ? published.disconnectedAppIds
-          : [];
-        const disconnected = new Set();
-        for (const appid of ids) {
-          if (Number.isInteger(appid) && appid > 0) disconnected.add(appid);
-        }
-        policy = {
-          includeUninstalled: published?.includeUninstalled === true,
-          disconnected,
-        };
-        local.changed();
-      });
-      return { ok: true, installed: true, reclaimed: claim.reclaimed, adopted };
-    };
-    const remove = () => {
-      if (!installed) return { ok: true, absent: true };
-      // Released before anything is forgotten, so a failed release stays installed and the next
-      // remove retries it.
-      const wrapper = home?.type;
-      const released = releaseMember(home, "type", claimKeys);
-      if (!released.ok) {
-        lastError = released.error ?? "home carousel release failed";
-        return { ok: false, error: lastError };
-      }
-      installed = false;
-      unsubscribe = endSubscription(unsubscribe);
+    let component = null;
+    const gate = defineGate({
+      name: "home-carousel",
+      find,
+      bind: (handles, ledger) => {
+        react = handles.react;
+        home = handles.home;
+        useObserver = handles.useObserver;
+        lastSearch = handles.search;
+        // Home renders through this memo wherever the router draws it. The wrapper adds no hooks,
+        // so a Home already on screen is adopted into it without remounting.
+        const claimed = ledger.component({
+          host: home,
+          keys: claimKeys,
+          bound: MaximumNodesVisited,
+          wrap: (original) =>
+            function SteamUiHome(props) {
+              const tree = original(props);
+              return gate.installed() ? decorate(tree, 0) : tree;
+            },
+        });
+        if (!claimed.ok) return claimed.error;
+        component = claimed;
+        ledger.subscribe(patchId, (published) => {
+          const ids = Array.isArray(published?.disconnectedAppIds)
+            ? published.disconnectedAppIds
+            : [];
+          const disconnected = new Set();
+          for (const appid of ids) {
+            if (Number.isInteger(appid) && appid > 0) disconnected.add(appid);
+          }
+          policy = {
+            includeUninstalled: published?.includeUninstalled === true,
+            disconnected,
+          };
+          local.changed();
+        });
+        return { adopted: claimed.status().adopted };
+      },
       // A carousel on screen re-renders and hands back Steam's own list and overscan.
-      policy = { includeUninstalled: false, disconnected: new Set() };
-      local.changed();
-      cached = null;
-      lastReport = "";
-      carouselCache.clear();
-      recentGamesCache.clear();
-      // Adopted Homes draw the original again on their next render; the memo already does.
-      releaseMountedType(reactRootFibers(), home, wrapper, home.type, MaximumNodesVisited);
-      mounted.release(home.type);
-      lastOutcome = "removed";
-      return { ok: true, removed: true };
-    };
-    const status = () => ({
-      ok: true,
-      installed,
-      resolved: !!home,
-      claimed: memberClaimed(home, "type", claimKeys),
-      tracking: !!useObserver,
-      includeUninstalled: policy.includeUninstalled,
-      disconnected: policy.disconnected.size,
-      counts: cached?.counts ?? null,
-      search: lastSearch,
-      // Homes on screen at install, and how many of them still draw something other than the
-      // claim: an adoption whose render is pending, or a type React reset underneath us.
-      mounted: mounted.status(),
-      lastOutcome,
-      lastError,
+      unbind: () => {
+        component = null;
+        policy = { includeUninstalled: false, disconnected: new Set() };
+        local.changed();
+        cached = null;
+        lastReport = "";
+        carouselCache.clear();
+        recentGamesCache.clear();
+        lastOutcome = "removed";
+      },
+      status: () => ({
+        claimed: memberClaimed(home, "type", claimKeys),
+        tracking: !!useObserver,
+        includeUninstalled: policy.includeUninstalled,
+        disconnected: policy.disconnected.size,
+        counts: cached?.counts ?? null,
+        search: lastSearch,
+        // Homes on screen at install, and how many of them still draw something other than the
+        // claim: an adoption whose render is pending, or a type React reset underneath us.
+        mounted: component?.status() ?? { adopted: 0, scheduled: false, stale: 0 },
+        lastOutcome,
+      }),
     });
-    return { install, remove, status };
+    return gate;
   }
   registerGate("homeCarousel", createHomeCarousel());
   // @fragment gates/library-badge.ts
@@ -9073,8 +9392,8 @@
     };
   };
   /**
-   * Adds host library badges using shared element transforms and published library identity.
-   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   * Adds host library badges by claiming the library tile's memo, from published library identity.
+   * @returns The defineGate gate; remove must release it before its bridge is replaced.
    */
   function createLibraryBadge() {
     const patchId = "steam-ui.library-badge";
@@ -9093,20 +9412,16 @@
     const ClassMapTokens = SteamLibraryClassTokens;
     const BigArtSetting = "library_home_big_art";
     const MaximumDescent = 12;
-    let runtime;
     let react;
     let tile = null;
     let badge = null;
     let settings = null;
     let classes = null;
-    let installed = false;
-    let lastError = "";
-    let unsubscribe = null;
     let reportedBigArt = null;
+    let component = null;
     // The host's published libraries, replaced whole on each publication and indexed by app id.
     const local = createLibraryBadgeReading();
     let reading = local.read();
-    const mounted = createMountedAdoption();
     // What the last tile render actually did, because a claimed tile can render exactly what Valve
     // shipped when the badge anchor is not in its tree. Kept as counts and the reading that render
     // saw, so a render does no string work; status builds the text.
@@ -9226,7 +9541,7 @@
       wrapped = function SteamUiLibraryTile(props, secondArgument) {
         const tree = original.call(this, props, secondArgument);
         reportBigArt();
-        return installed
+        return gate.installed()
           ? react.createElement(LiveLibraryTile, {
               tree,
               overview: props?.app ?? props?.overview,
@@ -9240,7 +9555,7 @@
       const appId = props.overview?.appid ?? 0;
       const store = local.storeFor(appId);
       react.useSyncExternalStore(store.subscribe, store.revision, store.revision);
-      if (!installed) return props.tree;
+      if (!gate.installed()) return props.tree;
       reading = local.read();
       const before = placed;
       let result = decorate(props.tree, 0);
@@ -9256,22 +9571,18 @@
       renderedReading = reading;
       return result;
     }
-    const resolve = () => {
-      runtime = getWebpackRuntime("library-badge");
+    // Pure: the tile memo, Valve's badge and the wanted class map and settings store. Every one is a
+    // module the client loads at boot, so a miss is a client that moved, never one still loading.
+    const find = (runtime) => {
       const resolvedReact = resolveReact(runtime);
-      if (!resolvedReact) {
-        lastError = "React runtime was not a unique match";
-        return false;
-      }
-      react = resolvedReact;
-      if (typeof react.useSyncExternalStore !== "function") {
-        lastError = "React runtime lacks useSyncExternalStore";
-        return false;
+      if (!resolvedReact)
+        return gateIncompatible("React runtime was not a unique match", { react: 0 });
+      if (typeof resolvedReact.useSyncExternalStore !== "function") {
+        return gateIncompatible("React runtime lacks useSyncExternalStore");
       }
       const tileFactory = runtime.findUnique([...TileTokens]);
       if (!tileFactory) {
-        lastError = "library tile module was not a unique match";
-        return false;
+        return gateIncompatible("library tile module was not a unique match", { tileModule: 0 });
       }
       const exports = runtime(tileFactory[0]);
       // The tile is the module's one memo export; the badge is the one function export that draws
@@ -9280,37 +9591,29 @@
         const value = exports[name];
         return value && typeof value === "object" && value.$$typeof === ReactMemoType;
       });
-      if (tiles.length !== 1) {
-        lastError = `library tile export was ${tiles.length ? "ambiguous" : "absent"}`;
-        return false;
-      }
       const badges = Object.keys(exports).filter((name) => {
         const value = exports[name];
         return typeof value === "function" && String(value).includes(TileTokens[0]);
       });
-      if (badges.length !== 1) {
-        lastError = `Steam Input badge export was ${badges.length ? "ambiguous" : "absent"}`;
-        return false;
-      }
-      tile = exports[tiles[0]];
-      badge = exports[badges[0]];
+      const memo = tiles.length === 1 ? exports[tiles[0]] : null;
+      const descriptor = memo ? Object.getOwnPropertyDescriptor(memo, "type") : null;
+      const ours = !!memo && memberClaimed(memo, "type", claimKeys);
       // The class map is wanted, not required: without it the badge still draws, on every tile
       // rather than the focused one, and `status.classesResolved` says so. Read as the tile reads
       // it — the module's export, unwrapped if it is an ES default.
-      classes = null;
+      let foundClasses = null;
       const classMapFactory = runtime.findUnique([...ClassMapTokens]);
       if (classMapFactory) {
-        const exported = runtime(classMapFactory[0]);
-        const map = classMapOf(exported);
+        const map = classMapOf(runtime(classMapFactory[0]));
         const row = map?.LibraryItemIcons;
         const icon = map?.ControllerSupportIcon;
         if (typeof row === "string" && row && typeof icon === "string" && icon) {
-          classes = { row, icon };
+          foundClasses = { row, icon };
         }
       }
       // The settings store is wanted, not required: without it the badge still draws and
       // `status.bigArt` says null rather than guessing.
-      settings = null;
+      let foundSettings = null;
       const settingsFactory = runtime.findUnique([...SettingsTokens]);
       if (settingsFactory) {
         const stores = runtime(settingsFactory[0]);
@@ -9318,86 +9621,97 @@
           const value = stores[name];
           return value && typeof value === "object" && typeof value.clientSettings === "object";
         });
-        if (candidates.length === 1) settings = stores[candidates[0]];
+        if (candidates.length === 1) foundSettings = stores[candidates[0]];
       }
-      return true;
+      const facts = {
+        tileModule: 1,
+        tileExports: tiles.length,
+        badgeExports: badges.length,
+        // Writable and configurable, or the claim could neither replace nor restore it.
+        claimable: descriptor?.writable === true && descriptor.configurable === true,
+        // Already ours is compatible, for the reason every gate's own claim is.
+        claimed: ours,
+        settingsModule: settingsFactory ? 1 : 0,
+        classMap: classMapFactory ? 1 : 0,
+        react: 1,
+      };
+      if (tiles.length !== 1) {
+        return gateIncompatible(
+          `library tile export was ${tiles.length ? "ambiguous" : "absent"}`,
+          facts,
+        );
+      }
+      if (badges.length !== 1) {
+        return gateIncompatible(
+          `Steam Input badge export was ${badges.length ? "ambiguous" : "absent"}`,
+          facts,
+        );
+      }
+      if (!facts.claimable && !ours) {
+        return gateIncompatible("the library tile's type is not writable and configurable", facts);
+      }
+      return gateReady(
+        {
+          react: resolvedReact,
+          tile: memo,
+          badge: exports[badges[0]],
+          classes: foundClasses,
+          settings: foundSettings,
+        },
+        facts,
+      );
     };
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
-      const resolved = attemptResolution(resolve, (error) => {
-        lastError = "library badge resolution failed: " + String(error);
-      });
-      if (!resolved) return { ok: false, error: lastError };
-      // Every caller draws the tile through the same memo, so claiming its `type` reaches the
-      // carousel and the grid without patching a single caller.
-      const claim = claimMember(tile, "type", claimKeys, (original) => {
-        if (typeof original !== "function") return original;
-        return wrapTile(original);
-      });
-      if (!claim.ok) {
-        lastError = claim.error;
-        return { ok: false, error: lastError };
-      }
-      installed = true;
-      mounted.adopt(tile, tile.type);
-      lastError = "";
-      reportedBigArt = null;
-      reportBigArt();
-      unsubscribe = subscribe(patchId, (state) => {
-        reading = local.publish(state);
-      });
-      return { ok: true, installed: true, reclaimed: claim.reclaimed };
-    };
-    const remove = () => {
-      if (!installed) return { ok: true, absent: true };
-      // Released before anything is forgotten, so a failed release stays installed and the next
-      // remove retries it.
-      const replacement = tile.type;
-      const original = unclaimedValue(replacement, claimKeys);
-      const released = releaseMember(tile, "type", claimKeys);
-      if (!released.ok) {
-        lastError = released.error ?? "library badge release failed";
-        return { ok: false, error: lastError };
-      }
-      installed = false;
-      mounted.release(original);
-      // New mounts inherit the claimed memo without adoption. Restore those owned fibers once,
-      // on removal; ordinary publications never traverse Steam's component tree.
-      for (const fiber of mountedFibersOf(reactRootFibers(), tile, MaximumMountedNodes)) {
-        if (fiber.type !== replacement) continue;
-        retargetFiber(fiber, original);
-        invalidateFiberProps(fiber);
-        requestRender(fiber);
-      }
-      unsubscribe = endSubscription(unsubscribe);
-      reading = local.publish(null);
-      local.changed();
-      tileCache.clear();
-      outcome = "removed";
-      return { ok: true, removed: true };
-    };
-    const status = () => ({
-      ok: true,
-      installed,
-      resolved: !!tile && !!badge,
-      claimed: memberClaimed(tile, "type", claimKeys),
-      settingsResolved: !!settings,
-      classesResolved: !!classes,
-      bigArt: readBigArt(),
-      libraries: reading.count,
-      apps: reading.libraries.size,
-      lastOutcome:
-        outcome === "rendered"
-          ? `placed=${placed} unanchored=${unanchored} libraries=${renderedReading.count} apps=${renderedReading.libraries.size}`
-          : outcome,
-      lastError,
+    const gate = defineGate({
+      name: "library-badge",
+      find,
+      bind: (handles, ledger) => {
+        react = handles.react;
+        tile = handles.tile;
+        badge = handles.badge;
+        classes = handles.classes;
+        settings = handles.settings;
+        // Subscribed first, so removal releases the tile before it stops hearing the host.
+        ledger.subscribe(patchId, (state) => {
+          reading = local.publish(state);
+        });
+        // Every caller draws the tile through the same memo, so claiming its `type` reaches the
+        // carousel and the grid without patching a single caller; the tiles already on screen are
+        // adopted, and removal hands back every tile drawing the claim, later mounts included.
+        const claimed = ledger.component({ host: tile, keys: claimKeys, wrap: wrapTile });
+        if (!claimed.ok) return claimed.error;
+        component = claimed;
+        reportedBigArt = null;
+        reportBigArt();
+        return { adopted: claimed.status().adopted };
+      },
+      unbind: () => {
+        component = null;
+        reading = local.publish(null);
+        local.changed();
+        tileCache.clear();
+        outcome = "removed";
+      },
+      status: () => ({
+        claimed: memberClaimed(tile, "type", claimKeys),
+        settingsResolved: !!settings,
+        classesResolved: !!classes,
+        bigArt: readBigArt(),
+        libraries: reading.count,
+        apps: reading.libraries.size,
+        // Tiles on screen at install, and how many still draw something other than the claim.
+        mounted: component?.status() ?? { adopted: 0, scheduled: false, stale: 0 },
+        lastOutcome:
+          outcome === "rendered"
+            ? `placed=${placed} unanchored=${unanchored} libraries=${renderedReading.count} apps=${renderedReading.libraries.size}`
+            : outcome,
+      }),
     });
-    return { install, remove, status };
+    return gate;
   }
   registerGate("libraryBadge", createLibraryBadge());
   /**
    * Adds host metadata and frontend contributions to the matched game details page.
-   * @returns Install/remove controls and diagnostics for the reversible details-page claim.
+   * @returns The defineGate gate holding the reversible details-page claim.
    */
   function createLibraryDetails() {
     const publicationId = "steam-ui.library-badge";
@@ -9412,24 +9726,20 @@
     ];
     const LabelToken = "#Settings_Page_Library";
     const StatKey = "steam-ui-library-details";
-    let runtime;
     let react = null;
     let jsxRuntime = null;
     let ui = null;
     let localize = null;
     let classes = null;
-    let installed = false;
-    let lastError = "";
     let lastOutcome = "never rendered";
     let placed = 0;
     let without = 0;
-    let unsubscribe = null;
     const local = createLibraryBadgeReading();
     let reading = local.read();
     function LiveLibraryStat(props) {
       const store = local.storeFor(props.overview?.appid ?? 0);
       react.useSyncExternalStore(store.subscribe, store.revision, store.revision);
-      if (!installed) return null;
+      if (!gate.installed()) return null;
       reading = local.read();
       const library = libraryForOverview(props.overview, reading);
       return library ? renderStat(library) : null;
@@ -9477,7 +9787,7 @@
         ),
       );
     const transform = (create, type, props, key) => {
-      if (type !== "div" || !installed || !classes || props?.className !== classes.section)
+      if (type !== "div" || !gate.installed() || !classes || props?.className !== classes.section)
         return undefined;
       const children = Array.isArray(props.children) ? props.children : [props.children];
       if (children.some((child) => child?.key === StatKey)) return undefined;
@@ -9504,89 +9814,87 @@
         key,
       );
     };
-    const resolve = () => {
-      runtime = getWebpackRuntime("library-details");
-      react = resolveReact(runtime);
-      if (!react || typeof react.useSyncExternalStore !== "function") {
-        lastError = "React unavailable or lacks useSyncExternalStore";
-        return false;
+    // Pure: React, the JSX runtime and the play bar's class map, all loaded at boot. The localizer and
+    // Steam's dialog button are wanted, not required: without them the label is the English word and
+    // the stat offers no Recheck.
+    const find = (runtime) => {
+      const resolvedReact = resolveReact(runtime);
+      const runtimeFactory = runtime.findUnique([...JsxRuntimeTokens]);
+      const classFactory = runtime.findUnique([...ClassMapTokens]);
+      const facts = {
+        react: resolvedReact ? 1 : 0,
+        runtime: runtimeFactory ? 1 : 0,
+        classMap: classFactory ? 1 : 0,
+        localization: runtime.findUnique([...LocalizationTokens]) ? 1 : 0,
+      };
+      if (!resolvedReact || typeof resolvedReact.useSyncExternalStore !== "function") {
+        return gateIncompatible("React unavailable or lacks useSyncExternalStore", facts);
       }
-      jsxRuntime = runtime.resolve([...JsxRuntimeTokens]);
-      if (typeof jsxRuntime?.jsx !== "function" || typeof jsxRuntime?.jsxs !== "function") {
-        lastError = "JSX runtime lacks jsx or jsxs";
-        return false;
+      if (!runtimeFactory) return gateIncompatible("JSX runtime was not a unique match", facts);
+      const foundRuntime = runtime(runtimeFactory[0]);
+      if (typeof foundRuntime?.jsx !== "function" || typeof foundRuntime?.jsxs !== "function") {
+        return gateIncompatible("JSX runtime lacks jsx or jsxs", facts);
       }
+      if (!classFactory)
+        return gateIncompatible("the play bar class map was not a unique match", facts);
       // Valve's names for the play bar's classes, mapped to whatever this build emitted. Read by
       // name, never written down.
-      const exported = runtime.resolve([...ClassMapTokens]);
-      const map = classMapOf(exported);
+      const map = classMapOf(runtime(classFactory[0]));
       if (!map || RequiredClasses.some((name) => typeof map[name] !== "string" || !map[name])) {
-        lastError = "the play bar class map lacks a stat class";
-        return false;
+        return gateIncompatible("the play bar class map lacks a stat class", facts);
       }
       const join = (...names) =>
         names
           .map((name) => map[name])
           .filter((value) => typeof value === "string" && value)
           .join(" ");
-      classes = {
-        section: map.GameStatsSection,
-        stat: join("GameStat", "LastPlayed"),
-        right: join("GameStatRight"),
-        label: join("PlayBarLabel"),
-        value: join("PlayBarDetailLabel", "LastPlayedInfo"),
-      };
-      // Wanted, not required: without it the label is the English word.
-      localize = resolveSteamLocalizer(runtime);
       const components = resolveSteamUiComponents(runtime);
-      ui = components ? { ...components, react } : null;
-      return true;
+      return gateReady(
+        {
+          react: resolvedReact,
+          jsxRuntime: foundRuntime,
+          classes: {
+            section: map.GameStatsSection,
+            stat: join("GameStat", "LastPlayed"),
+            right: join("GameStatRight"),
+            label: join("PlayBarLabel"),
+            value: join("PlayBarDetailLabel", "LastPlayedInfo"),
+          },
+          localize: resolveSteamLocalizer(runtime),
+          ui: components ? { ...components, react: resolvedReact } : null,
+        },
+        facts,
+      );
     };
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
-      const resolved = attemptResolution(resolve, (error) => {
-        lastError = "library details resolution failed: " + String(error);
-      });
-      if (!resolved) return { ok: false, error: lastError };
-      installed = true;
-      const claim = interceptElements(jsxRuntime, TransformName, transform);
-      if (!claim.ok) {
-        installed = false;
-        lastError = claim.error ?? "the JSX runtime could not be intercepted";
-        return { ok: false, error: lastError };
-      }
-      lastError = "";
-      unsubscribe = subscribe(publicationId, (state) => {
-        reading = local.publish(state);
-      });
-      return { ok: true, installed: true };
-    };
-    const remove = () => {
-      if (!installed) return { ok: true, absent: true };
-      const released = releaseElements(jsxRuntime, TransformName);
-      if (!released.ok) {
-        lastError = released.error ?? "library details release failed";
-        return { ok: false, error: lastError };
-      }
-      installed = false;
-      unsubscribe = endSubscription(unsubscribe);
-      reading = local.publish(null);
-      local.changed();
-      lastOutcome = "removed";
-      return { ok: true, removed: true };
-    };
-    const status = () => ({
-      ok: true,
-      installed,
-      resolved: !!react && !!jsxRuntime && !!classes,
-      claimed: elementsIntercepted(jsxRuntime, TransformName),
-      localized: !!localize,
-      libraries: reading.count,
-      apps: reading.libraries.size,
-      lastOutcome,
-      lastError,
+    const gate = defineGate({
+      name: "library-details",
+      find,
+      bind: (handles, ledger) => {
+        react = handles.react;
+        jsxRuntime = handles.jsxRuntime;
+        classes = handles.classes;
+        localize = handles.localize;
+        ui = handles.ui;
+        ledger.subscribe(publicationId, (state) => {
+          reading = local.publish(state);
+        });
+        const claim = ledger.elements(jsxRuntime, TransformName, transform);
+        if (!claim.ok) return claim.error ?? "the JSX runtime could not be intercepted";
+      },
+      unbind: () => {
+        reading = local.publish(null);
+        local.changed();
+        lastOutcome = "removed";
+      },
+      status: () => ({
+        claimed: elementsIntercepted(jsxRuntime, TransformName),
+        localized: !!localize,
+        libraries: reading.count,
+        apps: reading.libraries.size,
+        lastOutcome,
+      }),
     });
-    return { install, remove, status };
+    return gate;
   }
   registerGate("libraryDetails", createLibraryDetails());
   // Availability of host-managed shortcuts where Steam acts on "installed": the primary action on a
@@ -9649,15 +9957,11 @@
       marker: "__steamUiLibraryAvailabilityClaimed",
       original: "__steamUiLibraryAvailabilityOriginal",
     };
-    let runtime;
     let react = null;
     let jsxRuntime = null;
     let filterPrototype = null;
     let collections = null;
     let classes = null;
-    let installed = false;
-    let lastError = "";
-    let unsubscribe = null;
     let availabilityKey = "";
     let replaced = 0;
     let viewed = 0;
@@ -9722,7 +10026,7 @@
       const appId = props.overview?.appid ?? 0;
       const store = local.storeFor(appId);
       react.useSyncExternalStore(store.subscribe, store.revision, store.revision);
-      if (!installed) return props.element;
+      if (!gate.installed()) return props.element;
       reading = local.read();
       const shortcut = unavailableShortcut(appId, reading);
       // Steam's running status is authoritative. Removing media must leave Stop usable.
@@ -9832,7 +10136,7 @@
       const revision = react.useSyncExternalStore(grids.subscribe, grids.revision, grids.revision);
       const original = props.props.collection;
       const collection = react.useMemo(
-        () => (installed ? installedView(original) : original),
+        () => (gate.installed() ? installedView(original) : original),
         [original, revision],
       );
       return props.create(props.type, { ...props.props, collection }, props.elementKey);
@@ -9845,7 +10149,7 @@
     // The play bar of a shortcut, and the Installed tab's grid while the host manages shortcuts. A
     // Steam game's play bar and every other grid keep Valve's element, so they are never remounted.
     const transform = (create, type, props, key) => {
-      if (!installed || !classes || !props) return undefined;
+      if (!gate.installed() || !classes || !props) return undefined;
       if (hasClass(props.className, classes.container)) {
         const overview = overviewIn(childrenOf(props));
         if (!overview || !isShortcut(overview)) return undefined;
@@ -9895,11 +10199,15 @@
           return value;
         },
       });
-    const claimFilter = (member) =>
-      claimMember(filterPrototype, member, claimKeys, (original) => {
+    const claimFilter = (ledger, member) =>
+      ledger.member(filterPrototype, member, claimKeys, (original) => {
         if (typeof original !== "function") return original;
         return function SteamUiLibraryAvailabilityFilter(overview) {
-          if (installed && unavailableShortcut(overview?.appid, reading) && isShortcut(overview)) {
+          if (
+            gate.installed() &&
+            unavailableShortcut(overview?.appid, reading) &&
+            isShortcut(overview)
+          ) {
             projected++;
             try {
               return original.call(this, uninstalledView(overview));
@@ -9918,144 +10226,171 @@
     };
     // Redraws the grids only when a managed shortcut is added, removed or changes availability.
     const refreshGrids = () => {
-      const next = installed ? availabilityKeyOf(reading) : "";
+      const next = gate.installed() ? availabilityKeyOf(reading) : "";
       if (next === availabilityKey) return;
       availabilityKey = next;
       grids.changed();
     };
-    const resolve = () => {
-      runtime = getWebpackRuntime("library-availability");
-      react = resolveReact(runtime);
-      if (
-        !react ||
-        typeof react.useSyncExternalStore !== "function" ||
-        typeof react.useState !== "function" ||
-        typeof react.useMemo !== "function"
-      ) {
-        lastError = "React unavailable or lacks useSyncExternalStore";
-        return false;
+    const owns = (host, member) => !!host && Object.prototype.hasOwnProperty.call(host, member);
+    // An export of a uniquely matched module chosen by its shape, or null for absence or ambiguity.
+    const exportOf = (runtime, tokens, predicate) => {
+      try {
+        return runtime.exported([...tokens], predicate);
+      } catch {
+        return null;
       }
-      jsxRuntime = runtime.resolve([...JsxRuntimeTokens]);
-      if (typeof jsxRuntime?.jsx !== "function" || typeof jsxRuntime?.jsxs !== "function") {
-        lastError = "JSX runtime lacks jsx or jsxs";
-        return false;
-      }
-      // Valve's names for the play button's classes, mapped to whatever this build emitted.
-      const map = classMapOf(runtime.resolve([...ClassMapTokens]));
-      if (!map || RequiredClasses.some((name) => typeof map[name] !== "string" || !map[name])) {
-        lastError = "the play button class map lacks a required class";
-        return false;
-      }
-      classes = {
-        container: map.PlayButtonContainer,
-        button: map.PlayButton,
-        green: map.Green,
-        disabled: map.Disabled,
-      };
+    };
+    // Pure: React, the JSX runtime, the play button's class map, the library's filter class and the
+    // collection store, all loaded at boot, and filter members the claim can replace and restore.
+    const find = (runtime) => {
+      const resolvedReact = resolveReact(runtime);
+      const runtimeFactory = runtime.findUnique([...JsxRuntimeTokens]);
+      const classFactory = runtime.findUnique([...ClassMapTokens]);
+      const filterModule = runtime.findUnique([...AppFilterTokens]) ? 1 : 0;
+      const storeModule = runtime.findUnique([...CollectionStoreTokens]) ? 1 : 0;
       // The library's filter class: it owns both evaluation methods and extends the base filter
       // class, which owns them too. Users' dynamic collections hold the base class.
-      const owns = (host, member) => !!host && Object.prototype.hasOwnProperty.call(host, member);
-      const filter = runtime.exported([...AppFilterTokens], (value) => {
-        const prototype = value?.prototype;
-        if (typeof value !== "function" || !prototype) return false;
-        const parent = Object.getPrototypeOf(prototype);
-        return FilterMembers.every((member) => owns(prototype, member) && owns(parent, member));
-      });
-      filterPrototype = filter.prototype;
+      const filter = filterModule
+        ? exportOf(runtime, AppFilterTokens, (value) => {
+            const prototype = value?.prototype;
+            if (typeof value !== "function" || !prototype) return false;
+            const parent = Object.getPrototypeOf(prototype);
+            return FilterMembers.every((member) => owns(prototype, member) && owns(parent, member));
+          })
+        : null;
       // The collection store, by the members the library reads from it.
-      collections = runtime.exported(
-        [...CollectionStoreTokens],
-        (value) =>
-          !!value &&
-          typeof value === "object" &&
-          typeof value.GetCollection === "function" &&
-          typeof value.BIsVisible === "function",
+      const store = storeModule
+        ? exportOf(
+            runtime,
+            CollectionStoreTokens,
+            (value) =>
+              !!value &&
+              typeof value === "object" &&
+              typeof value.GetCollection === "function" &&
+              typeof value.BIsVisible === "function",
+          )
+        : null;
+      const prototype = filter?.prototype ?? null;
+      const claimable =
+        !!prototype &&
+        FilterMembers.every((member) => {
+          const descriptor = Object.getOwnPropertyDescriptor(prototype, member);
+          return descriptor?.writable === true && descriptor.configurable === true;
+        });
+      const ours =
+        !!prototype && FilterMembers.every((member) => memberClaimed(prototype, member, claimKeys));
+      const facts = {
+        react: resolvedReact ? 1 : 0,
+        runtime: runtimeFactory ? 1 : 0,
+        classMap: classFactory ? 1 : 0,
+        filterModule,
+        filterClass: filter ? 1 : 0,
+        storeModule,
+        store: store ? 1 : 0,
+        // Writable and configurable, or the claim could neither replace nor restore them.
+        claimable,
+        // Already ours is compatible, for the reason every gate's own claim is.
+        claimed: ours,
+      };
+      if (
+        !resolvedReact ||
+        typeof resolvedReact.useSyncExternalStore !== "function" ||
+        typeof resolvedReact.useState !== "function" ||
+        typeof resolvedReact.useMemo !== "function"
+      ) {
+        return gateIncompatible("React unavailable or lacks useSyncExternalStore", facts);
+      }
+      if (!runtimeFactory) return gateIncompatible("JSX runtime was not a unique match", facts);
+      const foundRuntime = runtime(runtimeFactory[0]);
+      if (typeof foundRuntime?.jsx !== "function" || typeof foundRuntime?.jsxs !== "function") {
+        return gateIncompatible("JSX runtime lacks jsx or jsxs", facts);
+      }
+      if (!classFactory)
+        return gateIncompatible("the play button class map was not a unique match", facts);
+      // Valve's names for the play button's classes, mapped to whatever this build emitted.
+      const map = classMapOf(runtime(classFactory[0]));
+      if (!map || RequiredClasses.some((name) => typeof map[name] !== "string" || !map[name])) {
+        return gateIncompatible("the play button class map lacks a required class", facts);
+      }
+      if (!filter)
+        return gateIncompatible("the library filter class was not a unique match", facts);
+      if (!store) return gateIncompatible("the collection store was not a unique match", facts);
+      if (!claimable && !ours) {
+        return gateIncompatible(
+          "the library filter's members are not writable and configurable",
+          facts,
+        );
+      }
+      return gateReady(
+        {
+          react: resolvedReact,
+          jsxRuntime: foundRuntime,
+          classes: {
+            container: map.PlayButtonContainer,
+            button: map.PlayButton,
+            green: map.Green,
+            disabled: map.Disabled,
+          },
+          filterPrototype: prototype,
+          collections: store,
+        },
+        facts,
       );
-      return true;
     };
-    const releaseFilter = () => {
-      for (const member of FilterMembers) {
-        const released = releaseMember(filterPrototype, member, claimKeys);
-        if (!released.ok) return released;
-      }
-      return { ok: true };
-    };
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
-      const resolved = attemptResolution(resolve, (error) => {
-        lastError = "library availability resolution failed: " + String(error);
-      });
-      if (!resolved) return { ok: false, error: lastError };
-      for (const member of FilterMembers) {
-        const claim = claimFilter(member);
-        if (!claim.ok) {
-          releaseFilter();
-          lastError = claim.error ?? `the library filter's ${member} could not be claimed`;
-          return { ok: false, error: lastError };
+    const gate = defineGate({
+      name: "library-availability",
+      find,
+      bind: (handles, ledger) => {
+        react = handles.react;
+        jsxRuntime = handles.jsxRuntime;
+        classes = handles.classes;
+        filterPrototype = handles.filterPrototype;
+        collections = handles.collections;
+        ledger.subscribe(publicationId, (state) => {
+          reading = local.publish(state);
+          refreshGrids();
+        });
+        for (const member of FilterMembers) {
+          const claim = claimFilter(ledger, member);
+          if (!claim.ok)
+            return claim.error ?? `the library filter's ${member} could not be claimed`;
         }
-      }
-      installed = true;
-      const elements = interceptElements(jsxRuntime, TransformName, transform);
-      if (!elements.ok) {
-        installed = false;
-        releaseFilter();
-        lastError = elements.error ?? "the JSX runtime could not be intercepted";
-        return { ok: false, error: lastError };
-      }
-      lastError = "";
-      unsubscribe = subscribe(publicationId, (state) => {
-        reading = local.publish(state);
-        refreshGrids();
-      });
-      return { ok: true, installed: true };
-    };
-    const remove = () => {
-      if (!installed) return { ok: true, absent: true };
-      // Released before anything is forgotten, so a failed release stays installed and the next
-      // remove retries it.
-      const elements = releaseElements(jsxRuntime, TransformName);
-      if (!elements.ok) {
-        lastError = elements.error ?? "library availability release failed";
-        return { ok: false, error: lastError };
-      }
-      const filter = releaseFilter();
-      if (!filter.ok) {
-        lastError = filter.error ?? "the library filter release failed";
-        return { ok: false, error: lastError };
-      }
-      installed = false;
-      unsubscribe = endSubscription(unsubscribe);
-      reading = local.publish(null);
+        const elements = ledger.elements(jsxRuntime, TransformName, transform);
+        if (!elements.ok) return elements.error ?? "the JSX runtime could not be intercepted";
+      },
       // Live actions hand Valve's element back, and the grids their own collections.
-      local.changed();
-      refreshGrids();
-      return { ok: true, removed: true };
-    };
-    const status = () => ({
-      ok: true,
-      installed,
-      resolved: !!react && !!jsxRuntime && !!classes && !!filterPrototype && !!collections,
-      claimed:
-        elementsIntercepted(jsxRuntime, TransformName) &&
-        !!filterPrototype &&
-        FilterMembers.every((member) => memberClaimed(filterPrototype, member, claimKeys)),
-      managed: reading.shortcuts.size,
-      replaced,
-      viewed,
-      projected,
-      lastError,
+      unbind: () => {
+        reading = local.publish(null);
+        local.changed();
+        refreshGrids();
+      },
+      status: () => ({
+        claimed:
+          elementsIntercepted(jsxRuntime, TransformName) &&
+          !!filterPrototype &&
+          FilterMembers.every((member) => memberClaimed(filterPrototype, member, claimKeys)),
+        managed: reading.shortcuts.size,
+        replaced,
+        viewed,
+        projected,
+      }),
     });
-    return { install, remove, status };
+    return gate;
   }
   registerGate("libraryAvailability", createLibraryAvailability());
   // @fragment gates/native-settings.ts
   /**
    * Contributes host settings pages to Steam using reversible member and render claims.
-   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   * @returns The defineGate gate; remove must release it before its bridge is replaced.
    */
   function createNativeSettings() {
     const patchId = "steam-ui.native-settings";
-    const RootOriginal = "__steamUiNativeSettingsRootOriginal";
+    // The durable keys of the adopted Settings root. The original key is the one earlier bridges wrote,
+    // so a root a previous bridge adopted is reclaimed rather than wrapped twice.
+    const RootKeys = {
+      marker: "__steamUiNativeSettingsRootClaimed",
+      original: "__steamUiNativeSettingsRootOriginal",
+    };
     const DescriptorTokens = [
       "#Settings_Page_Display",
       "#Settings_Page_Power",
@@ -10083,15 +10418,16 @@
     let react = null;
     let jsxRuntime = null;
     let nativeRoot = null;
-    let installed = false;
-    let lastError = "";
+    let publicationError = "";
     let lastOutcome = "never rendered";
-    let unsubscribe = null;
     let state = { pages: [], revision: 0 };
     let mapCache = new WeakMap();
     const local = createLocalStore();
-    const roots = new Map();
     const rendered = new Set();
+    // The adopted Settings roots: every root mounted at install, and every one Steam mounts later
+    // through the JSX transform, carries this claim's marked wrapper.
+    let component = null;
+    const installed = () => gate.installed();
     // Bounded, whole-state validation: duplicate page/row identities are unsafe and an unsupported
     // row must not become a control that sends a value the host did not describe.
     const normalize = (value) => {
@@ -10175,7 +10511,7 @@
       const current = state.pages
         .flatMap((page) => page.sections.flatMap((section) => section.rows))
         .find((candidate) => candidate.key === row.key);
-      if (!installed || !current || current.disabled)
+      if (!installed() || !current || current.disabled)
         return Promise.reject(new Error("This setting is unavailable."));
       return request(patchId, "set", { key: row.key, value });
     };
@@ -10192,7 +10528,7 @@
       const drafts = useSteamSettingDrafts(react, state.revision);
       const change = drafts.change(send);
       const action = (row) => change(row, true);
-      const page = installed ? state.pages.find((candidate) => candidate.id === id) : null;
+      const page = installed() ? state.pages.find((candidate) => candidate.id === id) : null;
       if (!page) return null;
       rendered.add(id);
       lastOutcome = `rendered ${id}: ${page.sections.length} section(s)`;
@@ -10223,7 +10559,7 @@
     // one DialogBody instead, and the kit stylesheet lets Steam's body inside it keep its full height
     // (Big Picture's dialog bodies never scroll, so it lays out as before there).
     const transformDescriptors = (value) => {
-      if (!installed || !value || Array.isArray(value) || typeof value !== "object") return value;
+      if (!installed() || !value || Array.isArray(value) || typeof value !== "object") return value;
       if (
         !Object.values(NativePages).every((key) => {
           const page = value[key];
@@ -10268,10 +10604,6 @@
       lastOutcome = `mounted four native slots; ${state.pages.length} page(s) published`;
       return next;
     };
-    // Same hooks as the original. A mounted root may be adopted without changing its hook order.
-    function SteamUiNativeSettingsRoot(props) {
-      return nativeRoot(props);
-    }
     // Only host Power presence needs the native root to render. Other capability changes update the
     // always-mounted slots, including a Controller slot that was previously empty. Values update inside the
     // separate subscribed sections. A root already mounted when the gate installs is adopted, and
@@ -10290,37 +10622,26 @@
       }
       return [...found];
     };
-    const refreshRoots = (remove = false) => {
-      for (const [fiber, hadParent] of roots) {
-        if (hadParent && !fiberAttached(fiber)) roots.delete(fiber);
+    // Pure: the four descriptors, the Settings root, React, the JSX runtime, the fields and Steam's
+    // Panel must each be one match, and every field the sections draw with must resolve. A client
+    // without any of them is incompatible; nothing here waits on Settings being opened.
+    const find = (runtime) => {
+      const facts = {
+        descriptors: runtime.count([...DescriptorTokens]),
+        root: runtime.count([...RootTokens]),
+        react: runtime.count([...ReactTokens]),
+        jsx: runtime.count([...JsxRuntimeTokens]),
+        fields: runtime.count([...FieldTokens]),
+        focusable: runtime.count([...NativeFocusableTokens]),
+      };
+      const ambiguous = Object.keys(facts).filter((name) => facts[name] !== 1);
+      if (ambiguous.length) {
+        return gateIncompatible(
+          `native Settings modules were not a unique match: ${ambiguous.join(", ")}`,
+          facts,
+        );
       }
-      // One traversal and one total node budget across every deduplicated document root.
-      walkFibers(nativeReactRoots(), MaximumMountedNodes, (fiber) => {
-        const type = fiber.type;
-        if (
-          type !== nativeRoot &&
-          type !== SteamUiNativeSettingsRoot &&
-          type?.[RootOriginal] !== nativeRoot
-        )
-          return;
-        roots.set(fiber, fiberAttached(fiber));
-      });
-      for (const [fiber] of roots) {
-        if (remove && fiber.type !== SteamUiNativeSettingsRoot) continue;
-        retargetFiber(fiber, remove ? nativeRoot : SteamUiNativeSettingsRoot);
-        invalidateFiberProps(fiber);
-        requestRender(fiber);
-      }
-      if (remove) roots.clear();
-    };
-    const resolve = () => {
-      const runtime = getWebpackRuntime("native-settings");
-      if (!runtime.findUnique([...DescriptorTokens])) {
-        lastError = "native Settings descriptors were not a unique match";
-        return false;
-      }
-      ui = resolveSteamSettingsComponents(runtime);
-      react = ui?.react;
+      const resolved = resolveSteamSettingsComponents(runtime);
       const required = [
         "react",
         "settingsSection",
@@ -10336,123 +10657,133 @@
         "confirmModal",
       ];
       if (
-        !ui ||
-        required.some((key) => !ui[key]) ||
-        typeof react.useSyncExternalStore !== "function"
+        !resolved ||
+        required.some((key) => !resolved[key]) ||
+        typeof resolved.react.useSyncExternalStore !== "function"
       ) {
-        lastError = "native Settings fields or subscription hooks are unavailable";
-        return false;
+        return gateIncompatible(
+          "native Settings fields or subscription hooks are unavailable",
+          facts,
+        );
       }
-      nativeRoot = runtime.exported([...RootTokens], (value) =>
+      const root = runtime.exported([...RootTokens], (value) =>
         sourceMatches(value, ["#Settings_Title", "show-icon", '"Settings"']),
       );
-      jsxRuntime = runtime.resolve([...JsxRuntimeTokens]);
-      if (
-        !nativeRoot ||
-        typeof jsxRuntime?.jsx !== "function" ||
-        typeof jsxRuntime?.jsxs !== "function"
-      ) {
-        lastError = "native Settings root or JSX runtime was not a unique match";
-        return false;
+      const jsx = runtime.resolve([...JsxRuntimeTokens]);
+      if (!root || typeof jsx?.jsx !== "function" || typeof jsx?.jsxs !== "function") {
+        return gateIncompatible(
+          "native Settings root or JSX runtime was not a unique match",
+          facts,
+        );
       }
-      Object.defineProperty(SteamUiNativeSettingsRoot, RootOriginal, {
-        value: nativeRoot,
-        configurable: true,
-      });
-      return true;
+      return gateReady({ ui: resolved, nativeRoot: root, jsxRuntime: jsx }, facts);
     };
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
-      if (
-        !attemptResolution(resolve, (error) => {
-          lastError = "native Settings resolution failed: " + String(error);
-        })
-      )
-        return { ok: false, error: lastError };
-      const memo = interceptMemo(react, patchId, transformDescriptors);
-      if (!memo.ok) return { ok: false, error: memo.error };
-      const elements = interceptElements(jsxRuntime, patchId, (create, type, props, key) =>
-        type === nativeRoot ? create(SteamUiNativeSettingsRoot, props, key) : undefined,
-      );
-      if (!elements.ok) {
-        releaseMemo(react, patchId);
-        return { ok: false, error: elements.error };
-      }
-      installed = true;
-      lastError = "";
-      unsubscribe = subscribe(patchId, (published) => {
-        const next = normalize(published);
-        if (!next) {
-          lastError = "native Settings publication is invalid";
-          const hadPower = state.pages.some((page) => page.id === "power");
-          state = { pages: [], revision: state.revision };
-          rendered.clear();
-          if (hadPower) {
+    const gate = defineGate({
+      name: "native-settings",
+      find,
+      bind: (handles, ledger) => {
+        ui = handles.ui;
+        react = ui.react;
+        nativeRoot = handles.nativeRoot;
+        jsxRuntime = handles.jsxRuntime;
+        const memo = ledger.memo(react, patchId, transformDescriptors);
+        if (!memo.ok) return memo.error ?? "React useMemo could not be intercepted";
+        // A root already mounted is adopted; the JSX transform covers future mounts with the same
+        // marked wrapper, so release hands back every root running it. The wrapper keeps the original's
+        // hooks: it renders the original and nothing else.
+        const claimed = ledger.component({
+          keys: RootKeys,
+          match: (_fiber, type) => type === nativeRoot,
+          wrap: (original) =>
+            function SteamUiNativeSettingsRoot(props) {
+              return original(props);
+            },
+          roots: nativeReactRoots,
+        });
+        if (!claimed.ok) return claimed.error;
+        component = claimed;
+        const elements = ledger.elements(jsxRuntime, patchId, (create, type, props, key) =>
+          type === nativeRoot ? create(claimed.wrapperFor(nativeRoot), props, key) : undefined,
+        );
+        if (!elements.ok) return elements.error ?? "the JSX runtime could not be intercepted";
+        ledger.subscribe(patchId, (published) => {
+          const next = normalize(published);
+          if (!next) {
+            publicationError = "native Settings publication is invalid";
+            const hadPower = state.pages.some((page) => page.id === "power");
+            state = { pages: [], revision: state.revision };
+            rendered.clear();
+            if (hadPower) {
+              mapCache = new WeakMap();
+              component?.rerender(true);
+            }
+            local.changed();
+            lastOutcome = "invalid publication retracted native additions";
+            return;
+          }
+          publicationError = "";
+          if (!publicationChanged(state, next)) return;
+          const powerPresenceChanged =
+            state.pages.some((page) => page.id === "power") !==
+            next.pages.some((page) => page.id === "power");
+          state = next;
+          if (powerPresenceChanged) {
             mapCache = new WeakMap();
-            refreshRoots();
+            rendered.clear();
+            component?.rerender(true);
           }
           local.changed();
-          lastOutcome = "invalid publication retracted native additions";
-          return;
-        }
-        lastError = "";
-        if (!publicationChanged(state, next)) return;
-        const powerPresenceChanged =
-          state.pages.some((page) => page.id === "power") !==
-          next.pages.some((page) => page.id === "power");
-        state = next;
-        if (powerPresenceChanged) {
-          mapCache = new WeakMap();
-          rendered.clear();
-          refreshRoots();
-        }
+        });
+        // A mounted section draws nothing from the moment the gate goes, before its roots are handed back.
+        ledger.cleanup("published pages", () => {
+          state = { pages: [], revision: 0 };
+          local.changed();
+        });
+        return { adopted: claimed.status().adopted };
+      },
+      unbind: () => {
+        component = null;
+        state = { pages: [], revision: 0 };
         local.changed();
-      });
-      refreshRoots();
-      return { ok: true, installed: true, adopted: roots.size };
-    };
-    const remove = () => {
-      if (!installed) return { ok: true, absent: true };
-      const elements = releaseElements(jsxRuntime, patchId);
-      if (!elements.ok) return { ok: false, error: elements.error };
-      const memo = releaseMemo(react, patchId);
-      if (!memo.ok) return { ok: false, error: memo.error };
-      installed = false;
-      unsubscribe = endSubscription(unsubscribe);
-      state = { pages: [], revision: 0 };
-      local.changed();
-      refreshRoots(true);
-      mapCache = new WeakMap();
-      rendered.clear();
-      lastOutcome = "removed";
-      return { ok: true, removed: true };
-    };
-    const status = () => ({
-      ok: true,
-      installed,
-      resolved: !!ui && !!nativeRoot && !!jsxRuntime,
-      claimed: memoIntercepted(react, patchId) && elementsIntercepted(jsxRuntime, patchId),
-      claimsRemaining: memoIntercepted(react, patchId) || elementsIntercepted(jsxRuntime, patchId),
-      ownedRoots: [...roots.keys()].filter((fiber) => fiber.type === SteamUiNativeSettingsRoot)
-        .length,
-      pages: state.pages.map((page) => page.id),
-      renderedPages: [...rendered],
-      lastOutcome,
-      lastError,
+        mapCache = new WeakMap();
+        rendered.clear();
+        publicationError = "";
+        lastOutcome = "removed";
+      },
+      status: () => {
+        const roots = component?.status() ?? { adopted: 0, scheduled: false, stale: 0 };
+        return {
+          claimed: memoIntercepted(react, patchId) && elementsIntercepted(jsxRuntime, patchId),
+          claimsRemaining:
+            memoIntercepted(react, patchId) || elementsIntercepted(jsxRuntime, patchId),
+          ownedRoots: roots.adopted - roots.stale,
+          mounted: roots,
+          pages: state.pages.map((page) => page.id),
+          renderedPages: [...rendered],
+          publicationError,
+          lastOutcome,
+        };
+      },
     });
-    return { install, remove, status };
+    return gate;
   }
   registerGate("nativeSettings", createNativeSettings());
   // @fragment gates/navigation.ts
   /**
    * Contributes navigation entries using native route/action rows and a reversible memo claim.
-   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   * @returns The defineGate gate; remove must release it before its bridge is replaced.
    */
   function createNavigationPanel() {
     const patchId = "steam-ui.navigation-panel";
     const claimKeys = {
       marker: "__steamUiNavigationPanelClaimed",
       original: "__steamUiNavigationPanelOriginal",
+    };
+    // The popup's menu host, adopted by source, carries a claim of its own, so handing the hosts back
+    // and handing the memo's instances back stay separate steps.
+    const hostKeys = {
+      marker: "__steamUiNavigationHostClaimed",
+      original: "__steamUiNavigationHostOriginal",
     };
     // The two tokens that identify the panel root. `#MainMenu_Title` occurs in exactly one module of
     // the 2581 the client loads, and `RunnningAppSeparator` — Valve's own typo — occurs in three, so
@@ -10461,14 +10792,11 @@
     const PanelRootTokens = ["#MainMenu_Title", "RunnningAppSeparator"];
     const OuterToken = "MainNavMenuContainer";
     const MaximumDescent = 12;
-    let runtime;
     let react;
     let icon;
     let memo = null;
-    let installed = false;
-    let lastError = "";
-    let unsubscribe = null;
-    let unsubscribePlugins = null;
+    let panel = null;
+    let hosts = null;
     // What the last render actually saw and did. Everything else can report success while the panel
     // shows exactly what Valve shipped, because insertion depends on the tree Steam rendered.
     let observed = [];
@@ -10655,24 +10983,30 @@
         mapChildren(react, element, (kid) => descend(kid, depth + 1))
       );
     };
-    const resolve = () => {
-      runtime = getWebpackRuntime("navigation-panel");
+    // The popup's menu host, which has no public handle: a module-local function the popup mounts
+    // directly under a React root, exported nowhere, with the memo this gate claims absent from its
+    // render path. Recognised by three prop names its author destructures and adopted by the fiber,
+    // as decky-loader adopts the Quick Access view. It persists while the menu is closed and
+    // re-renders when `open` flips, so an adoption shows on the next open.
+    const MenuHostTokens = ["MainNavMenuContainer", "onFocusNavDeactivated", "popup:"];
+    // Pure: the menu module, the panel root and the one memo export whose component draws the outer
+    // container, selected by what it draws and never by its minified export name, through the gate's
+    // own claim, with a `type` the claim can replace and restore. The memo is an export, so nothing
+    // has to be mounted for the gate to hold; what is on screen is adopted at install.
+    const find = (runtime) => {
       const resolvedReact = resolveReact(runtime);
-      if (!resolvedReact) {
-        lastError = "React runtime was not a unique match";
-        return false;
-      }
-      react = resolvedReact;
-      icon = createIconRenderer(react);
+      if (!resolvedReact)
+        return gateIncompatible("React runtime was not a unique match", { react: 0 });
       const menuFactory = runtime.findUnique([PanelRootTokens[0], OuterToken]);
       if (!menuFactory) {
-        lastError = "main menu module was not a unique match";
-        return false;
+        return gateIncompatible("main menu module was not a unique match", {
+          menuModule: 0,
+          react: 1,
+        });
       }
-      // The one export whose memo renders the outer container. Selected by what its component draws,
-      // never by its minified export name: those are right for today's build and nothing more.
+      // The panel root itself, matched the way the gate matches it while descending.
+      const panelRoot = runtime.count([...PanelRootTokens]);
       const exports = runtime(menuFactory[0]);
-      // Through the gate's own claim, or a re-resolve while the claim is held finds no memo.
       const candidates = Object.keys(exports).filter((name) => {
         const value = exports[name];
         return (
@@ -10681,114 +11015,121 @@
           sourceMatches(unclaimedValue(value.type, claimKeys), [OuterToken])
         );
       });
-      if (candidates.length !== 1) {
-        lastError = `main menu export was ${candidates.length ? "ambiguous" : "absent"}`;
-        return false;
-      }
-      memo = exports[candidates[0]];
-      return true;
-    };
-    const mounted = createMountedAdoption();
-    // The popup's menu host, which has no public handle: a module-local function the popup mounts
-    // directly under a React root, exported nowhere, with the memo this gate claims absent from its
-    // render path. Recognised by three prop names its author destructures and adopted by the fiber,
-    // as decky-loader adopts the Quick Access view. It persists while the menu is closed and
-    // re-renders when `open` flips, so an adoption shows on the next open.
-    const MenuHostTokens = ["MainNavMenuContainer", "onFocusNavDeactivated", "popup:"];
-    const hosts = createSourceAdoption(MenuHostTokens, (type) =>
-      cachedWrapper(descendCache, type, navigationDescender),
-    );
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
-      const resolved = attemptResolution(resolve, (error) => {
-        lastError = "navigation panel resolution failed: " + String(error);
-      });
-      if (!resolved) return { ok: false, error: lastError };
-      // The memo object is the public handle, and every consumer holds the same one, so claiming its
-      // `type` reaches the panel wherever it is rendered without patching a single caller.
-      const claim = claimMember(memo, "type", claimKeys, (original) => {
-        if (typeof original !== "function") return original;
-        return function SteamUiNavigationRoot(props) {
-          return descend(original(props), 0);
-        };
-      });
-      if (!claim.ok) {
-        lastError = claim.error;
-        return { ok: false, error: lastError };
-      }
-      installed = true;
-      lastError = "";
-      // The claim reaches the next mount only; what is already on screen is adopted.
-      mounted.adopt(memo, memo.type);
-      hosts.adopt();
-      unsubscribe = subscribe(patchId, (state) => {
-        const items = Array.isArray(state?.items) ? state.items : [];
-        const hidden = Array.isArray(state?.hidden) ? state.hidden : [];
-        const named = items.filter(
-          (item) => item && typeof item.id === "string" && typeof item.label === "string",
+      const found = candidates.length === 1 ? exports[candidates[0]] : null;
+      const descriptor = found ? Object.getOwnPropertyDescriptor(found, "type") : null;
+      const facts = {
+        menuModule: 1,
+        panelRoot,
+        memoExports: candidates.length,
+        // Writable and configurable, or the claim could neither replace nor restore it.
+        claimable: descriptor?.writable === true && descriptor.configurable === true,
+        // Already ours is compatible: a find that demanded the pre-claim shape would make a
+        // successful apply fail its own next probe.
+        claimed: !!found && memberClaimed(found, "type", claimKeys),
+        react: 1,
+      };
+      if (panelRoot !== 1)
+        return gateIncompatible("main menu panel root was not a unique match", facts);
+      if (!found) {
+        return gateIncompatible(
+          `main menu export was ${candidates.length ? "ambiguous" : "absent"}`,
+          facts,
         );
-        const routable = named.filter((item) => item.route == null || isNavigableRoute(item.route));
-        rejectedRoutes = named.length - routable.length;
-        const next = {
-          items: routable,
-          hidden: hidden.filter((value) => typeof value === "string"),
-        };
-        // A host Steam has recreated since install is adopted here; it sits under a React root
-        // with no class above it, so its entries show when the menu next opens.
-        hosts.adopt();
-        // The wrappers read `desired` from their closure, so a publication changes nothing React
-        // can see on its own, and an unchanged one needs no render at all.
-        if (!publicationChanged(desired, next)) return;
-        desired = next;
-        mounted.rerender();
-      });
-      unsubscribePlugins = subscribePluginFrontends(() => mounted.rerender());
-      return { ok: true, installed: true, reclaimed: claim.reclaimed };
-    };
-    const remove = () => {
-      if (!installed) return { ok: true, absent: true };
-      // Released before anything is forgotten, so a failed release stays installed and the next
-      // remove retries it.
-      const released = releaseMember(memo, "type", claimKeys);
-      if (!released.ok) {
-        lastError = released.error ?? "navigation panel release failed";
-        return { ok: false, error: lastError };
       }
-      installed = false;
-      unsubscribe = endSubscription(unsubscribe);
-      unsubscribePlugins = endSubscription(unsubscribePlugins);
-      desired = { items: [], hidden: [] };
-      descendCache.clear();
-      panelCache.clear();
-      mounted.release(memo.type);
-      hosts.release();
-      lastOutcome = "removed";
-      return { ok: true, removed: true };
+      if (!facts.claimed && !facts.claimable) {
+        return gateIncompatible(
+          "the main menu memo's type is not writable and configurable",
+          facts,
+        );
+      }
+      return gateReady({ react: resolvedReact, memo: found }, facts);
     };
-    const status = () => ({
-      ok: true,
-      installed,
-      resolved: !!memo,
-      claimed: memberClaimed(memo, "type", claimKeys),
-      // Everything above can be true while the panel shows exactly what Valve shipped, because
-      // insertion depends on the tree Steam rendered. This is the part that says what happened.
-      entries: observed,
-      items: desired.items.length,
-      // Whether the claim reached the panels already on screen, and how many popup menu hosts are
-      // adopted by source, the path the memo claim never reaches. Nothing adopted is inert.
-      mounted: { ...mounted.status(), hosts: hosts.count() },
-      rejectedRoutes,
-      hidden: desired.hidden.length,
-      lastOutcome,
-      lastError,
+    // What every claimed component draws: its original, then the descent to the panel root.
+    const descending = (original) =>
+      function SteamUiNavigationRoot(props) {
+        return descend(original(props), 0);
+      };
+    const gate = defineGate({
+      name: "navigation-panel",
+      find,
+      bind: (handles, ledger) => {
+        react = handles.react;
+        icon = createIconRenderer(react);
+        memo = handles.memo;
+        // The memo object is the public handle, and every consumer holds the same one, so claiming
+        // its `type` reaches the panel wherever it is rendered without patching a single caller.
+        // The claim reaches the next mount only; what is already on screen is adopted.
+        const claimedPanel = ledger.component({ host: memo, keys: claimKeys, wrap: descending });
+        if (!claimedPanel.ok) return claimedPanel.error;
+        const claimedHosts = ledger.component({
+          keys: hostKeys,
+          match: (_fiber, type) => sourceMatches(type, MenuHostTokens),
+          wrap: descending,
+        });
+        if (!claimedHosts.ok) return claimedHosts.error;
+        panel = claimedPanel;
+        hosts = claimedHosts;
+        ledger.subscribe(patchId, (state) => {
+          const items = Array.isArray(state?.items) ? state.items : [];
+          const hidden = Array.isArray(state?.hidden) ? state.hidden : [];
+          const named = items.filter(
+            (item) => item && typeof item.id === "string" && typeof item.label === "string",
+          );
+          const routable = named.filter(
+            (item) => item.route == null || isNavigableRoute(item.route),
+          );
+          rejectedRoutes = named.length - routable.length;
+          const next = {
+            items: routable,
+            hidden: hidden.filter((value) => typeof value === "string"),
+          };
+          // A host Steam has recreated since install is adopted here; it sits under a React root
+          // with no class above it, so its entries show when the menu next opens. Only while no
+          // adopted host is still mounted, so a publication costs no tree walk otherwise.
+          if (claimedHosts.status().adopted === 0) claimedHosts.rerender();
+          // The wrappers read `desired` from their closure, so a publication changes nothing
+          // React can see on its own, and an unchanged one needs no render at all.
+          if (!publicationChanged(desired, next)) return;
+          desired = next;
+          claimedPanel.rerender();
+        });
+        ledger.cleanup(
+          "plugin frontends",
+          subscribePluginFrontends(() => claimedPanel.rerender()),
+        );
+      },
+      unbind: () => {
+        panel = null;
+        hosts = null;
+        desired = { items: [], hidden: [] };
+        descendCache.clear();
+        panelCache.clear();
+        lastOutcome = "removed";
+      },
+      status: () => ({
+        claimed: memberClaimed(memo, "type", claimKeys),
+        // Everything above can be true while the panel shows exactly what Valve shipped, because
+        // insertion depends on the tree Steam rendered. This is the part that says what happened.
+        entries: observed,
+        items: desired.items.length,
+        // Whether the claim reached the panels already on screen, and how many popup menu hosts
+        // are adopted by source, the path the memo claim never reaches. Nothing adopted is inert.
+        mounted: {
+          ...(panel?.status() ?? { adopted: 0, scheduled: false, stale: 0 }),
+          hosts: hosts?.status().adopted ?? 0,
+        },
+        rejectedRoutes,
+        hidden: desired.hidden.length,
+        lastOutcome,
+      }),
     });
-    return { install, remove, status };
+    return gate;
   }
   registerGate("navigationPanel", createNavigationPanel());
   // @fragment gates/network.ts
   /**
    * Supplies Steam networking RPCs and scan notifications from host publications.
-   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   * @returns The defineGate gate; remove must release it before its bridge is replaced.
    */
   function createNetworkGate() {
     const property = "networkManagementAvailable";
@@ -10801,7 +11142,7 @@
       marker: "__steamUiOwnedNetworkScan",
       original: "__steamUiOriginalNetworkScan",
     };
-    let target = null;
+    // Why the last forwarded operation, publication or store refresh failed.
     let lastError = "";
     const connect = {
       marker: "__steamUiOwnedNetworkConnect",
@@ -10811,12 +11152,8 @@
       marker: "__steamUiOwnedAccessPointList",
       original: "__steamUiOriginalAccessPointList",
     };
-    let listingTarget = null;
     // A Windows join waits up to 25 seconds for the WLAN verdict before the host publishes it.
     const joinTimeoutMilliseconds = 40000;
-    let scanWrapped = false;
-    let connectClaimed = false;
-    let unsubscribe = null;
     let syntheticKeys = [];
     // Access point id -> SSID for the networks this gate wrote, which Steam's backend has never seen.
     const syntheticSsids = new Map();
@@ -10987,9 +11324,10 @@
     };
     // Steam's page joins through the store's Connect, which encodes the access point id for Steam's
     // backend. For a network this gate wrote, or one typed by name, the host joins it instead; every
-    // other call goes through untouched.
-    const wrapConnect = (instance) => {
-      const claim = claimMember(instance, "Connect", connect, (original) => {
+    // other call goes through untouched. Wanted, not required: a store that refuses the claim keeps
+    // joining through Steam's own backend, and the refusal is reported.
+    const wrapConnect = (instance, ledger) => {
+      const claim = ledger.member(instance, "Connect", connect, (original) => {
         const inner = original;
         return function (...args) {
           const params = args[0];
@@ -11001,21 +11339,20 @@
           return join(ssid, typeof password === "string" && password !== "" ? password : null);
         };
       });
-      connectClaimed = claim.ok;
       if (!claim.ok) lastError = claim.error;
     };
     // Steam's Windows backend reports the connected access point of the wireless device without a
     // name, which the page lists as a second connected network under the generic Wi-Fi label. While
     // this gate feeds the networks, the page's list leaves out the wireless device's own entries;
     // wired and other devices stay.
-    const claimListing = (proto) => {
+    const claimListing = (proto, ledger) => {
       const current = Object.getOwnPropertyDescriptor(proto, "accessPoints");
       const displaced = claimed(current?.get, listing)
         ? storedOriginal(current.get, listing)
         : current;
       const originalGet = displaced?.get;
       if (typeof originalGet !== "function") return;
-      const claim = claimAccessor(proto, "accessPoints", listing, function () {
+      const claim = ledger.accessor(proto, "accessPoints", listing, function () {
         const all = originalGet.call(this);
         const wirelessId = this?.m_WirelessDevice?.id;
         if (syntheticSsids.size === 0 || wirelessId == null || !Array.isArray(all)) return all;
@@ -11024,37 +11361,7 @@
             entry?.deviceId !== wirelessId || syntheticSsids.has(Number(entry?.deviceWapId)),
         );
       });
-      if (claim.ok) listingTarget = proto;
-      else lastError = claim.error;
-    };
-    const install = () => {
-      if (target) return { ok: true, alreadyInstalled: true };
-      const instance = store();
-      if (!instance) {
-        lastError = "network store unavailable";
-        return { ok: false, error: lastError };
-      }
-      // The getter lives on the prototype, so that is what is replaced and restored. Defining it
-      // on the instance would shadow rather than replace, and removal would leave the shadow.
-      //
-      // Marked as ours for the same reason the namespaces are: the compatibility probe checks that
-      // the getter currently reads false, and a successful override makes it read true. Left
-      // unmarked, the patch reads its own success as "the client already reports this available,
-      // stand aside", declares itself incompatible, and tears down — taking the network list with
-      // it. The claim primitive is what keeps that from being re-derived here.
-      const proto = Object.getPrototypeOf(instance);
-      const claim = claimAccessor(proto, property, availability, () => true);
-      if (!claim.ok) {
-        lastError = claim.error;
-        return { ok: false, error: lastError };
-      }
-      target = proto;
-      lastError = "";
-      wrapScanning();
-      wrapConnect(instance);
-      claimListing(proto);
-      unsubscribe = subscribe(patchId, onState);
-      return { ok: true, installed: true, available: instance[property] === true };
+      if (!claim.ok) lastError = claim.error;
     };
     // Steam's own UI calls these when its network page opens and closes, so they are exactly the
     // signal for when a scan is worth running. The host's radio manager is otherwise driven by the host's
@@ -11063,18 +11370,18 @@
     //
     // Both originals are always called through: this observes the lifetime, it does not take it
     // over, so a client that grows a working backend keeps behaving exactly as before.
-    const wrapScanning = () => {
+    const wrapScanning = (ledger) => {
       const net = window.SteamClient?.System?.Network;
-      if (!net || scanWrapped) return;
+      if (!net) return;
       const wrap = (name, command) => {
         // Checked before claiming, not inside the factory: a client without this method is one this
         // gate leaves alone entirely, and claiming would mark and reassign something that is not a
         // method at all.
         const current = net[name];
         const existing = claimed(current, scan) ? storedOriginal(current, scan) : current;
-        if (typeof existing !== "function") return false;
+        if (typeof existing !== "function") return;
         let inner = null;
-        const claim = claimMember(net, name, scan, (original) => {
+        ledger.member(net, name, scan, (original) => {
           inner = original;
           return function (...args) {
             // A scan request that cannot reach the host must not stop Steam's own call. Promise
@@ -11083,73 +11390,73 @@
             return inner.apply(this, args);
           };
         });
-        return claim.ok;
       };
-      const started = wrap("StartScanningForNetworks", "startScan");
-      const stopped = wrap("StopScanningForNetworks", "stopScan");
-      scanWrapped = started || stopped;
+      wrap("StartScanningForNetworks", "startScan");
+      wrap("StopScanningForNetworks", "stopScan");
     };
-    const remove = () => {
-      if (!target && !scanWrapped && !connectClaimed && !listingTarget)
-        return { ok: true, absent: true };
-      if (listingTarget) {
-        const released = releaseAccessor(listingTarget, "accessPoints", listing);
-        if (!released.ok) {
-          lastError = released.error ?? "network list release failed";
-          return { ok: false, error: lastError };
-        }
-        listingTarget = null;
-      }
-      // Every claim goes back before anything is forgotten, so a failed release leaves the gate as
-      // it was and the next remove retries what is left (a released claim answers ok again).
-      if (scanWrapped) {
-        const net = window.SteamClient?.System?.Network ?? null;
-        for (const name of ["StartScanningForNetworks", "StopScanningForNetworks"]) {
-          const released = releaseMember(net, name, scan);
-          if (!released.ok) {
-            lastError = released.error ?? "network scan release failed";
-            return { ok: false, error: lastError };
-          }
-        }
-      }
-      if (connectClaimed) {
-        const released = releaseMember(store(), "Connect", connect);
-        if (!released.ok) {
-          lastError = released.error ?? "network connect release failed";
-          return { ok: false, error: lastError };
-        }
-        connectClaimed = false;
-      }
-      if (target) {
-        const released = releaseAccessor(target, property, availability);
-        if (!released.ok) {
-          lastError = released.error ?? "network availability release failed";
-          return { ok: false, error: lastError };
-        }
-      }
-      scanWrapped = false;
-      target = null;
-      unsubscribe = endSubscription(unsubscribe);
-      removeNetworkState(true);
-      return { ok: true, removed: true };
-    };
-    const status = () => {
+    const scanWrapped = () =>
+      ["StartScanningForNetworks", "StopScanningForNetworks"].some((name) =>
+        memberClaimed(window.SteamClient?.System?.Network, name, scan),
+      );
+    // Pure, and loads no module: Steam publishes the store singleton after its own module
+    // initialization, and requiring the module before its chunk arrives leaves empty exports cached
+    // for the whole session. A store not published yet is a client still starting. The getter lives
+    // on the prototype and must be configurable and read false, or be this gate's own: a getter
+    // installed here is not evidence that the client reports network management natively, and
+    // reading it that way made this gate refuse itself after a successful apply.
+    const find = () => {
       const instance = store();
-      return {
-        ok: true,
-        installed: !!target,
-        available: instance ? instance[property] === true : false,
-        // Reported because the row can be on while the list is empty: Steam's Windows backend
-        // never populates wireless.aps, so an access point count of zero here means the host has not
-        // supplied one, not that the machine cannot see any networks.
-        accessPoints: Array.isArray(instance?.accessPoints) ? instance.accessPoints.length : -1,
-        hasWirelessDevice: instance?.hasWirelessDevice === true,
-        scanWrapped,
-        connectClaimed,
-        lastError,
+      if (!instance) return gateNotReady("network store unavailable");
+      const proto = Object.getPrototypeOf(instance);
+      const descriptor = Object.getOwnPropertyDescriptor(proto, property);
+      const facts = {
+        getterConfigurable:
+          !!descriptor && descriptor.configurable === true && typeof descriptor.get === "function",
+        currentlyHidden: claimed(descriptor?.get, availability) || instance[property] === false,
+        hasWirelessDevice: instance.hasWirelessDevice === true,
       };
+      if (!facts.getterConfigurable) {
+        return gateIncompatible("networkManagementAvailable is not a configurable getter", facts);
+      }
+      if (!facts.currentlyHidden) {
+        return gateIncompatible("the client already reports network management available", facts);
+      }
+      return gateReady({ instance, proto }, facts);
     };
-    return { install, remove, status };
+    const gate = defineGate({
+      name: "network",
+      find,
+      bind: ({ instance, proto }, ledger) => {
+        lastError = "";
+        // Last out: the networks this gate wrote leave the store once nothing else is held.
+        ledger.cleanup("network state", () => removeNetworkState(true));
+        // The getter lives on the prototype, so that is what is replaced and restored. Defining it
+        // on the instance would shadow rather than replace, and removal would leave the shadow.
+        const revealed = ledger.accessor(proto, property, availability, () => true);
+        if (!revealed.ok) return revealed.error;
+        wrapScanning(ledger);
+        wrapConnect(instance, ledger);
+        claimListing(proto, ledger);
+        ledger.subscribe(patchId, onState);
+        return { available: instance[property] === true };
+      },
+      holds: ({ instance }) => instance[property] === true,
+      status: () => {
+        const instance = store();
+        return {
+          available: instance ? instance[property] === true : false,
+          // Reported because the row can be on while the list is empty: Steam's Windows backend
+          // never populates wireless.aps, so an access point count of zero here means the host has not
+          // supplied one, not that the machine cannot see any networks.
+          accessPoints: Array.isArray(instance?.accessPoints) ? instance.accessPoints.length : -1,
+          hasWirelessDevice: instance?.hasWirelessDevice === true,
+          scanWrapped: scanWrapped(),
+          connectClaimed: memberClaimed(instance, "Connect", connect),
+          operationError: lastError,
+        };
+      },
+    });
+    return gate;
   }
   registerGate("network", createNetworkGate());
   // @fragment gates/pages.ts
@@ -11190,7 +11497,7 @@
   };
   /**
    * Installs host-owned routes and renders registered page templates inside Steam's router.
-   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   * @returns The defineGate gate; remove must release it before its bridge is replaced.
    */
   function createPageHost() {
     const patchId = "steam-ui.pages";
@@ -11198,6 +11505,14 @@
       marker: "__steamUiPageHostClaimed",
       original: "__steamUiPageHostOriginal",
     };
+    // The route switch's own claim. It has no public handle, so its mounted fibers are adopted by
+    // source and each one carries this marker on its wrapper.
+    const switchKeys = {
+      marker: "__steamUiPageSwitchClaimed",
+      original: "__steamUiPageSwitchOriginal",
+    };
+    // Steam's own route switch, matched the way the gate matches the list it renders.
+    const SwitchTokens = ["computedMatch", "TopLevelTransition"];
     // The router, unique on this pair. "Settings.Root()" alone matches six modules and
     // "TopLevelTransition" is the switch's own; together they name exactly one.
     const RouterTokens = ["Settings.Root()", "TopLevelTransition"];
@@ -11210,21 +11525,14 @@
     const KnownRoute = "/library/home";
     const MaximumDescent = 8;
     const PageKeyPrefix = "steam-ui-page-";
-    let runtime;
     let react;
     // Steam's own Route, taken off the `/library/home` element in the route list Steam is rendering:
     // the component itself rather than a description of it, so no client build can rename it away.
     let borrowedRoute = null;
     let routeVerified = false;
     let memo = null;
-    let routeSwitchFiber = null;
-    let routeSwitchWrapper = null;
-    let installed = false;
-    let lastError = "";
-    let unsubscribe = null;
-    let unsubscribePlugins = null;
+    let router = null;
     let hostPages = [];
-    const mounted = createMountedAdoption();
     let pages = [];
     // The host's pages, then the ones plugin frontends contribute.
     const composePages = () => [
@@ -11235,6 +11543,8 @@
       })),
     ];
     let lastOutcome = "never rendered";
+    // The last page renderer that threw, which cost its own page and fell open to the heading.
+    let rendererError = "";
     let observedRoutes = [];
     const descendCache = new Map();
     // One registered page's body. The content is described by the host rather than supplied as a
@@ -11252,7 +11562,7 @@
         try {
           return renderer(react, page);
         } catch (error) {
-          lastError = `page renderer '${page.template}' threw: ${String(error)}`;
+          rendererError = `page renderer '${page.template}' threw: ${String(error)}`;
         }
       }
       return react.createElement(
@@ -11342,202 +11652,218 @@
       if (replaced !== element) return replaced;
       return descendInto(react, element, descendCache, pageDescender) ?? element;
     };
-    const resolve = () => {
-      runtime = getWebpackRuntime("pages");
-      const resolvedReact = resolveReact(runtime);
-      if (!resolvedReact) {
-        lastError = "React runtime was not a unique match";
-        return false;
-      }
-      react = resolvedReact;
-      // The router module is confirmed to exist and to be unique, but it exports nothing that
-      // reaches the router: the memo is built locally inside the module. Verified against the live
-      // client on 2026-09-10 — every export of that module was inspected and none is a memo whose
-      // type carries the marker. So the handle comes from the rendered tree instead, which is also
-      // where decky-loader gets it. Checking the module anyway keeps the failure specific: "Steam
-      // moved the router" and "the tree has not been built yet" are different problems.
-      if (!runtime.findUnique([RouterTokens[0], RouterTokens[1]])) {
-        lastError = "router module was not a unique match";
-        return false;
-      }
-      memo = findRouterMemo();
-      if (!memo) {
-        lastError = "router was not found in the rendered tree";
-        return false;
-      }
-      return true;
-    };
-    // Finds the router's memo through SharedJSContext's own React root.
+    // Finds the router's memo and Steam's mounted route switch through SharedJSContext's own React
+    // roots, in one bounded walk.
     //
     // SharedJSContext holds the tree that every Steam window renders from, which is why a claim made
-    // here reaches the Big Picture window and the menu window alike. The search is bounded in both
-    // nodes visited and depth so a pathological tree cannot hang the injection, and it matches on the
-    // component's source rather than on a path through the tree.
-    //
-    // Breadth-first over the child and sibling links, as the Home carousel walks the same tree. A
-    // recursive walk nests a frame for every sibling, so a long sibling chain could exhaust the stack
-    // before the node bound was ever reached.
-    const findRouterMemo = () => {
+    // here reaches the Big Picture window and the menu window alike. The router module is unique, but
+    // it exports nothing that reaches the router: the memo is built locally inside the module
+    // (verified against the live client on 2026-09-10), so the handle comes from the rendered tree,
+    // which is also where decky-loader gets it. The search matches on component source, through the
+    // gate's own claims, or a find while the claims are held finds no router.
+    const findMounted = () => {
       let found = null;
-      walkFibers(reactRootFibers(), MaximumMountedNodes, (node) => {
+      let routeSwitch = false;
+      const roots = reactRootFibers();
+      walkFibers(roots, MaximumMountedNodes, (node) => {
         const elementType = node.elementType;
-        if (!elementType || typeof elementType !== "object") return false;
-        // Through the gate's own claim, or a re-resolve while the claim is held finds no router.
-        if (!sourceMatches(unclaimedValue(elementType.type, claimKeys), [RouterTokens[0]])) {
-          return false;
+        if (
+          !found &&
+          elementType &&
+          typeof elementType === "object" &&
+          sourceMatches(unclaimedValue(elementType.type, claimKeys), [RouterTokens[0]])
+        ) {
+          found = elementType;
         }
-        found = elementType;
-        return true;
+        routeSwitch ||= sourceMatches(unclaimedValue(node.type, switchKeys), SwitchTokens);
+        return !!found && routeSwitch;
       });
-      return found;
+      return { memo: found, routeSwitch, roots: roots.length };
     };
-    const findRouteSwitchFiber = () => {
-      let found = null;
-      walkFibers(reactRootFibers(), MaximumMountedNodes, (node) => {
-        const original = node.type?.__steamUiPageSwitchOriginal ?? node.type;
-        if (!sourceMatches(original, ["computedMatch", "TopLevelTransition"])) return false;
-        found = node;
-        return true;
-      });
-      return found;
+    // Steam's own back-stack Route, the one that gives a page native back navigation. Reported, not
+    // required: the gate builds with the Route it borrows from the route list Steam is rendering.
+    // Counted by value rather than by export name, so a module re-exporting the Route under a second
+    // name is one match, not ambiguity. Requiring it is what declared an otherwise healthy client
+    // incompatible on 2026-09-24 and took every custom page with it.
+    const countSteamRoutes = (runtime) => {
+      const backstack = runtime.findUnique(["router-backstack"]);
+      if (!backstack) return { backstackModule: 0, steamRoute: 0 };
+      const routes = new Set();
+      try {
+        const exports = runtime(backstack[0]);
+        for (const name of Object.keys(exports ?? {})) {
+          try {
+            const value = exports[name];
+            if (typeof value === "function" && sourceMatches(value, BackstackRouteMarkers))
+              routes.add(value);
+          } catch {
+            // An export whose getter throws is not the Route.
+          }
+        }
+      } catch {
+        // A back-stack module that will not load is reported as having no Route.
+      }
+      return { backstackModule: 1, steamRoute: routes.size };
     };
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
-      const resolved = attemptResolution(resolve, (error) => {
-        lastError = "page host resolution failed: " + String(error);
-      });
-      if (!resolved) return { ok: false, error: lastError };
-      const claim = claimMember(memo, "type", claimKeys, (original) => {
-        if (typeof original !== "function") return original;
-        return function SteamUiPageRouter(props) {
-          return descend(original(props));
-        };
-      });
-      if (!claim.ok) {
-        lastError = claim.error;
-        return { ok: false, error: lastError };
-      }
-      routeSwitchFiber = findRouteSwitchFiber();
-      if (!routeSwitchFiber) {
-        const rolledBack = releaseMember(memo, "type", claimKeys);
-        lastError = rolledBack.ok
-          ? "Steam's mounted route switch was not found"
-          : "Steam's mounted route switch was not found, and the router claim could not be released: " +
-            (rolledBack.error ?? "unknown");
-        return { ok: false, error: lastError };
-      }
-      const currentSwitch = routeSwitchFiber.type;
-      const originalSwitch = currentSwitch?.__steamUiPageSwitchOriginal ?? currentSwitch;
-      routeSwitchWrapper = function SteamUiPageSwitch(props) {
-        const children = react.Children.toArray(props?.children);
-        return originalSwitch({
-          ...props,
-          children: isRouteList(children) ? applyPages(children) : children,
+    // Pure: what the gate cannot work without, which is the router it claims, the switch it wraps,
+    // React, and a memo whose type it can put back. A router module that is there with no router
+    // mounted is a window still loading, or Big Picture closed: not ready.
+    const find = (runtime) => {
+      const resolvedReact = resolveReact(runtime);
+      if (!resolvedReact)
+        return gateIncompatible("React runtime was not a unique match", { react: 0 });
+      // Checked although nothing is loaded from it, so a miss is specific: "Steam moved the router"
+      // and "the tree has not been built yet" are different problems.
+      if (!runtime.findUnique([RouterTokens[0], RouterTokens[1]])) {
+        return gateIncompatible("router module was not a unique match", {
+          routerModule: 0,
+          react: 1,
         });
+      }
+      const routeSwitch = runtime.count([...SwitchTokens]);
+      const mountedNow = findMounted();
+      const descriptor = mountedNow.memo
+        ? Object.getOwnPropertyDescriptor(mountedNow.memo, "type")
+        : null;
+      const claimed = !!mountedNow.memo && memberClaimed(mountedNow.memo, "type", claimKeys);
+      const facts = {
+        routerModule: 1,
+        ...countSteamRoutes(runtime),
+        routerFound: mountedNow.memo ? 1 : 0,
+        switchMounted: mountedNow.routeSwitch,
+        roots: mountedNow.roots,
+        claimable: descriptor?.writable === true && descriptor.configurable === true,
+        claimed,
+        routeSwitch,
+        react: 1,
       };
-      Object.defineProperty(routeSwitchWrapper, "__steamUiPageSwitchOriginal", {
-        value: originalSwitch,
-      });
-      retargetFiber(routeSwitchFiber, routeSwitchWrapper);
-      // The claim reaches the next mount only; the router already on screen is adopted, or the claim
-      // is correct and inert until the user happens to remount it. See createMountedAdoption.
-      mounted.adopt(memo, memo.type);
-      installed = true;
-      lastError = "";
-      // Plugin pages already loaded are drawn from the start; neither subscription replays them.
-      pages = composePages();
-      unsubscribe = subscribe(patchId, (state) => {
-        const declared = Array.isArray(state?.pages) ? state.pages : [];
-        const next = declared.filter(
-          (page) =>
-            page &&
-            typeof page.id === "string" &&
-            typeof page.title === "string" &&
-            typeof page.path === "string" &&
-            // A path has to be absolute or Steam's matcher never sees it, and a page that claims
-            // every route would black out the client.
-            page.path.startsWith("/") &&
-            page.path !== "/",
-        );
-        // The wrappers read `pages` from their closure, so a publication changes nothing React can
-        // see on its own. Only a changed list earns a render: the class above the router is the one
-        // asked, and its render re-runs every route, the configurator's edit session included.
-        if (!publicationChanged(hostPages, next)) return;
-        hostPages = next;
-        pages = composePages();
-        mounted.rerender();
-      });
-      unsubscribePlugins = subscribePluginFrontends(() => {
-        pages = composePages();
-        mounted.rerender();
-      });
-      return { ok: true, installed: true, reclaimed: claim.reclaimed };
-    };
-    // Every owned mutation goes back before the gate forgets it owns anything. Clearing `installed`
-    // ahead of the fallible release left both wrappers running while each later remove() answered
-    // `absent`, so a failed cleanup could never be retried.
-    const remove = () => {
-      if (!installed) return { ok: true, absent: true };
-      const released = releaseMember(memo, "type", claimKeys);
-      if (!released.ok) {
-        lastError = released.error ?? "page host release failed";
-        return { ok: false, error: lastError };
+      if (routeSwitch !== 1)
+        return gateIncompatible("route switch module was not a unique match", facts);
+      if (!mountedNow.memo) return gateNotReady("the router is not mounted", facts);
+      if (!mountedNow.routeSwitch)
+        return gateNotReady("Steam's route switch is not mounted", facts);
+      if (!claimed && !facts.claimable) {
+        return gateIncompatible("the router's type is not writable and configurable", facts);
       }
-      mounted.release(memo.type);
-      if (routeSwitchFiber && routeSwitchWrapper) {
-        const originalSwitch = routeSwitchWrapper.__steamUiPageSwitchOriginal;
-        if (routeSwitchFiber.type === routeSwitchWrapper) routeSwitchFiber.type = originalSwitch;
-        if (routeSwitchFiber.alternate?.type === routeSwitchWrapper) {
-          routeSwitchFiber.alternate.type = originalSwitch;
-        }
-      }
-      routeSwitchFiber = null;
-      routeSwitchWrapper = null;
-      installed = false;
-      unsubscribe = endSubscription(unsubscribe);
-      unsubscribePlugins = endSubscription(unsubscribePlugins);
-      hostPages = [];
-      pages = [];
-      // Borrowed from a render that is about to be undone, so it is not carried into the next install.
-      borrowedRoute = null;
-      routeVerified = false;
-      descendCache.clear();
-      lastOutcome = "removed";
-      return { ok: true, removed: true };
+      return gateReady({ react: resolvedReact, memo: mountedNow.memo }, facts);
     };
-    const status = () => ({
-      ok: true,
-      installed,
-      resolved: !!memo,
-      routeResolved: !!borrowedRoute,
-      // "borrowed (unverified)" is a Route whose source lacks the back-stack markers: it draws, and
-      // back navigation may be the thing it lost.
-      routeSource: borrowedRoute ? (routeVerified ? "borrowed" : "borrowed (unverified)") : "none",
-      claimed: memberClaimed(memo, "type", claimKeys),
-      pages: pages.length,
-      // Whether the claim reached the routers already on screen, and whether one is still drawing
-      // something else: the difference between "claimed" and "actually running".
-      mounted: mounted.status(),
-      // What the last render actually saw. Everything above can be true while no page is reachable,
-      // because insertion depends on finding the route list in the tree Steam rendered.
-      routeCount: observedRoutes.length,
-      lastOutcome,
-      lastError,
+    const gate = defineGate({
+      name: "pages",
+      find,
+      bind: (handles, ledger) => {
+        react = handles.react;
+        memo = handles.memo;
+        // The claim reaches the next mount only; the router already on screen is adopted, or the
+        // claim is correct and inert until the user happens to remount it.
+        const claimedRouter = ledger.component({
+          host: memo,
+          keys: claimKeys,
+          wrap: (original) =>
+            function SteamUiPageRouter(props) {
+              return descend(original(props));
+            },
+        });
+        if (!claimedRouter.ok) return claimedRouter.error;
+        const routeSwitch = ledger.component({
+          keys: switchKeys,
+          match: (_fiber, type) => sourceMatches(type, SwitchTokens),
+          wrap: (originalSwitch) =>
+            function SteamUiPageSwitch(props) {
+              const children = react.Children.toArray(props?.children);
+              return originalSwitch({
+                ...props,
+                children: isRouteList(children) ? applyPages(children) : children,
+              });
+            },
+        });
+        if (!routeSwitch.ok) return routeSwitch.error;
+        if (routeSwitch.status().adopted === 0) return "Steam's mounted route switch was not found";
+        router = claimedRouter;
+        // Plugin pages already loaded are drawn from the start; neither subscription replays them.
+        pages = composePages();
+        ledger.subscribe(patchId, (state) => {
+          const declared = Array.isArray(state?.pages) ? state.pages : [];
+          const next = declared.filter(
+            (page) =>
+              page &&
+              typeof page.id === "string" &&
+              typeof page.title === "string" &&
+              typeof page.path === "string" &&
+              // A path has to be absolute or Steam's matcher never sees it, and a page that
+              // claims every route would black out the client.
+              page.path.startsWith("/") &&
+              page.path !== "/",
+          );
+          // The wrappers read `pages` from their closure, so a publication changes nothing React
+          // can see on its own. Only a changed list earns a render: the class above the router is
+          // the one asked, and its render re-runs every route, the configurator's edit session
+          // included.
+          if (!publicationChanged(hostPages, next)) return;
+          hostPages = next;
+          pages = composePages();
+          claimedRouter.rerender();
+        });
+        const unsubscribePlugins = subscribePluginFrontends(() => {
+          pages = composePages();
+          claimedRouter.rerender();
+        });
+        ledger.cleanup("plugin frontends", unsubscribePlugins);
+      },
+      unbind: () => {
+        router = null;
+        hostPages = [];
+        pages = [];
+        // Borrowed from a render that is about to be undone, so it is not carried into the next
+        // install.
+        borrowedRoute = null;
+        routeVerified = false;
+        descendCache.clear();
+        lastOutcome = "removed";
+      },
+      status: () => ({
+        routeResolved: !!borrowedRoute,
+        // "borrowed (unverified)" is a Route whose source lacks the back-stack markers: it draws,
+        // and back navigation may be the thing it lost.
+        routeSource: borrowedRoute
+          ? routeVerified
+            ? "borrowed"
+            : "borrowed (unverified)"
+          : "none",
+        claimed: memberClaimed(memo, "type", claimKeys),
+        pages: pages.length,
+        // Whether the claim reached the routers already on screen, and whether one is still
+        // drawing something else: the difference between "claimed" and "actually running".
+        mounted: router?.status() ?? { adopted: 0, scheduled: false, stale: 0 },
+        // What the last render actually saw. Everything above can be true while no page is
+        // reachable, because insertion depends on finding the route list in the tree Steam
+        // rendered.
+        routeCount: observedRoutes.length,
+        lastOutcome,
+        rendererError,
+      }),
     });
-    return { install, remove, status };
+    return gate;
   }
   registerGate("pages", createPageHost());
   // @fragment gates/performance.ts
   /**
    * Projects host performance state into Steam performance RPCs and semantic write commands.
-   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   * @returns The defineGate gate; remove must release it before its bridge is replaced.
    */
   function createPerfNamespace() {
     const patchId = "steam-ui.performance";
-    let installed = false;
+    // Why the last settings update could not be decoded or the last state write failed.
     let lastError = "";
-    let unsubscribe = null;
     const store = () => window.SystemPerfStore ?? null;
+    // The perf store's module, by the source tokens that make it the perf store, and the singleton
+    // reached through the one exported class with a Get() whose body declares the state, because the
+    // state is written into a client that is already running. Never a module id: naming one is what
+    // refused this gate on the September 2026 beta.
+    const PerfStoreTokens = ["SteamClient.System.Perf", "RegisterForStateChanges", "m_msgState"];
+    const isPerfStoreClass = (value) =>
+      typeof value === "function" &&
+      typeof value.Get === "function" &&
+      String(value).includes("m_msgState");
     // The message class is never named here — it is taken from an instance the store builds, so
     // this stays correct across minification and client updates. An object argument is still
     // accepted because that is what a caller other than the store would pass. Anything that cannot
@@ -11576,7 +11902,7 @@
     let displaced = null;
     let displacedTarget = null;
     const onState = (state) => {
-      if (!installed || !state) return;
+      if (!gate.installed() || !state) return;
       const target = store();
       if (!target || !target.m_msgState) return;
       try {
@@ -11602,105 +11928,113 @@
         lastError = String(error);
       }
     };
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
+    // Every setter builds a protobuf delta and hands it to UpdateSettings, so that one method is
+    // where all of them arrive. The delta is decoded on the host's side rather than here, because the
+    // message shapes belong to the client and this half only forwards.
+    const buildApi = () => ({
+      // Decode first, always. SystemPerfStore's setters all end in
+      // `UpdateSettings(request.serializeBase64String())`, so what arrives here is a BASE64
+      // STRING, not the message — live-verified 2026-08-30 by round-tripping a request built by
+      // the store itself. Forwarding it verbatim made the host's reader reject every write as
+      // "carried no delta object", which is why no control on the Performance tab did anything:
+      // the overlay-level selector snapped back to off, the frame cap never took, VRR never
+      // toggled. Decoding through the message's OWN deserializeBinary keeps the wire format the
+      // client's business; toObject() then emits snake_case field names, which is what the host reads.
+      UpdateSettings: (payload) => {
+        const delta = decodeSettingsUpdate(payload);
+        if (delta === null) return Promise.reject(new Error(lastError));
+        return request(patchId, "updateSettings", { delta });
+      },
+      RegisterForStateChanges: () => ({
+        unregister: () => {},
+      }),
+      RegisterForDiagnosticInfoChanges: () => ({
+        unregister: () => {},
+      }),
+    });
+    // Pure. A real backend at SteamClient.System.Perf is a client this gate stands aside for; one
+    // carrying our marker is our own. The store module and its class are the client's shape; a store
+    // that has not been constructed or published yet is a client still starting.
+    const find = (runtime) => {
       const system = window.SteamClient?.System;
-      if (!system) {
-        lastError = "SteamClient.System unavailable";
-        return { ok: false, error: lastError };
+      if (!system) return gateNotReady("SteamClient.System unavailable");
+      const perfStore = runtime.count(PerfStoreTokens);
+      const namespace = system.Perf;
+      const perfNamespaceAbsent =
+        !namespace || claimed(namespace, { marker: ownedMarker, original: ownedMarker });
+      const facts = { perfStore, perfNamespaceAbsent, storeSingletonReachable: false };
+      if (perfStore !== 1)
+        return gateIncompatible("the performance store module was not a unique match", facts);
+      if (!perfNamespaceAbsent)
+        return gateIncompatible("a native performance backend is present", facts);
+      let holder;
+      try {
+        holder = runtime.exported(PerfStoreTokens, isPerfStoreClass);
+      } catch (error) {
+        return gateIncompatible(
+          `the performance store class was not a unique match: ${String(error)}`,
+          facts,
+        );
       }
-      if (!store()) {
-        lastError = "SystemPerfStore unavailable";
-        return { ok: false, error: lastError };
+      const singleton = holder.Get();
+      if (!singleton) return gateNotReady("the performance store is not constructed yet", facts);
+      if (!("m_msgState" in singleton)) {
+        return gateIncompatible("the performance store has no m_msgState", facts);
       }
-      // Every setter builds a protobuf delta and hands it to UpdateSettings, so that one method is
-      // where all of them arrive. The delta is decoded on the host's side rather than here, because the
-      // message shapes belong to the client and this half only forwards.
-      const buildApi = () => ({
-        // Decode first, always. SystemPerfStore's setters all end in
-        // `UpdateSettings(request.serializeBase64String())`, so what arrives here is a BASE64
-        // STRING, not the message — live-verified 2026-08-30 by round-tripping a request built by
-        // the store itself. Forwarding it verbatim made the host's reader reject every write as
-        // "carried no delta object", which is why no control on the Performance tab did anything:
-        // the overlay-level selector snapped back to off, the frame cap never took, VRR never
-        // toggled. Decoding through the message's OWN deserializeBinary keeps the wire format the
-        // client's business; toObject() then emits snake_case field names, which is what the host reads.
-        UpdateSettings: (payload) => {
-          const delta = decodeSettingsUpdate(payload);
-          if (delta === null) return Promise.reject(new Error(lastError));
-          return request(patchId, "updateSettings", { delta });
-        },
-        RegisterForStateChanges: () => ({
-          unregister: () => {},
-        }),
-        RegisterForDiagnosticInfoChanges: () => ({
-          unregister: () => {},
-        }),
-      });
-      // Stand aside for a real backend, reclaim one of our own — the primitive's rules, and it marks
-      // the namespace before publishing it so nothing can observe an unmarked one. An orphaned Perf
-      // namespace is worse than an orphaned audio one: it leaves SystemPerfStore holding half-written
-      // state, which renders Valve's controls with no values behind them.
-      const supplied = supplyNamespace(system, "Perf", ownedMarker, buildApi);
-      if (!supplied.ok) {
-        lastError = supplied.error;
-        return { ok: false, error: lastError };
-      }
-      installed = true;
-      lastError = "";
-      unsubscribe = subscribe(patchId, onState);
-      return { ok: true, installed: true };
+      facts.storeSingletonReachable = true;
+      if (!store()) return gateNotReady("SystemPerfStore is not published yet", facts);
+      return gateReady({ system }, facts);
     };
-    const remove = () => {
-      if (!installed) return { ok: true, absent: true };
-      // Marker-checked, which this path was not: it deleted whatever was at System.Perf, so a real
-      // backend appearing under a still-installed gate would have been removed by the host's own
-      // cleanup. Released first, so a failed withdrawal leaves the gate installed and the next
-      // remove retries it.
-      const withdrawn = withdrawNamespace(window.SteamClient?.System, "Perf", ownedMarker);
-      if (!withdrawn.ok) {
-        lastError = withdrawn.error ?? "perf namespace withdrawal failed";
-        return { ok: false, error: lastError };
-      }
-      // Back to what the store held before the first publication, so every control returns to
-      // rendering what it did before the host answered rather than keeping the host's last answer.
-      if (displacedTarget && displaced) {
-        try {
-          for (const { field, present, value } of displaced) {
-            if (present) displacedTarget[field] = value;
-            else delete displacedTarget[field];
+    const gate = defineGate({
+      name: "perf",
+      find,
+      bind: ({ system }, ledger) => {
+        lastError = "";
+        // Last out: back to what the store held before the first publication, so every control
+        // returns to rendering what it did before the host answered rather than keeping the host's
+        // last answer. A failed restoration keeps the gate installed, and the next removal retries it.
+        ledger.add("performance state", () => {
+          if (displacedTarget && displaced) {
+            try {
+              for (const { field, present, value } of displaced) {
+                if (present) displacedTarget[field] = value;
+                else delete displacedTarget[field];
+              }
+            } catch (error) {
+              return { ok: false, error: "perf state restoration failed: " + String(error) };
+            }
           }
-        } catch (error) {
-          lastError = "perf state restoration failed: " + String(error);
-          return { ok: false, error: lastError };
-        }
-      }
-      installed = false;
-      unsubscribe = endSubscription(unsubscribe);
-      displaced = null;
-      displacedTarget = null;
-      return { ok: true, removed: true };
-    };
-    const status = () => {
-      const target = store();
-      return {
-        ok: true,
-        installed,
-        namespacePresent: !!window.SteamClient?.System?.Perf,
-        limitsPresent: !!target?.msgLimits,
-        // Which controls can draw at all, since each reads its own availability out of limits.
-        frameLimitOptions: target?.msgLimits?.fps_limit_options?.length ?? 0,
-        vrrSupported: target?.msgLimits?.is_vrr_supported === true,
-        lastError,
-      };
-    };
-    return { install, remove, status };
+          displaced = null;
+          displacedTarget = null;
+          return { ok: true };
+        });
+        // Stand aside for a real backend, reclaim one of our own — the primitive's rules, and it
+        // marks the namespace before publishing it so nothing can observe an unmarked one. An
+        // orphaned Perf namespace is worse than an orphaned audio one: it leaves SystemPerfStore
+        // holding half-written state, which renders Valve's controls with no values behind them.
+        const supplied = ledger.namespace(system, "Perf", ownedMarker, buildApi);
+        if (!supplied.ok) return supplied.error;
+        ledger.subscribe(patchId, onState);
+      },
+      status: () => {
+        const target = store();
+        return {
+          namespacePresent: !!window.SteamClient?.System?.Perf,
+          limitsPresent: !!target?.msgLimits,
+          // Which controls can draw at all, since each reads its own availability out of limits.
+          frameLimitOptions: target?.msgLimits?.fps_limit_options?.length ?? 0,
+          vrrSupported: target?.msgLimits?.is_vrr_supported === true,
+          operationError: lastError,
+        };
+      },
+    });
+    return gate;
   }
   registerGate("perf", createPerfNamespace());
   // @fragment gates/power-menu.ts
   /**
    * Projects host power-menu additions and visibility into Steam's existing menu.
-   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   * @returns The defineGate gate; remove must release it before its bridge is replaced.
    */
   function createPowerMenu() {
     const patchId = "steam-ui.power-menu";
@@ -11717,13 +12051,10 @@
     const LabelToken = "#SwitchToDesktop";
     const EntryKey = "steam-ui-power-menu-desktop";
     const MaximumDepth = 4;
-    let runtime;
     let react = null;
     let jsxRuntime = null;
     let localize = null;
-    let installed = false;
     let visible = false;
-    let unsubscribe = null;
     // What the first power menu rendered, kept for the session: the menu's own type, which makes
     // every later element a single identity test, the item and separator types, and the label.
     let menuType = null;
@@ -11731,7 +12062,6 @@
     let separatorType = null;
     let label = "";
     let lastOutcome = "never rendered";
-    let lastError = "";
     const isPowerEntry = (child) =>
       react.isValidElement(child) && PowerTokens.has(child.props?.strDisplayNameLocToken);
     // Steam's plain menu item: selectable, labelled by its children, not one of the confirming
@@ -11817,81 +12147,60 @@
       lastOutcome = `appended${separatorType ? "" : " without separator"}`;
       return create(type, { ...props, children: [...children, section] }, key);
     };
-    const resolve = () => {
-      runtime = getWebpackRuntime("power-menu");
-      react = resolveReact(runtime);
-      if (!react) {
-        lastError = "React runtime was not a unique match";
-        return false;
-      }
-      if (!runtime.findUnique(["#Quit_Shutdown", LabelToken])) {
-        lastError = "Power menu module was not a unique match";
-        return false;
-      }
-      jsxRuntime = runtime.resolve([...JsxRuntimeTokens]);
-      if (!jsxRuntime) {
-        lastError = "JSX runtime was not a unique match";
-        return false;
-      }
+    // Pure: the menu module is counted, never loaded, and React and the JSX runtime must each be one
+    // match. Nothing here waits on Steam drawing anything: the menu is recognised when it renders.
+    const find = (runtime) => {
+      const facts = {
+        menuModule: runtime.count(["#Quit_Shutdown", LabelToken]),
+        react: runtime.count([...ReactTokens]),
+        jsx: runtime.count([...JsxRuntimeTokens]),
+      };
+      const resolvedReact = resolveReact(runtime);
+      if (!resolvedReact) return gateIncompatible("React runtime was not a unique match", facts);
+      if (facts.menuModule !== 1)
+        return gateIncompatible("Power menu module was not a unique match", facts);
+      if (facts.jsx !== 1) return gateIncompatible("JSX runtime was not a unique match", facts);
+      const resolvedJsx = runtime.resolve([...JsxRuntimeTokens]);
+      if (!resolvedJsx) return gateIncompatible("JSX runtime was not a unique match", facts);
       // Wanted, not required: without it the label is the English string.
-      localize = resolveSteamLocalizer(runtime);
-      return true;
+      return gateReady(
+        { react: resolvedReact, jsxRuntime: resolvedJsx, localize: resolveSteamLocalizer(runtime) },
+        facts,
+      );
     };
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
-      if (
-        !attemptResolution(
-          resolve,
-          (error) => (lastError = "Power menu resolution failed: " + String(error)),
-        )
-      ) {
-        return { ok: false, error: lastError };
-      }
-      const claim = interceptElements(jsxRuntime, patchId, transform);
-      if (!claim.ok) {
-        lastError = claim.error ?? "the JSX runtime could not be intercepted";
-        return { ok: false, error: lastError };
-      }
-      installed = true;
-      lastError = "";
-      unsubscribe = subscribe(patchId, (state) => {
-        visible = state?.visible === true;
-      });
-      return { ok: true, installed: true };
-    };
-    const remove = () => {
-      if (!installed) return { ok: true, absent: true };
-      const released = releaseElements(jsxRuntime, patchId);
-      if (!released.ok) {
-        lastError = released.error ?? "Power menu release failed";
-        return { ok: false, error: lastError };
-      }
-      installed = false;
-      unsubscribe = endSubscription(unsubscribe);
-      visible = false;
-      menuType = itemType = separatorType = null;
-      label = "";
-      lastOutcome = "removed";
-      return { ok: true, removed: true };
-    };
-    const status = () => ({
-      ok: true,
-      installed,
-      resolved: !!react && !!jsxRuntime,
-      claimed: elementsIntercepted(jsxRuntime, patchId),
-      localized: !!localize,
-      recognised: menuType !== null,
-      visible,
-      lastOutcome,
-      lastError,
+    return defineGate({
+      name: "power-menu",
+      find,
+      bind: (handles, ledger) => {
+        react = handles.react;
+        jsxRuntime = handles.jsxRuntime;
+        localize = handles.localize;
+        const claim = ledger.elements(jsxRuntime, patchId, transform);
+        if (!claim.ok) return claim.error ?? "the JSX runtime could not be intercepted";
+        ledger.subscribe(patchId, (state) => {
+          visible = state?.visible === true;
+        });
+      },
+      unbind: () => {
+        visible = false;
+        menuType = itemType = separatorType = null;
+        label = "";
+        lastOutcome = "removed";
+      },
+      status: () => ({
+        claimed: elementsIntercepted(jsxRuntime, patchId),
+        localized: !!localize,
+        recognised: menuType !== null,
+        visible,
+        lastOutcome,
+      }),
     });
-    return { install, remove, status };
   }
   registerGate("powerMenu", createPowerMenu());
   // @fragment gates/screensaver.ts
   /**
    * Projects the host screensaver setting into the matched Steam settings surface.
-   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   * @returns The defineGate gate; remove must release it before its bridge is replaced.
    */
   function createScreensaverSettings() {
     const patchId = "steam-ui.screensaver";
@@ -11903,18 +12212,17 @@
     // bounded schedule rather than waiting for someone to open the page.
     const ReportAttempts = 60;
     const ReportIntervalMilliseconds = 2000;
-    let runtime;
     let react = null;
     let dropdown = null;
     let settings = null;
     let useObserver = null;
     let route = "";
-    let installed = false;
-    let lastError = "";
+    // Why the last report or timeout change failed; the gate's own lastError is its lifecycle's.
+    let commandError = "";
     let lastOutcome = "never rendered";
     let lastReport = "";
-    let unsubscribe = null;
     let reportTimer = null;
+    const installed = () => gate.installed();
     const content = createScreensaverContent(() => settings?.clientSettings);
     const inputActivity = createScreensaverActivity(
       () => settings?.clientSettings,
@@ -11981,28 +12289,28 @@
     // Once per change, and again whenever the page opens, because that is when the host's reading of
     // its own timeouts is worth refreshing.
     const report = (reading, force) => {
-      if (!installed || !reading) return false;
+      if (!installed() || !reading) return false;
       const signature = JSON.stringify(reading);
       if (!force && signature === lastReport) return true;
       lastReport = signature;
       request(patchId, "report", reading).catch((error) => {
-        lastError = "screensaver report failed: " + String(error);
+        commandError = "screensaver report failed: " + String(error);
       });
       return true;
     };
     const reportWhenReady = (attempt) => {
       reportTimer = null;
-      if (!installed || report(readScreensaver(), false) || attempt >= ReportAttempts) return;
+      if (!installed() || report(readScreensaver(), false) || attempt >= ReportAttempts) return;
       reportTimer = setTimeout(() => reportWhenReady(attempt + 1), ReportIntervalMilliseconds);
     };
     const select = (row, value) => {
       const chosen = seconds(value);
-      if (!installed || chosen === null || chosen === row.seconds || pending.has(row.id)) return;
+      if (!installed() || chosen === null || chosen === row.seconds || pending.has(row.id)) return;
       pending.add(row.id);
       local.changed();
       request(patchId, "setTimeout", { row: row.id, seconds: chosen })
         .catch((error) => {
-          lastError = "timeout change failed: " + String(error);
+          commandError = "timeout change failed: " + String(error);
         })
         .finally(() => {
           pending.delete(row.id);
@@ -12021,7 +12329,7 @@
       react.useEffect(() => {
         report(readScreensaver(), false);
       }, [signature]);
-      if (!installed) return null;
+      if (!installed()) return null;
       const custom = content.render();
       if (!rows.length && !custom) {
         lastOutcome = "no rows published";
@@ -12060,7 +12368,7 @@
       if (wrapped) return wrapped;
       wrapped = function SteamUiScreensaverSection(props) {
         const section = original(props);
-        if (!installed || !react.isValidElement(section)) return section;
+        if (!installed() || !react.isValidElement(section)) return section;
         return react.cloneElement(
           section,
           undefined,
@@ -12082,7 +12390,7 @@
           content.catalog.revision,
         );
         const tree = original(props);
-        if (!installed || !react.isValidElement(tree)) return tree;
+        if (!installed() || !react.isValidElement(tree)) return tree;
         let found = 0;
         const children = childrenOf(tree).map((child) => {
           if (!react.isValidElement(child) || !isSection(child.type)) return child;
@@ -12106,7 +12414,7 @@
     // The page list, with the customization page's content wrapped. The same input list always maps
     // to the same output list, so memo consumers downstream see a stable identity.
     const transformPages = (value) => {
-      if (!installed || !Array.isArray(value) || !value.length) return value;
+      if (!installed() || !Array.isArray(value) || !value.length) return value;
       const first = value[0];
       if (!first || typeof first !== "object" || !("route" in first) || !("content" in first))
         return value;
@@ -12135,171 +12443,189 @@
       listCache.set(value, next);
       return next;
     };
-    const resolve = () => {
-      runtime = getWebpackRuntime("screensaver-settings");
+    // Pure: React with the hooks the rows use, Valve's dropdown field, the customization route from
+    // Steam's route table, the one Screensaver section module and the client settings store. A
+    // client without one of them is incompatible; a settings store not constructed yet is not ready.
+    // The observer hook is reported but not required, and the useMemo claim is shared and never
+    // examined here, so a claim this or another gate already holds stays compatible.
+    const find = (runtime) => {
       const fields = resolveSteamFieldComponents(runtime);
-      react = fields?.react ?? null;
-      if (!react) {
-        lastError = "React unavailable";
-        return false;
-      }
+      const resolvedReact = fields?.react ?? null;
+      const tracking = findUseObserver(runtime);
+      const facts = {
+        react: resolvedReact ? 1 : 0,
+        fields: fields?.dropdown ? 1 : 0,
+        section: runtime.findUnique([...SectionTokens]) ? 1 : 0,
+        route: "",
+        settings: false,
+        observer: tracking ? 1 : 0,
+      };
+      if (!resolvedReact) return gateIncompatible("React unavailable", facts);
       if (
-        typeof react.useSyncExternalStore !== "function" ||
-        typeof react.useEffect !== "function"
+        typeof resolvedReact.useSyncExternalStore !== "function" ||
+        typeof resolvedReact.useEffect !== "function"
       ) {
-        lastError = "React runtime lacks useSyncExternalStore or useEffect";
-        return false;
+        return gateIncompatible("React runtime lacks useSyncExternalStore or useEffect", facts);
       }
-      if (!fields?.dropdown) {
-        lastError = "the dropdown field was not a unique match";
-        return false;
+      if (!fields?.dropdown)
+        return gateIncompatible("the dropdown field was not a unique match", facts);
+      let customization = "";
+      try {
+        const pages = runtime.exported(
+          [...RouteTableTokens],
+          (value) => typeof value?.Settings?.Customization === "function",
+        );
+        customization = pages.Settings.Customization();
+      } catch (error) {
+        return gateIncompatible(`the route table was not a unique match: ${String(error)}`, facts);
       }
-      dropdown = fields.dropdown;
-      const pages = runtime.exported(
-        [...RouteTableTokens],
-        (value) => typeof value?.Settings?.Customization === "function",
+      if (typeof customization !== "string" || !customization.startsWith("/")) {
+        return gateIncompatible("the customization settings route is unavailable", facts);
+      }
+      facts.route = customization;
+      if (!facts.section) {
+        return gateIncompatible("the screensaver section module was not a unique match", facts);
+      }
+      if (!runtime.findUnique([...SettingsTokens])) {
+        return gateIncompatible("the client settings module was not a unique match", facts);
+      }
+      let store = null;
+      try {
+        store = runtime.exported(
+          [...SettingsTokens],
+          (value) =>
+            !!value && typeof value === "object" && typeof value.clientSettings === "object",
+        );
+      } catch (error) {
+        return gateNotReady(
+          `the client settings store is not constructed yet: ${String(error)}`,
+          facts,
+        );
+      }
+      facts.settings = true;
+      return gateReady(
+        {
+          runtime,
+          react: resolvedReact,
+          dropdown: fields.dropdown,
+          route: customization,
+          settings: store,
+          // Wanted, not required: without it the rows still follow the host, and a change to
+          // Steam's timeout reaches the host on the section's next render.
+          useObserver: tracking,
+        },
+        facts,
       );
-      route = pages.Settings.Customization();
-      if (typeof route !== "string" || !route.startsWith("/")) {
-        lastError = "the customization settings route is unavailable";
-        return false;
-      }
-      if (!runtime.findUnique([...SectionTokens])) {
-        lastError = "the screensaver section module was not a unique match";
-        return false;
-      }
-      settings = runtime.exported(
-        [...SettingsTokens],
-        (value) => !!value && typeof value === "object" && typeof value.clientSettings === "object",
-      );
-      // Wanted, not required: without it the rows still follow the host, and a change to Steam's
-      // timeout reaches the host on the section's next render. `status.tracking` says which.
-      useObserver = findUseObserver(runtime);
-      return true;
     };
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
-      const resolved = attemptResolution(resolve, (error) => {
-        lastError = "screensaver settings resolution failed: " + String(error);
-      });
-      if (!resolved) return { ok: false, error: lastError };
-      installed = true;
-      content.start(runtime);
-      const activity = inputActivity.start(runtime);
-      if (!activity.ok) {
-        lastError = activity.error ?? "Steam screensaver activity contract unavailable";
-      }
-      const intercepted = interceptMemo(react, MemoName, transformPages);
-      if (!intercepted.ok) {
-        installed = false;
-        inputActivity.stop();
-        content.stop();
-        lastError = intercepted.error ?? "React useMemo could not be intercepted";
-        return { ok: false, error: lastError };
-      }
-      lastError = "";
-      unsubscribe = subscribe(patchId, (published) => {
-        const next = normalize(published);
-        if (!next) {
-          lastOutcome = "state received but rejected by validation";
-          return;
-        }
-        rows = next;
-        inputActivity.observe(published?.activity);
-        content.update(published?.content);
-        local.changed();
-      });
-      reportWhenReady(0);
-      return { ok: true, installed: true };
-    };
-    const remove = () => {
-      if (!installed) return { ok: true, absent: true };
-      // Released first: a failed release keeps the gate installed with its rows, so the next
-      // remove retries it instead of answering absent over a claim still in place.
-      const released = releaseMemo(react, MemoName);
-      if (!released.ok) {
-        lastError = released.error ?? "React useMemo could not be released";
-        return { ok: false, error: lastError };
-      }
-      const sources = content.stop();
-      if (!sources.ok) return { ok: false, error: sources.error };
-      const activity = inputActivity.stop();
-      if (!activity.ok) return { ok: false, error: activity.error };
-      installed = false;
-      unsubscribe = endSubscription(unsubscribe);
-      if (reportTimer) {
-        clearTimeout(reportTimer);
-        reportTimer = null;
-      }
+    const gate = defineGate({
+      name: "screensaver-settings",
+      find,
+      bind: (handles, ledger) => {
+        react = handles.react;
+        dropdown = handles.dropdown;
+        route = handles.route;
+        settings = handles.settings;
+        useObserver = handles.useObserver;
+        content.start(handles.runtime);
+        ledger.add("screensaver content", () => content.stop());
+        // The activity contract is reported in the status, never required.
+        inputActivity.start(handles.runtime);
+        ledger.add("screensaver input activity", () => inputActivity.stop());
+        const intercepted = ledger.memo(react, MemoName, transformPages);
+        if (!intercepted.ok) return intercepted.error ?? "React useMemo could not be intercepted";
+        ledger.subscribe(patchId, (published) => {
+          const next = normalize(published);
+          if (!next) {
+            lastOutcome = "state received but rejected by validation";
+            return;
+          }
+          rows = next;
+          inputActivity.observe(published?.activity);
+          content.update(published?.content);
+          local.changed();
+        });
+        ledger.cleanup("report retry", () => {
+          if (reportTimer) {
+            clearTimeout(reportTimer);
+            reportTimer = null;
+          }
+        });
+        reportWhenReady(0);
+      },
       // An open page re-renders without the rows; its wrappers pass Steam's own tree through.
-      rows = [];
-      pending.clear();
-      lastReport = "";
-      local.changed();
-      pageCache.clear();
-      sectionCache.clear();
-      return { ok: true, removed: true };
-    };
-    const status = () => ({
-      ok: true,
-      installed,
-      resolved: !!react && !!dropdown && !!route,
-      claimed: memoIntercepted(react, MemoName),
-      route,
-      settings: !!settings,
-      tracking: !!useObserver,
-      inputActivity: inputActivity.status(),
-      content: content.status(),
-      rows: rows.length,
-      lastOutcome,
-      lastReport,
-      lastError,
+      unbind: () => {
+        rows = [];
+        pending.clear();
+        lastReport = "";
+        commandError = "";
+        local.changed();
+        pageCache.clear();
+        sectionCache.clear();
+      },
+      status: () => ({
+        claimed: memoIntercepted(react, MemoName),
+        route,
+        settings: !!settings,
+        tracking: !!useObserver,
+        inputActivity: inputActivity.status(),
+        content: content.status(),
+        rows: rows.length,
+        lastOutcome,
+        lastReport,
+        commandError,
+      }),
     });
-    return { install, remove, status };
+    return gate;
   }
   registerGate("screensaver", createScreensaverSettings());
   // @fragment gates/sound-overrides.ts
   /**
    * Overrides selected Steam UI sounds and restores the displaced sound handlers on removal.
-   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   * @returns The defineGate gate; remove must release it before its bridge is replaced.
    */
   function createSoundOverrides() {
     const patchId = "steam-ui.sound-overrides";
     const keys = { marker: "__steamUiSoundsClaimed", original: "__steamUiSoundsOriginal" };
     let manager = null;
-    let installed = false;
-    let unsubscribe = null;
     let sounds = new Map();
     let generation = 0;
-    let lastError = "";
+    // Why the last publication's sounds did not all load; the gate's own lastError is its lifecycle's.
+    let decodeError = "";
     let loading = false;
+    const installed = () => gate.installed();
     const report = (revision) => {
-      if (!installed) return;
+      if (!installed()) return;
       void request(patchId, "status", {
         revision,
         loading,
         resources: sounds.size,
-        error: lastError ? lastError.slice(0, 256) : null,
+        error: decodeError ? decodeError.slice(0, 256) : null,
       }).catch(() => {});
     };
-    const resolve = () => {
+    // Pure: Steam's audio store by its own tokens and shape, and the playback method the claim takes.
+    // A client without them is incompatible and keeps stock audio.
+    const find = (runtime) => {
+      let candidate = null;
       try {
-        const runtime = getWebpackRuntime("sound-overrides");
         const store = runtime.exported(
           ["m_GamepadUIAudioStore", "m_bHomeAndQuickAccessButtonsEnabled"],
           (value) => !!value?.GamepadUIAudio?.AudioPlaybackManager,
         );
-        const candidate = store.GamepadUIAudio.AudioPlaybackManager;
-        return typeof candidate.PlayAudioURLWithRepeats === "function" ? candidate : null;
-      } catch {
-        return null;
+        candidate = store.GamepadUIAudio.AudioPlaybackManager;
+      } catch (error) {
+        return gateIncompatible(`Gamepad audio manager unavailable: ${String(error)}`, {
+          manager: false,
+        });
       }
+      return typeof candidate?.PlayAudioURLWithRepeats === "function"
+        ? gateReady(candidate, { manager: true })
+        : gateIncompatible("Gamepad audio manager unavailable", { manager: false });
     };
     const reconcile = async (state) => {
       const current = ++generation;
       // Retract before decoding: stale or corrupt assets never displace working stock audio.
       sounds = new Map();
-      lastError = "";
+      decodeError = "";
       loading = true;
       const revision = Number(state?.revision ?? 0);
       report(revision);
@@ -12318,7 +12644,7 @@
       const next = new Map();
       // A refused entry leaves the others loading and says which one it was.
       const reject = (name) => {
-        if (current === generation && installed) lastError = `Rejected sound: ${name}`;
+        if (current === generation && installed()) decodeError = `Rejected sound: ${name}`;
       };
       try {
         context = new AudioContext();
@@ -12329,7 +12655,7 @@
           }
           const valid = [];
           for (const url of value) {
-            if (current !== generation || !installed) return;
+            if (current !== generation || !installed()) return;
             if (
               typeof url !== "string" ||
               !/^data:audio\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+$/u.test(url)
@@ -12342,87 +12668,76 @@
               await context.decodeAudioData(bytes);
               valid.push(url);
             } catch {
-              if (current === generation && installed) lastError = `Unreadable sound: ${name}`;
+              if (current === generation && installed()) decodeError = `Unreadable sound: ${name}`;
             }
           }
           if (valid.length) next.set(name, valid);
         }
-        if (current === generation && installed) sounds = next;
+        if (current === generation && installed()) sounds = next;
       } catch (error) {
-        if (current === generation && installed) lastError = String(error);
+        if (current === generation && installed()) decodeError = String(error);
       } finally {
         if (context) await context.close().catch(() => {});
-        if (current === generation && installed) {
+        if (current === generation && installed()) {
           loading = false;
           report(revision);
         }
       }
     };
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
-      manager = resolve();
-      if (!manager) return { ok: false, error: "Gamepad audio manager unavailable" };
-      const result = claimMember(
-        manager,
-        "PlayAudioURLWithRepeats",
-        keys,
-        (original) =>
-          function (url, ...args) {
-            // Stock URLs can be relative or absolute. Unknown directories are never remapped.
-            let options;
-            if (typeof url === "string") {
-              try {
-                const path = url.startsWith("/sounds/")
-                  ? url.split(/[?#]/u, 1)[0]
-                  : new URL(url).pathname;
-                if (path.startsWith("/sounds/") && !path.slice(8).includes("/"))
-                  options = sounds.get(path.slice(8));
-              } catch {}
-            }
-            const chosen = options?.length
-              ? options[Math.floor(Math.random() * options.length)]
-              : url;
-            return original.call(this, chosen, ...args);
-          },
-      );
-      if (!result.ok) return result;
-      installed = true;
-      unsubscribe = subscribe(patchId, (state) => {
-        void reconcile(state);
-      });
-      return { ok: true, installed: true };
-    };
-    const remove = () => {
-      if (!installed) return { ok: true, absent: true };
-      // Released first: a failed release keeps the gate installed with its sounds, so the next remove
-      // retries it.
-      const result = releaseMember(manager, "PlayAudioURLWithRepeats", keys);
-      if (!result.ok) {
-        lastError = result.error ?? "sound override release failed";
-        return { ok: false, error: lastError };
-      }
-      installed = false;
-      ++generation;
-      loading = false;
-      sounds.clear();
-      unsubscribe = endSubscription(unsubscribe);
-      return { ok: true, removed: true };
-    };
-    const status = () => ({
-      ok: true,
-      installed,
-      claimed: memberClaimed(manager, "PlayAudioURLWithRepeats", keys),
-      resources: sounds.size,
-      loading,
-      lastError,
+    const gate = defineGate({
+      name: "sound-overrides",
+      find,
+      bind: (handle, ledger) => {
+        manager = handle;
+        const result = ledger.member(
+          manager,
+          "PlayAudioURLWithRepeats",
+          keys,
+          (original) =>
+            function (url, ...args) {
+              // Stock URLs can be relative or absolute. Unknown directories are never remapped.
+              let options;
+              if (typeof url === "string") {
+                try {
+                  const path = url.startsWith("/sounds/")
+                    ? url.split(/[?#]/u, 1)[0]
+                    : new URL(url).pathname;
+                  if (path.startsWith("/sounds/") && !path.slice(8).includes("/"))
+                    options = sounds.get(path.slice(8));
+                } catch {}
+              }
+              const chosen = options?.length
+                ? options[Math.floor(Math.random() * options.length)]
+                : url;
+              return original.call(this, chosen, ...args);
+            },
+        );
+        if (!result.ok) return result.error;
+        ledger.subscribe(patchId, (state) => {
+          void reconcile(state);
+        });
+      },
+      // Released before this runs: a failed release keeps the gate installed with its sounds, so the
+      // next remove retries it.
+      unbind: () => {
+        ++generation;
+        loading = false;
+        sounds.clear();
+      },
+      status: () => ({
+        claimed: memberClaimed(manager, "PlayAudioURLWithRepeats", keys),
+        resources: sounds.size,
+        loading,
+        decodeError,
+      }),
     });
-    return { install, remove, status };
+    return gate;
   }
   registerGate("soundOverrides", createSoundOverrides());
   // @fragment gates/storage.ts
   /**
    * Supplies Steam storage RPCs while retaining unrelated native transport behavior.
-   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   * @returns The defineGate gate; remove must release it before its bridge is replaced.
    */
   function createStorageService() {
     const patchId = "steam-ui.storage";
@@ -12453,13 +12768,12 @@
     const StorageQueryScope = "SystemStorageService";
     const AvailabilityQueryKey = [StorageQueryScope, "IsServiceAvailable"];
     const StateQueryKey = [StorageQueryScope, "State"];
-    let runtime;
     let transport = null;
     let queryClient = null;
-    let installed = false;
-    let lastError = "";
-    let unsubscribe = null;
+    let invalidateError = "";
     let invalidated = 0;
+    // Whether this install holds SendMsg, so removal asks Steam again only after a real claim.
+    let holding = false;
     // What was last published, as the shape Steam would read. A publication that says the same thing
     // must not invalidate: the host republishes on its own poll, and invalidating each time would put
     // a GetState and a re-render on every tick for storage that has not changed.
@@ -12560,37 +12874,34 @@
         // An unallowlisted command must not take the transport down with it.
       }
     };
-    const resolve = () => {
-      runtime = getWebpackRuntime("storage");
+    // Pure: the service module and the one singleton accessor the provider module exports, both
+    // loaded at boot, so a miss is a client that moved. It never calls the accessor or
+    // GetDefaultTransport; the install does, once, and refuses a provider of another shape.
+    const find = (runtime) => {
       // The service module names the method this whole surface is gated on.
-      if (!runtime.findUnique([ServiceToken])) {
-        lastError = "storage service module was not a unique match";
-        return false;
+      const service = runtime.findUnique([ServiceToken]) ? 1 : 0;
+      if (!service) {
+        return gateIncompatible("storage service module was not a unique match", { service });
       }
       const selection = runtime.storageProvider();
+      const facts = {
+        service,
+        transportModule: selection.transportModule,
+        provider: selection.provider,
+      };
       if (selection.transportModule !== 1) {
-        lastError =
-          "transport provider module was not a unique match: " + selection.transportModule;
-        return false;
+        return gateIncompatible(
+          "transport provider module was not a unique match: " + selection.transportModule,
+          facts,
+        );
       }
       if (selection.provider !== 1) {
-        lastError = "transport provider export not identified: " + selection.provider;
-        return false;
+        return gateIncompatible(
+          "transport provider export not identified: " + selection.provider,
+          facts,
+        );
       }
-      // Call only the uniquely identified singleton accessor, once. A changed return shape is
-      // a refusal, never a reason to try another export.
-      const provider = selection.accessor();
-      if (typeof provider?.GetDefaultTransport !== "function") {
-        lastError = "transport provider has no GetDefaultTransport";
-        return false;
-      }
-      const candidate = provider.GetDefaultTransport();
-      if (!candidate || typeof candidate.SendMsg !== "function") {
-        lastError = "transport provider yielded no SendMsg transport";
-        return false;
-      }
-      transport = candidate;
-      return true;
+      return gateReady({ runtime, accessor: selection.accessor }, facts);
     };
     // Never fatal. A gate that answers Steam's questions is still strictly better than one that does
     // not, and the alternative to a missed invalidation is refusing to install at all.
@@ -12600,141 +12911,139 @@
         queryClient.invalidateQueries({ queryKey });
         invalidated++;
       } catch (error) {
-        lastError = "invalidate failed: " + String(error);
+        invalidateError = "invalidate failed: " + String(error);
       }
     };
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
-      const resolved = attemptResolution(resolve, (error) => {
-        lastError = "storage transport resolution failed: " + String(error);
-      });
-      if (!resolved) return { ok: false, error: lastError };
-      const claim = claimMember(transport, "SendMsg", claimKeys, (original) => {
-        if (typeof original !== "function") return original;
-        return function SteamUiStorageSendMsg(name, request, response, options) {
-          // Prefix first and nothing else on the pass-through path: this method carries every
-          // service call Steam makes.
-          if (typeof name === "string" && name.startsWith(ServicePrefix)) {
-            return handle(name, request);
-          }
-          forwarded++;
-          return original.call(this, name, request, response, options);
-        };
-      });
-      if (!claim.ok) {
-        lastError = claim.error;
-        return { ok: false, error: lastError };
-      }
-      installed = true;
-      lastError = "";
-      // The one shared query client, found by the module that builds it and by its shape (rpc.ts):
-      // the export names are minified and change between builds, the shape does not.
-      queryClient = resolveQueryClient(runtime);
-      unsubscribe = subscribe(patchId, (published) => {
-        if (!published || typeof published !== "object") return;
-        const drives = Array.isArray(published.drives) ? published.drives : [];
-        const devices = Array.isArray(published.blockDevices) ? published.blockDevices : [];
-        // Every field Steam declares, not only the ones an action needs. The client formats what it
-        // is given without checking it got anything: a drive with no size_bytes renders "NaN B of
-        // NaN B", and one with no adopt_stage renders a spinner forever, because undefined compares
-        // unequal to the idle stage. Both were observed on the live page before this.
-        state = {
-          drives: drives.map((drive) => ({
-            id: Number(drive?.id ?? 0),
-            model: String(drive?.model ?? ""),
-            vendor: String(drive?.vendor ?? ""),
-            serial: "",
-            is_ejectable: drive?.ejectable === true,
-            size_bytes: String(drive?.sizeBytes ?? 0),
-            media_type: 0,
-            is_unformatted: drive?.unformatted === true,
-            // 1, not 0. Steam's adopt stage is a seven-value enum whose first member is Invalid and
-            // whose second is the idle one the drive icon is gated on: `adopt_stage != 1` renders a
-            // spinner. Publishing 0 spun the row forever, which looked exactly like omitting the
-            // field and was diagnosed twice as that before the enum was read off the client.
-            adopt_stage: 1,
-            is_formattable: drive?.formattable === true,
-            is_media_available: drive?.mediaAvailable !== false,
-          })),
-          block_devices: devices.map((device) => ({
-            id: Number(device?.id ?? 0),
-            drive_id: Number(device?.driveId ?? 0),
-            path: String(device?.friendlyPath ?? ""),
-            friendly_path: String(device?.friendlyPath ?? ""),
-            label: String(device?.label ?? ""),
-            size_bytes: String(device?.sizeBytes ?? 0),
-            is_formattable: false,
-            is_read_only: false,
-            is_root_device: false,
-            content_type: 0,
-            filesystem_type: 0,
-            mount_paths: Array.isArray(device?.mountPaths) ? device.mountPaths.map(String) : [],
-            is_unmounting: false,
-            has_steam_library: device?.hasSteamLibrary === true,
-          })),
-          is_adopt_supported: published.adoptSupported === true,
-          is_unmount_supported: published.unmountSupported === true,
-          is_trim_supported: published.trimSupported === true,
-          is_trim_running: published.trimRunning === true,
-        };
-        const signature = JSON.stringify(state);
-        if (signature === stateSignature) return;
-        stateSignature = signature;
+    const gate = defineGate({
+      name: "storage",
+      find,
+      bind: ({ runtime, accessor }, ledger) => {
+        // Call only the uniquely identified singleton accessor, once. A changed return shape is
+        // a refusal, never a reason to try another export.
+        const provider = accessor();
+        if (typeof provider?.GetDefaultTransport !== "function") {
+          return "transport provider has no GetDefaultTransport";
+        }
+        const candidate = provider.GetDefaultTransport();
+        if (!candidate || typeof candidate.SendMsg !== "function") {
+          return "transport provider yielded no SendMsg transport";
+        }
+        transport = candidate;
+        // The one shared query client, found by the module that builds it and by its shape
+        // (rpc.ts): the export names are minified and change between builds, the shape does not.
+        queryClient = resolveQueryClient(runtime);
+        // Subscribed before the claim, so removal releases the transport before it stops
+        // hearing the host.
+        ledger.subscribe(patchId, (published) => {
+          if (!published || typeof published !== "object") return;
+          const drives = Array.isArray(published.drives) ? published.drives : [];
+          const devices = Array.isArray(published.blockDevices) ? published.blockDevices : [];
+          // Every field Steam declares, not only the ones an action needs. The client formats what it
+          // is given without checking it got anything: a drive with no size_bytes renders "NaN B of
+          // NaN B", and one with no adopt_stage renders a spinner forever, because undefined compares
+          // unequal to the idle stage. Both were observed on the live page before this.
+          state = {
+            drives: drives.map((drive) => ({
+              id: Number(drive?.id ?? 0),
+              model: String(drive?.model ?? ""),
+              vendor: String(drive?.vendor ?? ""),
+              serial: "",
+              is_ejectable: drive?.ejectable === true,
+              size_bytes: String(drive?.sizeBytes ?? 0),
+              media_type: 0,
+              is_unformatted: drive?.unformatted === true,
+              // 1, not 0. Steam's adopt stage is a seven-value enum whose first member is Invalid and
+              // whose second is the idle one the drive icon is gated on: `adopt_stage != 1` renders a
+              // spinner. Publishing 0 spun the row forever, which looked exactly like omitting the
+              // field and was diagnosed twice as that before the enum was read off the client.
+              adopt_stage: 1,
+              is_formattable: drive?.formattable === true,
+              is_media_available: drive?.mediaAvailable !== false,
+            })),
+            block_devices: devices.map((device) => ({
+              id: Number(device?.id ?? 0),
+              drive_id: Number(device?.driveId ?? 0),
+              path: String(device?.friendlyPath ?? ""),
+              friendly_path: String(device?.friendlyPath ?? ""),
+              label: String(device?.label ?? ""),
+              size_bytes: String(device?.sizeBytes ?? 0),
+              is_formattable: false,
+              is_read_only: false,
+              is_root_device: false,
+              content_type: 0,
+              filesystem_type: 0,
+              mount_paths: Array.isArray(device?.mountPaths) ? device.mountPaths.map(String) : [],
+              is_unmounting: false,
+              has_steam_library: device?.hasSteamLibrary === true,
+            })),
+            is_adopt_supported: published.adoptSupported === true,
+            is_unmount_supported: published.unmountSupported === true,
+            is_trim_supported: published.trimSupported === true,
+            is_trim_running: published.trimRunning === true,
+          };
+          const signature = JSON.stringify(state);
+          if (signature === stateSignature) return;
+          stateSignature = signature;
+          invalidate(StateQueryKey);
+        });
+        const claim = ledger.member(transport, "SendMsg", claimKeys, (original) => {
+          if (typeof original !== "function") return original;
+          return function SteamUiStorageSendMsg(name, request, response, options) {
+            // Prefix first and nothing else on the pass-through path: this method carries every
+            // service call Steam makes.
+            if (typeof name === "string" && name.startsWith(ServicePrefix)) {
+              return handle(name, request);
+            }
+            forwarded++;
+            return original.call(this, name, request, response, options);
+          };
+        });
+        if (!claim.ok) return claim.error;
+        holding = true;
+        invalidateError = "";
+        // Availability first: the state query stays disabled until that answer changes, so
+        // invalidating the state key alone would drop the refetch on the floor.
+        invalidate(AvailabilityQueryKey);
         invalidate(StateQueryKey);
-      });
-      // Availability first: the state query stays disabled until that answer changes, so invalidating
-      // the state key alone would drop the refetch on the floor.
-      invalidate(AvailabilityQueryKey);
-      invalidate(StateQueryKey);
-      return { ok: true, installed: true, reclaimed: claim.reclaimed };
-    };
-    const remove = () => {
-      if (!installed) return { ok: true, absent: true };
-      // Released before the gate forgets it: the wrapper sits on the transport every service call
-      // takes, so a failed release must stay installed and be retried by the next remove.
-      const released = releaseMember(transport, "SendMsg", claimKeys);
-      if (!released.ok) {
-        lastError = released.error ?? "storage transport release failed";
-        return { ok: false, error: lastError };
-      }
-      installed = false;
-      unsubscribe = endSubscription(unsubscribe);
-      // Leaving the answers cached would leave Steam's pages offering Eject and Format against a
-      // service that is no longer claimed, and the first press would reach a transport with nothing
-      // behind it. Asking again puts the client back on its own answer, which is "unavailable".
-      invalidate(AvailabilityQueryKey);
-      invalidate(StateQueryKey);
-      stateSignature = "";
-      return { ok: true, removed: true };
-    };
-    const status = () => ({
-      ok: true,
-      installed,
-      resolved: !!transport,
-      claimed: memberClaimed(transport, "SendMsg", claimKeys),
-      // Whether the client's cached answers were dropped. Zero here with answered also zero is the
-      // signature of the failure this exists for: claimed, but Steam never asks.
-      queryClient: !!queryClient,
-      invalidated,
-      drives: state.drives.length,
-      blockDevices: state.block_devices.length,
-      // Everything above can be true while the page shows nothing, because Steam only asks once its
-      // own route is open. These say whether it ever asked.
-      answered,
-      forwarded,
-      lastMethod,
-      // What the last action actually forwarded. An identifier that arrived in an unexpected shape
-      // is the difference between a press the host refused and a press it never saw.
-      lastPayload,
-      lastError,
+      },
+      unbind: () => {
+        // Leaving the answers cached would leave Steam's pages offering Eject and Format against a
+        // service that is no longer claimed, and the first press would reach a transport with
+        // nothing behind it. Asking again puts the client back on its own answer, "unavailable".
+        if (holding) {
+          invalidate(AvailabilityQueryKey);
+          invalidate(StateQueryKey);
+        }
+        holding = false;
+        stateSignature = "";
+      },
+      status: () => ({
+        claimed: memberClaimed(transport, "SendMsg", claimKeys),
+        // Whether the client's cached answers were dropped. Zero here with answered also zero is
+        // the signature of the failure this exists for: claimed, but Steam never asks.
+        queryClient: !!queryClient,
+        invalidated,
+        invalidateError,
+        drives: state.drives.length,
+        blockDevices: state.block_devices.length,
+        // Everything above can be true while the page shows nothing, because Steam only asks once
+        // its own route is open. These say whether it ever asked.
+        answered,
+        forwarded,
+        lastMethod,
+        // What the last action actually forwarded. An identifier that arrived in an unexpected
+        // shape is the difference between a press the host refused and a press it never saw.
+        lastPayload,
+      }),
     });
-    return { install, remove, status };
+    return gate;
   }
   registerGate("storage", createStorageService());
   // @fragment gates/theme-styles.ts
   /**
    * Reconciles host CSS into owned style elements across eligible Steam documents.
-   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced. The windows accessor reports currently reachable documents and owned nodes.
+   * @returns The defineGate gate; remove must release it before its bridge is replaced. The windows
+   * accessor reports currently reachable documents and owned nodes.
    */
   function createThemeStyles() {
     const patchId = "steam-ui.theme-styles";
@@ -12746,8 +13055,6 @@
     const HashKey = "steamUiHash";
     // React's HostPortal fiber tag, the one whose stateNode carries the container it renders into.
     const HostPortalTag = 4;
-    let installed = false;
-    let unsubscribe = null;
     // The popup manager's registration for windows Steam creates, or null when it offers none.
     let popupsWatched = null;
     let desired = {
@@ -12756,7 +13063,8 @@
       revision: 0,
     };
     let lastOutcome = "never reconciled";
-    let lastError = "";
+    // Why the last reconciliation failed; the gate's own lastError is its lifecycle's.
+    let reconcileError = "";
     let windowsSeen = 0;
     let documentsStyled = 0;
     let nodesInstalled = 0;
@@ -12897,7 +13205,7 @@
       return wanted.length;
     };
     const reconcile = () => {
-      if (!installed) return;
+      if (!gate.installed()) return;
       // With nothing published and nothing installed there is no window to bring in step, and the
       // walk over every mounted fiber that finds the windows is not worth doing.
       if (desired.styles.length === 0 && nodesInstalled === 0) {
@@ -12915,9 +13223,9 @@
         documentsStyled = styled;
         nodesInstalled = nodes;
         lastOutcome = `windows=${windowsSeen} documents=${styled} nodes=${nodes} styles=${desired.styles.length}`;
-        lastError = "";
+        reconcileError = "";
       } catch (error) {
-        lastError = "theme reconciliation failed: " + String(error);
+        reconcileError = "theme reconciliation failed: " + String(error);
       }
     };
     const clearAll = () => {
@@ -12940,85 +13248,98 @@
     // identity and hash, its targets, and the order.
     const signatureOf = (styles) =>
       styles.map((style) => `${style.id}#${style.hash}@${style.targets.join("|")}`).join(";");
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
-      if (!popupManager() && reactRootFibers().length === 0) {
-        lastError = "neither Steam's popup manager nor a mounted React tree was found";
-        return { ok: false, error: lastError };
-      }
-      installed = true;
-      lastError = "";
-      unsubscribe = subscribe(patchId, (state) => {
-        const styles = Array.isArray(state?.styles) ? state.styles.filter(validStyle) : [];
-        const revision = Number.isSafeInteger(state?.revision) ? state.revision : 0;
-        const signature = signatureOf(styles);
-        if (signature === desired.signature && revision === desired.revision) return;
-        if (signature !== desired.signature) patterns.clear();
-        desired = { styles, signature, revision };
-        reconcile();
-      });
-      // A window Steam creates later is styled when Steam announces it, and again once it has loaded,
-      // since a popup's document can still be the blank one when the callback runs.
-      try {
-        const manager = popupManager();
-        if (manager && typeof manager.AddPopupCreatedCallback === "function") {
-          popupsWatched = manager.AddPopupCreatedCallback((popup) => {
-            reconcile();
-            try {
-              (popup?.m_popup ?? popup?.window)?.addEventListener?.("load", reconcile, {
-                once: true,
-              });
-            } catch {
-              // A window that refuses the listener was styled above; the next publication covers it.
-            }
-          });
+    // Pure: a way to the windows, Steam's popup manager or a mounted React tree whose portals are the
+    // windows the manager does not list. Neither is a client that has not built its windows yet.
+    // Nothing about webpack is required: the gate touches documents, not modules.
+    const find = (_runtime) => {
+      const manager = popupManager();
+      let popups = 0;
+      if (manager) {
+        try {
+          popups = Array.from(manager.GetPopups() ?? []).length;
+        } catch {
+          popups = 0;
         }
-      } catch {
-        popupsWatched = null;
       }
-      reconcile();
-      return { ok: true, installed: true };
+      const reactRoot = reactRootFibers().length > 0 ? 1 : 0;
+      const facts = { popupManager: manager ? 1 : 0, popups, reactRoot };
+      return manager || reactRoot
+        ? gateReady(true, facts)
+        : gateNotReady("neither Steam's popup manager nor a mounted React tree was found", facts);
     };
-    // Every owned node in every window goes before the gate forgets it holds anything, so a window
-    // keeps no theme once the host has retracted it, and Steam's own styling is what remains.
-    const remove = () => {
-      if (!installed) return { ok: true, absent: true };
-      try {
-        popupsWatched?.Unregister?.();
-      } catch {
-        // The manager went with its window; nothing is left to call back.
-      }
-      popupsWatched = null;
-      unsubscribe = endSubscription(unsubscribe);
-      const removed = clearAll();
-      desired = { styles: [], signature: "", revision: 0 };
-      patterns.clear();
-      installed = false;
-      lastOutcome = `removed ${removed}`;
-      return { ok: true, removed: true, nodes: removed };
-    };
-    // The windows and what they are matched by, for a host's diagnostics.
-    const windows = () =>
-      steamDocuments().map((facts) => ({
-        name: facts.name,
-        title: facts.title,
-        url: facts.url,
-        nodes: ownedNodes(facts.doc).length,
-      }));
-    const status = () => ({
-      ok: true,
-      installed,
-      resolved: !!popupManager() || reactRootFibers().length > 0,
-      windows: windowsSeen,
-      watchingPopups: !!popupsWatched,
-      documents: documentsStyled,
-      nodes: nodesInstalled,
-      styles: desired.styles.length,
-      revision: desired.revision,
-      lastOutcome,
-      lastError,
+    const gate = defineGate({
+      name: "theme-styles",
+      find,
+      bind: (_ready, ledger) => {
+        // Every owned node in every window goes last, once nothing can install another, so a window
+        // keeps no theme once the host has retracted it, and Steam's own styling is what remains.
+        ledger.cleanup("owned style nodes", () => {
+          lastOutcome = `removed ${clearAll()}`;
+        });
+        ledger.subscribe(patchId, (state) => {
+          const styles = Array.isArray(state?.styles) ? state.styles.filter(validStyle) : [];
+          const revision = Number.isSafeInteger(state?.revision) ? state.revision : 0;
+          const signature = signatureOf(styles);
+          if (signature === desired.signature && revision === desired.revision) return;
+          if (signature !== desired.signature) patterns.clear();
+          desired = { styles, signature, revision };
+          reconcile();
+        });
+        // A window Steam creates later is styled when Steam announces it, and again once it has
+        // loaded, since a popup's document can still be the blank one when the callback runs.
+        try {
+          const manager = popupManager();
+          if (manager && typeof manager.AddPopupCreatedCallback === "function") {
+            popupsWatched = manager.AddPopupCreatedCallback((popup) => {
+              reconcile();
+              try {
+                (popup?.m_popup ?? popup?.window)?.addEventListener?.("load", reconcile, {
+                  once: true,
+                });
+              } catch {
+                // A window that refuses the listener was styled above; the next publication covers it.
+              }
+            });
+          }
+        } catch {
+          popupsWatched = null;
+        }
+        ledger.cleanup("popup watch", () => {
+          try {
+            popupsWatched?.Unregister?.();
+          } catch {
+            // The manager went with its window; nothing is left to call back.
+          }
+          popupsWatched = null;
+        });
+        reconcile();
+      },
+      unbind: () => {
+        desired = { styles: [], signature: "", revision: 0 };
+        patterns.clear();
+      },
+      status: () => ({
+        windows: windowsSeen,
+        watchingPopups: !!popupsWatched,
+        documents: documentsStyled,
+        nodes: nodesInstalled,
+        styles: desired.styles.length,
+        revision: desired.revision,
+        reconcileError,
+        lastOutcome,
+      }),
+      api: {
+        // The windows and what they are matched by, for a host's diagnostics.
+        windows: () =>
+          steamDocuments().map((facts) => ({
+            name: facts.name,
+            title: facts.title,
+            url: facts.url,
+            nodes: ownedNodes(facts.doc).length,
+          })),
+      },
     });
-    return { install, remove, status, windows };
+    return gate;
   }
   registerGate("themeStyles", createThemeStyles());
   // @fragment components.ts
@@ -17336,16 +17657,45 @@
       active = false;
       return { ok: true, removed: true };
     };
-    const status = () => ({
-      ok: true,
-      installed,
-      hooked: memberClaimed(input(), member, claimKeys),
-      active,
-      subscribed: !!unsubscribe,
-      resets,
-      lastError,
-    });
-    return { install, remove, status };
+    // The standard probe answer: the member this hook claims, answered from the claim while it holds.
+    // Steam's modules must be loaded, as everything the hook reports to runs inside them.
+    const probe = () => {
+      if (installed) return { ok: true, outcome: "ready", installed: true, facts: { input: true } };
+      try {
+        getWebpackRuntime("chord-reset");
+      } catch (error) {
+        return {
+          ok: false,
+          outcome: "notReady",
+          reason: `Steam modules unavailable: ${String(error)}`,
+        };
+      }
+      const present = typeof input()?.[member] === "function";
+      return present
+        ? { ok: true, outcome: "ready", facts: { input: true } }
+        : {
+            ok: false,
+            outcome: "incompatible",
+            reason: "SteamClient.Input.SetSelectedConfigForApp is absent",
+            facts: { input: false },
+          };
+    };
+    const status = () => {
+      const hooked = memberClaimed(input(), member, claimKeys);
+      return {
+        ok: true,
+        installed,
+        hooked,
+        active,
+        subscribed: !!unsubscribe,
+        // The standard status: the claim and the subscription are what this gate holds.
+        held: installed && hooked && !!unsubscribe,
+        claims: (hooked ? 1 : 0) + (unsubscribe ? 1 : 0),
+        resets,
+        lastError,
+      };
+    };
+    return { install, remove, status, probe };
   }
   registerGate("wsgmChordReset", createWsgmChordReset());
   // @fragment consumer/controller-caps.ts
@@ -17518,11 +17868,39 @@
       refresh();
       return { ok: true, removed: true };
     };
+    // The standard probe answer: the controller-list service module, unique, answered from the claim
+    // while it holds.
+    const probe = () => {
+      if (installed) return { ok: true, outcome: "ready", installed: true, facts: { service: 1 } };
+      let runtime;
+      try {
+        runtime = getWebpackRuntime("controller-caps");
+      } catch (error) {
+        return {
+          ok: false,
+          outcome: "notReady",
+          reason: `Steam modules unavailable: ${String(error)}`,
+        };
+      }
+      const count = runtime.count(ServiceTokens);
+      return count === 1
+        ? { ok: true, outcome: "ready", facts: { service: count } }
+        : {
+            ok: false,
+            outcome: "incompatible",
+            reason: `controller list service module was ${count ? "ambiguous" : "absent"}`,
+            facts: { service: count },
+          };
+    };
     const status = () => ({
       ok: true,
       installed,
       hooked: memberClaimed(service, "GetControllerList", claimKeys),
       subscribed: !!unsubscribe,
+      // The standard status: the claim and the subscription are what this gate holds.
+      held: installed && memberClaimed(service, "GetControllerList", claimKeys) && !!unsubscribe,
+      claims:
+        (memberClaimed(service, "GetControllerList", claimKeys) ? 1 : 0) + (unsubscribe ? 1 : 0),
       mask: mask.toString(),
       vendorId,
       productId,
@@ -17530,7 +17908,7 @@
       refreshed,
       lastError,
     });
-    return { install, remove, status };
+    return { install, remove, status, probe };
   }
   registerGate("wsgmControllerCaps", createWsgmControllerCaps());
   // @fragment consumer/customization.ts
@@ -17969,10 +18347,29 @@
       pageCache.clear();
       return { ok: true, removed: true };
     };
+    // The standard probe answer. It asks only that Steam's modules are loaded, as the C# probe did; the
+    // install's own resolution is what refuses a client without the settings route or fields.
+    const probe = () => {
+      if (installed)
+        return { ok: true, outcome: "ready", installed: true, facts: { runtime: true } };
+      try {
+        getWebpackRuntime("customization-hub");
+      } catch (error) {
+        return {
+          ok: false,
+          outcome: "notReady",
+          reason: `Steam modules unavailable: ${String(error)}`,
+        };
+      }
+      return { ok: true, outcome: "ready", facts: { runtime: true } };
+    };
     const status = () => ({
       ok: true,
       installed,
       registered: !!react && memoIntercepted(react, MemoName),
+      // The standard status: the memo transform and the publications it subscribed to.
+      held: installed && !!react && memoIntercepted(react, MemoName),
+      claims: (!!react && memoIntercepted(react, MemoName) ? 1 : 0) + unsubscribes.length,
       route,
       sources: Object.fromEntries(
         Object.keys(Sources).map((source) => [
@@ -17983,7 +18380,7 @@
       lastOutcome,
       lastError,
     });
-    return { install, remove, status };
+    return { install, remove, status, probe };
   };
   registerGate("wsgmCustomization", createWsgmCustomization());
   // @fragment consumer/download-sort.ts
@@ -18372,14 +18769,36 @@
       rerender();
       return { ok: true, removed: true };
     };
-    const status = () => ({
-      ok: true,
-      installed,
-      registered: !!runtime && elementsIntercepted(runtime, transformName),
-      sorting: state.busy,
-      lastError,
-    });
-    return { install, remove, status, applySort };
+    // The standard probe answer. It asks only that Steam's modules are loaded, as the C# probe did; the
+    // install's own scan is what refuses a client without the queue header.
+    const probe = () => {
+      if (installed)
+        return { ok: true, outcome: "ready", installed: true, facts: { runtime: true } };
+      try {
+        modules();
+      } catch (error) {
+        return {
+          ok: false,
+          outcome: "notReady",
+          reason: `Steam modules unavailable: ${String(error)}`,
+        };
+      }
+      return { ok: true, outcome: "ready", facts: { runtime: true } };
+    };
+    const status = () => {
+      const registered = !!runtime && elementsIntercepted(runtime, transformName);
+      return {
+        ok: true,
+        installed,
+        registered,
+        // The standard status: the element transform is all this gate holds.
+        held: installed && registered,
+        claims: registered ? 1 : 0,
+        sorting: state.busy,
+        lastError,
+      };
+    };
+    return { install, remove, status, probe, applySort };
   }
   registerGate("wsgmDownloadSort", createWsgmDownloadSort());
   // @fragment consumer/emulators.ts
@@ -19399,65 +19818,51 @@
   registerSteamGameContextMenuRenderer("launch-actions", (native) =>
     native.react.createElement(LaunchActionsMenu, { key: native.key, native }),
   );
+  // The submenu's gate. Its probe is find without binding: the native components the submenu draws
+  // with, each required, the way a page's probe is.
+  const LaunchActionsRequired = [
+    "react",
+    "focusable",
+    "dialogButton",
+    "textField",
+    "modalRoot",
+    "showModal",
+  ];
   registerGate(
     "launchActions",
-    (() => {
-      let unsubscribe = null;
-      let unsubscribeRefusal = null;
-      let lastError = "";
-      return {
-        install: () => {
-          if (launchActionsMenuLifetime) return { ok: true, alreadyInstalled: true };
-          try {
-            const ui = resolveSteamUiComponents(getWebpackRuntime("launch-actions"));
-            const missing = [
-              "react",
-              "focusable",
-              "dialogButton",
-              "textField",
-              "modalRoot",
-              "showModal",
-            ].filter((key) => !ui?.[key]);
-            if (missing.length)
-              return {
-                ok: false,
-                error: (lastError = `Native Steam components unavailable: ${missing.join(", ")}`),
-              };
-            launchActionsMenuUi = ui;
-            launchActionsMenuLifetime = new AbortController();
-            unsubscribe = subscribe(LaunchActionsPatchId, (state) => {
-              launchActionsMenuState = state;
-              launchActionsMenuStore.changed();
-            });
-            unsubscribeRefusal = subscribeRefusal(LaunchActionsPatchId, (reason) => {
-              launchActionsMenuRefusal = reason || "";
-              launchActionsMenuStore.changed();
-            });
-            launchActionsMenuStore.changed();
-            return { ok: true, installed: true };
-          } catch (failure) {
-            return { ok: false, error: (lastError = String(failure)) };
-          }
-        },
-        remove: () => {
+    defineGate({
+      name: "launch-actions",
+      find: (runtime) => {
+        const ui = resolveSteamUiComponents(runtime);
+        const missing = LaunchActionsRequired.filter((key) => !ui?.[key]);
+        return missing.length
+          ? gateIncompatible(`Native Steam components unavailable: ${missing.join(", ")}`, {
+              missing,
+            })
+          : gateReady(ui, { components: LaunchActionsRequired.length });
+      },
+      bind: (ui, ledger) => {
+        launchActionsMenuUi = ui;
+        launchActionsMenuLifetime = new AbortController();
+        ledger.cleanup("submenu", () => {
           launchActionsMenuLifetime?.abort();
           launchActionsMenuLifetime = null;
-          unsubscribe = endSubscription(unsubscribe);
-          unsubscribeRefusal = endSubscription(unsubscribeRefusal);
           launchActionsMenuUi = null;
           launchActionsMenuState = null;
           launchActionsMenuRefusal = "";
           launchActionsMenuStore.changed();
-          return { ok: true, removed: true };
-        },
-        status: () => ({
-          installed: !!launchActionsMenuLifetime,
-          resolved: !!launchActionsMenuUi,
-          subscribed: !!unsubscribe,
-          lastError,
-        }),
-      };
-    })(),
+        });
+        ledger.subscribe(LaunchActionsPatchId, (state) => {
+          launchActionsMenuState = state;
+          launchActionsMenuStore.changed();
+        });
+        ledger.subscribeRefusal(LaunchActionsPatchId, (reason) => {
+          launchActionsMenuRefusal = reason || "";
+          launchActionsMenuStore.changed();
+        });
+        launchActionsMenuStore.changed();
+      },
+    }),
   );
   // @fragment consumer/library-import.ts
   // Library-import frontend; shared host services own discovery, review decisions and writes.

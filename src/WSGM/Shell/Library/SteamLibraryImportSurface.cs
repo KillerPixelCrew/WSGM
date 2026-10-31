@@ -23,19 +23,16 @@ internal static partial class SteamLibraryImportSurface
 
     /// <summary>Installs the import renderer and its state subscription.</summary>
     /// <remarks>
-    ///     The native components the page draws: Steam's fields, focusables, tabs and modals, and the
-    ///     library item class map the toolkit's capsule is styled by. Steam's checkbox is wanted but
-    ///     not required: the sidebar draws its toggle where a client has no checkbox.
+    ///     The probe is the page gate's own: it requires the native components the page's
+    ///     <c>required</c> list names, Steam's fields, focusables, tabs and modals and the library item
+    ///     class map the toolkit's capsule is styled by. Steam's checkbox is wanted but not required:
+    ///     the sidebar draws its toggle where a client has no checkbox.
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = SteamPagePatch.Create(
         PatchId,
         GateName,
         "steam-library-import-v3:steam-page",
-        "Library import",
-        [
-            SteamPageProbe.React, SteamPageProbe.Focusable, SteamPageProbe.Fields, SteamPageProbe.Modal,
-            SteamPageProbe.ShowModal, SteamPageProbe.LibraryClasses, SteamPageProbe.Tabs
-        ]);
+        "Library import");
 
     /// <summary>Declares the page's state and its exact command vocabulary.</summary>
     /// <param name="enabled">Whether state may be published; patch installation is coordinated separately.</param>

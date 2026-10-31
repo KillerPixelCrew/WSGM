@@ -589,12 +589,23 @@ the last error; the C# verify reads it and logs under `steam.ui.append.<id>`.
 
 ## 6. Gate patches on the C# side
 
-The toolkit's `SteamGatePatch` is data-driven: id, gate name, fingerprint, a probe expression, a
-compatibility predicate over the probe JSON, and `verifyOk` / `removeOk` predicates over the gate's
-`status()`; each surface class declares its instance as `Patch`. The probe captures the webpack
-runtime by pushing an empty chunk and counts factories whose source contains every token in a
-conjunction. Authored source tokens identify the candidate; no literal module id is retained. Every
-probe accepts "absent or already ours" through the markers above.
+The toolkit's `SteamGatePatch` is an id, a gate name, a fingerprint and a subject; each surface
+class declares its instance as `Patch`. Its probe is the injected gate's own `probe()`, the pure
+`find` of the toolkit's `defineGate`, which answers ready, not ready (what it needs is not mounted
+yet, such as Home while Big Picture is closed) or incompatible (a module that moved, a member it
+cannot claim), with the facts it saw. While installed a gate answers from the handles it holds, so a
+holding gate stays compatible with its own next probe; a find that recognises a component by its
+source sees through the gate's own claim. Verification and removal read the gate's standard
+`status()` through one shared predicate each. Authored source tokens identify the candidate; no
+literal module id is retained. A registered page's probe is its `registerSteamPage` components and
+`required` list. WSGM's own gates (controller caps, chord reset, download sort, customization and
+launch actions) answer the same probe shape.
+
+The patch manager treats `Incompatible` as standing for the generation: it is logged once and probed
+again only after a new generation or a switch change. A gate that is `AbsentTarget` is left to the
+periodic health check, which asks every absent gate's probe in one evaluation and synchronizes the
+ones now ready, so Home's carousel installs when Big Picture opens. Every patch counts its own
+retries, and the warning after the last one names each patch with its last failure.
 
 `SteamUiModuleResolver` owns the module boundary for probes, the injected bridge, library tabs and
 download sorting. Its single JavaScript source is embedded for standalone expressions and composed

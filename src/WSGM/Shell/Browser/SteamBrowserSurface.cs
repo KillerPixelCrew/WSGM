@@ -14,8 +14,7 @@ internal static class SteamBrowserSurface
     internal const string GateName = "browser";
 
     internal static ISteamUiPatch Patch { get; } = SteamPagePatch.Create(
-        PatchId, GateName, "wsgm-browser-v3:native-address-editor", "Browser",
-        [SteamPageProbe.React, SteamPageProbe.Focusable, SteamPageProbe.Fields]);
+        PatchId, GateName, "wsgm-browser-v3:native-address-editor", "Browser");
 
     internal static ISteamUiModule Module(Func<bool> enabled)
     {

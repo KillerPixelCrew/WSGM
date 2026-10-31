@@ -14,8 +14,7 @@ internal static class SteamLaunchActionsSurface
     internal static ISteamUiModule Module(Func<bool> enabled, LaunchActionService service)
     {
         return new SteamUiModule(Template,
-            [SteamPagePatch.Create(PatchId, "launchActions", "wsgm-launch-actions-v2:native-submenu", "Launch Actions",
-                [SteamPageProbe.React, SteamPageProbe.Focusable, SteamPageProbe.Fields, SteamPageProbe.Modal, SteamPageProbe.ShowModal])],
+            [SteamPagePatch.Create(PatchId, "launchActions", "wsgm-launch-actions-v2:native-submenu", "Launch Actions")],
             [SteamUiModuleBuilder.Publication(PatchId, enabled, service.ReadStateAsync,
                 LaunchActionsJsonContext.Default.LaunchActionState)],
             [

@@ -37,11 +37,7 @@ internal static class SteamAnimationsSurface
         PatchId,
         GateName,
         "steam-animations-v1:steam-page",
-        "Animations page",
-        [
-            SteamPageProbe.React, SteamPageProbe.Focusable, SteamPageProbe.Fields, SteamPageProbe.Tabs,
-            SteamPageProbe.Modal, SteamPageProbe.ShowModal
-        ]);
+        "Animations page");
 
     /// <summary>Declares the page's state and its exact command vocabulary.</summary>
     /// <param name="enabled">Whether state may be published; patch installation is coordinated separately.</param>

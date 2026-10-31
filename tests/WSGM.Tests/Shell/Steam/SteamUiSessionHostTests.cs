@@ -580,11 +580,10 @@ public sealed class SteamUiSessionHostTests : IDisposable
             {
                 value = "{\"ok\":true}";
             }
-            else if (expression.Contains(
-                         "runtime:!!window.webpackChunksteamui",
-                         StringComparison.Ordinal))
+            else if (expression.Contains("bridge.probe()", StringComparison.Ordinal))
             {
-                value = "{\"ok\":true,\"runtime\":true,\"owned\":false}";
+                // Every gate's probe is its own bridge.probe() answer.
+                value = "{\"ok\":true,\"outcome\":\"ready\"}";
             }
             else if (expression.Contains("wsgmDownloadSort", StringComparison.Ordinal))
             {
@@ -801,11 +800,10 @@ public sealed class SteamUiSessionHostTests : IDisposable
             {
                 value = "{\"ok\":true}";
             }
-            else if (expression.Contains(
-                         "runtime:!!window.webpackChunksteamui",
-                         StringComparison.Ordinal))
+            else if (expression.Contains("bridge.probe()", StringComparison.Ordinal))
             {
-                value = "{\"ok\":true,\"runtime\":true,\"owned\":false}";
+                // Every gate's probe is its own bridge.probe() answer.
+                value = "{\"ok\":true,\"outcome\":\"ready\"}";
             }
             else
             {

@@ -33,11 +33,7 @@ internal static class SteamSoundsSurface
         PatchId,
         GateName,
         "steam-sounds-v1:steam-page",
-        "UI sounds page",
-        [
-            SteamPageProbe.React, SteamPageProbe.Focusable, SteamPageProbe.Fields, SteamPageProbe.Tabs,
-            SteamPageProbe.Modal, SteamPageProbe.ShowModal
-        ]);
+        "UI sounds page");
 
     /// <summary>Declares the page's state and its exact command vocabulary over the session's sound service.</summary>
     /// <param name="enabled">Whether state may be published; patch installation is coordinated separately.</param>

@@ -26,11 +26,6 @@ internal static class SteamCustomizationSurface
         PatchId,
         GateName,
         "customization-hub-v1:use-memo+settings-pages",
-        "(()=>{try{return JSON.stringify({ok:true,runtime:!!window.webpackChunksteamui});}"
-        + "catch(e){return JSON.stringify({ok:false,error:String(e)});}})()",
-        root => SteamUiPatchEvaluation.Flag(root, "ok") && SteamUiPatchEvaluation.Flag(root, "runtime"),
-        "status.installed&&status.registered",
-        "!status.installed&&!status.registered",
         "Customization hub");
 
     /// <summary>Declares the hub's gate.</summary>

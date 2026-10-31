@@ -26,19 +26,15 @@ internal static class SteamWsgmSettingsSurface
 
     /// <summary>Installs the settings renderer and its state subscription.</summary>
     /// <remarks>
-    ///     Every component the toolkit's settings renderer draws with is required, each counted
-    ///     separately, so an incompatible client says which one moved: the page is Steam's own
-    ///     Settings layout or nothing, never an imitation of it.
+    ///     The probe is the page gate's own and requires every component the toolkit's settings
+    ///     renderer draws with, naming the ones missing, so an incompatible client says which one moved:
+    ///     the page is Steam's own Settings layout or nothing, never an imitation of it.
     /// </remarks>
     public static ISteamUiPatch Patch { get; } = SteamPagePatch.Create(
         PatchId,
         GateName,
         "steam-wsgm-settings-v2:steam-page",
-        "WSGM settings",
-        [
-            SteamPageProbe.React, SteamPageProbe.Focusable, SteamPageProbe.Fields, SteamPageProbe.ShowModal,
-            SteamPageProbe.SettingsSidebar, SteamPageProbe.ConfirmModal
-        ]);
+        "WSGM settings");
 
     /// <summary>Declares the page's state and its exact command vocabulary.</summary>
     /// <param name="enabled">Whether state may be published; patch installation is coordinated separately.</param>

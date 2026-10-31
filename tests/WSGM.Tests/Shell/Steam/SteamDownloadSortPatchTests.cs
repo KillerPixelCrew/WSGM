@@ -92,9 +92,9 @@ public sealed class SteamDownloadSortPatchTests
                 Removed = true;
                 value = "{\"ok\":true}";
             }
-            else if (expression.Contains("runtime:!!window.webpackChunksteamui", StringComparison.Ordinal))
+            else if (expression.Contains("bridge.probe()", StringComparison.Ordinal))
             {
-                value = "{\"ok\":true,\"runtime\":true}";
+                value = "{\"ok\":true,\"outcome\":\"ready\"}";
             }
             else
             {

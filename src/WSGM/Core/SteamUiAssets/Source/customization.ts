@@ -457,10 +457,25 @@ const createWsgmCustomization = () => {
     return { ok: true, removed: true };
   };
 
+  // The standard probe answer. It asks only that Steam's modules are loaded, as the C# probe did; the
+  // install's own resolution is what refuses a client without the settings route or fields.
+  const probe = () => {
+    if (installed) return { ok: true, outcome: "ready", installed: true, facts: { runtime: true } };
+    try {
+      getWebpackRuntime("customization-hub");
+    } catch (error) {
+      return { ok: false, outcome: "notReady", reason: `Steam modules unavailable: ${String(error)}` };
+    }
+    return { ok: true, outcome: "ready", facts: { runtime: true } };
+  };
+
   const status = () => ({
     ok: true,
     installed,
     registered: !!react && memoIntercepted(react, MemoName),
+    // The standard status: the memo transform and the publications it subscribed to.
+    held: installed && !!react && memoIntercepted(react, MemoName),
+    claims: (!!react && memoIntercepted(react, MemoName) ? 1 : 0) + unsubscribes.length,
     route,
     sources: Object.fromEntries(
       (Object.keys(Sources) as Source[]).map((source) => [
@@ -472,7 +487,7 @@ const createWsgmCustomization = () => {
     lastError,
   });
 
-  return { install, remove, status };
+  return { install, remove, status, probe };
 };
 
 registerGate("wsgmCustomization", createWsgmCustomization());

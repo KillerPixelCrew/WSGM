@@ -275,8 +275,13 @@ const animationsState = {
 
 // 1. Alone: the hub lands once, in front of Valve's Startup Movie section, and Valve's sections stay.
 const hub = createHub();
+// The probe is the gate's own: ready once Steam's modules load, and it installs nothing.
+assert.equal(hub.probe().outcome, "ready");
+assert.equal(hub.status().claims, 0);
 assert.deepEqual(hub.install(), { ok: true, installed: true });
 assert.equal(hub.status().registered, true);
+assert.equal(hub.status().held, true, "the standard status must show the transform held");
+assert.equal(hub.probe().installed, true, "an installed gate answers from what it holds");
 assert.deepEqual(hub.status().sources, {
   themes: "waiting",
   sounds: "waiting",
@@ -375,6 +380,7 @@ assert.deepEqual(
 
 // 3. Removal hands Steam's page back whole; reinstalling (a CEF reload) draws one hub again.
 assert.deepEqual(hub.remove(), { ok: true, removed: true });
+assert.equal(hub.status().claims, 0, "removal must leave nothing held");
 assert.equal(react.useMemo, originalUseMemo, "the last transform hands useMemo back");
 tree = renderCustomization();
 assert.deepEqual(order(tree), [

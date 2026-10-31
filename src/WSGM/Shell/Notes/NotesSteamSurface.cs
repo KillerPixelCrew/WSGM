@@ -38,11 +38,7 @@ internal static class NotesSteamSurface
 
     /// <summary>Installs the page renderer and its state subscription.</summary>
     internal static ISteamUiPatch Patch { get; } = SteamPagePatch.Create(
-        PatchId, GateName, "notes-v1:steam-page", "Notes",
-        [
-            SteamPageProbe.React, SteamPageProbe.Focusable, SteamPageProbe.Fields, SteamPageProbe.Modal,
-            SteamPageProbe.ShowModal
-        ]);
+        PatchId, GateName, "notes-v1:steam-page", "Notes");
 
     /// <summary>Declares the page's state and its exact command vocabulary.</summary>
     /// <param name="enabled">Whether state may be published: the host's pages on.</param>

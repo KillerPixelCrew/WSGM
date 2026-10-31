@@ -34,20 +34,11 @@ internal static class SteamControllerCapsSurface
     internal const ulong CapacitiveStickBit = 1UL << 24;
 
     /// <summary>The gate: installed with the host Steam UI; the state says what, if anything, to clear.</summary>
+    /// <remarks>Its probe is the gate's own: the controller-list service module must match exactly once.</remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
         "wsgmControllerCaps",
         "wsgm-controller-caps-v1:steaminputmanager-getcontrollerlist",
-        $$"""
-          {{SteamUiProbeJs.Preamble("steam_ui_controller_caps_probe_")}}
-            return JSON.stringify({
-              service:count(["SteamInputManager.GetControllerList#1","GetControllerListHandler"])
-            });
-          {{SteamUiProbeJs.Close}}
-          """,
-        root => SteamUiPatchEvaluation.IsOne(root, "service"),
-        "status.installed&&status.hooked&&status.subscribed",
-        "!status.installed&&!status.hooked",
         "Controller capability hook");
 
     /// <summary>Declares the hook and its state.</summary>

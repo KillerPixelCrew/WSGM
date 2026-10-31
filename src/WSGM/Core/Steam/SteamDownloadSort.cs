@@ -31,11 +31,6 @@ internal static class SteamDownloadSort
         PatchId,
         "wsgmDownloadSort",
         "download-sort-v1:jsx-runtime+focusable+queue-header",
-        "(()=>{try{return JSON.stringify({ok:true,runtime:!!window.webpackChunksteamui});}"
-        + "catch(e){return JSON.stringify({ok:false,error:String(e)});}})()",
-        root => SteamUiPatchEvaluation.Flag(root, "ok") && SteamUiPatchEvaluation.Flag(root, "runtime"),
-        "status.installed&&status.registered",
-        "!status.installed&&!status.registered",
         "Download queue sort");
 
     /// <summary>Declares the sort gate and the one report it sends back.</summary>

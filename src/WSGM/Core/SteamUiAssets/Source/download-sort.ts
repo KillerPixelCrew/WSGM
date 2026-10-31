@@ -341,15 +341,33 @@ function createWsgmDownloadSort() {
     return { ok: true, removed: true };
   };
 
-  const status = () => ({
-    ok: true,
-    installed,
-    registered: !!runtime && elementsIntercepted(runtime, transformName),
-    sorting: state.busy,
-    lastError,
-  });
+  // The standard probe answer. It asks only that Steam's modules are loaded, as the C# probe did; the
+  // install's own scan is what refuses a client without the queue header.
+  const probe = () => {
+    if (installed) return { ok: true, outcome: "ready", installed: true, facts: { runtime: true } };
+    try {
+      modules();
+    } catch (error) {
+      return { ok: false, outcome: "notReady", reason: `Steam modules unavailable: ${String(error)}` };
+    }
+    return { ok: true, outcome: "ready", facts: { runtime: true } };
+  };
 
-  return { install, remove, status, applySort };
+  const status = () => {
+    const registered = !!runtime && elementsIntercepted(runtime, transformName);
+    return {
+      ok: true,
+      installed,
+      registered,
+      // The standard status: the element transform is all this gate holds.
+      held: installed && registered,
+      claims: registered ? 1 : 0,
+      sorting: state.busy,
+      lastError,
+    };
+  };
+
+  return { install, remove, status, probe, applySort };
 }
 
 registerGate("wsgmDownloadSort", createWsgmDownloadSort());

@@ -31,11 +31,7 @@ internal static class SteamCardManagerSurface
 
     /// <summary>Installs the page renderer and its state subscription.</summary>
     internal static ISteamUiPatch Patch { get; } = SteamPagePatch.Create(
-        PatchId, GateName, "card-manager-v1:steam-page", "SD Card Manager",
-        [
-            SteamPageProbe.React, SteamPageProbe.Focusable, SteamPageProbe.Fields, SteamPageProbe.Modal,
-            SteamPageProbe.ShowModal
-        ]);
+        PatchId, GateName, "card-manager-v1:steam-page", "SD Card Manager");
 
     /// <summary>Declares the page's state and its exact command vocabulary.</summary>
     /// <param name="enabled">Whether state may be published: the host's pages on and the card manager switch on.</param>

@@ -29,20 +29,11 @@ internal static class SteamChordResetSurface
     public static IReadOnlyList<string> Commands { get; } = ["reset"];
 
     /// <summary>The gate: installed while the mirror feature is on, whatever the mirror's state.</summary>
+    /// <remarks>Its probe is the gate's own: <c>SteamClient.Input.SetSelectedConfigForApp</c> must exist.</remarks>
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
         "wsgmChordReset",
         "wsgm-chord-reset-v1:steamclient-input-selection",
-        $$"""
-          {{SteamUiProbeJs.Preamble("steam_ui_chord_reset_probe_")}}
-            return JSON.stringify({
-              input:typeof SteamClient?.Input?.SetSelectedConfigForApp==='function'
-            });
-          {{SteamUiProbeJs.Close}}
-          """,
-        root => SteamUiPatchEvaluation.Flag(root, "input"),
-        "status.installed&&status.hooked&&status.subscribed",
-        "!status.installed&&!status.hooked",
         "Guide chord reset hook");
 
     /// <summary>Declares the hook's state and its one command.</summary>

@@ -32,11 +32,7 @@ internal static class SteamLibraryTabsSurface
 
     /// <summary>Installs the page renderer and its state subscription.</summary>
     internal static ISteamUiPatch Patch { get; } = SteamPagePatch.Create(
-        PatchId, GateName, "library-tab-manager-v1:steam-page", "Library Tab Manager",
-        [
-            SteamPageProbe.React, SteamPageProbe.Focusable, SteamPageProbe.Fields, SteamPageProbe.Modal,
-            SteamPageProbe.ShowModal
-        ]);
+        PatchId, GateName, "library-tab-manager-v1:steam-page", "Library Tab Manager");
 
     /// <summary>Declares the page's state and its exact command vocabulary.</summary>
     /// <param name="enabled">Whether state may be published: the host's pages on and the library tabs switch on.</param>
