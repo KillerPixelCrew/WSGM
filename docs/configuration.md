@@ -117,11 +117,11 @@ diagnosing a startup preference that did not take effect at sign-in.
 
 ## Live reload
 
-[`ShellSession.Config`](../src/WSGM/Shell/ShellSession.Config.cs) owns the `FileSystemWatcher` and
-debounce timer for `config.json`. Changed/renamed events advance a generation and schedule one 500
-ms debounce. A worker reads the file; only a valid result is posted to the Avalonia dispatcher. Both
-before reading and immediately before applying, the session rejects a disposed owner or stale
-generation. A failed read keeps the currently running configuration.
+[`ConfigReloadWatcher`](../src/WSGM/Shell/Session/ConfigReloadWatcher.cs) owns the
+`FileSystemWatcher` and debounce timer for `config.json`. Changed/renamed events advance a
+generation and schedule one 500 ms debounce. A worker reads the file; only a valid result is posted
+to the Avalonia dispatcher. Both before reading and immediately before applying, the session rejects
+a disposed owner or stale generation. A failed read keeps the currently running configuration.
 
 `ApplyReloadedConfig` replaces `_config` and invokes existing owners in a defined sequence. It
 updates logging, profiles, device/common plugins, performance, the CEF gate and surfaces, Steam

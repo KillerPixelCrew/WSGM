@@ -259,8 +259,8 @@ medium-integrity Steam.
 
 Every cold start goes through one `Steam.ColdStart`, whether it asks for Big Picture
 (`LaunchBigPicture`, from game mode and the auto-relaunch) or the windowed client (`LaunchDesktop`,
-from a Desktop session's `SessionModes.EnsureSteamDesktop`), so the shim reconcile, the debug port
-and the integrity choice cannot apply to one and not the other. Every launch logs
+from a Desktop session's `SteamLifecycle.EnsureDesktop`), so the shim reconcile, the debug port and
+the integrity choice cannot apply to one and not the other. Every launch logs
 `Steam launch integrity: …`, including the case where de-elevation was requested but unavailable, so
 a pasted log settles which one happened. The scheduled-task route returns no process handle, so the
 Steam Input shim startup-trace line is only logged on the integrity-matched path that has one.

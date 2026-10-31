@@ -89,7 +89,7 @@ public sealed class SessionModesTests
                 return true;
             });
 
-        modes.EnsureSteamDesktop();
+        modes.SteamLifecycle.EnsureDesktop();
         var current = new AppConfig
         {
             SteamInputManagementEnabled = false,
@@ -97,7 +97,7 @@ public sealed class SessionModesTests
         };
         current.Cef.Enabled = true;
         modes.ApplyConfig(current);
-        modes.EnsureSteamDesktop();
+        modes.SteamLifecycle.EnsureDesktop();
 
         Assert.Equal([(true, false, false), (false, true, true)], launches);
     }
@@ -115,7 +115,7 @@ public sealed class SessionModesTests
                 return true;
             });
 
-        modes.EnsureSteamDesktop();
+        modes.SteamLifecycle.EnsureDesktop();
 
         Assert.Equal(0, launches);
     }
@@ -129,6 +129,6 @@ public sealed class SessionModesTests
             (_, _, _) => throw new InvalidOperationException("Shutdown must refuse the launch."));
         modes.RequestShutdown();
 
-        modes.EnsureSteamDesktop();
+        modes.SteamLifecycle.EnsureDesktop();
     }
 }

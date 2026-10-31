@@ -138,7 +138,7 @@ toolkit elements, styling and completion checks for both surfaces.
 
 ## Steam attachment and frontend code
 
-[`ShellSession.SteamUi.cs`](../src/WSGM/Shell/ShellSession.SteamUi.cs) owns the product gate:
+[`SteamUiServices`](../src/WSGM/Shell/Session/SteamUiServices.cs) owns the product gate:
 
 ```text
 master && holds ⊆ {BigPictureRequest} && ((!inGameMode && holds == ∅) || bigPictureReady)
@@ -193,13 +193,13 @@ logging and allocation. Diagnostics record decisions and transitions instead; se
 [logging](logging.md).
 
 [`ApplicationRuntime`](../src/WSGM/Core/ApplicationShutdown.cs) and
-[`ShellSession.Shutdown`](../src/WSGM/Shell/ShellSession.Shutdown.cs) converge normal exit, update,
-uninstall, startup failure and OS session end on one shutdown operation. The sequence first rejects
-new work, closes command/profile/import admission, cancels watchers and mode transitions, and
-disposes the overlay. It joins startup and in-flight owners before tearing down their dependencies,
-releases controller/HidHide ownership, stops integrations and restores desktop state where the exit
-reason requires it. Individual cleanup failures are collected so they cannot skip later cleanup. An
-OS session end prevents a competing Explorer restart. This is ordered restoration of WSGM's own
+[`ShellSession`](../src/WSGM/Shell/Session/ShellSession.cs) converge normal exit, update, uninstall,
+startup failure and OS session end on one shutdown operation. The sequence first rejects new work,
+closes command/profile/import admission, cancels watchers and mode transitions, and disposes the
+overlay. It joins startup and in-flight owners before tearing down their dependencies, releases
+controller/HidHide ownership, stops integrations and restores desktop state where the exit reason
+requires it. Individual cleanup failures are collected so they cannot skip later cleanup. An OS
+session end prevents a competing Explorer restart. This is ordered restoration of WSGM's own
 changes, not a promise that an unavailable device or Windows call can always be reversed.
 
 `ApplicationShutdownCoordinator.BudgetFor` allows 15 seconds for normal exit or startup failure, 10

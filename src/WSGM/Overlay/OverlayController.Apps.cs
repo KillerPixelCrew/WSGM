@@ -64,7 +64,7 @@ public sealed partial class OverlayController
 
             if (entry.IsSteam)
             {
-                _modes.FocusSteam();
+                _modes.SteamLifecycle.Focus();
             }
             else if (GameReturn is { } gameReturn)
             {

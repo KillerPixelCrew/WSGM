@@ -344,10 +344,10 @@ draws, so that step remains attended.
 
 RTSS is what makes AutoTDP possible: the frametime reader above supplies the windows the controller
 judges. The deadline is AutoTDP's own per-game target, so no frame limit is needed. An active frame
-limit below the target lowers the deadline to the limit, because a capped game cannot reach a
-higher target; an active limit is the readback, or the value WSGM wrote until the next poll reads
-it, and a desired cap alone is not one. The controller, the service that admits it and the trace it
-records are in [AutoTDP](autotdp-controller.md).
+limit below the target lowers the deadline to the limit, because a capped game cannot reach a higher
+target; an active limit is the readback, or the value WSGM wrote until the next poll reads it, and a
+desired cap alone is not one. The controller, the service that admits it and the trace it records
+are in [AutoTDP](autotdp-controller.md).
 
 ## Remaining live work
 
@@ -369,7 +369,7 @@ records are in [AutoTDP](autotdp-controller.md).
 | Shared-memory frametime snapshots                  | [RtssFrametimeReader](../src/WSGM/Core/RtssFrametimeReader.cs)                            |
 | Performance overlay composition                    | [RtssOsd](../src/WSGM/Core/RtssOsd.cs)                                                    |
 | Application/profile reconciliation                 | [ApplicationPerformanceReconciler](../src/WSGM/Shell/ApplicationPerformanceReconciler.cs) |
-| Session construction and disposal                  | [ShellSession.Performance](../src/WSGM/Shell/ShellSession.Performance.cs)                 |
+| Session construction and disposal                  | [PerformanceServices](../src/WSGM/Shell/Session/PerformanceServices.cs)                   |
 
 RTSS observations feed both performance presentation and AutoTDP. Their readback can update
 effective state and diagnose an external edit, but cannot become a new saved preference.

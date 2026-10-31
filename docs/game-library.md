@@ -125,9 +125,9 @@ sources ──detect/discover──▶ games ──plan──▶ entries ──c
 
 ## From a command to a published review
 
-`ShellSession` composes `GameLibraryService` with the source list, configuration and import-state
+`LibraryServices` composes `GameLibraryService` with the source list, configuration and import-state
 stores, toolkit-backed shortcut delegates, artwork providers and controller-profile writer.
-`ShellSession.GameLibrary.cs` distinguishes an unreadable whole library from an empty one and maps a
+`GameLibraryService` distinguishes an unreadable whole library from an empty one and maps a
 sent-but-unconfirmed add to an uncertain result. Such an add is not repeated automatically.
 
 `ScanAsync` starts a generation with its own cancellation token. Discovery and the whole-library

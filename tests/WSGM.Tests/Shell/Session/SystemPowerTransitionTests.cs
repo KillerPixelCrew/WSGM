@@ -25,7 +25,7 @@ public sealed class SystemPowerTransitionTests
     {
         var gap = TimeSpan.FromMilliseconds(gapMs);
 
-        Assert.True(ShellSession.IsStaleSuspend(gap, gap));
+        Assert.True(SessionPowerEvents.IsStaleSuspend(gap, gap));
     }
 
     [Theory]
@@ -36,7 +36,7 @@ public sealed class SystemPowerTransitionTests
     {
         var gap = TimeSpan.FromMilliseconds(gapMs);
 
-        Assert.False(ShellSession.IsStaleSuspend(gap, gap));
+        Assert.False(SessionPowerEvents.IsStaleSuspend(gap, gap));
     }
 
     [Fact]
@@ -44,8 +44,8 @@ public sealed class SystemPowerTransitionTests
     {
         // A hibernation resume adjusts the performance counter, and an adjustment landing between the
         // resume and the suspend made a 630 ms gap measure as half an hour on the monotonic clock.
-        Assert.True(ShellSession.IsStaleSuspend(Hour, TimeSpan.FromMilliseconds(630)));
-        Assert.True(ShellSession.IsStaleSuspend(TimeSpan.FromMilliseconds(630), Hour));
+        Assert.True(SessionPowerEvents.IsStaleSuspend(Hour, TimeSpan.FromMilliseconds(630)));
+        Assert.True(SessionPowerEvents.IsStaleSuspend(TimeSpan.FromMilliseconds(630), Hour));
     }
 
     [Fact]
@@ -53,10 +53,10 @@ public sealed class SystemPowerTransitionTests
     {
         // Windows rewrites the system time on a hibernation resume, so the wall clock can run
         // backwards across it. A negative gap is no evidence either way; the other clock decides.
-        Assert.True(ShellSession.IsStaleSuspend(
+        Assert.True(SessionPowerEvents.IsStaleSuspend(
             TimeSpan.FromMilliseconds(300),
             TimeSpan.FromMilliseconds(-5000)));
-        Assert.False(ShellSession.IsStaleSuspend(
+        Assert.False(SessionPowerEvents.IsStaleSuspend(
             TimeSpan.FromMilliseconds(-5000),
             TimeSpan.FromMilliseconds(-5000)));
     }
@@ -64,6 +64,6 @@ public sealed class SystemPowerTransitionTests
     [Fact]
     public void ASessionThatNeverResumedTreatsItsFirstSuspendAsReal()
     {
-        Assert.False(ShellSession.IsStaleSuspend(Hour, Hour));
+        Assert.False(SessionPowerEvents.IsStaleSuspend(Hour, Hour));
     }
 }

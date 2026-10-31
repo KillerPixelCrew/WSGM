@@ -62,7 +62,7 @@ public sealed class DeviceIntegrationOffTests
             AutoTdpEnabled = autoTdpEnabled
         };
 
-        Assert.Equal(expected, ShellSession.ShouldRunAutoTdp(config));
+        Assert.Equal(expected, IntegrationServices.ShouldRunAutoTdp(config));
     }
 
     [Fact]

@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using WSGM.Shell;
 
 namespace WSGM.Tests.Shell;
@@ -8,17 +7,17 @@ public sealed class SessionShutdownTests
     [Fact]
     public void AThrowingAdmissionClosureCannotSkipLaterOwnerClosuresOrSafetyCleanup()
     {
-        var failures = new ConcurrentQueue<Exception>();
+        var steps = new ShutdownSteps(CancellationToken.None, static () => DateTimeOffset.MaxValue);
         var failedClosure = new InvalidOperationException("device admission failed");
         List<string> completed = [];
 
-        ShellSession.Step(failures, "device admission", () => throw failedClosure);
-        ShellSession.Step(failures, "common admission", () => completed.Add("common admission"));
-        ShellSession.Step(failures, "graphics admission", () => completed.Add("graphics admission"));
-        ShellSession.Step(failures, "controller safety", () => completed.Add("controller safety"));
+        steps.Step("device admission", () => throw failedClosure);
+        steps.Step("common admission", () => completed.Add("common admission"));
+        steps.Step("graphics admission", () => completed.Add("graphics admission"));
+        steps.Step("controller safety", () => completed.Add("controller safety"));
 
         Assert.Equal(["common admission", "graphics admission", "controller safety"], completed);
-        Assert.Same(failedClosure, Assert.Single(failures));
+        Assert.Same(failedClosure, Assert.Single(steps.Failures));
     }
 
     [Fact]
@@ -26,7 +25,7 @@ public sealed class SessionShutdownTests
     {
         using var deadline = new CancellationTokenSource();
         var owner = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var joining = ShellSession.JoinWithinDeadlineAsync(owner.Task, deadline.Token, "device power transition");
+        var joining = ShutdownSteps.JoinWithinDeadlineAsync(owner.Task, deadline.Token, "device power transition");
 
         Assert.False(joining.IsCompleted);
         deadline.Cancel();
@@ -44,7 +43,7 @@ public sealed class SessionShutdownTests
         using var deadline = new CancellationTokenSource();
         deadline.Cancel();
 
-        await ShellSession.JoinWithinDeadlineAsync(Task.CompletedTask, deadline.Token, "controller safety");
+        await ShutdownSteps.JoinWithinDeadlineAsync(Task.CompletedTask, deadline.Token, "controller safety");
     }
 
     [Fact]
@@ -55,7 +54,7 @@ public sealed class SessionShutdownTests
         var failure = new InvalidOperationException("controller release failed");
 
         var reported = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            ShellSession.JoinWithinDeadlineAsync(Task.FromException(failure), deadline.Token, "controller safety"));
+            ShutdownSteps.JoinWithinDeadlineAsync(Task.FromException(failure), deadline.Token, "controller safety"));
 
         Assert.Same(failure, reported);
     }
@@ -67,7 +66,7 @@ public sealed class SessionShutdownTests
         using var ownerCancellation = new CancellationTokenSource();
         ownerCancellation.Cancel();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ShellSession.JoinWithinDeadlineAsync(
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ShutdownSteps.JoinWithinDeadlineAsync(
             Task.FromCanceled(ownerCancellation.Token), deadline.Token, "startup"));
     }
 }

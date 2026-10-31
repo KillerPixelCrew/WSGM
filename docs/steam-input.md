@@ -164,7 +164,7 @@ process.
 ## Steam surfaces from OEM buttons
 
 The OEM Quick Access and Overlay actions never hand the physical controller to Steam.
-`ShellSession.ToggleSteamSurfaceAsync` presses Steam's own button on the virtual pad while
+`SessionCommands.ToggleSteamSurfaceAsync` presses Steam's own button on the virtual pad while
 controller management is Active (`ControllerManager.PressSteamButtonAsync`): Guide for the Steam
 menu, and for Quick Access the Quick Access button on the Steam Deck target or Guide + A on the
 others. The press is held for 200 ms and then released, also when the action is cancelled, and Steam

@@ -153,7 +153,7 @@ public sealed class AutoTdpControllerTests
             Assert.Equal("at-maximum", decision.Reason);
             Assert.False(decision.RequiresWrite);
         });
-        Assert.Equal("Can't Reach", ShellSession.AutoTdpActivity(true, Status(decisions[^1])));
+        Assert.Equal("Can't Reach", PerformanceServices.AutoTdpActivity(true, Status(decisions[^1])));
         Assert.Equal("on-target", Run(controller, 1, Tight)[^1].Reason);
     }
 

@@ -14,7 +14,7 @@ public sealed class ShellStartupTests
         var options = StartupOptions.Parse(arguments);
 
         Assert.Equal(RunMode.Shell, options.Mode);
-        Assert.True(ShellSession.StartsOnDesktop(SessionStartMode.Desktop, options.DesktopResident));
+        Assert.True(SessionBoot.StartsOnDesktop(SessionStartMode.Desktop, options.DesktopResident));
     }
 
     [Fact]
@@ -23,7 +23,7 @@ public sealed class ShellStartupTests
         var options = StartupOptions.Parse(["--boot"]);
 
         Assert.True(options.ServiceBoot);
-        Assert.False(ShellSession.StartsOnDesktop(SessionStartMode.Game, options.DesktopResident));
+        Assert.False(SessionBoot.StartsOnDesktop(SessionStartMode.Game, options.DesktopResident));
     }
 
     [Theory]
@@ -34,6 +34,6 @@ public sealed class ShellStartupTests
     public void CurrentDesktopPreferenceCannotBeBypassedByMissingOrStaleLaunchModifiers(
         SessionStartMode configuredMode, bool desktopResident, bool expected)
     {
-        Assert.Equal(expected, ShellSession.StartsOnDesktop(configuredMode, desktopResident));
+        Assert.Equal(expected, SessionBoot.StartsOnDesktop(configuredMode, desktopResident));
     }
 }

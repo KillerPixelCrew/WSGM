@@ -342,13 +342,13 @@ public sealed class RtssOsdAutoTdpActivityTests
             detail,
             (AutoTdpAction)action);
 
-        Assert.Equal(expected, ShellSession.AutoTdpActivity(true, status));
+        Assert.Equal(expected, PerformanceServices.AutoTdpActivity(true, status));
     }
 
     [Fact]
     public void DisabledState_HasNoActivity()
     {
-        Assert.Equal(string.Empty, ShellSession.AutoTdpActivity(false, null));
+        Assert.Equal(string.Empty, PerformanceServices.AutoTdpActivity(false, null));
     }
 
     [Theory]

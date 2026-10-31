@@ -73,14 +73,14 @@ Settings restores the chosen mode.
 host, hand recovery to the verified shell anchor when one exists, otherwise start Explorer if none
 is running. The logon service's watchdog is the robust outer layer.
 
-Shell mode also watches `config.json` (`ShellSession.Config.cs`, FileSystemWatcher, 500 ms
-debounce). The read runs on a worker because it takes the cross-process configuration lock. A failed
-or unreadable reload retains the running configuration. A generation check rejects an older read
-both before reading and before applying on the UI thread. `ApplyReloadedConfig` replaces the
-session's configuration and fans it out to profiles, device integration, performance, Steam
-surfaces, media, session modes, the overlay, startup apps and keep-awake. Each apply step catches
-and logs its own failure so later owners still receive the update. Runtime state lives on those
-owners, never in the replaceable config object.
+Shell mode also watches `config.json` (`ConfigReloadWatcher`, FileSystemWatcher, 500 ms debounce).
+The read runs on a worker because it takes the cross-process configuration lock. A failed or
+unreadable reload retains the running configuration. A generation check rejects an older read both
+before reading and before applying on the UI thread. `ApplyReloadedConfig` replaces the session's
+configuration and fans it out to profiles, device integration, performance, Steam surfaces, media,
+session modes, the overlay, startup apps and keep-awake. Each apply step catches and logs its own
+failure so later owners still receive the update. Runtime state lives on those owners, never in the
+replaceable config object.
 
 ## Startup and lifetime source map
 
@@ -88,20 +88,20 @@ The process entry point owns ordering. Avalonia composes a session only after th
 maintenance commands, installation checks, elevation decision and shell-instance admission have
 finished.
 
-| Source                                                                                                                                                                                                              | Responsibility                                                                                                                        |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| [`Program.cs`](../src/WSGM/Program.cs) and [`StartupOptions.cs`](../src/WSGM/StartupOptions.cs)                                                                                                                     | STA entry point, early recovery commands, one-shot precedence, activation handoff, shell mutex, crash-loop breaker and panic recovery |
-| [`App.axaml.cs`](../src/WSGM/App.axaml.cs)                                                                                                                                                                          | Settings or resident-session composition, startup failure observation and Avalonia lifetime handoff                                   |
-| [`ApplicationShutdown.cs`](../src/WSGM/Core/ApplicationShutdown.cs)                                                                                                                                                 | One process-owned exit attempt, shutdown reasons, shared absolute deadline and final exit code                                        |
-| [`ShellSession.cs`](../src/WSGM/Shell/ShellSession.cs) and its partial files                                                                                                                                        | Session resources, startup, config propagation, Steam UI, library, power, performance, modes and ordered retirement                   |
-| [`BootManifestWriter.cs`](../src/WSGM/Core/BootManifestWriter.cs) and [`Shared/Boot`](../src/Shared/Boot)                                                                                                           | Projection of sign-in preferences and the shared manifest reader/writer                                                               |
-| [`WSGM.LogonService`](../src/WSGM.LogonService)                                                                                                                                                                     | SCM entry point and installation, session admission, user-token launch and one-shot desktop watchdog                                  |
-| [`ExplorerShellAnchor.cs`](../src/WSGM/Core/ExplorerShellAnchor.cs) and [`ExplorerControl.cs`](../src/WSGM/Core/ExplorerControl.cs)                                                                                 | Verified Explorer owner, anchor process/pipe, exit, restoration and recovery observation                                              |
-| [`SessionModes.cs`](../src/WSGM/Shell/SessionModes.cs), [`GameModeEntryTransaction.cs`](../src/WSGM/Shell/GameModeEntryTransaction.cs) and [`DesktopReturnSequence.cs`](../src/WSGM/Shell/DesktopReturnSequence.cs) | Serialized entry and return, compensation, Steam start and desktop readiness                                                          |
-| [`GameModeReturnRecovery.cs`](../src/WSGM/Shell/GameModeReturnRecovery.cs)                                                                                                                                          | Durable layout/audio return snapshot recovery and admission of a later entry                                                          |
-| [`BootSplash.cs`](../src/WSGM/Shell/BootSplash.cs), [`BootSplashWindow.axaml.cs`](../src/WSGM/Shell/BootSplashWindow.axaml.cs) and [`InputDesktop.cs`](../src/WSGM/Core/InputDesktop.cs)                            | Input-desktop barrier, startup cover, cancellation, detection arming and fade                                                         |
-| [`SteamMonitor.cs`](../src/WSGM/Shell/SteamMonitor.cs) and [`SteamExitPolicy.cs`](../src/WSGM/Shell/SteamExitPolicy.cs)                                                                                             | Steam presence observation and mode-dependent exit behavior                                                                           |
-| [`SessionProtocolNames.cs`](../src/Shared/Process/SessionProtocolNames.cs) and [`UpdateExitWatcher.cs`](../src/WSGM/Core/UpdateExitWatcher.cs)                                                                      | Stable cross-process names and setup/recovery exit handoffs                                                                           |
+| Source                                                                                                                                                                                                                                                                                                     | Responsibility                                                                                                                                                                                                                                                                                            |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`Program.cs`](../src/WSGM/Program.cs) and [`StartupOptions.cs`](../src/WSGM/StartupOptions.cs)                                                                                                                                                                                                            | STA entry point, early recovery commands, one-shot precedence, activation handoff, shell mutex, crash-loop breaker and panic recovery                                                                                                                                                                     |
+| [`App.axaml.cs`](../src/WSGM/App.axaml.cs)                                                                                                                                                                                                                                                                 | Settings or resident-session composition, startup failure observation and Avalonia lifetime handoff                                                                                                                                                                                                       |
+| [`ApplicationShutdown.cs`](../src/WSGM/Core/ApplicationShutdown.cs)                                                                                                                                                                                                                                        | One process-owned exit attempt, shutdown reasons, shared absolute deadline and final exit code                                                                                                                                                                                                            |
+| [`ShellSession.cs`](../src/WSGM/Shell/Session/ShellSession.cs) and the parts it composes                                                                                                                                                                                                                   | Startup order, cross-part wiring, config propagation and ordered retirement; `IntegrationServices`, `PerformanceServices`, `SteamUiServices`, `StorageServices`, `LibraryServices`, `SystemServices`, `OverlayTools`, `SessionBoot` and `GameModeSurfaces` own their services and their slice of shutdown |
+| [`BootManifestWriter.cs`](../src/WSGM/Core/BootManifestWriter.cs) and [`Shared/Boot`](../src/Shared/Boot)                                                                                                                                                                                                  | Projection of sign-in preferences and the shared manifest reader/writer                                                                                                                                                                                                                                   |
+| [`WSGM.LogonService`](../src/WSGM.LogonService)                                                                                                                                                                                                                                                            | SCM entry point and installation, session admission, user-token launch and one-shot desktop watchdog                                                                                                                                                                                                      |
+| [`ExplorerShellAnchor.cs`](../src/WSGM/Core/ExplorerShellAnchor.cs) and [`ExplorerControl.cs`](../src/WSGM/Core/ExplorerControl.cs)                                                                                                                                                                        | Verified Explorer owner, anchor process/pipe, exit, restoration and recovery observation                                                                                                                                                                                                                  |
+| [`SessionModes.cs`](../src/WSGM/Shell/Session/SessionModes.cs) with its `SteamLifecycle`, `GameModeEntry` and `DesktopReturn`, [`GameModeEntryTransaction.cs`](../src/WSGM/Shell/Desktop/GameModeEntryTransaction.cs) and [`DesktopReturnSequence.cs`](../src/WSGM/Shell/Desktop/DesktopReturnSequence.cs) | Serialized entry and return, compensation, Steam start and desktop readiness                                                                                                                                                                                                                              |
+| [`GameModeReturnRecovery.cs`](../src/WSGM/Shell/GameModeReturnRecovery.cs)                                                                                                                                                                                                                                 | Durable layout/audio return snapshot recovery and admission of a later entry                                                                                                                                                                                                                              |
+| [`BootSplash.cs`](../src/WSGM/Shell/BootSplash.cs), [`BootSplashWindow.axaml.cs`](../src/WSGM/Shell/BootSplashWindow.axaml.cs) and [`InputDesktop.cs`](../src/WSGM/Core/InputDesktop.cs)                                                                                                                   | Input-desktop barrier, startup cover, cancellation, detection arming and fade                                                                                                                                                                                                                             |
+| [`SteamMonitor.cs`](../src/WSGM/Shell/SteamMonitor.cs) and [`SteamExitPolicy.cs`](../src/WSGM/Shell/SteamExitPolicy.cs)                                                                                                                                                                                    | Steam presence observation and mode-dependent exit behavior                                                                                                                                                                                                                                               |
+| [`SessionProtocolNames.cs`](../src/Shared/Process/SessionProtocolNames.cs) and [`UpdateExitWatcher.cs`](../src/WSGM/Core/UpdateExitWatcher.cs)                                                                                                                                                             | Stable cross-process names and setup/recovery exit handoffs                                                                                                                                                                                                                                               |
 
 The early branch order is anchor process mode, `--desktop-shell-probe`, `--restore-shell`, then
 `--unregister-shell`. None initializes logging or Avalonia. The probe returns 0 only for an actual
@@ -147,7 +147,7 @@ appear. Gating that takeover on "is Explorer running" at start once left Explore
 Picture, next to WSGM's tray host. A current Desktop preference instead takes the verified Desktop
 startup path even when a stale boot manifest supplied `--boot`.
 
-The takeover (`ShellSession.StartBootTakeover`) runs in this order:
+The takeover (`SessionBoot.CoverForTakeover` and `SessionBoot.RunTakeover`) runs in this order:
 
 1. Show the splash, so it covers the booting desktop. Session start shows it right after the pending
    desktop-recovery check, before plugins, device integration and the overlay are built, so
@@ -172,7 +172,7 @@ The takeover (`ShellSession.StartBootTakeover`) runs in this order:
    first; the rest start staggered, optionally elevated.
 6. Start Steam, strictly after Explorer is gone.
 
-The splash's "Switch to desktop" button is a recovery owned by `ShellSession`. During steps 2 and 3
+The splash's "Switch to desktop" button is a recovery owned by `SessionBoot`. During steps 2 and 3
 it cancels those waits. Once Explorer's orderly exit has been requested it cannot be undone, so the
 button skips every game-mode side effect and completes an ordinary desktop transition, which starts
 Explorer again. It does not go through the `SessionModes` transition gate the takeover already
@@ -381,10 +381,11 @@ reference Claw. Unattended tests must not start or stop the live shell.
 
 ## Desktop and game transitions
 
-`Shell\SessionModes` owns both transitions and the shared Steam start-plus-warning flow; the
-`ShellSession` boot and the overlay's buttons both call it. `OverlayController` stays the UI owner
-and surfaces `SessionModes.SteamStartFailed`. `TransitionInProgress` serializes transitions, and the
-overlay ignores mode clicks while one runs.
+`Shell\SessionModes` owns both transitions. Its `SteamLifecycle` owns the shared Steam
+start-plus-warning flow, its `GameModeEntry` the entry attempts and its `DesktopReturn` the return.
+The `ShellSession` boot and the overlay's buttons both call it. `OverlayController` stays the UI
+owner and surfaces `SessionModes.SteamStartFailed`. `TransitionInProgress` serializes transitions,
+and the overlay ignores mode clicks while one runs.
 
 Warnings from Steam recovery workers are posted to the UI thread; UI-thread warnings remain
 synchronous. Shutdown suppresses both queued and new warnings, so a late failure cannot reopen the
@@ -407,7 +408,7 @@ Steam is driven with protocol URLs, which are UIPI-proof:
 
 `Shell\SteamMonitor` polls `steam;steamwebhelper` every 5 s. Its `Paused` flag means a transition is
 in flight, so nothing reacts to Steam while the session owns it. A deliberate "Close Steam" sets
-`SessionModes.SteamClosedByUser` instead, because a desktop session watches Steam continuously and
+`SteamLifecycle.ClosedByUser` instead, because a desktop session watches Steam continuously and
 would otherwise start it straight back up; any request that wants Steam running again clears it.
 
 `Shell\SteamExitPolicy` decides what an observed exit means. Game mode needs Steam on screen, so it
@@ -480,7 +481,7 @@ The entry order, the display wait that has no deadline, and what compensation ru
 A cold-starting Steam that meets WSGM's patches never creates its window. So the transport stays
 closed in game mode until the process-owned Big Picture window exists, and a transition that
 requests Big Picture first retracts WSGM's injected UI state
-(`ShellSession.PrepareSteamUiForBigPictureAsync`, bounded to 5 s) before it sends
+(`SteamUiServices.PrepareForBigPictureAsync`, bounded to 5 s) before it sends
 `steam://open/bigpicture`. Automatic boot CEF mutations wait for the window too; card detection
 starts immediately and defers only the live Steam change. The evidence, the healthy log shape and
 the gate itself are in [the Steam CEF system](steam-cef-system.md#3-the-transport-gate).

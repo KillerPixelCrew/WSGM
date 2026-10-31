@@ -37,7 +37,7 @@ on the existing shared transport. Pack compatibility, licensing and restoration 
  Core\Steam\Steam.cs                registry discovery, Big Picture launch, shortcuts, update stop
  Shell\Steam\SteamMonitor.cs        5 s alive/dead poll → SteamStarted / SteamExited
  Shell\Steam\SteamUiReadiness.cs    "may the transport be open?", its ready edge, RunWhenReady
- ShellSession                 the transport gate loop, retract-before-Big-Picture, master switch
+ Shell\Session\SteamUiServices.cs   the transport gate loop, retract-before-Big-Picture, master switch
    └─ PersistentSteamUiTransport (toolkit)   one CDP connection per role, with one SteamClient over it
       └─ Shell\Steam\SteamUiSessionHost.cs         the one patch/bridge/module owner
            ├─ SteamUiBridgeHost + NativeQamBootstrap.js (Core\SteamUiAssets, composed from the toolkit)
@@ -156,7 +156,7 @@ MainWindow before it attaches to any target, including SharedJSContext. A login 
 MainWindow. This holds desktop cold starts before the network and login services initialize, using
 the existing discovery connection and no JavaScript evaluation to decide readiness.
 
-`ShellSession` runs a one-second gate loop that re-decides on every signal (mode change,
+`SteamUiServices` runs a one-second gate loop that re-decides on every signal (mode change,
 `SteamStarted`, `SteamExited`, master switch, suspend and resume) and logs the transition under
 `Log.Change("steam-ui-transport-gate", …)`. Each tick takes one Steam observation outside the master
 gate (`SteamProcessObserver`: one process snapshot, one window search, and a command-line read for

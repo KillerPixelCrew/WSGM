@@ -757,7 +757,7 @@ public sealed partial class OverlayController : IDisposable
         {
             _suppressFocusRestore = true;
             CloseOverlay();
-            _modes.StartOrFocusSteam();
+            _modes.SteamLifecycle.StartOrFocus();
         };
         overlay.DesktopRequested += () =>
         {
@@ -794,11 +794,11 @@ public sealed partial class OverlayController : IDisposable
         {
             _suppressFocusRestore = true;
             CloseOverlay();
-            SessionModes.ExitBigPicture();
+            SteamLifecycle.ExitBigPicture();
         };
         overlay.CloseLauncherRequested += () =>
         {
-            _modes.CloseSteam();
+            _modes.SteamLifecycle.Close();
             vm.HomeAppAlive = false;
         };
         overlay.PowerActionRequested += action =>

@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
@@ -7,18 +6,36 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using SteamUiToolkit;
 using WSGM.Core;
-using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Interop;
-using WSGM.Plugin.Sdk;
+using WSGM.Overlay;
 
 namespace WSGM.Shell;
 
-public sealed partial class ShellSession
+/// <summary>
+///     The session's way into its first mode: the boot cover and the Game Mode entry splash, the
+///     service-boot takeover from Explorer, the startup apps with their relaunch watcher, the boot
+///     launch sequence that asks Steam for Big Picture, and the verified desktop start.
+/// </summary>
+/// <param name="state">The session's live state.</param>
+/// <param name="steamUi">The master switch and tab boot sync the launch sequence uses.</param>
+/// <param name="surfaces">The mode switches a takeover or a preserved desktop settles through.</param>
+/// <param name="desktopActions">The desktop startup actions a verified desktop start runs.</param>
+/// <param name="modes">Reads the session's mode coordinator.</param>
+/// <param name="monitor">Reads the session's Steam monitor.</param>
+/// <param name="overlay">Reads the session's overlay.</param>
+/// <param name="desktopHost">Reads the session's verified Explorer launch path.</param>
+internal sealed class SessionBoot(
+    SessionState state,
+    SteamUiServices steamUi,
+    GameModeSurfaces surfaces,
+    DesktopLifecycleActions desktopActions,
+    Func<SessionModes?> modes,
+    Func<SteamMonitor?> monitor,
+    Func<OverlayController?> overlay,
+    Func<ExplorerDesktopHost?> desktopHost)
 {
     /// <summary>How long a start waits for the interactive desktop before it proceeds anyway.</summary>
     private static readonly TimeSpan InputDesktopWait = TimeSpan.FromSeconds(60);
-
-    private readonly DesktopActionAdmission _desktopActionAdmission = new();
 
     // Non-null from the moment the service-boot splash becomes interactive until
     // the worker releases SessionModes' transition gate. The splash's desktop
@@ -28,7 +45,12 @@ public sealed partial class ShellSession
     private Task? _bootWork;
     private bool _gameModeEntryActive;
     private bool _holdingEntrySplash;
+    private BootSplash? _splash;
+    private StartupAppWatcher? _startupWatcher;
     private bool _tookOverFromExplorer;
+
+    /// <summary>The boot worker: the takeover, the launch sequence or the desktop start, or a completed task.</summary>
+    internal Task Work => _bootWork ?? Task.CompletedTask;
 
     /// <summary>Resolves Desktop startup from current preferences and the explicit resident modifier.</summary>
     /// <param name="startMode">The current configuration, which may be newer than the service's boot manifest.</param>
@@ -39,64 +61,22 @@ public sealed partial class ShellSession
         return desktopResident || startMode == SessionStartMode.Desktop;
     }
 
-    private async Task NotifyPluginModeAsync(PluginSessionMode mode)
-    {
-        try
-        {
-            await _pluginHost.SetModeAsync(mode, Deadline.After(TimeSpan.FromSeconds(5)), _shutdownCancellation.Token)
-                .ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested)
-        {
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            Log.Error("Plugin mode transition did not complete", ex);
-        }
-    }
-
-    /// <summary>
-    ///     Creates the game-mode-only surfaces in one shared order: tray host
-    ///     first (startup apps' Shell_NotifyIcon registrations need a living
-    ///     Shell_TrayWnd, or they only get an icon after the TaskbarCreated-driven retry,
-    ///     which message-only tray windows never hear), the shell hook with its volume buttons
-    ///     and launched-window focus, then card services. Direct boot and the service takeover
-    ///     are separate entry paths from the desktop-to-game transition, so each initial entry
-    ///     calls this explicitly.
-    /// </summary>
-    private void EnterGameModeSurfaces()
-    {
-        _ = NotifyPluginModeAsync(PluginSessionMode.Game);
-        _trayHost ??= TrayHost.Create()
-                      ?? throw new InvalidOperationException("The Game Mode tray could not be created.");
-        _overlay?.AttachTrayHost(_trayHost);
-        // One registration for both shell-hook consumers; desktop mode returns it to Explorer.
-        if (_messageWindow?.RegisterShellHook() == false)
-        {
-            Log.Warn("Game Mode shell hook unavailable: volume buttons and launched-window focus are off.");
-        }
-
-        _volumeButtons?.SetGameModeActive(true);
-        _launchedWindows?.SetGameModeActive(true);
-        ApplyCardServices(true);
-    }
-
     /// <summary>
     ///     Covers the screen with the boot splash when configured. Its timeout starts when the launch
     ///     sequence asks Steam for Big Picture, not here, because a service boot waits for the input
     ///     desktop and Explorer first. Opening the overlay dismisses the boot cover; a Game Mode entry
     ///     splash stays up, since the entry is still running behind it.
     /// </summary>
-    private void ShowBootSplashIfEnabled()
+    internal void ShowBootSplashIfEnabled()
     {
-        if (!_config.BootSplashEnabled || _splash is not null)
+        if (!state.Config.BootSplashEnabled || _splash is not null)
         {
             return;
         }
 
         // A Switch to desktop press before the takeover begins cancels it as soon as it starts.
         _bootTakeover ??= new BootTakeoverCancellation();
-        _splash = new BootSplash(_config, SwitchToDesktopFromSplash);
+        _splash = new BootSplash(state.Config, SwitchToDesktopFromSplash);
         _splash.Show();
     }
 
@@ -109,6 +89,106 @@ public sealed partial class ShellSession
         }
     }
 
+    /// <summary>Dismisses whichever splash is up. UI thread.</summary>
+    /// <param name="reason">Why, for the log.</param>
+    internal void DismissSplash(string reason)
+    {
+        _splash?.Dismiss(reason);
+    }
+
+    /// <summary>Ends the Game Mode entry's hold on the splash, and dismisses it unless the session is in Game Mode. UI thread.</summary>
+    internal void SettleEntrySplash()
+    {
+        _holdingEntrySplash = false;
+        _gameModeEntryActive = false;
+        if (!state.InGameMode)
+        {
+            _splash?.Dismiss("desktop entry settled");
+        }
+    }
+
+    /// <summary>Forgets the splash, once shutdown dismissed it. UI thread.</summary>
+    internal void ReleaseSplash()
+    {
+        _splash = null;
+    }
+
+    /// <summary>
+    ///     The splash the entry transaction writes its status into, created on demand so an
+    ///     entry that starts from the desktop still gets a cover.
+    /// </summary>
+    /// <returns>The entry splash.</returns>
+    internal BootSplash EnsureEntrySplash()
+    {
+        if (_splash is not null && _holdingEntrySplash)
+        {
+            return _splash;
+        }
+
+        _splash?.Dismiss("Game Mode entry starting");
+        _holdingEntrySplash = true;
+        // Unarmed: Big Picture has not been asked for yet, and the wait ahead has no deadline.
+        BootSplash splash = new(state.Config, () =>
+        {
+            if (_gameModeEntryActive)
+            {
+                modes()?.GameModeEntry.Cancel();
+                return;
+            }
+
+            SwitchToDesktopFromSplash();
+        });
+        _splash = splash;
+        splash.Show();
+        return splash;
+    }
+
+    /// <summary>Switches the entry splash's button between cancelling the entry and giving up on Game Mode. UI thread.</summary>
+    /// <param name="cancellable">True before the entry's boundary, false after it.</param>
+    internal void SetEntryCancellable(bool cancellable)
+    {
+        _gameModeEntryActive = cancellable;
+        EnsureEntrySplash().SetActionLabel(
+            cancellable ? "Cancel" : "Switch to desktop");
+    }
+
+    /// <summary>Starts the startup-app relaunch watcher once; a failure leaves the session without it.</summary>
+    internal void WatchStartupApps()
+    {
+        ShellSession.TryStart("startup app watcher", () => _startupWatcher ??= new StartupAppWatcher(state.Config.StartupApps)
+        {
+            IsLaunchSuppressed = path => desktopHost()?.IsApplicationLaunchSuppressed(path) == true
+        });
+    }
+
+    /// <summary>Applies a reloaded startup-app list to the watcher.</summary>
+    /// <param name="config">The reloaded configuration.</param>
+    internal void ApplyStartupApps(AppConfig config)
+    {
+        _startupWatcher?.Apply(config.StartupApps);
+    }
+
+    /// <summary>
+    ///     Forgets the listed integrations' watch state, so a relaunch queued before a takeover never fires
+    ///     after even a very short takeover.
+    /// </summary>
+    internal void ForgetDesktopAppRelaunches()
+    {
+        Dispatcher.UIThread.Post(() => _startupWatcher?.Forget(DesktopAppLifecycle.MatchesPath));
+    }
+
+    /// <summary>Starts the verified desktop start on the boot worker. The caller holds the transition.</summary>
+    internal void StartDesktopSteam()
+    {
+        _bootWork = Task.Run(StartDesktopSteamAsync);
+    }
+
+    /// <summary>Starts the boot launch sequence on the boot worker.</summary>
+    internal void StartLaunchSequence()
+    {
+        _bootWork = Task.Run(async () => { await RunLaunchSequenceAsync(); });
+    }
+
     /// <summary>
     ///     Verifies or recovers Explorer before supplying windowed Steam. Owns the startup transition
     ///     gate until both have settled, so a concurrent Game Mode request cannot leave mixed modes.
@@ -118,26 +198,26 @@ public sealed partial class ShellSession
         var desktopReady = false;
         try
         {
-            await WaitForInputDesktopAsync(_shutdownCancellation.Token).ConfigureAwait(false);
+            await WaitForInputDesktopAsync(state.ShutdownToken).ConfigureAwait(false);
             // An input desktop is not proof that Winlogon's shell exists. Reuse the normal
             // identity-checked restore, which adopts a live shell and recovers a missing one.
-            var desktop = await _desktopHost!.RestoreDesktopAsync(
-                    TimeSpan.FromSeconds(20), _shutdownCancellation.Token)
+            var desktop = await desktopHost()!.RestoreDesktopAsync(
+                    TimeSpan.FromSeconds(20), state.ShutdownToken)
                 .ConfigureAwait(false);
             desktopReady = desktop.Outcome is ExplorerDesktopOutcome.Normal or ExplorerDesktopOutcome.Degraded;
             if (!desktopReady)
             {
                 Log.Warn("Desktop startup could not verify Explorer; Steam startup remains paused.");
-                _modes!.ReportWarning(SessionModes.ExplorerDesktopPendingWarning);
+                modes()!.ReportWarning(SessionModes.ExplorerDesktopPendingWarning);
                 return;
             }
 
-            _shutdownCancellation.Token.ThrowIfCancellationRequested();
+            state.ShutdownToken.ThrowIfCancellationRequested();
             // Before the start, so a Steam autostart that reappeared cannot win the race.
-            SteamAutostartService.ReapplyAtStart(_store);
-            _modes!.EnsureSteamDesktop();
+            SteamAutostartService.ReapplyAtStart(state.Store);
+            modes()!.SteamLifecycle.EnsureDesktop();
         }
-        catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested)
+        catch (OperationCanceledException) when (state.ShutdownToken.IsCancellationRequested)
         {
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -145,20 +225,20 @@ public sealed partial class ShellSession
             Log.Error("Desktop session startup failed", ex);
             if (!desktopReady)
             {
-                _modes!.ReportWarning(SessionModes.ExplorerDesktopPendingWarning);
+                modes()!.ReportWarning(SessionModes.ExplorerDesktopPendingWarning);
             }
         }
         finally
         {
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                _modes!.EndTransition();
-                if (!_shutdownRequested)
+                modes()!.EndTransition();
+                if (!state.ShutdownRequested)
                 {
-                    _monitor!.Paused = !desktopReady;
+                    monitor()!.Paused = !desktopReady;
                     if (desktopReady)
                     {
-                        QueueDesktopActions(true);
+                        desktopActions.Queue(true);
                     }
                 }
             });
@@ -218,27 +298,6 @@ public sealed partial class ShellSession
         }
     }
 
-    private void WatchStartupAppsAndConfig()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        TryStart("startup app watcher", () => _startupWatcher ??= new StartupAppWatcher(_config.StartupApps)
-        {
-            IsLaunchSuppressed = path => _desktopHost?.IsApplicationLaunchSuppressed(path) == true
-        });
-        WatchConfig();
-    }
-
-    // A takeover forgets the listed integrations' watch state, so a relaunch queued before it never fires
-    // after even a very short takeover.
-    private void ForgetDesktopAppRelaunches()
-    {
-        Dispatcher.UIThread.Post(() => _startupWatcher?.Forget(DesktopAppLifecycle.MatchesPath));
-    }
-
     /// <summary>
     ///     Runs the startup-app/Steam launch sequence, containing cancellation
     ///     and failure so a boot worker never faults.
@@ -247,9 +306,9 @@ public sealed partial class ShellSession
     {
         try
         {
-            await LaunchAppsAsync(_shutdownCancellation.Token);
+            await LaunchAppsAsync(state.ShutdownToken);
         }
-        catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested)
+        catch (OperationCanceledException) when (state.ShutdownToken.IsCancellationRequested)
         {
             Log.Info("Shell launch sequence cancelled for application shutdown.");
         }
@@ -265,27 +324,27 @@ public sealed partial class ShellSession
     }
 
     /// <summary>
-    ///     Service-boot takeover: cover the booting desktop with the splash
-    ///     FIRST (before any posture change — the cover is the point of the early
-    ///     launch), let explorer finish its logon prep once, then cleanly shut it down
-    ///     and run the normal game-mode boot. The one-per-session explorer init is what
-    ///     keeps touch features (touch keyboard) alive in game mode.
+    ///     First half of the service-boot takeover: cover the booting desktop with the splash
+    ///     FIRST (before any posture change — the cover is the point of the early launch). The
+    ///     session then watches startup apps and config, and <see cref="RunTakeover" /> lets explorer
+    ///     finish its logon prep once, cleanly shuts it down and runs the normal game-mode boot. The
+    ///     one-per-session explorer init is what keeps touch features (touch keyboard) alive in game mode.
     /// </summary>
-    private void StartBootTakeover()
+    internal void CoverForTakeover()
     {
         Log.Info("Boot cover: waiting for explorer logon prep.");
         _tookOverFromExplorer = true;
         // Session start normally showed the splash already, so it covered the booting desktop
         // while plugins, device integration and the overlay were still being built.
         ShowBootSplashIfEnabled();
-        var takeover = _bootTakeover ??= new BootTakeoverCancellation();
+        _bootTakeover ??= new BootTakeoverCancellation();
         if (_splash is null)
         {
             Log.Info("Boot splash disabled — takeover runs uncovered.");
         }
         else
         {
-            _overlay!.OverlayShown += () =>
+            overlay()!.OverlayShown += () =>
             {
                 if (!_holdingEntrySplash)
                 {
@@ -293,12 +352,16 @@ public sealed partial class ShellSession
                 }
             };
         }
+    }
 
-        WatchStartupAppsAndConfig();
+    /// <summary>Holds the transition gate and runs the takeover on the boot worker, then the launch sequence.</summary>
+    internal void RunTakeover()
+    {
+        var takeover = _bootTakeover ??= new BootTakeoverCancellation();
 
         // Mode switches must not race the takeover (the overlay is live behind the
         // splash and its Desktop button would start a second explorer transition).
-        _modes!.BeginTransition();
+        modes()!.BeginTransition();
 
         _bootWork = Task.Run(async () =>
         {
@@ -312,7 +375,7 @@ public sealed partial class ShellSession
                 Log.Info("Boot takeover cancelled by the splash desktop recovery.");
             }
             catch (OperationCanceledException) when (takeover.ShutdownRequested
-                                                     || _shutdownCancellation.IsCancellationRequested)
+                                                     || state.ShutdownToken.IsCancellationRequested)
             {
                 Log.Info("Boot takeover cancelled for application shutdown.");
             }
@@ -325,12 +388,12 @@ public sealed partial class ShellSession
                 // The gate guards the TAKEOVER only, not the launch sequence:
                 // released here, the splash's Switch-to-desktop can run and
                 // LaunchAppsAsync's monitor-paused guard skips Big Picture.
-                _modes!.EndTransition();
+                modes()!.EndTransition();
                 takeover.Complete();
             }
 
             var desktopRequested = takeover.DesktopRequested;
-            if (takeover.ShutdownRequested || _shutdownRequested)
+            if (takeover.ShutdownRequested || state.ShutdownRequested)
             {
                 if (ReferenceEquals(_bootTakeover, takeover))
                 {
@@ -350,7 +413,7 @@ public sealed partial class ShellSession
                         _bootTakeover = null;
                     }
 
-                    if (_shutdownRequested)
+                    if (state.ShutdownRequested)
                     {
                         return;
                     }
@@ -385,7 +448,7 @@ public sealed partial class ShellSession
 
             if (result is BootTakeoverResult.EnteredGameMode
                 && !desktopRequested
-                && !_shutdownRequested)
+                && !state.ShutdownRequested)
             {
                 await RunLaunchSequenceAsync();
             }
@@ -407,7 +470,7 @@ public sealed partial class ShellSession
         await WaitForInputDesktopAsync(cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var settleDuration = TimeSpan.FromMilliseconds(Math.Max(0, _config.ExplorerLogonSettleMs));
+        var settleDuration = TimeSpan.FromMilliseconds(Math.Max(0, state.Config.ExplorerLogonSettleMs));
         var watch = Stopwatch.StartNew();
         Stopwatch? settle = null;
         long shellSeenMs = -1, taskbarSeenMs = -1;
@@ -472,9 +535,10 @@ public sealed partial class ShellSession
         // Boot and resident entry share the bounded orderly exit and retired-shell cleanup.
         // Every failed exit returns through verified desktop recovery.
         cancellationToken.ThrowIfCancellationRequested();
-        var preparation = _desktopHost is null
+        var host = desktopHost();
+        var preparation = host is null
             ? new ExplorerPreparationResult(false, "host-unavailable")
-            : await _desktopHost.PrepareForExplorerExitAsync(cancellationToken).ConfigureAwait(false);
+            : await host.PrepareForExplorerExitAsync(cancellationToken).ConfigureAwait(false);
         if (!preparation.Prepared)
         {
             Log.Warn("Boot takeover refused before Explorer exit because no verified jobless "
@@ -497,7 +561,7 @@ public sealed partial class ShellSession
         }
 
         ForgetDesktopAppRelaunches();
-        var exited = await _desktopHost!.ExitExplorerAndWaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+        var exited = await desktopHost()!.ExitExplorerAndWaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
         // Posting Explorer's orderly-exit command is irreversible. A desktop
         // request that landed during the bounded wait must recover by starting
         // Explorer again, never continue into posture/tray/Steam game mode.
@@ -518,8 +582,8 @@ public sealed partial class ShellSession
             // Same order as the direct game-mode boot: posture (scale) with the
             // splash re-covering on the display change, then the tray host —
             // explorer is verifiably gone, so Create() can't race a dying taskbar.
-            _modes!.ApplyGameModePosture();
-            EnterGameModeSurfaces();
+            modes()!.ApplyGameModePosture();
+            surfaces.Enter();
             return true;
         });
         if (!enteredGameMode || cancellationToken.IsCancellationRequested)
@@ -528,42 +592,6 @@ public sealed partial class ShellSession
         }
 
         return BootTakeoverResult.EnteredGameMode;
-    }
-
-    /// <summary>
-    ///     Answers Switch to Desktop in Steam's power menu with the transition the overlay's Return to
-    ///     Desktop starts. Refused outside Game Mode and while another transition runs.
-    /// </summary>
-    private async Task<SteamUiCommandResult> SwitchToDesktopFromSteamAsync(CancellationToken cancellationToken)
-    {
-        var refusal = "WSGM could not start the switch.";
-        var started = await RunUiActionAsync(() =>
-        {
-            if (_modes is null || !_inGameMode)
-            {
-                refusal = "WSGM is not in Game Mode.";
-                return false;
-            }
-
-            if (_modes.TransitionInProgress)
-            {
-                refusal = "A mode switch is already in progress.";
-                return false;
-            }
-
-            Log.Info("Switch to Desktop selected in Steam's power menu.");
-            _modes.EnterDesktopMode();
-            return true;
-        }, cancellationToken).ConfigureAwait(false);
-        return started ? SteamUiCommandResult.Applied : new SteamUiCommandResult(false, refusal);
-    }
-
-    /// <summary>Records whether the session is in Game Mode, for everything that follows the mode.</summary>
-    /// <param name="inGameMode">Whether the session is in Game Mode.</param>
-    private void SetInGameMode(bool inGameMode)
-    {
-        _inGameMode = inGameMode;
-        _steamPowerMenu?.SetGameMode(inGameMode);
     }
 
     /// <summary>
@@ -577,7 +605,7 @@ public sealed partial class ShellSession
         {
             // Pause immediately so even a worker already leaving the takeover
             // cannot race through LaunchAppsAsync into Big Picture.
-            _monitor?.Paused = true;
+            monitor()?.Paused = true;
             Log.Info("Boot splash desktop request accepted — cancelling takeover.");
             return;
         }
@@ -594,7 +622,7 @@ public sealed partial class ShellSession
     {
         // The boot sequence skips its Big Picture start once the monitor is paused. The desktop
         // transition supplies windowed Steam itself, after Explorer's taskbar owner is verified.
-        _modes!.EnterDesktopMode();
+        modes()!.EnterDesktopMode();
     }
 
     /// <summary>
@@ -604,25 +632,23 @@ public sealed partial class ShellSession
     private void ResumePreservedDesktopAfterBootFailure()
     {
         _splash?.Dismiss("takeover refused");
-        SetInGameMode(false);
-        _ = NotifyPluginModeAsync(PluginSessionMode.Desktop);
-        RequestSteamUiTransportGateCheck();
+        surfaces.SettleOnPreservedDesktop();
         // The session settles on the preserved desktop, which is an ordinary desktop steady
         // state: watch Steam again rather than staying in the transition's paused state.
-        _monitor?.Paused = false;
-        _modes!.ReportWarning(SessionModes.ExplorerTakeoverRefusedWarning);
-        _modes.EnsureSteamDesktop();
+        monitor()?.Paused = false;
+        modes()!.ReportWarning(SessionModes.ExplorerTakeoverRefusedWarning);
+        modes()!.SteamLifecycle.EnsureDesktop();
     }
 
     /// <summary>
     ///     Starts the ordinary verified desktop restoration after boot crossed an uncertain
     ///     Explorer-exit boundary. The transition gate has already been released by the caller.
     /// </summary>
-    private void BeginDesktopModeAfterBootFailure()
+    internal void BeginDesktopModeAfterBootFailure()
     {
         _splash?.Dismiss("takeover recovery");
-        _modes!.ReportWarning(SessionModes.ExplorerExitFailedWarning);
-        _modes.EnterDesktopMode();
+        modes()!.ReportWarning(SessionModes.ExplorerExitFailedWarning);
+        modes()!.EnterDesktopMode();
     }
 
     /// <summary>
@@ -646,123 +672,22 @@ public sealed partial class ShellSession
         }
     }
 
-    /// <summary>
-    ///     The splash the entry transaction writes its status into, created on demand so an
-    ///     entry that starts from the desktop still gets a cover.
-    /// </summary>
-    private BootSplash EnsureEntrySplash()
-    {
-        if (_splash is not null && _holdingEntrySplash)
-        {
-            return _splash;
-        }
-
-        _splash?.Dismiss("Game Mode entry starting");
-        _holdingEntrySplash = true;
-        // Unarmed: Big Picture has not been asked for yet, and the wait ahead has no deadline.
-        BootSplash splash = new(_config, () =>
-        {
-            if (_gameModeEntryActive)
-            {
-                _modes?.CancelGameModeEntry();
-                return;
-            }
-
-            SwitchToDesktopFromSplash();
-        });
-        _splash = splash;
-        splash.Show();
-        return splash;
-    }
-
-    private PluginActionSequence ActionSequence()
-    {
-        return new PluginActionSequence(new PluginHostActionInvoker(_pluginHost), Log.Info);
-    }
-
-    private DisplayArrivalWaiter CreateArrivalWaiter()
-    {
-        return new DisplayArrivalWaiter(
-            new ShellDisplayPresence(),
-            new ShellDisplayChangeSignal(_displayChangeWindow),
-            Task.Delay);
-    }
-
-    /// <summary>Runs the desktop startup or wake action list, coalesced.</summary>
-    /// <param name="startup">True for the startup list, false for the wake list.</param>
-    /// <remarks>
-    ///     The work starts synchronously inside the posted callback and handles its own failures;
-    ///     the admission refuses it once the session is stopping.
-    /// </remarks>
-    private void QueueDesktopActions(bool startup)
-    {
-        Dispatcher.UIThread.Post(() => _ = RunDesktopActionsAsync(startup));
-    }
-
-    private async Task RunDesktopActionsAsync(bool startup)
-    {
-        // The session's current configuration, which a reload keeps at the last good read, rather
-        // than a second load of the file. The admission admits one run at a time.
-        var steps = startup
-            ? _config.GameModeLaunch.DesktopStartupActions
-            : _config.GameModeLaunch.DesktopWakeActions;
-        if (steps.Count == 0 || _shutdownRequested || _overlayTestOnly || !_desktopActionAdmission.TryBegin(
-                _inGameMode, _modes?.TransitionInProgress != false, Environment.TickCount64))
-        {
-            return;
-        }
-
-        try
-        {
-            await _commonPluginStartup.WaitAsync(_shutdownCancellation.Token);
-            await DevicePowerWork.WaitAsync(_shutdownCancellation.Token);
-            // Re-checked after both waits: a Game Mode entry can have started meanwhile, and a
-            // desktop action list must never fire into a session that is leaving the desktop.
-            if (_shutdownRequested || _inGameMode || _modes?.TransitionInProgress != false)
-            {
-                return;
-            }
-
-            foreach (var step in await ActionSequence().RunAllAsync(steps, _shutdownCancellation.Token))
-            {
-                Log.Info($"Desktop {(startup ? "startup" : "wake")} action "
-                         + $"{step.Step.Plugin?.PluginId}/{step.Step.Plugin?.InstanceId}:{step.Step.ActionId}: "
-                         + $"{step.Outcome}: {step.Detail}");
-                if (!step.Succeeded)
-                {
-                    _modes?.ReportWarning($"Desktop action: {step.Detail}");
-                }
-            }
-        }
-        catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested)
-        {
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Desktop lifecycle actions failed", ex);
-        }
-        finally
-        {
-            _desktopActionAdmission.End();
-        }
-    }
-
     private async Task LaunchAppsAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         // Before Steam, for the same reason as on the desktop path: a reappeared autostart entry
         // must not be the one that wins the race to start Steam.
-        SteamAutostartService.ReapplyAtStart(_store);
+        SteamAutostartService.ReapplyAtStart(state.Store);
         // Steam-backed tools can activate the client themselves, before WSGM's own launch.
-        SteamCef.EnsureRemoteDebuggingEnabled(Steam.InstallDirectory, _cefMasterEnabled);
-        var haveApps = _config.StartupApps.Exists(a => a.Enabled && !string.IsNullOrWhiteSpace(a.Path));
-        if (haveApps && _config.StartupDelayMs > 0)
+        SteamCef.EnsureRemoteDebuggingEnabled(Steam.InstallDirectory, steamUi.MasterEnabled);
+        var haveApps = state.Config.StartupApps.Exists(a => a.Enabled && !string.IsNullOrWhiteSpace(a.Path));
+        if (haveApps && state.Config.StartupDelayMs > 0)
         {
-            Log.Info($"Waiting {_config.StartupDelayMs} ms before the first startup app (boot settle).");
-            await Task.Delay(_config.StartupDelayMs, cancellationToken);
+            Log.Info($"Waiting {state.Config.StartupDelayMs} ms before the first startup app (boot settle).");
+            await Task.Delay(state.Config.StartupDelayMs, cancellationToken);
         }
 
-        foreach (var app in _config.StartupApps)
+        foreach (var app in state.Config.StartupApps)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!app.Enabled || string.IsNullOrWhiteSpace(app.Path))
@@ -770,7 +695,7 @@ public sealed partial class ShellSession
                 continue;
             }
 
-            if (_desktopHost?.IsApplicationLaunchSuppressed(app.Path) == true)
+            if (desktopHost()?.IsApplicationLaunchSuppressed(app.Path) == true)
             {
                 Log.Info($"Desktop integration startup suppressed during Game Mode: {app.Path}");
                 continue;
@@ -786,18 +711,18 @@ public sealed partial class ShellSession
 
             Log.Info($"Starting startup app: {app.Path} {app.Args}{(app.Elevated ? " (elevated)" : "")}");
             AppLauncher.Start(app.Path, app.Args, app.Elevated);
-            await Task.Delay(Math.Max(0, _config.StaggerDelayMs), cancellationToken);
+            await Task.Delay(Math.Max(0, state.Config.StaggerDelayMs), cancellationToken);
         }
 
-        if (_config.SteamDelayMs > 0)
+        if (state.Config.SteamDelayMs > 0)
         {
-            await Task.Delay(_config.SteamDelayMs, cancellationToken);
+            await Task.Delay(state.Config.SteamDelayMs, cancellationToken);
         }
 
         // The splash's Switch-to-desktop (or the overlay's) may have fired while
         // this sequence was still sleeping — EnterDesktopMode paused the monitor,
         // and starting Big Picture now would slam it over the fresh desktop.
-        if (_monitor is { Paused: true })
+        if (monitor() is { Paused: true })
         {
             Log.Info("Skipping Steam start: desktop mode was requested during boot.");
             return;
@@ -809,19 +734,19 @@ public sealed partial class ShellSession
         // (steam://open/bigpicture adopts a Steam that explorer's own autostart
         // already brought up, so no duplicate check is needed for Steam itself.)
         await Dispatcher.UIThread.InvokeAsync(ArmBootSplash);
-        var warning = _modes!.StartBigPicture();
+        var warning = modes()!.SteamLifecycle.StartBigPicture();
         if (warning is not null)
         {
             Dispatcher.UIThread.Post(() =>
             {
-                if (_shutdownRequested)
+                if (state.ShutdownRequested)
                 {
                     return;
                 }
 
                 _splash?.Dismiss("Steam start warning");
-                _overlay?.SetWarning(warning);
-                _overlay?.ShowOverlay();
+                overlay()?.SetWarning(warning);
+                overlay()?.ShowOverlay();
             });
         }
 
@@ -831,20 +756,19 @@ public sealed partial class ShellSession
         // cancellation source belongs to the UI thread, where GameModeEntered and SteamStarted
         // replace it; reading it here could start a sync on a source those handlers had just
         // cancelled, and the tabs never appeared.
-        Dispatcher.UIThread.Post(_tabBootSync.Kick);
+        Dispatcher.UIThread.Post(steamUi.TabBootSync.Kick);
     }
 
-    /// <summary>Restores driver values through the existing graphics owner without requiring GPU startup for panic recovery.</summary>
-    private async Task<bool> RestorePendingDisplayGpuAsync(IReadOnlyList<DisplayGpuPreference> preferences,
-        CancellationToken cancellationToken)
+    /// <summary>Cancels a takeover that is still running, for application shutdown.</summary>
+    internal void RequestShutdown()
     {
-        var warning = await DisplayGpuProfileService.ApplyAsync(_gpu, preferences, cancellationToken)
-            .ConfigureAwait(false);
-        if (warning is not null)
-        {
-            Log.Warn("Desktop display controls: " + warning);
-        }
+        _bootTakeover?.RequestShutdown();
+    }
 
-        return warning is null;
+    /// <summary>Disposes the startup-app watcher.</summary>
+    /// <param name="steps">The shutdown's step runner.</param>
+    internal void DisposeStartupWatcher(ShutdownSteps steps)
+    {
+        steps.DisposeOwner("startup app watcher", ref _startupWatcher);
     }
 }

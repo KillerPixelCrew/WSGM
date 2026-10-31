@@ -775,10 +775,10 @@ before shipping a change.
 
 Turning a CEF feature off must remove what it injected. Tabs, the synthetic access point and the
 sort buttons are resident in Steam's session and survive until Steam restarts. The master switch
-fails every evaluation closed, including WSGM's own removal calls, so `ShellSession` awaits removal
-before closing the choke point. Wi-Fi, download sorting and the library badge live in the patch
-lifecycle and are retracted by it; the remaining legacy resident, the tabs, keeps explicit removal
-until its attended migration lands.
+fails every evaluation closed, including WSGM's own removal calls, so `SteamUiServices` awaits
+removal before closing the choke point. Wi-Fi, download sorting and the library badge live in the
+patch lifecycle and are retracted by it; the remaining legacy resident, the tabs, keeps explicit
+removal until its attended migration lands.
 
 ## Persistent host and native Quick Access
 
