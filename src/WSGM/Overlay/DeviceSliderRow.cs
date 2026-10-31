@@ -82,7 +82,6 @@ internal sealed class DeviceSliderRow : Border
         var tick = Math.Max(1, step);
         var clamped = Math.Clamp(valueNow ?? minimum, minimum, maximum);
 
-        Classes.Add("tile");
         Tag = key;
 
         _value = new TextBlock
@@ -151,7 +150,6 @@ internal sealed class DeviceSliderRow : Border
         AutomationProperties.SetName(_slider, title);
         AutomationProperties.SetHelpText(_slider, description);
         Child = setting;
-        Classes.Remove("tile");
         DetachedFromVisualTree += (_, _) => CommitPendingChange();
     }
 

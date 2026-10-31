@@ -11,9 +11,6 @@ internal enum DeviceOverlaySection
     /// <summary>Identity, scenario mode, and anything that describes the device as a whole.</summary>
     Overview,
 
-    /// <summary>Named hardware profiles the user selects between.</summary>
-    Profiles,
-
     /// <summary>Power limits, fans, charge behaviour, and how the device performs.</summary>
     PowerAndThermals,
 

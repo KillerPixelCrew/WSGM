@@ -19,16 +19,6 @@ namespace WSGM.Overlay;
 /// </summary>
 internal static class DeviceControlRows
 {
-    /// <summary>
-    ///     Builds the shared tile skeleton: heading, optional caption, and a right-aligned
-    ///     interactive control on the header line.
-    /// </summary>
-    private static DeviceSettingRow Tile(string key, string title, string description, Control control,
-        Action<CapabilityValue?> refresh)
-    {
-        return new DeviceSettingRow(key, title, description, control, refresh);
-    }
-
     /// <summary>A boolean capability as a switch.</summary>
     /// <param name="key">Stable focus key.</param>
     /// <param name="title">Row heading.</param>
@@ -63,7 +53,7 @@ internal static class DeviceControlRows
                 onChanged(toggle.IsChecked ?? false);
             }
         };
-        row = Tile(key, title, description, toggle, value => toggle.IsChecked = value?.BooleanValue ?? false);
+        row = new DeviceSettingRow(key, title, description, toggle, value => toggle.IsChecked = value?.BooleanValue ?? false);
         return row;
     }
 
@@ -87,7 +77,7 @@ internal static class DeviceControlRows
     {
         ArgumentNullException.ThrowIfNull(onChanged);
         var items = choices
-            .Select(choice => new ChoiceItem(choice.Value, LabelFor(choice)))
+            .Select(choice => new ChoiceItem(choice.Value, CapabilityDisplayLabels.For(choice.Display, choice.Value)))
             .ToList();
         var combo = new ComboBox
         {
@@ -103,7 +93,7 @@ internal static class DeviceControlRows
         DeviceSettingRow? row = null;
         // Until the row exists, and while it refreshes, a selection is the published value, not a choice.
         ComboCommit.Attach<ChoiceItem>(combo, () => row?.Refreshing is not false, item => onChanged(item.Value));
-        row = Tile(key, title, description, combo, value =>
+        row = new DeviceSettingRow(key, title, description, combo, value =>
             combo.SelectedIndex = items.FindIndex(item => item.Value == value?.ChoiceValue));
         return row;
     }
@@ -127,7 +117,7 @@ internal static class DeviceControlRows
         ArgumentNullException.ThrowIfNull(onCommit);
         var draft = text ?? string.Empty;
         var editor = new Button { Content = string.IsNullOrEmpty(draft) ? "Edit" : draft, IsEnabled = enabled };
-        var row = Tile(key, title, string.Empty, editor, value =>
+        var row = new DeviceSettingRow(key, title, string.Empty, editor, value =>
         {
             draft = value?.TextValue ?? string.Empty;
             editor.Content = string.IsNullOrEmpty(draft) ? "Edit" : draft;
@@ -146,11 +136,6 @@ internal static class DeviceControlRows
             }
         };
         return row;
-    }
-
-    private static string LabelFor(CapabilityChoice choice)
-    {
-        return CapabilityDisplayLabels.For(choice.Display, choice.Value);
     }
 
     private sealed record ChoiceItem(string Value, string Label);

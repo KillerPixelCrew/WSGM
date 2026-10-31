@@ -268,9 +268,7 @@ public sealed class ScreensaversView : ServiceSubView
 
     private static Border Group(Control child)
     {
-        var border = new Border { Child = child, CornerRadius = new CornerRadius(8) };
-        border.Bind(Border.BackgroundProperty, border.GetResourceObservable("DeckGroupBrush"));
-        return border;
+        return new Border { Child = child, Classes = { "device-group" } };
     }
 
     private static void AddAction(Panel panel, string title, Action action, string tag, bool primary = false)

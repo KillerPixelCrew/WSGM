@@ -77,9 +77,9 @@ public partial class OverlayWindow
             return;
         }
 
+        // The first render runs when the window opens.
         if (!_opened)
         {
-            _rendersAwaitingOpen |= GraphicsRenderAwaitingOpen;
             return;
         }
 
@@ -105,9 +105,7 @@ public partial class OverlayWindow
         }
 
         _graphicsLayout = snapshot;
-        var focusedKey = GetTopLevel(this)?.FocusManager.GetFocusedElement() is Control focused
-            ? focused.Tag as string
-            : null;
+        var focusedKey = CurrentSemanticFocusKey();
         GraphicsCapabilityList.Children.Clear();
         Control? restoreFocus = null;
         foreach (var section in snapshot.Sections)
@@ -277,7 +275,7 @@ public partial class OverlayWindow
     {
         return before.Key == after.Key && before.Title == after.Title
                                        && before.Categories.SequenceEqual(after.Categories)
-                                       && CapabilityRowRenderer.SameRowLayouts(before.Capabilities,
+                                       && DeviceOverlayCapability.SameLayouts(before.Capabilities,
                                            after.Capabilities);
     }
 }

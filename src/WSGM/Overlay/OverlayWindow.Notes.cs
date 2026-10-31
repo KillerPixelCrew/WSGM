@@ -1,4 +1,3 @@
-using System.Linq;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -20,25 +19,14 @@ public partial class OverlayWindow
     /// <returns>Whether the Notes section exists in this window.</returns>
     internal bool OpenNotes()
     {
-        if (_navigation.Destination != OverlayDestination.System)
-        {
-            SelectDestination(OverlayDestination.System);
-        }
-
-        var section = _workspaceSections.FirstOrDefault(item => item.Page == OverlayPage.Notes);
-        if (section is null)
-        {
-            return false;
-        }
-
         if (_navigation.Page == OverlayPage.Notes)
         {
             // Already showing: start over from the remembered place rather than keep a stale level.
             NotesHost.OpenLastLocation();
         }
-        else
+        else if (!OpenToolsSection(OverlayPage.Notes))
         {
-            SelectWorkspaceSection(section, false);
+            return false;
         }
 
         FocusFirstControl(NotesHost);

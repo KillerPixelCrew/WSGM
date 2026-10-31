@@ -75,16 +75,17 @@ public partial class OverlayWindow
     ///     UI-thread callback with the text after every edit, so an owner can keep a draft that outlives a
     ///     cancelled or closed surface; null when the caller only needs the accepted text.
     /// </param>
+    /// <param name="sensitive">Whether the field holds a secret, such as a network password.</param>
     /// <returns>True when a keyboard was created; false after the window closed.</returns>
     internal bool RequestText(string prompt, string initial, int maxLength, Action<string> onAccept, bool multiline,
-        Action<string>? changed)
+        Action<string>? changed, bool sensitive = false)
     {
         if (_closed)
         {
             return false;
         }
 
-        var keyboard = new KeyboardPanel(prompt, initial, maxLength, multiline: multiline);
+        var keyboard = new KeyboardPanel(prompt, initial, maxLength, sensitive, multiline);
         keyboard.Accepted += onAccept;
         if (changed is not null)
         {
@@ -128,11 +129,7 @@ public partial class OverlayWindow
     {
         panel.CloseRequested += () => CloseSurface(panel);
         panel.TextEntryRequested += (prompt, initial, accept) =>
-        {
-            var keyboard = new KeyboardPanel(prompt, initial, 0, true);
-            keyboard.Accepted += accept;
-            ShowKeyboardSurface(keyboard);
-        };
+            RequestText(prompt, initial, 0, accept, false, null, sensitive: true);
         ShowSurface(panel, SurfaceKind.Utility, "Connections", null);
     }
 
@@ -170,12 +167,7 @@ public partial class OverlayWindow
                 CloseSurface(picker);
             }
         };
-        picker.TextEntryRequested += (initial, accept) =>
-        {
-            var keyboard = new KeyboardPanel("Local path", initial, 0);
-            keyboard.Accepted += accept;
-            ShowKeyboardSurface(keyboard);
-        };
+        picker.TextEntryRequested += (initial, accept) => RequestText("Local path", initial, 0, accept);
         ShowSurface(picker, SurfaceKind.Utility, folder ? "Choose a folder" : "Choose a file", null);
         return completion.Task;
     }

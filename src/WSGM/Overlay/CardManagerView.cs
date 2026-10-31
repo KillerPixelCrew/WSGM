@@ -61,7 +61,7 @@ public sealed class CardManagerView : OverlaySubView
     ///     Resets navigation and renders the card list. Called by the overlay
     ///     when the sub-view opens.
     /// </summary>
-    public void Open()
+    public override void Open()
     {
         NavigationStack.Clear();
         CurrentLevel = null;
@@ -213,7 +213,7 @@ public sealed class CardManagerView : OverlaySubView
                     PopIfAny();
                     Replace(RenderCardList);
                 }))));
-        stack.Children.Add(ChoiceRow("Steam tab", [(false, "Off"), (true, "On")], card.Enabled, enabled =>
+        stack.Children.Add(ToggleRow("Steam tab", card.Enabled, enabled =>
             _ = RunCardMutationAsync(() => Service.SetCardEnabledAsync(card.ContentId, enabled), () =>
             {
                 PopIfAny();

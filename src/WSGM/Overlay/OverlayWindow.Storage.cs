@@ -94,42 +94,13 @@ public partial class OverlayWindow
 
     private void OnFormatCancel(object? sender, RoutedEventArgs e)
     {
-        LeaveFormatSubViewToOrigin();
-    }
-
-    /// <summary>Opens the Game Library sub-view on its current state, including an apply in progress.</summary>
-    private void OnGameLibrary(object? sender, RoutedEventArgs e)
-    {
-        EnterSubView(OverlayPage.SteamGameLibrary);
-    }
-
-    /// <summary>
-    ///     Opens the Library Tabs builder sub-view (the gamepad-driven
-    ///     custom-tab UI). Its own "Sync now" materializes the tabs.
-    /// </summary>
-    private void OnLibraryTabs(object? sender, RoutedEventArgs e)
-    {
-        LibraryTabsHost.Open();
-        EnterSubView(OverlayPage.SteamLibraryTabs);
-    }
-
-    /// <summary>Opens the SD-card library manager sub-view.</summary>
-    private void OnCardManager(object? sender, RoutedEventArgs e)
-    {
-        CardManagerHost.Open();
-        EnterSubView(OverlayPage.SteamCardManager);
+        LeaveSubView(OverlayPage.SteamStorageFormat);
     }
 
     private void OpenStorageFormat()
     {
-        SelectDestination(OverlayDestination.System);
-        SelectWorkspaceSection(_workspaceSections.Find(section => section.Page == OverlayPage.SystemStorage)!, false);
+        OpenToolsSection(OverlayPage.SystemStorage);
         EnterSubView(OverlayPage.SteamStorageFormat);
-    }
-
-    private void LeaveFormatSubViewToOrigin()
-    {
-        LeaveSubView(OverlayPage.SteamStorageFormat);
     }
 
     private void OnAddLibrary(object? sender, RoutedEventArgs e)

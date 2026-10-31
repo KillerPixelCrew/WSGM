@@ -37,6 +37,8 @@ public abstract partial class OverlaySubView
 
     private protected static Control ToggleRow(string label, bool value, Action<bool> changed, bool enabled = true)
     {
-        return ChoiceRow(label, new[] { (false, "Off"), (true, "On") }, value, changed);
+        var row = ChoiceRow(label, new[] { (false, "Off"), (true, "On") }, value, changed);
+        row.IsEnabled = enabled;
+        return row;
     }
 }

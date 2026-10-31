@@ -128,8 +128,7 @@ internal sealed class OverlayFilePicker : UserControl
         Grid.SetColumn(_location, 1);
         toolbar.Children.Add(_location);
         var browser = new Grid { ColumnDefinitions = new ColumnDefinitions("1*,2.4*"), ColumnSpacing = 12 };
-        var placesPane = new Border { Padding = new Thickness(8), CornerRadius = new CornerRadius(4) };
-        placesPane.Bind(Border.BackgroundProperty, placesPane.GetResourceObservable("DeckGroupBrush"));
+        var placesPane = new Border { Padding = new Thickness(8), Classes = { "device-group" } };
         var placeBody = new Grid { RowDefinitions = new RowDefinitions("Auto,*"), RowSpacing = 8 };
         placeBody.Children.Add(new TextBlock
             { Text = "Places", Classes = { "eyebrow" }, Margin = new Thickness(8, 4) });
@@ -141,8 +140,7 @@ internal sealed class OverlayFilePicker : UserControl
         placeBody.Children.Add(placesScroller);
         placesPane.Child = placeBody;
         browser.Children.Add(placesPane);
-        var filesPane = new Border { Padding = new Thickness(8), CornerRadius = new CornerRadius(4) };
-        filesPane.Bind(Border.BackgroundProperty, filesPane.GetResourceObservable("DeckGroupBrush"));
+        var filesPane = new Border { Padding = new Thickness(8), Classes = { "device-group" } };
         var fileBody = new Grid { RowDefinitions = new RowDefinitions("Auto,*"), RowSpacing = 6 };
         var headings = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(16, 4) };
         headings.Children.Add(new TextBlock { Text = "Name", Classes = { "eyebrow" } });

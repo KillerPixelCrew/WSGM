@@ -6,193 +6,6 @@ using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Overlay;
 
-/// <summary>Stable top-level destinations in the quick access sheet, in strip order.</summary>
-internal enum OverlayDestination
-{
-    /// <summary>The pinned rows — the sheet's home and the Back target of every other root.</summary>
-    QuickAccess,
-    Steam,
-    Device,
-
-    /// <summary>System and storage tools (labelled "Tools").</summary>
-    System,
-
-    /// <summary>Wake, idle timeouts and the session-ending actions.</summary>
-    Power
-}
-
-/// <summary>Stable page identifiers used by the in-overlay navigation stack.</summary>
-internal enum OverlayPage
-{
-    QuickAccess,
-    Steam,
-
-    /// <summary>The Steam library category page.</summary>
-    SteamLibrary,
-
-    /// <summary>The per-game launch fixes category page.</summary>
-    SteamLaunchFixes,
-    SteamLibraryTabs,
-    SteamCardManager,
-
-    /// <summary>The Game Library: bring other launchers' games into Steam.</summary>
-    SteamGameLibrary,
-    SteamLaunchConfiguration,
-    SteamStorageFormat,
-    Device,
-    DeviceOverview,
-
-    /// <summary>Graphics controls supplied by common GPU plugins, independent of the device package.</summary>
-    DeviceGpu,
-    DeviceProfiles,
-    DevicePowerAndThermals,
-    DeviceControllerAndMotion,
-    DeviceOem,
-    DeviceLightingAndFeatures,
-    DeviceColor,
-    DeviceDiagnostics,
-
-    /// <summary>One plugin-declared Device section; the route carries which one.</summary>
-    DevicePluginSection,
-
-    System,
-
-    /// <summary>WSGM Settings, the Windows Task Manager and the UAC prompt policy.</summary>
-    SystemTools,
-
-    /// <summary>The frame limit, overlay and per-application profile rows, when Device is off.</summary>
-    SystemPerformance,
-
-    /// <summary>Removable storage actions.</summary>
-    SystemStorage,
-
-    /// <summary>Panel brightness and the display routes.</summary>
-    SystemDisplay,
-
-    /// <summary>Rows published by the enabled common plugins.</summary>
-    SystemPlugins,
-
-    /// <summary>The Steam themes: browse, install and manage CSS Loader themes.</summary>
-    SystemThemes,
-    SystemArtwork,
-
-    /// <summary>The boot movie: browse, download and choose what Big Picture starts with.</summary>
-    SystemAnimations,
-
-    /// <summary>Steam UI sound packs and previews.</summary>
-    SystemSounds,
-
-    /// <summary>The on-screen keyboard and the Steam Input handoff.</summary>
-    SystemController,
-
-    /// <summary>Version, licence and the people and projects WSGM thanks.</summary>
-    SystemAbout,
-    Power,
-
-    /// <summary>Keep Awake, the wake-lock list and the sign-in after standby.</summary>
-    PowerWake,
-
-    /// <summary>The display and standby idle timeouts.</summary>
-    PowerTimeouts,
-
-    /// <summary>Standby, hibernate, restart and shut down.</summary>
-    PowerActions,
-
-    /// <summary>
-    ///     Steam start/focus, desktop, Big Picture and Steam exit. A root tab of its own until
-    ///     2026-09-11: four buttons did not justify one, and they are lifecycle transitions, which
-    ///     is what the rest of Power is.
-    /// </summary>
-    PowerSession,
-    PowerWakeLocks,
-
-    /// <summary>The standalone emulator downloader and updater under Tools.</summary>
-    EmulatorManager,
-
-    /// <summary>User-configured desktop programs and their shared launch-or-focus actions.</summary>
-    Programs,
-
-    /// <summary>Structured game notebooks, ink and screenshot captures.</summary>
-    Notes,
-
-    /// <summary>The session's browser and guide lookup.</summary>
-    SystemBrowser,
-
-    /// <summary>Local image and scene screensaver sources.</summary>
-    Screensavers
-}
-
-/// <summary>The single action selected by Back/B after higher-priority UI has been considered.</summary>
-internal enum OverlayBackAction
-{
-    ClosePopup,
-    CloseDialog,
-    CloseSurface,
-    NestedBack,
-    FocusRail,
-    LeaveNestedPage,
-
-    /// <summary>Return to the Quick access root from another destination's root.</summary>
-    ReturnHome,
-    CloseOverlay
-}
-
-/// <summary>Snapshot of higher-priority UI consumed by the pure Back policy.</summary>
-/// <param name="PopupOpen">A dropdown or popup currently has priority.</param>
-/// <param name="DialogOpen">A dialog currently has priority.</param>
-/// <param name="SurfaceOpen">An in-window utility or keyboard is active.</param>
-/// <param name="NestedLevel">The current service view can consume one nested Back.</param>
-/// <param name="FocusInRail">Focus already rests in the persistent section rail.</param>
-/// <param name="RailCanTakeFocus">The current page has a section rail to return focus to.</param>
-internal readonly record struct OverlayBackContext(
-    bool PopupOpen,
-    bool DialogOpen,
-    bool SurfaceOpen = false,
-    bool NestedLevel = false,
-    bool FocusInRail = false,
-    bool RailCanTakeFocus = false);
-
-/// <summary>A navigation-stack entry with a semantic focus target for its caller.</summary>
-/// <param name="Page">Stable page identifier.</param>
-/// <param name="ReturnFocusKey">Optional semantic control key restored when returning from this route.</param>
-/// <param name="SectionId">Dynamic plugin/section identity where the page route requires one.</param>
-internal readonly record struct OverlayRoute(
-    OverlayPage Page,
-    string? ReturnFocusKey,
-    string? SectionId = null);
-
-/// <summary>Stable device section identity with distinct focus and persisted-pin encodings.</summary>
-/// <param name="Id">Unprefixed shared device-section identifier.</param>
-internal readonly record struct SectionKey(string Id)
-{
-    private const string FocusPrefix = "section.device.";
-    private const string PinPrefix = "device.section.";
-
-    /// <summary>Semantic focus key for the source section heading.</summary>
-    internal string FocusKey => FocusPrefix + Id;
-
-    /// <summary>Persisted Quick Access pin key for this section.</summary>
-    internal string PinKey => PinPrefix + Id;
-
-    /// <summary>Decodes a recognized focus or pin key.</summary>
-    /// <param name="key">A section.device. or device.section. prefixed key.</param>
-    /// <returns>The unprefixed section identity; unknown prefixes throw ArgumentException.</returns>
-    internal static SectionKey FromKey(string key)
-    {
-        if (key.StartsWith(FocusPrefix, StringComparison.Ordinal))
-        {
-            return new SectionKey(key[FocusPrefix.Length..]);
-        }
-
-        if (key.StartsWith(PinPrefix, StringComparison.Ordinal))
-        {
-            return new SectionKey(key[PinPrefix.Length..]);
-        }
-
-        throw new ArgumentException("Unknown device section key.", nameof(key));
-    }
-}
-
 /// <summary>
 ///     Owns top-level destination visibility and the nested-page stack without retaining
 ///     controls, device descriptors, or service generations.
@@ -343,15 +156,10 @@ internal sealed class OverlayNavigation
     }
 
     /// <summary>Chooses one Back action without mutating the stack or UI.</summary>
-    /// <param name="context">Current popup/dialog/surface, nested-level and rail state.</param>
+    /// <param name="context">Current dialog/surface, nested-level and rail state.</param>
     /// <returns>The highest-priority close, nested-navigation, rail or destination action.</returns>
     internal OverlayBackAction BackAction(OverlayBackContext context)
     {
-        if (context.PopupOpen)
-        {
-            return OverlayBackAction.ClosePopup;
-        }
-
         if (context.SurfaceOpen)
         {
             return OverlayBackAction.CloseSurface;
@@ -411,7 +219,7 @@ internal sealed class OverlayNavigation
                 or OverlayPage.SteamLibraryTabs or OverlayPage.SteamCardManager
                 or OverlayPage.SteamLaunchConfiguration
                 => OverlayDestination.Steam,
-            OverlayPage.Device or OverlayPage.DeviceOverview or OverlayPage.DeviceGpu or OverlayPage.DeviceProfiles
+            OverlayPage.Device or OverlayPage.DeviceOverview or OverlayPage.DeviceGpu
                 or OverlayPage.DevicePowerAndThermals or OverlayPage.DeviceControllerAndMotion
                 or OverlayPage.DeviceOem or OverlayPage.DeviceLightingAndFeatures
                 or OverlayPage.DeviceColor or OverlayPage.DeviceDiagnostics
@@ -434,37 +242,5 @@ internal sealed class OverlayNavigation
                 or OverlayPage.PowerWakeLocks => OverlayDestination.Power,
             _ => throw new ArgumentOutOfRangeException(nameof(page))
         };
-    }
-}
-
-/// <summary>Semantic focus and scroll state retained without keeping a page or control alive.</summary>
-/// <param name="SemanticKey">Stable control identity, or null when no row was focused.</param>
-/// <param name="ScrollOffset">Vertical scroll position in device-independent pixels.</param>
-internal readonly record struct OverlayFocusState(string? SemanticKey, double ScrollOffset);
-
-/// <summary>Stores bounded destination-local focus state across overlay window recreation.</summary>
-internal sealed class OverlayFocusMemory
-{
-    private readonly Dictionary<OverlayDestination, OverlayFocusState> _states = new();
-
-    /// <summary>Replaces one destination's semantic focus and scroll memory.</summary>
-    /// <param name="destination">Destination whose state is saved.</param>
-    /// <param name="semanticKey">Control identity; blank values become null.</param>
-    /// <param name="scrollOffset">Vertical DIP offset; negative values clamp to zero.</param>
-    internal void Remember(OverlayDestination destination, string? semanticKey, double scrollOffset)
-    {
-        _states[destination] = new OverlayFocusState(
-            string.IsNullOrWhiteSpace(semanticKey) ? null : semanticKey,
-            Math.Max(0, scrollOffset));
-    }
-
-    /// <summary>Reads remembered destination state without retaining controls.</summary>
-    /// <param name="destination">Destination being reopened.</param>
-    /// <returns>Saved state, or null focus and zero scroll when never recorded.</returns>
-    internal OverlayFocusState Recall(OverlayDestination destination)
-    {
-        return _states.TryGetValue(destination, out var state)
-            ? state
-            : new OverlayFocusState(null, 0);
     }
 }

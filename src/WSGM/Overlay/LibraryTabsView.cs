@@ -87,7 +87,7 @@ public sealed class LibraryTabsView : OverlaySubView
     ///     Loads config and renders the root tab list. Called by the overlay when
     ///     the sub-view opens.
     /// </summary>
-    public void Open()
+    public override void Open()
     {
         NavigationStack.Clear();
         CurrentLevel = null;

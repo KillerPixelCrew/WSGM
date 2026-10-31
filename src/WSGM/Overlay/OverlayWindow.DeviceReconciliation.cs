@@ -32,7 +32,7 @@ public partial class OverlayWindow
                              || previous.AuthoredProfile is null != current.AuthoredProfile is null
                              || previous.LightingProfile is null != current.LightingProfile is null
                              || previous.Recovery is null != current.Recovery is null
-                             || !CapabilityRowRenderer.SameRowLayouts(previous.Capabilities, current.Capabilities))
+                             || !DeviceOverlayCapability.SameLayouts(previous.Capabilities, current.Capabilities))
         {
             return false;
         }
@@ -63,10 +63,7 @@ public partial class OverlayWindow
     private void RefreshDeviceValues(Control root, DeviceOverlaySnapshot snapshot)
     {
         var performance = _performanceSource?.Snapshot();
-        var marker = snapshot.Capabilities.FirstOrDefault(capability =>
-                capability.Role == CapabilityRole.Telemetry && capability.Unit == CapabilityUnit.Celsius)?.CurrentValue
-            ?.IntegerValue;
-        CapabilityRowRenderer.RefreshValues(root, snapshot.Capabilities, marker);
+        CapabilityRowRenderer.RefreshValues(root, snapshot.Capabilities, DeviceTemperature(snapshot));
 
         foreach (var row in root.GetLogicalDescendants().OfType<DeviceSettingRow>())
         {

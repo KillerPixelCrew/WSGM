@@ -22,7 +22,6 @@ public partial class OverlayWindow
     private readonly Dictionary<string, FAInfoBadge> _sectionBadges = [];
     private readonly List<WorkspaceSection> _workspaceSections = [];
     private OverlayViewModel ViewModel => (OverlayViewModel)DataContext!;
-    private Dictionary<OverlayDestination, string> SelectedSections => _session.Sections;
 
     private Button? SelectedSectionButton => SectionRail.Children.OfType<Button>()
         .FirstOrDefault(button => button.Classes.Contains("selected"));
@@ -59,10 +58,7 @@ public partial class OverlayWindow
         };
         if (_navigation.Destination == OverlayDestination.Device)
         {
-            RefreshDeviceSectionRail(_deviceBridge?.Snapshot()
-                                     ?? new DeviceOverlaySnapshot(false, "Device integration off", string.Empty, null,
-                                         []),
-                _performanceSource?.Snapshot());
+            RefreshDeviceSectionRail(DeviceSnapshotOrOff(), _performanceSource?.Snapshot());
             return;
         }
 
@@ -70,7 +66,7 @@ public partial class OverlayWindow
         if (_navigation.Destination == OverlayDestination.QuickAccess)
         {
             sections.Add(new WorkspaceSection("quick-access", "Pinned controls", Icons.Pin,
-                OverlayPage.QuickAccess, null, null));
+                OverlayPage.QuickAccess, null));
         }
         else
         {
@@ -79,7 +75,7 @@ public partial class OverlayWindow
                                                         (view.Available?.Invoke() ?? true)))
             {
                 sections.Add(new WorkspaceSection(view.Page.ToString(), view.Title!,
-                    view.Icon, view.Page, null, null));
+                    view.Icon, view.Page, null));
             }
         }
 
@@ -95,14 +91,13 @@ public partial class OverlayWindow
 
         var entries = new List<WorkspaceSection>
         {
-            new("device.overview", "Overview", Icons.Gear, OverlayPage.Device, null, null)
+            new("device.overview", "Overview", Icons.Gear, OverlayPage.Device, null)
         };
         var sections = DeviceOverlaySectionPages.Build(snapshot, performance);
         entries.AddRange(sections.Select(entry =>
             new WorkspaceSection(DeviceOverlaySectionPages.FocusKey(entry), entry.Title,
-                SectionIconFor(entry.Icon) ?? Icons.ListLines, entry.Page, entry.PluginSectionId,
-                entry.PluginSectionId is null ? entry.Section : null)));
-        entries.Add(new WorkspaceSection("device.gpu", "GPU", Icons.Monitor, OverlayPage.DeviceGpu, null, null));
+                SectionIconFor(entry.Icon) ?? Icons.ListLines, entry.Page, entry.PluginSectionId)));
+        entries.Add(new WorkspaceSection("device.gpu", "GPU", Icons.Monitor, OverlayPage.DeviceGpu, null));
         ReconcileSectionRail(entries);
         foreach (var entry in sections)
         {
@@ -116,7 +111,7 @@ public partial class OverlayWindow
 
     private void ReconcileSectionRail(IReadOnlyList<WorkspaceSection> entries)
     {
-        var focusedKey = (FocusManager?.GetFocusedElement() as Control)?.Tag as string;
+        var focusedKey = CurrentSemanticFocusKey();
         // Values never participate in this comparison. Telemetry must not replace rail focus targets.
         if (!_workspaceSections.SequenceEqual(entries))
         {
@@ -162,7 +157,7 @@ public partial class OverlayWindow
             LeaveAllNestedPages();
         }
 
-        var selectedKey = SelectedSections.GetValueOrDefault(_navigation.Destination);
+        var selectedKey = _session.Sections.GetValueOrDefault(_navigation.Destination);
         if (selectedKey is not null && entries.All(entry => entry.Key != selectedKey)
                                     && entries.FirstOrDefault() is { } fallback)
         {
@@ -224,12 +219,12 @@ public partial class OverlayWindow
 
         LeaveAllNestedPages();
         _navigation.Select(_navigation.Destination);
-        SelectedSections[_navigation.Destination] = section.Key;
+        _session.Sections[_navigation.Destination] = section.Key;
         if (section.PluginSection is { } plugin)
         {
             EnterDevicePluginSection(plugin);
         }
-        else if (section.DeviceSection is { } device)
+        else if (DeviceOverlaySectionPages.SectionFor(section.Page) is { } device)
         {
             EnterDeviceSection(device);
         }
@@ -254,7 +249,7 @@ public partial class OverlayWindow
 
     private void SelectRememberedSection(bool focusRail)
     {
-        var remembered = SelectedSections.GetValueOrDefault(_navigation.Destination);
+        var remembered = _session.Sections.GetValueOrDefault(_navigation.Destination);
         var section = _workspaceSections.FirstOrDefault(item => item.Key == remembered)
                       ?? _workspaceSections.FirstOrDefault();
         if (section is not null)
@@ -273,7 +268,7 @@ public partial class OverlayWindow
         var selected = _workspaceSections.FirstOrDefault(section => section.Page == _navigation.Page
                                                                     && section.PluginSection == _navigation.SectionId)
                            ?.Key
-                       ?? SelectedSections.GetValueOrDefault(_navigation.Destination);
+                       ?? _session.Sections.GetValueOrDefault(_navigation.Destination);
         foreach (var button in SectionRail.Children.OfType<Button>())
         {
             button.Classes.Set("selected", Equals(button.Tag, "rail." + selected));
@@ -318,16 +313,10 @@ public partial class OverlayWindow
         ShowBrightnessSurface();
     }
 
-    private void OnHeaderKeyboard(object? sender, RoutedEventArgs e)
-    {
-        OnScreenKeyboard(sender, e);
-    }
-
     private sealed record WorkspaceSection(
         string Key,
         string Title,
         Geometry? Icon,
         OverlayPage Page,
-        string? PluginSection,
-        DeviceOverlaySection? DeviceSection);
+        string? PluginSection);
 }

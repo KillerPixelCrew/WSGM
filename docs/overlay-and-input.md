@@ -15,7 +15,7 @@ covers the other executables and libraries.
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Resident composition             | `Shell/Session/ShellSession.cs`, `Overlay/OverlaySources.cs`                                                                                                                | Supply the session's services; the window borrows them. `SimulatedDeviceOverlaySource` and `SimulatedGraphicsOverlaySource` provide preview publications.                                                     |
 | Overlay lifetime                 | `Overlay/OverlayController.cs` and `.Lease`, `.Apps`, `.Gestures`, `.Keyboard`, `.Power` partials                                                                           | Activation, capture claims, Steam Input claims, close deferral, focus return and pending-operation cancellation.                                                                                              |
-| Window and routes                | `Overlay/OverlayWindow.axaml`, `.axaml.cs`, `.Navigation`, `.Workspace`, `.Rail`, `.Placement`, `.Surfaces`                                                                 | Build the visual tree, select the display, fit scaling, remember sections and confine in-window surfaces. `OverlayNavigation.cs` holds route identities; the `SubViews` table declares parent/leave behavior. |
+| Window and routes                | `Overlay/OverlayWindow.axaml`, `.axaml.cs`, `.Navigation`, `.Workspace`, `.Rail`, `.Placement`, `.Surfaces`                                                                 | Build the visual tree, select the display, fit scaling, remember sections and confine in-window surfaces. `OverlayPage.cs` holds stable page identities; the `SubViews` table declares parent/leave behavior. |
 | Capability presentation          | `Overlay/OverlayWindow.Device*`, `.Graphics`, `.Performance`, `.Pins`, `CapabilityRowRenderer.cs`, `DescriptorControlView.cs`                                               | Reconcile descriptor rows and pinned sections; report user intent through the supplied device, graphics or performance bridge.                                                                                |
 | Utility and content presentation | `Overlay/StatusPanel.cs`, `RadioPanel`, `AudioPanel`, `EjectPanel`, `KeyboardPanel`, `ServiceSubView.cs`, `OverlaySubView.cs`                                               | Own transient presentation, nested navigation and subscriptions. `ThemesView`, `AnimationsView`, `SoundsView`, `ArtworkView` and `GameLibraryView` borrow durable services.                                   |
 | UI input                         | `Input/SdlGamepads.cs`, `GamepadService.cs`, `GamepadNavigation.cs`, `FocusSearch.cs`, `Overlay/OverlayInput.cs`                                                            | One SDL owner, UI sampling, edge/repeat decisions, focused-control dispatch and navigation.                                                                                                                   |
@@ -163,14 +163,13 @@ Graphics section and Built-in display section with a game override, a Global-onl
 after restart, a row that applies at the next game start, the frame rate limit and a row unavailable
 until variable refresh is on. Its writes change only that object.
 
-Per-application performance profiles belong to Device → Profiles. They are not a second detector and
-not a device-plugin feature: `PerformanceOverlayBridge` projects the session's one
-`PerformanceService` into closed rows. The value rows also sit beside the power controls on Device →
-Power and thermals, including when Device Integration is off. An identity-only Steam game stays
-visible as "executable pending", with its edits stored for that AppID until foreground observation
-supplies the RTSS profile. Descriptor and layout identity changes rebuild the affected rows; value
-publications update retained editors and readings in place. Profiles stays available whenever WSGM
-has profile rows.
+Per-application performance profiles are switched on at the top of the Device overview. They are not
+a second detector and not a device-plugin feature: `PerformanceOverlayBridge` projects the session's
+one `PerformanceService` into closed rows. The value rows sit beside the power controls on the
+Device overview and Power page, and under Tools → Performance while Device is unavailable. An
+identity-only Steam game stays visible as "executable pending", with its edits stored for that AppID
+until foreground observation supplies the RTSS profile. Descriptor and layout identity changes
+rebuild the affected rows; value publications update retained editors and readings in place.
 
 Device lighting color opens `DeviceColorView` rather than cycling an opaque integer in the row. The
 hue field, RGB sliders and exact `#RRGGBB` entry are staged locally, and only the explicit Apply row

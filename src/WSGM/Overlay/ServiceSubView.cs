@@ -59,7 +59,7 @@ public abstract class ServiceSubView : OverlaySubView
     }
 
     /// <summary>Opens the view on its home level.</summary>
-    public void Open()
+    public override void Open()
     {
         NavigationStack.Clear();
         CurrentLevel = null;

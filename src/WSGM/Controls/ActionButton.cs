@@ -122,6 +122,17 @@ public class ActionButton : Button
         set => SetValue(TrailingGlyphProperty, value);
     }
 
+    /// <summary>Copies the visible content of another row: title, description, icon and trailing hint.</summary>
+    /// <param name="source">The row to copy from; its state and callbacks are not copied.</param>
+    internal void CopyContentFrom(ActionButton source)
+    {
+        Title = source.Title;
+        Description = source.Description;
+        IconGeometry = source.IconGeometry;
+        TrailingText = source.TrailingText;
+        TrailingGlyph = source.TrailingGlyph;
+    }
+
     /// <inheritdoc />
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {

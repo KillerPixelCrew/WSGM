@@ -117,11 +117,11 @@ Shared controls live under `Controls\`: `TabStrip` (the destination bar), `Actio
 and `Icons` (stroke-style `StreamGeometry`). Stroke icons use `Fill={x:Null}` so their interior
 detail stays visible.
 
-Descriptor rows keep semantic ids independent of placement. The performance projection renders both
-as the Device → Profiles workflow and, for its value controls, beside Device power; the window adds
-a placement-specific focus prefix when it creates each `DescriptorControlView`. Do not clone state
-or command logic to place the same control twice: the descriptor and its bridge stay the one owner,
-and each rendered row keeps a stable focus key.
+Descriptor rows keep semantic ids independent of placement. The performance projection renders its
+per-application toggle at the top of the Device overview and its value controls beside Device power;
+the window adds a placement-specific focus prefix when it creates each `DescriptorControlView`. Do
+not clone state or command logic to place the same control twice: the descriptor and its bridge stay
+the one owner, and each rendered row keeps a stable focus key.
 
 Settings keeps its page controls alive and switches `IsVisible`, which preserves scroll position and
 recorder lifetime.

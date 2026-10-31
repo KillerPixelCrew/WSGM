@@ -39,13 +39,7 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
         }
 
         var scope = $"{plugin}:{coordinator.Power.ManualTdpUnified}";
-        var sameLayout = _rows.Count == snapshot.Capabilities.Count;
-        for (var i = 0; sameLayout && i < _rows.Count; i++)
-        {
-            sameLayout = _rows[i].SameLayoutAs(snapshot.Capabilities[i]);
-        }
-
-        if (_scope != scope || !sameLayout)
+        if (_scope != scope || !DeviceOverlayCapability.SameLayouts(_rows, snapshot.Capabilities))
         {
             _scope = scope;
             _generation++;

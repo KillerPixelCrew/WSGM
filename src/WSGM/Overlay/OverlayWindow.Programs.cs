@@ -1,8 +1,6 @@
 using System;
 using System.Linq;
-using System.Threading;
 using Avalonia.Controls;
-using Avalonia.Threading;
 using WSGM.Controls;
 using WSGM.Shell;
 
@@ -11,7 +9,6 @@ namespace WSGM.Overlay;
 public partial class OverlayWindow
 {
     private IProgramsSource? _programs;
-    private int _programRefreshQueued;
     internal event Action<string>? ProgramActivateRequested;
 
     internal void AttachPrograms(IProgramsSource? programs)
@@ -59,15 +56,8 @@ public partial class OverlayWindow
         var state = _programs?.ReadState().FirstOrDefault(item => item.Definition.Id == id);
         if (state is { CanLaunch: false, Running: false })
         {
-            if (_navigation.Destination != OverlayDestination.System)
+            if (OpenToolsSection(OverlayPage.Programs))
             {
-                SelectDestination(OverlayDestination.System);
-            }
-
-            var section = _workspaceSections.FirstOrDefault(item => item.Page == OverlayPage.Programs);
-            if (section is not null)
-            {
-                SelectWorkspaceSection(section, false);
                 ProgramsHost.OpenEditor(id);
                 FocusFirstControl(ProgramsHost);
             }
@@ -92,19 +82,7 @@ public partial class OverlayWindow
 
     private void OnProgramsChanged()
     {
-        if (Interlocked.Exchange(ref _programRefreshQueued, 1) != 0)
-        {
-            return;
-        }
-
-        Dispatcher.UIThread.Post(() =>
-        {
-            Interlocked.Exchange(ref _programRefreshQueued, 0);
-            if (!_closed)
-            {
-                RenderPins();
-            }
-        }, DispatcherPriority.Background);
+        QueueLiveRefresh(ProgramsLiveRefresh);
     }
 
     private Control CreateProgramPin(string pin)

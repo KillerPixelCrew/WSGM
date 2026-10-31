@@ -9,46 +9,13 @@ using WSGM.Shell;
 namespace WSGM.Overlay;
 
 /// <summary>
-///     The capability-row rules the Device, Graphics and pinned sections share: what makes a row's layout
-///     change, how readings group, how values refresh in place and which published row a commit may use.
+///     The capability-row rules the Device, Graphics and pinned sections share: how readings
+///     group, how values refresh in place and which published row a commit may use.
 /// </summary>
 internal static class CapabilityRowRenderer
 {
     // Marks the wrapping strip consecutive readings share. Not a string, so no focus or pin lookup sees it.
     private static readonly object ReadingsTag = new();
-
-    /// <summary>Whether a republished row can keep its control, so focus and drafts survive.</summary>
-    /// <remarks>Values never take part; a title, writability or category change still rebuilds the row.</remarks>
-    /// <param name="before">Descriptor currently represented by the mounted control.</param>
-    /// <param name="after">New published descriptor.</param>
-    /// <returns>True when identity and layout fields match; values are ignored.</returns>
-    internal static bool SameRowLayout(DeviceOverlayCapability before, DeviceOverlayCapability after)
-    {
-        return before.SameLayoutAs(after);
-    }
-
-    /// <summary>Whether two row lists keep their controls, row by row.</summary>
-    /// <param name="before">Mounted rows in display order.</param>
-    /// <param name="after">New published rows in display order.</param>
-    /// <returns>True when counts and every corresponding row layout match.</returns>
-    internal static bool SameRowLayouts(IReadOnlyList<DeviceOverlayCapability> before,
-        IReadOnlyList<DeviceOverlayCapability> after)
-    {
-        if (before.Count != after.Count)
-        {
-            return false;
-        }
-
-        for (var index = 0; index < after.Count; index++)
-        {
-            if (!SameRowLayout(before[index], after[index]))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
 
     /// <summary>
     ///     The published row a commit or action may use: the same row the user saw, still invokable and
@@ -68,7 +35,7 @@ internal static class CapabilityRowRenderer
                                                             && candidate.CapabilityId == seen.CapabilityId
                                                             && candidate.InstanceId == seen.InstanceId);
         return current is { CanInvoke: true }
-               && SameRowLayout(current, seen)
+               && current.SameLayoutAs(seen)
             ? current
             : null;
     }

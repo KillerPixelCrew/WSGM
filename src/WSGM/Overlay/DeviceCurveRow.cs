@@ -64,7 +64,6 @@ internal sealed class DeviceCurveRow : Border
         _commit = new DispatcherTimer { Interval = CommitDelay };
         _commit.Tick += OnCommitTick;
 
-        Classes.Add("tile");
         Tag = key;
 
         _editor = new CurveEditor
@@ -97,7 +96,6 @@ internal sealed class DeviceCurveRow : Border
         _presets = BuildPresets(key, enabled);
         body.Children.Add(_presets);
         Child = body;
-        Classes.Remove("tile");
         DetachedFromVisualTree += (_, _) => CommitPendingChange();
     }
 

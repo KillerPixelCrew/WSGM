@@ -127,7 +127,7 @@
                 </Button>
                 <Border Width="1" Height="24" Background="{StaticResource DeckDividerBrush}" Margin="6,0" />
                 <Button x:Name="KeyboardButton" Classes="pill" AutomationProperties.Name="On-screen keyboard"
-                        ToolTip.Tip="On-screen keyboard" Click="OnHeaderKeyboard">
+                        ToolTip.Tip="On-screen keyboard" Click="OnScreenKeyboard">
                   <Path Classes="status-icon" Data="{x:Static c:Icons.Keyboard}" Width="20" Stretch="Uniform" />
                 </Button>
                 <Border x:Name="BatteryStatus" Classes="pill-static" IsVisible="{Binding HasBattery}">
@@ -207,13 +207,15 @@
               <TextBlock Text="Steam integration is turned off in Settings."
                          Classes="caption"
                          IsVisible="{Binding !ShowSteamLibrarySection}" />
-              <c:ActionButton Click="OnLibraryTabs"
+              <c:ActionButton Click="OnEnterCategory"
+                            CommandParameter="{x:Static ov:OverlayPage.SteamLibraryTabs}"
                             Tag="steam.library-tabs"
                             IsVisible="{Binding ShowLibraryTabs}"
                             IconGeometry="{x:Static c:Icons.SteamLike}"
                             Title="Library Tabs"
                             Description="Custom filter tabs and genres" />
-              <c:ActionButton Click="OnCardManager"
+              <c:ActionButton Click="OnEnterCategory"
+                            CommandParameter="{x:Static ov:OverlayPage.SteamCardManager}"
                             Tag="steam.card-manager"
                             IsVisible="{Binding ShowCardManager}"
                             IconGeometry="{x:Static c:Icons.SdCard}"
@@ -321,8 +323,7 @@
                               Title="Name (volume and Steam library)"
                               Description="Games" />
                 <StackPanel Orientation="Horizontal" Spacing="8">
-                  <Button x:Name="FormatConfirmButton"
-                          Classes="danger"
+                  <Button Classes="danger"
                           Content="Erase and format"
                           Click="OnFormatConfirmed" />
                   <Button Content="Cancel" Click="OnFormatCancel" />
@@ -340,8 +341,7 @@
                              TextWrapping="Wrap"
                              VerticalAlignment="Center" />
                 </StackPanel>
-                <Button x:Name="FormatDoneButton"
-                        Content="Done"
+                <Button Content="Done"
                         Click="OnFormatCancel"
                         IsVisible="{Binding Progress.NotBusy}"
                         HorizontalAlignment="Stretch" />
@@ -482,7 +482,7 @@
                             IconGeometry="{x:Static c:Icons.Wrench}"
                             Title="Plugins"
                             Description="Controls published by the enabled common plugins" />
-              <c:ActionButton Classes="tile" Click="OnGameLibrary"
+              <c:ActionButton Classes="tile" Click="OnEnterCategory"
                             Tag="system.game-library"
                             CommandParameter="{x:Static ov:OverlayPage.SteamGameLibrary}"
                             IsVisible="{Binding ShowGameLibrary}"
@@ -502,7 +502,7 @@
                             CommandParameter="{x:Static ov:OverlayPage.Screensavers}"
                             IconGeometry="{x:Static c:Icons.Monitor}" Title="Screensavers"
                             Description="Local image folders and scene packs" />
-              <c:ActionButton x:Name="EmulatorManagerTile" Classes="tile" Click="OnEnterCategory"
+              <c:ActionButton Classes="tile" Click="OnEnterCategory"
                             CommandParameter="{x:Static ov:OverlayPage.EmulatorManager}"
                             Tag="system.emulator-manager"
                             IsVisible="{Binding ShowEmulators}"
@@ -513,21 +513,21 @@
               <c:ActionButton Classes="tile" Click="OnEnterCategory"
                             CommandParameter="{x:Static ov:OverlayPage.SystemArtwork}" IsVisible="{Binding ShowArtwork}"
                             IconGeometry="{x:Static c:Icons.Palette}" Title="Steam Artwork Changer" />
-              <c:ActionButton Classes="tile" Click="OnThemes" CommandParameter="{x:Static ov:OverlayPage.SystemThemes}"
+              <c:ActionButton Classes="tile" Click="OnEnterCategory" CommandParameter="{x:Static ov:OverlayPage.SystemThemes}"
                             Tag="system.themes"
                             IsVisible="{Binding ShowThemes}"
                             Margin="0,0,10,10"
                             IconGeometry="{x:Static c:Icons.Palette}"
                             Title="CSS Loader"
                             Description="Restyle Big Picture with CSS Loader themes from DeckThemes" />
-              <c:ActionButton Classes="tile" Click="OnAnimations" CommandParameter="{x:Static ov:OverlayPage.SystemAnimations}"
+              <c:ActionButton Classes="tile" Click="OnEnterCategory" CommandParameter="{x:Static ov:OverlayPage.SystemAnimations}"
                             Tag="system.animations"
                             IsVisible="{Binding ShowAnimations}"
                             Margin="0,0,10,10"
                             IconGeometry="{x:Static c:Icons.Play}"
                             Title="Video Switcher"
                             Description="The boot movie, from SteamDeckRepo or your own" />
-              <c:ActionButton Classes="tile" Click="OnSounds" CommandParameter="{x:Static ov:OverlayPage.SystemSounds}"
+              <c:ActionButton Classes="tile" Click="OnEnterCategory" CommandParameter="{x:Static ov:OverlayPage.SystemSounds}"
                             Tag="system.sounds" IsVisible="{Binding ShowSounds}" Margin="0,0,10,10"
                             IconGeometry="{x:Static c:Icons.Play}" Title="Sounds"
                             Description="Install, preview and select Steam UI sound packs" />
@@ -566,12 +566,8 @@
                          RTSS lifetime and state; this window only observes and invokes rows. -->
             <StackPanel x:Name="PanelSystemPerformance" Spacing="10" IsVisible="False"
                         HorizontalAlignment="Stretch">
+              <!-- Attaching the performance source adds the section heading and folds the rows. -->
               <StackPanel x:Name="PerformanceSection" Spacing="4" IsVisible="False">
-                <TextBlock Text="PERFORMANCE" Classes="eyebrow" Margin="2,0,2,2" />
-                <TextBlock x:Name="PerformanceStatus"
-                           Classes="caption"
-                           TextWrapping="Wrap"
-                           Margin="2,0,2,2" />
                 <StackPanel x:Name="PerformanceRows" Spacing="4" />
               </StackPanel>
             </StackPanel>
@@ -707,12 +703,12 @@
                             Title="{Binding DesktopButtonText}"
                             Description="Show or hide the Windows desktop"
                             IsVisible="{Binding ModeSwitchAvailable}" />
-              <c:ActionButton x:Name="ExitBigPictureButton" Click="OnExitBigPicture"
+              <c:ActionButton Click="OnExitBigPicture"
                             Tag="home.exit-big-picture"
                             IconGeometry="{x:Static c:Icons.ExitFullscreen}"
                             Title="Exit Big Picture"
                             Description="Switch Steam to its desktop window" />
-              <c:ActionButton x:Name="CloseLauncherButton" Click="OnCloseLauncher"
+              <c:ActionButton Click="OnCloseLauncher"
                             Tag="home.close-steam"
                             IsVisible="{Binding HomeAppAlive}"
                             IconGeometry="{x:Static c:Icons.Close}"
@@ -725,7 +721,8 @@
               <StackPanel x:Name="KeepAwakeHost" IsVisible="{Binding ShowKeepAwake}" Spacing="8">
                 <TextBlock x:Name="KeepAwakeDetail" Classes="caption" TextWrapping="Wrap" />
               </StackPanel>
-              <c:ActionButton Click="OnShowWakeLockHolders"
+              <c:ActionButton Click="OnEnterCategory"
+                            CommandParameter="{x:Static ov:OverlayPage.PowerWakeLocks}"
                             Tag="system.wake-locks"
                             IconGeometry="{x:Static c:Icons.ListLines}"
                             Title="What's keeping this awake"
@@ -743,7 +740,8 @@
               <Button Content="Open power menu" Classes="deck-action" Click="OnOpenPowerMenu" />
               <c:ActionButton x:Name="SignOutButton" Title="Sign out" Description="End the current Windows session"
                               IconGeometry="{x:Static c:Icons.SignOut}"
-                              Click="OnSignOut" />
+                              Click="OnConfirmedPowerAction"
+                              CommandParameter="{x:Static core:SessionPowerAction.SignOut}" />
               <TextBlock Text="POWER" Classes="eyebrow" Margin="2,0,2,2" />
               <c:ActionButton Click="OnStandby"
                             Tag="system.standby"
@@ -755,12 +753,14 @@
                             IconGeometry="{x:Static c:Icons.Snowflake}"
                             Title="Hibernate"
                             Description="Save the session to disk and power off" />
-              <c:ActionButton x:Name="RestartButton" Click="OnRestart"
+              <c:ActionButton x:Name="RestartButton" Click="OnConfirmedPowerAction"
+                            CommandParameter="{x:Static core:SessionPowerAction.Restart}"
                             Tag="system.restart"
                             IconGeometry="{x:Static c:Icons.Restart}"
                             Title="Restart"
                             Description="Restart Windows" />
-              <c:ActionButton x:Name="ShutdownButton" Classes="danger" Click="OnShutdown"
+              <c:ActionButton x:Name="ShutdownButton" Classes="danger" Click="OnConfirmedPowerAction"
+                            CommandParameter="{x:Static core:SessionPowerAction.Shutdown}"
                             Tag="system.shutdown"
                             IconGeometry="{x:Static c:Icons.Power}"
                             Title="Shut down"

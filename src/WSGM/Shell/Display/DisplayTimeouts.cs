@@ -23,8 +23,8 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
 {
     private static readonly (string Row, PowerTimeoutKind Kind, string Label)[] Rows =
     [
-        ("battery", PowerTimeoutKind.DisplayDc, "Turn display off after (on battery)"),
-        ("plugged-in", PowerTimeoutKind.DisplayAc, "Turn display off after (plugged in)")
+        ("battery", PowerTimeoutKind.DisplayDc, PowerTimeouts.Label(PowerTimeoutKind.DisplayDc)),
+        ("plugged-in", PowerTimeoutKind.DisplayAc, PowerTimeouts.Label(PowerTimeoutKind.DisplayAc))
     ];
 
     private readonly Lock _gate = new();

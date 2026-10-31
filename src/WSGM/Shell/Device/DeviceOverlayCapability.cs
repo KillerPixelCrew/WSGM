@@ -111,4 +111,27 @@ internal sealed record DeviceOverlayCapability(
                && Prominence == other.Prominence && LayoutPair == other.LayoutPair && SortOrder == other.SortOrder
                && Title == other.Title && CategoryId == other.CategoryId && PluginSectionId == other.PluginSectionId;
     }
+
+    /// <summary>Whether two row lists keep their controls, row by row.</summary>
+    /// <param name="before">Mounted rows in display order.</param>
+    /// <param name="after">New published rows in display order.</param>
+    /// <returns>True when counts and every corresponding row layout match; values are ignored.</returns>
+    internal static bool SameLayouts(IReadOnlyList<DeviceOverlayCapability> before,
+        IReadOnlyList<DeviceOverlayCapability> after)
+    {
+        if (before.Count != after.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < after.Count; index++)
+        {
+            if (!before[index].SameLayoutAs(after[index]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 }

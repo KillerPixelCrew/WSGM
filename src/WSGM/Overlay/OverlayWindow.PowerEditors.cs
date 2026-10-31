@@ -40,15 +40,7 @@ public partial class OverlayWindow
 
         foreach (var kind in Enum.GetValues<PowerTimeoutKind>())
         {
-            var title = kind switch
-            {
-                PowerTimeoutKind.DisplayDc => "Screen off · battery",
-                PowerTimeoutKind.DisplayAc => "Screen off · plugged in",
-                PowerTimeoutKind.SleepDc => "Standby · battery",
-                PowerTimeoutKind.SleepAc => "Standby · plugged in",
-                PowerTimeoutKind.HibernateDc => "Hibernate · battery",
-                _ => "Hibernate · plugged in"
-            };
+            var title = PowerTimeouts.Label(kind);
             var hibernate = kind is PowerTimeoutKind.HibernateDc or PowerTimeoutKind.HibernateAc;
             var editor = new ComboBox { MinWidth = 150, HorizontalAlignment = HorizontalAlignment.Stretch };
             _timeoutEditors.Add(kind, editor);

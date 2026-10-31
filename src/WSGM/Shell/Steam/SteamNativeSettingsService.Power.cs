@@ -45,17 +45,17 @@ internal sealed partial class SteamNativeSettingsService
         if (displayTimeouts is not null)
         {
             List<SteamSettingsRow> rows = [];
-            SleepTimeout(PowerTimeoutKind.SleepDc, "standby-battery", "Standby after (on battery)",
+            SleepTimeout(PowerTimeoutKind.SleepDc, "standby-battery",
                 "Idle time before the device enters standby.");
-            SleepTimeout(PowerTimeoutKind.SleepAc, "standby-plugged-in", "Standby after (plugged in)",
+            SleepTimeout(PowerTimeoutKind.SleepAc, "standby-plugged-in",
                 "Idle time before the device enters standby.");
-            SleepTimeout(PowerTimeoutKind.HibernateDc, "hibernate-battery", "Hibernate after (on battery)",
+            SleepTimeout(PowerTimeoutKind.HibernateDc, "hibernate-battery",
                 "Time in standby before the device hibernates. Only the power button wakes it.");
-            SleepTimeout(PowerTimeoutKind.HibernateAc, "hibernate-plugged-in", "Hibernate after (plugged in)",
+            SleepTimeout(PowerTimeoutKind.HibernateAc, "hibernate-plugged-in",
                 "Time in standby before the device hibernates. Only the power button wakes it.");
             Section(power, "Sleep and hibernation", "sleep", rows);
 
-            void SleepTimeout(PowerTimeoutKind kind, string id, string label, string description)
+            void SleepTimeout(PowerTimeoutKind kind, string id, string description)
             {
                 // An unreadable value, or a hibernate timeout on a machine that cannot hibernate, is not offered.
                 if (displayTimeouts.Read(kind) is not { } current)
@@ -63,8 +63,8 @@ internal sealed partial class SteamNativeSettingsService
                     return;
                 }
 
-                offer.Add(rows, new SteamSettingsRow("power.timeout-" + id, SteamSettingsRowKind.Choice, label,
-                        description, Text: current.ToString(CultureInfo.InvariantCulture),
+                offer.Add(rows, new SteamSettingsRow("power.timeout-" + id, SteamSettingsRowKind.Choice,
+                        PowerTimeouts.Label(kind), description, Text: current.ToString(CultureInfo.InvariantCulture),
                         Choices:
                         [
                             .. DisplayTimeoutPolicy.Choices(current, null).Select(seconds =>

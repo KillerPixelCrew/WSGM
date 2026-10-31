@@ -14,6 +14,7 @@ using Avalonia.Media;
 using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Core;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Input;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
@@ -529,15 +530,18 @@ internal sealed class CommonPluginPanel : StackPanel
     {
         return key switch
         {
-            "power" => Icons.Power,
-            "fan" => Icons.Snowflake,
-            "battery" => Icons.Battery,
-            "lighting" => Icons.Palette,
-            "controller" => Icons.Grid4,
-            "display" => Icons.Monitor,
             "settings" => Icons.Gear,
             "action" => Icons.Play,
-            _ => null
+            _ => OverlayWindow.SectionIconFor(key switch
+            {
+                "power" => SectionIcon.Power,
+                "fan" => SectionIcon.Fan,
+                "battery" => SectionIcon.Battery,
+                "lighting" => SectionIcon.Lighting,
+                "controller" => SectionIcon.Controller,
+                "display" => SectionIcon.Display,
+                _ => SectionIcon.None
+            })
         };
     }
 

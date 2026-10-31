@@ -176,7 +176,7 @@ public sealed partial class GameLibraryView
                 var card = PreviewCard(id, slot?.Thumb, entry.Name, description,
                     () => OpenEntry(id, order));
                 card.Tag = "card:" + id;
-                card.Opacity = GameLibraryRows.IsUnavailable(entry) ? 0.55 : 1;
+                card.Opacity = entry.Unavailable ? 0.55 : 1;
                 cards.Children.Add(card);
             }
             else

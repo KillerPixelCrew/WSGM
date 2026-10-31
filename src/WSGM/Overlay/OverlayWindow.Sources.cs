@@ -1,7 +1,6 @@
 using System;
 using System.Linq;
 using Avalonia.Controls;
-using Avalonia.Interactivity;
 using Avalonia.Threading;
 using WSGM.Controls;
 using WSGM.Core;
@@ -11,10 +10,37 @@ namespace WSGM.Overlay;
 
 public partial class OverlayWindow
 {
-    internal void AttachLibraryManager(LibraryManagerService? manager)
+    /// <summary>Attaches the session services the sheet shows, without taking over their lifetimes.</summary>
+    /// <param name="sources">The session's services; a null one hides or empties its page.</param>
+    /// <remarks>
+    ///     Brightness and the manual power mode attach separately, with the controller's preview rules, and the
+    ///     controller connects Notes to its screenshot capture.
+    /// </remarks>
+    internal void AttachSources(OverlaySources sources)
     {
-        LibraryTabsHost.Attach(manager);
-        CardManagerHost.Attach(manager);
+        AttachDeviceBridge(sources.Device);
+        AttachGraphicsSource(sources.Graphics);
+        AttachDevicePrerequisites(sources.DevicePrerequisites);
+        AttachCommonPlugins(sources.CommonPlugins);
+        GameLibraryHost.Attach(sources.GameLibrary);
+        EmulatorManagerHost.Attach(sources.Emulators);
+        ViewModel.ShowEmulators = sources.Emulators is not null;
+        AttachPrograms(sources.Programs);
+        AttachLaunchActions(sources.LaunchActions);
+        LibraryTabsHost.Attach(sources.LibraryManager);
+        CardManagerHost.Attach(sources.LibraryManager);
+        ScreensaversHost.Attach(sources.Screensavers);
+        if (sources.Browser is { } browser)
+        {
+            AttachBrowserSession(browser);
+        }
+
+        ThemesHost.Attach(sources.Themes);
+        AnimationsHost.Attach(sources.Animations);
+        SoundsHost.Attach(sources.Sounds, _session.ExpandedSections);
+        ArtworkHost.Attach(sources.Artwork);
+        AttachPerformanceSource(sources.Performance);
+        RefreshWorkspace();
     }
 
     internal void AttachPowerPresets(DevicePowerPresetSelection selection)
@@ -42,15 +68,26 @@ public partial class OverlayWindow
         DevicePowerPresetContainer.Tag = "section.device.power-presets";
         DevicePowerPresetContainer.Children.Insert(0,
             CreateSectionHeader("section.device.power-presets", "Power assignments"));
-        _controlPinFactories["section.device.power-presets"] = ("Power assignments", () =>
-                {
-                    DevicePowerPresetView view = new();
-                    view.Attach(selection);
-                    view.DetachedFromVisualTree += (_, _) => view.Attach(null);
-                    return view;
-                }
-            );
+        _controlPinFactories["section.device.power-presets"] = ("Power assignments",
+            AttachedPin<DevicePowerPresetView, DevicePowerPresetSelection>(selection,
+                (view, model) => view.Attach(model)));
         RenderPins();
+    }
+
+    /// <summary>A pinned copy of a view that follows a shared selection while it is in the tree.</summary>
+    /// <param name="selection">The selection every copy shares.</param>
+    /// <param name="attach">Attaches a view to the selection, or detaches it with null.</param>
+    /// <returns>The pin factory.</returns>
+    private static Func<Control> AttachedPin<TView, TSelection>(TSelection selection,
+        Action<TView, TSelection?> attach) where TView : Control, new() where TSelection : class
+    {
+        return () =>
+        {
+            TView view = new();
+            attach(view, selection);
+            view.DetachedFromVisualTree += (_, _) => attach(view, null);
+            return view;
+        };
     }
 
     internal void AttachManualTdp(DeviceCoordinator coordinator)
@@ -58,11 +95,12 @@ public partial class OverlayWindow
         ManualTdpHost.Tag = "section.device.manual-tdp";
         ManualTdpHost.Children.Add(CreateSectionHeader("section.device.manual-tdp", "Manual power mode"));
         var view = Create();
+        // The device refresh owns the host's visibility, which also depends on the snapshot and decides the card's.
         view.PropertyChanged += (_, change) =>
         {
             if (change.Property == IsVisibleProperty)
             {
-                ManualTdpHost.IsVisible = view.IsVisible;
+                OnDeviceChanged();
             }
         };
         ManualTdpHost.Children.Add(view);
@@ -129,14 +167,8 @@ public partial class OverlayWindow
         DevicePowerSchemeHeading.Children.Clear();
         DevicePowerSchemeHeading.Children.Add(
             CreateSectionHeader("section.system.power-profile", "Windows energy plan"));
-        _controlPinFactories["section.system.power-profile"] = ("Windows energy plan", () =>
-                {
-                    PowerSchemeView view = new();
-                    view.Attach(selection);
-                    view.DetachedFromVisualTree += (_, _) => view.Attach(null);
-                    return view;
-                }
-            );
+        _controlPinFactories["section.system.power-profile"] = ("Windows energy plan",
+            AttachedPin<PowerSchemeView, PowerSchemeSelection>(selection, (view, model) => view.Attach(model)));
         RefreshDevicePanel();
     }
 
@@ -150,95 +182,20 @@ public partial class OverlayWindow
         DeviceHybridCoreHost.Attach(selection);
         DeviceHybridCoreHost.Tag = "section.system.processor-cores";
         DeviceHybridCores.Header = CreateSectionHeader("section.system.processor-cores", "Processor cores");
-        _controlPinFactories["section.system.processor-cores"] = ("Processor cores", () =>
-                {
-                    HybridCoreView view = new();
-                    view.Attach(selection);
-                    view.DetachedFromVisualTree += (_, _) => view.Attach(null);
-                    return view;
-                }
-            );
+        _controlPinFactories["section.system.processor-cores"] = ("Processor cores",
+            AttachedPin<HybridCoreView, HybridCoreSelection>(selection, (view, model) => view.Attach(model)));
         RefreshDevicePanel();
     }
 
     /// <summary>Raised when the user requests to start or focus the home application.</summary>
     public event Action? HomeAppRequested;
 
-    /// <summary>Gives the Game Library view this session's library, or hides it without one.</summary>
-    /// <param name="library">The library, or null in overlay-test.</param>
-    internal void AttachGameLibrary(GameLibraryService? library)
-    {
-        GameLibraryHost.Attach(library);
-        RefreshWorkspace();
-    }
-
-    internal void AttachEmulators(IEmulatorBackend? emulators)
-    {
-        EmulatorManagerHost.Attach(emulators);
-        ViewModel.ShowEmulators = emulators is not null;
-        RefreshWorkspace();
-    }
-
     private void OpenEmulators()
     {
-        if (!ViewModel.ShowEmulators)
+        if (ViewModel.ShowEmulators)
         {
-            return;
+            OpenToolsSection(OverlayPage.EmulatorManager);
         }
-
-        if (_navigation.Destination != OverlayDestination.System)
-        {
-            SelectDestination(OverlayDestination.System);
-        }
-
-        var section = _workspaceSections.FirstOrDefault(item => item.Page == OverlayPage.EmulatorManager);
-        if (section is not null)
-        {
-            SelectWorkspaceSection(section, false);
-        }
-    }
-
-    /// <summary>Gives the Themes view this session's themes, or hides it without them.</summary>
-    /// <param name="themes">The themes, or null in overlay-test.</param>
-    internal void AttachThemes(ThemeService? themes)
-    {
-        ThemesHost.Attach(themes);
-    }
-
-    /// <summary>Opens the Themes sub-view on its current state.</summary>
-    private void OnThemes(object? sender, RoutedEventArgs e)
-    {
-        EnterSubView(OverlayPage.SystemThemes);
-    }
-
-
-    /// <summary>Gives the Animations view this session's animations, or hides it without them.</summary>
-    /// <param name="animations">The animations, or null in overlay-test.</param>
-    internal void AttachAnimations(AnimationService? animations)
-    {
-        AnimationsHost.Attach(animations);
-    }
-
-    internal void AttachSounds(SoundPackService? sounds)
-    {
-        SoundsHost.Attach(sounds, _session.ExpandedSections);
-    }
-
-    private void OnSounds(object? sender, RoutedEventArgs e)
-    {
-        EnterSubView(OverlayPage.SystemSounds);
-    }
-
-    /// <summary>Opens the Animations sub-view on its current state.</summary>
-    private void OnAnimations(object? sender, RoutedEventArgs e)
-    {
-        EnterSubView(OverlayPage.SystemAnimations);
-    }
-
-
-    internal void AttachArtwork(ArtworkBrowser? artwork)
-    {
-        ArtworkHost.Attach(artwork);
     }
 
     private void OpenImportedArtwork(uint appId, string title)
@@ -394,7 +351,7 @@ public partial class OverlayWindow
         PerformanceSection.Tag = "section.performance";
         if (PerformanceSection.Children.FirstOrDefault() is not CollapsibleSection)
         {
-            PerformanceSection.Children[0] = CreateSectionHeader("section.performance", "Performance");
+            PerformanceSection.Children.Insert(0, CreateSectionHeader("section.performance", "Performance"));
             FoldStaticSections();
         }
 

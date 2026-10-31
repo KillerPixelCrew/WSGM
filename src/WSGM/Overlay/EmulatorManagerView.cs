@@ -299,8 +299,7 @@ public sealed partial class EmulatorManagerView : ServiceSubView
             + installation.Integrity + "\n" + installation.ExecutablePath + "\nData: " + installation.DataPath));
         var shortcut = Group(body, "Steam shortcut", "steam-shortcut");
         shortcut.IsEnabled = !progress.Busy;
-        shortcut.Children.Add(ChoiceRow("Show emulator in Steam", new[] { (false, "Off"), (true, "On") },
-            installation.SteamShortcutEnabled,
+        shortcut.Children.Add(ToggleRow("Show emulator in Steam", installation.SteamShortcutEnabled,
             enabled => Run(token => _service!.SetEmulatorShortcutAsync(installationId, enabled,
                 installation.SteamShortcutLaunchMode, token))));
         shortcut.Children.Add(ChoiceRow("Launch mode", new[]

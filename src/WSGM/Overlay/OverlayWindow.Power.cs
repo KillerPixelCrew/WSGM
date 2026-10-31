@@ -17,12 +17,6 @@ public partial class OverlayWindow
     /// </summary>
     internal event Action<SessionPowerAction>? PowerActionRequested;
 
-    private void OnShowWakeLockHolders(object? sender, RoutedEventArgs e)
-    {
-        WakeLockHost.Open();
-        EnterSubView(OverlayPage.PowerWakeLocks);
-    }
-
     private void OnHomeApp(object? sender, RoutedEventArgs e)
     {
         HomeAppRequested?.Invoke();
@@ -79,37 +73,27 @@ public partial class OverlayWindow
         }) as IBrush;
     }
 
-    private void OnRestart(object? sender, RoutedEventArgs e)
+    /// <summary>Restart, shut down and sign out, named by the row's CommandParameter; each needs a second press.</summary>
+    private void OnConfirmedPowerAction(object? sender, RoutedEventArgs e)
     {
-        if (!Confirm(PowerConfirm.Restart))
+        if (sender is not Button { CommandParameter: SessionPowerAction action })
+        {
+            return;
+        }
+
+        var confirm = action switch
+        {
+            SessionPowerAction.Restart => PowerConfirm.Restart,
+            SessionPowerAction.Shutdown => PowerConfirm.Shutdown,
+            _ => PowerConfirm.SignOut
+        };
+        if (!Confirm(confirm))
         {
             return;
         }
 
         Dismissed?.Invoke();
-        PowerActionRequested?.Invoke(SessionPowerAction.Restart);
-    }
-
-    private void OnShutdown(object? sender, RoutedEventArgs e)
-    {
-        if (!Confirm(PowerConfirm.Shutdown))
-        {
-            return;
-        }
-
-        Dismissed?.Invoke();
-        PowerActionRequested?.Invoke(SessionPowerAction.Shutdown);
-    }
-
-    private void OnSignOut(object? sender, RoutedEventArgs e)
-    {
-        if (!Confirm(PowerConfirm.SignOut))
-        {
-            return;
-        }
-
-        Dismissed?.Invoke();
-        PowerActionRequested?.Invoke(SessionPowerAction.SignOut);
+        PowerActionRequested?.Invoke(action);
     }
 
     /// <summary>Arms an action on its first press and lets the second press through.</summary>

@@ -39,15 +39,6 @@ public partial class OverlayWindow
         QueueLiveRefresh(DeviceLiveRefresh);
     }
 
-    /// <summary>
-    ///     Redraws the written activation hints as the device's own buttons, where one resolved.
-    /// </summary>
-    /// <remarks>
-    ///     Written letters stay in the markup and remain the fallback, so this only ever adds. That
-    ///     matters on the two machines it will not resolve for — one with no glyph profile, and one
-    ///     where the input actually reaching WSGM is not the managed handheld's — because a hint showing
-    ///     a Claw button while the user holds an Xbox pad is worse than the letter it replaced.
-    /// </remarks>
     /// <summary>Renders what a device package on this install is missing, if anything.</summary>
     private void RefreshDevicePrerequisites()
     {
@@ -104,6 +95,15 @@ public partial class OverlayWindow
         DevicePrerequisiteDetail.Text = advice.Detail;
     }
 
+    /// <summary>
+    ///     Redraws the written activation hints as the device's own buttons, where one resolved.
+    /// </summary>
+    /// <remarks>
+    ///     Written letters stay in the markup and remain the fallback, so this only ever adds. That
+    ///     matters on the two machines it will not resolve for — one with no glyph profile, and one
+    ///     where the input actually reaching WSGM is not the managed handheld's — because a hint showing
+    ///     a Claw button while the user holds an Xbox pad is worse than the letter it replaced.
+    /// </remarks>
     private void RefreshNavigationHints()
     {
         // FaceSouth rather than "A": the glyph vocabulary is positional, so a device whose bottom
@@ -169,6 +169,11 @@ public partial class OverlayWindow
             {
                 ConfigureGpuDestination(_graphicsSource?.Snapshot().Visible == true);
                 RefreshGraphicsPanel();
+            }
+
+            if ((refreshes & ProgramsLiveRefresh) != 0)
+            {
+                RenderPins();
             }
 
             // Replacing the anchor/focused row is an observation update, not navigation. Complete
@@ -239,9 +244,9 @@ public partial class OverlayWindow
             return;
         }
 
+        // The first render runs when the window opens.
         if (!_opened)
         {
-            _rendersAwaitingOpen |= DeviceRenderAwaitingOpen;
             return;
         }
 
@@ -262,10 +267,7 @@ public partial class OverlayWindow
                                   ManualTdpHost.Children.OfType<ManualTdpModeView>().Any(view => view.IsVisible);
         var powerControlsVisible = powerPage && (_unifiedPowerDetails || DeviceWindowsPower.IsVisible
                                                  || DevicePowerPresetContainer.IsVisible || ManualTdpHost.IsVisible);
-        if (this.FindControl<Border>("DevicePowerControlsCard") is { } powerControls)
-        {
-            powerControls.IsVisible = powerControlsVisible;
-        }
+        DevicePowerControlsCard.IsVisible = powerControlsVisible;
 
         DevicePowerOverview.IsVisible = powerPage && (powerControlsVisible || performance?.Visible is true);
         DeviceWidgetsExpander.IsVisible = _navigation.Page == OverlayPage.Device;
@@ -293,10 +295,7 @@ public partial class OverlayWindow
 
         _deviceLayout = snapshot;
 
-        var focusedKey = GetTopLevel(this)?.FocusManager.GetFocusedElement()
-            is Control focused
-            ? focused.Tag as string
-            : null;
+        var focusedKey = CurrentSemanticFocusKey();
         var previousFocus = GetTopLevel(this)?.FocusManager.GetFocusedElement() as Control;
         var foldKey = previousFocus?.GetVisualAncestors().OfType<CollapsibleSection>()
             .FirstOrDefault()?.Heading.Tag;
@@ -496,7 +495,8 @@ public partial class OverlayWindow
     }
 
     /// <summary>WSGM's geometry for a declared section icon, or null for the shared default.</summary>
-    private static StreamGeometry? SectionIconFor(SectionIcon icon)
+    /// <remarks>Plugin widget icons use the same map, so a power widget and a Power section look alike.</remarks>
+    internal static StreamGeometry? SectionIconFor(SectionIcon icon)
     {
         return icon switch
         {

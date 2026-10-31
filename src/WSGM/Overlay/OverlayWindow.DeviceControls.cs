@@ -81,13 +81,13 @@ public partial class OverlayWindow
 
             await RunCommandAsync(bridge, "Device capability action",
                 (source, token) => source.InvokeAsync(current, token));
-        }, DeviceTemperature(), id => RunCommandAsync(_deviceBridge, "Use global",
-            (source, token) => source.UseGlobalAsync(id, token)));
+        }, DeviceTemperature(DeviceSnapshotOrOff()), UseGlobalOnDevice);
     }
 
-    private int? DeviceTemperature()
+    /// <summary>The device's first Celsius reading, which places the fan curve's marker.</summary>
+    private static int? DeviceTemperature(DeviceOverlaySnapshot snapshot)
     {
-        return _deviceBridge?.Snapshot().Capabilities.FirstOrDefault(capability =>
+        return snapshot.Capabilities.FirstOrDefault(capability =>
                 capability.Role == CapabilityRole.Telemetry && capability.Unit == CapabilityUnit.Celsius)?.CurrentValue
             ?.IntegerValue;
     }

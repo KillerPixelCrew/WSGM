@@ -143,6 +143,22 @@ internal sealed class PowerTimeouts(PowerSchemes schemes)
             : PresetsSeconds.FirstOrDefault(preset => preset > currentSeconds);
     }
 
+    /// <summary>The row label for one timeout, worded as Steam's Settings rows show it.</summary>
+    /// <param name="kind">The timeout.</param>
+    /// <returns>Its label, for example "Standby after (on battery)".</returns>
+    internal static string Label(PowerTimeoutKind kind)
+    {
+        return kind switch
+        {
+            PowerTimeoutKind.DisplayDc => "Turn display off after (on battery)",
+            PowerTimeoutKind.DisplayAc => "Turn display off after (plugged in)",
+            PowerTimeoutKind.SleepDc => "Standby after (on battery)",
+            PowerTimeoutKind.SleepAc => "Standby after (plugged in)",
+            PowerTimeoutKind.HibernateDc => "Hibernate after (on battery)",
+            _ => "Hibernate after (plugged in)"
+        };
+    }
+
     /// <summary>Human label for a timeout value ("5 min", "1 h", "Never").</summary>
     /// <param name="seconds">The timeout (0 = Never).</param>
     /// <returns>An invariant compact label; sub-minute values are shown as less than one minute.</returns>

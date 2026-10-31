@@ -24,6 +24,21 @@ internal static class FocusSearch
                 and not TextBox);
     }
 
+    /// <summary>The first focusable, enabled and visible control whose semantic key (its Tag) is the given one.</summary>
+    /// <param name="root">The tree to search.</param>
+    /// <param name="key">The semantic key; null finds nothing.</param>
+    /// <returns>The keyed control, or null.</returns>
+    internal static Control? Keyed(Visual root, string? key)
+    {
+        return key is null
+            ? null
+            : First<Control>(root, control => control is
+                {
+                    Focusable: true, IsEffectivelyEnabled: true, IsEffectivelyVisible: true
+                }
+                && Equals(control.Tag, key));
+    }
+
     /// <summary>The first descendant of a type that matches.</summary>
     /// <typeparam name="T">The kind of control to find.</typeparam>
     /// <param name="root">The tree to search.</param>

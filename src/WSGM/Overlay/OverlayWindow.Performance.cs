@@ -17,9 +17,9 @@ public partial class OverlayWindow
 
         RefreshHeaderProfile();
 
+        // The first render runs when the window opens.
         if (!_opened)
         {
-            _rendersAwaitingOpen |= PerformanceRenderAwaitingOpen;
             return;
         }
 
@@ -35,15 +35,12 @@ public partial class OverlayWindow
         if (snapshot is not { Visible: true })
         {
             PerformanceRows.Children.Clear();
-            PerformanceStatus.Text = string.Empty;
             return;
         }
 
-        PerformanceStatus.Text = snapshot.Status;
         if (PerformanceSection.Children.FirstOrDefault() is CollapsibleSection section)
         {
             section.Summary = snapshot.Status;
-            PerformanceStatus.IsVisible = false;
         }
 
         var onDevice = _navigation.IsVisible(OverlayDestination.Device);
@@ -139,10 +136,7 @@ public partial class OverlayWindow
 
         return _navigation.Page is OverlayPage.DevicePluginSection
                && _navigation.SectionId is { } sectionId
-               && (_deviceBridge?.Snapshot()
-                   ?? new DeviceOverlaySnapshot(false, "Device integration off", string.Empty, null, [])) is
-               { } snapshot
-               && DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, sectionId)
+               && DeviceOverlaySectionPages.SectionAbsorbedInto(DeviceSnapshotOrOff(), sectionId)
                    is DeviceOverlaySection.PowerAndThermals;
     }
 }
