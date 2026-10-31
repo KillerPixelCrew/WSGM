@@ -29,25 +29,12 @@ internal sealed class SteamArtworkWriter(SteamClient steam, Func<ArtworkConfig> 
     /// <param name="url">The image's address.</param>
     /// <param name="cancellationToken">Ends the download and the write.</param>
     /// <returns>The outcome, or null when cancelled.</returns>
-    internal async Task<(string Message, bool Failed)?> ApplyFromUrlAsync(
+    internal Task<(string Message, bool Failed)?> ApplyFromUrlAsync(
         uint appId, ArtworkAsset asset, string url, CancellationToken cancellationToken)
     {
-        try
-        {
-            var result = await SteamArtwork
-                .ApplyFromUrlAsync(steam, appId, asset, url, readConfiguration(), cancellationToken)
-                .ConfigureAwait(false);
-            return (result.Detail, !result.Succeeded);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return null;
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Steam artwork page: apply failed: {ex.Message}");
-            return (ex.Message, true);
-        }
+        return RunAsync(
+            () => SteamArtwork.ApplyFromUrlAsync(steam, appId, asset, url, readConfiguration(), cancellationToken),
+            "apply", cancellationToken);
     }
 
     /// <summary>Reads a local image and applies it to one slot.</summary>
@@ -104,23 +91,11 @@ internal sealed class SteamArtworkWriter(SteamClient steam, Func<ArtworkConfig> 
     /// <param name="asset">The slot.</param>
     /// <param name="cancellationToken">Ends the write.</param>
     /// <returns>The outcome, or null when cancelled.</returns>
-    internal async Task<(string Message, bool Failed)?> ClearAsync(
+    internal Task<(string Message, bool Failed)?> ClearAsync(
         uint appId, ArtworkAsset asset, CancellationToken cancellationToken)
     {
-        try
-        {
-            var result = await SteamArtwork.ClearAsync(steam, appId, asset, cancellationToken).ConfigureAwait(false);
-            return (result.Detail, !result.Succeeded);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return null;
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Steam artwork page: reset failed: {ex.Message}");
-            return (ex.Message, true);
-        }
+        return RunAsync(() => SteamArtwork.ClearAsync(steam, appId, asset, cancellationToken), "reset",
+            cancellationToken);
     }
 
     /// <summary>Saves where Steam draws the game's logo.</summary>
@@ -128,57 +103,38 @@ internal sealed class SteamArtworkWriter(SteamClient steam, Func<ArtworkConfig> 
     /// <param name="position">The anchor and size the editor chose.</param>
     /// <param name="cancellationToken">Ends the write.</param>
     /// <returns>The outcome, or null when cancelled.</returns>
-    internal async Task<(string Message, bool Failed)?> SaveLogoPositionAsync(
+    internal Task<(string Message, bool Failed)?> SaveLogoPositionAsync(
         uint appId, SteamLogoPosition position, CancellationToken cancellationToken)
     {
-        try
-        {
-            var result = await steam.Apps.SaveLogoPositionAsync(appId, position, cancellationToken)
-                .ConfigureAwait(false);
-            // A position Steam received without answering is published as written.
-            var written = result.Outcome is SteamClientWriteOutcome.Applied or SteamClientWriteOutcome.Unknown;
-            return (written ? "Logo position saved." : result.Error ?? "Steam rejected the logo position.", !written);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return null;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            return (ex.Message, true);
-        }
+        return RunAsync(() => steam.Apps.SaveLogoPositionAsync(appId, position, cancellationToken),
+            "Logo position saved.", "Steam rejected the logo position.", cancellationToken);
     }
 
     /// <summary>Returns the game's logo to Steam's default placement.</summary>
     /// <param name="appId">The game.</param>
     /// <param name="cancellationToken">Ends the write.</param>
     /// <returns>The outcome, or null when cancelled.</returns>
-    internal async Task<(string Message, bool Failed)?> ResetLogoPositionAsync(
+    internal Task<(string Message, bool Failed)?> ResetLogoPositionAsync(
         uint appId, CancellationToken cancellationToken)
     {
-        try
-        {
-            var result = await steam.Apps.ClearLogoPositionAsync(appId, cancellationToken).ConfigureAwait(false);
-            var written = result.Outcome is SteamClientWriteOutcome.Applied or SteamClientWriteOutcome.Unknown;
-            return (written ? "Logo position reset." : result.Error ?? "Steam rejected the logo reset.", !written);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return null;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            return (ex.Message, true);
-        }
+        return RunAsync(() => steam.Apps.ClearLogoPositionAsync(appId, cancellationToken),
+            "Logo position reset.", "Steam rejected the logo reset.", cancellationToken);
     }
 
-    private async Task<(string Message, bool Failed)?> ApplyBytesAsync(
+    private Task<(string Message, bool Failed)?> ApplyBytesAsync(
         uint appId, ArtworkAsset asset, byte[] bytes, CancellationToken cancellationToken)
+    {
+        return RunAsync(() => SteamArtwork.ApplyAsync(steam, appId, asset, bytes, cancellationToken), "apply",
+            cancellationToken);
+    }
+
+    /// <summary>Runs one artwork write and words its outcome, logging a write that threw.</summary>
+    private static async Task<(string Message, bool Failed)?> RunAsync(
+        Func<Task<ArtworkResult>> write, string action, CancellationToken cancellationToken)
     {
         try
         {
-            var result = await SteamArtwork.ApplyAsync(steam, appId, asset, bytes, cancellationToken)
-                .ConfigureAwait(false);
+            var result = await write().ConfigureAwait(false);
             return (result.Detail, !result.Succeeded);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -187,7 +143,30 @@ internal sealed class SteamArtworkWriter(SteamClient steam, Func<ArtworkConfig> 
         }
         catch (Exception ex)
         {
-            Log.Warn($"Steam artwork page: apply failed: {ex.Message}");
+            Log.Warn($"Steam artwork page: {action} failed: {ex.Message}");
+            return (ex.Message, true);
+        }
+    }
+
+    /// <summary>Runs one logo placement write and words its outcome.</summary>
+    private static async Task<(string Message, bool Failed)?> RunAsync(
+        Func<Task<SteamClientWriteResult>> write, string written, string refused,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await write().ConfigureAwait(false);
+            // A placement Steam received without answering is published as written.
+            return result.Outcome is SteamClientWriteOutcome.Applied or SteamClientWriteOutcome.Unknown
+                ? (written, false)
+                : (result.Error ?? refused, true);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
             return (ex.Message, true);
         }
     }

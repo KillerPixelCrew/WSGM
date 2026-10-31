@@ -529,8 +529,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         {
             try
             {
-                result = await access.Restore(new SteamStartupMovieChoice(kept.MovieId, kept.LocalPath, kept.Shuffle),
-                    budget.Token).ConfigureAwait(false);
+                result = await access.Restore(kept.ToChoice(), budget.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -620,8 +619,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
 
         var result = plays
             ? await access.SetAside(token).ConfigureAwait(false)
-            : await access.Restore(new SteamStartupMovieChoice(kept!.MovieId, kept.LocalPath, kept.Shuffle), token)
-                .ConfigureAwait(false);
+            : await access.Restore(kept!.ToChoice(), token).ConfigureAwait(false);
         if (result.Outcome == SteamClientWriteOutcome.NotSent)
         {
             return false;
@@ -636,10 +634,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
             // the stored choice as it is.
             if (plays && result.Choice is { } held)
             {
-                ChangeConfig(config => config.SteamSetAside = new SteamStartupMovieSetAside
-                {
-                    MovieId = held.MovieId, LocalPath = held.LocalPath, Shuffle = held.Shuffle
-                }, true);
+                ChangeConfig(config => config.SteamSetAside = SteamStartupMovieSetAside.From(held), true);
             }
 
             outcome = $"Steam's own Startup Movie choice could not be {(plays ? "set aside" : "given back")}: "
@@ -661,12 +656,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         }
         else
         {
-            ChangeConfig(config => config.SteamSetAside = plays
-                ? new SteamStartupMovieSetAside
-                {
-                    MovieId = choice.MovieId, LocalPath = choice.LocalPath, Shuffle = choice.Shuffle
-                }
-                : null, true);
+            ChangeConfig(config => config.SteamSetAside = plays ? SteamStartupMovieSetAside.From(choice) : null, true);
             lock (_sync)
             {
                 _restartNeeded |= _steamRunning();

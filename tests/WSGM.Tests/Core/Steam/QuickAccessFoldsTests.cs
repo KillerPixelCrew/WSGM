@@ -21,15 +21,15 @@ public sealed class QuickAccessFoldsTests : IDisposable
         var path = Path.Combine(Folder, "quick-access-folds.json");
         var folds = new QuickAccessFolds(path);
 
-        Assert.False(folds.IsOpen("wsgm.themes"));
+        Assert.DoesNotContain("wsgm.themes", folds.Open);
         Assert.Null(folds.SetOpen("wsgm.themes", true));
-        Assert.True(folds.IsOpen("wsgm.themes"));
+        Assert.Contains("wsgm.themes", folds.Open);
         Assert.Equal(["wsgm.themes"], folds.Open);
 
         var reread = new QuickAccessFolds(path);
-        Assert.True(reread.IsOpen("wsgm.themes"));
+        Assert.Contains("wsgm.themes", reread.Open);
         Assert.Null(reread.SetOpen("wsgm.themes", false));
-        Assert.False(new QuickAccessFolds(path).IsOpen("wsgm.themes"));
+        Assert.DoesNotContain("wsgm.themes", new QuickAccessFolds(path).Open);
     }
 
     [Fact]
@@ -41,8 +41,8 @@ public sealed class QuickAccessFoldsTests : IDisposable
 
         var folds = new QuickAccessFolds(path);
 
-        Assert.False(folds.IsOpen("x"));
+        Assert.DoesNotContain("x", folds.Open);
         Assert.Null(folds.SetOpen("x", true));
-        Assert.True(new QuickAccessFolds(path).IsOpen("x"));
+        Assert.Contains("x", new QuickAccessFolds(path).Open);
     }
 }

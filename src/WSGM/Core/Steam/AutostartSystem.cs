@@ -114,12 +114,6 @@ public sealed class AutostartSystem : IAutostartSystem
     }
 
     /// <inheritdoc />
-    public bool IsTaskEnabled(string taskPath)
-    {
-        return ReadTaskEnabled(taskPath) ?? true;
-    }
-
-    /// <inheritdoc />
     public bool? ReadTaskEnabled(string taskPath)
     {
         return QueryTasks(taskPath).Select(entry =>

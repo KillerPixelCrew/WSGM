@@ -78,7 +78,7 @@ public static class OtherManagers
             }
             List<string> activeServices =
                 [.. manager.Services.Where(service => services.ReadStart(service, out _) is not (null or 4))];
-            // A catalog task counts only when it exists: IsTaskEnabled reads a missing task as enabled.
+            // A catalog task counts only when it exists and is enabled.
             HashSet<string> tasks = new(StringComparer.OrdinalIgnoreCase);
             foreach (var task in manager.Tasks.Select(name => @"\" + name)
                          .Where(path => autostart.ReadTaskEnabled(path) == true))

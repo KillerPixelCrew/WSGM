@@ -1,3 +1,5 @@
+using SteamUiToolkit;
+
 namespace WSGM.Core;
 
 /// <summary>Steam's own startup movie choice as WSGM keeps it while its own movie plays.</summary>
@@ -21,5 +23,23 @@ public sealed class SteamStartupMovieSetAside
     public SteamStartupMovieSetAside Clone()
     {
         return new SteamStartupMovieSetAside { MovieId = MovieId, LocalPath = LocalPath, Shuffle = Shuffle };
+    }
+
+    /// <summary>Keeps the choice Steam held.</summary>
+    /// <param name="choice">Steam's startup movie choice.</param>
+    /// <returns>The kept copy of that choice.</returns>
+    public static SteamStartupMovieSetAside From(SteamStartupMovieChoice choice)
+    {
+        return new SteamStartupMovieSetAside
+        {
+            MovieId = choice.MovieId, LocalPath = choice.LocalPath, Shuffle = choice.Shuffle
+        };
+    }
+
+    /// <summary>The kept choice as Steam takes it back.</summary>
+    /// <returns>Steam's startup movie choice.</returns>
+    public SteamStartupMovieChoice ToChoice()
+    {
+        return new SteamStartupMovieChoice(MovieId, LocalPath, Shuffle);
     }
 }

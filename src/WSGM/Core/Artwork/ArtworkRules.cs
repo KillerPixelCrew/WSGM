@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 
 namespace WSGM.Core;
@@ -15,8 +14,7 @@ internal static class ArtworkRules
     ///     value cannot hide a tab the show switches still say is visible, and the default tab always
     ///     names one that exists.
     /// </remarks>
-    /// <returns>An empty diagnostic list; these repairs do not produce warning entries.</returns>
-    internal static IReadOnlyList<string> Normalize(ArtworkConfig artwork)
+    internal static void Normalize(ArtworkConfig artwork)
     {
         artwork.SteamGridDbApiKey = artwork.SteamGridDbApiKey?.Trim() ?? "";
         artwork.ScreenscraperUser = artwork.ScreenscraperUser?.Trim() ?? "";
@@ -33,6 +31,5 @@ internal static class ArtworkRules
 
         var requested = artwork.DefaultTab?.Trim() ?? "";
         artwork.DefaultTab = known.Contains(requested, StringComparer.Ordinal) ? requested : ordered[0];
-        return [];
     }
 }

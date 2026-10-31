@@ -672,16 +672,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <returns>True only when both patches are enabled and verified.</returns>
     internal static bool WsgmSettingsPageReady(IReadOnlyList<SteamUiPatchSnapshot> snapshots)
     {
-        return PageReady(snapshots, SteamWsgmSettingsSurface.PatchId);
-    }
-
-    /// <summary>Whether one of WSGM's pages can be drawn: the route host and its renderer both verified.</summary>
-    /// <param name="snapshots">Every patch's state.</param>
-    /// <param name="patchId">The page's own patch.</param>
-    /// <returns>True only when both patches are enabled and verified.</returns>
-    internal static bool PageReady(IReadOnlyList<SteamUiPatchSnapshot> snapshots, string patchId)
-    {
-        return new[] { SteamPageSurface.PatchId, patchId }.All(id =>
+        return new[] { SteamPageSurface.PatchId, SteamWsgmSettingsSurface.PatchId }.All(id =>
             snapshots.Any(snapshot => snapshot is { Enabled: true, State: SteamUiPatchState.Verified }
                                       && snapshot.Id == id));
     }

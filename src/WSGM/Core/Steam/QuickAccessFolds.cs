@@ -39,7 +39,7 @@ public sealed class QuickAccessFolds
         _path = path;
     }
 
-    /// <summary>Every open section, in name order.</summary>
+    /// <summary>Every open section, in name order. One never touched is folded.</summary>
     public IReadOnlyList<string> Open
     {
         get
@@ -48,17 +48,6 @@ public sealed class QuickAccessFolds
             {
                 return [.. Read().Order(StringComparer.Ordinal)];
             }
-        }
-    }
-
-    /// <summary>Whether a section is open. One never touched is folded.</summary>
-    /// <param name="id">The section's id.</param>
-    /// <returns>True when the persisted set contains the exact section ID; untouched sections are folded.</returns>
-    public bool IsOpen(string id)
-    {
-        lock (_gate)
-        {
-            return Read().Contains(id);
         }
     }
 

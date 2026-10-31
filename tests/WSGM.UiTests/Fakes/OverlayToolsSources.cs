@@ -1,4 +1,3 @@
-using System.Text.Json;
 using SkiaSharp;
 using SteamUiToolkit;
 using WSGM.Core;
@@ -450,12 +449,6 @@ internal sealed class FakeThemesSource : IThemeBrowseSession, ISteamThemesBacken
     public Task<SteamUiCommandResult> SetHiddenAsync(string name, bool hidden, CancellationToken cancellationToken)
     {
         return Command("SetHiddenAsync");
-    }
-
-    public Task<SteamUiCommandResult> SetSettingAsync(string key, JsonElement value,
-        CancellationToken cancellationToken)
-    {
-        return Command("SetSettingAsync");
     }
 
     public Task<SteamUiCommandResult> SetThemesEnabledAsync(bool enabled, CancellationToken cancellationToken)

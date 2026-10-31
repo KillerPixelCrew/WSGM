@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
@@ -188,116 +187,42 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     /// <inheritdoc />
     public Task<SteamUiCommandResult> DeleteAsync(string name, CancellationToken cancellationToken)
     {
-        string? error;
-        lock (_loaderWork)
+        return LoaderCommand(() =>
         {
-            if (IsBusy())
-            {
-                return Task.FromResult(new SteamUiCommandResult(false, "Another theme operation is still running."));
-            }
-
-            error = _loader.DeleteTheme(name);
-            Capture();
-        }
-
-        _updates.Forget(name);
-        if (error is not null)
-        {
-            return Task.FromResult(Refuse(error));
-        }
-
-        SetNotice($"Deleted {name}.");
-        Publish(true);
-        return Task.FromResult(SteamUiCommandResult.Applied);
+            var error = _loader.DeleteTheme(name);
+            _updates.Forget(name);
+            return error;
+        }, $"Deleted {name}.");
     }
 
     /// <inheritdoc />
     public Task<SteamUiCommandResult> SetEnabledAsync(string name, bool enabled, CancellationToken cancellationToken)
     {
-        string? error;
-        lock (_loaderWork)
-        {
-            if (IsBusy())
-            {
-                return Task.FromResult(new SteamUiCommandResult(false, "Another theme operation is still running."));
-            }
-
-            error = _loader.SetThemeState(name, enabled);
-            Capture();
-        }
-
-        if (error is not null)
-        {
-            return Task.FromResult(Refuse(error));
-        }
-
-        Publish(true);
-        return Task.FromResult(SteamUiCommandResult.Applied);
+        return LoaderCommand(() => _loader.SetThemeState(name, enabled));
     }
 
     /// <inheritdoc />
     public Task<SteamUiCommandResult> SetPatchAsync(
         string theme, string patch, string value, CancellationToken cancellationToken)
     {
-        string? error;
-        lock (_loaderWork)
-        {
-            if (IsBusy())
-            {
-                return Task.FromResult(new SteamUiCommandResult(false, "Another theme operation is still running."));
-            }
-
-            error = _loader.SetPatch(theme, patch, value);
-            Capture();
-        }
-
-        if (error is not null)
-        {
-            return Task.FromResult(Refuse(error));
-        }
-
-        Publish(true);
-        return Task.FromResult(SteamUiCommandResult.Applied);
+        return LoaderCommand(() => _loader.SetPatch(theme, patch, value));
     }
 
     /// <inheritdoc />
     public Task<SteamUiCommandResult> SetComponentAsync(
         string theme, string patch, string component, string value, CancellationToken cancellationToken)
     {
-        string? error;
-        lock (_loaderWork)
-        {
-            if (IsBusy())
-            {
-                return Task.FromResult(new SteamUiCommandResult(false, "Another theme operation is still running."));
-            }
-
-            error = _loader.SetComponent(theme, patch, component, value);
-            Capture();
-        }
-
-        if (error is not null)
-        {
-            return Task.FromResult(Refuse(error));
-        }
-
-        Publish(true);
-        return Task.FromResult(SteamUiCommandResult.Applied);
+        return LoaderCommand(() => _loader.SetComponent(theme, patch, component, value));
     }
 
     /// <inheritdoc />
     public Task<SteamUiCommandResult> SetProfileAsync(string name, CancellationToken cancellationToken)
     {
-        string? error = null;
-        lock (_loaderWork)
+        return LoaderCommand(() =>
         {
-            if (IsBusy())
-            {
-                return Task.FromResult(new SteamUiCommandResult(false, "Another theme operation is still running."));
-            }
-
             // The profile on now goes off first, with the themes only it turned on; then the chosen
             // one comes on with its own, as CSS Loader's profile dropdown does it.
+            string? error = null;
             foreach (var preset in _loader.Themes.Where(theme => theme.IsPreset && theme.Enabled && theme.Name != name))
             {
                 error ??= _loader.SetThemeState(preset.Name, false);
@@ -308,16 +233,8 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
                 error ??= _loader.SetThemeState(name, true);
             }
 
-            Capture();
-        }
-
-        if (error is not null)
-        {
-            return Task.FromResult(Refuse(error));
-        }
-
-        Publish(true);
-        return Task.FromResult(SteamUiCommandResult.Applied);
+            return error;
+        });
     }
 
     /// <inheritdoc />
@@ -381,20 +298,6 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
                 config.HiddenThemes.Add(name);
             }
         }, false));
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> SetSettingAsync(string key, JsonElement value,
-        CancellationToken cancellationToken)
-    {
-        return key switch
-        {
-            "enabled" when value.ValueKind is JsonValueKind.True or JsonValueKind.False =>
-                SetThemesEnabledAsync(value.GetBoolean(), cancellationToken),
-            "translationsBranch" when value.ValueKind == JsonValueKind.String && value.GetString() is { } branch =>
-                SetTranslationsBranchAsync(branch, cancellationToken),
-            _ => Task.FromResult(new SteamUiCommandResult(false, "That setting is not one of the themes'."))
-        };
     }
 
     /// <inheritdoc />
@@ -672,6 +575,38 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
 
         Publish(false);
         return new SteamUiCommandResult(false, error);
+    }
+
+    /// <summary>Runs one immediate loader change unless another theme operation is running, then publishes it.</summary>
+    /// <param name="change">The change, run with <c>_loaderWork</c> held; answers the loader's error or null.</param>
+    /// <param name="notice">The notice shown once the change succeeded, or null.</param>
+    /// <returns>Applied, or why the change was refused.</returns>
+    private Task<SteamUiCommandResult> LoaderCommand(Func<string?> change, string? notice = null)
+    {
+        string? error;
+        lock (_loaderWork)
+        {
+            if (IsBusy())
+            {
+                return Task.FromResult(new SteamUiCommandResult(false, "Another theme operation is still running."));
+            }
+
+            error = change();
+            Capture();
+        }
+
+        if (error is not null)
+        {
+            return Task.FromResult(Refuse(error));
+        }
+
+        if (notice is not null)
+        {
+            SetNotice(notice);
+        }
+
+        Publish(true);
+        return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
     private void SetNotice(string notice)

@@ -35,9 +35,6 @@ public static class Steam
     /// <summary>Protocol URL that exits Steam Big Picture mode.</summary>
     public const string CloseBigPictureUrl = "steam://close/bigpicture";
 
-    /// <summary>Graceful full Steam shutdown (verified client URL).</summary>
-    public const string ExitUrl = SteamProcessControl.ExitUrl;
-
     private static readonly TimeSpan UpdateGracefulExitBudget = TimeSpan.FromSeconds(5);
 
     /// <summary>
@@ -274,10 +271,12 @@ public static class Steam
     internal static LaunchResult LaunchBigPicture(UserDataContext context, SteamInputShim shim,
         bool steamInputManagement, bool unelevated = false, bool cefEnabled = true)
     {
+        // The debug port flag only takes effect on a fresh Steam start, so it is written before
+        // either path; WSGM finds Steam and passes the directory to the toolkit.
         SteamCef.EnsureRemoteDebuggingEnabled(InstallDirectory, cefEnabled);
         if (!IsRunning && ExePath is { } exe)
         {
-            return ColdStart(context, shim, steamInputManagement, exe, OpenBigPictureUrl, unelevated, cefEnabled);
+            return ColdStart(context, shim, steamInputManagement, exe, OpenBigPictureUrl, unelevated);
         }
 
         return AppLauncher.StartProtocol(OpenBigPictureUrl);
@@ -305,48 +304,36 @@ public static class Steam
 
         return ExePath is not { } exe
             ? new LaunchResult(null, false, false)
-            : ColdStart(context, shim, steamInputManagement, exe, "", unelevated, cefEnabled);
+            : ColdStart(context, shim, steamInputManagement, exe, "", unelevated);
     }
 
     /// <summary>
-    ///     The one cold Steam start: shim reconcile, debug port, integrity choice and the
-    ///     startup-trace hint. Callers differ only in the arguments Steam is started with.
+    ///     The one cold Steam start: shim reconcile, integrity choice and the startup-trace hint.
+    ///     Callers differ only in the arguments Steam is started with, and have already enabled the
+    ///     debug port.
     /// </summary>
     private static LaunchResult ColdStart(UserDataContext context, SteamInputShim shim,
-        bool steamInputManagement, string exe, string arguments, bool unelevated, bool cefEnabled)
+        bool steamInputManagement, string exe, string arguments, bool unelevated)
     {
-        return ColdStart(steamInputManagement, InstallDirectory, cefEnabled, shim.Reconcile,
-            (directory, enabled) => { SteamCef.EnsureRemoteDebuggingEnabled(directory, enabled); },
+        return ColdStart(steamInputManagement, shim.Reconcile,
             status => LaunchColdClient(context, status, exe, arguments, unelevated));
     }
 
-    /// <summary>Orders cold-start preparation before either process-launch path.</summary>
+    /// <summary>Orders the shim reconcile before either process-launch path.</summary>
     /// <param name="steamInputManagement">Desired Steam Input shim ownership for this cold start.</param>
-    /// <param name="installDirectory">Resolved Steam directory, or null when unavailable.</param>
-    /// <param name="cefEnabled">Whether the next Steam process should expose its remote-debugging port.</param>
     /// <param name="reconcile">Reconciles the shim before any launch can map it.</param>
-    /// <param name="enableRemoteDebugging">Prepares the cold-start flag; this must not attach a debugger.</param>
     /// <param name="launch">Launches Steam using the reconciled shim status.</param>
-    /// <returns>The launch delegate's activation result; preparation failures propagate.</returns>
-    /// <remarks>The caller must establish Steam is not running. Port preparation does not establish UI readiness.</remarks>
+    /// <returns>The launch delegate's activation result; a reconcile failure propagates.</returns>
+    /// <remarks>The caller must establish Steam is not running.</remarks>
     internal static LaunchResult ColdStart(
         bool steamInputManagement,
-        string? installDirectory,
-        bool cefEnabled,
         Func<bool, string, SteamInputShimStatus> reconcile,
-        Action<string?, bool> enableRemoteDebugging,
         Func<SteamInputShimStatus, LaunchResult> launch)
     {
         // Steam is provably not running on this branch, which makes it the one
         // moment in a session when a stale Steam Input shim can actually be
         // replaced - anywhere else the image is mapped and the copy fails.
-        var shimStatus = reconcile(steamInputManagement, "steam-cold-start");
-        // Enable Steam's CEF debug port before it starts so WSGM can add
-        // libraries to the live client later without a restart. Only takes
-        // effect on a fresh Steam start, which this cold path is. Finding Steam is WSGM's job,
-        // not the toolkit's, so the directory is passed in.
-        enableRemoteDebugging(installDirectory, cefEnabled);
-        return launch(shimStatus);
+        return launch(reconcile(steamInputManagement, "steam-cold-start"));
     }
 
     private static LaunchResult LaunchColdClient(UserDataContext context,

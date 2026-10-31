@@ -283,11 +283,6 @@ public sealed class SteamAutostartTakeoverTests
             return inner.ReadLogonTasks();
         }
 
-        public bool IsTaskEnabled(string taskPath)
-        {
-            return inner.IsTaskEnabled(taskPath);
-        }
-
         public bool? ReadTaskEnabled(string taskPath)
         {
             return inner.ReadTaskEnabled(taskPath);

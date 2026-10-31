@@ -48,13 +48,13 @@ internal static class AppConfigRules
         config.Performance ??= new PerformanceConfig();
         diagnostics.AddRange(ProfileConfigRules.Normalize(config.Profiles, config.DeviceIntegration));
         config.Artwork ??= new ArtworkConfig();
-        diagnostics.AddRange(ArtworkRules.Normalize(config.Artwork));
+        ArtworkRules.Normalize(config.Artwork);
         config.GameLibrary ??= new GameLibraryConfig();
         GameLibraryRules.Normalize(config.GameLibrary);
         config.Themes ??= new ThemesConfig();
-        diagnostics.AddRange(ThemeRules.Normalize(config.Themes));
+        ThemeRules.Normalize(config.Themes);
         config.Animations ??= new AnimationsConfig();
-        diagnostics.AddRange(AnimationRules.Normalize(config.Animations));
+        AnimationRules.Normalize(config.Animations);
         config.Sounds ??= new SoundsConfig();
         config.Sounds.Selected ??= string.Empty;
         config.Browser = (config.Browser ?? new BrowserOptions()).Normalize();

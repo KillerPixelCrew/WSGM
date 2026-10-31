@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -18,7 +17,7 @@ namespace WSGM.Shell;
 ///     store's atomic read-modify-write path; startup settings include boot.json in that transaction.
 ///     Steam Input reconciliation runs after persistence and is tracked for shutdown.
 /// </remarks>
-internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISteamNavigationPanelBackend
+internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
 {
     /// <summary>The main menu row's id.</summary>
     internal const string MenuItemId = "wsgm.settings";
@@ -146,9 +145,6 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
         _detectedGraphics = detectedGraphics ?? BuiltinGpuDrivers.Detect;
     }
 
-    /// <summary>The route the page is served at.</summary>
-    internal static string Route => SteamWsgmSettingsSurface.Route;
-
     /// <summary>Completes when every Steam Input apply this page started has finished.</summary>
     /// <remarks>The session joins it at shutdown, so a shim change never outlives WSGM.</remarks>
     internal Task SteamInputApplyCompletion
@@ -172,7 +168,11 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
         return Task.FromResult(new SteamUiCommandResult(false, "This menu entry opens its page directly."));
     }
 
-    /// <inheritdoc />
+    /// <summary>Changes one setting.</summary>
+    /// <param name="key">The row's key, as published.</param>
+    /// <param name="value">The new value, in the row's own shape.</param>
+    /// <param name="cancellationToken">Cancels the change.</param>
+    /// <returns>Whether it was saved, and why not when it was not.</returns>
     public Task<SteamUiCommandResult> SetAsync(string key, JsonElement value, CancellationToken cancellationToken)
     {
         if (Toggles.FirstOrDefault(toggle => toggle.Key == key) is { } found)
@@ -217,7 +217,8 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
         List<SteamNavigationItem> items = [];
         if (pageReady)
         {
-            items.Add(new SteamNavigationItem(MenuItemId, "WSGM", Before: "power", Route: Route, Glyph: Glyph));
+            items.Add(new SteamNavigationItem(
+                MenuItemId, "WSGM", Before: "power", Route: SteamWsgmSettingsSurface.Route, Glyph: Glyph));
         }
 
         return new SteamNavigationPanelState(items, []);
@@ -517,7 +518,9 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
                     return false;
                 }
 
-                converted = JsonText(string.Join(",", value.EnumerateArray().Select(item => item.GetString())));
+                converted = JsonSerializer.SerializeToElement(
+                    string.Join(",", value.EnumerateArray().Select(item => item.GetString())),
+                    WsgmSteamSettingsJsonContext.Default.String);
                 return true;
             case PluginSettingKind.Number when value.ValueKind == JsonValueKind.String:
                 if (!double.TryParse(value.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture,
@@ -526,7 +529,7 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
                     return false;
                 }
 
-                converted = JsonNumber(number);
+                converted = JsonSerializer.SerializeToElement(number, WsgmSteamSettingsJsonContext.Default.Double);
                 return true;
             default:
                 converted = value.Clone();
@@ -609,14 +612,6 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
         Refresh();
     }
 
-    private AppConfig CurrentConfig()
-    {
-        lock (_gate)
-        {
-            return _written ?? _config();
-        }
-    }
-
     /// <summary>Tells the page something it shows changed without the configuration changing.</summary>
     /// <remarks>A plugin starting, stopping or taking a setting is one.</remarks>
     internal void Refresh()
@@ -632,30 +627,6 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     private static Task<SteamUiCommandResult> Invalid()
     {
         return Task.FromResult(new SteamUiCommandResult(false, "The setting value is invalid."));
-    }
-
-    private static JsonElement JsonText(string text)
-    {
-        ArrayBufferWriter<byte> buffer = new();
-        using (Utf8JsonWriter writer = new(buffer))
-        {
-            writer.WriteStringValue(text);
-        }
-
-        using var document = JsonDocument.Parse(buffer.WrittenMemory);
-        return document.RootElement.Clone();
-    }
-
-    private static JsonElement JsonNumber(double number)
-    {
-        ArrayBufferWriter<byte> buffer = new();
-        using (Utf8JsonWriter writer = new(buffer))
-        {
-            writer.WriteNumberValue(number);
-        }
-
-        using var document = JsonDocument.Parse(buffer.WrittenMemory);
-        return document.RootElement.Clone();
     }
 
     /// <summary>One boolean WSGM setting the page can change.</summary>

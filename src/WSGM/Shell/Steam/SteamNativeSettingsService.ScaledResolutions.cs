@@ -18,8 +18,7 @@ internal sealed partial class SteamNativeSettingsService
     private string _scaledStatus = "";
     private bool _scaledDriverOptions;
 
-    private async Task AddScaledResolutionSectionAsync(List<SteamSettingsSection> display,
-        Dictionary<string, Offered> offered)
+    private async Task AddScaledResolutionSectionAsync(List<SteamSettingsSection> display, OfferedRows offer)
     {
         if (scaledResolutions is null)
         {
@@ -47,7 +46,7 @@ internal sealed partial class SteamNativeSettingsService
                 selectedCatalog.Display.AdapterLowPart?.ToString(CultureInfo.InvariantCulture),
                 selectedCatalog.Display.AdapterHighPart?.ToString(CultureInfo.InvariantCulture),
                 selectedCatalog.Display.TargetId?.ToString(CultureInfo.InvariantCulture))))) : "unavailable";
-        Add(new SteamSettingsRow("scaled.display", SteamSettingsRowKind.Choice, "Display",
+        offer.Add(rows, new SteamSettingsRow("scaled.display", SteamSettingsRowKind.Choice, "Display",
             state.Catalog is { } gpu ? gpu.AdapterName : null, Text: _scaledDisplay ?? "",
             Choices: state.Displays.Select(item => new SteamSettingsChoice(item.Path, item.Name)).ToArray()),
             (value, _) =>
@@ -66,7 +65,8 @@ internal sealed partial class SteamNativeSettingsService
 
             var choices = state.Resolutions.Select(mode => new SteamSettingsChoice(
                 $"{mode.Width}x{mode.Height}", state.ResolutionLabel(mode))).ToArray();
-            Add(new SteamSettingsRow("scaled.editor/target/" + targetKey, SteamSettingsRowKind.ResolutionList, "Resolutions",
+            offer.Add(rows, new SteamSettingsRow("scaled.editor/target/" + targetKey,
+                SteamSettingsRowKind.ResolutionList, "Resolutions",
                 "Your active resolution stays the same. The native resolution is protected.", Choices: choices,
                 ResolutionEditor: new SteamSettingsResolutionEditor(
                     state.Resolutions.Where(mode => mode != state.Native).Select(mode => $"{mode.Width}x{mode.Height}").ToArray(),
@@ -97,7 +97,8 @@ internal sealed partial class SteamNativeSettingsService
 
             if (state.Missing.Count > 0 || !catalog.OutputSpecific)
             {
-                Add(new SteamSettingsRow("scaled.driver-options", SteamSettingsRowKind.Action, "Driver options",
+                offer.Add(rows, new SteamSettingsRow("scaled.driver-options", SteamSettingsRowKind.Action,
+                    "Driver options",
                     catalog.OutputSpecific ? null : "Restart the driver to activate changes.",
                     ButtonLabel: _scaledDriverOptions ? "Hide" : "Show"), (_, _) =>
                     {
@@ -126,7 +127,8 @@ internal sealed partial class SteamNativeSettingsService
         {
             rows.Add(new SteamSettingsRow("scaled.support", SteamSettingsRowKind.Note, "Resolutions unavailable",
                 Text: state.Detail));
-            Add(new SteamSettingsRow("scaled.refresh", SteamSettingsRowKind.Action, "Refresh displays and resolutions",
+            offer.Add(rows, new SteamSettingsRow("scaled.refresh", SteamSettingsRowKind.Action,
+                "Refresh displays and resolutions",
                 ButtonLabel: "Refresh"), async (_, token) =>
             {
                 await scaledResolutions.RefreshTopologyAsync(token).ConfigureAwait(false);
@@ -142,16 +144,11 @@ internal sealed partial class SteamNativeSettingsService
 
         Section(display, "GPU-scaled resolutions", "scaled-resolutions", rows);
 
-        void Add(SteamSettingsRow row, Func<JsonElement, CancellationToken, Task<SteamUiCommandResult>> write)
-        {
-            rows.Add(row);
-            offered.Add(row.Key, new Offered(row, write, null));
-        }
-
         void Action(string key, string label, string? description,
             Func<CancellationToken, Task<GpuScaledResolutionResult>> write, string buttonLabel, bool disabled = false)
         {
-            Add(new SteamSettingsRow(key + "/target/" + targetKey, SteamSettingsRowKind.Action, label, description,
+            offer.Add(rows, new SteamSettingsRow(key + "/target/" + targetKey, SteamSettingsRowKind.Action, label,
+                    description,
                     Disabled: disabled, ButtonLabel: buttonLabel),
                 (_, token) => Apply(() => write(token)));
         }

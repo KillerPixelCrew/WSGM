@@ -20,9 +20,6 @@ internal sealed class FakeAutostartSystem : IAutostartSystem
     internal int ApprovalReads { get; private set; }
     internal int TaskReads { get; private set; }
 
-    /// <summary>Makes a missing task read as enabled, as the live <see cref="AutostartSystem" /> does.</summary>
-    internal bool MissingTasksReadEnabled { get; init; }
-
     public IReadOnlyDictionary<string, string> ReadRunValues(SteamAutostartScope scope, bool wow64)
     {
         return Run.TryGetValue((scope, wow64), out var values) ? values : [];
@@ -57,7 +54,7 @@ internal sealed class FakeAutostartSystem : IAutostartSystem
         return Tasks;
     }
 
-    public bool IsTaskEnabled(string taskPath)
+    public bool? ReadTaskEnabled(string taskPath)
     {
         TaskReads++;
         if (TaskReadsThrow)
@@ -70,11 +67,6 @@ internal sealed class FakeAutostartSystem : IAutostartSystem
             return true;
         }
 
-        return TaskEnabled.TryGetValue(taskPath, out var enabled) ? enabled : MissingTasksReadEnabled;
-    }
-
-    public bool? ReadTaskEnabled(string taskPath)
-    {
         return TaskEnabled.TryGetValue(taskPath, out var enabled) ? enabled : null;
     }
 

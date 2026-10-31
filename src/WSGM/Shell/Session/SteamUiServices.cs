@@ -767,8 +767,7 @@ internal sealed class SteamUiServices
             $"Steam UI surfaces: quickAccess={switches.NativeQuickAccess}, host={switches.HostSurfaces}, "
             + $"wifiIndicator={switches.NetworkIndicator}, downloadSort={switches.DownloadSort}, "
             + $"libraryBadge={switches.LibraryBadge}, homeCarousel={switches.HomeCarousel}, "
-            + $"carouselUninstalled={switches.CarouselShowUninstalled}, "
-            + $"screensaverRows={switches.ScreensaverRows}, glyphs={switches.Glyphs}.");
+            + $"carouselUninstalled={switches.CarouselShowUninstalled}, glyphs={switches.Glyphs}.");
         steamUi.Apply(switches);
     }
 

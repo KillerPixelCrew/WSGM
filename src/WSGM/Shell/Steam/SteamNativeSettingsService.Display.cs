@@ -118,6 +118,6 @@ internal sealed partial class SteamNativeSettingsService
             }
         }
 
-        await AddScaledResolutionSectionAsync(display, offer.Commands).ConfigureAwait(false);
+        await AddScaledResolutionSectionAsync(display, offer).ConfigureAwait(false);
     }
 }

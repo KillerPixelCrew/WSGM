@@ -408,11 +408,6 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
         return _store.BlobUrl(blobId);
     }
 
-    internal string[] PreviewAssets(SoundPack pack)
-    {
-        return pack.Assets;
-    }
-
     private AudioFilePreview CreatePreview()
     {
         var preview = new AudioFilePreview();

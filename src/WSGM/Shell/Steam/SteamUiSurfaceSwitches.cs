@@ -33,10 +33,6 @@ internal sealed record SteamUiSurfaceSwitches(
     internal static SteamUiSurfaceSwitches Off { get; } =
         new(false, false, false, false, false, false, false, false, null, false);
 
-    /// <summary>WSGM's display-off rows in Steam's Screensaver settings, which follow the host surfaces.</summary>
-    /// <remarks>The host additionally needs a session timeout owner before it declares them.</remarks>
-    internal bool ScreensaverRows => HostSurfaces;
-
     /// <summary>Derives every switch from a configuration and the CEF master state.</summary>
     /// <param name="config">The configuration in force.</param>
     /// <param name="cefMasterEnabled">Whether the session's CEF master switch is on.</param>

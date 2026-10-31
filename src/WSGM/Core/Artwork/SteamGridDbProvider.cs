@@ -92,50 +92,23 @@ internal sealed class SteamGridDbProvider : IArtworkProvider
     }
 
     /// <inheritdoc />
-    public async Task<ArtworkPage> GetAssetsForGameAsync(
+    public Task<ArtworkPage> GetAssetsForGameAsync(
         ArtworkAsset asset, string gameId, ArtworkConfig config, ArtworkQuery query,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
-        if (!int.TryParse(gameId, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
-        {
-            return new ArtworkPage([], false);
-        }
-
-        var assets = await GetAssetsForGameAsync(
-            asset, id, ResolveKey(config), query, cancellationToken).ConfigureAwait(false);
-        return assets;
+        return int.TryParse(gameId, NumberStyles.None, CultureInfo.InvariantCulture, out var id)
+            ? GetAssetsForGameAsync(asset, id, ResolveKey(config), query, cancellationToken)
+            : Task.FromResult(new ArtworkPage([], false));
     }
 
     /// <inheritdoc />
-    public async Task<ArtworkPage> GetAssetsForSteamAppAsync(
+    public Task<ArtworkPage> GetAssetsForSteamAppAsync(
         ArtworkAsset asset, long steamAppId, ArtworkConfig config, ArtworkQuery query,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
-        var assets = await GetAssetsForSteamAppAsync(
-            asset, steamAppId, ResolveKey(config), query, cancellationToken).ConfigureAwait(false);
-        return assets;
-    }
-
-    private static ArtworkCandidate[] Convert(IReadOnlyList<SgdbAsset> assets)
-    {
-        return
-        [
-            .. assets.Select(a => new ArtworkCandidate(
-                a.Url,
-                a.Thumb,
-                a.Width,
-                a.Height,
-                a.Extension,
-                Author: a.Author,
-                Style: a.Style,
-                Notes: a.Notes,
-                Animated: a.Animated,
-                Nsfw: a.Nsfw,
-                Humor: a.Humor,
-                Epilepsy: a.Epilepsy))
-        ];
+        return GetAssetsForSteamAppAsync(asset, steamAppId, ResolveKey(config), query, cancellationToken);
     }
 
     /// <summary>Forgets every cached response.</summary>
@@ -327,7 +300,7 @@ internal sealed class SteamGridDbProvider : IArtworkProvider
             return new ArtworkPage([], false);
         }
 
-        var list = new List<SgdbAsset>();
+        var list = new List<ArtworkCandidate>();
         foreach (var item in data.EnumerateArray())
         {
             if (!item.TryGetProperty("url", out var urlEl) || urlEl.ValueKind != JsonValueKind.String)
@@ -339,7 +312,6 @@ internal sealed class SteamGridDbProvider : IArtworkProvider
             var thumb = item.TryGetProperty("thumb", out var t) ? t.GetString() ?? full : full;
             var w = item.TryGetProperty("width", out var wi) && wi.TryGetInt32(out var wv) ? wv : 0;
             var h = item.TryGetProperty("height", out var he) && he.TryGetInt32(out var hv) ? hv : 0;
-            var assetId = item.TryGetProperty("id", out var ai) && ai.TryGetInt32(out var av) ? av : 0;
             var extension = ImageExtension(full);
             if (full.Length > 0 && extension is not null)
             {
@@ -353,20 +325,19 @@ internal sealed class SteamGridDbProvider : IArtworkProvider
                     : null;
                 var animated = item.TryGetProperty("type", out var typeElement)
                                && typeElement.GetString() == "animated";
-                list.Add(new SgdbAsset(
-                    assetId,
+                list.Add(new ArtworkCandidate(
                     full,
                     thumb,
                     w,
                     h,
                     extension,
-                    author,
-                    style,
-                    item.TryGetProperty("notes", out var notesElement) ? notesElement.GetString() : null,
-                    animated,
-                    ReadBoolean(item, "nsfw"),
-                    ReadBoolean(item, "humor"),
-                    ReadBoolean(item, "epilepsy")));
+                    Author: author,
+                    Style: style,
+                    Notes: item.TryGetProperty("notes", out var notesElement) ? notesElement.GetString() : null,
+                    Animated: animated,
+                    Nsfw: ReadBoolean(item, "nsfw"),
+                    Humor: ReadBoolean(item, "humor"),
+                    Epilepsy: ReadBoolean(item, "epilepsy")));
             }
         }
 
@@ -376,7 +347,7 @@ internal sealed class SteamGridDbProvider : IArtworkProvider
                      + "none with an https image address of a known format.");
         }
 
-        return new ArtworkPage(Convert(list), data.GetArrayLength() == PageSize);
+        return new ArtworkPage(list, data.GetArrayLength() == PageSize);
     }
 
     private static void AddCsv(List<string> parameters, string name, IReadOnlyList<string>? values)

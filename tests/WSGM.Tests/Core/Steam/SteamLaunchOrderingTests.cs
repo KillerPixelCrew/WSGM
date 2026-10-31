@@ -5,30 +5,21 @@ namespace WSGM.Tests.Core;
 public sealed class SteamLaunchOrderingTests
 {
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
-    public void ColdStart_PreparesShimThenConfiguredDebuggingBeforeLaunching(
-        bool steamInputManagement, bool cefEnabled)
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ColdStart_ReconcilesShimBeforeLaunching(bool steamInputManagement)
     {
         List<string> calls = [];
         var status = new SteamInputShimStatus(SteamInputShimState.Deployed, default, null);
         var expected = new LaunchResult(null, true, false);
 
-        var result = Steam.ColdStart(steamInputManagement, "fixture-steam", cefEnabled,
+        var result = Steam.ColdStart(steamInputManagement,
             (enabled, reason) =>
             {
                 Assert.Equal(steamInputManagement, enabled);
                 Assert.Equal("steam-cold-start", reason);
                 calls.Add("shim");
                 return status;
-            },
-            (directory, enabled) =>
-            {
-                Assert.Equal("fixture-steam", directory);
-                Assert.Equal(cefEnabled, enabled);
-                calls.Add("debugging");
             },
             observed =>
             {
@@ -38,32 +29,20 @@ public sealed class SteamLaunchOrderingTests
             });
 
         Assert.Same(expected, result);
-        Assert.Equal(["shim", "debugging", "launch"], calls);
+        Assert.Equal(["shim", "launch"], calls);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void ColdStart_PreparationFailureDoesNotLaunch(bool shimFails)
+    [Fact]
+    public void ColdStart_ReconcileFailureDoesNotLaunch()
     {
         List<string> calls = [];
         var failure = new IOException("fixture preparation failed");
 
         var thrown = Assert.Throws<IOException>(() => Steam.ColdStart(
-            true, null, true,
+            true,
             (_, _) =>
             {
                 calls.Add("shim");
-                if (shimFails)
-                {
-                    throw failure;
-                }
-
-                return default;
-            },
-            (_, _) =>
-            {
-                calls.Add("debugging");
                 throw failure;
             },
             _ =>
@@ -73,7 +52,6 @@ public sealed class SteamLaunchOrderingTests
             }));
 
         Assert.Same(failure, thrown);
-        string[] expected = shimFails ? ["shim"] : ["shim", "debugging"];
-        Assert.Equal(expected, calls);
+        Assert.Equal(["shim"], calls);
     }
 }

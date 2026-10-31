@@ -184,7 +184,8 @@ public static class SteamAutostartScanner
     {
         try
         {
-            return system.IsTaskEnabled(path);
+            // A task whose state cannot be read counts as enabled.
+            return system.ReadTaskEnabled(path) ?? true;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

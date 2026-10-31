@@ -9,8 +9,6 @@ namespace WSGM.Core;
 /// <summary>Finds optional emulator shortcut art through the existing paced SteamGridDB provider.</summary>
 internal static class EmulatorShortcutArtwork
 {
-    private static readonly SteamGridDbProvider Provider = new();
-
     internal static async Task<IReadOnlyList<(ArtworkAsset Asset, string Url)>> FindAsync(
         EmulatorDefinition definition, ArtworkConfig config, CancellationToken token)
     {
@@ -22,7 +20,7 @@ internal static class EmulatorShortcutArtwork
 
         // The shared provider owns request pacing, filtering and HTTPS validation. Image bytes
         // still go through SteamArtwork/ArtworkDownload at application time.
-        var provider = Provider;
+        var provider = ArtworkSearch.SteamGridDb;
         var id = definition.SteamGridDbId;
         if (id is not > 0)
         {

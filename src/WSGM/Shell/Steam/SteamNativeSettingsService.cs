@@ -143,7 +143,7 @@ internal sealed partial class SteamNativeSettingsService(
             await AddDisplayPageAsync(display, offer, lightRead).ConfigureAwait(false);
             await AddPowerPageAsync(power, offer, presetsRead, schemesRead, boostRead, coresRead)
                 .ConfigureAwait(false);
-            DeviceSections(power, controller, offer.Commands, offer.Profile);
+            DeviceSections(power, controller, offer);
             await AddAudioPageAsync(audio, offer, endpointRead).ConfigureAwait(false);
             AddRumbleSection(controller, offer);
 
@@ -219,8 +219,9 @@ internal sealed partial class SteamNativeSettingsService(
     }
 
     private void DeviceSections(List<SteamSettingsSection> power, List<SteamSettingsSection> controller,
-        Dictionary<string, Offered> offered, ProfileSnapshot profile)
+        OfferedRows offer)
     {
+        var profile = offer.Profile;
         if (coordinator is not { IntegrationEnabled: true })
         {
             return;
@@ -236,20 +237,21 @@ internal sealed partial class SteamNativeSettingsService(
                 .Select(choice => new SteamSettingsChoice(choice.Value,
                     CapabilityDisplayLabels.For(choice.Display, choice.Value)))
                 .ToArray();
-            var key = ProfileKey(DeviceHostRowIds.LightingProfile, profile.Active, profile.EditsGame);
-            var row = new SteamSettingsRow(key, SteamSettingsRowKind.Choice, descriptor.Title, descriptor.Description,
+            var row = new SteamSettingsRow(DeviceHostRowIds.LightingProfile, SteamSettingsRowKind.Choice,
+                descriptor.Title, descriptor.Description,
                 Text: lightingSelection.Selected.Value ?? string.Empty, Choices: choices,
                 Disabled: !descriptor.CanInvoke,
                 Accent: lightingSelection.Selected.IsGameOverride);
-            Section(controller, "Lighting", "device/lighting-profile", [row]);
-            offered.Add(key, new Offered(row, async (value, token) =>
+            List<SteamSettingsRow> lightingProfile = [];
+            offer.Add(lightingProfile, row, async (value, token) =>
             {
                 await coordinator.Lighting.SelectAsync(EmptyToNull(value.GetString()), token)
                     .ConfigureAwait(false);
                 return coordinator.Lighting.Status == DescriptorStatus.Warning
                     ? new SteamUiCommandResult(false, coordinator.Lighting.Detail)
                     : SteamUiCommandResult.Applied;
-            }, profile.Active, profile.EditsGame));
+            }, profileAware: true);
+            Section(controller, "Lighting", "device/lighting-profile", lightingProfile);
         }
 
         var declarations = CapabilityRowProjection.ProjectSections(coordinator.Capabilities.Sections);
@@ -282,12 +284,9 @@ internal sealed partial class SteamNativeSettingsService(
                         continue;
                     }
 
-                    var row = DeviceRow(capability);
-                    row = row with { Key = ProfileKey(row.Key, profile.Active, profile.EditsGame) };
-                    (lighting ? lightingRows : powerRows).Add(row);
                     var captured = capability;
-                    offered.Add(row.Key, new Offered(row, (value, token) => WriteDeviceAsync(captured, value, token),
-                        profile.Active, profile.EditsGame));
+                    offer.Add(lighting ? lightingRows : powerRows, DeviceRow(capability),
+                        (value, token) => WriteDeviceAsync(captured, value, token), profileAware: true);
                 }
 
                 var title = declaration?.Title ?? "Device";

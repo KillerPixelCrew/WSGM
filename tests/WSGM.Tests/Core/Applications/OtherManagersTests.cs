@@ -39,8 +39,8 @@ public sealed class OtherManagersTests
     [Fact]
     public void CatalogTasksThatDoNotExist_AreNotDetected()
     {
-        // The live IsTaskEnabled reads a missing task as enabled; detection must not rely on it.
-        FakeAutostartSystem autostart = new() { MissingTasksReadEnabled = true };
+        // A catalog task that does not exist reads as no state, never as enabled.
+        FakeAutostartSystem autostart = new();
 
         Assert.Empty(OtherManagers.Detect(autostart, new FakeServices(), []));
     }
@@ -48,7 +48,7 @@ public sealed class OtherManagersTests
     [Fact]
     public void Restore_TreatsATaskRemovedMeanwhileAsRestored()
     {
-        FakeAutostartSystem autostart = new() { TaskWritesFail = true, MissingTasksReadEnabled = true };
+        FakeAutostartSystem autostart = new() { TaskWritesFail = true };
         OtherManagerRecord record = new() { ManagerId = "msi-center-m", Kind = "task", Name = @"\MSI_Center_M_Server" };
 
         var restored = OtherManagers.Restore([record], autostart, new FakeServices());
@@ -80,14 +80,14 @@ public sealed class OtherManagersTests
 
         Assert.Equal(2, result.Disabled.Count);
         Assert.Empty(result.Failed);
-        Assert.False(autostart.IsTaskEnabled(@"\MSI_Center_M_Server"));
+        Assert.False(autostart.TaskEnabled[@"\MSI_Center_M_Server"]);
         Assert.Equal(4, services.Services["MSI Foundation Service"].Start);
         Assert.Contains("stop MSI Foundation Service", services.Calls);
 
         var restored = OtherManagers.Restore(records, autostart, services);
 
         Assert.Equal(2, restored.Count);
-        Assert.True(autostart.IsTaskEnabled(@"\MSI_Center_M_Server"));
+        Assert.True(autostart.TaskEnabled[@"\MSI_Center_M_Server"]);
         Assert.Equal((2, true), services.Services["MSI Foundation Service"]);
         Assert.Contains("start MSI Foundation Service", services.Calls);
     }

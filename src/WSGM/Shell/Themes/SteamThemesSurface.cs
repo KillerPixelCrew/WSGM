@@ -1,5 +1,6 @@
 using System;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
 
@@ -91,7 +92,7 @@ internal static class SteamThemesSurface
                     (request, token) => backend.SetHiddenAsync(request.Name, request.Hidden, token),
                     "The theme visibility payload is invalid."),
                 SteamUiModuleBuilder.Command<(string Key, JsonElement Value)>(PatchId, "setSetting", TryReadSetting,
-                    (request, token) => backend.SetSettingAsync(request.Key, request.Value, token),
+                    (request, token) => SetSetting(backend, request.Key, request.Value, token),
                     "The themes setting payload is invalid."),
                 SteamUiModuleBuilder.Command(PatchId, "dismiss", backend.DismissAsync)
             ]);
@@ -189,6 +190,20 @@ internal static class SteamThemesSurface
 
         request = new ComponentRequest(theme, patch, component, value);
         return true;
+    }
+
+    /// <summary>Routes one Settings tab value to the backend change it names.</summary>
+    private static Task<SteamUiCommandResult> SetSetting(ISteamThemesBackend backend, string key, JsonElement value,
+        CancellationToken cancellationToken)
+    {
+        return key switch
+        {
+            "enabled" when value.ValueKind is JsonValueKind.True or JsonValueKind.False =>
+                backend.SetThemesEnabledAsync(value.GetBoolean(), cancellationToken),
+            "translationsBranch" when value.ValueKind == JsonValueKind.String && value.GetString() is { } branch =>
+                backend.SetTranslationsBranchAsync(branch, cancellationToken),
+            _ => Task.FromResult(new SteamUiCommandResult(false, "That setting is not one of the themes'."))
+        };
     }
 
     private static bool TryReadSetting(JsonElement payload, out (string Key, JsonElement Value) request)

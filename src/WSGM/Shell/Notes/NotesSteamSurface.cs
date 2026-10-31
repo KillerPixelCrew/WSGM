@@ -183,7 +183,7 @@ internal static class NotesSteamSurface
 
     private static SteamUiCommandResult Report(NotesService service, NotesSteamRequest request)
     {
-        if (request.Capabilities is not { Length: > 0 and <= 4096 } report)
+        if (request.Capabilities is not { Length: > 0 } report)
         {
             return SteamUiCommandResult.Invalid(Invalid);
         }

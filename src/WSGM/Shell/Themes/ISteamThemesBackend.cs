@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
@@ -84,13 +83,6 @@ internal interface ISteamThemesBackend
     /// <param name="cancellationToken">Request cancellation signal; it does not revoke work already accepted by the owner.</param>
     /// <returns>Whether visibility was saved, or a refusal.</returns>
     Task<SteamUiCommandResult> SetHiddenAsync(string name, bool hidden, CancellationToken cancellationToken);
-
-    /// <summary>Changes one of the Settings tab's values.</summary>
-    /// <param name="key">enabled or translationsBranch.</param>
-    /// <param name="value">Boolean for enabled, or branch string for translationsBranch.</param>
-    /// <param name="cancellationToken">Request cancellation signal; it does not revoke work already accepted by the owner.</param>
-    /// <returns>The settings result, or refusal for an unknown key or incompatible value.</returns>
-    Task<SteamUiCommandResult> SetSettingAsync(string key, JsonElement value, CancellationToken cancellationToken);
 
     /// <summary>Clears the notice and the error.</summary>
     /// <param name="cancellationToken">Request cancellation signal; it does not revoke work already accepted by the owner.</param>

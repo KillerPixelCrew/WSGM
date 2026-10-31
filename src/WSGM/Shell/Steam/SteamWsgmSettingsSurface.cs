@@ -45,7 +45,7 @@ internal static class SteamWsgmSettingsSurface
     public static ISteamUiModule Module(
         Func<bool> enabled,
         Func<ValueTask<WsgmSteamSettingsState?>> read,
-        IWsgmSteamSettingsBackend backend,
+        WsgmSteamSettingsService backend,
         string id = "wsgm-settings")
     {
         ArgumentNullException.ThrowIfNull(backend);

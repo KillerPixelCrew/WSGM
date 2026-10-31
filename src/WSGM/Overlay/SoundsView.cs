@@ -167,7 +167,7 @@ public sealed class SoundsView : ServiceSubView
                 "Missing or incompatible sounds keep Steam defaults", Icons.Play,
                 () => Run(token => service.SelectAsync(id, token), "activate")), "sounds.activate"));
             var previews = new StackPanel { Spacing = 8 };
-            foreach (var asset in service.PreviewAssets(pack))
+            foreach (var asset in pack.Assets)
             {
                 var file = asset;
                 previews.Children.Add(Tagged(Row(file, "Preview this pack asset", Icons.Play,

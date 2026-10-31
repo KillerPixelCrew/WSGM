@@ -264,18 +264,17 @@ internal static class SteamArtwork
     {
         try
         {
-            var steamExe = Steam.ExePath;
-            if (steamExe is null)
+            var steamRoot = Steam.InstallDirectory;
+            if (steamRoot is null)
             {
                 return null;
             }
 
-            var userdata = Path.Combine(Path.GetDirectoryName(steamExe)!, "userdata");
+            var userdata = Path.Combine(steamRoot, "userdata");
             var normalized = SteamApps.NormalizeAppId(appId);
             if (asset == ArtworkAsset.Icon && !SteamApps.IsShortcutAppId(normalized))
             {
-                var storeIcon = Path.Combine(
-                    Path.GetDirectoryName(steamExe)!, "appcache", "librarycache", $"{normalized}_icon.jpg");
+                var storeIcon = Path.Combine(steamRoot, "appcache", "librarycache", $"{normalized}_icon.jpg");
                 return File.Exists(storeIcon) ? storeIcon : null;
             }
 
@@ -344,13 +343,12 @@ internal static class SteamArtwork
     private static async Task<ArtworkResult> ApplyIconAsync(
         SteamClient steam, uint appId, byte[] imageBytes, string format, CancellationToken cancellationToken)
     {
-        var steamExe = Steam.ExePath;
-        if (steamExe is null)
+        var steamRoot = Steam.InstallDirectory;
+        if (steamRoot is null)
         {
             return new ArtworkResult("Steam's installation directory is unavailable.");
         }
 
-        var steamRoot = Path.GetDirectoryName(steamExe)!;
         if (SteamApps.IsShortcutAppId(appId))
         {
             var accountId = await steam.Apps.ReadAccountIdAsync(cancellationToken).ConfigureAwait(false);
@@ -390,9 +388,9 @@ internal static class SteamArtwork
                 await steam.Apps.ClearShortcutIconAsync(appId, cancellationToken).ConfigureAwait(false),
                 "Shortcut icon reset.");
             if (result.Succeeded && accountId is { Succeeded: true, Value: var account }
-                                 && Steam.ExePath is { } steamExe)
+                                 && Steam.InstallDirectory is { } steamRoot)
             {
-                var directory = Path.Combine(Path.GetDirectoryName(steamExe)!, "userdata",
+                var directory = Path.Combine(steamRoot, "userdata",
                     account.ToString(CultureInfo.InvariantCulture), "config", "grid");
                 foreach (var extension in GridExtensions)
                 {

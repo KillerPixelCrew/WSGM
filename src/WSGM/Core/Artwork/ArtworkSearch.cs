@@ -26,10 +26,11 @@ namespace WSGM.Core;
 /// </remarks>
 internal static class ArtworkSearch
 {
-    /// <summary>The providers, in the order their results are preferred on a tie.</summary>
-    public static IReadOnlyList<IArtworkProvider> Providers { get; } =
-        [new SteamGridDbProvider(), new ScreenscraperProvider()];
+    /// <summary>The one SteamGridDB provider, so every surface shares its request gate and cache.</summary>
+    internal static SteamGridDbProvider SteamGridDb { get; } = new();
 
+    /// <summary>The providers, in the order their results are preferred on a tie.</summary>
+    public static IReadOnlyList<IArtworkProvider> Providers { get; } = [SteamGridDb, new ScreenscraperProvider()];
 
     /// <summary>Finds the provider with this id, or null.</summary>
     /// <param name="providerId">A provider id previously returned in a result.</param>
@@ -226,7 +227,7 @@ internal static class ArtworkSearch
         ArgumentNullException.ThrowIfNull(query);
         return GatherAsync(config, (provider, token) =>
                 provider.GetAssetsForSteamAppAsync(asset, steamAppId, config, query, token), cancellationToken,
-            selectedProviders: providers);
+            providers);
     }
 
     /// <summary>Searches the issuing provider for one filtered result page.</summary>
@@ -261,17 +262,16 @@ internal static class ArtworkSearch
         return provider is null
             ? Task.FromResult(new ArtworkSearchResult([], []))
             : GatherAsync(config, (p, token) =>
-                p.GetAssetsForGameAsync(asset, match.Id, config, query, token), cancellationToken, provider, providers);
+                p.GetAssetsForGameAsync(asset, match.Id, config, query, token), cancellationToken, [provider]);
     }
 
     private static async Task<ArtworkSearchResult> GatherAsync(
         ArtworkConfig config,
         Func<IArtworkProvider, CancellationToken, Task<ArtworkPage>> fetch,
         CancellationToken cancellationToken,
-        IArtworkProvider? only = null, IReadOnlyList<IArtworkProvider>? selectedProviders = null)
+        IReadOnlyList<IArtworkProvider> providers)
     {
         ArgumentNullException.ThrowIfNull(config);
-        var providers = only is null ? selectedProviders ?? Providers : [only];
         var statuses = providers.Select(p => p.GetStatus(config)).ToArray();
 
         var answers = await Task.WhenAll(providers.Select(async (provider, index) =>
