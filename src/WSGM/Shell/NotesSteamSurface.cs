@@ -421,12 +421,12 @@ internal static class NotesSteamSurface
         }
 
         var bytes = service.ReadAsset(request.Asset!);
-        if (bytes is null || NoteAssets.FormatOf(bytes) is null)
+        if (bytes is null || ImageHeader.Format(bytes) is not ("png" or "jpg")
+            || ImageHeader.DataUrl(bytes) is not { } url)
         {
             return new SteamUiCommandResult(false, "The image is missing.");
         }
 
-        var url = $"data:{NoteAssets.MimeOf(request.Asset!)};base64,{Convert.ToBase64String(bytes)}";
         return new SteamUiCommandResult(true, null,
             JsonSerializer.SerializeToElement(new NotesSteamImage(request.Asset!, url),
                 NotesSteamJsonContext.Default.NotesSteamImage));

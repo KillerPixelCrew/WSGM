@@ -47,8 +47,6 @@ internal static class LibraryTabManager
         ("Soundtracks", "Soundtracks")
     ];
 
-    private static readonly TimeSpan TabOrderPushDelay = TimeSpan.FromMilliseconds(600);
-
     /// <summary>How long the boot sync lets Steam's library finish loading after Big Picture is up.</summary>
     private static readonly TimeSpan LibraryReadyBudget = TimeSpan.FromSeconds(60);
 
@@ -74,43 +72,33 @@ internal static class LibraryTabManager
         + "while(!ready()){if(Date.now()>until)return 'false';await new Promise(r=>setTimeout(r,250));}"
         + "return 'true';})()";
 
-    // Guards the background work below: the tracked tasks, the order-write chain, the pending push
-    // and the closed flag.
+    // Guards the background work below: the tracked tasks and the closed flag.
     private static readonly Lock WorkGate = new();
 
-    // Every background sync, order write and push still running, so the session can join them at
-    // shutdown instead of leaving a config write or a Steam call behind it.
+    // Every background sync still running, so the session can join them at shutdown instead of
+    // leaving a config write or a Steam call behind it.
     private static readonly List<Task> Work = [];
 
     // Cancelled when the session closes; every background run is linked to it.
     private static readonly CancellationTokenSource Lifetime = new();
 
-    // The builder's order writes, chained in press order.
-    private static Task _tabOrderWrites = Task.CompletedTask;
-
-    // One live push at a time, so a slow earlier push can never land after a newer one.
-    private static readonly SemaphoreSlim PushGate = new(1, 1);
-
-    // Numbers each saved order; a push whose order is no longer the newest leaves it to the newer one.
-    private static long _pushVersion;
-
     // Set once by CloseAsync; no background work starts after it.
     private static bool _closed;
 
     /// <summary>
-    ///     Raised after the card model, the custom tabs or the tab order changed in configuration: a
-    ///     manager mutation from either surface, or a sync that merged a fresh drive scan. The shared
-    ///     <see cref="LibraryManagerService" /> rebuilds its projection on it, so both the overlay and
-    ///     Steam follow a change made on the other surface or by a card insertion.
+    ///     Raised after a sync merged a fresh drive scan into configuration, with the configuration it
+    ///     saved and the content ids of the cards that scan found mounted. The shared
+    ///     <see cref="LibraryManagerService" /> projects them without scanning again, so both the overlay
+    ///     and Steam follow a card insertion, or the sync a change on either surface started.
     /// </summary>
     /// <remarks>Raised on the thread that finished the write; handlers must not block it.</remarks>
-    internal static event Action? Changed;
+    internal static event Action<AppConfig, IReadOnlySet<string>>? Changed;
 
-    private static void NotifyChanged()
+    private static void NotifyChanged(AppConfig config, IReadOnlySet<string> present)
     {
         try
         {
-            Changed?.Invoke();
+            Changed?.Invoke(config, present);
         }
         catch (Exception ex)
         {
@@ -153,6 +141,7 @@ internal static class LibraryTabManager
         try
         {
             var discovered = await Task.Run(ScanLibraries, cancellationToken).ConfigureAwait(false);
+            var present = discovered.Select(static card => card.ContentId).ToHashSet(StringComparer.Ordinal);
             var config = await MutateConfigAsync(store, fresh =>
             {
                 MergeDiscovery(fresh, discovered);
@@ -161,8 +150,7 @@ internal static class LibraryTabManager
 
             // Card membership and badges come from disk, independently of Steam's tab claim.
             // Publish them before waiting, so an unready library cannot hide a newly inserted card.
-            LibraryBadges.Update(config, discovered.Select(static card => card.ContentId)
-                .ToHashSet(StringComparer.Ordinal));
+            LibraryBadges.Update(config, present);
 
             var tabsEnabled = config.Cef is { Enabled: true, LibraryTabs: true };
             if (tabsEnabled && !await WaitForLibraryAsync(steam, cancellationToken).ConfigureAwait(false))
@@ -234,11 +222,10 @@ internal static class LibraryTabManager
             // The badge is a toolkit surface fed from the same card model: the reading is replaced
             // here and the session host publishes it. Whether Steam shows it is the host's switch,
             // so this never talks to Steam and cannot fail the sync.
-            LibraryBadges.Update(config, discovered.Select(static card => card.ContentId)
-                .ToHashSet(StringComparer.Ordinal));
+            LibraryBadges.Update(config, present);
             // The merge above may have added a card, renamed one from its marker or refreshed its
-            // capacity: the manager projections follow it the same way they follow a user change.
-            NotifyChanged();
+            // capacity: the manager projections follow it from this reading, without another scan.
+            NotifyChanged(config, present);
             if (!tabsEnabled)
             {
                 // The tab strip is switched off, so there is nothing left to push and
@@ -429,21 +416,30 @@ internal static class LibraryTabManager
     /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
     /// <param name="cancellationToken">Cancels the scan.</param>
     /// <returns>Tracked cards with current presence and app IDs, after discovered metadata is merged into configuration.</returns>
-    public static async Task<IReadOnlyList<CardView>> ListCardsAsync(ConfigStore store,
+    internal static async Task<IReadOnlyList<LibraryCardView>> ListCardsAsync(ConfigStore store,
         CancellationToken cancellationToken = default)
     {
         var discovered = await Task.Run(ScanLibraries, cancellationToken).ConfigureAwait(false);
-        var present = new HashSet<string>(
-            discovered.Select(d => d.ContentId), StringComparer.Ordinal);
+        var present = discovered.Select(static card => card.ContentId).ToHashSet(StringComparer.Ordinal);
         return await MutateConfigAsync(store, config =>
         {
             MergeDiscovery(config, discovered);
-            return config.CardLibraries
-                .Select(c => new CardView(
-                    c.ContentId, c.Name, c.Enabled, c.Hidden, c.AppIds.Count,
-                    present.Contains(c.ContentId), [.. c.AppIds], c.CapacityBytes, c.FreeBytes))
-                .ToList();
+            return ProjectCards(config, present);
         }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>The tracked cards as the managers show them, from configuration and the mounted cards.</summary>
+    /// <param name="config">The configuration holding the card model.</param>
+    /// <param name="present">The content ids of the cards mounted right now.</param>
+    /// <returns>A detached list; no I/O.</returns>
+    internal static IReadOnlyList<LibraryCardView> ProjectCards(AppConfig config, IReadOnlySet<string> present)
+    {
+        return
+        [
+            .. config.CardLibraries.Select(c => new LibraryCardView(
+                c.ContentId, c.Name, c.Enabled, c.Hidden, present.Contains(c.ContentId), c.AppIds.Count,
+                [.. c.AppIds], c.CapacityBytes, c.FreeBytes))
+        ];
     }
 
     /// <summary>
@@ -496,7 +492,6 @@ internal static class LibraryTabManager
 
         await UpdateCardAsync(store, contentId, c => c.Name = trimmed, cancellationToken)
             .ConfigureAwait(false);
-        NotifyChanged();
 
         var notes = new List<string>();
         var steamNote = await PushLabelToSteamAsync(steam, contentId, trimmed, cancellationToken)
@@ -769,7 +764,6 @@ internal static class LibraryTabManager
         bool enabled, CancellationToken cancellationToken = default)
     {
         await UpdateCardAsync(store, contentId, c => c.Enabled = enabled, cancellationToken).ConfigureAwait(false);
-        NotifyChanged();
         StartQuietSync(store, steam, "card manager");
     }
 
@@ -784,7 +778,6 @@ internal static class LibraryTabManager
         bool hidden, CancellationToken cancellationToken = default)
     {
         await UpdateCardAsync(store, contentId, c => c.Hidden = hidden, cancellationToken).ConfigureAwait(false);
-        NotifyChanged();
         StartQuietSync(store, steam, "card manager");
     }
 
@@ -817,7 +810,6 @@ internal static class LibraryTabManager
 
             return null;
         }, cancellationToken).ConfigureAwait(false);
-        NotifyChanged();
         StartQuietSync(store, steam, "card manager");
     }
 
@@ -837,94 +829,42 @@ internal static class LibraryTabManager
         }, cancellationToken);
     }
 
-    /// <summary>Saves the tab-strip order and the hidden native tabs, then shows them in the running Steam.</summary>
+    /// <summary>Saves the tab-strip order and the hidden native tabs.</summary>
     /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
-    /// <param name="steam">The session's Steam client, or null on a surface without one (which only saves).</param>
     /// <param name="order">Every tab key, left to right.</param>
     /// <param name="hidden">The native tabs left out of the strip.</param>
+    /// <returns>Completion of the configuration write.</returns>
+    internal static Task SaveTabOrderAsync(ConfigStore store, List<string> order, List<string> hidden)
+    {
+        return MutateConfigAsync<object?>(store, config =>
+        {
+            config.LibraryTabOrder = order;
+            config.HiddenNativeTabs = hidden;
+            return null;
+        });
+    }
+
+    /// <summary>Shows a saved tab-strip order in the running Steam.</summary>
     /// <remarks>
-    ///     The builder calls this on every move press. Writes are chained so they commit in press
-    ///     order; a slow earlier write must not clobber a newer one. The push into Steam is debounced
-    ///     and cheap (no filter re-evaluation), so the strip follows while the user is still tapping
-    ///     move, and it falls back to a full sync when the resident script is not installed in this
-    ///     Steam session yet.
+    ///     Cheap (no filter re-evaluation), so the strip follows while the user is still tapping move.
+    ///     It falls back to a full sync when the resident script is not installed in this Steam
+    ///     session yet. A failure is logged and waits for the next sync.
     /// </remarks>
-    /// <returns>
-    ///     Completion of this order's configuration write, after every earlier one; the push into Steam
-    ///     is not awaited. Already complete after the session closed, when nothing is written.
-    /// </returns>
-    internal static Task SaveTabOrder(ConfigStore store, SteamClient? steam, List<string> order, List<string> hidden)
-    {
-        lock (WorkGate)
-        {
-            if (_closed)
-            {
-                return Task.CompletedTask;
-            }
-
-            _tabOrderWrites = _tabOrderWrites
-                .ContinueWith(_ => SaveTabOrderAsync(store, steam, order, hidden), TaskScheduler.Default)
-                .Unwrap();
-            TrackLocked(_tabOrderWrites);
-            return _tabOrderWrites;
-        }
-    }
-
-    private static async Task SaveTabOrderAsync(
-        ConfigStore store, SteamClient? steam, List<string> order, List<string> hidden)
+    /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
+    /// <param name="steam">The session's Steam client.</param>
+    /// <param name="order">Every tab key, left to right.</param>
+    /// <param name="hidden">The native tabs left out of the strip.</param>
+    /// <param name="cancellationToken">Cancels the push; the session's close cancels it too.</param>
+    /// <returns>Completion of the push or of its fallback sync.</returns>
+    internal static async Task PushTabOrderAsync(ConfigStore store, SteamClient steam, List<string> order,
+        List<string> hidden, CancellationToken cancellationToken)
     {
         try
         {
-            await MutateConfigAsync<object?>(store, config =>
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, Lifetime.Token);
+            if (!await SteamLibraryTabs.PushOrderAsync(steam, order, hidden, linked.Token).ConfigureAwait(false))
             {
-                config.LibraryTabOrder = order;
-                config.HiddenNativeTabs = hidden;
-                return null;
-            }).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Library tab order save failed: {ex.Message}");
-            return;
-        }
-
-        NotifyChanged();
-
-        lock (WorkGate)
-        {
-            if (_closed || steam is null)
-            {
-                return;
-            }
-
-            TrackLocked(PushTabOrderAsync(store, steam, order, hidden, Interlocked.Increment(ref _pushVersion)));
-        }
-    }
-
-    // Debounced: only the newest order reaches Steam, and pushes run one at a time in press order.
-    private static async Task PushTabOrderAsync(ConfigStore store, SteamClient steam, List<string> order,
-        List<string> hidden, long version)
-    {
-        var token = Lifetime.Token;
-        try
-        {
-            await Task.Delay(TabOrderPushDelay, token).ConfigureAwait(false);
-            await PushGate.WaitAsync(token).ConfigureAwait(false);
-            try
-            {
-                if (Interlocked.Read(ref _pushVersion) != version)
-                {
-                    return;
-                }
-
-                if (!await SteamLibraryTabs.PushOrderAsync(steam, order, hidden, token).ConfigureAwait(false))
-                {
-                    await SyncQuietlyAsync(store, steam, "builder", token).ConfigureAwait(false);
-                }
-            }
-            finally
-            {
-                PushGate.Release();
+                await SyncQuietlyAsync(store, steam, "builder", linked.Token).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
@@ -970,7 +910,6 @@ internal static class LibraryTabManager
 
             return null;
         }).ConfigureAwait(false);
-        NotifyChanged();
         StartQuietSync(store, steam, "builder");
     }
 
@@ -978,7 +917,7 @@ internal static class LibraryTabManager
     ///     Stops starting background tab work, cancels what is running and returns the work still to
     ///     finish, for the session to join within its shutdown deadline.
     /// </summary>
-    /// <returns>A task that completes once every tracked sync, order write and push has ended.</returns>
+    /// <returns>A task that completes once every tracked sync has ended.</returns>
     internal static Task CloseAsync()
     {
         Task remaining;
@@ -1025,7 +964,7 @@ internal static class LibraryTabManager
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Superseded by a newer push, or the session is closing.
+            // The session is closing.
         }
         catch (Exception ex)
         {
@@ -1069,7 +1008,26 @@ internal static class LibraryTabManager
     /// <returns>A new set of content IDs found on currently readable removable libraries.</returns>
     internal static IReadOnlySet<string> PresentCardContentIds()
     {
-        return ScanLibraries().Select(static card => card.ContentId).ToHashSet(StringComparer.Ordinal);
+        // Only the markers: the ids need neither the app manifests nor the volume's size and label.
+        var present = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var letter in ExternalVolumeLetters())
+        {
+            try
+            {
+                if (SteamLibraryMarker.TryRead($@"{letter}:\{SteamLibraryVdf.CardFolderName}", out var contentId,
+                        out _)
+                    && !string.IsNullOrEmpty(contentId))
+                {
+                    present.Add(contentId);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($@"Library tabs: could not read {letter}:\: {ex.Message}");
+            }
+        }
+
+        return present;
     }
 
     /// <summary>
@@ -1080,7 +1038,7 @@ internal static class LibraryTabManager
     /// </summary>
     /// <param name="config">The loaded configuration.</param>
     /// <returns>A new ordered list including hidden native tabs; the input configuration is not changed.</returns>
-    public static List<TabOrderEntry> BuildTabOrder(AppConfig config)
+    internal static List<LibraryTabOrderView> BuildTabOrder(AppConfig config)
     {
         var hidden = new HashSet<string>(config.HiddenNativeTabs, StringComparer.Ordinal);
         var titles = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -1094,7 +1052,7 @@ internal static class LibraryTabManager
             titles[native.Id] = native.Title;
         }
 
-        var pool = new List<TabOrderEntry>();
+        var pool = new List<LibraryTabOrderView>();
         var pooled = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (id, _) in DefaultNativeTabs)
         {
@@ -1115,14 +1073,14 @@ internal static class LibraryTabManager
             .Where(t => t.Enabled && !string.IsNullOrWhiteSpace(t.Name))
             .OrderBy(t => t.Position)
             .Where(tab => pooled.Add($"wsgm-custom-{tab.Id}"))
-            .Select(tab => new TabOrderEntry($"wsgm-custom-{tab.Id}", tab.Name, false, false)));
+            .Select(tab => new LibraryTabOrderView($"wsgm-custom-{tab.Id}", tab.Name, "custom", false)));
         pool.AddRange(config.CardLibraries
             .Where(c => c is { Enabled: true, Hidden: false })
             .Where(card => pooled.Add($"wsgm-card-{card.ContentId}"))
-            .Select(card => new TabOrderEntry($"wsgm-card-{card.ContentId}", card.Name, false, false)));
+            .Select(card => new LibraryTabOrderView($"wsgm-card-{card.ContentId}", card.Name, "card", false)));
 
         var byKey = pool.ToDictionary(e => e.Key, StringComparer.Ordinal);
-        var result = new List<TabOrderEntry>();
+        var result = new List<LibraryTabOrderView>();
         var used = new HashSet<string>(StringComparer.Ordinal);
         foreach (var key in config.LibraryTabOrder)
         {
@@ -1139,8 +1097,8 @@ internal static class LibraryTabManager
         {
             if (!string.IsNullOrEmpty(id) && pooled.Add(id))
             {
-                pool.Add(new TabOrderEntry(
-                    id, titles.GetValueOrDefault(id, id), true, hidden.Contains(id)));
+                pool.Add(new LibraryTabOrderView(
+                    id, titles.GetValueOrDefault(id, id), "native", hidden.Contains(id)));
             }
         }
     }
@@ -1373,35 +1331,6 @@ internal static class LibraryTabManager
         }
     }
 
-    // ---- Card-manager API (drives the overlay card sub-view) ----
-
-    /// <summary>
-    ///     A card as shown in the manager: identity, name, tab/hidden state, game
-    ///     count, and whether it is currently inserted.
-    /// </summary>
-    /// <param name="ContentId">Stable card identity (its library content id).</param>
-    /// <param name="Name">Display name.</param>
-    /// <param name="Enabled">Whether a Steam tab is maintained.</param>
-    /// <param name="Hidden">Whether it is hidden from tab creation.</param>
-    /// <param name="GameCount">Remembered installed app count.</param>
-    /// <param name="Inserted">Whether the card is currently mounted.</param>
-    /// <param name="AppIds">Remembered installed app ids.</param>
-    /// <param name="CapacityBytes">
-    ///     The volume's size from the last time it was mounted, 0 when it was never read. Kept while
-    ///     the card is ejected, so the row still says how large it is.
-    /// </param>
-    /// <param name="FreeBytes">The free space from that same reading; meaningful only with a capacity.</param>
-    public sealed record CardView(
-        string ContentId,
-        string Name,
-        bool Enabled,
-        bool Hidden,
-        int GameCount,
-        bool Inserted,
-        IReadOnlyList<long> AppIds,
-        long CapacityBytes = 0,
-        long FreeBytes = 0);
-
     /// <summary>The volume a tracked library currently lives on.</summary>
     /// <param name="Root">
     ///     The volume GUID path with its trailing separator, which is
@@ -1412,17 +1341,6 @@ internal static class LibraryTabManager
     ///     only — it is not a durable name for the volume.
     /// </param>
     private readonly record struct MountedVolume(string Root, char Letter);
-
-    /// <summary>
-    ///     One row of the tab-order UI: a tab key (a native Steam id or an
-    ///     injected <c>wsgm-…</c> id), its display title, and its visibility. Only native
-    ///     tabs can be hidden here — WSGM tabs are hidden by disabling them.
-    /// </summary>
-    /// <param name="Key">Native id (<c>AllGames</c>) or injected id (<c>wsgm-…</c>).</param>
-    /// <param name="Title">Display title for the UI.</param>
-    /// <param name="IsNative">Whether this is one of Steam's own tabs.</param>
-    /// <param name="Hidden">Whether a native tab is currently hidden.</param>
-    public sealed record TabOrderEntry(string Key, string Title, bool IsNative, bool Hidden);
 
     /// <summary>A removable Steam library found on a mounted drive.</summary>
     /// <param name="ContentId">The stable identity from the card's own marker.</param>

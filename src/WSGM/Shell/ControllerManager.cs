@@ -629,6 +629,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         try
         {
             bool toUi;
+            CanonicalButtons synthetic;
             lock (_stateGate)
             {
                 if (_disposed)
@@ -636,6 +637,8 @@ internal sealed class ControllerManager : IAsyncDisposable
                     return false;
                 }
 
+                // Synthetic presses change only under the route gate held here, so this read stays current.
+                synthetic = _syntheticButtons;
                 _lastButtons = sample.Buttons;
                 _lastSample = sample;
                 // Forwarding resumes only on a clean boundary: every control the UI used has to be
@@ -649,15 +652,10 @@ internal sealed class ControllerManager : IAsyncDisposable
                 return false;
             }
 
-            CanonicalControllerSample routed;
             var buttons = FilterOemButtons?.Invoke(sample) ?? sample.Buttons;
-            lock (_stateGate)
-            {
-                routed = _syntheticButtons is CanonicalButtons.None && buttons == sample.Buttons
-                    ? sample
-                    : sample with { Buttons = buttons | _syntheticButtons };
-            }
-
+            var routed = synthetic is CanonicalButtons.None && buttons == sample.Buttons
+                ? sample
+                : sample with { Buttons = buttons | synthetic };
             return await _router.RouteAsync(routed, cancellationToken).ConfigureAwait(false);
         }
         finally

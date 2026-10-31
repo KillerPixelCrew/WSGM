@@ -1,5 +1,4 @@
 using System;
-using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using WindowsDeviceControl;
@@ -18,9 +17,9 @@ internal sealed class VolumeButtonService : IDisposable
     private readonly AudioManager _audio;
     private readonly MessageWindow _window;
     private Task _commands = Task.CompletedTask;
-    private bool _disposed;
-    private bool _gameModeActive;
-    private int _generation;
+    // Read by queued commands off the UI thread, which drop themselves once handling is off or disposed.
+    private volatile bool _disposed;
+    private volatile bool _gameModeActive;
 
     /// <summary>Creates the game-mode volume handler on the Avalonia UI thread.</summary>
     /// <param name="window">The process message-only window carrying the session's Game Mode shell hook.</param>
@@ -44,7 +43,6 @@ internal sealed class VolumeButtonService : IDisposable
         }
 
         _disposed = true;
-        Interlocked.Increment(ref _generation);
         _window.ShellHookReceived -= OnShellHook;
     }
 
@@ -62,7 +60,6 @@ internal sealed class VolumeButtonService : IDisposable
         }
 
         _gameModeActive = active;
-        Interlocked.Increment(ref _generation);
         // VolumeFeedback is preopened by AudioManager.Start, which the session
         // runs before this service exists; Play() self-initializes as backstop.
         Log.Info(active
@@ -82,19 +79,18 @@ internal sealed class VolumeButtonService : IDisposable
             return;
         }
 
-        var generation = Volatile.Read(ref _generation);
         var previous = _commands;
         _commands = Task.Run(async () =>
         {
             await previous.ConfigureAwait(false);
-            if (generation == Volatile.Read(ref _generation))
+            if (_gameModeActive && !_disposed)
             {
-                ApplyCommand(command, generation);
+                ApplyCommand(command);
             }
         });
     }
 
-    private void ApplyCommand(CoreAudio.VolumeCommand command, int generation)
+    private void ApplyCommand(CoreAudio.VolumeCommand command)
     {
         try
         {
@@ -108,7 +104,7 @@ internal sealed class VolumeButtonService : IDisposable
                 VolumeFeedback.Play();
                 Dispatcher.UIThread.Post(() =>
                 {
-                    if (_disposed || generation != Volatile.Read(ref _generation))
+                    if (_disposed || !_gameModeActive)
                     {
                         return;
                     }

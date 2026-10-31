@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -8,117 +9,6 @@ using SteamUiToolkit;
 using WSGM.Core;
 
 namespace WSGM.Shell;
-
-/// <summary>How a Notes edit ended.</summary>
-internal enum NoteEditStatus
-{
-    /// <summary>The edit was saved.</summary>
-    Applied,
-
-    /// <summary>The page changed since the editor read it; nothing was saved.</summary>
-    Conflict,
-
-    /// <summary>The page or element no longer exists.</summary>
-    Missing,
-
-    /// <summary>The edit was malformed, the page is read-only, or the store failed.</summary>
-    Refused
-}
-
-/// <summary>The result of one Notes edit.</summary>
-/// <param name="Status">How it ended.</param>
-/// <param name="Page">The saved page, or on conflict the current page to reload from.</param>
-/// <param name="Error">Why it was not applied, in words a page shows.</param>
-/// <param name="ElementId">The element or stroke the edit created, when it created one.</param>
-internal sealed record NoteEditResult(NoteEditStatus Status, NotePage? Page, string? Error, string? ElementId = null)
-{
-    /// <summary>Whether the edit was saved.</summary>
-    internal bool Succeeded => Status == NoteEditStatus.Applied;
-
-    internal static NoteEditResult Refuse(string error)
-    {
-        return new NoteEditResult(NoteEditStatus.Refused, null, error);
-    }
-
-    /// <summary>The result as a bridge answer.</summary>
-    /// <returns>Applied, or a refusal carrying the reason.</returns>
-    internal SteamUiCommandResult ToCommandResult()
-    {
-        return Succeeded ? SteamUiCommandResult.Applied : new SteamUiCommandResult(false, Error);
-    }
-}
-
-/// <summary>One page as a notebook lists it.</summary>
-/// <param name="Id">The page id.</param>
-/// <param name="Title">Its title, or a placeholder for an untitled page.</param>
-/// <param name="Pinned">Whether it is pinned.</param>
-/// <param name="Modified">When its content last changed.</param>
-/// <param name="Revision">Its content revision.</param>
-/// <param name="ReadOnly">Written by a newer WSGM; shown, never changed.</param>
-/// <param name="Preview">The start of its first text block.</param>
-/// <param name="Texts">Number of text blocks.</param>
-/// <param name="Images">Number of images.</param>
-/// <param name="Strokes">Number of ink strokes.</param>
-internal sealed record NotePageSummary(
-    string Id,
-    string Title,
-    bool Pinned,
-    DateTimeOffset Modified,
-    long Revision,
-    bool ReadOnly,
-    string Preview,
-    int Texts,
-    int Images,
-    int Strokes);
-
-/// <summary>One notebook.</summary>
-/// <param name="Scope">Its identity.</param>
-/// <param name="Title">The game's name, or "Global".</param>
-/// <param name="Pages">How many pages it has.</param>
-internal sealed record NotebookSummary(string Scope, string Title, int Pages);
-
-/// <summary>What the running game resolves to for Notes.</summary>
-internal enum NotesGameState
-{
-    /// <summary>A game is running and has a stable identity.</summary>
-    Game,
-
-    /// <summary>No game is running.</summary>
-    None,
-
-    /// <summary>Something is running but its identity is unknown or ambiguous right now.</summary>
-    Unknown
-}
-
-/// <summary>The running game as Notes sees it.</summary>
-/// <param name="State">Whether there is one.</param>
-/// <param name="Scope">Its notebook, for <see cref="NotesGameState.Game" />.</param>
-/// <param name="Title">Its display name.</param>
-/// <param name="Detail">Why the identity is unknown, for <see cref="NotesGameState.Unknown" />.</param>
-internal sealed record NotesCurrentGame(NotesGameState State, string? Scope, string Title, string? Detail = null)
-{
-    internal static NotesCurrentGame NoGame { get; } = new(NotesGameState.None, null, "No game running");
-}
-
-/// <summary>Where the overlay's Notes was, so a reopened overlay continues there.</summary>
-/// <param name="Scope">The notebook shown, or null for the current game's.</param>
-/// <param name="PageId">The open page, or null for the list.</param>
-/// <param name="Mode">navigate, text or ink.</param>
-/// <param name="Zoom">Canvas zoom.</param>
-/// <param name="ScrollY">Canvas vertical offset in page units.</param>
-internal sealed record NotesOverlayLocation(string? Scope, string? PageId, string Mode, double Zoom, double ScrollY)
-{
-    internal static NotesOverlayLocation Start { get; } = new(null, null, "navigate", 1, 0);
-}
-
-/// <summary>Text the overlay had typed but not yet saved, kept when the overlay closes mid-edit.</summary>
-/// <param name="PageId">The page.</param>
-/// <param name="ElementId">The text block, or null for a new block.</param>
-/// <param name="BaseRevision">The revision the edit started from.</param>
-/// <param name="Text">The unsaved text.</param>
-/// <param name="X">Where a new block goes.</param>
-/// <param name="Y">Where a new block goes.</param>
-internal sealed record NotesTextDraft(string PageId, string? ElementId, long BaseRevision, string Text, double X, double Y);
 
 /// <summary>
 ///     The session's one Notes owner, shared by the WSGM overlay and Steam's overlay: the store, every edit with
@@ -821,19 +711,16 @@ internal sealed class NotesService : IChangeSource, IExtensionsTabSection, IAsyn
     /// <param name="seconds">5 to 10.</param>
     internal void SetCountdown(int seconds)
     {
+        bool changed;
         lock (_gate)
         {
-            seconds = Math.Clamp(seconds, NoteSettings.MinimumCountdown, NoteSettings.MaximumCountdown);
-            if (_settings.CaptureCountdownSeconds == seconds)
-            {
-                return;
-            }
-
-            _settings.CaptureCountdownSeconds = seconds;
-            TryWriteSettingsLocked();
+            changed = SetCountdownLocked(seconds);
         }
 
-        Publish();
+        if (changed)
+        {
+            Publish();
+        }
     }
 
     /// <summary>An image asset's bytes.</summary>
@@ -969,10 +856,16 @@ internal sealed class NotesService : IChangeSource, IExtensionsTabSection, IAsyn
     private NoteEditResult Edit(string pageId, long expectedRevision, Func<NotePage, string?> change,
         string? createdId = null)
     {
+        return Publishing(() => EditLocked(pageId, expectedRevision, change, createdId));
+    }
+
+    /// <summary>Runs one locked edit and publishes it when it was saved.</summary>
+    private NoteEditResult Publishing(Func<NoteEditResult> locked)
+    {
         NoteEditResult result;
         lock (_gate)
         {
-            result = EditLocked(pageId, expectedRevision, change, createdId);
+            result = locked();
         }
 
         if (result.Succeeded)
@@ -983,22 +876,39 @@ internal sealed class NotesService : IChangeSource, IExtensionsTabSection, IAsyn
         return result;
     }
 
-    private NoteEditResult EditLocked(string pageId, long expectedRevision, Func<NotePage, string?> change,
-        string? createdId)
+    /// <summary>Finds a page this session may change.</summary>
+    /// <returns>False with the refusal when Notes cannot write, the page is gone or it is read-only.</returns>
+    private bool WritableLocked(string pageId, [NotNullWhen(true)] out NotePage? current,
+        [NotNullWhen(false)] out NoteEditResult? refused)
     {
-        if (Refusal() is { } refusal)
+        current = null;
+        refused = Refusal();
+        if (refused is not null)
         {
-            return refusal;
+            return false;
         }
 
-        if (!_pages.TryGetValue(pageId, out var current))
+        if (!_pages.TryGetValue(pageId, out current))
         {
-            return new NoteEditResult(NoteEditStatus.Missing, null, "That note no longer exists.");
+            refused = new NoteEditResult(NoteEditStatus.Missing, null, "That note no longer exists.");
+            return false;
         }
 
         if (_readOnly.Contains(pageId))
         {
-            return NoteEditResult.Refuse(ReadOnlyMessage);
+            refused = NoteEditResult.Refuse(ReadOnlyMessage);
+            return false;
+        }
+
+        return true;
+    }
+
+    private NoteEditResult EditLocked(string pageId, long expectedRevision, Func<NotePage, string?> change,
+        string? createdId)
+    {
+        if (!WritableLocked(pageId, out var current, out var refused))
+        {
+            return refused;
         }
 
         if (current.Revision != expectedRevision)
@@ -1032,35 +942,17 @@ internal sealed class NotesService : IChangeSource, IExtensionsTabSection, IAsyn
 
     private NoteEditResult Organize(string pageId, Action<NotePage> change)
     {
-        NoteEditResult result;
-        lock (_gate)
+        return Publishing(() =>
         {
-            if (Refusal() is { } refusal)
+            if (!WritableLocked(pageId, out var current, out var refused))
             {
-                return refusal;
-            }
-
-            if (!_pages.TryGetValue(pageId, out var current))
-            {
-                return new NoteEditResult(NoteEditStatus.Missing, null, "That note no longer exists.");
-            }
-
-            if (_readOnly.Contains(pageId))
-            {
-                return NoteEditResult.Refuse(ReadOnlyMessage);
+                return refused;
             }
 
             var copy = current.Clone();
             change(copy);
-            result = WriteLocked(copy, null);
-        }
-
-        if (result.Succeeded)
-        {
-            Publish();
-        }
-
-        return result;
+            return WriteLocked(copy, null);
+        });
     }
 
     private NoteEditResult WriteLocked(NotePage page, string? createdId)
@@ -1168,14 +1060,17 @@ internal sealed class NotesService : IChangeSource, IExtensionsTabSection, IAsyn
         });
     }
 
-    private void SetCountdownLocked(int seconds)
+    private bool SetCountdownLocked(int seconds)
     {
-        seconds = Math.Clamp(seconds, NoteSettings.MinimumCountdown, NoteSettings.MaximumCountdown);
-        if (_settings.CaptureCountdownSeconds != seconds)
+        seconds = NoteSettings.ClampCountdown(seconds);
+        if (_settings.CaptureCountdownSeconds == seconds)
         {
-            _settings.CaptureCountdownSeconds = seconds;
-            TryWriteSettingsLocked();
+            return false;
         }
+
+        _settings.CaptureCountdownSeconds = seconds;
+        TryWriteSettingsLocked();
+        return true;
     }
 
     private void TryWriteSettingsLocked()
@@ -1219,80 +1114,5 @@ internal sealed class NotesService : IChangeSource, IExtensionsTabSection, IAsyn
     private static NotesCurrentGame Unknown(string detail)
     {
         return new NotesCurrentGame(NotesGameState.Unknown, null, "Current game unknown", detail);
-    }
-}
-
-/// <summary>Where Steam's Notes page is and what it last reported.</summary>
-/// <remarks>Guarded by its own lock; the publication reads a consistent copy.</remarks>
-internal sealed class NotesSteamView
-{
-    private readonly Lock _gate = new();
-    private uint _appId;
-    private string? _capabilities;
-    private string? _notice;
-    private bool _opened;
-    private string? _pageId;
-    private uint _processId;
-    private string? _scope;
-
-    /// <summary>A consistent copy.</summary>
-    internal (bool Opened, string? Scope, string? PageId, uint AppId, uint ProcessId, string? Notice) Read()
-    {
-        lock (_gate)
-        {
-            return (_opened, _scope, _pageId, _appId, _processId, _notice);
-        }
-    }
-
-    /// <summary>Records the overlay window the page runs in.</summary>
-    /// <param name="appId">The game's app id, or zero outside a game overlay.</param>
-    /// <param name="processId">The game process, or zero.</param>
-    /// <returns>Whether the window changed.</returns>
-    internal bool SetWindow(uint appId, uint processId)
-    {
-        lock (_gate)
-        {
-            var changed = !_opened || _appId != appId || _processId != processId;
-            _opened = true;
-            _appId = appId;
-            _processId = processId;
-            return changed;
-        }
-    }
-
-    /// <summary>Selects a notebook and page; null page shows the list.</summary>
-    internal void Select(string? scope, string? pageId)
-    {
-        lock (_gate)
-        {
-            _scope = scope;
-            _pageId = pageId;
-        }
-    }
-
-    /// <summary>Sets or clears the page's notice line.</summary>
-    internal void SetNotice(string? notice)
-    {
-        lock (_gate)
-        {
-            _notice = notice;
-        }
-    }
-
-    /// <summary>Records the browser capabilities the page reported, once per distinct report.</summary>
-    /// <param name="report">The report.</param>
-    /// <returns>Whether it differs from the last one.</returns>
-    internal bool RecordCapabilities(string report)
-    {
-        lock (_gate)
-        {
-            if (_capabilities == report)
-            {
-                return false;
-            }
-
-            _capabilities = report;
-            return true;
-        }
     }
 }

@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
@@ -29,15 +30,14 @@ public sealed class KeepAwakeService : IDisposable
     // Guards every download-hold transition together with _autoEnabled and the
     // streak, so a config change and an in-flight poll cannot interleave.
     private readonly Lock _downloadGate = new();
-    private readonly WakeLock _downloadLock = new("WSGM keep-awake (Steam download in progress)");
+    private readonly WindowsPowerRequest _downloadLock = new("WSGM keep-awake (Steam download in progress)");
 
-    private readonly WakeLock _manualDisplayLock =
-        new("WSGM keep-display-on (manual quick-access toggle)",
-            (int)WindowsPowerRequestKind.Display);
+    private readonly WindowsPowerRequest _manualDisplayLock =
+        new("WSGM keep-display-on (manual quick-access toggle)", WindowsPowerRequestKind.Display);
 
     private readonly Lock _manualGate = new();
 
-    private readonly WakeLock _manualStandbyLock =
+    private readonly WindowsPowerRequest _manualStandbyLock =
         new("WSGM keep-awake (manual quick-access toggle)");
 
     private readonly SteamMonitor? _monitor;
@@ -169,20 +169,20 @@ public sealed class KeepAwakeService : IDisposable
             {
                 // Acquire before release. After a refusal, publish the locks actually
                 // held, including partial success; never retry a native write here.
-                if (mode == ManualWakeMode.Off || _manualStandbyLock.Acquire())
+                if (mode == ManualWakeMode.Off || TryAcquire(_manualStandbyLock))
                 {
                     if (mode == ManualWakeMode.StandbyAndDisplay)
                     {
-                        _manualDisplayLock.Acquire();
+                        TryAcquire(_manualDisplayLock);
                     }
                     else
                     {
-                        _manualDisplayLock.Release();
+                        Release(_manualDisplayLock);
                     }
 
                     if (mode == ManualWakeMode.Off)
                     {
-                        _manualStandbyLock.Release();
+                        Release(_manualStandbyLock);
                     }
                 }
 
@@ -220,7 +220,7 @@ public sealed class KeepAwakeService : IDisposable
             released = !autoEnabled && _downloadLock.IsHeld;
             if (released)
             {
-                _downloadLock.Release();
+                Release(_downloadLock);
                 _inactiveStreak = 0;
             }
 
@@ -364,14 +364,14 @@ public sealed class KeepAwakeService : IDisposable
             switch (hold)
             {
                 case true when !hadHold:
-                    if (_downloadLock.Acquire())
+                    if (TryAcquire(_downloadLock))
                     {
                         change = $"acquired ({detail})";
                     }
 
                     break;
                 case false when hadHold:
-                    _downloadLock.Release();
+                    Release(_downloadLock);
                     change = $"released ({detail})";
                     break;
             }
@@ -413,5 +413,38 @@ public sealed class KeepAwakeService : IDisposable
 
         var streak = Math.Min(inactiveStreak + 1, ReleaseAfterInactivePolls);
         return (currentHold && streak < ReleaseAfterInactivePolls, streak);
+    }
+
+    /// <summary>Acquires once, logging a refusal without interrupting the owning feature.</summary>
+    /// <returns>True when the request is held, including an existing hold; false on native refusal or a disposed owner.</returns>
+    private static bool TryAcquire(WindowsPowerRequest request)
+    {
+        try
+        {
+            request.Acquire();
+            return true;
+        }
+        catch (Win32Exception ex)
+        {
+            Log.Warn($"Keep awake: acquire failed (error {ex.NativeErrorCode}).");
+            return false;
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Releases once. A failed clear remains held until explicit retry or disposal.</summary>
+    private static void Release(WindowsPowerRequest request)
+    {
+        try
+        {
+            request.Release();
+        }
+        catch (Win32Exception ex)
+        {
+            Log.Warn($"Keep awake: release failed (error {ex.NativeErrorCode}).");
+        }
     }
 }

@@ -42,7 +42,11 @@ internal static class HandheldUiProjection
         };
     }
 
-    private static CapabilityDescriptor Descriptor(P.CapabilityDescriptor value)
+    /// <summary>
+    ///     Maps one published descriptor. <paramref name="index" /> is its publication position, which orders
+    ///     lighting zones as the family published them.
+    /// </summary>
+    private static CapabilityDescriptor Descriptor(P.CapabilityDescriptor value, int index)
     {
         var role = (CapabilityRole)value.Role;
         var (section, category, order) = role switch
@@ -62,8 +66,7 @@ internal static class HandheldUiProjection
             CapabilityRole.LightingBrightness => (DeviceSections.RgbId, null, 1),
             CapabilityRole.LightingEffect => (DeviceSections.RgbId, null, 2),
             CapabilityRole.LightingEffectSpeed => (DeviceSections.RgbId, null, 3),
-            CapabilityRole.LightingZoneColor => (DeviceSections.RgbId, "zones",
-                value.InstanceId is "right" or "right-ring" ? 1 : 0),
+            CapabilityRole.LightingZoneColor => (DeviceSections.RgbId, "zones", index),
             CapabilityRole.ControllerSource => (DeviceSections.InfoId, "ownership", 0),
             CapabilityRole.MotionSource => (DeviceSections.InfoId, "ownership", 1),
             CapabilityRole.HapticSink => (DeviceSections.InfoId, "ownership", 2),

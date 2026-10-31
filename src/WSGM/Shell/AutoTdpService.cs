@@ -456,14 +456,25 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
         lock (_gate)
         {
-            row.ApplicationId = _running?.ApplicationId;
-            row.Executable = _running?.ExecutablePath;
-            row.RunningGeneration = _running?.Generation;
-            row.Controller = _controller.Snapshot();
+            StampContext(row);
         }
 
         row.Detail = "AutoTDP enabled.";
         _trace!.Commit(row);
+    }
+
+    // Called under _gate: the application and controller state an event row is judged against.
+    private void StampContext(AutoTdpTraceRow? row)
+    {
+        if (row is null)
+        {
+            return;
+        }
+
+        row.ApplicationId = _running?.ApplicationId;
+        row.Executable = _running?.ExecutablePath;
+        row.RunningGeneration = _running?.Generation;
+        row.Controller = _controller.Snapshot();
     }
 
     /// <summary>Records the running application whose frames are being judged.</summary>
@@ -543,13 +554,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
             }
 
             _controller.PauseForManualChange(watts);
-            if (row is not null)
-            {
-                row.Controller = _controller.Snapshot();
-                row.ApplicationId = _running?.ApplicationId;
-                row.RunningGeneration = _running?.Generation;
-                row.Detail = watts is null ? "Firmware performance profile chosen." : $"Manual power change to {watts} W.";
-            }
+            StampContext(row);
+            row?.Detail = watts is null ? "Firmware performance profile chosen." : $"Manual power change to {watts} W.";
 
             previousWrites = _applicationWrites;
             _applicationWrites = new CancellationTokenSource();
@@ -595,13 +601,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
             }
 
             _controller.ResumeAutomaticControl();
-            if (row is not null)
-            {
-                row.Controller = _controller.Snapshot();
-                row.ApplicationId = _running?.ApplicationId;
-                row.RunningGeneration = _running?.Generation;
-                row.Detail = "Automatic control resumed.";
-            }
+            StampContext(row);
+            row?.Detail = "Automatic control resumed.";
 
             // Force the next tick through Start(current, …) so control re-bases on the limit the
             // device actually holds now, not the value it believed before the application's override.
@@ -788,18 +789,12 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
         var frametime = SelectSample(running, trace);
         var target = _targetFrametimeMs();
-        if (trace is not null)
-        {
-            trace.TargetFrametimeMs = target;
-        }
+        trace?.TargetFrametimeMs = target;
 
         // Read once, before the decision, and hand the same sample to the trace. The controller
         // consumes GPU load, so a value read after the write would describe the wrong window.
         var metrics = ReadMetrics();
-        if (trace is not null)
-        {
-            trace.Metrics = metrics;
-        }
+        trace?.Metrics = metrics;
 
         if (frametime is null && !_controllerStarted)
         {
@@ -884,10 +879,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 writeCancellation.IsCancellationRequested
                 && !cancellationToken.IsCancellationRequested)
             {
-                if (trace is not null)
-                {
-                    trace.WriteNote = "cancelled";
-                }
+                trace?.WriteNote = "cancelled";
 
                 MarkWriteUnapplied();
                 return;
@@ -952,10 +944,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
         // retried behind the user's back.
         if (!await _write.WaitAsync(0, cancellationToken).ConfigureAwait(false))
         {
-            if (trace is not null)
-            {
-                trace.WriteNote = "write-in-flight";
-            }
+            trace?.WriteNote = "write-in-flight";
 
             Log.Warn("AutoTDP skipped a power write: an earlier write is still in flight.");
             MarkWriteUnapplied();
@@ -970,10 +959,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 if (expectedRunningGeneration is { } expected
                     && (!_enabled || (_running?.Generation ?? -1) != expected))
                 {
-                    if (trace is not null)
-                    {
-                        trace.WriteNote = "application-changed";
-                    }
+                    trace?.WriteNote = "application-changed";
 
                     _resync = true;
                     return false;
@@ -991,10 +977,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
                         _restorePair = FindPairedPower(power);
                         if (power.Descriptor.PairedPowerLimitId is not null && !CanWrite(_restorePair))
                         {
-                            if (trace is not null)
-                            {
-                                trace.WriteNote = "paired-unobserved";
-                            }
+                            trace?.WriteNote = "paired-unobserved";
 
                             _resync = true;
                             return false;
@@ -1016,10 +999,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             }
 
             var dispatched = Stopwatch.GetTimestamp();
-            if (trace is not null)
-            {
-                trace.WriteDispatched = true;
-            }
+            trace?.WriteDispatched = true;
 
             var result = await command.ConfigureAwait(false);
             if (trace is not null)
@@ -1046,10 +1026,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 }
             }
 
-            if (trace is not null)
-            {
-                trace.WriteApplied = applied;
-            }
+            trace?.WriteApplied = applied;
 
             Log.Info(
                 $"AutoTDP {decision.Action}: {decision.Watts} W ({decision.Reason}), "
@@ -1063,10 +1040,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            if (trace is not null)
-            {
-                trace.WriteNote = ex.GetType().Name;
-            }
+            trace?.WriteNote = ex.GetType().Name;
 
             Log.Warn($"AutoTDP power write failed: {ex.Message}");
             lock (_gate)
@@ -1141,10 +1115,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
         }
 
         var decision = _controller.Stop(watts);
-        if (trace is not null)
-        {
-            trace.Decision = decision;
-        }
+        trace?.Decision = decision;
 
         // Reported from the write's own outcome. Saying "restored" for a value that was refused,
         // timed out, or skipped is the one message that makes the handheld's real state

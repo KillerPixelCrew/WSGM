@@ -19,7 +19,7 @@ namespace WSGM.Core;
 /// </remarks>
 /// <param name="shim">The process's Steam Input shim, which tells whether there is a resident gate to connect to.</param>
 /// <param name="acquireLease">Acquires one lease from the resident gate; throws when it cannot.</param>
-internal sealed class SteamInputBlocker(SteamInputShim shim, Func<ISteamInputLeaseHandle> acquireLease)
+internal sealed class SteamInputBlocker(SteamInputShim shim, Func<SteamInputPipeLease> acquireLease)
 {
     /// <summary>
     ///     Displayed when the authoritative host-side probe cannot safely
@@ -39,7 +39,7 @@ internal sealed class SteamInputBlocker(SteamInputShim shim, Func<ISteamInputLea
 
     private readonly Lock _sync = new();
 
-    private ISteamInputLeaseHandle? _lease;
+    private SteamInputPipeLease? _lease;
 
     // Surface releases run here, one after another, outside _sync. Guarded by _sync.
     private Task _nativeRelease = Task.CompletedTask;
@@ -260,7 +260,7 @@ internal sealed class SteamInputBlocker(SteamInputShim shim, Func<ISteamInputLea
     // gate counts leases, so releasing the old one late is safe.
     private void DetachLease(string reason, bool inBackground)
     {
-        ISteamInputLeaseHandle lease;
+        SteamInputPipeLease lease;
         lock (_sync)
         {
             if (_lease is null)
@@ -282,7 +282,7 @@ internal sealed class SteamInputBlocker(SteamInputShim shim, Func<ISteamInputLea
         ReleaseNative(lease, reason);
     }
 
-    private void ReleaseNative(ISteamInputLeaseHandle lease, string reason)
+    private void ReleaseNative(SteamInputPipeLease lease, string reason)
     {
         try
         {
@@ -330,7 +330,7 @@ internal sealed class SteamInputBlocker(SteamInputShim shim, Func<ISteamInputLea
     ///     recovery will fail: the release path performs the real recovery and is the
     ///     user-facing authority. Log it; never raise the panel warning off this probe.
     /// </summary>
-    private static void CheckHostRecoveryBestEffort(ISteamInputLeaseHandle lease)
+    private static void CheckHostRecoveryBestEffort(SteamInputPipeLease lease)
     {
         try
         {

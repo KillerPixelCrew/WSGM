@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Plugin.Sdk;
 
@@ -168,19 +169,7 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
                 "The Device widget changed. Select it again.");
         }
 
-        var requested = view.Descriptor.ValueKind switch
-        {
-            CapabilityValueKind.Integer when value.Number is { } number && double.IsInteger(number)
-                                                                        && number is >= int.MinValue
-                                                                            and <= int.MaxValue =>
-                new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = (int)number },
-            CapabilityValueKind.Boolean when value.Boolean is { } enabled =>
-                new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = enabled },
-            CapabilityValueKind.Choice when value.Text is { } choice
-                                            && view.Descriptor.Choices.Any(option => option.Value == choice) =>
-                new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = choice },
-            _ => null
-        };
+        var requested = CapabilityValues.FromPluginValue(value, view.Descriptor);
         if (requested is null)
         {
             return new PluginActionResult(operation, PluginActionOutcome.Rejected, "Invalid Device widget value.");
@@ -221,14 +210,9 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
         };
     }
 
+    /// <summary>The widget primitive for a value; anything without one shows its text, else "Unavailable".</summary>
     internal static PluginValue Value(CapabilityValue? value)
     {
-        return value?.Kind switch
-        {
-            CapabilityValueKind.Integer => new PluginValue(Number: value.IntegerValue),
-            CapabilityValueKind.Boolean => new PluginValue(value.BooleanValue),
-            CapabilityValueKind.Choice => new PluginValue(Text: value.ChoiceValue ?? "Unavailable"),
-            _ => new PluginValue(Text: value?.TextValue ?? "Unavailable")
-        };
+        return CapabilityValues.ToPluginValue(value) ?? new PluginValue(Text: value?.TextValue ?? "Unavailable");
     }
 }

@@ -666,7 +666,7 @@ internal sealed class ExplorerShellAnchor : IAsyncDisposable
         ExplorerDesktopObservation observation;
         do
         {
-            observation = ExplorerDesktopHost.ObserveCurrentDesktop(expectedSessionId);
+            observation = ExplorerDesktop.Observe(expectedSessionId);
             if (observation.HasShellSurface)
             {
                 break;
@@ -693,7 +693,7 @@ internal sealed class ExplorerShellAnchor : IAsyncDisposable
             return (0, $"session-not-active-{sessionError}");
         }
 
-        var existing = ExplorerDesktopHost.ObserveCurrentDesktop(expectedSessionId);
+        var existing = ExplorerDesktop.Observe(expectedSessionId);
         if (existing.HasShellSurface)
         {
             return existing.Outcome is ExplorerDesktopOutcome.Normal or ExplorerDesktopOutcome.Degraded

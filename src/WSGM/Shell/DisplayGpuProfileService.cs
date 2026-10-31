@@ -3,9 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using LibGPUDriverInteract;
+using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
 
@@ -71,43 +72,16 @@ internal static class DisplayGpuProfileService
         return exact.Length == 1 ? exact[0] : null;
     }
 
-    /// <summary>Converts only the primitive declared by a fresh descriptor and validates its current bounds.</summary>
-    internal static CapabilityValue? ToCapabilityValue(PluginValue value, CapabilityDescriptor descriptor)
+    /// <summary>The physical monitor identity of one driver output, named after its display section.</summary>
+    /// <param name="output">An output that carries a device path or an EDID identity.</param>
+    /// <param name="sectionTitle">The publisher's title for the output's section, or null.</param>
+    /// <returns>The identity a saved layout preference is matched against.</returns>
+    internal static DisplayTargetIdentity Target(GpuDisplayTarget output, string? sectionTitle)
     {
-        if (!value.IsValid)
+        return new DisplayTargetIdentity(output.DevicePath ?? "", null, null, sectionTitle ?? "Display",
+            output.AdapterLowPart ?? 0, output.AdapterHighPart ?? 0, output.TargetId ?? 0)
         {
-            return null;
-        }
-
-        var converted = descriptor.ValueKind switch
-        {
-            CapabilityValueKind.Boolean when value.Boolean is { } flag => CapabilityValue.Boolean(flag),
-            CapabilityValueKind.Integer when value.Number is { } number && number >= int.MinValue
-                                                                        && number <= int.MaxValue
-                                                                        && Math.Truncate(number) == number =>
-                CapabilityValue.Integer((int)number),
-            CapabilityValueKind.Choice when value.Text is { } choice => CapabilityValue.Choice(choice),
-            _ => null
-        };
-        return converted is not null && CapabilityValueValidation.ValueMatches(converted, descriptor, out _)
-            ? converted
-            : null;
-    }
-
-    /// <summary>Copies a driver observation into the serializable primitive used by the layout editor.</summary>
-    internal static PluginValue? ToPreferenceValue(CapabilityValue? value)
-    {
-        if (value is null)
-        {
-            return null;
-        }
-
-        return value.Kind switch
-        {
-            CapabilityValueKind.Boolean when value.BooleanValue is { } flag => new PluginValue(flag),
-            CapabilityValueKind.Integer when value.IntegerValue is { } number => new PluginValue(Number: number),
-            CapabilityValueKind.Choice when value.ChoiceValue is { } choice => new PluginValue(Text: choice),
-            _ => null
+            EdidIdentity = output.EdidIdentity
         };
     }
 }

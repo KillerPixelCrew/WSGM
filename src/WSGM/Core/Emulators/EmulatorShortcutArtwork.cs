@@ -26,11 +26,7 @@ internal static class EmulatorShortcutArtwork
         var id = definition.SteamGridDbId;
         if (id is not > 0)
         {
-            var name = definition.Id switch
-            {
-                "retroarch" => "RetroArch", "xenia" => "Xenia", "ryujinx" => "Ryujinx",
-                "model2" => "Model 2 Emulator", _ => definition.Name
-            };
+            var name = definition.Name;
             var matches = await provider.SearchGamesAsync(name, key, token).ConfigureAwait(false);
             var match = matches.FirstOrDefault(game => game.Name.Equals(name + " (Emulator)",
                             StringComparison.OrdinalIgnoreCase))

@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using WSGM.Core;
@@ -12,7 +13,6 @@ public sealed partial class ShellSession
     private BrowserSession? _browser;
     private BrowserGameContext? _browserGame;
     private uint _browserGameRequested;
-    private int _browserGameGeneration;
 
     private void InitializeBrowser()
     {
@@ -67,42 +67,47 @@ public sealed partial class ShellSession
 
         _browserGameRequested = appId;
         _browserGame = null;
-        var generation = ++_browserGameGeneration;
         if (appId == 0)
         {
             _browser?.GameContextChanged();
             return;
         }
 
-        if (_libraryImportState.EntriesIfLoaded()?.FirstOrDefault(entry => entry.AppId == appId) is { } entry)
-        {
-            _browserGame = new BrowserGameContext(appId.ToString(CultureInfo.InvariantCulture), entry.Name);
-            _browser?.GameContextChanged();
-        }
-        else
-        {
-            _ = ResolveBrowserGameAsync(appId, generation);
-        }
+        _ = ResolveBrowserGameAsync(appId);
     }
 
-    private async Task ResolveBrowserGameAsync(uint appId, int generation)
+    /// <summary>
+    ///     Resolves a running game's title: the loaded import entry first, then Steam's app details.
+    ///     The Browser and Notes share this lookup.
+    /// </summary>
+    /// <param name="appId">The Steam app id of the running game.</param>
+    /// <param name="cancellationToken">Cancels the Steam read.</param>
+    /// <returns>The title, or null when neither source knows the game.</returns>
+    private async Task<string?> ResolveGameTitleAsync(uint appId, CancellationToken cancellationToken)
+    {
+        if (_libraryImportState.EntriesIfLoaded()?.FirstOrDefault(entry => entry.AppId == appId) is { } entry)
+        {
+            return entry.Name;
+        }
+
+        return _steamClient is { } steam
+            ? (await steam.Apps.ReadDetailsAsync(appId, cancellationToken).ConfigureAwait(false)).Value?.Name
+            : null;
+    }
+
+    private async Task ResolveBrowserGameAsync(uint appId)
     {
         try
         {
-            if (_steamClient is not { } steam)
-            {
-                return;
-            }
-
-            var details = await steam.Apps.ReadDetailsAsync(appId, _shutdownCancellation.Token).ConfigureAwait(false);
-            if (details.Value?.Name is not { Length: > 0 and <= 512 } title)
+            if (await ResolveGameTitleAsync(appId, _shutdownCancellation.Token).ConfigureAwait(false)
+                is not { Length: > 0 } title)
             {
                 return;
             }
 
             Dispatcher.UIThread.Post(() =>
             {
-                if (!_shutdownCancellation.IsCancellationRequested && generation == _browserGameGeneration)
+                if (!_shutdownCancellation.IsCancellationRequested && appId == _browserGameRequested)
                 {
                     _browserGame = new BrowserGameContext(appId.ToString(CultureInfo.InvariantCulture), title);
                     _browser?.GameContextChanged();
@@ -120,7 +125,7 @@ public sealed partial class ShellSession
         {
             Dispatcher.UIThread.Post(() =>
             {
-                if (!_shutdownCancellation.IsCancellationRequested && generation == _browserGameGeneration
+                if (!_shutdownCancellation.IsCancellationRequested && appId == _browserGameRequested
                     && _browserGame is null)
                 {
                     // A later user-initiated open may retry an unavailable local Steam observation.

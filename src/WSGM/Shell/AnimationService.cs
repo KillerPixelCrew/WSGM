@@ -50,6 +50,11 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     // _sync and never while _sync is held, so readers never wait on the config file.
     private readonly Lock _configWrite = new();
     private readonly AnimationLibrary _library;
+
+    // Serializes every library change and reread, its file work included, so _sync only guards what
+    // readers see and a slow movie folder never holds up a publication read. Taken before _sync and
+    // never while _sync is held.
+    private readonly Lock _libraryWork = new();
     private readonly Random _random;
     private readonly Func<AnimationsConfig> _readConfig;
     private readonly CancellationTokenSource _shutdown = new();
@@ -58,9 +63,9 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     private readonly Func<bool> _steamRunning;
     private readonly Lock _sync = new();
 
-    // Every background task this service started and has not seen finish: repository reads, movie
-    // downloads and copies, reloads and Steam choice work. Guarded by _sync; the session joins them.
-    private readonly List<Task> _work = [];
+    // The movie operation and every background task this service started and has not seen finish:
+    // repository reads, movie downloads and copies, reloads and Steam choice work. The session joins them.
+    private readonly ServiceOperation _operation;
     private readonly Action<Action<AnimationsConfig>> _writeConfig;
     private string _activeTab = "browse";
     private IReadOnlyList<SteamAnimationsItem>? _browseItems;
@@ -68,12 +73,9 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     private string _browseSearch = string.Empty;
     private int _browseShown = BrowsePage;
     private string _browseSort = SteamAnimationsSurface.Sorts[0].Id;
-    private bool _busy;
     private AnimationsConfig _config;
     private string? _detailId;
     private bool _disposed;
-    private string? _error;
-    private string? _notice;
     private IReadOnlyList<AnimationListing>? _repo;
     private string? _repoError;
     private bool _repoLoading;
@@ -116,6 +118,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         _steamRunning = steamRunning ?? (() => true);
         _steamChoice = steamChoice;
         _config = readConfig();
+        _operation = new ServiceOperation(_sync);
     }
 
     /// <summary>The revision of the state <see cref="ReadState" /> answers.</summary>
@@ -134,17 +137,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
 
     /// <summary>Completes when every background task this service started has finished.</summary>
     /// <remarks>The session joins it after <see cref="Dispose" /> cancelled the work, within its deadline.</remarks>
-    internal Task Completion
-    {
-        get
-        {
-            lock (_sync)
-            {
-                _work.RemoveAll(static task => task.IsCompleted);
-                return Task.WhenAll(_work);
-            }
-        }
-    }
+    internal Task Completion => _operation.Completion;
 
     /// <summary>Raised on every change the page, the section or the overlay should draw.</summary>
     public event Action? Changed;
@@ -183,7 +176,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
                 ExtensionsId,
                 "Boot animation",
                 string.Empty,
-                _busy ? "Working…" : "Ready",
+                _operation.Busy ? "Working…" : "Ready",
                 detail,
                 [
                     new SteamExtensionsTabAction(ExtensionsBrowseId, "Browse movies…"),
@@ -285,7 +278,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         Publish();
         if (fetch is { } sequence)
         {
-            Track(Task.Run(() => FetchRepoAsync(sequence, _shutdown.Token)));
+            _operation.Track(Task.Run(() => FetchRepoAsync(sequence, _shutdown.Token)));
         }
 
         return Task.FromResult(SteamUiCommandResult.Applied);
@@ -326,7 +319,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         }
 
         Publish();
-        Track(Task.Run(() => FetchRepoAsync(sequence, _shutdown.Token)));
+        _operation.Track(Task.Run(() => FetchRepoAsync(sequence, _shutdown.Token)));
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
@@ -375,14 +368,18 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
 
         return StartWorkAsync(async token =>
         {
-            // The movie goes to a staging file beside its place outside the lock; only the move into
-            // the library holds it.
+            // The movie goes to a staging file beside its place, and the move into the library runs
+            // under the library's own lock, so readers keep reading the state meanwhile.
             var staged = _library.StagingPath(listing.Id);
             await _client.DownloadAsync(listing, staged, token).ConfigureAwait(false);
             string? error;
-            lock (_sync)
+            lock (_libraryWork)
             {
                 error = _library.Adopt(listing, staged);
+            }
+
+            lock (_sync)
+            {
                 _browseItems = null;
             }
 
@@ -400,15 +397,21 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     {
         bool selected;
         string removed;
+        AnimationEntry? entry;
+        string? error;
+        lock (_libraryWork)
+        {
+            entry = _library.Find(id);
+            error = entry is null ? null : _library.Remove(id);
+        }
+
+        if (entry is null)
+        {
+            return new SteamUiCommandResult(false, "That movie is not in the library.");
+        }
+
         lock (_sync)
         {
-            var entry = _library.Find(id);
-            if (entry is null)
-            {
-                return new SteamUiCommandResult(false, "That movie is not in the library.");
-            }
-
-            var error = _library.Remove(id);
             if (error is not null)
             {
                 return RefuseLocked(error);
@@ -496,18 +499,22 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     {
         return StartWorkAsync(_ =>
         {
-            // The copy runs outside the lock, so the pages and the overlay keep reading the state
-            // while a large movie is copied; only the library's reread holds it.
+            // The copy and the reread run outside the state lock, so the pages and the overlay keep
+            // reading the state while a large movie is copied; the reread holds the library's lock.
             var (id, error) = _library.Import(path);
             if (error is not null)
             {
                 throw new AnimationRepoException(error);
             }
 
+            lock (_libraryWork)
+            {
+                _library.Load();
+            }
+
             string name;
             lock (_sync)
             {
-                _library.Load();
                 _browseItems = null;
                 name = _library.Find(id!)?.Name ?? id!;
             }
@@ -521,8 +528,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     {
         lock (_sync)
         {
-            _notice = null;
-            _error = null;
+            _operation.Clear();
         }
 
         Publish();
@@ -533,9 +539,13 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     internal void Start()
     {
         string? picked = null;
-        lock (_sync)
+        lock (_libraryWork)
         {
             _library.Load();
+        }
+
+        lock (_sync)
+        {
             _browseItems = null;
             if (_config.ShuffleOnStart)
             {
@@ -556,7 +566,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         var report = ApplyChoice();
         lock (_sync)
         {
-            _error = report.Error ?? _error;
+            _operation.Error = report.Error ?? _operation.Error;
         }
 
         Log.Info($"Animations: {_library.Entries.Count} in the library, boot '{_config.Boot}'"
@@ -608,7 +618,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
             return;
         }
 
-        Track(Task.Run(async () =>
+        _operation.Track(Task.Run(async () =>
         {
             await ApplyChoiceAsync(null).ConfigureAwait(false);
             Publish();
@@ -653,9 +663,9 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
                     _library.Root,
                     steam is null ? null : AnimationOverrides.Directory(steam),
                     _restartNeeded),
-                _busy,
-                _notice,
-                _error ?? _library.LoadError,
+                _operation.Busy,
+                _operation.Notice,
+                _operation.Error ?? _library.LoadError,
                 Revision);
         }
     }
@@ -902,7 +912,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
             _steamChoiceWork = work;
         }
 
-        Track(Task.Run(async () =>
+        _operation.Track(Task.Run(async () =>
         {
             try
             {
@@ -972,7 +982,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
                       + result.Error;
             lock (_sync)
             {
-                _error = outcome;
+                _operation.Error = outcome;
             }
         }
         else if (result.Choice is not { } choice)
@@ -1022,7 +1032,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
             _restartNeeded |= report.Changed && _steamRunning();
             if (report.Error is not null)
             {
-                _error = report.Error;
+                _operation.Error = report.Error;
             }
             else if (announce is not null || report.Note is not null)
             {
@@ -1093,7 +1103,7 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
             {
                 if (error is not null)
                 {
-                    _error = error;
+                    _operation.Error = error;
                 }
 
                 if (error is null || keepUnsaved)
@@ -1110,13 +1120,12 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
 
     private void SetNoticeLocked(string notice)
     {
-        _notice = notice;
-        _error = null;
+        _operation.SetNotice(notice);
     }
 
     private SteamUiCommandResult RefuseLocked(string error)
     {
-        _error = error;
+        _operation.Error = error;
         return new SteamUiCommandResult(false, error);
     }
 
@@ -1125,71 +1134,32 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     {
         lock (_sync)
         {
-            return new SteamUiCommandResult(false, _error ?? "The choice could not be saved.");
-        }
-    }
-
-    /// <summary>Keeps a background task for <see cref="Completion" />, dropping those already finished.</summary>
-    private void Track(Task task)
-    {
-        lock (_sync)
-        {
-            _work.RemoveAll(static finished => finished.IsCompleted);
-            _work.Add(task);
+            return new SteamUiCommandResult(false, _operation.Error ?? "The choice could not be saved.");
         }
     }
 
     /// <summary>Runs download or copy work in the background, answering the command at once.</summary>
     private Task<SteamUiCommandResult> StartWorkAsync(Func<CancellationToken, Task<string>> work)
     {
-        lock (_sync)
-        {
-            if (_busy)
+        return Task.FromResult(_operation.Start(
+            "Another movie is still being fetched.",
+            () => work(_shutdown.Token),
+            static ex =>
             {
-                return Task.FromResult(new SteamUiCommandResult(false, "Another movie is still being fetched."));
-            }
-
-            _busy = true;
-            _error = null;
-            _notice = null;
-        }
-
-        Publish();
-        Track(Task.Run(async () =>
-        {
-            string? notice = null;
-            string? error = null;
-            try
-            {
-                notice = await work(_shutdown.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                error = "Cancelled.";
-            }
-            catch (AnimationRepoException ex)
-            {
-                error = ex.Message;
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                Log.Warn($"Animations: movie operation failed: {ex}");
-                error = "The movie operation could not be completed. See wsgm.log for details.";
-            }
-            finally
-            {
-                lock (_sync)
+                if (ex is AnimationRepoException)
                 {
-                    _busy = false;
-                    _notice = notice;
-                    _error = error;
+                    return ex.Message;
                 }
-            }
 
-            Log.Info($"Animations: {notice ?? error}");
-            Publish();
-        }));
-        return Task.FromResult(SteamUiCommandResult.Applied);
+                Log.Warn($"Animations: movie operation failed: {ex}");
+                return "The movie operation could not be completed. See wsgm.log for details.";
+            },
+            Publish,
+            (notice, error) =>
+            {
+                Log.Info($"Animations: {notice ?? error}");
+                Publish();
+            }));
     }
 
     private void Publish()

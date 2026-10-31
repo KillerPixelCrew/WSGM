@@ -61,23 +61,20 @@ internal static class NativeQamPerfProjection
     /// <param name="perApplicationProfileEnabled">
     ///     Whether the running application keeps its own profile.
     /// </param>
-    /// <param name="advancedSettingsEnabled">Whether the advanced rows are shown.</param>
-    /// <param name="variableRefreshRateEnabled">Current VRR state, or null when unsupported.</param>
-    /// <param name="refreshRateHz">Current refresh rate, or null when WSGM owns it.</param>
     /// <returns>The state to publish to the injected gate.</returns>
     /// <remarks>
     ///     Pure, and the only place that decides what the panel shows. A field is supplied when WSGM can
     ///     both report and honour it; anything else is left null so the control does not render at all,
-    ///     which is safer than rendering a control whose writes go nowhere.
+    ///     which is safer than rendering a control whose writes go nowhere. The VRR state and the
+    ///     refresh rate in force come from <paramref name="support" />, the same read that decides
+    ///     whether their rows are offered, so a row can never be advertised without its value. The
+    ///     advanced rows are always shown.
     /// </remarks>
     internal static SteamPerformanceState Project(
         PerformanceValues values,
         NativeQamPerfSupport support,
         uint? steamAppId,
-        bool perApplicationProfileEnabled,
-        bool advancedSettingsEnabled,
-        bool? variableRefreshRateEnabled,
-        int? refreshRateHz)
+        bool perApplicationProfileEnabled)
     {
         // A foreground-only identity has no AppID, and Steam's per-game header is built entirely
         // from one. The profile still applies — it is simply presented as the global one, because
@@ -93,7 +90,7 @@ internal static class NativeQamPerfProjection
             : null;
         bool? frameLimitEnabled = frameLimitOptions is not null ? values.FrameLimit is > 0 : null;
         int? manualRefreshHz = support.RefreshRatesSelectable
-            ? refreshRateHz ?? support.RefreshRateMaxHz ?? 0
+            ? support.CurrentRefreshRateHz ?? support.RefreshRateMaxHz ?? 0
             : null;
 
         return new SteamPerformanceState
@@ -126,7 +123,7 @@ internal static class NativeQamPerfProjection
                 // is Valve's enum, not the notch WSGM's levels are defined on.
                 PerfOverlayLevel = SteamOverlayLevelWire.ToSteam(
                     Math.Clamp(values.OverlayLevel ?? 0, 0, SteamOverlayLevelWire.MaximumNotch)),
-                IsAdvancedSettingsEnabled = advancedSettingsEnabled,
+                IsAdvancedSettingsEnabled = true,
                 AllowExternalDisplayRefreshControl = support.RefreshRatesSelectable ? true : null
             },
             PerApp = new SteamPerformanceApplicationSettings
@@ -145,7 +142,7 @@ internal static class NativeQamPerfProjection
                 // cap at all is on.
                 IsFpsLimitEnabled = frameLimitEnabled,
                 IsVrrEnabled = support.VariableRefreshRateSupported
-                    ? variableRefreshRateEnabled ?? false
+                    ? support.VariableRefreshRateEnabled
                     : null,
                 DisplayRefreshManualHz = manualRefreshHz,
                 DisplayExternalRefreshManualHz = manualRefreshHz,

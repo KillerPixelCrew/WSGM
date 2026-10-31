@@ -31,7 +31,6 @@ internal sealed class BrowserSession : IDisposable
     private nint _child;
     private int _width = 1;
     private int _height = 1;
-    private int _generation;
     private bool _active;
     private bool _covered;
     private bool _disposed;
@@ -121,11 +120,10 @@ internal sealed class BrowserSession : IDisposable
         else if (_creation is null && _viewport != 0)
         {
             _creation = new CancellationTokenSource();
-            var generation = ++_generation;
             Lifecycle = BrowserLifecycle.Creating;
             Status = "Starting browser…";
             Notify();
-            _startup = CreateAsync(generation, _creation.Token, _cleanup);
+            _startup = CreateAsync(_creation.Token, _cleanup);
         }
     }
 
@@ -330,7 +328,8 @@ internal sealed class BrowserSession : IDisposable
         }
     }
 
-    private async Task CreateAsync(int generation, CancellationToken token, Task previousCleanup)
+    // Destroy cancels the token, so a canceled token is the only staleness signal this attempt needs.
+    private async Task CreateAsync(CancellationToken token, Task previousCleanup)
     {
         NamedPipeServerStream? pipe = null;
         Process? helper = null;
@@ -397,7 +396,8 @@ internal sealed class BrowserSession : IDisposable
                 var candidate = Process.GetProcessById(hello.ProcessId);
                 try
                 {
-                    if (!string.Equals(candidate.MainModule?.FileName, executable, StringComparison.OrdinalIgnoreCase))
+                    if (!string.Equals(NativeShellProcess.TryGetImagePath(checked((uint)candidate.Id)), executable,
+                            StringComparison.OrdinalIgnoreCase))
                     {
                         throw new InvalidDataException("The browser pipe is not connected to the installed helper.");
                     }
@@ -414,13 +414,15 @@ internal sealed class BrowserSession : IDisposable
                 }
             }
 
-            if (helper.Id != hello.ProcessId || !string.Equals(helper.MainModule?.FileName, executable, StringComparison.OrdinalIgnoreCase))
+            if (helper.Id != hello.ProcessId
+                || !string.Equals(NativeShellProcess.TryGetImagePath(checked((uint)helper.Id)), executable,
+                    StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidDataException("The browser pipe is not connected to the installed helper.");
             }
 
             token.ThrowIfCancellationRequested();
-            if (generation != _generation || !_active || _disposed || _viewport == 0)
+            if (!_active || _disposed || _viewport == 0)
             {
                 throw new OperationCanceledException(token);
             }
@@ -430,28 +432,28 @@ internal sealed class BrowserSession : IDisposable
             Resize(_width, _height);
             await SendAsync(pipe, new BrowserPacket { Kind = "open", Visible = !_covered, Zoom = _options.ZoomFactor }, token);
             token.ThrowIfCancellationRequested();
-            if (generation != _generation || !_active || _disposed)
+            if (!_active || _disposed)
             {
                 throw new OperationCanceledException(token);
             }
 
             _helper = helper;
             _pipe = pipe;
-            _ = ReadPacketsAsync(pipe, generation, token);
-            // Ownership is now the session's; the read loop must not outlive this generation.
+            _ = ReadPacketsAsync(pipe, token);
+            // Ownership is now the session's; the read loop must not outlive this pipe.
             helper = null;
             pipe = null;
         }
         catch (OperationCanceledException)
         {
-            if (generation == _generation && !_disposed)
+            if (!token.IsCancellationRequested && !_disposed)
             {
                 Fail("Browser startup timed out. Reopen Browser to retry.");
             }
         }
         catch (Exception ex)
         {
-            if (generation == _generation && !_disposed)
+            if (!token.IsCancellationRequested && !_disposed)
             {
                 Fail("Browser unavailable: " + ex.Message);
             }
@@ -471,7 +473,7 @@ internal sealed class BrowserSession : IDisposable
         }
     }
 
-    private async Task ReadPacketsAsync(NamedPipeServerStream pipe, int generation, CancellationToken token)
+    private async Task ReadPacketsAsync(NamedPipeServerStream pipe, CancellationToken token)
     {
         try
         {
@@ -480,7 +482,8 @@ internal sealed class BrowserSession : IDisposable
                 var packet = await BrowserWire.ReadAsync(pipe, token).ConfigureAwait(false);
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    if (generation == _generation && !_disposed)
+                    // Destroy detaches the pipe, so only the session's current pipe may report.
+                    if (ReferenceEquals(pipe, _pipe) && !_disposed)
                     {
                         Receive(packet);
                     }
@@ -494,7 +497,7 @@ internal sealed class BrowserSession : IDisposable
         {
             Dispatcher.UIThread.Post(() =>
             {
-                if (generation == _generation && !_disposed)
+                if (ReferenceEquals(pipe, _pipe) && !_disposed)
                 {
                     Fail("The browser disconnected. Reopen Browser to retry.");
                 }
@@ -577,11 +580,11 @@ internal sealed class BrowserSession : IDisposable
     {
         if (_pipe is { IsConnected: true } pipe)
         {
-            _ = SendGuardedAsync(pipe, packet, _generation);
+            _ = SendGuardedAsync(pipe, packet);
         }
     }
 
-    private async Task SendGuardedAsync(NamedPipeServerStream pipe, BrowserPacket packet, int generation)
+    private async Task SendGuardedAsync(NamedPipeServerStream pipe, BrowserPacket packet)
     {
         try
         {
@@ -590,7 +593,7 @@ internal sealed class BrowserSession : IDisposable
         }
         catch (Exception)
         {
-            if (generation == _generation && !_disposed)
+            if (ReferenceEquals(pipe, _pipe) && !_disposed)
             {
                 Fail("Browser did not respond. Reopen Browser to retry.");
             }
@@ -620,7 +623,6 @@ internal sealed class BrowserSession : IDisposable
 
     private void Destroy()
     {
-        _generation++;
         _creation?.Cancel();
         _creation?.Dispose();
         _creation = null;
@@ -651,12 +653,11 @@ internal sealed class BrowserSession : IDisposable
 
         Lifecycle = BrowserLifecycle.Destroying;
         Address = BrowserNavigation.Home;
-        var generation = _generation;
-        _cleanup = ReleaseAsync(pipe, helper, generation, _startup);
+        _cleanup = ReleaseAsync(pipe, helper, _startup);
         Notify();
     }
 
-    private async Task ReleaseAsync(NamedPipeServerStream? pipe, Process? helper, int generation, Task startup)
+    private async Task ReleaseAsync(NamedPipeServerStream? pipe, Process? helper, Task startup)
     {
         if (pipe is not null)
         {
@@ -685,7 +686,8 @@ internal sealed class BrowserSession : IDisposable
 
         await startup;
 
-        if (generation == _generation && Lifecycle == BrowserLifecycle.Destroying)
+        // A reopen replaces the startup task and leaves Destroying, so this unload is still current.
+        if (ReferenceEquals(startup, _startup) && Lifecycle == BrowserLifecycle.Destroying)
         {
             Lifecycle = BrowserLifecycle.NotCreated;
             Status = "Browser unloaded. Site cookies and storage remain in the WSGM profile.";

@@ -49,7 +49,7 @@ internal static class WsgmSharedSettings
         new("DeviceIntegration.AutoTdpEnabled", config => config.DeviceIntegration.AutoTdpEnabled,
             (config, value) => config.DeviceIntegration.AutoTdpEnabled = (bool)value),
         new("Profiles.Global.ControllerTarget",
-            config => config.Profiles.Global.ControllerTarget ?? ManagedControllerTarget.SteamDeckComposite,
+            config => config.Profiles.Global.ControllerTarget ?? ProfileFields.DefaultControllerTarget,
             (config, value) => config.Profiles.Global.ControllerTarget = (ManagedControllerTarget)value),
         new("DeviceIntegration.GlyphSelection", config => config.DeviceIntegration.GlyphSelection,
             (config, value) => config.DeviceIntegration.GlyphSelection = (DeviceGlyphSelection)value)

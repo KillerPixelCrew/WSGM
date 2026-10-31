@@ -164,6 +164,14 @@ public sealed class NoteSettings
     /// <summary>The last known display name of each game notebook, by scope.</summary>
     /// <remarks>Kept so a notebook stays readable after its game is uninstalled or Steam is unavailable.</remarks>
     public Dictionary<string, string> NotebookTitles { get; set; } = new(StringComparer.Ordinal);
+
+    /// <summary>Brings a countdown into the selectable range.</summary>
+    /// <param name="seconds">The requested countdown, in seconds.</param>
+    /// <returns>The countdown, from <see cref="MinimumCountdown" /> to <see cref="MaximumCountdown" />.</returns>
+    public static int ClampCountdown(int seconds)
+    {
+        return Math.Clamp(seconds, MinimumCountdown, MaximumCountdown);
+    }
 }
 
 /// <summary>Source-generated metadata for every Notes file.</summary>

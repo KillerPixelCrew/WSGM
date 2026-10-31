@@ -29,7 +29,6 @@ public sealed class AnimationRepoClient
     /// <summary>The largest movie accepted.</summary>
     public const int MaximumMovieBytes = 64 * 1024 * 1024;
 
-    private const int MaximumJsonBytes = 48 * 1024 * 1024;
     private readonly HttpClient _http;
 
     /// <summary>Creates the client.</summary>
@@ -68,8 +67,8 @@ public sealed class AnimationRepoClient
                 throw new AnimationRepoException($"The repository answered {(int)response.StatusCode}.");
             }
 
-            using var body = await BoundedHttp.ReadAsync(response.Content, MaximumJsonBytes,
-                () => new AnimationRepoException("The repository's list is larger than expected."),
+            using var body = await BoundedHttp.ReadAsync(response.Content, int.MaxValue,
+                () => new AnimationRepoException("The repository's list is too large to read."),
                 cancellationToken).ConfigureAwait(false);
             text = Encoding.UTF8.GetString(body.GetBuffer(), 0, (int)body.Length);
         }
@@ -172,14 +171,8 @@ public sealed class AnimationRepoClient
         }
         catch (Exception ex)
         {
-            try
-            {
-                File.Delete(path);
-            }
-            catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException)
-            {
-                Log.Warn($"Animations: the partial download {path} could not be removed: {cleanup.Message}");
-            }
+            FileCleanup.TryDelete(path,
+                cleanup => Log.Warn($"Animations: the partial download {path} could not be removed: {cleanup.Message}"));
 
             if (ex is HttpRequestException or IOException or UnauthorizedAccessException or TaskCanceledException
                 && !cancellationToken.IsCancellationRequested)

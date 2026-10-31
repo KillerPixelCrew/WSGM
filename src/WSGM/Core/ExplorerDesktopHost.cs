@@ -121,7 +121,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
         // Each exit captures afresh; a scheduler fallback below must not compare against an older capture.
         _sourceWasJobBound = false;
         _sourceDesktopPid = 0;
-        var shell = ObserveCurrentDesktop(_sessionId, false);
+        var shell = ExplorerDesktop.Observe(_sessionId, false);
         LogObservation("Explorer capture", shell);
         if (!CanCaptureShell(shell))
         {
@@ -391,7 +391,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
             {
                 ThrowIfDesktopRestoreCancelled(cancellationToken);
                 Log.Warn("Explorer did not restore a usable desktop; replacing the stuck shell and relaunching.");
-                var current = ObserveCurrentDesktop(_sessionId, false);
+                var current = ExplorerDesktop.Observe(_sessionId, false);
                 if (current.Process.ProcessId != 0)
                 {
                     using var owner = TryGetExitOwner(current.Process.ProcessId);
@@ -443,7 +443,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
         Stopwatch elapsed,
         CancellationToken cancellationToken)
     {
-        var existing = ObserveCurrentDesktop(_sessionId);
+        var existing = ExplorerDesktop.Observe(_sessionId);
         if (existing.HasShellSurface)
         {
             var adopted = await WaitForDesktopAsync(
@@ -493,7 +493,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
 
         // A taskbar or shell surface can appear between an explicit anchor failure and fallback.
         // Once one exists, never dispatch a second shell; let that owner settle or fail explicitly.
-        var beforeFallback = ObserveCurrentDesktop(_sessionId);
+        var beforeFallback = ExplorerDesktop.Observe(_sessionId);
         if (!ExplorerShellPolicy.CanDispatchScheduler(
                 ExplorerAnchorLaunchDisposition.NotDispatched,
                 beforeFallback.HasShellSurface))
@@ -555,80 +555,6 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    ///     Observes both shell surfaces and requires GetShellWindow and Shell_TrayWnd to have
-    ///     the same owner. Restored desktops also require responsive windows; launch-parent capture
-    ///     only needs the process identity and token.
-    /// </summary>
-    /// <param name="expectedSessionId">Session whose canonical Explorer must own the shell surfaces.</param>
-    /// <param name="requireResponsive">Whether to probe shell responsiveness in addition to identity/ownership.</param>
-    /// <returns>One sampled observation; windows and processes may change immediately afterward.</returns>
-    internal static ExplorerDesktopObservation ObserveCurrentDesktop(
-        int expectedSessionId, bool requireResponsive = true)
-    {
-        var taskbar = NativeMethods.FindWindowW("Shell_TrayWnd", null);
-        var taskbarPresent = taskbar != 0 && NativeMethods.IsWindow(taskbar);
-        uint taskbarOwner = 0;
-        if (taskbarPresent)
-        {
-            NativeMethods.GetWindowThreadProcessId(taskbar, out taskbarOwner);
-        }
-
-        var shellWindow = NativeMethods.GetShellWindow();
-        var shellPresent = shellWindow != 0 && NativeMethods.IsWindow(shellWindow);
-        uint shellOwner = 0;
-        if (shellPresent)
-        {
-            NativeMethods.GetWindowThreadProcessId(shellWindow, out shellOwner);
-        }
-
-        var processId = taskbarOwner != 0 ? taskbarOwner : shellOwner;
-        var process = processId == 0
-            ? NativeShellProcessInfo.Unavailable(0, 0)
-            : NativeShellProcess.Inspect(processId);
-        var ownsSurfaces = ExplorerShellPolicy.OwnsShellSurfaces(
-            taskbarPresent,
-            shellPresent,
-            taskbarOwner,
-            shellOwner);
-        var responsive = !requireResponsive
-                         || (ownsSurfaces && IsResponsive(taskbar) && IsResponsive(shellWindow));
-        var ready = ownsSurfaces && responsive;
-        var acceptance = ExplorerShellPolicy.Evaluate(
-            process,
-            ExplorerPath,
-            expectedSessionId,
-            ready,
-            true);
-        // Only the liveness probe failed: the canonical Explorer owns both surfaces and passed every
-        // identity check. Name that separately so the desktop is reported as degraded rather than
-        // absent when a third-party window blocks Explorer's UI thread (Steam Big Picture, 2026-09-26).
-        if (!acceptance.Accepted
-            && acceptance.Rejection is ExplorerShellRejection.NotReady
-            && ownsSurfaces)
-        {
-            acceptance = new ExplorerShellAcceptance(false, ExplorerShellRejection.ShellUnresponsive);
-        }
-
-        var outcome = ExplorerShellPolicy.ClassifyDesktop(
-            acceptance,
-            ExplorerDesktopRoute.ExistingShell);
-        return new ExplorerDesktopObservation(
-            process,
-            taskbarOwner,
-            shellOwner,
-            taskbarPresent || shellPresent,
-            ready,
-            acceptance,
-            outcome);
-    }
-
-    private static bool IsResponsive(nint window)
-    {
-        return NativeMethods.SendMessageTimeoutW(window, 0, 0, 0, NativeMethods.SmtoAbortIfHung,
-            500, out _) != 0;
-    }
-
     private async Task<ExplorerDesktopResult> WaitForDesktopAsync(
         DateTimeOffset deadline,
         ExplorerDesktopRoute route,
@@ -645,7 +571,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
         while (DateTimeOffset.UtcNow < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            last = ObserveCurrentDesktop(_sessionId);
+            last = ExplorerDesktop.Observe(_sessionId);
             var outcome = ExplorerShellPolicy.ClassifyDesktop(last.Acceptance, route);
             // An unresponsive owner is a usable desktop, but only as the deadline fallback below.
             // A starting Explorer is briefly unresponsive on every return, so accepting it here
@@ -710,7 +636,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
         // reported as degraded rather than as a total failure: the whole desktop return is abandoned
         // on Failed, and a shell that is merely late or blocked behind another application's hung
         // window left the session with no desktop, no Steam and no retry (Claw, 2026-09-26).
-        last = ObserveCurrentDesktop(_sessionId);
+        last = ExplorerDesktop.Observe(_sessionId);
         var finalOutcome = ExplorerShellPolicy.ClassifyDesktop(last.Acceptance, route);
         var unresponsive = last.Acceptance.Rejection is ExplorerShellRejection.ShellUnresponsive;
         var usable = finalOutcome is ExplorerDesktopOutcome.Normal or ExplorerDesktopOutcome.Degraded;
@@ -737,7 +663,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
         TimeSpan elapsed,
         string detail)
     {
-        var observation = ObserveCurrentDesktop(_sessionId);
+        var observation = ExplorerDesktop.Observe(_sessionId);
         return new ExplorerDesktopResult(
             ExplorerDesktopOutcome.Failed,
             route,
@@ -775,7 +701,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
 
     private void LogResult(string source, ExplorerDesktopResult result)
     {
-        LogObservation($"Explorer desktop {source} observation", ObserveCurrentDesktop(_sessionId));
+        LogObservation($"Explorer desktop {source} observation", ExplorerDesktop.Observe(_sessionId));
         var message = $"Explorer desktop {source}: route={result.Route}, outcome={result.Outcome}, "
                       + $"result pid={result.ProcessId}, created pid={result.CreatedProcessId}, "
                       + $"launchDispatched={result.LaunchDispatched}, shellSurface={result.ShellSurfacePresent}, "
@@ -1047,123 +973,4 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
     }
-}
-
-/// <summary>Result of capturing a canonical Explorer and creating its replacement anchor.</summary>
-/// <param name="Prepared">Whether a verified anchor is retained before shell exit.</param>
-/// <param name="Detail">Diagnostic readiness or refusal reason.</param>
-internal readonly record struct ExplorerPreparationResult(
-    bool Prepared,
-    string Detail);
-
-/// <summary>One sampled observation of Explorer's shell and taskbar surfaces.</summary>
-/// <param name="Process">Inspected candidate shell owner, including native query failures.</param>
-/// <param name="TaskbarOwnerProcessId">Observed taskbar owner, or zero when absent.</param>
-/// <param name="ShellOwnerProcessId">Observed desktop window owner, or zero when absent.</param>
-/// <param name="HasShellSurface">Whether any shell surface was observed, even if it was not usable.</param>
-/// <param name="Initialized">Whether one owner has both shell surfaces and passed any requested responsiveness probe.</param>
-/// <param name="Acceptance">Identity/readiness acceptance result.</param>
-/// <param name="Outcome">Quality classification derived from the observations.</param>
-internal readonly record struct ExplorerDesktopObservation(
-    NativeShellProcessInfo Process,
-    uint TaskbarOwnerProcessId,
-    uint ShellOwnerProcessId,
-    bool HasShellSurface,
-    bool Initialized,
-    ExplorerShellAcceptance Acceptance,
-    ExplorerDesktopOutcome Outcome);
-
-/// <summary>Quality of the restored desktop shell.</summary>
-internal enum ExplorerDesktopOutcome
-{
-    /// <summary>The taskbar owner is canonical, medium-integrity, and jobless.</summary>
-    Normal,
-
-    /// <summary>A canonical current-session medium Explorer is usable through recovery only.</summary>
-    Degraded,
-
-    /// <summary>No verified usable taskbar was produced.</summary>
-    Failed
-}
-
-/// <summary>Route used to obtain the observed desktop.</summary>
-internal enum ExplorerDesktopRoute
-{
-    /// <summary>An already-running valid shell was adopted.</summary>
-    ExistingShell,
-
-    /// <summary>The captured fixed-purpose anchor started Explorer.</summary>
-    ShellAnchor,
-
-    /// <summary>The scheduled-task path restored a usable but recovery-only shell.</summary>
-    ScheduledTaskRecovery
-}
-
-/// <summary>Verified result of a desktop restoration attempt.</summary>
-internal readonly record struct ExplorerDesktopResult
-{
-    /// <summary>
-    ///     Creates a restoration result while enforcing that the scheduled-task route is
-    ///     recovery-only even when its observed process happens to pass the normal shell checks.
-    /// </summary>
-    /// <param name="outcome">Observed desktop quality; scheduler Normal is downgraded to Degraded.</param>
-    /// <param name="route">Launch or adoption mechanism used.</param>
-    /// <param name="processId">Observed shell owner PID, or zero when unavailable.</param>
-    /// <param name="createdProcessId">PID returned by creation, or zero; it may differ from the shell owner.</param>
-    /// <param name="detail">Diagnostic reason for the result.</param>
-    /// <param name="launchDispatched">Whether launch occurred or may still complete after an uncertain result.</param>
-    /// <param name="shellSurfacePresent">Whether any shell surface remains to be preserved.</param>
-    /// <param name="elapsed">Elapsed restoration duration, including serialized admission.</param>
-    internal ExplorerDesktopResult(
-        ExplorerDesktopOutcome outcome,
-        ExplorerDesktopRoute route,
-        uint processId,
-        uint createdProcessId,
-        string detail,
-        bool launchDispatched,
-        bool shellSurfacePresent,
-        TimeSpan elapsed)
-    {
-        Outcome = route is ExplorerDesktopRoute.ScheduledTaskRecovery
-                  && outcome is ExplorerDesktopOutcome.Normal
-            ? ExplorerDesktopOutcome.Degraded
-            : outcome;
-        Route = route;
-        ProcessId = processId;
-        CreatedProcessId = createdProcessId;
-        Detail = detail;
-        LaunchDispatched = launchDispatched;
-        ShellSurfacePresent = shellSurfacePresent;
-        Elapsed = elapsed;
-    }
-
-    /// <summary>Gets the verified quality of the restored desktop.</summary>
-    internal ExplorerDesktopOutcome Outcome { get; }
-
-    /// <summary>Gets the route that produced the observed desktop.</summary>
-    internal ExplorerDesktopRoute Route { get; }
-
-    /// <summary>Gets the process that owns the verified shell surfaces.</summary>
-    internal uint ProcessId { get; }
-
-    /// <summary>Gets the process identifier returned by the launch operation, if any.</summary>
-    internal uint CreatedProcessId { get; }
-
-    /// <summary>Gets the diagnostic result detail.</summary>
-    internal string Detail { get; }
-
-    /// <summary>Gets whether an Explorer launch crossed its dispatch boundary.</summary>
-    internal bool LaunchDispatched { get; }
-
-    /// <summary>Gets whether any shell surface was observed.</summary>
-    internal bool ShellSurfacePresent { get; }
-
-    /// <summary>
-    ///     Gets whether a Degraded shell has the same known job-bound quality as the one captured before
-    ///     exit, observed in the same stable window. It does not promote the outcome to Normal.
-    /// </summary>
-    internal bool MatchesCapturedQuality { get; init; }
-
-    /// <summary>Gets the elapsed restoration time.</summary>
-    internal TimeSpan Elapsed { get; }
 }

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Security;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -263,8 +262,7 @@ public sealed partial class GogLibrarySource : ILibrarySource
                     return client;
                 }
             }
-            catch (Exception ex) when (ex is SecurityException or UnauthorizedAccessException
-                                           or IOException)
+            catch (Exception ex) when (LibraryFiles.IsUnreadable(ex))
             {
                 // An unreadable key is no Galaxy.
             }

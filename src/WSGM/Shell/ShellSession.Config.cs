@@ -1,10 +1,8 @@
 using System;
-using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
-using Avalonia.Threading;
 using WSGM.Core;
 using WSGM.Themes;
 
@@ -12,15 +10,7 @@ namespace WSGM.Shell;
 
 public sealed partial class ShellSession
 {
-    private readonly Lock _configDebounceGate = new();
-
-    private Timer? _configDebounce;
-    private long _configReloadGeneration;
-
-    // Field-rooted deliberately: an unreferenced enabled FileSystemWatcher is
-    // GC-collectible (it holds only a WeakReference to itself in its pending
-    // ReadDirectoryChangesW state) and silently stops raising events.
-    private FileSystemWatcher? _configWatcher;
+    private ConfigReloadWatcher? _configWatcher;
 
     /// <summary>Saves one change from WSGM's settings page in Steam.</summary>
     /// <param name="change">The field to write, applied to a fresh strict load.</param>
@@ -117,146 +107,19 @@ public sealed partial class ShellSession
 
         try
         {
-            _configWatcher = new FileSystemWatcher(_store.Context.Root, "config.json")
-            {
-                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName
-            };
-            var configWatcher = _configWatcher;
-
-            // The LOAD stays off the UI thread: it takes the cross-process config
-            // mutex (2 s timeout) that a settings save holds across the write, the
-            // splash-asset promotion and the boot manifest — 500 ms of debounce does
-            // not reliably outlast that. Only the cheap, UI-affine apply is posted.
-            void Reload(object? state)
-            {
-                var generation = (long)state!;
-                _ = Task.Run(() =>
-                {
-                    if (_disposed || generation != Interlocked.Read(ref _configReloadGeneration))
-                    {
-                        return;
-                    }
-
-                    ConfigReadResult read;
-                    try
-                    {
-                        read = _store.Read();
-                    }
-                    catch (Exception ex) when (ex is not OutOfMemoryException)
-                    {
-                        Log.Warn($"Config reload skipped: {ex.Message}; the running state is retained.");
-                        return;
-                    }
-
-                    if (read.Config is not { } config)
-                    {
-                        Log.Warn($"Config reload skipped: {read.Outcome}; the running state is retained.");
-                        return;
-                    }
-
-                    Dispatcher.UIThread.Post(() =>
-                    {
-                        if (_disposed || generation != Interlocked.Read(ref _configReloadGeneration))
-                        {
-                            return;
-                        }
-
-                        ApplyReloadedConfig(config);
-                    });
-                });
-            }
-
-            // Changed/Renamed fire on threadpool threads — the swap must be locked
-            // so two near-simultaneous events can't both dispose the same timer and
-            // orphan one that still fires.
-            void Debounce()
-            {
-                lock (_configDebounceGate)
-                {
-                    // Shutdown disposes the timer under this gate after it set _disposed, so a late
-                    // event can never create a timer nobody disposes.
-                    if (_disposed || !ReferenceEquals(_configWatcher, configWatcher))
-                    {
-                        return;
-                    }
-
-                    var generation = Interlocked.Increment(ref _configReloadGeneration);
-                    _configDebounce?.Dispose();
-                    _configDebounce = new Timer(Reload, generation, 500, Timeout.Infinite);
-                }
-            }
-
-            _configWatcher.Changed += (_, _) => Debounce();
-            _configWatcher.Renamed += (_, _) => Debounce();
-            // Internal-buffer overflow or a directory-level error kills the change
-            // events silently — settings would stop applying for the rest of the
-            // session with nothing in the log to diagnose it from. Log, reload once
-            // (the missed write is already on disk), and re-arm by restarting the
-            // watch. Deliberately NOT a recreate: this handler would resubscribe
-            // itself and a persistently failing directory would spin.
-            _configWatcher.Error += (sender, e) =>
-            {
-                try
-                {
-                    lock (_configDebounceGate)
-                    {
-                        if (_disposed || sender is not FileSystemWatcher watcher
-                                      || !ReferenceEquals(_configWatcher, watcher))
-                        {
-                            return;
-                        }
-
-                        Log.Warn($"Config watcher error: {e.GetException().Message} — re-arming.");
-                        Debounce();
-                        watcher.EnableRaisingEvents = false;
-                        watcher.EnableRaisingEvents = true;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Log.Warn($"Config watcher could not be re-armed: {ex.Message}");
-                }
-            };
-            _configWatcher.EnableRaisingEvents = true;
+            _configWatcher = new ConfigReloadWatcher(_store, ApplyReloadedConfig);
         }
         catch (Exception ex)
         {
             Log.Warn($"Config watcher not available: {ex.Message}");
-            CloseConfigWatcher();
         }
     }
 
     private void CloseConfigWatcher()
     {
-        FileSystemWatcher? watcher;
-        Timer? debounce;
-        lock (_configDebounceGate)
-        {
-            Interlocked.Increment(ref _configReloadGeneration);
-            watcher = _configWatcher;
-            _configWatcher = null;
-            debounce = _configDebounce;
-            _configDebounce = null;
-        }
-
-        try
-        {
-            if (watcher is not null)
-            {
-                try
-                {
-                    watcher.EnableRaisingEvents = false;
-                }
-                finally
-                {
-                    watcher.Dispose();
-                }
-            }
-        }
-        finally
-        {
-            debounce?.Dispose();
-        }
+        var watcher = _configWatcher;
+        _configWatcher = null;
+        watcher?.Dispose();
     }
 
     /// <summary>

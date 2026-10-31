@@ -119,19 +119,23 @@ internal interface IGameModeEntryBackend
     Task<IReadOnlyList<PluginActionStepResult>> RunLeaveActionsAsync();
 
     /// <summary>
-    ///     Puts the desktop layout back when Game Mode ends: the layout recorded at entry, or the
-    ///     configured Desktop layout, whichever this configuration owes.
+    ///     Puts the desktop layout back when Game Mode ends: the explicit layout, else the layout
+    ///     recorded at entry, else the configured Desktop layout, whichever this configuration owes.
     /// </summary>
+    /// <param name="explicitLayout">A layout the caller captured itself, or null to use the recovery record.</param>
+    /// <param name="recovery">The durable recovery record, read once for the whole return.</param>
     /// <returns>A warning when it could not be restored, otherwise null.</returns>
-    Task<string?> ApplyReturnLayoutAsync();
+    Task<string?> ApplyReturnLayoutAsync(DisplayLayout? explicitLayout, GameModeLaunchRecovery recovery);
 
     /// <summary>Restores desktop driver values after the return layout has settled.</summary>
+    /// <param name="recovery">The durable recovery record, read once for the whole return.</param>
     /// <returns>A warning for unavailable, refused or uncertain controls; originals remain recorded.</returns>
-    Task<string?> ApplyReturnDisplayGpuAsync();
+    Task<string?> ApplyReturnDisplayGpuAsync(GameModeLaunchRecovery recovery);
 
     /// <summary>Restores desktop audio after the return display layout has settled.</summary>
+    /// <param name="recovery">The durable recovery record, read once for the whole return.</param>
     /// <returns>A warning when it could not be restored, otherwise null.</returns>
-    Task<string?> ApplyReturnAudioAsync();
+    Task<string?> ApplyReturnAudioAsync(GameModeLaunchRecovery recovery);
 
     /// <summary>Captures the Explorer anchor that a later restore needs.</summary>
     /// <returns>Whether the desktop can be safely taken over.</returns>

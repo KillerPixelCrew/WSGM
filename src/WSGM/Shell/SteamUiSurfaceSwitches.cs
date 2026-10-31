@@ -5,34 +5,37 @@ namespace WSGM.Shell;
 
 /// <summary>Every Steam UI surface switch, derived from the configuration in one place.</summary>
 /// <param name="NativeQuickAccess">WSGM's rows in Steam's Quick Access menu.</param>
-/// <param name="HostSurfaces">WSGM's own pages, menus and the plugin tab, which follow CEF itself.</param>
-/// <param name="SurfaceObservation">Observing Steam's native surfaces independently of the custom rows.</param>
+/// <param name="HostSurfaces">
+///     WSGM's own pages, menus, the plugin tab, the Screensaver rows and the observation of Steam's
+///     native surfaces. They follow CEF itself, and every other surface switch implies them.
+/// </param>
 /// <param name="NetworkIndicator">The Big Picture header Wi-Fi indicator and the Internet page.</param>
 /// <param name="DownloadSort">The download-queue sort buttons.</param>
 /// <param name="LibraryBadge">The library badge on Steam's tiles.</param>
 /// <param name="HomeCarousel">Home's connected-library carousel.</param>
 /// <param name="CarouselShowUninstalled">Whether that carousel also lists owned games that are not installed.</param>
-/// <param name="ScreensaverRows">WSGM's display-off rows in Steam's Screensaver settings.</param>
 /// <param name="Glyphs">Whether WSGM presents handheld glyphs at all.</param>
 /// <param name="GlyphProfile">The resolved plugin glyph profile, or null.</param>
 /// <param name="NativeGlyphArtwork">Keeps Valve artwork while still hiding absent controls.</param>
 internal sealed record SteamUiSurfaceSwitches(
     bool NativeQuickAccess,
     bool HostSurfaces,
-    bool SurfaceObservation,
     bool NetworkIndicator,
     bool DownloadSort,
     bool LibraryBadge,
     bool HomeCarousel,
     bool CarouselShowUninstalled,
-    bool ScreensaverRows,
     bool Glyphs,
     ImportedGlyphProfile? GlyphProfile,
     bool NativeGlyphArtwork)
 {
     /// <summary>Every surface off, which is what a retraction leaves.</summary>
     internal static SteamUiSurfaceSwitches Off { get; } =
-        new(false, false, false, false, false, false, false, false, false, false, null, false);
+        new(false, false, false, false, false, false, false, false, null, false);
+
+    /// <summary>WSGM's display-off rows in Steam's Screensaver settings, which follow the host surfaces.</summary>
+    /// <remarks>The host additionally needs a session timeout owner before it declares them.</remarks>
+    internal bool ScreensaverRows => HostSurfaces;
 
     /// <summary>Derives every switch from a configuration and the CEF master state.</summary>
     /// <param name="config">The configuration in force.</param>
@@ -56,13 +59,11 @@ internal sealed record SteamUiSurfaceSwitches(
         return new SteamUiSurfaceSwitches(
             on && cef.NativeQuickAccess,
             on,
-            on,
             on && cef.WifiIndicator,
             on && cef.DownloadQueueSort,
             on && cef.CardManager,
             on && cef.ConnectedLibraryCarousel,
             cef.CarouselShowUninstalled,
-            on,
             glyphs,
             glyphs ? glyphProfile : null,
             nativeArtwork);

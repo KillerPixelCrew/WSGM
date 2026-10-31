@@ -157,6 +157,58 @@ internal static class ImageHeader
         return TryReadSize(stream, out width, out height);
     }
 
+    /// <summary>Which of the formats Steam takes for artwork an image's first bytes declare.</summary>
+    /// <param name="bytes">The image, or at least its first bytes.</param>
+    /// <returns><c>png</c>, <c>jpg</c>, <c>webp</c> or <c>ico</c>, or null for anything else.</returns>
+    /// <remarks>
+    ///     The bytes decide, never the address they came from. A provider's media endpoint answers
+    ///     every format under one URL, and Steam files an image under the extension it is told, so a
+    ///     JPEG named as a PNG shows as a blank tile.
+    /// </remarks>
+    public static string? Format(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.StartsWith((ReadOnlySpan<byte>)[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))
+        {
+            return "png";
+        }
+
+        if (bytes.StartsWith((ReadOnlySpan<byte>)[0xFF, 0xD8, 0xFF]))
+        {
+            return "jpg";
+        }
+
+        if (bytes.Length >= 12 && bytes.StartsWith("RIFF"u8) && bytes[8..12].SequenceEqual("WEBP"u8))
+        {
+            return "webp";
+        }
+
+        return bytes.StartsWith((ReadOnlySpan<byte>)[0x00, 0x00, 0x01, 0x00]) ? "ico" : null;
+    }
+
+    /// <summary>The MIME type of a format <see cref="Format" /> names.</summary>
+    /// <param name="format"><c>png</c>, <c>jpg</c>, <c>webp</c> or <c>ico</c>.</param>
+    /// <returns>The MIME type, or null for any other value.</returns>
+    public static string? MimeType(string? format)
+    {
+        return format switch
+        {
+            "png" => "image/png",
+            "jpg" => "image/jpeg",
+            "webp" => "image/webp",
+            "ico" => "image/vnd.microsoft.icon",
+            _ => null
+        };
+    }
+
+    /// <summary>An image as a <c>data:</c> URL, typed by its first bytes.</summary>
+    /// <param name="bytes">The encoded image.</param>
+    /// <returns>The URL, or null when the bytes are not a format <see cref="Format" /> recognizes.</returns>
+    public static string? DataUrl(byte[] bytes)
+    {
+        ArgumentNullException.ThrowIfNull(bytes);
+        return MimeType(Format(bytes)) is { } mime ? $"data:{mime};base64,{Convert.ToBase64String(bytes)}" : null;
+    }
+
     private static bool TryReadSize(Stream stream, out int width, out int height)
     {
         width = 0;
@@ -169,12 +221,13 @@ internal static class ImageHeader
                 return false;
             }
 
-            if (IsPng(signature))
+            var format = Format(signature);
+            if (format == "png")
             {
                 return TryReadPng(stream, out width, out height);
             }
 
-            if (signature[0] == 0xFF && signature[1] == 0xD8)
+            if (format == "jpg")
             {
                 // The 8 signature bytes already consumed 6 bytes of the first
                 // segment; restart the marker walk right after SOI.
@@ -196,18 +249,6 @@ internal static class ImageHeader
             height = 0;
             return false;
         }
-    }
-
-    private static bool IsPng(ReadOnlySpan<byte> signature)
-    {
-        return signature[0] == 0x89
-               && signature[1] == 0x50
-               && signature[2] == 0x4E
-               && signature[3] == 0x47
-               && signature[4] == 0x0D
-               && signature[5] == 0x0A
-               && signature[6] == 0x1A
-               && signature[7] == 0x0A;
     }
 
     /// <summary>Reads IHDR, positioned directly after the PNG signature.</summary>

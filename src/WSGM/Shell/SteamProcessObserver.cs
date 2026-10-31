@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using WSGM.Core;
 using WSGM.Interop;
@@ -24,9 +23,11 @@ internal readonly record struct SteamProcessSnapshot(
     bool? BrowserDebugging,
     bool BigPictureWindow);
 
-/// <summary>Reads Steam's process state once per call: one process snapshot and one window search.</summary>
+/// <summary>Reads Steam's process state once per call: two process-name lookups and one window search.</summary>
 /// <remarks>
-///     Only the transport gate's worker calls this, so the cache needs no lock. A steamwebhelper's role
+///     Only the transport gate's worker calls this, once a second, so the cache needs no lock. Looking
+///     the two names up creates a process object only for Steam's own processes, never for every
+///     process on the machine. A steamwebhelper's role
 ///     never changes, so each process's command line is read once, when it first appears. Steam writes
 ///     its CEF browser process's command line to <c>logs\webhelper.txt</c>, and that line carries
 ///     <c>--remote-debugging-port</c> exactly when Steam honored the debugging flag: a deterministic
@@ -45,12 +46,13 @@ internal sealed class SteamProcessObserver
     /// <returns>The snapshot; a failed process query reads as Steam not running.</returns>
     internal SteamProcessSnapshot Observe()
     {
-        HashSet<uint> steam = [];
-        HashSet<uint> helpers = [];
-        Process[] processes;
+        HashSet<uint> steam;
+        HashSet<uint> helpers;
         try
         {
-            processes = Process.GetProcesses();
+            // Both lookups keep only this session's processes and skip one that exits mid-read.
+            helpers = WindowFinder.FindProcessIds(HelperProcessName);
+            steam = WindowFinder.FindProcessIds(ClientProcessName);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -58,33 +60,7 @@ internal sealed class SteamProcessObserver
             return default;
         }
 
-        foreach (var process in processes)
-        {
-            using (process)
-            {
-                try
-                {
-                    var name = process.ProcessName;
-                    var helper = string.Equals(name, HelperProcessName, StringComparison.OrdinalIgnoreCase);
-                    if ((!helper && !string.Equals(name, ClientProcessName, StringComparison.OrdinalIgnoreCase))
-                        || process.SessionId != WindowFinder.CurrentSessionId)
-                    {
-                        continue;
-                    }
-
-                    var id = (uint)process.Id;
-                    steam.Add(id);
-                    if (helper)
-                    {
-                        helpers.Add(id);
-                    }
-                }
-                catch (Exception ex) when (ex is not OutOfMemoryException)
-                {
-                    // The process exited between the snapshot and the read.
-                }
-            }
-        }
+        steam.UnionWith(helpers);
 
         // Forget exited helpers first, so a reused id is read again.
         foreach (var exited in _helpers.Keys.Where(id => !helpers.Contains(id)).ToArray())

@@ -933,12 +933,14 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
                 filter.Humor,
                 filter.Epilepsy,
                 filter.Untagged);
-            var result = selected is null
+            // The provider search and the official lookup are independent, so both run at once.
+            var fetchedTask = selected is null
                 ? ArtworkSearch.GetAssetsForSteamAppAsync(asset, appId, config, query, cancellationToken, _providers)
                 : ArtworkSearch.GetAssetsForMatchAsync(asset, selected, config, query, cancellationToken, _providers);
-            var fetched = await result.ConfigureAwait(false);
-            var official = await LoadOfficialAssetsAsync(asset, appId, selected, config, cancellationToken)
-                .ConfigureAwait(false);
+            var officialTask = LoadOfficialAssetsAsync(asset, appId, selected, config, cancellationToken);
+            await Task.WhenAll(fetchedTask, officialTask).ConfigureAwait(false);
+            var fetched = await fetchedTask.ConfigureAwait(false);
+            var official = await officialTask.ConfigureAwait(false);
             var candidates = fetched.Candidates
                 .Where(candidate => candidate.Width == 0
                                     || ImageHeader.IsWithinLimits(candidate.Width, candidate.Height))
@@ -1253,15 +1255,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 
             var bytes = new byte[(int)stream.Length];
             stream.ReadExactly(bytes);
-            var mime = SteamArtwork.ImageFormat(bytes) switch
-            {
-                "jpg" => "image/jpeg",
-                "ico" => "image/vnd.microsoft.icon",
-                "webp" => "image/webp",
-                "png" => "image/png",
-                _ => null
-            };
-            return mime is null ? null : $"data:{mime};base64,{Convert.ToBase64String(bytes)}";
+            return ImageHeader.DataUrl(bytes);
         }
         catch (Exception ex)
         {

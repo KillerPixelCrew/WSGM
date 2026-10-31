@@ -24,6 +24,10 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
     private readonly Lock _workGate = new();
     private Task? _dispose;
     private bool _disposed;
+    // Capability ids by fan role, taken from the last descriptor set so state callbacks avoid a control scan.
+    private volatile HashSet<string> _fanDutyIds = [];
+    private volatile HashSet<string> _fanModeIds = [];
+    private volatile HashSet<string> _firmwareFanCurveIds = [];
     private bool _hasSoftwareFanCurve;
     private int? _softwareChargeLimit;
     private bool _softwareChargeSuspended;
@@ -97,6 +101,11 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
     ValueTask P.IHandheldObserver.DescriptorsChangedAsync(P.CapabilityDescriptorSet descriptors,
         CancellationToken token)
     {
+        if (!_disposed)
+        {
+            IndexFanControls(descriptors);
+        }
+
         if (AcceptsPublications)
         {
             var projected = HandheldUiProjection.Descriptors(descriptors);
@@ -178,17 +187,14 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
         if (!_disposed && (AcceptsPublications || !state.Available))
         {
             var projectedState = HandheldUiProjection.State(state);
-            if (_hasSoftwareFanCurve && state.InstanceId is null && Device.Controls.Controls.Any(item =>
-                    item.Role == P.CapabilityRole.FanCurve && item.InstanceId is null
-                    && item.Descriptor.CapabilityId == state.CapabilityId))
+            if (_hasSoftwareFanCurve && state.InstanceId is null && _firmwareFanCurveIds.Contains(state.CapabilityId))
             {
                 projectedState = projectedState with { InstanceId = "firmware" };
             }
 
             // The curve's duty writes leave the firmware in custom mode; the user chose Software.
             if (_hasSoftwareFanCurve && state.InstanceId is { } fan && _softwareFans.Contains(fan)
-                && Device.Controls.Controls.Any(item => item.Role == P.CapabilityRole.FanMode
-                                                        && item.Descriptor.CapabilityId == state.CapabilityId))
+                && _fanModeIds.Contains(state.CapabilityId))
             {
                 projectedState = projectedState with
                 {
@@ -206,8 +212,7 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
                     projectedState));
             }
 
-            if (_hasSoftwareFanCurve && Device.Controls.Controls.Any(item =>
-                    item.Role == P.CapabilityRole.FanDuty && item.Descriptor.CapabilityId == state.CapabilityId))
+            if (_hasSoftwareFanCurve && _fanDutyIds.Contains(state.CapabilityId))
             {
                 PublishSoftwareFanCurve();
             }
@@ -219,6 +224,32 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
         }
 
         return ValueTask.CompletedTask;
+    }
+
+    private void IndexFanControls(P.CapabilityDescriptorSet descriptors)
+    {
+        var firmwareFanCurves = new HashSet<string>(StringComparer.Ordinal);
+        var fanModes = new HashSet<string>(StringComparer.Ordinal);
+        var fanDuties = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var item in descriptors.Descriptors)
+        {
+            switch (item.Role)
+            {
+                case P.CapabilityRole.FanCurve when item.InstanceId is null:
+                    firmwareFanCurves.Add(item.CapabilityId);
+                    break;
+                case P.CapabilityRole.FanMode:
+                    fanModes.Add(item.CapabilityId);
+                    break;
+                case P.CapabilityRole.FanDuty:
+                    fanDuties.Add(item.CapabilityId);
+                    break;
+            }
+        }
+
+        _firmwareFanCurveIds = firmwareFanCurves;
+        _fanModeIds = fanModes;
+        _fanDutyIds = fanDuties;
     }
 
     ValueTask P.IHandheldObserver.PhysicalDevicesChangedAsync(IReadOnlyList<P.PhysicalDeviceIdentity> devices,

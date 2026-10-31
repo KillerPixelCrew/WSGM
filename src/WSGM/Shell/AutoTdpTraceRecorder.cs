@@ -371,7 +371,7 @@ internal sealed class AutoTdpTraceRecorder : IAsyncDisposable
 /// </remarks>
 internal sealed class AutoTdpTraceSystemContext : IDisposable
 {
-    private readonly RtssOsdMetricsSource _metrics = new();
+    private readonly SystemMetricsSource _metrics = new();
 
     /// <inheritdoc />
     public void Dispose()

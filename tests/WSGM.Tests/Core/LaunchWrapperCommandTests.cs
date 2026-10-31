@@ -110,7 +110,7 @@ public sealed class LaunchWrapperCommandTests
             Helper, LaunchWrapperMode.Both, "-dx11");
         var details = new SteamAppDetails(wrapped, "", "", "", "");
 
-        var originals = SteamLaunchConfig.OriginalsFrom(false, details);
+        var originals = LaunchWrapperCommand.OriginalsFrom(false, details);
 
         Assert.Equal("-dx11", originals.LaunchOptions);
     }
@@ -126,7 +126,7 @@ public sealed class LaunchWrapperCommandTests
             "D:\\Games",
             "");
 
-        var originals = SteamLaunchConfig.OriginalsFrom(true, details);
+        var originals = LaunchWrapperCommand.OriginalsFrom(true, details);
 
         Assert.Equal("\"D:\\Games\\game.exe\"", originals.Target);
         Assert.Equal("-windowed", originals.LaunchOptions);
@@ -138,7 +138,7 @@ public sealed class LaunchWrapperCommandTests
     {
         var details = new SteamAppDetails("-dx11", "\"D:\\g\\game.exe\"", "-mod", "D:\\g", "");
 
-        var originals = SteamLaunchConfig.OriginalsFrom(false, details);
+        var originals = LaunchWrapperCommand.OriginalsFrom(false, details);
 
         Assert.Equal("\"D:\\g\\game.exe\"", originals.Target);
         Assert.Equal("-dx11", originals.LaunchOptions);
@@ -232,7 +232,7 @@ public sealed class LaunchWrapperCommandTests
     public void OriginalFromWrappedArgumentsRecoversTheRealProgram(
         string arguments, string expectedTarget, string expectedArguments)
     {
-        var (target, rest) = SteamLaunchConfig.OriginalFromWrappedArguments(arguments);
+        var (target, rest) = LaunchWrapperCommand.OriginalFromWrappedArguments(arguments);
         Assert.Equal(expectedTarget, target);
         Assert.Equal(expectedArguments, rest);
     }
@@ -245,7 +245,7 @@ public sealed class LaunchWrapperCommandTests
     [InlineData("--deelevate -- ")]
     public void OriginalFromWrappedArgumentsReportsNothingWhenThereIsNoWrappedCommand(string? arguments)
     {
-        var (target, rest) = SteamLaunchConfig.OriginalFromWrappedArguments(arguments);
+        var (target, rest) = LaunchWrapperCommand.OriginalFromWrappedArguments(arguments);
         Assert.Equal("", target);
         Assert.Equal("", rest);
     }
@@ -258,7 +258,7 @@ public sealed class LaunchWrapperCommandTests
         const string extra = "-windowed";
         var written = LaunchWrapperCommand.ShortcutArguments(LaunchWrapperMode.Both, original, extra);
 
-        var (target, rest) = SteamLaunchConfig.OriginalFromWrappedArguments(written);
+        var (target, rest) = LaunchWrapperCommand.OriginalFromWrappedArguments(written);
 
         Assert.Equal(original, target);
         Assert.Equal(extra, rest);

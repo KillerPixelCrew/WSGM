@@ -246,11 +246,8 @@ internal sealed class EmulatorShortcutSync : IDisposable
                     throw new FileNotFoundException("The WSGM input-lease launcher is missing.", helper);
                 }
 
-                fields = fields with
-                {
-                    Target = LaunchWrapperCommand.ShortcutTarget(helper),
-                    LaunchOptions = LaunchWrapperCommand.ShortcutArguments(mode, fields.Target, fields.LaunchOptions)
-                };
+                var wrapped = LaunchWrapperCommand.WrapShortcut(helper, mode, fields.Target, fields.LaunchOptions);
+                fields = fields with { Target = wrapped.Target, LaunchOptions = wrapped.Arguments };
             }
 
             var recorded = records.SingleOrDefault(item => item.Key == installed.Id);

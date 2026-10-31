@@ -82,10 +82,10 @@ public sealed class DisplayGpuProfileServiceTests
     {
         var descriptor = Depth("changed-route");
         Assert.Equal("10",
-            DisplayGpuProfileService.ToCapabilityValue(new PluginValue(Text: "10"), descriptor)?.ChoiceValue);
-        Assert.Null(DisplayGpuProfileService.ToCapabilityValue(new PluginValue(Text: "12"), descriptor));
-        Assert.Null(DisplayGpuProfileService.ToCapabilityValue(new PluginValue(Number: 10), descriptor));
-        Assert.Null(DisplayGpuProfileService.ToCapabilityValue(new PluginValue(Text: "10", Boolean: true), descriptor));
+            CapabilityValues.FromPluginValue(new PluginValue(Text: "10"), descriptor)?.ChoiceValue);
+        Assert.Null(CapabilityValues.FromPluginValue(new PluginValue(Text: "12"), descriptor));
+        Assert.Null(CapabilityValues.FromPluginValue(new PluginValue(Number: 10), descriptor));
+        Assert.Null(CapabilityValues.FromPluginValue(new PluginValue(Text: "10", Boolean: true), descriptor));
     }
 
     [Fact]

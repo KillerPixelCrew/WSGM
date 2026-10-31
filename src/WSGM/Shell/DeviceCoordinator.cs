@@ -412,16 +412,9 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
     /// <returns>False when disposed or preview is unavailable; otherwise the controller preview's acceptance.</returns>
     internal async Task<bool> PreviewRumbleAsync(bool testFloor, CancellationToken token)
     {
-        await _transitionGate.WaitAsync(token).ConfigureAwait(false);
-        try
-        {
-            return !_disposed && CanPreviewRumble
-                              && await Controllers.PreviewRumbleAsync(testFloor, token).ConfigureAwait(false);
-        }
-        finally
-        {
-            _transitionGate.Release();
-        }
+        using var transition = await EnterTransitionAsync(token).ConfigureAwait(false);
+        return !_disposed && CanPreviewRumble
+                          && await Controllers.PreviewRumbleAsync(testFloor, token).ConfigureAwait(false);
     }
 
     /// <summary>Requests an explicit stop for any physical rumble preview.</summary>
@@ -439,29 +432,22 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
     /// <exception cref="ArgumentOutOfRangeException">The key or its value is unsupported.</exception>
     internal async Task SetRumbleCalibrationAsync(string key, int value, CancellationToken token)
     {
-        await _transitionGate.WaitAsync(token).ConfigureAwait(false);
-        try
+        using var transition = await EnterTransitionAsync(token).ConfigureAwait(false);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var saved = await PersistConfigurationAsync(config =>
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            var saved = await PersistConfigurationAsync(config =>
+            switch (key)
             {
-                switch (key)
-                {
-                    case "strength"
-                        when value is >= 0 and <= 100: config.RumbleCalibration.StrengthPercent = value; break;
-                    case "floor"
-                        when value is >= 0 and <= 100: config.RumbleCalibration.MinimumStrengthPercent = value; break;
-                    case "duration"
-                        when value is >= 0 and <= 500: config.RumbleCalibration.MinimumPulseMilliseconds = value; break;
-                    default: throw new ArgumentOutOfRangeException(nameof(value));
-                }
-            }, token).ConfigureAwait(false);
-            Controllers.ApplyRumbleCalibration(saved.RumbleCalibration);
-        }
-        finally
-        {
-            _transitionGate.Release();
-        }
+                case "strength"
+                    when value is >= 0 and <= 100: config.RumbleCalibration.StrengthPercent = value; break;
+                case "floor"
+                    when value is >= 0 and <= 100: config.RumbleCalibration.MinimumStrengthPercent = value; break;
+                case "duration"
+                    when value is >= 0 and <= 500: config.RumbleCalibration.MinimumPulseMilliseconds = value; break;
+                default: throw new ArgumentOutOfRangeException(nameof(value));
+            }
+        }, token).ConfigureAwait(false);
+        Controllers.ApplyRumbleCalibration(saved.RumbleCalibration);
     }
 
     /// <summary>Returns the manual power mode of the running application to the Global value.</summary>
@@ -500,22 +486,15 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
     /// <exception cref="InvalidOperationException">The current device does not expose an available power pair.</exception>
     internal async Task SetManualTdpModeAsync(bool unified)
     {
-        await _transitionGate.WaitAsync(_lifetime.Token).ConfigureAwait(false);
-        try
+        using var transition = await EnterTransitionAsync(_lifetime.Token).ConfigureAwait(false);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (!ManualTdpMode.Available)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            if (!ManualTdpMode.Available)
-            {
-                throw new InvalidOperationException("Paired TDP is unavailable.");
-            }
+            throw new InvalidOperationException("Paired TDP is unavailable.");
+        }
 
-            await Profiles.SetAsync(values => values.TdpUnified = unified, $"TdpUnified={unified}",
-                cancellationToken: _lifetime.Token).ConfigureAwait(false);
-        }
-        finally
-        {
-            _transitionGate.Release();
-        }
+        await Profiles.SetAsync(values => values.TdpUnified = unified, $"TdpUnified={unified}",
+            cancellationToken: _lifetime.Token).ConfigureAwait(false);
     }
 
     /// <summary>The power source, or null when Windows cannot say.</summary>
@@ -553,36 +532,29 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
     private async Task SavePowerAssignmentAsync(DevicePowerAssignmentContext selection, bool ac,
         DevicePowerPresetReference? reference)
     {
-        await _transitionGate.WaitAsync(_lifetime.Token).ConfigureAwait(false);
-        try
+        using var transition = await EnterTransitionAsync(_lifetime.Token).ConfigureAwait(false);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (Profiles.Current.Generation != selection.Profiles.Generation
+            || DeviceDefinition?.FamilyId != selection.PluginId
+            || IntegrationEnabled != selection.Enabled
+            || selection.OnAc != _readOnAcPower())
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            if (Profiles.Current.Generation != selection.Profiles.Generation
-                || DeviceDefinition?.FamilyId != selection.PluginId
-                || IntegrationEnabled != selection.Enabled
-                || selection.OnAc != _readOnAcPower())
-            {
-                throw new InvalidOperationException(
-                    "The running application, device or configuration changed before saving the assignment.");
-            }
+            throw new InvalidOperationException(
+                "The running application, device or configuration changed before saving the assignment.");
+        }
 
-            await Profiles.SetAsync(values =>
+        await Profiles.SetAsync(values =>
+            {
+                if (ac)
                 {
-                    if (ac)
-                    {
-                        values.AcPowerPreset = reference;
-                    }
-                    else
-                    {
-                        values.BatteryPowerPreset = reference;
-                    }
-                }, $"{(ac ? "AC" : "battery")} power preset {reference?.PresetId ?? "(none)"}",
-                cancellationToken: _lifetime.Token).ConfigureAwait(false);
-        }
-        finally
-        {
-            _transitionGate.Release();
-        }
+                    values.AcPowerPreset = reference;
+                }
+                else
+                {
+                    values.BatteryPowerPreset = reference;
+                }
+            }, $"{(ac ? "AC" : "battery")} power preset {reference?.PresetId ?? "(none)"}",
+            cancellationToken: _lifetime.Token).ConfigureAwait(false);
     }
 
     /// <summary>Re-reads the power source after Windows reported a switch between AC and battery.</summary>
@@ -824,78 +796,71 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
 
         using var admission = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
         cancellationToken = admission.Token;
-        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using var transition = await EnterTransitionAsync(cancellationToken).ConfigureAwait(false);
+        if (_disposed)
         {
-            if (_disposed)
+            return;
+        }
+
+        var previousConfig = _config;
+        var wasEnabled = _config.DeviceIntegration.Enabled;
+        _config = config;
+        Controllers.ApplyRumbleCalibration(config.RumbleCalibration);
+        ConfigurationChanged?.Invoke();
+
+        // Stored settings live in the configuration, so a reload can change what the handheld
+        // should be running with even though the handheld itself never changed.
+        UpdateCapabilityDesiredContext();
+        UpdateOemConfiguration();
+        await Controllers.ApplySelectionAsync(
+            CurrentControllerSelection(),
+            _runningApplicationId,
+            _runningExecutable,
+            cancellationToken).ConfigureAwait(false);
+        switch (wasEnabled)
+        {
+            case false when config.DeviceIntegration.Enabled:
+                _automaticRestartAttempts = 0;
+                await RearmLightingProfilesAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await StartCycleUnderGateAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    if (!_disposed)
+                    {
+                        RestoreConfigAfterCanceledStart(previousConfig);
+                    }
+
+                    throw;
+                }
+
+                return;
+            case true when !config.DeviceIntegration.Enabled:
             {
+                // AutoTDP hands its original limit back while the power limit is still writable.
+                await RestoreAutoTdpBeforeStopAsync(cancellationToken).ConfigureAwait(false);
+                var teardown = await StopCycleUnderGateAsync(
+                    HandheldStopReason.IntegrationDisabled,
+                    NormalShutdownDeadline(),
+                    cancellationToken).ConfigureAwait(false);
+                PhysicalGlyphCatalog.ReplacePackageProfiles([]);
+                ReportDeviceTeardown(teardown, cancellationToken);
+                if (!teardown.Verified)
+                {
+                    // Report this explicit disable's failure after retiring the runtime. A later
+                    // explicit enable may start a fresh cycle without replaying the failed stop.
+                    throw teardown.ToException();
+                }
+
                 return;
             }
-
-            var previousConfig = _config;
-            var wasEnabled = _config.DeviceIntegration.Enabled;
-            _config = config;
-            Controllers.ApplyRumbleCalibration(config.RumbleCalibration);
-            ConfigurationChanged?.Invoke();
-
-            // Stored settings live in the configuration, so a reload can change what the handheld
-            // should be running with even though the handheld itself never changed.
-            UpdateCapabilityDesiredContext();
-            UpdateOemConfiguration();
-            await Controllers.ApplySelectionAsync(
-                CurrentControllerSelection(),
-                _runningApplicationId,
-                _runningExecutable,
-                cancellationToken).ConfigureAwait(false);
-            switch (wasEnabled)
-            {
-                case false when config.DeviceIntegration.Enabled:
-                    _automaticRestartAttempts = 0;
-                    await RearmLightingProfilesAsync(cancellationToken).ConfigureAwait(false);
-                    try
-                    {
-                        await StartCycleUnderGateAsync(cancellationToken).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                    {
-                        if (!_disposed)
-                        {
-                            RestoreConfigAfterCanceledStart(previousConfig);
-                        }
-
-                        throw;
-                    }
-
-                    return;
-                case true when !config.DeviceIntegration.Enabled:
-                {
-                    // AutoTDP hands its original limit back while the power limit is still writable.
-                    await RestoreAutoTdpBeforeStopAsync(cancellationToken).ConfigureAwait(false);
-                    var teardown = await StopCycleUnderGateAsync(
-                        HandheldStopReason.IntegrationDisabled,
-                        NormalShutdownDeadline(),
-                        cancellationToken).ConfigureAwait(false);
-                    PhysicalGlyphCatalog.ReplacePackageProfiles([]);
-                    ReportDeviceTeardown(teardown, cancellationToken);
-                    if (!teardown.Verified)
-                    {
-                        // Report this explicit disable's failure after retiring the runtime. A later
-                        // explicit enable may start a fresh cycle without replaying the failed stop.
-                        throw teardown.ToException();
-                    }
-
-                    return;
-                }
-            }
-
-            if (config.DeviceIntegration.Enabled && ControllerOwnershipMustChange())
-            {
-                await ApplyControllerSelectionUnderGateAsync(cancellationToken).ConfigureAwait(false);
-            }
         }
-        finally
+
+        if (config.DeviceIntegration.Enabled && ControllerOwnershipMustChange())
         {
-            _transitionGate.Release();
+            await ApplyControllerSelectionUnderGateAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -924,44 +889,37 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
             return;
         }
 
-        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using var transition = await EnterTransitionAsync(cancellationToken).ConfigureAwait(false);
+        if (_disposed)
         {
-            if (_disposed)
-            {
-                return;
-            }
-
-            var client = _client;
-            if (client is null)
-            {
-                Log.Info("Device suspend skipped: no active handheld cycle exists.");
-                return;
-            }
-
-            var deadline = Deadline.After(TimeSpan.FromSeconds(5));
-            // A controller start still attaching (it retries for seconds after a wake) would otherwise
-            // finish after this decision and bring a target up under a suspended handheld.
-            await CancelControllerStartAsync().ConfigureAwait(false);
-            if (Controllers.State is ControllerManagementState.Active)
-            {
-                // As HC does: the virtual controller and the hidden pad stay exactly as they are across
-                // a sleep, and only forwarding stops. The handheld closes its own device below and opens it
-                // again on wake, and the kept target then resumes forwarding.
-                await Controllers.BlockForwardingAsync("system sleep", cancellationToken).ConfigureAwait(false);
-                Log.Info("Controller forwarding paused for suspend; the virtual controller is kept.");
-            }
-
-            await _fanCurves.SuspendAsync().ConfigureAwait(false);
-            await _chargeLimits.StopAsync().ConfigureAwait(false);
-            var state = await client.SuspendAsync(deadline, cancellationToken).ConfigureAwait(false);
-            _oemActions.Reset();
-            SetState(state.State);
+            return;
         }
-        finally
+
+        var client = _client;
+        if (client is null)
         {
-            _transitionGate.Release();
+            Log.Info("Device suspend skipped: no active handheld cycle exists.");
+            return;
         }
+
+        var deadline = Deadline.After(TimeSpan.FromSeconds(5));
+        // A controller start still attaching (it retries for seconds after a wake) would otherwise
+        // finish after this decision and bring a target up under a suspended handheld.
+        await CancelControllerStartAsync().ConfigureAwait(false);
+        if (Controllers.State is ControllerManagementState.Active)
+        {
+            // As HC does: the virtual controller and the hidden pad stay exactly as they are across
+            // a sleep, and only forwarding stops. The handheld closes its own device below and opens it
+            // again on wake, and the kept target then resumes forwarding.
+            await Controllers.BlockForwardingAsync("system sleep", cancellationToken).ConfigureAwait(false);
+            Log.Info("Controller forwarding paused for suspend; the virtual controller is kept.");
+        }
+
+        await _fanCurves.SuspendAsync().ConfigureAwait(false);
+        await _chargeLimits.StopAsync().ConfigureAwait(false);
+        var state = await client.SuspendAsync(deadline, cancellationToken).ConfigureAwait(false);
+        _oemActions.Reset();
+        SetState(state.State);
     }
 
     /// <summary>Revalidates and resumes into a fresh device generation.</summary>
@@ -979,71 +937,64 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
             return;
         }
 
-        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using var transition = await EnterTransitionAsync(cancellationToken).ConfigureAwait(false);
+        if (_disposed)
         {
-            if (_disposed)
-            {
+            return;
+        }
+
+        var client = _client;
+        var action = DecideResume(
+            client is not null,
+            State,
+            client?.LifecycleState,
+            afterSystemSleep,
+            _config.DeviceIntegration.Enabled && !_disposed);
+        switch (action)
+        {
+            case ResumeAction.Skip:
+                Log.Info($"Device resume skipped: state={State}, cycle present={client is not null}.");
                 return;
-            }
-
-            var client = _client;
-            var action = DecideResume(
-                client is not null,
-                State,
-                client?.LifecycleState,
-                afterSystemSleep,
-                _config.DeviceIntegration.Enabled && !_disposed);
-            switch (action)
-            {
-                case ResumeAction.Skip:
-                    Log.Info($"Device resume skipped: state={State}, cycle present={client is not null}.");
-                    return;
-                case ResumeAction.Restart:
-                    await RestartCycleUnderGateAsync(afterSystemSleep, cancellationToken).ConfigureAwait(false);
-                    return;
-            }
-
-            var deadline = Deadline.After(TimeSpan.FromSeconds(5));
-            Exception? failure = null;
-            try
-            {
-                await client!.ResumeAsync(deadline, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException && !cancellationToken.IsCancellationRequested)
-            {
-                failure = ex;
-            }
-            finally
-            {
-                UpdateCapabilityDesiredContext();
-                _oemActions.Reset();
-            }
-
-            if (_disposed)
-            {
-                return;
-            }
-
-            if (failure is not null)
-            {
-                Log.Warn($"Device resume failed after {(afterSystemSleep ? "a sleep" : "a session unlock")} "
-                         + $"({failure.Message}); starting a fresh cycle.");
+            case ResumeAction.Restart:
                 await RestartCycleUnderGateAsync(afterSystemSleep, cancellationToken).ConfigureAwait(false);
                 return;
-            }
+        }
 
-            SetState(client!.LifecycleState);
-            await _fanCurves.ResumeAsync().ConfigureAwait(false);
-            await ReconcileChargeLimitAsync().ConfigureAwait(false);
-            ReplayLightingAfterTransition(afterSystemSleep ? "system wake" : "session unlock");
-            await Controllers.ResumeForwardingAsync(afterSystemSleep ? "system wake" : "session unlock",
-                cancellationToken).ConfigureAwait(false);
+        var deadline = Deadline.After(TimeSpan.FromSeconds(5));
+        Exception? failure = null;
+        try
+        {
+            await client!.ResumeAsync(deadline, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException && !cancellationToken.IsCancellationRequested)
+        {
+            failure = ex;
         }
         finally
         {
-            _transitionGate.Release();
+            UpdateCapabilityDesiredContext();
+            _oemActions.Reset();
         }
+
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (failure is not null)
+        {
+            Log.Warn($"Device resume failed after {(afterSystemSleep ? "a sleep" : "a session unlock")} "
+                     + $"({failure.Message}); starting a fresh cycle.");
+            await RestartCycleUnderGateAsync(afterSystemSleep, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        SetState(client!.LifecycleState);
+        await _fanCurves.ResumeAsync().ConfigureAwait(false);
+        await ReconcileChargeLimitAsync().ConfigureAwait(false);
+        ReplayLightingAfterTransition(afterSystemSleep ? "system wake" : "session unlock");
+        await Controllers.ResumeForwardingAsync(afterSystemSleep ? "system wake" : "session unlock",
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Replaces the cycle with a fresh one; see docs\device-integration.md, "Sleep".</summary>
@@ -1118,35 +1069,28 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
             return false;
         }
 
-        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using var transition = await EnterTransitionAsync(cancellationToken).ConfigureAwait(false);
+        if (_disposed)
         {
-            if (_disposed)
-            {
-                return false;
-            }
-
-            if (!_runtimeRetirement.IsCompleted)
-            {
-                Log.Warn("Device retry refused while the previous runtime is still retiring.");
-                return false;
-            }
-
-            if (State is not DeviceCycleState.Faulted)
-            {
-                Log.Info($"Handheld retry ignored because state is {State}.");
-                return false;
-            }
-
-            _automaticRestartAttempts = 0;
-            await RearmLightingProfilesAsync(cancellationToken).ConfigureAwait(false);
-            await StartCycleUnderGateAsync(cancellationToken).ConfigureAwait(false);
-            return true;
+            return false;
         }
-        finally
+
+        if (!_runtimeRetirement.IsCompleted)
         {
-            _transitionGate.Release();
+            Log.Warn("Device retry refused while the previous runtime is still retiring.");
+            return false;
         }
+
+        if (State is not DeviceCycleState.Faulted)
+        {
+            Log.Info($"Handheld retry ignored because state is {State}.");
+            return false;
+        }
+
+        _automaticRestartAttempts = 0;
+        await RearmLightingProfilesAsync(cancellationToken).ConfigureAwait(false);
+        await StartCycleUnderGateAsync(cancellationToken).ConfigureAwait(false);
+        return true;
     }
 
     /// <summary>Closes external work without closing AutoTDP's final power-limit restore route.</summary>
@@ -1398,23 +1342,27 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         }
     }
 
-    private Task StartCycleAsync(CancellationToken cancellationToken)
+    private async Task StartCycleAsync(CancellationToken cancellationToken)
     {
-        return RunUnderTransitionGateAsync(StartCycleUnderGateAsync, cancellationToken);
+        using var transition = await EnterTransitionAsync(cancellationToken).ConfigureAwait(false);
+        await StartCycleUnderGateAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task RunUnderTransitionGateAsync(
-        Func<CancellationToken, Task> operation,
-        CancellationToken cancellationToken)
+    /// <summary>Waits for the transition gate and holds it until the returned lease is disposed.</summary>
+    /// <param name="cancellationToken">Cancels the wait; once the gate is held the lease owns its release.</param>
+    /// <returns>The lease that releases the gate.</returns>
+    private async ValueTask<TransitionLease> EnterTransitionAsync(CancellationToken cancellationToken)
     {
         await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        return new TransitionLease(_transitionGate);
+    }
+
+    /// <summary>One held entry of the transition gate.</summary>
+    private readonly struct TransitionLease(SemaphoreSlim gate) : IDisposable
+    {
+        public void Dispose()
         {
-            await operation(cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _transitionGate.Release();
+            gate.Release();
         }
     }
 
@@ -1562,7 +1510,7 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
             var controllerManagement = OwnsPhysicalController(
                 _config.DeviceIntegration.ControllerManagementEnabled,
                 definition,
-                ResolvedControllerTarget());
+                ChosenControllerTarget());
             _handheldOwnsController = controllerManagement;
             // Before the handheld starts, because the handheld's first job is to find the physical
             // controller and it cannot find one that HidHide is hiding from this process. Doing it
@@ -1781,31 +1729,24 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
 
     private async Task HandleStartFaultAsync()
     {
-        await _transitionGate.WaitAsync(_lifetime.Token).ConfigureAwait(false);
-        try
+        using var transition = await EnterTransitionAsync(_lifetime.Token).ConfigureAwait(false);
+        if (!_faultRecoveryPending)
         {
-            if (!_faultRecoveryPending)
-            {
-                Log.Info("Handheld start-fault worker stopped: recovery is no longer pending.");
-                return;
-            }
-
-            _faultRecoveryPending = false;
-            if (_disposed || !_config.DeviceIntegration.Enabled || _client is not null)
-            {
-                Log.Info(
-                    "Handheld start-fault worker stopped: "
-                    + $"disposed={_disposed}, integrationEnabled={_config.DeviceIntegration.Enabled}, "
-                    + $"runtimePresent={_client is not null}.");
-                return;
-            }
-
-            ScheduleFaultRecovery();
+            Log.Info("Handheld start-fault worker stopped: recovery is no longer pending.");
+            return;
         }
-        finally
+
+        _faultRecoveryPending = false;
+        if (_disposed || !_config.DeviceIntegration.Enabled || _client is not null)
         {
-            _transitionGate.Release();
+            Log.Info(
+                "Handheld start-fault worker stopped: "
+                + $"disposed={_disposed}, integrationEnabled={_config.DeviceIntegration.Enabled}, "
+                + $"runtimePresent={_client is not null}.");
+            return;
         }
+
+        ScheduleFaultRecovery();
     }
 
     private void ScheduleFaultRecovery()
@@ -2334,20 +2275,11 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         await ApplyControllerSelectionAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>The target the profiles resolve for the running application.</summary>
-    private ManagedControllerTarget ResolvedControllerTarget()
-    {
-        return ControllerTargetSelection.Resolve(
-            Profiles.Current.Config,
-            _runningApplicationId,
-            _runningExecutable).Target;
-    }
-
     /// <summary>Whether the selection in force wants the handheld's controller ownership changed.</summary>
     private bool ControllerOwnershipMustChange()
     {
         return _client is not null
-               && OwnsPhysicalController(ControllerManagementEnabled, DeviceDefinition, ResolvedControllerTarget())
+               && OwnsPhysicalController(ControllerManagementEnabled, DeviceDefinition, ChosenControllerTarget())
                != _handheldOwnsController;
     }
 
@@ -2363,16 +2295,9 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
                 cancellationToken).ConfigureAwait(false);
         }
 
-        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            return await ApplyControllerSelectionUnderGateAsync(cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _transitionGate.Release();
-        }
+        using var transition = await EnterTransitionAsync(cancellationToken).ConfigureAwait(false);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return await ApplyControllerSelectionUnderGateAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Applies the controller selection and moves physical ownership to match it.</summary>
@@ -2386,7 +2311,7 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
     {
         var wanted = _client is not null
                      && OwnsPhysicalController(ControllerManagementEnabled, DeviceDefinition,
-                         ResolvedControllerTarget());
+                         ChosenControllerTarget());
         if (_client is not null && !wanted && _handheldOwnsController)
         {
             Log.Info("Controller ownership: the handheld lets go of the physical controller.");
@@ -2411,17 +2336,7 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
     /// <summary>The controller selection from the device switches and the profile store.</summary>
     private ControllerSelection CurrentControllerSelection()
     {
-        var selection = ControllerSelection.From(_config.DeviceIntegration, Profiles.Current.Config)
-            with
-            {
-                NativeTarget = NativeTarget(DeviceDefinition)
-            };
-        return DeviceDefinition is { HasController: false }
-            ? selection with
-            {
-                Enabled = false, DisabledDetail = "This device definition provides hardware controls only."
-            }
-            : selection;
+        return ControllerSelection.From(_config.DeviceIntegration, Profiles.Current.Config, DeviceDefinition);
     }
 
     /// <summary>The target chosen for the running application, whether or not one is live.</summary>
@@ -2466,19 +2381,12 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
             throw new ArgumentOutOfRangeException(nameof(selection));
         }
 
-        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            await PersistConfigurationAsync(
-                config => config.DeviceIntegration.GlyphSelection = selection,
-                cancellationToken).ConfigureAwait(false);
-            Log.Info($"Physical glyph presentation changed: {selection}.");
-        }
-        finally
-        {
-            _transitionGate.Release();
-        }
+        using var transition = await EnterTransitionAsync(cancellationToken).ConfigureAwait(false);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        await PersistConfigurationAsync(
+            config => config.DeviceIntegration.GlyphSelection = selection,
+            cancellationToken).ConfigureAwait(false);
+        Log.Info($"Physical glyph presentation changed: {selection}.");
     }
 
     /// <summary>Turns AutoTDP on or off and persists the choice.</summary>
@@ -2490,46 +2398,40 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
     /// </remarks>
     internal Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default)
     {
-        return SetAutoTdpEnabledAsync(!_config.DeviceIntegration.AutoTdpEnabled, cancellationToken);
+        return SetAutoTdpEnabledAsync(null, cancellationToken);
     }
 
-    /// <summary>Sets AutoTDP to an explicit state and persists the choice.</summary>
-    /// <param name="enabled">The state the caller asked for.</param>
+    /// <summary>Sets AutoTDP to an explicit state, or flips it, and persists the choice.</summary>
+    /// <param name="requested">The state the caller asked for, or null to flip the persisted state.</param>
     /// <param name="cancellationToken">Cancels the change.</param>
     /// <returns>A task completing once the setting is persisted.</returns>
     /// <remarks>
-    ///     The comparison happens inside the transition gate so concurrent surfaces cannot invert a
-    ///     newer persisted choice.
+    ///     The current state is read inside the transition gate, so concurrent surfaces cannot invert a
+    ///     newer persisted choice and two quick toggles are both applied.
     /// </remarks>
     internal async Task SetAutoTdpEnabledAsync(
-        bool enabled,
+        bool? requested,
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using var transition = await EnterTransitionAsync(cancellationToken).ConfigureAwait(false);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var enabled = requested ?? !_config.DeviceIntegration.AutoTdpEnabled;
+        if (enabled && AutoTdp.Availability is { Available: false } availability)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            if (enabled && AutoTdp.Availability is { Available: false } availability)
-            {
-                throw new InvalidOperationException(availability.Detail);
-            }
-
-            if (_config.DeviceIntegration.AutoTdpEnabled == enabled)
-            {
-                Log.Info($"AutoTDP is already {(enabled ? "on" : "off")}; nothing to persist.");
-                return;
-            }
-
-            await PersistConfigurationAsync(
-                config => config.DeviceIntegration.AutoTdpEnabled = enabled,
-                cancellationToken).ConfigureAwait(false);
-            Log.Info($"AutoTDP switched {(enabled ? "on" : "off")} from the Device surface.");
+            throw new InvalidOperationException(availability.Detail);
         }
-        finally
+
+        if (_config.DeviceIntegration.AutoTdpEnabled == enabled)
         {
-            _transitionGate.Release();
+            Log.Info($"AutoTDP is already {(enabled ? "on" : "off")}; nothing to persist.");
+            return;
         }
+
+        await PersistConfigurationAsync(
+            config => config.DeviceIntegration.AutoTdpEnabled = enabled,
+            cancellationToken).ConfigureAwait(false);
+        Log.Info($"AutoTDP switched {(enabled ? "on" : "off")} from the Device surface.");
     }
 
     /// <summary>Stores AutoTDP's frame-rate target in the layer in force.</summary>
@@ -2607,19 +2509,12 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         using var admission = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
         cancellationToken = admission.Token;
-        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            await Profiles.SetAsync(values => values.ControllerTarget = target, $"ControllerTarget={target}",
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            return await ApplyControllerSelectionUnderGateAsync(cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _transitionGate.Release();
-        }
+        using var transition = await EnterTransitionAsync(cancellationToken).ConfigureAwait(false);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        await Profiles.SetAsync(values => values.ControllerTarget = target, $"ControllerTarget={target}",
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return await ApplyControllerSelectionUnderGateAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Persists one configuration change and announces it to configuration consumers.</summary>
@@ -3469,7 +3364,7 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
     {
         if (_disposed || !IntegrationEnabled || State is not (DeviceCycleState.Active or DeviceCycleState.Degraded)
             || Volatile.Read(ref _userCapabilityCommands) != 0
-            || !views.Any(_lightingRestore.CanApply)
+            || !HasRestorableLighting(views)
             || Interlocked.CompareExchange(ref _lightingRestoreScheduled, 1, 0) != 0)
         {
             return;
@@ -3487,6 +3382,22 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
                 Interlocked.Exchange(ref _lightingRestoreScheduled, 0);
             }
         }), "lighting restore");
+    }
+
+    // Runs on every state publication, telemetry included, so it avoids LINQ and skips non-lighting views
+    // before the restore gate is taken.
+    private bool HasRestorableLighting(IReadOnlyList<DeviceCapabilityView> views)
+    {
+        for (var index = 0; index < views.Count; index++)
+        {
+            var view = views[index];
+            if (DeviceLightingRestore.IsLighting(view.Descriptor.Role) && _lightingRestore.CanApply(view))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void Observe(Task task, string operation)

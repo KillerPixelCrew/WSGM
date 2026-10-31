@@ -23,13 +23,9 @@ public sealed class StorageLibraryUnsupportedVersionException : IOException
     }
 }
 
-/// <summary>Bounded host-owned card inventory I/O and portable identity matching.</summary>
+/// <summary>Host-owned card inventory I/O and portable identity matching.</summary>
 public static class StorageLibraryStorage
 {
-    /// <summary>The schema-v1 byte limit.</summary>
-    public const int MaximumBytes = 32 * 1024 * 1024;
-    /// <summary>The schema-v1 inventory limit.</summary>
-    public const int MaximumEntries = 100000;
     private const string ManifestPath = @".wsgm\library.json";
     private static readonly object PublicationGate = new();
 
@@ -94,26 +90,7 @@ public static class StorageLibraryStorage
     private static byte[] ReadBytes(string volumeId)
     {
         ManagedContentStorage.RejectLibraryReparsePoints(volumeId, ManifestPath);
-        using var stream = new FileStream(ManagedContentStorage.ResolveLibraryPath(volumeId, ManifestPath),
-            FileMode.Open, FileAccess.Read, FileShare.Read);
-        if (stream.Length > MaximumBytes)
-        {
-            throw new InvalidDataException("The library manifest exceeds the 32 MiB limit.");
-        }
-
-        using MemoryStream bounded = new();
-        var buffer = new byte[8192];
-        int count;
-        while ((count = stream.Read(buffer)) > 0)
-        {
-            if (bounded.Length + count > MaximumBytes)
-            {
-                throw new InvalidDataException("The library manifest exceeds the 32 MiB limit.");
-            }
-            bounded.Write(buffer, 0, count);
-        }
-
-        return bounded.ToArray();
+        return File.ReadAllBytes(ManagedContentStorage.ResolveLibraryPath(volumeId, ManifestPath));
     }
 
     /// <summary>Repairs a missing/damaged manifest only after explicit review/Apply of an accepted local binding.</summary>
@@ -127,10 +104,6 @@ public static class StorageLibraryStorage
             throw new InvalidDataException("Review this library's repair and expected revision before applying.");
         }
         var bytes = JsonSerializer.SerializeToUtf8Bytes(manifest, StorageLibraryJsonContext.Default.StorageLibraryManifest);
-        if (bytes.Length > MaximumBytes)
-        {
-            throw new InvalidDataException("The repaired manifest exceeds the 32 MiB limit.");
-        }
         lock (PublicationGate)
         {
             try
@@ -195,11 +168,6 @@ public static class StorageLibraryStorage
         }
 
         var bytes = JsonSerializer.SerializeToUtf8Bytes(manifest, StorageLibraryJsonContext.Default.StorageLibraryManifest);
-        if (bytes.Length > MaximumBytes)
-        {
-            throw new InvalidDataException("The library manifest exceeds the 32 MiB limit.");
-        }
-
         lock (PublicationGate)
         {
             AssertGeneration(volumeId, manifest.Id, expectedRevision);
@@ -350,10 +318,6 @@ public static class StorageLibraryStorage
             || manifest.Name is null || manifest.Revision < 1 || manifest.Entries is null)
         {
             throw new InvalidDataException("The library manifest schema, UUID or revision is invalid.");
-        }
-        if (manifest.Entries.Count > MaximumEntries)
-        {
-            throw new InvalidDataException("The library manifest exceeds the 100,000-entry limit.");
         }
         HashSet<string> ids = new(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in manifest.Entries)

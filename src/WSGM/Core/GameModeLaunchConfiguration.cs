@@ -1,7 +1,5 @@
-using System;
 using System.Collections.Generic;
 using WindowsDeviceControl;
-using WSGM.Plugin.Sdk;
 
 namespace WSGM.Core;
 
@@ -23,108 +21,6 @@ public enum GameModeReturn
 
     /// <summary>A saved desktop layout, regardless of what entry found.</summary>
     DesktopLayout
-}
-
-/// <summary>One plugin action in a session automation list.</summary>
-public sealed class PluginActionStep
-{
-    /// <summary>The shortest accepted <see cref="TimeoutSeconds" />.</summary>
-    public const int MinimumTimeoutSeconds = 1;
-
-    /// <summary>The longest accepted <see cref="TimeoutSeconds" />.</summary>
-    public const int MaximumTimeoutSeconds = 120;
-
-    /// <summary>Configured provider identity.</summary>
-    public PluginInstanceIdentity? Plugin { get; set; }
-
-    /// <summary>Stable action ID within the provider.</summary>
-    public string? ActionId { get; set; }
-
-    /// <summary>Explicit action arguments. Missing values use admitted provider defaults.</summary>
-    public Dictionary<string, PluginValue> Arguments { get; set; } = [];
-
-    /// <summary>Deadline for this step alone, from 1 to 120 seconds.</summary>
-    public int TimeoutSeconds { get; set; } = 30;
-}
-
-/// <summary>
-///     A display WSGM has seen, remembered so it can be configured while it is unplugged.
-///     The reference setup has a TV behind an HDMI switch that exposes nothing until the switch selects
-///     this PC, so the layout editor cannot rely on the display being enumerable while it is edited.
-/// </summary>
-public sealed class KnownDisplay
-{
-    /// <summary>Stable monitor identity.</summary>
-    public DisplayTargetIdentity? Target { get; set; }
-
-    /// <summary>Modes the driver advertised the last time the display was active.</summary>
-    public List<DisplayMode> Modes { get; set; } = [];
-
-    /// <summary>Whether the display reported advanced colour support when last seen.</summary>
-    public bool HdrSupported { get; set; }
-
-    /// <summary>Highest scaling percentage the display offered, or zero when it is unknown.</summary>
-    public int MaximumDpiPercent { get; set; }
-
-    /// <summary>Last driver display controls, retained for editing this monitor while disconnected.</summary>
-    public List<DisplayGpuCapability> GpuCapabilities { get; set; } = [];
-
-    /// <summary>When the display was last observed as connected.</summary>
-    public DateTimeOffset LastSeen { get; set; }
-}
-
-/// <summary>One saved Core Audio endpoint, retained by stable ID and friendly name.</summary>
-public sealed class AudioEndpointPreference
-{
-    /// <summary>Opaque Core Audio endpoint ID.</summary>
-    public string? Id { get; set; }
-
-    /// <summary>Last friendly name Windows reported for the endpoint.</summary>
-    public string? Name { get; set; }
-}
-
-/// <summary>One exact playback format, including its speaker layout.</summary>
-public sealed class AudioFormatPreference
-{
-    /// <summary>Speaker channel count.</summary>
-    public int Channels { get; set; }
-
-    /// <summary>Samples per second.</summary>
-    public int SampleRate { get; set; }
-
-    /// <summary>Meaningful bits in each sample.</summary>
-    public int BitsPerSample { get; set; }
-
-    /// <summary>Bits occupied by each sample.</summary>
-    public int ContainerBitsPerSample { get; set; }
-
-    /// <summary>Windows speaker-position mask.</summary>
-    public uint ChannelMask { get; set; }
-
-    /// <summary>Whether the format uses IEEE float samples rather than PCM.</summary>
-    public bool IsFloat { get; set; }
-}
-
-/// <summary>Optional audio changes for one display-switch direction.</summary>
-public sealed class AudioProfilePreference
-{
-    /// <summary>Default playback endpoint, or null to leave it unchanged.</summary>
-    public AudioEndpointPreference? Output { get; set; }
-
-    /// <summary>Default recording endpoint, or null to leave it unchanged.</summary>
-    public AudioEndpointPreference? Input { get; set; }
-
-    /// <summary>Default playback volume, or null to leave it unchanged.</summary>
-    public int? VolumePercent { get; set; }
-
-    /// <summary>Default playback mute state, or null to leave it unchanged.</summary>
-    public bool? Muted { get; set; }
-
-    /// <summary>Default playback format, or null to leave it unchanged.</summary>
-    public AudioFormatPreference? PlaybackFormat { get; set; }
-
-    /// <summary>Default playback spatial format, or null to leave it unchanged.</summary>
-    public Guid? SpatialFormat { get; set; }
 }
 
 /// <summary>
@@ -181,24 +77,4 @@ public sealed class GameModeLaunchConfiguration
 
     /// <summary>Remembered driver display and driver-wide capabilities for offline editing.</summary>
     public List<DisplayGpuCapability> KnownGpuCapabilities { get; set; } = [];
-}
-
-/// <summary>
-///     What a Game Mode session owes the desktop if it does not come back cleanly.
-///     The runtime owns this. Settings never writes it, so an editor open across a crash cannot discard
-///     the layout that a recovery start has to restore.
-/// </summary>
-public sealed class GameModeLaunchRecovery
-{
-    /// <summary>Layout to restore, written before Explorer exits and cleared after leave.</summary>
-    public DisplayLayout? PendingReturnLayout { get; set; }
-
-    /// <summary>Captured desktop audio state to restore after a Game Mode session.</summary>
-    public AudioProfilePreference? PendingReturnAudio { get; set; }
-
-    /// <summary>Captured driver values for the controls Game Mode changes, retained until desktop restoration.</summary>
-    public List<DisplayGpuPreference> PendingReturnDisplayGpu { get; set; } = [];
-
-    /// <summary>When the pending layout was recorded.</summary>
-    public DateTimeOffset? EnteredAt { get; set; }
 }

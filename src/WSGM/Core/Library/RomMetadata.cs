@@ -50,7 +50,7 @@ internal static class RomMetadata
 
         try
         {
-            var bytes = LibraryFiles.ReadBytes(Path.Combine(folder, "PARAM.SFO"), maximumBytes: 1024 * 1024);
+            var bytes = LibraryFiles.ReadBytes(Path.Combine(folder, "PARAM.SFO"));
             if (bytes is null || bytes.Length < 20 || !bytes.AsSpan(0, 4).SequenceEqual("\0PSF"u8))
             {
                 return null;

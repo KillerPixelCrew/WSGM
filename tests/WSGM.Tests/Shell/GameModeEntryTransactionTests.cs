@@ -545,19 +545,20 @@ public sealed class GameModeEntryTransactionTests
                 (phase, _) => Calls.Add("return-failed:" + phase));
         }
 
-        public Task<string?> ApplyReturnLayoutAsync()
+        public Task<string?> ApplyReturnLayoutAsync(DisplayLayout? explicitLayout,
+            GameModeLaunchRecovery recovery)
         {
             Calls.Add("return-layout");
             return Task.FromResult<string?>(null);
         }
 
-        public Task<string?> ApplyReturnAudioAsync()
+        public Task<string?> ApplyReturnAudioAsync(GameModeLaunchRecovery recovery)
         {
             Calls.Add("return-audio");
             return Task.FromResult<string?>(null);
         }
 
-        public Task<string?> ApplyReturnDisplayGpuAsync()
+        public Task<string?> ApplyReturnDisplayGpuAsync(GameModeLaunchRecovery recovery)
         {
             return Task.FromResult<string?>(null);
         }
@@ -614,12 +615,12 @@ public sealed class GameModeEntryTransactionTests
         {
             return layout is not null
                 ? (await owner.ApplyLayoutAsync(layout, CancellationToken.None)).Applied
-                : await owner.ApplyReturnLayoutAsync() is null;
+                : await owner.ApplyReturnLayoutAsync(null, new GameModeLaunchRecovery()) is null;
         }
 
         public async Task<bool> RestoreAudioAsync()
         {
-            return await owner.ApplyReturnAudioAsync() is null;
+            return await owner.ApplyReturnAudioAsync(new GameModeLaunchRecovery()) is null;
         }
 
         public Task RetireGameModeAsync()

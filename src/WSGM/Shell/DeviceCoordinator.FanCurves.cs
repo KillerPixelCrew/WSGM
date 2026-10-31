@@ -58,9 +58,7 @@ internal sealed partial class DeviceCoordinator
             },
             async (instance, duty, token) =>
             {
-                var fan = Capabilities.Snapshot().FirstOrDefault(view =>
-                    view.Descriptor.Role == Device.Sdk.Capabilities.CapabilityRole.FanDuty
-                    && (view.Descriptor.InstanceId ?? string.Empty) == instance);
+                var fan = FanDutyView(Capabilities.Snapshot(), instance);
                 if (fan is null)
                 {
                     return new DeviceFanCurveWriteResult(false, "The fan duty control is unavailable.");
@@ -84,10 +82,7 @@ internal sealed partial class DeviceCoordinator
                     return;
                 }
 
-                var modes = Capabilities.Snapshot()
-                    .Where(view => view.Descriptor.Role == Device.Sdk.Capabilities.CapabilityRole.FanMode).ToArray();
-                var mode = modes.FirstOrDefault(view => (view.Descriptor.InstanceId ?? string.Empty) == instance)
-                           ?? modes.FirstOrDefault(view => view.Descriptor.InstanceId is null);
+                var mode = FanModeView(Capabilities.Snapshot(), instance);
                 var automatic = mode?.Descriptor.Choices.FirstOrDefault(choice => choice.Value == "automatic");
                 if (mode is not null && automatic is not null)
                 {
@@ -109,9 +104,7 @@ internal sealed partial class DeviceCoordinator
 
                 // Some firmware exposes a custom table without a reviewed factory-reset command.
                 // A rejected restore wrote nothing. Use its declared maximum duty while temperature is absent.
-                var fan = Capabilities.Snapshot().FirstOrDefault(view =>
-                    view.Descriptor.Role == Device.Sdk.Capabilities.CapabilityRole.FanDuty
-                    && (view.Descriptor.InstanceId ?? string.Empty) == instance);
+                var fan = FanDutyView(Capabilities.Snapshot(), instance);
                 if (fan is null)
                 {
                     throw new InvalidOperationException("The fan fallback control is unavailable.");
@@ -189,11 +182,23 @@ internal sealed partial class DeviceCoordinator
             return chosen.Software;
         }
 
+        return FanModeView(views, instance)?.Projection.DesiredValue?.ChoiceValue == FanControlModes.Software;
+    }
+
+    // The duty control of one fan; an unnamed fan is the empty instance.
+    private static DeviceCapabilityView? FanDutyView(IReadOnlyList<DeviceCapabilityView> views, string instance)
+    {
+        return views.FirstOrDefault(view => view.Descriptor.Role == Device.Sdk.Capabilities.CapabilityRole.FanDuty
+                                            && (view.Descriptor.InstanceId ?? string.Empty) == instance);
+    }
+
+    // The mode control of one fan, or the shared one when the device has a single mode for all fans.
+    private static DeviceCapabilityView? FanModeView(IReadOnlyList<DeviceCapabilityView> views, string instance)
+    {
         var modes = views.Where(view => view.Descriptor.Role == Device.Sdk.Capabilities.CapabilityRole.FanMode)
             .ToArray();
-        var mode = modes.FirstOrDefault(view => (view.Descriptor.InstanceId ?? string.Empty) == instance)
-                   ?? modes.FirstOrDefault(view => view.Descriptor.InstanceId is null);
-        return mode?.Projection.DesiredValue?.ChoiceValue == FanControlModes.Software;
+        return modes.FirstOrDefault(view => (view.Descriptor.InstanceId ?? string.Empty) == instance)
+               ?? modes.FirstOrDefault(view => view.Descriptor.InstanceId is null);
     }
 
     private IReadOnlyList<CurvePoint>? SavedSoftwareCurve()
@@ -304,46 +309,5 @@ internal sealed partial class DeviceCoordinator
             ? _config.DeviceIntegration.DeviceProfiles.FirstOrDefault(scope => scope.DeviceDefinitionId == definition.Id
                                                                                && scope.FamilyId == definition.FamilyId)
             : null;
-    }
-
-    private void ReplayLightingAfterTransition(string reason)
-    {
-        if (_disposed || !IntegrationEnabled || State is not (DeviceCycleState.Active or DeviceCycleState.Degraded))
-        {
-            return;
-        }
-
-        _lightingRestore.Reset();
-        Observe(Task.Run(async () =>
-            {
-                await _profileReconcileGate.WaitAsync(_lifetime.Token).ConfigureAwait(false);
-                try
-                {
-                    await ReconcileLightingProfileAsync(Profiles.Current, _lifetime.Token,
-                        restoreAccepted: true).ConfigureAwait(false);
-                    foreach (var view in Capabilities.Snapshot().Where(view =>
-                                 DeviceLightingRestore.IsLighting(view.Descriptor.Role)
-                                 && !OwnsLightingProfile(view)))
-                    {
-                        if (!view.Projection.State.Available || view.Projection.DesiredValue is not { } desired
-                                                             || (view.LastResult?.Outcome is CommandOutcome
-                                                                     .Indeterminate or CommandOutcome.TimedOut
-                                                                 && view.LastCommandValue is { } last &&
-                                                                 CapabilityValues.Same(last, desired))
-                                                             || view.Projection.PendingValue is not null)
-                        {
-                            continue;
-                        }
-
-                        await ExecuteCapabilityAsync(view.Descriptor.CapabilityId, view.Descriptor.InstanceId, desired,
-                            TimeSpan.FromSeconds(5), CapabilityCommandOrigin.DesiredStateRestore,
-                            cancellationToken: _lifetime.Token).ConfigureAwait(false);
-                    }
-                }
-                finally
-                {
-                    _profileReconcileGate.Release();
-                }
-            }), $"lighting restore after {reason}");
     }
 }

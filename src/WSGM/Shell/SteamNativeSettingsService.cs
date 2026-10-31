@@ -91,15 +91,6 @@ internal sealed partial class SteamNativeSettingsService(
         return SteamUiCommandResult.Applied;
     }
 
-    /// <summary>Reads fresh state from the same adapters that publish Quick Access.</summary>
-    /// <returns>
-    ///     Fresh native settings pages and revision; the completed read atomically replaces the exact offered command
-    ///     set.
-    /// </returns>
-    /// <remarks>
-    ///     Concurrent reads are serialized. Dependencies remain borrowed, and row keys retain the profile/device
-    ///     generation they describe.
-    /// </remarks>
     /// <summary>Keeps the revision while the pages are unchanged, so an idle publication round re-sends nothing.</summary>
     /// <param name="pages">The pages just built.</param>
     /// <param name="published">The serialized pages of the current revision; replaced on a change.</param>
@@ -123,351 +114,49 @@ internal sealed partial class SteamNativeSettingsService(
         return revision + 1;
     }
 
+    /// <summary>Reads fresh state from the same adapters that publish Quick Access.</summary>
+    /// <returns>
+    ///     Fresh native settings pages and revision; the completed read atomically replaces the exact offered command
+    ///     set.
+    /// </returns>
+    /// <remarks>
+    ///     Concurrent reads are serialized. Dependencies remain borrowed, and row keys retain the profile/device
+    ///     generation they describe.
+    /// </remarks>
     internal async ValueTask<SteamNativeSettingsState?> ReadAsync()
     {
         await _reads.WaitAsync().ConfigureAwait(false);
         try
         {
-            var profile = profiles.Current;
-            Dictionary<string, Offered> offered = new(StringComparer.Ordinal);
+            var offer = new OfferedRows(profiles.Current);
+            // The backends are independent, so their reads run together and each page awaits its own.
+            // A default read completes with nothing, which omits the rows of an owner that does not exist.
+            var lightRead = brightness.ReadAsync();
+            var presetsRead = powerPresets.ReadAsync();
+            var schemesRead = powerProfiles.ReadAsync();
+            var boostRead = cpuBoost is null ? default : cpuBoost.ReadAsync();
+            var coresRead = hybridCores.ReadAsync();
+            var endpointRead = audioFormat is null ? default : audioFormat.ReadEndpointAsync();
             List<SteamSettingsSection> display = [];
             List<SteamSettingsSection> power = [];
             List<SteamSettingsSection> audio = [];
             List<SteamSettingsSection> controller = [];
-            var scope = profile.EditsGame
-                ? $"Profile-aware controls edit {profile.Game?.Name ?? profile.Active.ApplicationId}'s current game profile."
-                : "Profile-aware controls edit Global defaults. Live values are shared with Quick Access and the overlay.";
+            await AddDisplayPageAsync(display, offer, lightRead).ConfigureAwait(false);
+            await AddPowerPageAsync(power, offer, presetsRead, schemesRead, boostRead, coresRead)
+                .ConfigureAwait(false);
+            DeviceSections(power, controller, offer.Commands, offer.Profile);
+            await AddAudioPageAsync(audio, offer, endpointRead).ConfigureAwait(false);
+            AddRumbleSection(controller, offer);
 
-            List<SteamSettingsRow> displayRows = [];
-            if (await brightness.ReadAsync().ConfigureAwait(false) is { } light)
-            {
-                Add(displayRows, new SteamSettingsRow("display.brightness", SteamSettingsRowKind.Range, "Brightness",
-                        "Current panel backlight.", Number: light.Percent, Minimum: 0, Maximum: 100, Step: 1,
-                        Suffix: "%"),
-                    (value, token) => brightness.SetBrightnessAsync(Integer(value), token));
-            }
-
-            if (resolution?.Current is { Available: true } modes)
-            {
-                Add(displayRows, new SteamSettingsRow("display.resolution", SteamSettingsRowKind.Choice, "Resolution",
-                        modes.StatusText, Text: modes.Current,
-                        Choices: [.. modes.Options.Select(mode => new SteamSettingsChoice(mode, mode))]),
-                    (value, token) => resolution.SetResolutionAsync(value.GetString()!, token));
-            }
-
-            var frame = performance.FrameLimit;
-            var support = performance.PerfSupport?.Invoke();
-            if (frame.RefreshRates is { Count: > 1 } rates && performance.ApplyRefreshRate is not null)
-            {
-                var selectable = !frame.LimitEnabled || support?.RefreshRatesSelectable == true;
-                Add(displayRows, new SteamSettingsRow("display.refresh", SteamSettingsRowKind.Choice, "Refresh rate",
-                        selectable
-                            ? "Current display mode."
-                            : "The frame limit currently owns the paired refresh rate.",
-                        Text: frame.CurrentRefreshHz?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
-                        Choices:
-                        [
-                            .. rates.Select(rate => new SteamSettingsChoice(rate.ToString(CultureInfo.InvariantCulture),
-                                $"{rate} Hz"))
-                        ], Disabled: !selectable),
-                    (value, token) => performance.SetRefreshRateAsync(
-                        int.Parse(value.GetString()!, CultureInfo.InvariantCulture),
-                        token), true);
-            }
-
-            if (frame.Available && frame.MinimumFps is { } minFps && frame.MaximumFps is { } maxFps)
-            {
-                Add(displayRows, new SteamSettingsRow("display.limit-enabled", SteamSettingsRowKind.Boolean,
-                        "Frame limit", scope, frame.LimitEnabled, Accent: frame.Accent),
-                    (value, token) => performance.ApplyPerfChangeAsync(new SteamPerformanceChange(
-                            SteamPerformanceSetting.FrameLimitEnabled, value.GetBoolean() ? 1 : 0), "native-settings",
-                        token),
-                    true);
-                Add(displayRows, new SteamSettingsRow("display.frame-limit", SteamSettingsRowKind.Range,
-                        "Maximum frame rate", frame.StatusText,
-                        Number: frame.DesiredFps is > 0 ? frame.DesiredFps : maxFps,
-                        Minimum: minFps, Maximum: maxFps, Step: 1, Suffix: " FPS", Disabled: !frame.LimitEnabled,
-                        Accent: frame.Accent),
-                    (value, token) => performance.SetFrameLimitAsync(Integer(value), "native-settings", token),
-                    true);
-            }
-
-            var vrr = performance.Vrr;
-            if (vrr.Available)
-            {
-                Add(displayRows, new SteamSettingsRow("display.vrr", SteamSettingsRowKind.Boolean,
-                        "Variable refresh rate", vrr.StatusText, vrr.Enabled, Accent: vrr.Accent),
-                    (value, token) => performance.SetVariableRefreshRateAsync(value.GetBoolean(), token),
-                    true);
-            }
-
-            Section(display, "Display and frame pacing", "display", displayRows);
-            if (displayTimeouts is not null)
-            {
-                List<SteamSettingsRow> timeouts = [];
-                foreach (var timeout in displayTimeouts.ReadState().Rows)
-                {
-                    var id = timeout.Id;
-                    Add(timeouts, new SteamSettingsRow("display.timeout-" + id, SteamSettingsRowKind.Choice,
-                            timeout.Label, timeout.Description,
-                            Text: timeout.Seconds.ToString(CultureInfo.InvariantCulture),
-                            Choices:
-                            [
-                                .. timeout.Options.Select(option => new SteamSettingsChoice(
-                                    option.Seconds.ToString(CultureInfo.InvariantCulture), option.Label))
-                            ],
-                            Disabled: !timeout.Available),
-                        (value, token) => displayTimeouts.SetTimeoutAsync(id,
-                            int.Parse(value.GetString()!, CultureInfo.InvariantCulture), token));
-                }
-
-                Section(display, "Display idle behavior", "display-timeouts", timeouts);
-            }
-
-            foreach (var page in graphics?.ReadState().Pages ?? [])
-            {
-                foreach (var section in page.Sections)
-                {
-                    List<SteamSettingsRow> rows = [];
-                    foreach (var row in section.Rows)
-                    {
-                        var key = row.Key;
-                        Add(rows, row with { Key = "gpu/" + key },
-                            (value, token) => graphics!.SetAsync(key, value, token), true);
-                    }
-
-                    Section(display, section.Title is null ? page.Title : page.Title + ": " + section.Title,
-                        "gpu/" + page.Id + "/" + section.Id, rows);
-                }
-            }
-
-            var presets = await powerPresets.ReadAsync().ConfigureAwait(false);
-            if (presets is { Available: true })
-            {
-                List<SteamSettingsRow> rows = [];
-                var options = new[] { new SteamSettingsChoice(string.Empty, presets.UnsetLabel) }
-                    .Concat(presets.Options.Where(option => option.Selectable)
-                        .Select(option => new SteamSettingsChoice(option.Id, option.Label))).ToArray();
-                Add(rows, new SteamSettingsRow("power.preset-ac", SteamSettingsRowKind.Choice,
-                        "Performance mode (plugged in)", presets.Scope, Text: presets.Ac, Choices: options,
-                        Accent: presets.AcAccent),
-                    (value, token) => powerPresets.SetAssignmentAsync(true, EmptyToNull(value.GetString()), token),
-                    true);
-                Add(rows, new SteamSettingsRow("power.preset-battery", SteamSettingsRowKind.Choice,
-                        "Performance mode (on battery)", presets.Scope, Text: presets.Battery, Choices: options,
-                        Accent: presets.BatteryAccent),
-                    (value, token) => powerPresets.SetAssignmentAsync(false, EmptyToNull(value.GetString()), token),
-                    true);
-                rows.Add(new SteamSettingsRow("power.preset-current", SteamSettingsRowKind.Note,
-                    "Current performance mode", presets.StatusText, Text: presets.Current));
-                Section(power, "Device performance", "presets", rows);
-            }
-
-            List<SteamSettingsRow> limits = [];
-            var powerLimit = tdp.PowerLimit;
-            if (powerLimit.CanSelectMode)
-            {
-                Add(limits, new SteamSettingsRow("power.unified", SteamSettingsRowKind.Boolean,
-                        "Unified TDP", "One target moves sustained and boost limits together.", powerLimit.Unified,
-                        Accent: powerLimit.ModeAccent),
-                    (value, token) => tdp.SetUnifiedModeAsync(value.GetBoolean(), token), true);
-            }
-
-            PowerRange("power.sustained", powerLimit.Unified ? "TDP" : "Sustained power", powerLimit.Sustained,
-                tdp.SetPrimaryLimitAsync);
-            if (!powerLimit.Unified)
-            {
-                PowerRange("power.boost", "Boost power", powerLimit.Boost, tdp.SetBoostLimitAsync);
-            }
-
-            var automatic = autoTdp.Current;
-            if (automatic.Available)
-            {
-                Add(limits, new SteamSettingsRow("power.auto-tdp", SteamSettingsRowKind.Boolean, "AutoTDP",
-                        automatic.StatusText, automatic.Enabled, Disabled: Busy(automatic.Progress)),
-                    (value, token) => autoTdp.SetAutoTdpAsync(value.GetBoolean(), token));
-                // The target follows the switch, as it does in Quick Access and the overlay.
-                if (automatic is { Enabled: true, Target: { } target })
-                {
-                    Add(limits, new SteamSettingsRow("power.auto-tdp-target", SteamSettingsRowKind.Range,
-                            "AutoTDP target frame rate", target.StatusText, Number: target.Fps,
-                            Minimum: target.MinimumFps, Maximum: target.MaximumFps, Step: 1, Suffix: " FPS",
-                            Disabled: Busy(automatic.Progress), Accent: target.Accent),
-                        (value, token) => autoTdp.SetAutoTdpTargetAsync(Integer(value), token), true);
-                }
-            }
-
-            Section(power, "TDP and AutoTDP", "tdp", limits);
-            if (await powerProfiles.ReadAsync().ConfigureAwait(false) is { Available: true } schemes)
-            {
-                List<SteamSettingsRow> rows = [];
-                Add(rows, Choice("power.scheme", "Windows power profile", schemes.Options,
-                        schemes.Current, schemes.StatusText),
-                    (value, token) => powerProfiles.SetPowerProfileAsync(value.GetString()!, token));
-                Section(power, "Windows power policy", "windows-power", rows);
-            }
-
-            if (displayTimeouts is not null)
-            {
-                List<SteamSettingsRow> rows = [];
-                SleepTimeout(PowerTimeoutKind.SleepDc, "standby-battery", "Standby after (on battery)",
-                    "Idle time before the device enters standby.");
-                SleepTimeout(PowerTimeoutKind.SleepAc, "standby-plugged-in", "Standby after (plugged in)",
-                    "Idle time before the device enters standby.");
-                SleepTimeout(PowerTimeoutKind.HibernateDc, "hibernate-battery", "Hibernate after (on battery)",
-                    "Time in standby before the device hibernates. Only the power button wakes it.");
-                SleepTimeout(PowerTimeoutKind.HibernateAc, "hibernate-plugged-in", "Hibernate after (plugged in)",
-                    "Time in standby before the device hibernates. Only the power button wakes it.");
-                Section(power, "Sleep and hibernation", "sleep", rows);
-
-                void SleepTimeout(PowerTimeoutKind kind, string id, string label, string description)
-                {
-                    // An unreadable value, or a hibernate timeout on a machine that cannot hibernate, is not offered.
-                    if (displayTimeouts.Read(kind) is not { } current)
-                    {
-                        return;
-                    }
-
-                    Add(rows, new SteamSettingsRow("power.timeout-" + id, SteamSettingsRowKind.Choice, label,
-                            description, Text: current.ToString(CultureInfo.InvariantCulture),
-                            Choices:
-                            [
-                                .. DisplayTimeoutPolicy.Choices(current, null).Select(seconds =>
-                                    new SteamSettingsChoice(seconds.ToString(CultureInfo.InvariantCulture),
-                                        PowerTimeouts.Describe(seconds)))
-                            ]),
-                        (value, _) => Task.FromResult(
-                            displayTimeouts.Select(kind, int.Parse(value.GetString()!, CultureInfo.InvariantCulture))
-                                ? SteamUiCommandResult.Applied
-                                : new SteamUiCommandResult(false, "Windows did not accept the timeout.")));
-                }
-            }
-
-            List<SteamSettingsRow> cpu = [];
-            if (cpuBoost is not null && await cpuBoost.ReadAsync().ConfigureAwait(false) is { Available: true } boost)
-            {
-                Add(cpu, Choice("power.cpu-boost", "Processor boost", boost.Options, boost.Current, boost.StatusText)
-                        with
-                        {
-                            Accent = boost.Accent
-                        },
-                    (value, token) => cpuBoost.SetCpuBoostAsync(value.GetString()!, token), true);
-            }
-
-            if (await hybridCores.ReadAsync().ConfigureAwait(false) is { Available: true } cores)
-            {
-                Add(cpu, Choice("power.hybrid", "Processor core preference", cores.Options, cores.Current,
-                        cores.StatusText),
-                    (value, token) => hybridCores.SetHybridCoresAsync(value.GetString()!, token));
-            }
-
-            Section(power, "CPU behavior", "cpu", cpu);
-            DeviceSections(power, controller, offered, profile);
-
-            if (audioFormat is not null)
-            {
-                var endpoint = await audioFormat.ReadEndpointAsync().ConfigureAwait(false);
-                if (endpoint.EndpointId is { } endpointId && endpoint.State is { Available: true } playback)
-                {
-                    var endpointKey =
-                        "audio/" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(endpointId)));
-                    List<SteamSettingsRow> rows = [];
-                    AudioChoice(endpointKey + "/channels", "Playback channel layout", playback.ChannelOptions,
-                        playback.CurrentChannels,
-                        (value, token) => audioFormat.SetFormatForEndpointAsync(endpointId, value, token));
-                    AudioChoice(endpointKey + "/format", "Default audio format", playback.FormatOptions,
-                        playback.CurrentFormat,
-                        (value, token) => audioFormat.SetFormatForEndpointAsync(endpointId, value, token));
-                    AudioChoice(endpointKey + "/spatial", "Spatial sound", playback.SpatialOptions,
-                        playback.CurrentSpatial,
-                        (value, token) => audioFormat.SetSpatialForEndpointAsync(endpointId, value, token));
-                    Section(audio, "Advanced playback", "advanced-playback", rows);
-
-                    void AudioChoice(string key, string label, IReadOnlyList<SteamAudioFormatOption> options,
-                        string current,
-                        Func<string, CancellationToken, Task<SteamUiCommandResult>> write)
-                    {
-                        if (options.Count == 0)
-                        {
-                            return;
-                        }
-
-                        Add(rows, new SteamSettingsRow(key, SteamSettingsRowKind.Choice, label, playback.StatusText,
-                                Text: current,
-                                Choices:
-                                [
-                                    .. options.Select(option => new SteamSettingsChoice(option.Id, option.Label))
-                                ]),
-                            (value, token) => write(value.GetString()!, token));
-                    }
-                }
-            }
-
-            if (coordinator is not null)
-            {
-                var calibration = coordinator.RumbleCalibration;
-                var available = coordinator.CanPreviewRumble;
-                List<SteamSettingsRow> rumble = [];
-                CalibrationRange("strength", "Overall rumble strength", calibration.StrengthPercent, 100, "%",
-                    "Global user preference. Zero silences output; 100% preserves the original requested strength.");
-                CalibrationRange("floor", "Minimum feelable pulse strength", calibration.MinimumStrengthPercent, 100,
-                    "%",
-                    "The minimum nonzero bounded-pulse drive. Continuous rumble is never raised to this floor. Device motor limits remain authoritative.");
-                CalibrationRange("duration", "Minimum feelable pulse duration", calibration.MinimumPulseMilliseconds,
-                    500, " ms",
-                    "Bounded pulses are stretched to this duration or the device minimum, whichever is longer.");
-                Add(rumble, new SteamSettingsRow("rumble.test-floor", SteamSettingsRowKind.Action,
-                    "Test minimum strength and duration",
-                    "One bounded pulse at the selected minimum motor drive, without overall gain. Adjust until reliably feelable.",
-                    Disabled: !available, ButtonLabel: "Test pulse"), (_, token) => Preview(true, token));
-                Add(rumble, new SteamSettingsRow("rumble.preview", SteamSettingsRowKind.Action,
-                    "Preview overall calibration",
-                    "A 25% reference pulse shaped by overall strength, pulse floor and duration. Maximum preview: 500 ms.",
-                    Disabled: !available, ButtonLabel: "Preview"), (_, token) => Preview(false, token));
-                Add(rumble, new SteamSettingsRow("rumble.stop", SteamSettingsRowKind.Action, "Stop rumble preview",
-                    ButtonLabel: "Stop"), (_, _) => StopRumblePreviewAsync());
-                if (!available)
-                {
-                    rumble.Add(new SteamSettingsRow("rumble.availability", SteamSettingsRowKind.Note,
-                        "Preview availability",
-                        Text:
-                        "Connect a WSGM-managed controller with published motor output. Saved calibration applies when that output becomes available."));
-                }
-
-                Section(controller, "Rumble calibration", "rumble", rumble);
-
-                void CalibrationRange(string key, string label, int current, int maximum, string suffix,
-                    string description)
-                {
-                    Add(rumble, new SteamSettingsRow("rumble." + key, SteamSettingsRowKind.Range, label,
-                        description + " Saved on completion of the edit.", Number: current, Minimum: 0,
-                        Maximum: maximum, Step: 1, Suffix: suffix), async (value, token) =>
-                    {
-                        await coordinator.SetRumbleCalibrationAsync(key, Integer(value), token).ConfigureAwait(false);
-                        return SteamUiCommandResult.Applied;
-                    });
-                }
-
-                async Task<SteamUiCommandResult> Preview(bool testFloor, CancellationToken token)
-                {
-                    return await coordinator.PreviewRumbleAsync(testFloor, token).ConfigureAwait(false)
-                        ? SteamUiCommandResult.Applied
-                        : new SteamUiCommandResult(false,
-                            "A preview is already active or controller output is unavailable.");
-                }
-            }
-
-            await AddScaledResolutionSectionAsync(display, offered).ConfigureAwait(false);
-
-            ProfileSection(display, "display");
-            ProfileSection(power, "power");
-            ProfileSection(controller, "controller");
+            AddProfileSection(display, "display", offer);
+            AddProfileSection(power, "power", offer);
+            AddProfileSection(controller, "controller", offer);
             List<SteamNativeSettingsPage> pages = [];
             Page("display", display);
             Page("power", power);
             Page("audio", audio);
             Page("controller", controller);
-            Volatile.Write(ref _offered, offered);
+            Volatile.Write(ref _offered, offer.Commands);
             _revision = NextRevision(pages, ref _publishedPages, _revision);
             return new SteamNativeSettingsState(pages, _revision);
 
@@ -478,79 +167,56 @@ internal sealed partial class SteamNativeSettingsService(
                     pages.Add(new SteamNativeSettingsPage(id, sections));
                 }
             }
-
-            void Add(List<SteamSettingsRow> rows, SteamSettingsRow row,
-                Func<JsonElement, CancellationToken, Task<SteamUiCommandResult>> write, bool profileAware = false)
-            {
-                if (profileAware)
-                {
-                    row = row with { Key = ProfileKey(row.Key, profile.Active, profile.EditsGame) };
-                }
-
-                rows.Add(row);
-                offered.Add(row.Key, new Offered(row, write, profileAware ? profile.Active : null, profile.EditsGame));
-            }
-
-            void PowerRange(string key, string label, SteamPowerLimitRangeState range,
-                Func<int, CancellationToken, Task<SteamUiCommandResult>> write)
-            {
-                if (range is not
-                    { Available: true, MinimumWatts: { } minimum, MaximumWatts: { } maximum, StepWatts: { } step })
-                {
-                    return;
-                }
-
-                Add(limits, new SteamSettingsRow(key, SteamSettingsRowKind.Range, label, range.StatusText,
-                        Number: range.ObservedWatts ?? maximum, Minimum: minimum, Maximum: maximum, Step: step,
-                        Suffix: " W", Disabled: Busy(range.Progress), Accent: range.Accent),
-                    (value, token) => write(Integer(value), token), true);
-            }
-
-            void ProfileSection(List<SteamSettingsSection> sections, string page)
-            {
-                if (sections.Count == 0)
-                {
-                    return;
-                }
-
-                List<SteamSettingsRow> rows =
-                    [new(page + ".scope", SteamSettingsRowKind.Note, "Editing scope", Text: scope)];
-                if (profile.Active.HasApplication)
-                {
-                    Add(rows, new SteamSettingsRow(page + ".game-profile", SteamSettingsRowKind.Boolean,
-                            "Use a profile for the running game",
-                            "Shares Steam Quick Access's per-game profile switch.",
-                            profile.EditsGame),
-                        async (value, token) => new SteamUiCommandResult(
-                            await profiles.SetGameEnabledAsync(value.GetBoolean(), profile.Active.ApplicationId, token)
-                                .ConfigureAwait(false), null), true);
-                }
-
-                sections.Insert(0, new SteamSettingsSection("Profile", rows, page + ".profile"));
-                if (page == "controller" && !profile.EditsGame)
-                {
-                    return;
-                }
-
-                List<SteamSettingsRow> reset = [];
-                Add(reset, new SteamSettingsRow(page + ".reset", SteamSettingsRowKind.Action,
-                        profile.EditsGame ? "Use global values" : "Reset performance defaults",
-                        profile.EditsGame
-                            ? "Clears this game's overrides on every surface."
-                            : "Clears Global performance preferences.",
-                        ButtonLabel: "Reset to Default"),
-                    async (_, token) =>
-                    {
-                        await profiles.ResetAsync(token).ConfigureAwait(false);
-                        return SteamUiCommandResult.Applied;
-                    }, true);
-                sections.Add(new SteamSettingsSection(null, reset, page + ".reset"));
-            }
         }
         finally
         {
             _reads.Release();
         }
+    }
+
+    /// <summary>Opens a page with its editing-scope rows and closes it with its reset action.</summary>
+    /// <param name="sections">The page's sections; the profile section is inserted first.</param>
+    /// <param name="page">The page id the rows are keyed under.</param>
+    /// <param name="offer">The read's offered command set.</param>
+    private void AddProfileSection(List<SteamSettingsSection> sections, string page, OfferedRows offer)
+    {
+        if (sections.Count == 0)
+        {
+            return;
+        }
+
+        List<SteamSettingsRow> rows =
+            [new(page + ".scope", SteamSettingsRowKind.Note, "Editing scope", Text: offer.Scope)];
+        if (offer.Profile.Active.HasApplication)
+        {
+            offer.Add(rows, new SteamSettingsRow(page + ".game-profile", SteamSettingsRowKind.Boolean,
+                    "Use a profile for the running game",
+                    "Shares Steam Quick Access's per-game profile switch.",
+                    offer.Profile.EditsGame),
+                async (value, token) => new SteamUiCommandResult(
+                    await profiles.SetGameEnabledAsync(value.GetBoolean(), offer.Profile.Active.ApplicationId, token)
+                        .ConfigureAwait(false), null), true);
+        }
+
+        sections.Insert(0, new SteamSettingsSection("Profile", rows, page + ".profile"));
+        if (page == "controller" && !offer.Profile.EditsGame)
+        {
+            return;
+        }
+
+        List<SteamSettingsRow> reset = [];
+        offer.Add(reset, new SteamSettingsRow(page + ".reset", SteamSettingsRowKind.Action,
+                offer.Profile.EditsGame ? "Use global values" : "Reset performance defaults",
+                offer.Profile.EditsGame
+                    ? "Clears this game's overrides on every surface."
+                    : "Clears Global performance preferences.",
+                ButtonLabel: "Reset to Default"),
+            async (_, token) =>
+            {
+                await profiles.ResetAsync(token).ConfigureAwait(false);
+                return SteamUiCommandResult.Applied;
+            }, true);
+        sections.Add(new SteamSettingsSection(null, reset, page + ".reset"));
     }
 
     private void DeviceSections(List<SteamSettingsSection> power, List<SteamSettingsSection> controller,
@@ -827,6 +493,39 @@ internal sealed partial class SteamNativeSettingsService(
         if (rows.Count > 0)
         {
             target.Add(new SteamSettingsSection(title, rows, id));
+        }
+    }
+
+    /// <summary>The command set one read offers, and the editing scope its profile-aware rows describe.</summary>
+    /// <param name="profile">The profile snapshot the read started from.</param>
+    private sealed class OfferedRows(ProfileSnapshot profile)
+    {
+        /// <summary>The profile snapshot every row of this read describes.</summary>
+        internal ProfileSnapshot Profile { get; } = profile;
+
+        /// <summary>The offered commands by row key.</summary>
+        internal Dictionary<string, Offered> Commands { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>What profile-aware controls currently edit.</summary>
+        internal string Scope { get; } = profile.EditsGame
+            ? $"Profile-aware controls edit {profile.Game?.Name ?? profile.Active.ApplicationId}'s current game profile."
+            : "Profile-aware controls edit Global defaults. Live values are shared with Quick Access and the overlay.";
+
+        /// <summary>Adds a row and offers its command, keyed by the editing scope when it is profile-aware.</summary>
+        /// <param name="rows">The section rows the row joins.</param>
+        /// <param name="row">The row.</param>
+        /// <param name="write">The command a matching write runs.</param>
+        /// <param name="profileAware">Whether the row edits the current profile scope.</param>
+        internal void Add(List<SteamSettingsRow> rows, SteamSettingsRow row,
+            Func<JsonElement, CancellationToken, Task<SteamUiCommandResult>> write, bool profileAware = false)
+        {
+            if (profileAware)
+            {
+                row = row with { Key = ProfileKey(row.Key, Profile.Active, Profile.EditsGame) };
+            }
+
+            rows.Add(row);
+            Commands.Add(row.Key, new Offered(row, write, profileAware ? Profile.Active : null, Profile.EditsGame));
         }
     }
 

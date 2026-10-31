@@ -96,7 +96,7 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         long generation,
         CancellationToken cancellationToken)
     {
-        await RequireReadyAsync(generation, cancellationToken).ConfigureAwait(false);
+        RequireReady(generation, cancellationToken);
         return await Task.Run(
             () => ReadCore(rtssProfileName),
             cancellationToken).ConfigureAwait(false);
@@ -117,7 +117,7 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
                 return new RtssApplyResult(false, "The overlay level is outside the supported range.");
         }
 
-        await RequireReadyAsync(request.Generation, cancellationToken).ConfigureAwait(false);
+        RequireReady(request.Generation, cancellationToken);
         return await Task.Run(() => ApplyCore(request), cancellationToken).ConfigureAwait(false);
     }
 
@@ -348,14 +348,17 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         return enabled;
     }
 
-    private async Task RequireReadyAsync(
+    // The service probes inside its adapter gate immediately before every read or write, so the
+    // cached probe already names the process generation the caller saw; probing again here doubled
+    // the registry, file and process work of every poll and command.
+    private void RequireReady(
         long generation,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ObjectDisposedException.ThrowIf(_disposed, this);
-        var probe = await ProbeAsync(cancellationToken).ConfigureAwait(false);
-        if (probe.Availability != RtssAvailability.Ready || probe.Generation != generation)
+        if (_lastProbe is not { Availability: RtssAvailability.Ready } probe
+            || probe.Generation != generation)
         {
             throw new InvalidOperationException(
                 "RTSS availability or process generation changed before the operation.");

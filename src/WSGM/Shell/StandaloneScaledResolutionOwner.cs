@@ -33,9 +33,8 @@ internal sealed class StandaloneScaledResolutionOwner
         try
         {
             var config = _store.Read().RequireConfig();
-            var present = GpuDriver.DetectVendors();
-            var desired = BuiltinGpuDrivers.All.Where(driver => present.Contains(driver.Vendor)
-                && BuiltinGpuDrivers.Enabled(config, driver.Vendor)).ToArray();
+            var present = await Task.Run(() => BuiltinGpuDrivers.Detect(), _lifetime.Token).ConfigureAwait(false);
+            var desired = present.Where(driver => BuiltinGpuDrivers.Enabled(config, driver.Vendor)).ToArray();
             foreach (var vendor in _drivers.Keys.Where(vendor => desired.All(driver => driver.Vendor != vendor)).ToArray())
             {
                 var retiring = _drivers[vendor];

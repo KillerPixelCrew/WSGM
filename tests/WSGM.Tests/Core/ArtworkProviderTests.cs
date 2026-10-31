@@ -246,7 +246,7 @@ public sealed class ArtworkProviderTests
     public void AnImagesFormatComesFromItsOwnBytes(byte[] bytes, string? format)
     {
         // A provider's media endpoint answers every format under one address, so the URL cannot say.
-        Assert.Equal(format, SteamArtwork.ImageFormat(bytes));
+        Assert.Equal(format, ImageHeader.Format(bytes));
     }
 
     private sealed class MatchProvider(string id, bool? paused = null, bool empty = false) : IArtworkProvider

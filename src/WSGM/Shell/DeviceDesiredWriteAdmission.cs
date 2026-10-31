@@ -97,15 +97,24 @@ internal readonly record struct DeviceDesiredWriteAdmission(
             return Skipped(DeviceDesiredWriteSkipReason.CommandPending);
         }
 
-        // Block repeating the same uncertain value automatically; a different desired value is a new write.
-        if (view.LastResult is { Outcome: CommandOutcome.Indeterminate or CommandOutcome.TimedOut }
-            && view.LastCommandValue is { } uncertainValue
-            && CapabilityValues.Same(uncertainValue, desired))
+        if (RepeatsUncertain(view, desired))
         {
             return Skipped(DeviceDesiredWriteSkipReason.PreviousResultUncertain);
         }
 
         return new DeviceDesiredWriteAdmission(desired, null);
+    }
+
+    /// <summary>Whether writing a value would repeat the last write, whose outcome was uncertain.</summary>
+    /// <param name="view">Current router snapshot for one capability instance.</param>
+    /// <param name="desired">The value an automatic write would send.</param>
+    /// <returns>True when the same value timed out or was indeterminate and needs an explicit user action.</returns>
+    /// <remarks>A different desired value is a new write and is not blocked.</remarks>
+    internal static bool RepeatsUncertain(DeviceCapabilityView view, CapabilityValue desired)
+    {
+        return view.LastResult is { Outcome: CommandOutcome.Indeterminate or CommandOutcome.TimedOut }
+               && view.LastCommandValue is { } uncertainValue
+               && CapabilityValues.Same(uncertainValue, desired);
     }
 
     private static DeviceDesiredWriteAdmission Skipped(DeviceDesiredWriteSkipReason reason)

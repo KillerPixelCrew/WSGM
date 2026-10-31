@@ -87,20 +87,18 @@ public static class SteamLaunchConfig
         {
             // Re-applying to an already-wrapped shortcut must not wrap the wrapper:
             // the original program lives in the arguments by then, not the Target.
-            var original = LaunchWrapperCommand.TargetsHelper(current.ShortcutExe)
-                ? OriginalFromWrappedArguments(current.ShortcutLaunchOptions)
+            var (target, arguments) = LaunchWrapperCommand.TargetsHelper(current.ShortcutExe)
+                ? LaunchWrapperCommand.OriginalFromWrappedArguments(current.ShortcutLaunchOptions)
                 : (current.ShortcutExe, current.ShortcutLaunchOptions);
-            if (string.IsNullOrWhiteSpace(original.Item1))
+            if (string.IsNullOrWhiteSpace(target))
             {
                 return new LaunchConfigResult(
                     false, "Steam did not report what this shortcut points at.");
             }
 
+            var wrapped = LaunchWrapperCommand.WrapShortcut(helper, mode, target, arguments);
             write = steam.Apps.SetShortcutLaunchAsync(
-                SteamApps.NormalizeAppId(appId),
-                LaunchWrapperCommand.ShortcutTarget(helper),
-                LaunchWrapperCommand.ShortcutArguments(mode, original.Item1, original.Item2),
-                cancellationToken);
+                SteamApps.NormalizeAppId(appId), wrapped.Target, wrapped.Arguments, cancellationToken);
         }
         else
         {
@@ -186,97 +184,6 @@ public static class SteamLaunchConfig
 
         return Interpret(
             await write.ConfigureAwait(false), "Removed. The game launches the way it did before.");
-    }
-
-    /// <summary>Reports which wrapper behaviours a game is currently configured with.</summary>
-    /// <param name="isShortcut">Whether the id is a non-Steam shortcut.</param>
-    /// <param name="details">The game's current configuration.</param>
-    /// <returns>The active behaviours, or <see cref="LaunchWrapperMode.None" />.</returns>
-    public static LaunchWrapperMode ModeFor(bool isShortcut, SteamAppDetails details)
-    {
-        if (!isShortcut)
-        {
-            return LaunchWrapperCommand.ModeFor(details.LaunchOptions);
-        }
-
-        // A shortcut splits the two halves WSGM wrote: the wrapper path sits in the
-        // Target and the behaviour flags in the arguments, which never repeat the
-        // path. Read them as one string so the mode is recognised.
-        return LaunchWrapperCommand.TargetsHelper(details.ShortcutExe)
-            ? LaunchWrapperCommand.ModeFor(
-                details.ShortcutExe + " " + details.ShortcutLaunchOptions)
-            : LaunchWrapperMode.None;
-    }
-
-    /// <summary>
-    ///     Derives what a game's launch configuration looked like before any
-    ///     wrapper was written into it, so a snapshot taken for an already-wrapped game
-    ///     records the real program rather than WSGM's own values. Needed whenever a
-    ///     game is wrapped but WSGM holds no snapshot: the command was pasted by hand
-    ///     from the clipboard fallback, or the configuration was restored/reset.
-    /// </summary>
-    /// <param name="isShortcut">Whether the entry is a non-Steam shortcut.</param>
-    /// <param name="details">The game's current configuration, from <see cref="ReadAsync" />.</param>
-    /// <returns>
-    ///     The pre-wrapper target, launch options/arguments and start directory.
-    ///     An unwrapped game's values are returned unchanged.
-    /// </returns>
-    public static (string Target, string LaunchOptions, string StartDir) OriginalsFrom(
-        bool isShortcut, SteamAppDetails details)
-    {
-        if (ModeFor(isShortcut, details) == LaunchWrapperMode.None)
-        {
-            return (details.ShortcutExe, isShortcut
-                ? details.ShortcutLaunchOptions
-                : details.LaunchOptions, details.ShortcutStartDir);
-        }
-
-        if (!isShortcut)
-        {
-            return (details.ShortcutExe,
-                LaunchWrapperCommand.OriginalLaunchOptions(details.LaunchOptions),
-                details.ShortcutStartDir);
-        }
-
-        var (target, arguments) = OriginalFromWrappedArguments(details.ShortcutLaunchOptions);
-        return (target, arguments, details.ShortcutStartDir);
-    }
-
-    /// <summary>Recovers the program a wrapped shortcut actually runs.</summary>
-    /// <param name="arguments">The shortcut's current Launch Arguments.</param>
-    /// <returns>
-    ///     The original target and its own arguments, both empty when the value
-    ///     does not look like something WSGM wrote.
-    /// </returns>
-    internal static (string, string) OriginalFromWrappedArguments(string? arguments)
-    {
-        if (string.IsNullOrWhiteSpace(arguments))
-        {
-            return ("", "");
-        }
-
-        // Everything after the separator is what the shortcut used to launch: a
-        // (possibly quoted) program path followed by its own arguments.
-        var separator = arguments.IndexOf(" -- ", StringComparison.Ordinal);
-        var rest = separator < 0
-            ? arguments.StartsWith("-- ", StringComparison.Ordinal) ? arguments[3..] : ""
-            : arguments[(separator + 4)..];
-        rest = rest.Trim();
-        if (rest.Length == 0)
-        {
-            return ("", "");
-        }
-
-        if (rest[0] == '"')
-        {
-            var end = rest.IndexOf('"', 1);
-            return end < 0
-                ? (rest, "")
-                : (rest[..(end + 1)], rest[(end + 1)..].Trim());
-        }
-
-        var space = rest.IndexOf(' ');
-        return space < 0 ? (rest, "") : (rest[..space], rest[(space + 1)..].Trim());
     }
 
     private static LaunchConfigResult Interpret(SteamClientWriteResult result, string okMessage)

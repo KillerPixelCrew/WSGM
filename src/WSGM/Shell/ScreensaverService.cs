@@ -129,7 +129,7 @@ internal sealed class ScreensaverService : ISteamScreensaverContentBackend, IAsy
             {
                 case "thumbnail":
                     var thumbnail = await ReadThumbnailAsync(command.Id, cancellationToken).ConfigureAwait(false);
-                    var image = thumbnail is null ? null : "data:image/jpeg;base64," + Convert.ToBase64String(thumbnail);
+                    var image = thumbnail is null ? null : ImageHeader.DataUrl(thumbnail);
                     return new SteamUiCommandResult(true, null,
                         JsonSerializer.SerializeToElement(image, ScreensaverJson.Default.String));
                 case "rename":
@@ -391,11 +391,6 @@ internal sealed class ScreensaverService : ISteamScreensaverContentBackend, IAsy
 
         _persist(config =>
         {
-            if (config.Sources.Count >= 32)
-            {
-                throw new InvalidOperationException("Up to 32 screensaver sources can be registered.");
-            }
-
             if (config.Sources.Any(source => string.Equals(source.Name, name, StringComparison.OrdinalIgnoreCase)))
             {
                 throw new InvalidOperationException("A source already has that name. Choose a different name.");
@@ -526,7 +521,7 @@ internal sealed class ScreensaverService : ISteamScreensaverContentBackend, IAsy
         {
             Interlocked.Exchange(ref _dirty, 0);
             var version = typeof(AppConfig).Assembly.GetName().Version ?? new Version(2, 3, 2);
-            var sources = _configuration().Sources.Take(32).Select(Clone).ToArray();
+            var sources = _configuration().Sources.Select(Clone).ToArray();
             var next = sources.Select(source =>
             {
                 var content = ScreensaverContent.Read(source, version);

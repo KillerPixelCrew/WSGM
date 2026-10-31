@@ -388,7 +388,7 @@ public sealed partial class EmulatorManager
                     {
                         "rpcs3" => Path.Combine(folder, "PS3UPDAT.PUP"),
                         "vita3k" => Path.Combine(folder, "PSP2UPDAT.PUP"),
-                        "eden" or "citron" or "suyu" or "ryujinx" =>
+                        var id when EmulatorFirmware.InstallsSwitchFirmware(id) =>
                             File.Exists(Path.Combine(folder, "switch", "firmware.zip"))
                                 ? Path.Combine(folder, "switch", "firmware.zip")
                                 : Path.Combine(folder, "switch", "firmware"),

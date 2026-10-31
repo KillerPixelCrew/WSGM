@@ -8,9 +8,12 @@ public sealed class NativeQamPerfProjectionTests
     private static NativeQamPerfSupport Support(
         bool vrr = false,
         bool refreshSelectable = false,
-        int[]? options = null)
+        int[]? options = null,
+        bool vrrEnabled = false,
+        int? refreshHz = null)
     {
-        return new NativeQamPerfSupport(options ?? [30, 60, 120], vrr, refreshSelectable, 30, 120);
+        return new NativeQamPerfSupport(options ?? [30, 60, 120], vrr, refreshSelectable, 30, 120, vrrEnabled,
+            refreshHz);
     }
 
     private static string Serialize(SteamPerformanceState state)
@@ -56,10 +59,7 @@ public sealed class NativeQamPerfProjectionTests
             values,
             support,
             null,
-            false,
-            false,
-            null,
-            support.CurrentRefreshRateHz);
+            false);
     }
 
     [Fact]
@@ -71,10 +71,7 @@ public sealed class NativeQamPerfProjectionTests
             new PerformanceValues(60, 1),
             Support(),
             42,
-            true,
-            false,
-            null,
-            null));
+            true));
 
         Assert.DoesNotContain("is_vrr_supported", json);
         Assert.DoesNotContain("is_vrr_enabled", json);
@@ -87,12 +84,9 @@ public sealed class NativeQamPerfProjectionTests
     {
         var json = Serialize(NativeQamPerfProjection.Project(
             new PerformanceValues(60, 2),
-            Support(true, true),
+            Support(true, true, vrrEnabled: true, refreshHz: 120),
             42,
-            true,
-            true,
-            true,
-            120));
+            true));
 
         // A renamed field is silently a missing control, so the wire names are asserted directly.
         Assert.Contains("\"fps_limit_options\":[30,60,120]", json);
@@ -111,10 +105,7 @@ public sealed class NativeQamPerfProjectionTests
             PerformanceValues.Empty,
             Support(options: [120, 30, 60, 30, 0]),
             null,
-            false,
-            false,
-            null,
-            null);
+            false);
 
         Assert.Equal([30, 60, 120], state.Limits?.FpsLimitOptions);
     }
@@ -126,10 +117,7 @@ public sealed class NativeQamPerfProjectionTests
             PerformanceValues.Empty,
             Support(options: [120, 30, 60, 0]),
             null,
-            false,
-            false,
-            null,
-            null);
+            false);
 
         Assert.Equal(120, state.PerApp?.FpsLimit);
         Assert.False(state.PerApp?.IsFpsLimitEnabled);
@@ -144,10 +132,7 @@ public sealed class NativeQamPerfProjectionTests
             new PerformanceValues(cap, 1),
             Support(options: [120, 30, 60, 0, -1]),
             null,
-            false,
-            false,
-            null,
-            null);
+            false);
 
         Assert.Equal([30, 60, 120], state.Limits?.FpsLimitOptions);
         Assert.Equal([30, 60, 120], state.Limits?.FpsLimitOptionsExternal);
@@ -163,10 +148,7 @@ public sealed class NativeQamPerfProjectionTests
             PerformanceValues.Empty,
             Support(options: []),
             null,
-            false,
-            false,
-            null,
-            null);
+            false);
 
         Assert.Null(state.Limits?.FpsLimitOptions);
     }
@@ -180,10 +162,7 @@ public sealed class NativeQamPerfProjectionTests
             new PerformanceValues(60, null),
             Support(),
             42,
-            true,
-            false,
-            null,
-            null);
+            true);
         Assert.Equal("42", perGame.CurrentGameId);
         Assert.Equal("42", perGame.ActiveProfileGameId);
 
@@ -191,10 +170,7 @@ public sealed class NativeQamPerfProjectionTests
             new PerformanceValues(60, null),
             Support(),
             42,
-            false,
-            false,
-            null,
-            null);
+            false);
 
         Assert.Equal("42", global.CurrentGameId);
         // 769 is the Steam client's own pseudo-app, Valve's vocabulary for "default settings";
@@ -211,10 +187,7 @@ public sealed class NativeQamPerfProjectionTests
             new PerformanceValues(60, null),
             Support(),
             null,
-            true,
-            false,
-            null,
-            null);
+            true);
 
         Assert.Equal("769", state.CurrentGameId);
         Assert.Equal("769", state.ActiveProfileGameId);
@@ -236,10 +209,7 @@ public sealed class NativeQamPerfProjectionTests
             new PerformanceValues(cap, null),
             Support(),
             null,
-            false,
-            false,
-            null,
-            null);
+            false);
 
         Assert.Equal(expected, state.PerApp?.IsFpsLimitEnabled);
     }

@@ -193,7 +193,7 @@ internal sealed class NotesCaptureTransaction
     internal async Task<NotesCaptureStatus> RunAsync(NotesCaptureOrigin origin, string pageId, int seconds,
         NotesCaptureTarget target, NotesCapturePorts ports, CancellationToken lifetime)
     {
-        seconds = Math.Clamp(seconds, NoteSettings.MinimumCountdown, NoteSettings.MaximumCountdown);
+        seconds = NoteSettings.ClampCountdown(seconds);
         CancellationTokenSource active;
         lock (_gate)
         {

@@ -141,9 +141,7 @@ public sealed class BootSplash
         {
             Log.Warn(
                 $"Boot splash timeout after {SplashPolicy.SteamTimeout.TotalSeconds:0} s — closing (Big Picture window never appeared).");
-            _dismissing = true;
-            _covering = false;
-            _pollTimer?.Stop();
+            StopCovering();
             CloseAfter(TouchInput.CloseGrace);
             return;
         }
@@ -185,9 +183,7 @@ public sealed class BootSplash
     private void OnBigPictureDetected()
     {
         Log.Info("Big Picture window detected — dismissing boot splash.");
-        _dismissing = true;
-        _covering = false;
-        _pollTimer?.Stop();
+        StopCovering();
         // Fade IMMEDIATELY (no opaque overlap — see PollInterval comment) and no
         // focus handoff afterwards: Steam takes the foreground itself, and a
         // protocol re-activation here kills the intro video (device-observed).
@@ -201,10 +197,8 @@ public sealed class BootSplash
             return;
         }
 
-        _dismissing = true;
-        _covering = false;
+        StopCovering();
         Log.Info("Boot splash: button pressed.");
-        _pollTimer?.Stop();
         CloseAfter(TouchInput.CloseGrace);
         _buttonAction();
     }
@@ -226,11 +220,17 @@ public sealed class BootSplash
 
         _pendingAction?.Dispose();
         _pendingAction = null;
+        StopCovering();
+        CloseAfter(TouchInput.CloseGrace);
+        Log.Info($"Boot splash dismissed ({reason}).");
+    }
+
+    /// <summary>Ends the cover and the Big Picture poll; the caller then closes or fades the window.</summary>
+    private void StopCovering()
+    {
         _dismissing = true;
         _covering = false;
         _pollTimer?.Stop();
-        CloseAfter(TouchInput.CloseGrace);
-        Log.Info($"Boot splash dismissed ({reason}).");
     }
 
     /// <summary>

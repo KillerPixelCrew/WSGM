@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
@@ -18,7 +17,7 @@ namespace WSGM.Shell;
 ///     overlay's buttons drive it at runtime; OverlayController stays the UI owner
 ///     (lease lifecycle, window) and surfaces warnings via <see cref="SteamStartFailed" />.
 /// </summary>
-public sealed class SessionModes
+public sealed partial class SessionModes
 {
     /// <summary>The warning shown when the required Steam installation cannot be found.</summary>
     private const string SteamNotFoundWarning =
@@ -1197,159 +1196,4 @@ public sealed class SessionModes
             _lastHomeLaunchUtc = DateTime.UtcNow;
         }
     }
-
-    private sealed class DesktopReturnBackend(
-        SessionModes modes,
-        ExplorerDesktopHost host,
-        SessionModeHooks hooks,
-        DisplayLayout? layout,
-        List<string> warnings) : IDesktopReturnBackend
-    {
-        public Task ExitBigPictureAsync()
-        {
-            return modes.ExitBigPictureAndSettleAsync();
-        }
-
-        public async Task<bool> RestoreLayoutAsync()
-        {
-            DisplayScale.ApplyDesktopMode(modes.Store, modes.Store.Read().RequireConfig());
-            var services = hooks.Entry;
-            var restored = true;
-            if (layout is not null)
-            {
-                var result = await services.ApplyLayoutAsync(layout, CancellationToken.None)
-                    .ConfigureAwait(false);
-                if (!result.Applied)
-                {
-                    warnings.Add("Desktop display layout: " + DisplayText.Layout(result));
-                }
-
-                restored = result.Applied;
-            }
-            else
-            {
-                var warning = await services.ApplyReturnLayoutAsync().ConfigureAwait(false);
-                if (warning is not null)
-                {
-                    warnings.Add(warning);
-                    restored = false;
-                }
-            }
-
-            var graphicsWarning = await services.ApplyReturnDisplayGpuAsync().ConfigureAwait(false);
-            if (graphicsWarning is not null)
-            {
-                warnings.Add(graphicsWarning);
-            }
-
-            return restored && graphicsWarning is null;
-        }
-
-        public async Task<bool> RestoreAudioAsync()
-        {
-            var warning = await hooks.Entry.ApplyReturnAudioAsync().ConfigureAwait(false);
-            if (warning is not null)
-            {
-                warnings.Add(warning);
-            }
-
-            return warning is null;
-        }
-
-        public async Task RetireGameModeAsync()
-        {
-            await Dispatcher.UIThread.InvokeAsync(() => modes.DesktopModeStarting?.Invoke());
-        }
-
-        public async Task<bool> RestoreExplorerAsync()
-        {
-            if (Volatile.Read(ref modes._shutdownRequested) != 0 || ApplicationShutdownRequest.SessionEnding)
-            {
-                return false;
-            }
-
-            var result = await RestoreDesktopSafelyAsync(host, "Explorer desktop restoration failed",
-                    hooks.ShutdownCancellation)
-                .ConfigureAwait(false);
-            var restored = result.Outcome is not ExplorerDesktopOutcome.Failed;
-            if (!restored)
-            {
-                // The whole desktop return is abandoned here, leaving game mode retired and no
-                // desktop. One warning among the patch traffic hid that for a whole session; say it
-                // once, as an error, with the reason the observer recorded.
-                Log.Error("Desktop return abandoned: Explorer was not restored "
-                          + $"({result.Route}, {result.Detail}, {result.Elapsed.TotalMilliseconds:0} ms).");
-                return false;
-            }
-
-            if (result.Outcome is ExplorerDesktopOutcome.Degraded)
-            {
-                if (result.MatchesCapturedQuality)
-                {
-                    Log.Info("Desktop shell restored with the captured job-bound characteristics; diagnostic quality remains Degraded.");
-                }
-                else
-                {
-                    warnings.Add("Desktop shell: restored but unverified (" + result.Detail + ").");
-                }
-            }
-
-            await Dispatcher.UIThread.InvokeAsync(hooks.DesktopReady);
-            return true;
-        }
-
-        public async Task RunLeaveActionsAsync()
-        {
-            if (Volatile.Read(ref modes._shutdownRequested) != 0)
-            {
-                return;
-            }
-
-            var steps = await hooks.Entry.RunLeaveActionsAsync().ConfigureAwait(false);
-            warnings.AddRange(steps.Where(step => !step.Succeeded)
-                .Select(step => "Leave Game Mode action: " + step.Detail));
-        }
-
-        public Task ClearPendingReturnAsync()
-        {
-            return hooks.Entry.PersistPendingReturnAsync(null, null);
-        }
-    }
 }
-
-/// <summary>The session's half of the live mode transitions, supplied once when the coordinator is built.</summary>
-/// <param name="Entry">
-///     The displays, audio, plugin actions, splash and desktop recovery record the entry and the
-///     desktop return work through.
-/// </param>
-/// <param name="PrepareSteamUiForBigPictureAsync">
-///     Awaited (bounded) immediately before a transition asks Steam for Big Picture, so the owner can
-///     retract injected Steam UI state and close its transport first: the request rebuilds Steam's
-///     whole front-end, and that rebuild must see stock client state. The token is the budget; the
-///     owner closes its transport when it fires, whatever the retraction is still doing.
-/// </param>
-/// <param name="PrepareSteamUiForDesktopAsync">
-///     Awaited (bounded) immediately before the desktop return asks Steam to close Big Picture, for
-///     the same reason: closing rebuilds Steam's front-end just as opening does. The token is the
-///     budget, as above.
-/// </param>
-/// <param name="SteamUiBigPictureRequestSettled">
-///     Invoked when a transition that may have requested Big Picture has settled, on every outcome,
-///     so the owner can lift the hold above. Idempotent.
-/// </param>
-/// <param name="GameModeEntrySettled">
-///     Invoked once an entry attempt has settled, on every outcome, so the owner can dismiss the
-///     splash. Idempotent.
-/// </param>
-/// <param name="DesktopReady">Invoked on the UI thread once Explorer is restored.</param>
-/// <param name="IsGameMode">Whether the session is in Game Mode.</param>
-/// <param name="ShutdownCancellation">Cancels an in-flight desktop restoration when the session stops.</param>
-internal sealed record SessionModeHooks(
-    IGameModeEntryBackend Entry,
-    Func<CancellationToken, Task> PrepareSteamUiForBigPictureAsync,
-    Func<CancellationToken, Task> PrepareSteamUiForDesktopAsync,
-    Action SteamUiBigPictureRequestSettled,
-    Action GameModeEntrySettled,
-    Action DesktopReady,
-    Func<bool> IsGameMode,
-    CancellationToken ShutdownCancellation = default);

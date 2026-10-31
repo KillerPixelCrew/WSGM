@@ -59,6 +59,10 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
     private readonly Func<ShortcutFolderConfig, ILibrarySource>? _folderSource;
     private readonly Lock _gate = new();
+
+    // Serializes settings writes so the kept copy is always the newest saved one, without holding
+    // _gate across the disk write. Taken before _gate, never inside it.
+    private readonly Lock _settingsWrite = new();
     private readonly IReadOnlyList<ILibrarySource> _launchers;
 
     /// <summary>What the last scan or apply had to say that is not an error, in the order it came up.</summary>
@@ -86,7 +90,8 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     private string? _error;
     private long _generation;
     private string? _launcher;
-    private Phase _phase = Phase.Idle;
+    // One of the GameLibraryPhases values, published as it is.
+    private string _phase = GameLibraryPhases.Idle;
     private int _progress;
     private int _progressTotal;
     private GameLibraryState? _published;
@@ -201,7 +206,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     /// <summary>The revision of the state <see cref="ReadState" /> answers, for revision-aware publication.</summary>
     internal long Revision => Interlocked.Read(ref _revision);
 
-    private bool Busy => _phase is Phase.Scanning or Phase.Applying;
+    private bool Busy => _phase is GameLibraryPhases.Scanning or GameLibraryPhases.Applying;
 
     /// <inheritdoc />
     public void Dispose()
@@ -223,7 +228,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 return Task.FromResult(ShuttingDown);
             }
 
-            if (_phase is Phase.Applying)
+            if (_phase is GameLibraryPhases.Applying)
             {
                 return Refuse("An import is already running.");
             }
@@ -527,7 +532,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                               + "repair the install.");
             }
 
-            var (generation, token) = Begin(Phase.Applying);
+            var (generation, token) = Begin(GameLibraryPhases.Applying);
             _progressTotal = selected.Count;
             Run(async work =>
             {
@@ -574,7 +579,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             return Refuse("That source is not known.");
         }
 
-        if (!TryUpdateSettings(settings =>
+        return Task.FromResult(ChangeSettings(settings =>
             {
                 settings.DisabledSources.RemoveAll(disabled =>
                     string.Equals(disabled, id, StringComparison.OrdinalIgnoreCase));
@@ -582,43 +587,25 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 {
                     settings.DisabledSources.Add(id);
                 }
-            }, out var saveRefusal))
-        {
-            return Task.FromResult(saveRefusal);
-        }
-
-        lock (_gate)
-        {
-            if (_disposed)
+            },
+            () =>
             {
-                return Task.FromResult(ShuttingDown);
-            }
+                if (!enabled)
+                {
+                    // Taken out of the review at once, and out of the artwork stage, so its lookups stop
+                    // holding up the titles still listed. Its records are neither read nor offered for
+                    // removal until it is ticked again.
+                    Drop(id);
+                }
 
-            if (!enabled)
-            {
-                // Taken out of the review at once, and out of the artwork stage, so its lookups stop
-                // holding up the titles still listed. Its records are neither read nor offered for
-                // removal until it is ticked again.
-                Drop(id);
-            }
-
-            // Its titles have never been read, so only a scan can show them. An apply that started
-            // in the moment the setting was being saved gets the scan once it has finished.
-            if (enabled)
-            {
-                ScanOrQueue();
-            }
-
-            Publish();
-        }
-
-        if (!enabled)
-        {
-            ResetArtwork(Sources());
-        }
-
-        Notify();
-        return Task.FromResult(SteamUiCommandResult.Applied);
+                // Its titles have never been read, so only a scan can show them. An apply that started
+                // in the moment the setting was being saved gets the scan once it has finished.
+                if (enabled)
+                {
+                    ScanOrQueue();
+                }
+            },
+            settled: enabled ? null : () => ResetArtwork(Sources())));
     }
 
     /// <inheritdoc />
@@ -630,30 +617,11 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             return Refuse("Collections cannot be made in this session.");
         }
 
-        lock (_gate)
+        var result = ChangeSettings(settings => settings.CreateCollections = enabled, static () => { });
+        if (!result.Succeeded)
         {
-            if (Guard() is { } refusal)
-            {
-                return Task.FromResult(refusal);
-            }
+            return Task.FromResult(result);
         }
-
-        if (!TryUpdateSettings(settings => settings.CreateCollections = enabled, out var saveRefusal))
-        {
-            return Task.FromResult(saveRefusal);
-        }
-
-        lock (_gate)
-        {
-            if (_disposed)
-            {
-                return Task.FromResult(ShuttingDown);
-            }
-
-            Publish();
-        }
-
-        Notify();
 
         // Titles imported before the switch was on join their collections now. A run in progress
         // reads the switch when it finishes and brings them in itself.
@@ -771,7 +739,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         }
 
         string? refused = null;
-        if (!TryUpdateSettings(current =>
+        return Task.FromResult(ChangeSettings(current =>
             {
                 if (current.ShortcutFolders.Any(folder => ManagedContentStorage.SameLocation(folder.Root, binding)))
                 {
@@ -786,30 +754,10 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                     IncludeSubfolders = includeSubfolders,
                     Extensions = types
                 });
-            }, out var saveRefusal))
-        {
-            return Task.FromResult(saveRefusal);
-        }
-
-        if (refused is not null)
-        {
-            return Refuse(refused);
-        }
-
-        lock (_gate)
-        {
-            if (_disposed)
-            {
-                return Task.FromResult(ShuttingDown);
-            }
-
+            },
             // A scan already running started without the folder, so it starts again with it.
-            ScanOrQueue();
-            Publish();
-        }
-
-        Notify();
-        return Task.FromResult(SteamUiCommandResult.Applied);
+            ScanOrQueue,
+            () => refused));
     }
 
     /// <inheritdoc />
@@ -821,53 +769,27 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             return Refuse("Folders cannot be removed in this session.");
         }
 
-        lock (_gate)
-        {
-            if (Guard() is { } refusal)
-            {
-                return Task.FromResult(refusal);
-            }
-        }
-
         var removed = false;
-        if (!TryUpdateSettings(settings =>
+        return Task.FromResult(ChangeSettings(settings =>
             {
                 removed = settings.ShortcutFolders.RemoveAll(folder =>
                     string.Equals(folder.Id, id, StringComparison.OrdinalIgnoreCase)) > 0;
                 settings.DisabledSources.RemoveAll(disabled =>
                     string.Equals(disabled, id, StringComparison.OrdinalIgnoreCase));
-            }, out var saveRefusal))
-        {
-            return Task.FromResult(saveRefusal);
-        }
-
-        if (!removed)
-        {
-            return Refuse("That folder is not a source.");
-        }
-
-        lock (_gate)
-        {
-            if (_disposed)
+            },
+            () =>
             {
-                return Task.FromResult(ShuttingDown);
-            }
+                Drop(id);
+                _availability.Remove(id);
 
-            Drop(id);
-            _availability.Remove(id);
-
-            // A scan in progress still holds the folder's source and would bring its titles back.
-            if (_phase is Phase.Scanning)
-            {
-                StartScan();
-            }
-
-            Publish();
-        }
-
-        ResetArtwork(Sources());
-        Notify();
-        return Task.FromResult(SteamUiCommandResult.Applied);
+                // A scan in progress still holds the folder's source and would bring its titles back.
+                if (_phase is GameLibraryPhases.Scanning)
+                {
+                    StartScan();
+                }
+            },
+            () => removed ? null : "That folder is not a source.",
+            () => ResetArtwork(Sources())));
     }
 
     /// <inheritdoc />
@@ -1233,20 +1155,75 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         }
     }
 
+    /// <summary>
+    ///     Saves a command's settings change and applies it: refused while the list cannot change, then
+    ///     the write, then <paramref name="saved" /> under the gate and a publication.
+    /// </summary>
+    /// <param name="change">The change, applied inside the configuration's own lock.</param>
+    /// <param name="saved">Applies the stored change to the review, under the gate.</param>
+    /// <param name="refusal">A refusal the change itself found, read after the write; null proceeds.</param>
+    /// <param name="settled">Runs after the gate is released and before subscribers are told.</param>
+    /// <returns>Applied, or why the change was refused or could not be saved.</returns>
+    private SteamUiCommandResult ChangeSettings(Action<GameLibraryConfig> change, Action saved,
+        Func<string?>? refusal = null, Action? settled = null)
+    {
+        lock (_gate)
+        {
+            if (Guard() is { } blocked)
+            {
+                return blocked;
+            }
+        }
+
+        if (!TryUpdateSettings(change, out var failure))
+        {
+            return failure;
+        }
+
+        if (refusal?.Invoke() is { } reason)
+        {
+            return new SteamUiCommandResult(false, reason);
+        }
+
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return ShuttingDown;
+            }
+
+            saved();
+            Publish();
+        }
+
+        settled?.Invoke();
+        Notify();
+        return SteamUiCommandResult.Applied;
+    }
+
     private bool TryUpdateSettings(Action<GameLibraryConfig> change, out SteamUiCommandResult refusal)
     {
         try
         {
-            lock (_gate)
+            lock (_settingsWrite)
             {
-                if (_disposed)
+                lock (_gate)
                 {
-                    refusal = ShuttingDown;
-                    return false;
+                    if (_disposed)
+                    {
+                        refusal = ShuttingDown;
+                        return false;
+                    }
                 }
 
-                _settings = _updateSettings!(change).Copy();
-                _sourceCache = null;
+                // The disk write runs outside the gate, so reading the state and other commands do
+                // not wait on it.
+                var stored = _updateSettings!(change).Copy();
+                lock (_gate)
+                {
+                    _settings = stored;
+                    _sourceCache = null;
+                }
             }
 
             refusal = SteamUiCommandResult.Applied;
@@ -1297,7 +1274,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
             _settings = settings.Copy();
             _sourceCache = null;
-            if (_phase == Phase.Scanning)
+            if (_phase == GameLibraryPhases.Scanning)
             {
                 StartScan();
             }
@@ -1317,7 +1294,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     /// <summary>The refusal every change to the list gets while the service cannot take one, or null.</summary>
     private SteamUiCommandResult? Guard()
     {
-        return _disposed ? ShuttingDown : _phase is Phase.Applying ? Frozen : null;
+        return _disposed ? ShuttingDown : _phase is GameLibraryPhases.Applying ? Frozen : null;
     }
 
     /// <summary>Changes one entry under the lock, then stores the user's choice and publishes it.</summary>
@@ -1365,7 +1342,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 }
             }
 
-            if ((editable || remember) && _phase == Phase.Scanning)
+            if ((editable || remember) && _phase == GameLibraryPhases.Scanning)
             {
                 StartScan();
             }
@@ -1537,7 +1514,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     /// <summary>Starts a scan now, or after the apply that is running.</summary>
     private void ScanOrQueue()
     {
-        if (_phase is Phase.Applying)
+        if (_phase is GameLibraryPhases.Applying)
         {
             _rescanAfterRun = true;
             return;
@@ -1619,7 +1596,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
     private void StartScan()
     {
-        var (generation, token) = Begin(Phase.Scanning);
+        var (generation, token) = Begin(GameLibraryPhases.Scanning);
         Run(work => ScanCoreAsync(generation, work), generation, token);
     }
 
@@ -1854,7 +1831,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 _counts[id] = count;
             }
 
-            _phase = Phase.Review;
+            _phase = GameLibraryPhases.Review;
             _notes.AddRange(notes);
             if (plan.Count == 0 && notes.Count == 0)
             {
@@ -2314,7 +2291,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 return;
             }
 
-            _phase = Phase.Done;
+            _phase = GameLibraryPhases.Done;
             _notes.Add($"Applied {applied} of {selected.Count} selected changes.");
 
             // A problem is an error the user sees, not a note the completion message replaces: a
@@ -2904,7 +2881,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                         return;
                     }
 
-                    _phase = Phase.Review;
+                    _phase = GameLibraryPhases.Review;
                     _notes.Add("Stopped.");
                     Publish();
                 }
@@ -2938,7 +2915,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         });
     }
 
-    private (long Generation, CancellationToken Token) Begin(Phase phase)
+    private (long Generation, CancellationToken Token) Begin(string phase)
     {
         _work?.Cancel();
         _work?.Dispose();
@@ -2961,7 +2938,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 return;
             }
 
-            _phase = Phase.Review;
+            _phase = GameLibraryPhases.Review;
             _error = string.Join(" ", [error, .. problems]);
             Publish();
         }
@@ -3053,14 +3030,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         return new GameLibraryState(
             published,
             [.. published.Where(source => source is { Installed: true, Enabled: true }).Select(source => source.Name)],
-            _phase switch
-            {
-                Phase.Scanning => GameLibraryPhases.Scanning,
-                Phase.Review => GameLibraryPhases.Review,
-                Phase.Applying => GameLibraryPhases.Applying,
-                Phase.Done => GameLibraryPhases.Done,
-                _ => GameLibraryPhases.Idle
-            },
+            _phase,
             entries,
             entries.Count(entry => entry.Selected),
             _progress,
@@ -3149,15 +3119,6 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             status?.Label ?? "",
             entry.Game.Content?.LibraryId ?? status?.LibraryId ?? "",
             status?.Detail ?? "");
-    }
-
-    private enum Phase
-    {
-        Idle,
-        Scanning,
-        Review,
-        Applying,
-        Done
     }
 
     private sealed class Entry(string id, ImportPlanEntry plan, DiscoveredGame game)

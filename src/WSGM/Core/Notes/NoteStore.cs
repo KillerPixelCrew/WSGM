@@ -9,7 +9,7 @@ using System.Text.RegularExpressions;
 
 namespace WSGM.Core;
 
-/// <summary>Image asset identities and formats.</summary>
+/// <summary>Image asset identities.</summary>
 /// <remarks>
 ///     An asset is named by the SHA-256 of its bytes and its format, so the same screenshot inserted twice is
 ///     one file, and a name can never point at different content.
@@ -22,28 +22,6 @@ public static partial class NoteAssets
     public static bool IsAssetId(string? asset)
     {
         return asset is not null && AssetPattern().IsMatch(asset);
-    }
-
-    /// <summary>The image format declared by an image's first bytes.</summary>
-    /// <param name="bytes">The encoded image.</param>
-    /// <returns><c>jpg</c>, <c>png</c>, or null for anything else.</returns>
-    public static string? FormatOf(ReadOnlySpan<byte> bytes)
-    {
-        if (bytes.Length >= 8 && bytes[0] == 0x89 && bytes[1] == (byte)'P' && bytes[2] == (byte)'N'
-            && bytes[3] == (byte)'G' && bytes[4] == 0x0D && bytes[5] == 0x0A && bytes[6] == 0x1A && bytes[7] == 0x0A)
-        {
-            return "png";
-        }
-
-        return bytes.Length >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF ? "jpg" : null;
-    }
-
-    /// <summary>The MIME type for an asset id.</summary>
-    /// <param name="asset">A well-formed asset id.</param>
-    /// <returns><c>image/png</c> or <c>image/jpeg</c>.</returns>
-    public static string MimeOf(string asset)
-    {
-        return asset.EndsWith(".png", StringComparison.Ordinal) ? "image/png" : "image/jpeg";
     }
 
     [GeneratedRegex("^[0-9a-f]{64}\\.(jpg|png)$", RegexOptions.CultureInvariant)]
@@ -182,8 +160,12 @@ public sealed class NoteStore
     /// <exception cref="NoteStoreException">The bytes are not a PNG or JPEG, or could not be written.</exception>
     public string AddAsset(byte[] bytes)
     {
-        var format = NoteAssets.FormatOf(bytes)
-                     ?? throw new NoteStoreException("Only PNG and JPEG images can be added to a note.");
+        var format = ImageHeader.Format(bytes);
+        if (format is not ("png" or "jpg"))
+        {
+            throw new NoteStoreException("Only PNG and JPEG images can be added to a note.");
+        }
+
         var asset = Convert.ToHexStringLower(SHA256.HashData(bytes)) + "." + format;
         var path = AssetPath(asset);
         if (File.Exists(path))
@@ -308,8 +290,7 @@ public sealed class NoteStore
             var settings = JsonSerializer.Deserialize(File.ReadAllBytes(SettingsPath),
                 NoteJsonContext.Default.NoteSettings) ?? new NoteSettings();
             settings.NotebookTitles ??= new Dictionary<string, string>(StringComparer.Ordinal);
-            settings.CaptureCountdownSeconds = Math.Clamp(settings.CaptureCountdownSeconds,
-                NoteSettings.MinimumCountdown, NoteSettings.MaximumCountdown);
+            settings.CaptureCountdownSeconds = NoteSettings.ClampCountdown(settings.CaptureCountdownSeconds);
             return settings;
         }
         catch (JsonException ex)

@@ -168,8 +168,9 @@ internal sealed record SteamLibraryTabsState(
 /// </summary>
 /// <remarks>
 ///     Reading state is cheap and lock-free: the session host reads it on every publication. Drive
-///     scans run only on an explicit refresh, after a change and at start, never on a timer. Every
-///     operation validates once here, so neither surface carries its own copy of the rules.
+///     scans run only on an explicit refresh and at start, never on a timer; a change rereads the
+///     configuration, and a finished sync hands over the scan it already made. Every operation
+///     validates once here, so neither surface carries its own copy of the rules.
 /// </remarks>
 internal sealed class LibraryManagerService : IDisposable
 {
@@ -185,7 +186,8 @@ internal sealed class LibraryManagerService : IDisposable
     /// <summary>The action that opens the tab manager page.</summary>
     internal const string OpenTabsId = "wsgm.library-tabs.open";
 
-    private const string CardTabPrefix = "wsgm-card-";
+    // How long the tab order waits after the last move press before it is saved and shown in Steam.
+    private static readonly TimeSpan TabOrderWriteDelay = TimeSpan.FromMilliseconds(600);
 
     /// <summary>The filter types the builder offers, in the order both surfaces list them.</summary>
     internal static IReadOnlyList<LibraryTabFilterKind> FilterKinds { get; } =
@@ -216,10 +218,16 @@ internal sealed class LibraryManagerService : IDisposable
     private readonly CancellationTokenSource _stop = new();
     private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    // The order the user has moved to but whose configuration writes have not all landed yet; a
-    // refresh in between keeps it rather than publishing an older order back over the user's press.
-    private int _pendingOrderWrites;
-    private bool _refreshPending;
+    // The order the user last moved to and not yet saved, and whether its one writer runs. While it
+    // does, a refresh keeps the pressed-to order rather than publishing an older stored one over it.
+    private TabOrderPress? _pendingOrder;
+    private bool _orderWriterRunning;
+
+    // What the next refresh run does: a drive scan, a configuration reread, or the reading a
+    // finished sync handed over. A scan covers both of the others.
+    private bool _scanPending;
+    private bool _rereadPending;
+    private LibraryReading? _syncReading;
     private Task? _refreshRun;
     private long _revision;
     private Snapshot _snapshot = Snapshot.Empty;
@@ -348,7 +356,24 @@ internal sealed class LibraryManagerService : IDisposable
     /// <returns>Completion of a refresh that started at or after this call.</returns>
     internal Task RefreshAsync(CancellationToken cancellationToken = default)
     {
-        Task run;
+        return QueueRefresh(scan: true).WaitAsync(cancellationToken);
+    }
+
+    /// <summary>Schedules a refresh without waiting for it.</summary>
+    internal void RequestRefresh()
+    {
+        Log.Observe(RefreshAsync(), "Library manager refresh", true);
+    }
+
+    // After a command: its write is in configuration, and the drives have not changed because of it,
+    // so the projection rereads the configuration and keeps the last reading of which cards are in.
+    private Task ReprojectAsync(CancellationToken cancellationToken)
+    {
+        return QueueRefresh(reread: true).WaitAsync(cancellationToken);
+    }
+
+    private Task QueueRefresh(bool scan = false, bool reread = false, LibraryReading? reading = null)
+    {
         lock (_gate)
         {
             if (_disposed)
@@ -356,7 +381,9 @@ internal sealed class LibraryManagerService : IDisposable
                 return Task.CompletedTask;
             }
 
-            _refreshPending = true;
+            _scanPending |= scan;
+            _rereadPending |= reread;
+            _syncReading = reading ?? _syncReading;
             if (_refreshRun is null)
             {
                 _activeOperations++;
@@ -372,16 +399,9 @@ internal sealed class LibraryManagerService : IDisposable
                     }
                 }, CancellationToken.None);
             }
-            run = _refreshRun;
+
+            return _refreshRun;
         }
-
-        return run.WaitAsync(cancellationToken);
-    }
-
-    /// <summary>Schedules a refresh without waiting for it.</summary>
-    internal void RequestRefresh()
-    {
-        Log.Observe(RefreshAsync(), "Library manager refresh", true);
     }
 
     /// <summary>Clears the error and the notice.</summary>
@@ -411,7 +431,7 @@ internal sealed class LibraryManagerService : IDisposable
             var trimmed = name.Trim();
             var note = await LibraryTabManager.RenameCardAsync(_store, _steam(), contentId, trimmed, token)
                 .ConfigureAwait(false);
-            await RefreshAsync(token).ConfigureAwait(false);
+            await ReprojectAsync(token).ConfigureAwait(false);
             if (note is null)
             {
                 return SteamUiCommandResult.Applied;
@@ -443,7 +463,7 @@ internal sealed class LibraryManagerService : IDisposable
         {
             await LibraryTabManager.SetCardEnabledAsync(_store, _steam(), contentId, enabled, token)
                 .ConfigureAwait(false);
-            await RefreshAsync(token).ConfigureAwait(false);
+            await ReprojectAsync(token).ConfigureAwait(false);
             return SteamUiCommandResult.Applied;
         }, "tab switch", cancellationToken);
     }
@@ -460,7 +480,7 @@ internal sealed class LibraryManagerService : IDisposable
         {
             await LibraryTabManager.SetCardHiddenAsync(_store, _steam(), contentId, hidden, token)
                 .ConfigureAwait(false);
-            await RefreshAsync(token).ConfigureAwait(false);
+            await ReprojectAsync(token).ConfigureAwait(false);
             return SteamUiCommandResult.Applied;
         }, "hide", cancellationToken);
     }
@@ -479,7 +499,7 @@ internal sealed class LibraryManagerService : IDisposable
             Mutate(snapshot => snapshot.CardGames?.ContentId == contentId
                 ? snapshot with { CardGames = null }
                 : snapshot);
-            await RefreshAsync(token).ConfigureAwait(false);
+            await ReprojectAsync(token).ConfigureAwait(false);
             return SteamUiCommandResult.Applied;
         }, "forget", cancellationToken);
     }
@@ -556,7 +576,7 @@ internal sealed class LibraryManagerService : IDisposable
             await LibraryTabManager.SaveCustomTabsAsync(_store, _steam(), [saved], new HashSet<string>())
                 .ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
-            await RefreshAsync(token).ConfigureAwait(false);
+            await ReprojectAsync(token).ConfigureAwait(false);
             return SteamUiCommandResult.Applied;
         }, "save tab", cancellationToken);
     }
@@ -577,15 +597,15 @@ internal sealed class LibraryManagerService : IDisposable
             await LibraryTabManager.SaveCustomTabsAsync(_store, _steam(), [],
                 new HashSet<string>(StringComparer.Ordinal) { id }).ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
-            await RefreshAsync(token).ConfigureAwait(false);
+            await ReprojectAsync(token).ConfigureAwait(false);
             return SteamUiCommandResult.Applied;
         }, "delete tab", cancellationToken);
     }
 
-    /// <summary>Moves a tab one place in the strip and saves the order; Steam follows debounced.</summary>
+    /// <summary>Moves a tab one place in the strip; the order is saved and Steam follows, debounced.</summary>
     /// <param name="key">The tab's key.</param>
     /// <param name="delta">-1 for earlier, +1 for later.</param>
-    /// <param name="cancellationToken">Unused; the order is applied at once and written in press order.</param>
+    /// <param name="cancellationToken">Unused; the order is applied at once and the latest one is saved when the presses pause.</param>
     /// <returns>Failure when the tab is not in the strip or cannot move that way.</returns>
     internal Task<SteamUiCommandResult> MoveTabAsync(string key, int delta, CancellationToken cancellationToken = default)
     {
@@ -606,7 +626,7 @@ internal sealed class LibraryManagerService : IDisposable
     /// <summary>Hides one of Steam's own tabs from the strip, or puts it back.</summary>
     /// <param name="key">The native tab's id.</param>
     /// <param name="hidden">Whether to hide it.</param>
-    /// <param name="cancellationToken">Unused; the order is applied at once and written in press order.</param>
+    /// <param name="cancellationToken">Unused; the order is applied at once and the latest one is saved when the presses pause.</param>
     /// <returns>Failure for a tab that is not native or not in the strip.</returns>
     internal Task<SteamUiCommandResult> SetNativeTabHiddenAsync(string key, bool hidden,
         CancellationToken cancellationToken = default)
@@ -740,15 +760,6 @@ internal sealed class LibraryManagerService : IDisposable
             : (bytes / (1024d * 1024)).ToString("0", CultureInfo.InvariantCulture) + " MB";
     }
 
-    /// <summary>The kind the strip shows for a tab key: Steam's own, a card's or a custom one.</summary>
-    /// <param name="entry">The manager's order entry.</param>
-    /// <returns><c>native</c>, <c>card</c> or <c>custom</c>.</returns>
-    internal static string KindOf(LibraryTabManager.TabOrderEntry entry)
-    {
-        return entry.IsNative ? "native"
-            : entry.Key.StartsWith(CardTabPrefix, StringComparison.Ordinal) ? "card" : "custom";
-    }
-
     private static LibraryTabFilterKind Kind(FilterKind kind, string label, string description)
     {
         return new LibraryTabFilterKind(kind.ToString(), label, description, LibraryFilter.CanInvert(kind));
@@ -765,6 +776,7 @@ internal sealed class LibraryManagerService : IDisposable
     private SteamUiCommandResult ReorderTabs(string key, Func<List<LibraryTabOrderView>, bool> apply)
     {
         List<LibraryTabOrderView> order;
+        bool startWriter;
         lock (_gate)
         {
             if (_disposed)
@@ -779,49 +791,99 @@ internal sealed class LibraryManagerService : IDisposable
             }
 
             _snapshot = _snapshot with { Order = order, Error = null };
-            _pendingOrderWrites++;
-            _activeOperations++;
+            // Each press replaces the pending order; the one writer saves whichever is newest.
+            _pendingOrder = new TabOrderPress(
+                [.. order.Select(entry => entry.Key)],
+                [.. order.Where(entry => entry is { Kind: "native", Hidden: true }).Select(entry => entry.Key)]);
+            startWriter = !_orderWriterRunning;
+            if (startWriter)
+            {
+                _orderWriterRunning = true;
+                _activeOperations++;
+            }
+
             Interlocked.Increment(ref _revision);
         }
 
-        var keys = order.Select(entry => entry.Key).ToList();
-        var hidden = order.Where(entry => entry is { Kind: "native", Hidden: true }).Select(entry => entry.Key).ToList();
-        Task write;
-        try
+        if (startWriter)
         {
-            write = LibraryTabManager.SaveTabOrder(_store, _steam(), keys, hidden);
-        }
-        catch
-        {
-            FinishOrderWrite();
-            throw;
+            Log.Observe(WriteTabOrderAsync(), "Library tab order write", true);
         }
 
-        Log.Observe(CompleteOrderWriteAsync(write), "Library tab order write", true);
         RaiseChanged();
         return SteamUiCommandResult.Applied;
     }
 
-    private async Task CompleteOrderWriteAsync(Task write)
+    // The one tab-order writer: waits until the presses pause, saves the newest order once and shows
+    // it in Steam, and runs again while newer presses arrived meanwhile. Closing skips the wait and the
+    // push, so the last press is still saved.
+    private async Task WriteTabOrderAsync()
     {
         try
         {
-            await write.ConfigureAwait(false);
+            while (true)
+            {
+                TabOrderPress? waited;
+                lock (_gate)
+                {
+                    waited = _pendingOrder;
+                }
+
+                try
+                {
+                    await Task.Delay(TabOrderWriteDelay, _stop.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+
+                TabOrderPress press;
+                lock (_gate)
+                {
+                    if (!ReferenceEquals(_pendingOrder, waited) && !_stop.IsCancellationRequested)
+                    {
+                        // A newer press restarts the wait.
+                        continue;
+                    }
+
+                    press = _pendingOrder!;
+                    _pendingOrder = null;
+                }
+
+                var saved = false;
+                try
+                {
+                    await LibraryTabManager.SaveTabOrderAsync(_store, press.Keys, press.Hidden).ConfigureAwait(false);
+                    saved = true;
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Library tab order save failed: {ex.Message}");
+                }
+
+                if (saved && !_stop.IsCancellationRequested && _steam() is { } steam)
+                {
+                    await LibraryTabManager.PushTabOrderAsync(_store, steam, press.Keys, press.Hidden, _stop.Token)
+                        .ConfigureAwait(false);
+                }
+
+                lock (_gate)
+                {
+                    if (_pendingOrder is null)
+                    {
+                        _orderWriterRunning = false;
+                        break;
+                    }
+                }
+            }
         }
         finally
         {
-            FinishOrderWrite();
-        }
-    }
-
-    private void FinishOrderWrite()
-    {
-        lock (_gate)
-        {
-            _pendingOrderWrites--;
+            EndOperation();
         }
 
-        EndOperation();
+        // The projection follows the stored order again, or shows that a failed save left it unchanged.
+        Log.Observe(QueueRefresh(reread: true), "Library manager refresh", true);
     }
 
     private async Task<T> WorkAsync<T>(Func<CancellationToken, Task<T>> operation,
@@ -902,52 +964,63 @@ internal sealed class LibraryManagerService : IDisposable
     {
         while (true)
         {
+            bool scan;
+            bool reread;
+            LibraryReading? reading;
             lock (_gate)
             {
-                if (!_refreshPending || _disposed)
+                if ((!_scanPending && !_rereadPending && _syncReading is null) || _disposed)
                 {
                     _refreshRun = null;
                     return;
                 }
 
-                _refreshPending = false;
+                scan = _scanPending;
+                reread = _rereadPending;
+                reading = _syncReading;
+                _scanPending = false;
+                _rereadPending = false;
+                _syncReading = null;
             }
 
-            await ReadOnceAsync(cancellationToken).ConfigureAwait(false);
+            await ReadOnceAsync(scan, reread, reading, cancellationToken).ConfigureAwait(false);
         }
     }
 
-    private async Task ReadOnceAsync(CancellationToken cancellationToken)
+    // A scan merges the drives into configuration first. Otherwise the projection comes from the
+    // configuration, reread or as a sync saved it, and from the sync's or the last reading's present cards.
+    private async Task ReadOnceAsync(bool scan, bool reread, LibraryReading? reading,
+        CancellationToken cancellationToken)
     {
         try
         {
-            var cards = await LibraryTabManager.ListCardsAsync(_store, cancellationToken).ConfigureAwait(false);
-            var config = await Task.Run(() => _store.Read().Config, cancellationToken).ConfigureAwait(false);
+            var cards = scan
+                ? await LibraryTabManager.ListCardsAsync(_store, cancellationToken).ConfigureAwait(false)
+                : null;
+            var config = scan || reread || reading is null
+                ? await Task.Run(() => _store.Read().Config, cancellationToken).ConfigureAwait(false)
+                : reading.Config;
             if (config is null)
             {
                 Mutate(snapshot => snapshot with { Error = "Couldn't read your configuration." });
                 return;
             }
 
-            var views = cards.Select(card => new LibraryCardView(
-                    card.ContentId, card.Name, card.Enabled, card.Hidden, card.Inserted, card.GameCount,
-                    card.AppIds, card.CapacityBytes, card.FreeBytes))
-                .ToList();
+            var views = cards ?? LibraryTabManager.ProjectCards(config, reading?.Present ?? PresentCards());
             var tabs = config.CustomTabs.OrderBy(tab => tab.Position).Select(Clone).ToList();
-            var order = LibraryTabManager.BuildTabOrder(config)
-                .Select(entry => new LibraryTabOrderView(entry.Key, entry.Title, KindOf(entry), entry.Hidden))
-                .ToList();
+            var order = LibraryTabManager.BuildTabOrder(config);
             var choices = config.CardLibraries.Select(card => new LibraryTabCardChoice(card.ContentId, card.Name))
                 .ToList();
+            var loaded = scan || reading is not null;
             Mutate(snapshot => snapshot with
             {
                 Cards = views,
                 Tabs = tabs,
-                // A refresh between two chained order writes must not put an older order back
-                // over the one the user already pressed to.
-                Order = _pendingOrderWrites > 0 ? snapshot.Order : order,
+                // While the order writer runs, the stored order is older than the one the user
+                // already pressed to; the writer refreshes again when it is done.
+                Order = _orderWriterRunning ? snapshot.Order : order,
                 CardChoices = choices,
-                Loaded = true,
+                Loaded = snapshot.Loaded || loaded,
                 CardGames = snapshot.CardGames is { } games && views.All(card => card.ContentId != games.ContentId)
                     ? null
                     : snapshot.CardGames
@@ -1000,9 +1073,17 @@ internal sealed class LibraryManagerService : IDisposable
         RaiseChanged();
     }
 
-    private void OnLibraryChanged()
+    // A sync just scanned and saved: project its reading instead of scanning the drives again.
+    private void OnLibraryChanged(AppConfig config, IReadOnlySet<string> present)
     {
-        RequestRefresh();
+        Log.Observe(QueueRefresh(reading: new LibraryReading(config, present)), "Library manager refresh", true);
+    }
+
+    // The cards the last reading found mounted, for a projection that did not scan.
+    private HashSet<string> PresentCards()
+    {
+        return Volatile.Read(ref _snapshot).Cards.Where(static card => card.Inserted)
+            .Select(static card => card.ContentId).ToHashSet(StringComparer.Ordinal);
     }
 
     private void RaiseChanged()
@@ -1013,15 +1094,16 @@ internal sealed class LibraryManagerService : IDisposable
             {
                 return;
             }
+        }
 
-            try
-            {
-                Changed?.Invoke();
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Library manager: a change listener failed: {ex.Message}");
-            }
+        // Listeners run outside the gate, so a slow one never holds up a command or a refresh.
+        try
+        {
+            Changed?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Library manager: a change listener failed: {ex.Message}");
         }
     }
 
@@ -1067,6 +1149,16 @@ internal sealed class LibraryManagerService : IDisposable
             new LibraryGamePicker([], false, false, null),
             null, false, null, null);
     }
+
+    /// <summary>A tab order the user pressed to, waiting for the writer.</summary>
+    /// <param name="Keys">Every tab key, left to right.</param>
+    /// <param name="Hidden">The native tabs left out of the strip.</param>
+    private sealed record TabOrderPress(List<string> Keys, List<string> Hidden);
+
+    /// <summary>What a finished sync saved and found, projected without another scan.</summary>
+    /// <param name="Config">The configuration the sync saved.</param>
+    /// <param name="Present">The content ids of the cards its scan found mounted.</param>
+    private sealed record LibraryReading(AppConfig Config, IReadOnlySet<string> Present);
 
     /// <summary>One Quick Access Extensions entry: a row with the action that opens its page.</summary>
     private sealed class ExtensionsSection(

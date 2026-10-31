@@ -1,5 +1,6 @@
 using System;
 using WSGM.Core;
+using HandheldDefinition = LibHandheld.Contracts.HandheldDefinition;
 
 namespace WSGM.Shell;
 
@@ -33,17 +34,26 @@ internal sealed record ControllerSelection(
         return Enabled && NativeTarget is { } native && resolved.Target == native;
     }
 
-    /// <summary>Projects stored settings through the release gate.</summary>
+    /// <summary>Projects stored settings and the matched definition through the release gate.</summary>
     /// <param name="config">The stored device-integration configuration.</param>
     /// <param name="profiles">The profile store.</param>
-    /// <returns>The selection in effect.</returns>
-    internal static ControllerSelection From(DeviceIntegrationConfig config, ProfileConfig profiles)
+    /// <param name="definition">The matched definition, or null when none is running.</param>
+    /// <returns>The selection in effect; off for a definition that provides hardware controls only.</returns>
+    internal static ControllerSelection From(DeviceIntegrationConfig config, ProfileConfig profiles,
+        HandheldDefinition? definition)
     {
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(profiles);
+        var nativeTarget = DeviceCoordinator.NativeTarget(definition);
+        if (definition is { HasController: false })
+        {
+            return new ControllerSelection(false, profiles, "This device definition provides hardware controls only.",
+                nativeTarget);
+        }
+
         var enabled = config is { Enabled: true, ControllerManagementEnabled: true };
         var detail = enabled ? string.Empty : "Controller management is off.";
-        return new ControllerSelection(enabled, profiles, detail);
+        return new ControllerSelection(enabled, profiles, detail, nativeTarget);
     }
 }
 

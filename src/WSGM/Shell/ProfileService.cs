@@ -177,7 +177,7 @@ internal sealed class ProfileService
     internal Task<ProfileSnapshot> SetAsync(ProfileField field, int value,
         CancellationToken cancellationToken = default)
     {
-        return SetAsync(values => Write(values, field, value), $"{field}={value}", ProfileLayer.Active,
+        return SetAsync(values => values.Set(field, value), $"{field}={value}", ProfileLayer.Active,
             cancellationToken);
     }
 
@@ -378,30 +378,6 @@ internal sealed class ProfileService
         var result = await MutateAsync((config, _) => ProfileEdits.DeleteGame(config, id), cancellationToken)
             .ConfigureAwait(false);
         return result.Changed;
-    }
-
-    private static void Write(ProfileValues values, ProfileField field, int value)
-    {
-        switch (field)
-        {
-            case ProfileField.FrameLimit:
-                values.FrameLimit = value;
-                break;
-            case ProfileField.OverlayLevel:
-                values.OverlayLevel = value;
-                break;
-            case ProfileField.UnifiedWatts:
-                values.UnifiedWatts = value;
-                break;
-            case ProfileField.SustainedWatts:
-                values.SustainedWatts = value;
-                break;
-            case ProfileField.AutoTdpTarget:
-                values.AutoTdpTargetFps = value;
-                break;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(field), field, "Not an integer profile field.");
-        }
     }
 
     private async Task<(bool Changed, ProfileSnapshot Snapshot)> MutateAsync(

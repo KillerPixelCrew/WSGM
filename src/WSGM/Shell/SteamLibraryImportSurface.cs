@@ -21,17 +21,6 @@ internal static partial class SteamLibraryImportSurface
     /// <summary>The name the page's gate registers under.</summary>
     public const string GateName = "libraryImport";
 
-    /// <summary>The exact command vocabulary the page emits.</summary>
-    public static IReadOnlyList<string> Commands { get; } =
-    [
-        "scan", "cancel", "toggleEntry", "select", "setMode", "cycleLaunch", "exclude", "include", "details",
-        "openArtwork", "apply", "setSourceEnabled", "setCollections", "addFolder", "removeFolder", "setRoute",
-        "cycleArtwork",
-        "pickArtwork", "clearArtwork", "fillArtwork", "resetArtwork", "artworkOptions", "searchMatch", "setMatch",
-        "addRomSource", "removeRomSource", "addManualSource", "removeManualSource", "setRomEmulator", "setRomTitle",
-        "setCleanup", "recheckAvailability", "setRomArguments", "repairLibrary", "useLibrary"
-    ];
-
     /// <summary>Installs the import renderer and its state subscription.</summary>
     /// <remarks>
     ///     The native components the page draws: Steam's fields, focusables, tabs and modals, and the

@@ -3,26 +3,12 @@ using SteamInterop;
 
 namespace WSGM.Core;
 
-/// <summary>One acquired Steam Input block lease, as <see cref="SteamInputBlocker" /> uses it.</summary>
+/// <summary>One acquired Steam Input block lease over the steam-input-lease pipe client.</summary>
 /// <remarks>
-///     The lease is a pipe into the Steam process, the native boundary the blocker's owner and
-///     reconcile rules sit on top of.
+///     The lease is a pipe into the Steam process, the native boundary the owner and reconcile rules
+///     of <see cref="SteamInputBlocker" /> sit on top of.
 /// </remarks>
-internal interface ISteamInputLeaseHandle : IDisposable
-{
-    /// <summary>Gets the gate's status when the lease was granted.</summary>
-    SteamInputStatus InitialStatus { get; }
-
-    /// <summary>Releases the lease and lets Steam rediscover its controllers.</summary>
-    /// <returns>What the release and its controller recovery did.</returns>
-    SteamInputReleaseOutcome Release();
-
-    /// <summary>Probes the host-side controller recovery for the running Steam build.</summary>
-    void CheckHostRecovery();
-}
-
-/// <summary>The production lease over the steam-input-lease pipe client.</summary>
-internal sealed class SteamInputPipeLease : ISteamInputLeaseHandle
+internal sealed class SteamInputPipeLease : IDisposable
 {
     private readonly SteamInputClient _client;
     private readonly SteamInputBlockLease _lease;
@@ -33,16 +19,17 @@ internal sealed class SteamInputPipeLease : ISteamInputLeaseHandle
         _lease = client.Acquire();
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets the gate's status when the lease was granted.</summary>
     public SteamInputStatus InitialStatus => _lease.InitialStatus;
 
-    /// <inheritdoc />
+    /// <summary>Releases the lease and lets Steam rediscover its controllers.</summary>
+    /// <returns>What the release and its controller recovery did.</returns>
     public SteamInputReleaseOutcome Release()
     {
         return _lease.Release();
     }
 
-    /// <inheritdoc />
+    /// <summary>Probes the host-side controller recovery for the running Steam build.</summary>
     public void CheckHostRecovery()
     {
         _client.CheckRecovery();
@@ -61,7 +48,7 @@ internal sealed class SteamInputPipeLease : ISteamInputLeaseHandle
     ///     The separate launch wrapper has its own explicit injection option. The blocker serializes
     ///     this delegate so its client is created once.
     /// </remarks>
-    internal static Func<ISteamInputLeaseHandle> Connector()
+    internal static Func<SteamInputPipeLease> Connector()
     {
         SteamInputClient? client = null;
         return () => new SteamInputPipeLease(

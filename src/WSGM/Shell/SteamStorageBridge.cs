@@ -72,10 +72,10 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     ///     The format manager enumerates on demand and has no timer of its own, because until now the
     ///     only thing that opened it was the overlay's format page. Steam's pages have no such moment:
     ///     they ask for the state, and a state with no drive rows leaves the block device Steam did get
-    ///     pointing at a parent that is not there. So the enumeration is driven from the one signal that
-    ///     already exists — the drive manager's own list, which it reconciles on a 2 s signature — and
-    ///     once by the session after composition for whatever is already inserted. That keeps this off a
-    ///     poll: disks are re-read when storage changed, not every time Steam asks.
+    ///     pointing at a parent that is not there. So the format targets follow the drive manager's own
+    ///     storage read, which device notifications drive with a slow fallback, and are read once by the
+    ///     session after composition for whatever is already inserted. That keeps this off a poll: disks
+    ///     are re-read when storage changed, not every time Steam asks.
     ///     <para>
     ///         Constructed on the UI thread, which owns both managers' collections.
     ///     </para>
@@ -409,9 +409,10 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
 
         // Ejectable volumes, which may or may not correspond to a format target. An eject row with
         // no matching drive still has to appear: a USB stick is ejectable and not a format target.
+        var registered = RegisteredLibraryPaths();
         var devices = ejectable
             .Where(entry => !entry.Ejected)
-            .Select(entry => BlockDevice(snapshot, entry, volumes))
+            .Select(entry => BlockDevice(snapshot, entry, volumes, registered))
             .Where(device => device.DriveId == 0 || drives.Any(drive => drive.Id == device.DriveId))
             .ToList();
 
@@ -473,9 +474,11 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     /// <param name="snapshot">The rows this state is built from.</param>
     /// <param name="entry">The ejectable volume.</param>
     /// <param name="volumes">What Windows reports about mounted volumes.</param>
+    /// <param name="registered">Every library path Steam registers, read once for this state.</param>
     /// <returns>The row Steam shows under the volume's drive.</returns>
     private SteamStorageBlockDevice BlockDevice(
-        StorageSnapshot snapshot, RemovableDriveEntry entry, IReadOnlyList<StorageVolumeFacts> volumes)
+        StorageSnapshot snapshot, RemovableDriveEntry entry, IReadOnlyList<StorageVolumeFacts> volumes,
+        IReadOnlyList<string> registered)
     {
         // The parent drive is zero rather than a guess when nothing erasable matches: Steam
         // reads it to decide which drive a volume belongs under, and a wrong parent puts the
@@ -486,7 +489,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
         // CardReader" on the drive above. Size is the volume's for the same reason — the
         // entry's is the whole device's, which would report one size on every partition.
         var volume = paths.Count == 0 ? null : FindVolume(volumes, paths[0]);
-        var libraries = paths.Count == 0 ? [] : LibraryPathsOn(paths[0]);
+        var libraries = paths.Count == 0 ? [] : LibraryPathsOn(registered, paths[0]);
         return new SteamStorageBlockDevice(
             IdOf(snapshot.DeviceIds, entry.Id),
             MatchingDrive(snapshot, volume),
@@ -621,6 +624,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     }
 
     /// <summary>Every Steam library registered on a volume, as Steam spells the path.</summary>
+    /// <param name="registered">Steam's registered library paths, read once by the caller.</param>
     /// <param name="path">Any path on the volume, for example <c>D:\</c>.</param>
     /// <returns>The registered library paths on it, which may be empty.</returns>
     /// <remarks>
@@ -631,7 +635,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     ///     only the volume root means the lookup finds nothing, so the eject has nothing to call and
     ///     the press does nothing at all, with no request leaving the client.
     /// </remarks>
-    private static string[] LibraryPathsOn(string path)
+    private static string[] LibraryPathsOn(IReadOnlyList<string> registered, string path)
     {
         var root = SteamLibraryVdf.VolumeRoot(path);
         if (root.Length == 0)
@@ -639,19 +643,22 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
             return [];
         }
 
+        return
+        [
+            .. registered.Where(library => string.Equals(SteamLibraryVdf.VolumeRoot(library), root,
+                StringComparison.OrdinalIgnoreCase))
+        ];
+    }
+
+    /// <summary>Every library path Steam's <c>libraryfolders.vdf</c> registers, read once per state.</summary>
+    /// <returns>The registered paths, empty when Steam's file cannot be read.</returns>
+    private static IReadOnlyList<string> RegisteredLibraryPaths()
+    {
         try
         {
-            if (!Steam.TryReadLibraryFolders(out _, out var vdf) || vdf is null)
-            {
-                return [];
-            }
-
-            return
-            [
-                .. SteamLibraryVdf.ValuesOf(vdf, "path")
-                    .Where(library => string.Equals(SteamLibraryVdf.VolumeRoot(library), root,
-                        StringComparison.OrdinalIgnoreCase))
-            ];
+            return Steam.TryReadLibraryFolders(out _, out var vdf) && vdf is not null
+                ? SteamLibraryVdf.ValuesOf(vdf, "path")
+                : [];
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
                                        or ArgumentException)

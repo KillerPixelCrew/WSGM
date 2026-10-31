@@ -129,23 +129,36 @@ public static class WindowFinder
         var targets = paths.Distinct(StringComparer.OrdinalIgnoreCase).ToDictionary(path => path,
             path => Path.GetFullPath(Environment.ExpandEnvironmentVariables(path)), StringComparer.OrdinalIgnoreCase);
         var result = targets.Keys.ToDictionary(path => path, _ => (bool?)false, StringComparer.OrdinalIgnoreCase);
+        // Process names carry no extension, so targets are grouped by file name once per read.
+        var byName = new Dictionary<string, List<KeyValuePair<string, string>>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var target in targets)
+        {
+            var name = Path.GetFileNameWithoutExtension(target.Value);
+            if (!byName.TryGetValue(name, out var group))
+            {
+                group = [];
+                byName[name] = group;
+            }
+
+            group.Add(target);
+        }
+
         foreach (var process in Process.GetProcesses())
         {
             using (process)
             {
-                var name = string.Empty;
+                List<KeyValuePair<string, string>>? candidates = null;
                 try
                 {
-                    name = process.ProcessName;
-                    var candidates = targets.Where(target => string.Equals(
-                        Path.GetFileNameWithoutExtension(target.Value),
-                        name, StringComparison.OrdinalIgnoreCase)).ToArray();
-                    if (candidates.Length == 0 || process.SessionId != CurrentSessionId)
+                    if (!byName.TryGetValue(process.ProcessName, out candidates)
+                        || process.SessionId != CurrentSessionId)
                     {
                         continue;
                     }
 
-                    var image = process.MainModule?.FileName;
+                    // The limited query right reads an elevated process's image too, where
+                    // MainModule would need a full module snapshot and fails across integrity.
+                    var image = NativeShellProcess.TryGetImagePath(checked((uint)process.Id));
                     foreach (var target in candidates)
                     {
                         if (image is null)
@@ -164,9 +177,12 @@ public static class WindowFinder
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
-                    foreach (var target in targets.Where(target => string.Equals(
-                                 Path.GetFileNameWithoutExtension(target.Value), name,
-                                 StringComparison.OrdinalIgnoreCase)))
+                    if (candidates is null)
+                    {
+                        continue;
+                    }
+
+                    foreach (var target in candidates)
                     {
                         if (result[target.Key] != true)
                         {

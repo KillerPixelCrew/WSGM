@@ -332,32 +332,7 @@ internal sealed partial class GameLibraryService
 
     private Task<SteamUiCommandResult> SaveSources(Action<GameLibraryConfig> change)
     {
-        lock (_gate)
-        {
-            if (Guard() is { } blocked)
-            {
-                return Task.FromResult(blocked);
-            }
-        }
-
-        if (!TryUpdateSettings(change, out var refusal))
-        {
-            return Task.FromResult(refusal);
-        }
-
-        lock (_gate)
-        {
-            if (_disposed)
-            {
-                return Task.FromResult(ShuttingDown);
-            }
-
-            ScanOrQueue();
-        }
-
-        UpdateEmulatorDependencies();
-        Notify();
-        return Task.FromResult(SteamUiCommandResult.Applied);
+        return Task.FromResult(ChangeSettings(change, ScanOrQueue, settled: UpdateEmulatorDependencies));
     }
 
     private static string? RomArgumentsRefusal(IReadOnlyList<string> arguments)

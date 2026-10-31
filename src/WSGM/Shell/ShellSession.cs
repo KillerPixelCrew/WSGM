@@ -304,6 +304,8 @@ public sealed partial class ShellSession
         }
 
         _libraryPolicy = new LibraryPolicy(_steamClient);
+        _tabBootSync = new LibraryTabBootSync(_store, _steamClient, _steamUiReadiness, () => _shutdownRequested,
+            _shutdownCancellation.Token);
         _overlayTestOnly = overlayTestOnly;
         _serviceBoot = serviceBoot;
         // boot.json and its launch arguments are a projection from an earlier config read.
@@ -577,22 +579,29 @@ public sealed partial class ShellSession
                 + "download state is unavailable, so muting will never engage.");
         }
 
-        // Refresh boot.json every session start so a stale Elevate/ExePath heals
-        // itself before the next sign-in.
-        TryStart("boot manifest refresh", () => BootManifestWriter.WriteCurrent(_store.Read(), _store.Context));
-
         // Once the user let Full mode turn the other handheld managers off, keep them off: Handheld
         // Companion's uninstaller re-enables the maker's services, and the Armoury Crate helper then
         // answers the Armoury Crate button with an install dialog. Off the boot path: it reads the task
         // scheduler and waits for windows to close. The same owned task rechecks every five minutes
         // so replacement Acer packages do not regain activation while the session is running.
+        // The boot manifest refresh and the update-failure note run first on the same worker, because
+        // the config read takes the cross-process mutex a Settings save can hold.
         var managerStartupCancellation = _shutdownCancellation.Token;
-        _managerStartup = Task.Run(() => OtherManagers.MaintainAsync(_store, managerStartupCancellation));
-        Log.Observe(_managerStartup, "Other-manager startup reconciliation", true);
-        if (UpdateFailure.Read() is { } updateFailure)
+        _managerStartup = Task.Run(async () =>
         {
-            Log.Warn("Last in-app update: " + updateFailure);
-        }
+            // Refresh boot.json every session start so a stale Elevate/ExePath heals
+            // itself before the next sign-in.
+            TryStart("boot manifest refresh", () => BootManifestWriter.WriteCurrent(_store.Read(), _store.Context));
+            TryStart("update failure report", () =>
+            {
+                if (UpdateFailure.Read() is { } updateFailure)
+                {
+                    Log.Warn("Last in-app update: " + updateFailure);
+                }
+            });
+            await OtherManagers.MaintainAsync(_store, managerStartupCancellation).ConfigureAwait(false);
+        });
+        Log.Observe(_managerStartup, "Other-manager startup reconciliation", true);
 
         // Service boot: the service launches WSGM at WTS_SESSION_LOGON — usually
         // BEFORE Winlogon has even started explorer (device-observed 2026-08-07:
@@ -909,6 +918,8 @@ public sealed partial class ShellSession
         // Artwork reads its providers from the session's live config, so a key entered in Settings
         // applies to the next search rather than the next session.
         var steam = _steamClient ?? throw new InvalidOperationException("The Steam client was not created.");
+        // The one serialized, account-checked path to Steam's shortcuts for the library, availability and emulators.
+        var shortcuts = new SteamShortcutGateway(steam, _libraryImportState);
         TryStart("library manager", () =>
         {
             _libraryManager = new LibraryManagerService(_store, () => _steamClient, () => _config);
@@ -991,7 +1002,7 @@ public sealed partial class ShellSession
             StoreCatalogClient catalog = new();
             GameLibraryArtwork libraryArtwork = new(new ArtworkSearchProviders(() => _config.Artwork));
             // One tracker reports every non-Steam shortcut's availability; the importer reads its results.
-            _contentAvailability = new ShortcutAvailabilityTracker(_libraryImportState, ReadShortcutsAsync,
+            _contentAvailability = new ShortcutAvailabilityTracker(_libraryImportState, shortcuts.ReadShortcutsAsync,
                 () => _emulatorTool?.ReadStore() ?? new EmulatorStore(), _drives, _messageWindow, _emulators);
             _libraryImport = new GameLibraryService(
                 [
@@ -1011,9 +1022,9 @@ public sealed partial class ShellSession
                 ],
                 UninstallEntries.Read,
                 _libraryImportState,
-                CreateSteamShortcutWriter,
-                ReadShortcutsAsync,
-                ReadShortcutAsync,
+                shortcuts.CreateWriter,
+                shortcuts.ReadShortcutsAsync,
+                shortcuts.ReadShortcutAsync,
                 _config.GameLibrary,
                 (appId, images, token) =>
                     SteamArtwork.ApplyManyFromUrlsAsync(steam, appId, images, _config.Artwork, token),
@@ -1029,7 +1040,7 @@ public sealed partial class ShellSession
                     steam.Collections.SyncAsync(id, name, add, remove, true, token),
                 emulators: _emulatorTool,
                 availability: _contentAvailability,
-                readCollections: ReadLibraryCollectionsAsync);
+                readCollections: shortcuts.ReadCollectionsAsync);
             _libraryArtwork = libraryArtwork;
             _libraryImport.Start();
             _contentAvailability.Start();
@@ -1037,8 +1048,8 @@ public sealed partial class ShellSession
 
         _launchActions ??= new LaunchActionService(_store, () => _steamClient,
             () => _config.SteamInputManagementEnabled);
-        _emulatorTool?.AttachSteamShortcuts(_libraryImportState, CreateSteamShortcutWriter,
-            ReadShortcutsAsync, ReadShortcutAsync, () => _config.SteamInputManagementEnabled,
+        _emulatorTool?.AttachSteamShortcuts(_libraryImportState, shortcuts.CreateWriter,
+            shortcuts.ReadShortcutsAsync, shortcuts.ReadShortcutAsync, () => _config.SteamInputManagementEnabled,
             () => _steamUiReadiness.IsReady, async (definition, appId, token) =>
             {
                 var images = await EmulatorShortcutArtwork.FindAsync(definition, _config.Artwork, token)
@@ -1094,7 +1105,7 @@ public sealed partial class ShellSession
                 () => _cefMasterEnabled,
                 () =>
                 {
-                    Dispatcher.UIThread.Post(KickTabBootSync);
+                    Dispatcher.UIThread.Post(_tabBootSync.Kick);
                     return Task.CompletedTask;
                 },
                 _libraryPolicy,
@@ -1165,10 +1176,7 @@ public sealed partial class ShellSession
                 is { } entry
                 ? (entry.Source, entry.Key, entry.Name)
                 : null,
-            _steamClient is null
-                ? null
-                : async (appId, token) =>
-                    (await _steamClient.Apps.ReadDetailsAsync(appId, token).ConfigureAwait(false)).Value?.Name)
+            _steamClient is null ? null : ResolveGameTitleAsync)
         {
             Countdown = new NotesCountdown()
         };
@@ -1528,7 +1536,7 @@ public sealed partial class ShellSession
             _desktopTray?.SetDesktop(true);
             _ = NotifyPluginModeAsync(PluginSessionMode.Desktop);
             RequestSteamUiTransportGateCheck();
-            CancelTabBootSync();
+            _tabBootSync.Cancel();
             // Tabs and the badge are game-mode surfaces; the ACF watcher only exists
             // to keep them fresh, so it stands down with them.
             ApplyCardServices(false);
@@ -1551,7 +1559,7 @@ public sealed partial class ShellSession
             // them all once, under the master gate.
             // Returning from desktop mode disabled tabs/badge and cancelled the boot
             // sync; re-inject them.
-            KickTabBootSync();
+            _tabBootSync.Kick();
         };
         // A fresh Steam start while WSGM keeps running (client update, crash restart)
         // wipes the injected tabs and the resident badge with the old CEF session —
@@ -1571,7 +1579,7 @@ public sealed partial class ShellSession
                 return;
             }
 
-            KickTabBootSync();
+            _tabBootSync.Kick();
         };
         // Steam leaving in game mode closes the transport gate at once, so a restart's
         // fresh, still-headless CEF session cannot be connected before its own Big

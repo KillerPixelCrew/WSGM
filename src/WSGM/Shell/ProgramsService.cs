@@ -188,7 +188,7 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         {
             var entry = _store.Read().RequireConfig().Programs.FirstOrDefault(item => item.Id == id)
                         ?? throw new InvalidOperationException("This program was removed.");
-            var processes = CaptureProcesses();
+            var processes = CaptureProcesses([entry]);
             var matched = Match(entry, processes);
             var window = FindWindow(entry.Id, matched);
             if (window is not null)
@@ -213,7 +213,7 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
                 for (var attempt = 0; attempt < 6; attempt++)
                 {
                     await Task.Delay(250, token).ConfigureAwait(false);
-                    window = FindWindow(entry.Id, Match(entry, CaptureProcesses()));
+                    window = FindWindow(entry.Id, Match(entry, CaptureProcesses([entry])));
                     if (window is not null)
                     {
                         return await FocusAsync(entry.Id, window, token).ConfigureAwait(false);
@@ -278,7 +278,7 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
             for (var attempt = 0; attempt < 16; attempt++)
             {
                 await Task.Delay(250, token).ConfigureAwait(false);
-                matched = Match(entry, CaptureProcesses());
+                matched = Match(entry, CaptureProcesses([entry]));
                 window = FindWindow(entry.Id, matched);
                 if (window is not null)
                 {
@@ -312,7 +312,7 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         NativeMethods.GetWindowThreadProcessId(window.Hwnd, out var owner);
         var definition = _definitions.FirstOrDefault(entry => entry.Id == id);
         if (owner != window.ProcessId || definition is null ||
-            !Match(definition, CaptureProcesses()).Any(process => process.Id == owner))
+            !Match(definition, CaptureProcesses([definition])).Any(process => process.Id == owner))
         {
             return "The application window changed. Invoke the program again.";
         }
@@ -427,7 +427,7 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
             definitions = _definitions;
         }
 
-        var processes = definitions.Length == 0 ? [] : CaptureProcesses();
+        var processes = definitions.Length == 0 ? [] : CaptureProcesses(definitions);
         var states = definitions.Select(entry =>
         {
             var available = Approved(entry.Executable, entry.ExecutableHash, fresh: false);
@@ -585,14 +585,20 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         }
     }
 
-    private static ProgramProcess[] CaptureProcesses()
+    /// <summary>Inspects only processes whose image name a definition can match or be blocked by.</summary>
+    private static ProgramProcess[] CaptureProcesses(IEnumerable<ProgramDefinition> definitions)
     {
+        // Matching compares exact image paths and HasUnknownCandidate compares names, so a process
+        // with any other name is never opened for its session, exit state or image path.
+        var names = definitions.SelectMany(entry => new[] { entry.Executable, entry.UiExecutable })
+            .Where(path => path.Length > 0).Select(Path.GetFileNameWithoutExtension)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         List<ProgramProcess> result = [];
         foreach (var process in Process.GetProcesses())
         {
             using (process)
             {
-                if (ReadProcess(process, started: false) is { } captured)
+                if (names.Contains(process.ProcessName) && ReadProcess(process, started: false) is { } captured)
                 {
                     result.Add(captured);
                 }

@@ -293,15 +293,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _patches.SetGlobalEnabled(false);
             // Traffic in both directions is the runtime's; which patches are applied when stays here,
             // because that is this application's policy and not a general rule.
-            // The library badge can be the only thing on: it reports the Home layout back and needs
-            // its libraries published, so both directions stay open for it without native Quick Access.
-            // The download sort can be too, and it reports the queue positions Steam refused.
+            // Both directions follow the host surfaces, which every other surface implies: the library
+            // badge reports the Home layout back and the download sort the queue positions Steam
+            // refused, with or without native Quick Access.
             _runtime = new SteamUiModuleRuntime(
                 _bridge,
                 modules,
                 _patches,
-                () => PublishWanted(_switches),
-                () => BootstrapWanted(_switches));
+                () => _switches.HostSurfaces,
+                () => _switches.HostSurfaces);
         }
         catch
         {
@@ -669,11 +669,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     internal void Apply(SteamUiSurfaceSwitches next)
     {
         ArgumentNullException.ThrowIfNull(next);
-        if (_displayTimeouts is null)
-        {
-            next = next with { ScreensaverRows = false };
-        }
-
         SteamUiSurfaceSwitches previous;
         lock (_switchGate)
         {
@@ -700,7 +695,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             CancelAllInflightRequests();
         }
 
-        if (previous.ScreensaverRows && !next.ScreensaverRows)
+        if (ScreensaverRowsWanted(previous) && !ScreensaverRowsWanted(next))
         {
             _displayTimeouts?.ForgetSteam();
             if (_screensavers is not null)
@@ -734,9 +729,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private void ApplySwitchStates()
     {
         var switches = _switches;
-        SetPatchStates(switches, BootstrapWanted(switches));
+        SetPatchStates(switches);
         SetGlyphDeliveryPatchStates(switches);
-        _patches.SetPatchEnabled(_overlayActivation.Id, switches.SurfaceObservation);
+        _patches.SetPatchEnabled(_overlayActivation.Id, switches.HostSurfaces);
         if (AnyPatchWanted(switches))
         {
             _patches.SetGlobalEnabled(true);
@@ -756,37 +751,20 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         return LibraryBadges.HasManagedShortcuts && LibraryAvailabilityWanted(switches);
     }
 
-    /// <summary>Whether any surface that runs without native Quick Access is on.</summary>
-    private static bool IndependentSurfacesEnabled(SteamUiSurfaceSwitches switches)
+    /// <summary>Whether the Screensaver rows are wanted: they follow the host surfaces and need a timeout owner.</summary>
+    private bool ScreensaverRowsWanted(SteamUiSurfaceSwitches switches)
     {
-        return switches.NetworkIndicator
-               || switches.HostSurfaces
-               || switches.LibraryBadge
-               || switches.HomeCarousel
-               || switches.ScreensaverRows
-               || switches.DownloadSort;
-    }
-
-    /// <summary>Whether the bridge bootstrap is needed: native QAM, or a surface that works without it.</summary>
-    private static bool BootstrapWanted(SteamUiSurfaceSwitches switches)
-    {
-        return switches.NativeQuickAccess || IndependentSurfacesEnabled(switches);
-    }
-
-    /// <summary>Whether states are published and requests answered at all.</summary>
-    /// <remarks>
-    ///     The library badge and the download sort can be the only thing on, and both report back.
-    /// </remarks>
-    private static bool PublishWanted(SteamUiSurfaceSwitches switches)
-    {
-        return switches.NativeQuickAccess || switches.HostSurfaces || switches.LibraryBadge
-               || switches.HomeCarousel || switches.ScreensaverRows || switches.DownloadSort;
+        return switches.HostSurfaces && _displayTimeouts is not null;
     }
 
     /// <summary>Whether any patch at all should stay applied, so the global switch stays on.</summary>
+    /// <remarks>
+    ///     The host surfaces carry the bridge bootstrap, the publication and every other surface;
+    ///     only the glyph stylesheet is delivered without the bridge.
+    /// </remarks>
     private bool AnyPatchWanted(SteamUiSurfaceSwitches switches)
     {
-        return BootstrapWanted(switches) || _glyphDeliveryEnabled || switches.SurfaceObservation;
+        return switches.HostSurfaces || _glyphDeliveryEnabled;
     }
 
     /// <summary>Returns the immutable patch-registry view used by diagnostics and isolated tests.</summary>
@@ -908,10 +886,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // Every surface switch belongs here: a Steam restart replaces the SharedJSContext
         // generation, and a surface that is the only thing on would otherwise never be reapplied.
         var switches = _switches;
-        if (BootstrapWanted(switches)
+        if (switches.HostSurfaces
             || switches.Glyphs
-            || _glyphDeliveryEnabled
-            || switches.SurfaceObservation)
+            || _glyphDeliveryEnabled)
         {
             QueueSynchronization();
         }
@@ -951,10 +928,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
         ReconcileScreensaverReport();
         ReconcileWsgmSettingsMenu();
-        // Every surface that runs without native Quick Access keeps the bootstrap up. Only
-        // the network indicator used to count here, so with Quick Access off the library
-        // badge, the Home carousel and the screensaver rows were retracted after each pass.
-        if (BootstrapWanted(_switches))
+        // The host surfaces keep the bootstrap up, with or without native Quick Access, so the
+        // library badge, the Home carousel and the screensaver rows are never retracted after a pass.
+        if (_switches.HostSurfaces)
         {
             QueueStatePublication();
             return;
@@ -1315,7 +1291,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (_displayTimeouts is { } timeouts)
         {
             modules.Add(SteamScreensaverSurface.Module(
-                () => _switches.ScreensaverRows,
+                () => ScreensaverRowsWanted(_switches),
                 () => new ValueTask<SteamScreensaverState?>(timeouts.ReadState() with
                 {
                     Activity = _screensaverInput.Read(),
@@ -1696,8 +1672,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     /// <summary>Sets every registered patch's switch from the given switches. The caller holds <c>_switchGate</c>.</summary>
     /// <param name="switches">The switches in force.</param>
-    /// <param name="bootstrap">Whether the bridge stays applied.</param>
-    private void SetPatchStates(SteamUiSurfaceSwitches switches, bool bootstrap)
+    private void SetPatchStates(SteamUiSurfaceSwitches switches)
     {
         // The registry is the source of truth for which patches exist; a hand-kept id list here
         // drifts. Glyphs and download sorting have independent switches; the network gate may also
@@ -1718,8 +1693,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                     => LibraryAvailabilityWanted(switches),
                 SteamLibraryBadgeSurface.AvailabilityPatchId => ManagedAvailabilityWanted(switches),
                 SteamHomeCarouselSurface.PatchId => switches.HomeCarousel,
-                SteamScreensaverSurface.PatchId => switches.ScreensaverRows,
-                SteamUiBridgePatch.PatchId => bootstrap,
+                SteamScreensaverSurface.PatchId => ScreensaverRowsWanted(switches),
+                SteamUiBridgePatch.PatchId => host,
                 SteamNetworkSurface.PatchId => components || switches.NetworkIndicator,
                 // Host-rendered surfaces follow CEF itself. Native Quick Access can be off while a
                 // user still wants the artwork page and the plugin tab.

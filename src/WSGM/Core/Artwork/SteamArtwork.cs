@@ -172,7 +172,7 @@ internal static class SteamArtwork
             return new ArtworkResult("The image was empty.");
         }
 
-        if (ImageFormat(imageBytes) is not { } format)
+        if (ImageHeader.Format(imageBytes) is not { } format)
         {
             return new ArtworkResult("The image is not a PNG, JPEG, WEBP or ICO file.");
         }
@@ -224,34 +224,6 @@ internal static class SteamArtwork
         }
 
         return interpreted;
-    }
-
-    /// <summary>Which of the formats Steam takes for artwork an image's first bytes declare.</summary>
-    /// <param name="bytes">The image.</param>
-    /// <returns><c>png</c>, <c>jpg</c>, <c>webp</c> or <c>ico</c>, or null for anything else.</returns>
-    /// <remarks>
-    ///     The bytes decide, never the address they came from. A provider's media endpoint answers
-    ///     every format under one URL, and Steam files an image under the extension it is told, so a
-    ///     JPEG named as a PNG shows as a blank tile.
-    /// </remarks>
-    internal static string? ImageFormat(ReadOnlySpan<byte> bytes)
-    {
-        if (bytes.StartsWith((ReadOnlySpan<byte>)[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))
-        {
-            return "png";
-        }
-
-        if (bytes.StartsWith((ReadOnlySpan<byte>)[0xFF, 0xD8, 0xFF]))
-        {
-            return "jpg";
-        }
-
-        if (bytes.Length >= 12 && bytes.StartsWith("RIFF"u8) && bytes[8..12].SequenceEqual("WEBP"u8))
-        {
-            return "webp";
-        }
-
-        return bytes.StartsWith((ReadOnlySpan<byte>)[0x00, 0x00, 0x01, 0x00]) ? "ico" : null;
     }
 
     /// <summary>Resets an artwork slot back to Steam's official art.</summary>
@@ -462,7 +434,7 @@ internal static class SteamArtwork
             return new ArtworkResult(ex.Message);
         }
 
-        return ImageFormat(bytes) is { } format
+        return ImageHeader.Format(bytes) is { } format
             ? await ApplyIconAsync(steam, appId, bytes, format, cancellationToken).ConfigureAwait(false)
             : new ArtworkResult("Steam's official icon was not an image WSGM can apply.");
     }

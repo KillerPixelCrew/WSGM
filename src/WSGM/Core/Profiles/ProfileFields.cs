@@ -273,6 +273,36 @@ public static class ProfileFields
         return true;
     }
 
+    /// <summary>Stores an integer field's value in a layer.</summary>
+    /// <param name="values">The layer.</param>
+    /// <param name="field">An integer field.</param>
+    /// <param name="value">The value to store.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The field is not an integer profile field.</exception>
+    public static void Set(this ProfileValues values, ProfileField field, int value)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+        switch (field)
+        {
+            case ProfileField.FrameLimit:
+                values.FrameLimit = value;
+                break;
+            case ProfileField.OverlayLevel:
+                values.OverlayLevel = value;
+                break;
+            case ProfileField.UnifiedWatts:
+                values.UnifiedWatts = value;
+                break;
+            case ProfileField.SustainedWatts:
+                values.SustainedWatts = value;
+                break;
+            case ProfileField.AutoTdpTarget:
+                values.AutoTdpTargetFps = value;
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(field), field, "Not an integer profile field.");
+        }
+    }
+
     /// <summary>Finds one stored device value.</summary>
     /// <param name="values">The layer.</param>
     /// <param name="deviceIdentityKey">The device.</param>

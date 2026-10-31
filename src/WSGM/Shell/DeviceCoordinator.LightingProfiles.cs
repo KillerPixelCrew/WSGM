@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Overlay;
 
 namespace WSGM.Shell;
@@ -286,6 +287,51 @@ internal sealed partial class DeviceCoordinator
                 ? $"Applied to {applied} lighting zone(s)."
                 : $"Applied to {applied} of {zones.Length} lighting zones. {failure}",
             failure is null ? DescriptorStatus.Available : DescriptorStatus.Warning);
+    }
+
+    /// <summary>Rewrites every desired lighting value once after a power transition.</summary>
+    /// <remarks>
+    ///     A transition can leave lighting at its firmware default, so the replay also writes a value that
+    ///     already reads back as desired. It still skips an unavailable or pending zone and never repeats an
+    ///     uncertain write.
+    /// </remarks>
+    private void ReplayLightingAfterTransition(string reason)
+    {
+        if (_disposed || !IntegrationEnabled || State is not (DeviceCycleState.Active or DeviceCycleState.Degraded))
+        {
+            return;
+        }
+
+        _lightingRestore.Reset();
+        Observe(Task.Run(async () =>
+            {
+                await _profileReconcileGate.WaitAsync(_lifetime.Token).ConfigureAwait(false);
+                try
+                {
+                    await ReconcileLightingProfileAsync(Profiles.Current, _lifetime.Token,
+                        restoreAccepted: true).ConfigureAwait(false);
+                    foreach (var view in Capabilities.Snapshot().Where(view =>
+                                 DeviceLightingRestore.IsLighting(view.Descriptor.Role)
+                                 && !OwnsLightingProfile(view)))
+                    {
+                        if (!view.Projection.State.Available || view.Projection.DesiredValue is not { } desired
+                                                             || DeviceDesiredWriteAdmission.RepeatsUncertain(view,
+                                                                 desired)
+                                                             || view.Projection.PendingValue is not null)
+                        {
+                            continue;
+                        }
+
+                        await ExecuteCapabilityAsync(view.Descriptor.CapabilityId, view.Descriptor.InstanceId, desired,
+                            TimeSpan.FromSeconds(5), CapabilityCommandOrigin.DesiredStateRestore,
+                            cancellationToken: _lifetime.Token).ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    _profileReconcileGate.Release();
+                }
+            }), $"lighting restore after {reason}");
     }
 
     private void SetLightingProfileStatus(string? detail, DescriptorStatus status)

@@ -180,6 +180,17 @@ internal interface IArtworkProvider
     }
 }
 
+/// <summary>An artwork provider could not answer: a failure the user should see, never "no images".</summary>
+/// <param name="message">What went wrong, in words the page shows.</param>
+/// <param name="providerId">The provider that failed, when known.</param>
+/// <param name="paused">Whether further requests must wait for credentials or an allowance reset.</param>
+internal class ArtworkProviderException(string message, string providerId = "", bool paused = false)
+    : Exception(message)
+{
+    internal string ProviderId { get; } = providerId;
+    internal bool Paused { get; } = paused;
+}
+
 /// <summary>What one provider contributed to a search, including the reason it contributed nothing.</summary>
 /// <param name="ProviderName">The provider's display name.</param>
 /// <param name="Status">Whether it was searched at all.</param>

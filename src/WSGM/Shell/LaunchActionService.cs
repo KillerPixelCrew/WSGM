@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
@@ -83,9 +84,9 @@ internal sealed class LaunchActionService : IChangeSource
             var details = _steam() is { } steam
                 ? await SteamLaunchConfig.ReadAsync(steam, appId, token).ConfigureAwait(false)
                 : null;
-            var snapshot = await LaunchWrapperStore.FindAsync(_store, appId, token).ConfigureAwait(false);
+            var snapshot = await FindSnapshotAsync(appId, token).ConfigureAwait(false);
             var canRestore = snapshot is not null && (!shortcut || !string.IsNullOrWhiteSpace(snapshot.OriginalTarget));
-            var mode = details is null ? LaunchWrapperMode.None : SteamLaunchConfig.ModeFor(shortcut, details);
+            var mode = details is null ? LaunchWrapperMode.None : LaunchWrapperCommand.ModeFor(shortcut, details);
             var custom = details is not null && snapshot?.Kind == LaunchConfigurationKind.CustomAction
                 && MatchesCustom(shortcut, details, snapshot);
             var ownership = details is null ? "Unknown" : custom ? "Custom launch action" : Label(mode);
@@ -180,7 +181,7 @@ internal sealed class LaunchActionService : IChangeSource
                 return new LaunchConfigResult(false, "Steam didn't answer.");
             }
 
-            var existing = await LaunchWrapperStore.FindAsync(_store, appId, token).ConfigureAwait(false);
+            var existing = await FindSnapshotAsync(appId, token).ConfigureAwait(false);
             LaunchConfigResult result;
             if (mode == LaunchWrapperMode.None && path is null)
             {
@@ -192,7 +193,7 @@ internal sealed class LaunchActionService : IChangeSource
                 result = await SteamLaunchConfig.RestoreAsync(steam, existing, token).ConfigureAwait(false);
                 if (result.Confirmed)
                 {
-                    await LaunchWrapperStore.ForgetAsync(_store, appId).ConfigureAwait(false);
+                    await ForgetSnapshotAsync(appId).ConfigureAwait(false);
                 }
             }
             else
@@ -229,7 +230,7 @@ internal sealed class LaunchActionService : IChangeSource
                 snapshot.CustomArguments = arguments;
                 snapshot.Name = current.Name ?? existing?.Name ?? appId.ToString(CultureInfo.InvariantCulture);
                 // Persist BEFORE the write; on an uncertain answer this is the only recoverable original.
-                await LaunchWrapperStore.RememberAsync(_store, snapshot).ConfigureAwait(false);
+                await RememberSnapshotAsync(snapshot).ConfigureAwait(false);
                 result = path is null
                     ? await SteamLaunchConfig.ApplyAsync(steam, appId, shortcut, mode, baseline, token).ConfigureAwait(false)
                     : await SteamLaunchConfig.ApplyCustomAsync(steam, appId, shortcut, path, arguments, token).ConfigureAwait(false);
@@ -237,11 +238,11 @@ internal sealed class LaunchActionService : IChangeSource
                 {
                     if (existing is null)
                     {
-                        await LaunchWrapperStore.ForgetAsync(_store, appId).ConfigureAwait(false);
+                        await ForgetSnapshotAsync(appId).ConfigureAwait(false);
                     }
                     else
                     {
-                        await LaunchWrapperStore.RememberAsync(_store, existing).ConfigureAwait(false);
+                        await RememberSnapshotAsync(existing).ConfigureAwait(false);
                     }
                 }
             }
@@ -282,7 +283,7 @@ internal sealed class LaunchActionService : IChangeSource
     internal static LaunchWrapperConfig? CaptureSnapshot(long appId, bool shortcut, SteamAppDetails current,
         LaunchWrapperConfig? existing)
     {
-        var original = SteamLaunchConfig.OriginalsFrom(shortcut, current);
+        var original = LaunchWrapperCommand.OriginalsFrom(shortcut, current);
         if (existing is null && shortcut && LaunchWrapperCommand.TargetsHelper(current.ShortcutExe)
             && (string.IsNullOrWhiteSpace(original.Target) || LaunchWrapperCommand.TargetsHelper(original.Target)))
         {
@@ -297,6 +298,36 @@ internal sealed class LaunchActionService : IChangeSource
             OriginalLaunchOptions = existing?.OriginalLaunchOptions ?? original.LaunchOptions,
             OriginalStartDir = existing?.OriginalStartDir ?? original.StartDir
         };
+    }
+
+    /// <summary>Finds the launch configuration a game had before WSGM changed it.</summary>
+    private Task<LaunchWrapperConfig?> FindSnapshotAsync(long appId, CancellationToken cancellationToken)
+    {
+        return Task.Run(
+            () => _store.Read().RequireConfig().LaunchWrappers.FirstOrDefault(w => w.AppId == appId),
+            cancellationToken);
+    }
+
+    /// <summary>Records (or replaces) a game's original launch configuration so Remove can restore it.</summary>
+    private Task RememberSnapshotAsync(LaunchWrapperConfig snapshot)
+    {
+        return Task.Run(() => _store.Update(config =>
+        {
+            config.LaunchWrappers.RemoveAll(w => w.AppId == snapshot.AppId);
+            config.LaunchWrappers.Add(snapshot);
+
+            return true;
+        }));
+    }
+
+    /// <summary>Drops a game's snapshot once its launch configuration is restored.</summary>
+    private Task ForgetSnapshotAsync(long appId)
+    {
+        return Task.Run(() => _store.Update(config =>
+        {
+            config.LaunchWrappers.RemoveAll(w => w.AppId == appId);
+            return true;
+        }));
     }
 
     private static bool MatchesCustom(bool shortcut, SteamAppDetails current, LaunchWrapperConfig snapshot)

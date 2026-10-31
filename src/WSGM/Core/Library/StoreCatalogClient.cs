@@ -82,11 +82,7 @@ public sealed class StoreCatalogClient
     {
         if (fetch is null)
         {
-            _http = new HttpClient
-            {
-                Timeout = TimeSpan.FromSeconds(20),
-                MaxResponseContentBufferSize = 4 * 1024 * 1024
-            };
+            _http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
         }
 
         _fetch = fetch ?? DefaultFetchAsync;

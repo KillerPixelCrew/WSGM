@@ -82,6 +82,7 @@ internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
     private readonly CommonPluginManager? _manager;
     private readonly object _pinsGate = new();
     private readonly ConfigStore _store;
+    private volatile PluginInstanceIdentity[] _deviceIdentities = [];
     private PluginWidgetPin[] _pins;
 
     /// <summary>Connects widget presentation and explicit user intent to existing plugin/device owners.</summary>
@@ -111,6 +112,10 @@ internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
     /// <inheritdoc />
     public PluginOverlayInstance[] Snapshot()
     {
+        // Device rows are routed by the identities this snapshot showed, so State and InvokeAsync
+        // never rebuild the device projection just to answer which owner an identity belongs to.
+        var device = Device?.Snapshot() ?? [];
+        _deviceIdentities = [.. device.Select(instance => instance.Identity)];
         return
         [
             .. (_manager?.Snapshot() ?? []).Select(instance =>
@@ -128,14 +133,14 @@ internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
                     Category = instance.Manifest.Category
                 };
             }),
-            .. Device?.Snapshot() ?? []
+            .. device
         ];
     }
 
     /// <inheritdoc />
     public PluginStatePublication[] State(PluginInstanceIdentity identity)
     {
-        return Device?.Snapshot().Any(instance => instance.Identity == identity) == true
+        return Device is not null && _deviceIdentities.Contains(identity)
             ? Device.State(identity)
             : _host.StateSnapshot(identity);
     }
@@ -144,7 +149,7 @@ internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
     public Task<PluginActionResult> InvokeAsync(PluginInstanceIdentity identity, long generation,
         string action, IReadOnlyDictionary<string, PluginValue> arguments, CancellationToken cancellationToken)
     {
-        return Device?.Snapshot().Any(instance => instance.Identity == identity) == true
+        return Device is not null && _deviceIdentities.Contains(identity)
             ? Device.InvokeAsync(identity, generation, action, arguments, cancellationToken)
             : _host.InvokeActionAsync(identity, generation, action, arguments, PluginActionOrigin.User,
                 Deadline.After(TimeSpan.FromSeconds(10)), cancellationToken);

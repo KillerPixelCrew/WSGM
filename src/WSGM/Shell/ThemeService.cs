@@ -59,9 +59,9 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     private readonly Func<string?> _steamDirectory;
     private readonly Lock _sync = new();
 
-    // Every background task this service started and has not seen finish: store reads, installs,
-    // the junction, the translations loop and update checks. Guarded by _sync; the session joins them.
-    private readonly List<Task> _work = [];
+    // The store operation and every background task this service started and has not seen finish:
+    // store reads, installs, the junction, the translations loop and update checks. The session joins them.
+    private readonly ServiceOperation _operation;
     private readonly Action<Action<ThemesConfig>> _writeConfig;
     private string _activeTab = "browse";
     private string? _browseError;
@@ -72,16 +72,13 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     private ThemeStoreQuery _browseQuery = ThemeStoreQuery.Default;
     private int _browseSequence;
     private int _browseTotal;
-    private bool _busy;
     private ThemesConfig _config;
     private SteamThemesDetail? _detail;
     private bool _disposed;
-    private string? _error;
 
     // What the loader held after its last change, published under _sync for every reader.
     private IReadOnlyList<ThemeSnapshot> _installed = [];
     private IReadOnlyList<ThemeLoadError> _loadErrors = [];
-    private string? _notice;
     private long _revision;
     private bool _steamBeta;
     private string _steamLink = "Not checked yet.";
@@ -112,6 +109,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         _writeConfig = writeConfig;
         _steamDirectory = steamDirectory;
         _config = readConfig();
+        _operation = new ServiceOperation(_sync);
     }
 
     /// <summary>The revision of the state <see cref="ReadState" /> answers.</summary>
@@ -128,17 +126,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
 
     /// <summary>Completes when every background task this service started has finished.</summary>
     /// <remarks>The session joins it after <see cref="Dispose" /> cancelled the work, within its deadline.</remarks>
-    internal Task Completion
-    {
-        get
-        {
-            lock (_sync)
-            {
-                _work.RemoveAll(static task => task.IsCompleted);
-                return Task.WhenAll(_work);
-            }
-        }
-    }
+    internal Task Completion => _operation.Completion;
 
     /// <summary>Raised on every change the page, the section or the overlay should draw.</summary>
     public event Action? Changed;
@@ -373,7 +361,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         }
 
         Publish(false);
-        Track(Task.Run(() => FetchPageAsync(query, sequence, false, _shutdown.Token)));
+        _operation.Track(Task.Run(() => FetchPageAsync(query, sequence, false, _shutdown.Token)));
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
@@ -402,7 +390,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         }
 
         Publish(false);
-        Track(Task.Run(() => FetchPageAsync(query, sequence, true, _shutdown.Token)));
+        _operation.Track(Task.Run(() => FetchPageAsync(query, sequence, true, _shutdown.Token)));
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
@@ -424,7 +412,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         }
 
         Publish(false);
-        Track(Task.Run(() => FetchDetailAsync(id, _shutdown.Token)));
+        _operation.Track(Task.Run(() => FetchDetailAsync(id, _shutdown.Token)));
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
@@ -729,22 +717,11 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     {
         lock (_sync)
         {
-            _notice = null;
-            _error = null;
+            _operation.Clear();
         }
 
         Publish(false);
         return Task.FromResult(SteamUiCommandResult.Applied);
-    }
-
-    /// <summary>Keeps a background task for <see cref="Completion" />, dropping those already finished.</summary>
-    private void Track(Task task)
-    {
-        lock (_sync)
-        {
-            _work.RemoveAll(static finished => finished.IsCompleted);
-            _work.Add(task);
-        }
     }
 
     /// <summary>Turns installing themes into Steam on or off.</summary>
@@ -773,7 +750,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         var result = ChangeConfig(config => config.TranslationsBranch = branch, true);
         if (result.Succeeded && branchChanged)
         {
-            Track(Task.Run(() => FetchTranslationsOnceAsync(_shutdown.Token)));
+            _operation.Track(Task.Run(() => FetchTranslationsOnceAsync(_shutdown.Token)));
         }
 
         return Task.FromResult(result);
@@ -858,7 +835,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
             }
 
             // Creating the junction can wait on a child process; the session start does not.
-            Track(Task.Run(() =>
+            _operation.Track(Task.Run(() =>
             {
                 var link = ThemePaths.EnsureSteamLink(steam, _loader.Root);
                 lock (_sync)
@@ -890,8 +867,8 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
             $"Themes: {installed.Count} themes read from {_loader.Root}, "
             + $"{installed.Count(theme => theme.Enabled)} enabled, {refused} refused.");
         Publish(true);
-        Track(Task.Run(() => FetchTranslationsLoopAsync(_shutdown.Token)));
-        Track(Task.Run(() => CheckUpdatesAsync(_shutdown.Token)));
+        _operation.Track(Task.Run(() => FetchTranslationsLoopAsync(_shutdown.Token)));
+        _operation.Track(Task.Run(() => CheckUpdatesAsync(_shutdown.Token)));
     }
 
     /// <summary>Takes the reloaded configuration.</summary>
@@ -1006,9 +983,9 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
                 _detail,
                 settings,
                 _loadErrors,
-                _busy,
-                _notice,
-                _error,
+                _operation.Busy,
+                _operation.Notice,
+                _operation.Error,
                 _updates.Values.Count(update => update.Status == ThemeStates.Outdated),
                 _revision);
         }
@@ -1018,7 +995,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     {
         lock (_sync)
         {
-            _error = error;
+            _operation.Error = error;
         }
 
         Publish(false);
@@ -1029,8 +1006,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     {
         lock (_sync)
         {
-            _notice = notice;
-            _error = null;
+            _operation.SetNotice(notice);
         }
     }
 
@@ -1038,7 +1014,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     {
         lock (_sync)
         {
-            return _busy;
+            return _operation.Busy;
         }
     }
 
@@ -1063,28 +1039,13 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     /// </param>
     private Task<SteamUiCommandResult> StartWorkAsync(Func<CancellationToken, Task<string>> work, bool reload = false)
     {
-        lock (_sync)
-        {
-            if (_busy)
-            {
-                return Task.FromResult(new SteamUiCommandResult(false, "Another theme operation is still running."));
-            }
-
-            _busy = true;
-            _error = null;
-            _notice = null;
-        }
-
-        Publish(false);
-        Track(Task.Run(async () =>
-        {
-            string? notice = null;
-            string? error = null;
-            try
+        return Task.FromResult(_operation.Start(
+            "Another theme operation is still running.",
+            async () =>
             {
                 try
                 {
-                    notice = await work(_shutdown.Token).ConfigureAwait(false);
+                    return await work(_shutdown.Token).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -1093,35 +1054,23 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
                         Reload();
                     }
                 }
-            }
-            catch (OperationCanceledException)
-            {
-                error = "Cancelled.";
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                error = ex.Message;
-            }
-
-            finally
+            },
+            static ex => ex.Message,
+            () => Publish(false),
+            (_, error) =>
             {
                 lock (_sync)
                 {
-                    _busy = false;
-                    _notice = notice;
-                    _error = error;
                     _stylesDirty = true;
                 }
-            }
 
-            if (error is not null)
-            {
-                Log.Warn($"Themes: {error}");
-            }
+                if (error is not null)
+                {
+                    Log.Warn($"Themes: {error}");
+                }
 
-            Publish(true);
-        }));
-        return Task.FromResult(SteamUiCommandResult.Applied);
+                Publish(true);
+            }));
     }
 
     private async Task UpdateOneAsync(string name, string id, CancellationToken cancellationToken)
@@ -1145,7 +1094,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
             Capture();
         }
 
-        Track(Task.Run(() => CheckUpdatesAsync(_shutdown.Token)));
+        _operation.Track(Task.Run(() => CheckUpdatesAsync(_shutdown.Token)));
     }
 
     private async Task FetchPageAsync(ThemeStoreQuery query, int sequence, bool append,

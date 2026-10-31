@@ -1409,6 +1409,22 @@ public sealed class SdFormatManager(
             : (null, -1);
     }
 
+    /// <summary>A content id no library in Steam's libraryfolders.vdf already uses.</summary>
+    /// <param name="configText">Steam's libraryfolders.vdf, or null when it could not be read.</param>
+    private static string NewContentId(string? configText)
+    {
+        var taken = new HashSet<string>(StringComparer.Ordinal);
+        if (configText is not null)
+        {
+            foreach (var id in SteamLibraryVdf.ValuesOf(configText, "contentid"))
+            {
+                taken.Add(id);
+            }
+        }
+
+        return SteamLibraryVdf.GenerateContentId(taken);
+    }
+
     /// <summary>
     ///     Creates the card-side Steam library (marker VDF, steamapps,
     ///     steam.dll) through the verified volume root, registers it in Steam's config
@@ -1425,16 +1441,7 @@ public sealed class SdFormatManager(
 
         var steamExe = _operations.ReadSteam().ExePath;
         var (configPath, configText) = _operations.ReadLibraryFolders();
-        var taken = new HashSet<string>(StringComparer.Ordinal);
-        if (configText is not null)
-        {
-            foreach (var id in SteamLibraryVdf.ValuesOf(configText, "contentid"))
-            {
-                taken.Add(id);
-            }
-        }
-
-        var contentId = SteamLibraryVdf.GenerateContentId(taken);
+        var contentId = NewContentId(configText);
 
         // Steam drops a copy of its current client dll into every secondary
         // library root; version skew is tolerated, so this is create-time only.
@@ -1643,28 +1650,15 @@ public sealed class SdFormatManager(
 
         // An existing library keeps its identity; only a fresh folder gets a
         // marker (and Steam's client dll) written.
-        var markerPath = Path.Combine(libraryPath, "libraryfolder.vdf");
         string contentId;
-        if (File.Exists(markerPath)
-            && SteamLibraryVdf.ValuesOf(File.ReadAllText(markerPath), "contentid")
-                is { Count: > 0 } existing
-            && existing[0].Length > 0)
+        if (_operations.ReadMarker(libraryPath) is ({ Length: > 0 } existingId, _))
         {
-            contentId = existing[0];
+            contentId = existingId;
             Info($"Format: existing library found (contentid {contentId}).");
         }
         else
         {
-            var taken = new HashSet<string>(StringComparer.Ordinal);
-            if (configText is not null)
-            {
-                foreach (var id in SteamLibraryVdf.ValuesOf(configText, "contentid"))
-                {
-                    taken.Add(id);
-                }
-            }
-
-            contentId = SteamLibraryVdf.GenerateContentId(taken);
+            contentId = NewContentId(configText);
             WriteMarkerAndClientDll(libraryPath, contentId, steamExe, "");
         }
 

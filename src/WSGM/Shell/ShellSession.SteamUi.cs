@@ -29,11 +29,8 @@ public sealed partial class ShellSession
     // The master-switch applies and the Big Picture restore still running, joined at shutdown.
     private readonly Lock _steamUiWorkGate = new();
 
-    // The tab boot sync is one worker started with the session. A request supersedes the pass in
-    // flight; a cancel drops it and any request not yet started. Only the worker creates and disposes
-    // a pass's source, always under _tabBootGate, so a disposed source is never cancelled.
-    private readonly Lock _tabBootGate = new();
-    private readonly SemaphoreSlim _tabBootSignal = new(0, 1);
+    // The library-tab boot sync, kicked on every Steam UI trigger and cancelled during a retraction.
+    private readonly LibraryTabBootSync _tabBootSync;
 
     // The transport's enabled flag is the one choke point every automatic CEF touch
     // passes: the patch host, the running-application probe and the static
@@ -61,9 +58,6 @@ public sealed partial class ShellSession
     private long _steamUiResumeSettledAt;
 
     private Task _steamUiWork = Task.CompletedTask;
-    private CancellationTokenSource? _tabBootPass;
-    private bool _tabBootRequested;
-    private Task? _tabBootWorker;
 
     private Task? _transportGateWork;
 
@@ -450,7 +444,7 @@ public sealed partial class ShellSession
                 // One apply of every surface, the glyph profile included: DisableAsync cleared them
                 // all, and a device publication may already have arrived during the retraction.
                 ApplySteamUiSurfaces();
-                KickTabBootSync();
+                _tabBootSync.Kick();
             }, DispatcherPriority.Normal, _shutdownCancellation.Token);
         }
         finally
@@ -626,95 +620,6 @@ public sealed partial class ShellSession
         }
     }
 
-    /// <summary>
-    ///     Asks the boot-sync worker for a fresh pass (waits for Steam's UI, then injects tabs and
-    ///     pushes the badge map), superseding the one in flight. Safe to call on every trigger: rapid
-    ///     requests collapse into one pass after the last of them.
-    /// </summary>
-    private void KickTabBootSync()
-    {
-        lock (_tabBootGate)
-        {
-            if (_shutdownRequested)
-            {
-                return;
-            }
-
-            _tabBootRequested = true;
-            _tabBootPass?.Cancel();
-            _tabBootWorker ??= Task.Run(() => RunTabBootSyncWorkerAsync(_shutdownCancellation.Token));
-            if (_tabBootSignal.CurrentCount == 0)
-            {
-                _tabBootSignal.Release();
-            }
-        }
-    }
-
-    /// <summary>
-    ///     Stops the boot-sync pass in flight and drops a request not yet started, so nothing re-injects
-    ///     the tabs during a retraction. The next <see cref="KickTabBootSync" /> runs normally.
-    /// </summary>
-    private void CancelTabBootSync()
-    {
-        lock (_tabBootGate)
-        {
-            _tabBootRequested = false;
-            _tabBootPass?.Cancel();
-        }
-    }
-
-    private async Task RunTabBootSyncWorkerAsync(CancellationToken lifetime)
-    {
-        try
-        {
-            while (true)
-            {
-                await _tabBootSignal.WaitAsync(lifetime).ConfigureAwait(false);
-                CancellationTokenSource pass;
-                lock (_tabBootGate)
-                {
-                    if (!_tabBootRequested)
-                    {
-                        continue;
-                    }
-
-                    _tabBootRequested = false;
-                    pass = _tabBootPass = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
-                }
-
-                try
-                {
-                    if (_steamClient is { } steam)
-                    {
-                        await LibraryTabManager.SyncOnBootAsync(_store, steam, _steamUiReadiness, pass.Token)
-                            .ConfigureAwait(false);
-                    }
-                }
-                catch (OperationCanceledException) when (pass.IsCancellationRequested)
-                {
-                    Log.Info("Library tab boot sync superseded or cancelled.");
-                }
-                catch (Exception ex) when (ex is not OutOfMemoryException)
-                {
-                    // Without this a failed boot sync left the tabs missing with nothing in the log.
-                    Log.Warn($"Library tab boot sync failed: {ex.Message}");
-                }
-                finally
-                {
-                    lock (_tabBootGate)
-                    {
-                        _tabBootPass = null;
-                        pass.Dispose();
-                    }
-                }
-            }
-        }
-        catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
-        {
-            // Session shutdown.
-        }
-    }
-
     /// <summary>Applies every Steam surface switch from the configuration in force, in one call.</summary>
     /// <remarks>
     ///     The only way the session moves the host's switches: host creation, a reload, the Big Picture
@@ -809,7 +714,7 @@ public sealed partial class ShellSession
                     }
 
                     ApplyCardServices(_inGameMode);
-                    KickTabBootSync();
+                    _tabBootSync.Kick();
                     ApplySteamUiSurfaces();
                 });
             }), "Steam CEF integration enable");
@@ -823,7 +728,7 @@ public sealed partial class ShellSession
         // between the awaited DisableAsync and the choke point closing behind it,
         // stranding them until Steam restarts (the desktop trip cancels for the
         // same reason).
-        CancelTabBootSync();
+        _tabBootSync.Cancel();
         TrackSteamUiWork(Task.Run(async () =>
         {
             await _cefMasterGate.WaitAsync(_shutdownCancellation.Token).ConfigureAwait(false);
