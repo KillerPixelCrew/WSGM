@@ -25,7 +25,11 @@ surface. WSGM-only features keep their own fingerprints but resolve them through
 `SteamUiModuleResolver` rather than scanning the registry themselves.
 
 These fragments hold WSGM's product data, commands and feature hooks. Reusable rendering and Steam
-ownership stay in the toolkit. Eight pages register with its `registerSteamPage`:
+ownership stay in the toolkit. Each page registers with its `registerSteamPage`, whose frame owns
+the page's chrome (stylesheets, header offset, loading and refusal state, banner and dismiss, tabs
+with their footer action), so a fragment here is the page's definition, its labels and its backend
+bindings: the content drawn with Steam's fields, the kit and the toolkit's `ui-flows.ts` flows
+(collection, item detail with acquire, managed list). The pages:
 
 - `artwork-browser.ts`, the Change Artwork page.
 - `library-import.ts`, the Game Library's import page.
@@ -43,10 +47,12 @@ ownership stay in the toolkit. Eight pages register with its `registerSteamPage`
   space, one card's switches, rename, games and forget, over `LibraryManagerService`.
 - `library-tab-manager.ts`, the Library Tab Manager page: the custom tabs, the strip order and
   Steam-tab hiding, and the tab editor with its filter levels and pickers, over the same service.
+- `emulators.ts`, `notes.ts` and `browser.ts`: Emulator Manager, Notes and the browser handoff.
 
-Themes and Animations share `page-kit.ts`, which is no feature of its own: the command sender and
-the tabbed frame's tab switch and banner, which differ between them only by patch id. The two
-manager pages use its command sender too.
+A page sends its commands through the frame's `context.act`, which shows a refusal in the page's
+banner, and its settings rows through `renderSteamUiFields` over `context.send`, which shows a
+refusal on the row. Browse steps use the shared vocabulary (`setTab`, `browse`, `more`, `open`,
+`closeDetail`, `dismiss`) that the C# side declares with `SteamUiModuleBuilder.BrowseCommands`.
 
 Five are gates of their own, registered with `registerGate`:
 
@@ -60,9 +66,10 @@ Five are gates of their own, registered with `registerGate`:
   virtual pad, so the pages stop drawing settings for controls the handheld does not have. See
   docs/steam-cef.md, "Physical glyphs are CSS".
 - `customization.ts`, the hub on Steam's Settings > Customization page: Themes, UI sounds and Boot
-  animation sections in front of Valve's Startup Movie section, on the toolkit's shared `useMemo`
-  claim beside its screensaver gate. It reads the three pages' publications, sends their commands
-  and owns no state. See docs/steam-cef-system.md, "Customization hub".
+  animation sections in front of Valve's Startup Movie section, a `registerSteamSettingsSection`
+  section on the same shared transform as the toolkit's screensaver rows. It reads the three pages'
+  publications, sends their commands and owns no state. See docs/steam-cef-system.md, "Customization
+  hub".
 - `download-sort.ts`, the Name / Size / Type buttons in the download queue's header. Its header
   transform sits on the toolkit's shared JSX-runtime claim, and a sort renumbers the queue through
   `SteamClient.Downloads.SetQueueIndex`, reporting the positions Steam refused to WSGM
@@ -93,8 +100,7 @@ its `SteamUiModuleCatalog` declares: `SteamArtworkBrowserSurface`, `SteamLibrary
 `SteamCardManagerSurface` and `SteamLibraryTabsSurface`. Their service readings become publications;
 these renderers subscribe through `registerSteamPage`, send their exact semantic commands back
 through the bridge, and let the service validate/save the result. One `SteamPageSurface` merges
-routes, so a page renderer does not claim the router independently. `page-kit.ts` shares the Themes
-and Animations command/tab/banner plumbing; it has no standalone route or backend.
+routes, so a page renderer does not claim the router independently.
 
 Host pages follow CEF master enablement and remain available with custom Quick Access rows off.
 Sound packs have no renderer fragment here: the overlay owns their browser and preview, while the

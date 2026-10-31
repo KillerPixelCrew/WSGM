@@ -873,7 +873,14 @@ through the toolkit's `onSteamTriggers`, which stops a handled trigger from also
 All three were mapped from the installed client offline on 2026-09-27. The capsule and the checkbox
 were then seen live in Big Picture on the reference Claw the same evening; the triggers have not had
 a live pass. The page itself, like the artwork page and WSGM's settings page, is declared with the
-toolkit's `registerSteamPage`, which owns its gate, its state and its frame.
+toolkit's `registerSteamPage`, which owns its gate, its state and its whole frame: the stylesheets,
+the offset below Steam's header, the loading or refusal state until the host publishes, the banner
+for the host's notice or error and for a command the page sent that was refused, and Steam's tabs
+with a footer action per tab. A WSGM page draws content only. Its collections, details and managed
+lists are the toolkit's `ui-flows.ts` flows, its settings rows `renderSteamUiFields`, which draws a
+refusal on the row that asked, and a modal follows the page's state through the context's
+`useState`. A page's browse steps share one vocabulary with its host (`setTab`, `browse`, `more`,
+`open`, `closeDetail`, `dismiss`), declared in C# with `SteamUiModuleBuilder.BrowseCommands`.
 
 The toolkit's `showSteamFilePicker` is a folder and file picker drawn as a Steam modal, because
 Steam has none a page can open. It asks the `steam-ui.file-picker` commands for the drives, the
@@ -1168,19 +1175,22 @@ Movie section: Themes, UI sounds and Boot animation. Valve's LED, Startup Movie,
 Advanced sections render as Steam draws them, and the Screensaver section, with what the toolkit's
 `SteamScreensaverSurface` adds to it, stays the page's one screensaver entry.
 
-The gate is a transform on the toolkit's shared `useMemo` claim, found the way the screensaver gate
-finds the page: the route table's `Settings.Customization()` and the one page-list entry with that
-route. Its wrapper calls whatever renders the page, Valve's component or the screensaver gate's
-wrapper, so the two compose in either registration order. The hub is inserted once, keyed, in front
-of the child whose source names `#Settings_Customization_StartupVideo`, or last on a client without
-it; a list it already transformed is passed through. Removal hands the claim back and an open page
-re-renders without the hub, and a CEF reload installs it again over the new document, so a reload or
-reconnect never leaves two hubs or a stranded one.
+The gate is a `defineGate` gate whose hub is a Settings section of the toolkit's
+(`registerSteamSettingsSection`), the same mechanism the screensaver gate's rows use: one transform
+on the shared `useMemo` claim wraps the route table's `Settings.Customization()` page once for every
+section, so the two never wrap each other and compose in either registration order. The gate's find
+resolves Steam's settings fields and that route, so its probe answers the question its install asks.
+The hub is inserted once, keyed, in front of the child whose source names
+`#Settings_Customization_StartupVideo`, or last on a client without it, and says so in its status.
+Removal detaches the section, the last section hands the claim back, and an open page re-renders
+without the hub; a CEF reload installs it again over the new document, so a reload or reconnect
+never leaves two hubs or a stranded one.
 
 The hub has no state or command of its own. Each section subscribes to the publication its page
 already receives (`wsgm.themes`, `wsgm.sounds`, `wsgm.animations`) and sends that page's commands,
 so `ThemeService`, `SoundPackService` and `AnimationService` remain the only authority for install,
-apply, update and reset. A session without one of those services shows no section for it.
+apply, update and reset. Its rows are drawn with `renderSteamUiFields`, so a refused change shows on
+its row. A session without one of those services shows no section for it.
 
 | Section        | Inline                                                                                                               | Browse and manage                     |
 | -------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |

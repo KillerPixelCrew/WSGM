@@ -57,15 +57,19 @@ internal static class SteamThemesSurface
                     PatchId, enabled, read, ThemesJsonContext.Default.SteamThemesState, revision)
             ],
             [
-                SteamUiModuleBuilder.Command<string>(PatchId, "setTab", TryReadTab,
-                    browse.SetTabAsync, "The themes tab payload is invalid."),
-                SteamUiModuleBuilder.Command<BrowseRequest>(PatchId, "browse", TryReadBrowse,
-                    (request, token) => browse.BrowseAsync(request.Filter, request.Order, request.Search, token),
-                    "The themes browse payload is invalid."),
-                SteamUiModuleBuilder.Command(PatchId, "loadMore", browse.LoadMoreAsync),
-                SteamUiModuleBuilder.Command<string>(PatchId, "open", TryReadId,
-                    browse.OpenAsync, "The theme id payload is invalid."),
-                SteamUiModuleBuilder.Command(PatchId, "closeDetail", browse.CloseDetailAsync),
+                .. SteamUiModuleBuilder.BrowseCommands<BrowseRequest>(PatchId,
+                    new SteamUiBrowseBindings
+                    {
+                        Subject = "themes",
+                        Tabs = Tabs,
+                        SetTab = browse.SetTabAsync,
+                        More = browse.LoadMoreAsync,
+                        Open = browse.OpenAsync,
+                        CloseDetail = browse.CloseDetailAsync,
+                        Dismiss = backend.DismissAsync
+                    },
+                    TryReadBrowse,
+                    (request, token) => browse.BrowseAsync(request.Filter, request.Order, request.Search, token)),
                 SteamUiModuleBuilder.Command<string>(PatchId, "install", TryReadId,
                     backend.InstallAsync, "The theme id payload is invalid."),
                 SteamUiModuleBuilder.Command<string>(PatchId, "update", TryReadName,
@@ -93,14 +97,8 @@ internal static class SteamThemesSurface
                     "The theme visibility payload is invalid."),
                 SteamUiModuleBuilder.Command<(string Key, JsonElement Value)>(PatchId, "setSetting", TryReadSetting,
                     (request, token) => SetSetting(backend, request.Key, request.Value, token),
-                    "The themes setting payload is invalid."),
-                SteamUiModuleBuilder.Command(PatchId, "dismiss", backend.DismissAsync)
+                    "The themes setting payload is invalid.")
             ]);
-    }
-
-    private static bool TryReadTab(JsonElement payload, out string tab)
-    {
-        return SteamUiPayload.TryReadOnlyChoice(payload, "tab", Tabs, out tab);
     }
 
     private static bool TryReadId(JsonElement payload, out string id)

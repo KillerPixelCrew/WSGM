@@ -317,7 +317,43 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
             {
                 _state = _state with
                 {
-                    Listings = result.Items.ToArray(), Total = result.Total, Page = page
+                    Listings = result.Items.ToArray(), Total = result.Total, Page = page, Search = search
+                };
+            }
+        }, token);
+    }
+
+    /// <summary>Appends the store's next page for the last search, as a Steam page's Load More does.</summary>
+    /// <param name="token">Cancels the request.</param>
+    /// <returns>The outcome; the listings so far stay when the store refuses.</returns>
+    internal Task<SteamUiCommandResult> BrowseMoreAsync(CancellationToken token)
+    {
+        return RunAsync(async () =>
+        {
+            int page;
+            string search;
+            lock (_sync)
+            {
+                page = _state.Page + 1;
+                search = _state.Search;
+            }
+
+            using var request = CancellationTokenSource.CreateLinkedTokenSource(token, _shutdownToken);
+            var result = await _store.QuerySoundsAsync(page, search, request.Token).ConfigureAwait(false);
+            lock (_sync)
+            {
+                // A search that changed meanwhile owns the listings; this page belongs to the old one.
+                if (_state.Search != search || _state.Page != page - 1)
+                {
+                    return;
+                }
+
+                var known = _state.Listings.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
+                _state = _state with
+                {
+                    Listings = [.. _state.Listings, .. result.Items.Where(item => known.Add(item.Id))],
+                    Total = result.Total,
+                    Page = page
                 };
             }
         }, token);

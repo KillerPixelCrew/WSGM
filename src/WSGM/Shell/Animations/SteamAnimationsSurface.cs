@@ -65,16 +65,20 @@ internal static class SteamAnimationsSurface
                     PatchId, enabled, read, AnimationsJsonContext.Default.SteamAnimationsState, revision)
             ],
             [
-                SteamUiModuleBuilder.Command<string>(PatchId, "setTab", TryReadTab,
-                    browse.SetTabAsync, "The animations tab payload is invalid."),
-                SteamUiModuleBuilder.Command<(string Sort, string Search)>(PatchId, "browse", TryReadBrowse,
-                    (request, token) => browse.BrowseAsync(request.Sort, request.Search, token),
-                    "The animations browse payload is invalid."),
-                SteamUiModuleBuilder.Command(PatchId, "more", browse.BrowseMoreAsync),
+                .. SteamUiModuleBuilder.BrowseCommands<(string Sort, string Search)>(PatchId,
+                    new SteamUiBrowseBindings
+                    {
+                        Subject = "animations",
+                        Tabs = Tabs,
+                        SetTab = browse.SetTabAsync,
+                        More = browse.BrowseMoreAsync,
+                        Open = browse.OpenAsync,
+                        CloseDetail = browse.CloseDetailAsync,
+                        Dismiss = backend.DismissAsync
+                    },
+                    TryReadBrowse,
+                    (request, token) => browse.BrowseAsync(request.Sort, request.Search, token)),
                 SteamUiModuleBuilder.Command(PatchId, "refresh", backend.RefreshAsync),
-                SteamUiModuleBuilder.Command<string>(PatchId, "open", TryReadId,
-                    browse.OpenAsync, "The animation id payload is invalid."),
-                SteamUiModuleBuilder.Command(PatchId, "closeDetail", browse.CloseDetailAsync),
                 SteamUiModuleBuilder.Command<string>(PatchId, "download", TryReadId,
                     backend.DownloadAsync, "The animation id payload is invalid."),
                 SteamUiModuleBuilder.Command<string>(PatchId, "delete", TryReadId,
@@ -87,14 +91,8 @@ internal static class SteamAnimationsSurface
                 SteamUiModuleBuilder.Command<int>(PatchId, "setBootVolume", TryReadVolume,
                     backend.SetBootVolumeAsync, "The volume payload is invalid."),
                 SteamUiModuleBuilder.Command<string>(PatchId, "addFile", TryReadPath,
-                    backend.AddFileAsync, "The animation file payload is invalid."),
-                SteamUiModuleBuilder.Command(PatchId, "dismiss", backend.DismissAsync)
+                    backend.AddFileAsync, "The animation file payload is invalid.")
             ]);
-    }
-
-    private static bool TryReadTab(JsonElement payload, out string tab)
-    {
-        return SteamUiPayload.TryReadOnlyChoice(payload, "tab", Tabs, out tab);
     }
 
     private static bool TryReadId(JsonElement payload, out string id)

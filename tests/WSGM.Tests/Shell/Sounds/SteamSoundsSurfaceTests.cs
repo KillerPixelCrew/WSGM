@@ -27,7 +27,8 @@ public sealed class SteamSoundsSurfaceTests
         return new SoundPackState(packs, "store", true, "Refused.", "Mapped.",
             [Listing("s1", "1.0"), Listing("s2", "2.0"), Listing("s3", "1.0")], 30, 2)
         {
-            Integration = "Connected."
+            Integration = "Connected.",
+            Search = "wind"
         };
     }
 
@@ -45,6 +46,7 @@ public sealed class SteamSoundsSurfaceTests
         Assert.Equal(2, state.Browse.Page);
         Assert.Equal(30, state.Browse.Total);
         Assert.Equal(ThemeStoreClient.SoundsPageSize, state.Browse.PageSize);
+        Assert.Equal("wind", state.Browse.Search);
     }
 
     [Fact]

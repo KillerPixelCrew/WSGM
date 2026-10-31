@@ -20,77 +20,65 @@ const importFact = (label: string, value: string, key?: string) =>
     importUi.react.createElement("span", {}, value || "—"),
   );
 
-// Resolved once the gate holds; the modals are drawn outside the page's tree and read them here.
+// The resolved components, for the modals drawn outside the page's tree. Both pages resolve the
+// same components through the toolkit's one resolver, so whichever page drew last supplies them.
 let importUi: any = null;
 let ImportCapsule: any = null;
 let ImportCardType: any = null;
 
-// Modals hear about new state and page messages through these; the page is their only notifier.
-const importStateStore = createLocalStore();
-const importEditorStore = createLocalStore();
-let importEditorState: any = null;
-let importRomSystems: any[] = [];
-let importRomState: any = { choices: [], systemPreferences: [] };
-const updateImportEditorState = () => {
-  importEditorState = {
-    loading: !!importLatest?.loading,
-    romSystems: importRomSystems,
-    emulators: importRomState,
-  };
-  importEditorStore.changed();
-};
-const receiveRomChoices = (state: any) => {
-  importRomSystems = state?.romSourceSystems ?? state?.romSystems ?? [];
-  importRomState = {
-    choices: state?.choices ?? [],
-    systemPreferences: state?.emulators?.systemPreferences ?? [],
-  };
-  updateImportEditorState();
-};
-const emulatorStateStore = createLocalStore();
+// The emulator tool's progress is a publication of its own, so a progress tick does not resend the
+// whole catalogue. The emulator page's gate follows it while installed; the import page's emulator
+// setup sheet reads the same value.
 const emulatorProgressStore = createLocalStore();
 let emulatorProgress: any = { busy: false, status: "" };
-const importReporters = new Set<(message: { text: string; error: boolean } | null) => void>();
-const emulatorReporters = new Set<(message: { text: string; error: boolean } | null) => void>();
-let importLatest: any = null;
-
-const importReport = (message: { text: string; error: boolean } | null) => {
-  for (const reporter of [...importReporters]) reporter(message);
-};
-const emulatorReport = (message: { text: string; error: boolean } | null) => {
-  for (const reporter of [...emulatorReporters]) reporter(message);
-};
+let emulatorProgressEnd: (() => void) | null = null;
 
 /**
- * Sends an import command and presents request rejection through the page reporters.
+ * Sends an import command through the page frame: the previous page message clears first, and a
+ * refusal shows in the page's banner.
  * @param command Allowlisted import command.
  * @param payload JSON action arguments.
- * @returns The backend result, or undefined after reporting a rejection; clears the previous message first.
+ * @returns The backend result, or undefined after a refusal.
  */
-const importAct = (command: string, payload: any = {}) => {
-  importReport(null);
-  return request(LibraryImportPatchId, command, payload).catch((error: any) => {
-    importReport({ text: importError(error), error: true });
-    return undefined;
-  });
-};
+const importAct = (command: string, payload: any = {}) => libraryImportPage.act(command, payload);
+// A page message from a modal: a notice, or an error.
+const importReport = (message: { text: string; error: boolean } | null) =>
+  libraryImportPage.report(message?.text ?? null, message?.error ?? true);
+const emulatorAct = (command: string, payload: any = {}) => emulatorPage.act(command, payload);
+const emulatorReport = (message: { text: string; error: boolean } | null) =>
+  emulatorPage.report(message?.text ?? null, message?.error ?? true);
 
-const useToolState = (store: any, read: () => any) => {
-  const react = importUi.react;
-  react.useSyncExternalStore(store.subscribe, store.revision, store.revision);
-  return read();
+// A page's live state for a component that may be drawn on either page, or in a modal over it:
+// the page's own state when its gate has supplied React, else nothing. Either way it calls exactly
+// one hook, so a component keeps its hook order when the other gate installs later.
+const usePageState = (page: SteamPageContext, other: SteamPageContext) => {
+  if (page.react()) return page.useState();
+  if (other.react()) other.useState();
+  return null;
 };
-const useImportState = () => useToolState(importStateStore, () => importLatest);
-const useImportEditorState = () =>
-  useToolState(importEditorStore, () => importEditorState ?? importLatest);
-const useEmulatorState = () => useToolState(emulatorStateStore, () => emulatorPage.state());
-const useEmulatorProgress = () => useToolState(emulatorProgressStore, () => emulatorProgress);
-const emulatorAct = (command: string, payload: any = {}) => {
-  emulatorReport(null);
-  return request(EmulatorPatchId, command, payload).catch((error: any) => {
-    emulatorReport({ text: importError(error), error: true });
-    return undefined;
-  });
+const useImportState = () => usePageState(libraryImportPage, emulatorPage);
+const useEmulatorState = () => usePageState(emulatorPage, libraryImportPage);
+// What the ROM editors read: whether the library is busy, and the emulator tool's systems and
+// choices, which reach the import page through the emulator page's publication.
+const useImportEditorState = () => {
+  const imported = useImportState();
+  const emulators = useEmulatorState();
+  return {
+    loading: !!imported?.loading,
+    romSystems: emulators?.romSourceSystems ?? emulators?.romSystems ?? [],
+    emulators: {
+      choices: emulators?.choices ?? [],
+      systemPreferences: emulators?.emulators?.systemPreferences ?? [],
+    },
+  };
+};
+const useEmulatorProgress = () => {
+  importUi.react.useSyncExternalStore(
+    emulatorProgressStore.subscribe,
+    emulatorProgressStore.revision,
+    emulatorProgressStore.revision,
+  );
+  return emulatorProgress;
 };
 
 const importAssets = [
@@ -143,26 +131,10 @@ const importBadgeTones: Record<string, { tone: string; text: string }> = {
 };
 const importExcludedTone = { tone: "rgba(14,20,27,0.85)", text: "#b8bcbf" };
 
-// The page's glyphs, as path data Steam's own convention draws: filled with the text colour, holes
-// cut with the even-odd rule, sized by the page's CSS.
-const importGlyphs = {
-  check: "M9.6 15.6 5.4 11.4 4 12.8l5.6 5.6L20 8l-1.4-1.4z",
-  controller:
-    "M7.5 7h9A5.5 5.5 0 0 1 22 12.5v1.9a3.1 3.1 0 0 1-5.5 2L14.8 14.5H9.2L7.5 16.4A3.1 3.1 0 0 1 2 14.4v-1.9A5.5 5.5 0 0 1 7.5 7zM6.3 9.8v1.5H4.8v1.6h1.5v1.5h1.6v-1.5h1.5v-1.6H7.9V9.8zM15.5 10.2h1.6v1.6h-1.6zM17.6 12.3h1.6v1.6h-1.6z",
-  overlay:
-    "M3 4h18a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-7v2h3v2H7v-2h3v-2H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm1 5v7h16V9z",
-  launcher: "M4 11h11.2l-4.6-4.6L12 5l7 7-7 7-1.4-1.4 4.6-4.6H4z",
-  chevron: "M9 5.6 10.4 4.2l7.8 7.8-7.8 7.8L9 18.4l6.4-6.4z",
-};
-const importGlyph = (react: any, name: keyof typeof importGlyphs) =>
-  renderSteamGlyph(react, importGlyphs[name]);
-
 // The page's own layout over Steam's components. Steam's stable class names (DialogCheckbox,
 // DialogLabel, DialogInput, DialogButton) are what the compacting rules below hang on; the hashed
 // ones are never named.
 const importStyles = `
-#wsgm-import { margin-top: var(--basicui-header-height, 40px); height: calc(100% - var(--basicui-header-height, 40px));
-  display: flex; flex-direction: column; background: var(--gpSystemDarkestGrey, #0e141b); color: #dcdedf; }
 #wsgm-import .wsgm-import-head { display: flex; align-items: baseline; flex-wrap:wrap; gap: 8px 14px; padding: 24px 48px 0; flex-shrink: 0; }
 #wsgm-import .wsgm-import-head h1 { margin: 0; min-width:0; max-width:100%; overflow-wrap:anywhere; font-size: 30px; font-weight: 700; color: #fff; letter-spacing: 0.2px; }
 #wsgm-import .wsgm-import-crumb { font-size: 30px; font-weight: 700; color: #8b929a; }
@@ -197,9 +169,6 @@ const importStyles = `
 #wsgm-import .wsgm-import-search .DialogLabel { display: none; }
 #wsgm-import .wsgm-import-search .DialogInputLabelGroup, #wsgm-import .wsgm-import-search .DialogInput_Wrapper { margin: 0; }
 #wsgm-import .wsgm-import-search .DialogInput { width: 100%; height: 40px; box-sizing: border-box; padding: 0 12px; }
-#wsgm-import .wsgm-import-status { display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: #b8bcbf; }
-#wsgm-import .wsgm-import-status:empty { display: none; }
-#wsgm-import .wsgm-import-status .wsgm-import-error { color: #ff6d6d; }
 #wsgm-import .wsgm-import-empty { max-width:640px; margin-top:12px; gap:16px; }
 #wsgm-import .wsgm-import-empty h2 { margin:0; font-size:24px; }
 #wsgm-import .wsgm-import-empty p { margin:0; line-height:1.5; }
@@ -502,7 +471,7 @@ function ImportDetailsBody({ id, close, openTitle }: any) {
                 h(ImportArgumentsBody, {
                   tokens: entry.arguments ?? [],
                   onSave: (values: string[]) =>
-                    request(LibraryImportPatchId, "setRomArguments", {
+                    libraryImportPage.send("setRomArguments", {
                       id: entry.id,
                       arguments: values,
                     }),
@@ -798,7 +767,7 @@ function ImportFolderBody({ close }: any) {
   const extensions = importExtensions(types);
   const add = () => {
     setError("");
-    void request(LibraryImportPatchId, "addFolder", {
+    void libraryImportPage.send("addFolder", {
       path,
       includeSubfolders: subfolders,
       extensions,
@@ -857,8 +826,9 @@ function ImportFolderBody({ close }: any) {
   );
 }
 
-const importSystemChoices = (state: any, systemId: string) =>
-  (state?.choices ?? importRomState.choices).find((item: any) => item.systemId === systemId)
+// The emulators that can run a system, from the emulator tool's publication.
+const importSystemChoices = (editor: any, systemId: string) =>
+  (editor?.emulators?.choices ?? []).find((item: any) => item.systemId === systemId)
     ?.installations ?? [];
 
 function ImportArgumentsBody({ tokens, onSave, close }: any) {
@@ -890,9 +860,9 @@ function ImportArgumentsBody({ tokens, onSave, close }: any) {
   );
 }
 
-function ImportRomLaunchControls({ state, systemId, installationId, coreId, choose }: any) {
+function ImportRomLaunchControls({ systemId, installationId, coreId, choose }: any) {
   const h = importUi.react.createElement;
-  useImportEditorState();
+  const state = useImportEditorState();
   if (systemId === "auto")
     return h("div", { style: { color: "#b8bcbf" } },
       "Recognizes system folders such as gc, n3ds and genesis. Each system uses its preferred emulator. You can preview before installing an emulator.");
@@ -945,13 +915,13 @@ function ImportRomSourceBody({ sourceId, singleFile = false, close }: any) {
   const state = useImportEditorState();
   const [draft, setDraft] = react.useState(() => {
     const manual = singleFile
-      ? (importLatest?.manualSources ?? []).find((item: any) => item.id === sourceId)
+      ? (libraryImportPage.state()?.manualSources ?? []).find((item: any) => item.id === sourceId)
       : null;
-    const source = (importLatest?.romSources ?? []).find((item: any) => item.id === sourceId);
+    const source = (libraryImportPage.state()?.romSources ?? []).find((item: any) => item.id === sourceId);
     const system =
       state?.romSystems?.find((item: any) => item.id === manual?.systemId) ??
       state?.romSystems?.find((item: any) => !singleFile || item.id !== "auto");
-    const preferred = importRomState.systemPreferences.find(
+    const preferred = state.emulators.systemPreferences.find(
       (item: any) => item.systemId === system?.id,
     );
     if (manual?.romPath)
@@ -1012,7 +982,7 @@ function ImportRomSourceBody({ sourceId, singleFile = false, close }: any) {
     );
   const save = () => {
     setError("");
-    void request(LibraryImportPatchId, "addRomSource", { source: draft }).then(
+    void libraryImportPage.send("addRomSource", { source: draft }).then(
       close,
       (failure: any) => setError(importError(failure)),
     );
@@ -1023,7 +993,7 @@ function ImportRomSourceBody({ sourceId, singleFile = false, close }: any) {
       text: "Stops scanning this source. ROMs and imported shortcuts stay.",
       confirmLabel: "Remove source",
       onConfirm: () =>
-        void request(LibraryImportPatchId, singleFile ? "removeManualSource" : "removeRomSource", {
+        void libraryImportPage.send(singleFile ? "removeManualSource" : "removeRomSource", {
           id: draft.id,
         }).then(close, (failure: any) => setError(importError(failure))),
     });
@@ -1062,7 +1032,7 @@ function ImportRomSourceBody({ sourceId, singleFile = false, close }: any) {
       selectedOption: draft.systemId,
       onChange: (option: any) => {
         const system = systems.find((item: any) => item.id === option?.data);
-        const preferred = importRomState.systemPreferences.find(
+        const preferred = state.emulators.systemPreferences.find(
           (item: any) => item.systemId === system?.id,
         );
         if (system)
@@ -1131,7 +1101,7 @@ function ImportManualSourceBody({ sourceId, close }: any) {
   const react = importUi.react;
   const h = react.createElement;
   const [draft, setDraft] = react.useState(() => {
-    const source = (importLatest?.manualSources ?? []).find((item: any) => item.id === sourceId);
+    const source = (libraryImportPage.state()?.manualSources ?? []).find((item: any) => item.id === sourceId);
     return {
       id: source?.id ?? "",
       name: source?.name ?? "",
@@ -1157,7 +1127,7 @@ function ImportManualSourceBody({ sourceId, close }: any) {
       (chosen) => chosen && change({ [key]: chosen }),
     );
   const save = () =>
-    void request(LibraryImportPatchId, "addManualSource", { source: draft }).then(
+    void libraryImportPage.send("addManualSource", { source: draft }).then(
       () => {
         close();
       },
@@ -1169,7 +1139,7 @@ function ImportManualSourceBody({ sourceId, close }: any) {
       text: "Stops scanning this source. The imported shortcut and backing files stay.",
       confirmLabel: "Remove source",
       onConfirm: () =>
-        void request(LibraryImportPatchId, "removeManualSource", { id: draft.id }).then(
+        void libraryImportPage.send("removeManualSource", { id: draft.id }).then(
           close,
           (failure: any) => setError(importError(failure)),
         ),
@@ -1240,7 +1210,7 @@ function ImportEmulatorSetupBody({ installationId, close }: any) {
     }).then(
       (path) =>
         path &&
-        void request(EmulatorPatchId, "configureEmulatorPrerequisite", {
+        void emulatorPage.send("configureEmulatorPrerequisite", {
           installationId,
           path,
           kind: prerequisite.kind,
@@ -1267,7 +1237,9 @@ function ImportEmulatorSetupBody({ installationId, close }: any) {
         { id: "close", label: "Close", onClick: close },
       ],
     },
-    progress.status ? h("p", { role: "status" }, progress.status) : null,
+    progress.busy
+      ? renderSteamUiProgress(importUi, { phase: progress.status || "Working…" })
+      : renderSteamUiStatus(importUi, [progress.status]),
     ...(definition?.prerequisites ?? []).map((prerequisite: any) =>
       h(
         importUi.focusable,
@@ -1294,43 +1266,6 @@ function ImportEmulatorSetupBody({ installationId, close }: any) {
   );
 }
 
-function EmulatorCommandButton({ label, run, requiresIdle = true }: any) {
-  const progress = useEmulatorProgress();
-  return importUi.react.createElement(
-    importUi.dialogButton,
-    { disabled: requiresIdle && progress.busy, onClick: run },
-    label,
-  );
-}
-
-function EmulatorProgressToolbar({ back, canGoBack }: any) {
-  const h = importUi.react.createElement;
-  const progress = useEmulatorProgress();
-  return h(
-    importUi.react.Fragment,
-    {},
-    progress.status ? h("p", { role: "status" }, progress.status) : null,
-    h(
-      importUi.focusable,
-      { className: "wsgm-import-bar", "flow-children": "grid" },
-      canGoBack
-        ? h(EmulatorCommandButton, { label: "Back", run: back, requiresIdle: false })
-        : null,
-      h(EmulatorCommandButton, {
-        label: "Check for updates",
-        run: () => void emulatorAct("refreshEmulators"),
-      }),
-      progress.busy
-        ? h(EmulatorCommandButton, {
-            label: "Stop operation",
-            run: () => void emulatorAct("cancel"),
-            requiresIdle: false,
-          })
-        : null,
-    ),
-  );
-}
-
 // One poster in the grid. Memoized on what it draws: after a scan a publication changes a few
 // titles, and redrawing every card for it was what made the D-pad lag on a large library.
 function ImportCard({ entry, slot, asset, actions, returning }: any) {
@@ -1341,9 +1276,9 @@ function ImportCard({ entry, slot, asset, actions, returning }: any) {
     : (importBadgeTones[entry.action] ?? importBadgeTones.Skip);
   const width = importAsset(asset).card;
   const launchGlyph = entry.packaged
-    ? importGlyph(react, entry.mode === "SteamIntegration" ? "overlay" : "controller")
+    ? renderSteamUiIcon(react, entry.mode === "SteamIntegration" ? "display" : "controller", 16)
     : entry.follows
-      ? importGlyph(react, "launcher")
+      ? renderSteamUiIcon(react, "launch", 16)
       : null;
   const canCycle =
     entry.editable && (entry.packaged ? entry.canUseSteamIntegration : entry.routes.length > 1);
@@ -1362,7 +1297,7 @@ function ImportCard({ entry, slot, asset, actions, returning }: any) {
       dimmed: entry.excluded || importUnavailable(entry),
       overlay: [
         entry.selected
-          ? h("span", { key: "check", className: "wsgm-import-check" }, importGlyph(react, "check"))
+          ? h("span", { key: "check", className: "wsgm-import-check" }, renderSteamUiIcon(react, "check", 16))
           : null,
         h(
           "span",
@@ -1517,7 +1452,7 @@ function ImportTitleArtwork({ entry, asset, onAsset, onBack, status }: any) {
               placeholder: option.provider,
               overlay:
                 answer?.selected > 0 && options[answer.selected - 1]?.url === option.url
-                  ? h("span", { className: "wsgm-import-check" }, importGlyph(react, "check"))
+                  ? h("span", { className: "wsgm-import-check" }, renderSteamUiIcon(react, "check", 16))
                   : null,
               caption: option.width ? `${option.width} × ${option.height}` : null,
               focus: {
@@ -1663,31 +1598,17 @@ function ImportTitleArtwork({ entry, asset, onAsset, onBack, status }: any) {
  * @param page Identifies the importer or standalone emulator manager route.
  * @returns The page React tree, including loading or refusal state when data is unavailable.
  */
-function LibraryImportPage({ context, page }: any) {
+function LibraryImportPage({ context, state }: any) {
   const react = context.react();
   const h = react.createElement;
   const ui = context.ui();
   importUi = ui;
-  const state = context.state() ?? {};
-  importLatest = state;
   const [view, setView] = react.useState({ name: "grid", title: "", asset: "grid", from: "grid" });
   const [tab, setTab] = react.useState("all");
   const [asset, setAsset] = react.useState("grid");
   const [query, setQuery] = react.useState("");
   const [fillFrom, setFillFrom] = react.useState("");
-  const [message, setMessage] = react.useState(null as null | { text: string; error: boolean });
   const [returnTo, setReturnTo] = react.useState("");
-  react.useEffect(() => {
-    importReporters.add(setMessage);
-    return () => {
-      importReporters.delete(setMessage);
-    };
-  }, []);
-  react.useEffect(() => {
-    importStateStore.changed();
-    if (importEditorState?.loading !== !!state.loading) updateImportEditorState();
-  }, [state]);
-  react.useEffect(() => subscribe(EmulatorPatchId, receiveRomChoices), []);
 
   const entries: any[] = state.entries ?? [];
   const sources: any[] = state.sources ?? [];
@@ -1721,25 +1642,28 @@ function LibraryImportPage({ context, page }: any) {
     [],
   );
 
-  // Every message stays visible: a refusal does not hide what the host says, and the other way round.
+  // Every message stays visible: a refusal does not hide what the host says, and the other way
+  // round. A command the page sent that was refused is the frame's banner; the save's progress is
+  // the kit's progress over the stack.
   const refusal = context.refusal();
-  const statusLines = [
-    refusal ? { text: `The library could not be shown in full: ${refusal}`, error: true } : null,
-    message,
-    state.error ? { text: state.error, error: true } : null,
-    state.phase === "applying"
-      ? { text: `Saving ${state.progress ?? 0} of ${state.progressTotal ?? 0}…`, error: false }
-      : state.notice
-        ? { text: state.notice, error: false }
-        : null,
-    state.launcherDetail ? { text: state.launcherDetail, error: false } : null,
-  ].filter((line) => line !== null) as { text: string; error: boolean }[];
   const status = h(
-    "div",
-    { className: "wsgm-import-status", role: "status" },
-    ...statusLines.map((line, index) =>
-      h("div", { key: index, className: line.error ? "wsgm-import-error" : undefined }, line.text),
-    ),
+    react.Fragment,
+    null,
+    state.phase === "applying"
+      ? renderSteamUiProgress(ui, {
+          phase: "Saving to Steam",
+          done: state.progress ?? 0,
+          total: state.progressTotal ?? 0,
+        })
+      : null,
+    renderSteamUiStatus(ui, [
+      refusal
+        ? { key: "refusal", text: `The library could not be shown in full: ${refusal}`, error: true }
+        : null,
+      state.error ? { key: "error", text: state.error, error: true } : null,
+      state.phase !== "applying" && state.notice ? { key: "notice", text: state.notice } : null,
+      state.launcherDetail ? { key: "launcher", text: state.launcherDetail } : null,
+    ]),
   );
 
   const saveCount = state.selectedCount ?? 0;
@@ -1756,7 +1680,7 @@ function LibraryImportPage({ context, page }: any) {
   let body: any;
   let header: any;
   const crumb = (text: string) =>
-    h("span", { className: "wsgm-import-crumb" }, text, " ", importGlyph(react, "chevron"));
+    h("span", { className: "wsgm-import-crumb" }, text, " ", renderSteamUiIcon(react, "chevron", 16));
 
   if (view.name === "title" && titleEntry) {
     header = h(
@@ -1841,11 +1765,11 @@ function LibraryImportPage({ context, page }: any) {
           ),
         ),
         rows.length === 0
-          ? h(
-              "div",
-              { className: "wsgm-import-muted" },
-              "Select titles in the review to dress them here.",
-            )
+          ? renderSteamUiEmpty(ui, {
+              kind: "empty",
+              text: "Select titles in the review to dress them here.",
+              action: { label: "Back to the review", onClick: back },
+            })
           : null,
         h(
           ui.focusable,
@@ -1918,11 +1842,16 @@ function LibraryImportPage({ context, page }: any) {
       .filter((group) => group.items.length);
     const grid = [
       shown.length === 0
-        ? h(
-            "div",
-            { className: "wsgm-import-muted" },
-            entries.length ? "Nothing here." : "No games listed yet.",
-          )
+        ? search
+          ? renderSteamUiEmpty(ui, {
+              kind: "noMatch",
+              text: `No title matches "${query.trim()}".`,
+              action: { label: "Clear search", onClick: () => setQuery("") },
+            })
+          : renderSteamUiEmpty(ui, {
+              kind: "empty",
+              text: entries.length ? "Nothing in this group." : "No games listed yet.",
+            })
         : null,
       ...shown.map((group) =>
         h(
@@ -2235,10 +2164,8 @@ function LibraryImportPage({ context, page }: any) {
   }
 
   return h(
-    "div",
-    { id: "wsgm-import", "aria-label": "Game Library" },
-    h("style", null, importStyles),
-    steamUiKitStyle(react),
+    react.Fragment,
+    null,
     header,
     h("div", { className: "wsgm-import-body" }, ...(Array.isArray(body) ? body : [body])),
   );
@@ -2248,21 +2175,14 @@ const libraryImportPage = registerSteamPage({
   template: "library-import",
   gate: "libraryImport",
   patchId: LibraryImportPatchId,
-  components: resolveSteamUiComponents,
-  // Only what this page actually renders. Steam's checkbox and bare dropdown are wanted, not
-  // required: the sidebar falls back to Steam's toggle and the toolbar to its labelled field.
-  required: [
-    "react",
-    "focusable",
-    "toggleField",
-    "dropdown",
-    "textField",
-    "dialogButton",
-    "dialogButtonPrimary",
-    "tabs",
-    "modalRoot",
-    "showModal",
-  ],
+  title: "Game Library",
+  id: "wsgm-import",
+  style: importStyles,
+  loading: "Loading your game library…",
+  // The host's error, notice and launcher detail are lines in the review's status stack.
+  banner: false,
+  // Steam's checkbox and bare dropdown are wanted, not required: the sidebar falls back to Steam's
+  // toggle and the toolbar to its labelled field.
   prepare: (ui, runtime) => {
     const classes = resolveSteamLibraryClasses(runtime);
     if (!classes) return "Native Steam components unavailable: library classes";
@@ -2278,59 +2198,47 @@ const libraryImportPage = registerSteamPage({
   Page: LibraryImportPage,
 });
 
-function EmulatorManagerPage({ context }: any) {
-  const react = context.react();
-  const h = react.createElement;
+/**
+ * Draws one tab of the emulator tool from the host's state.
+ * @param props The frame's context, the host's state and the active tab.
+ * @returns The tab's content.
+ */
+function EmulatorManagerPage({ context, state, tab }: any) {
   importUi = context.ui();
-  const state = context.state() ?? {
-    emulators: { definitions: [], installations: [], offers: [], systemPreferences: [] },
-    romSystems: [],
-  };
-  react.useEffect(() => {
-    emulatorStateStore.changed();
-    receiveRomChoices(state);
-  }, [state]);
-  react.useEffect(
-    () =>
-      subscribe(EmulatorProgressId, (progress: any) => {
-        emulatorProgress = progress ?? { busy: false, status: "" };
-        emulatorProgressStore.changed();
-      }),
-    [],
-  );
-  const [message, setMessage] = react.useState(null as null | { text: string; error: boolean });
-  react.useEffect(() => {
-    emulatorReporters.add(setMessage);
-    return () => emulatorReporters.delete(setMessage);
-  }, []);
-  const status = message
-    ? h("p", { className: message.error ? "wsgm-import-error" : undefined }, message.text)
-    : null;
-  return h(
-    "div",
-    { id: "wsgm-import", className: "wsgm-import wsgm-emulators" },
-    h("style", null, importStyles),
-    h("div", { className: "wsgm-import-head" }, h("h1", {}, "Emulator Manager")),
-    h("div", { className: "wsgm-import-body" }, h(ImportEmulatorPage, { state, status })),
-  );
+  return context.react().createElement(ImportEmulatorPage, { context, state, tab });
 }
 
 const emulatorPage = registerSteamPage({
   template: "emulators",
   gate: "emulatorManager",
   patchId: EmulatorPatchId,
-  components: resolveSteamUiComponents,
-  required: [
-    "react",
-    "focusable",
-    "toggleField",
-    "dropdown",
-    "textField",
-    "tabs",
-    "dialogButton",
-    "dialogButtonPrimary",
-    "modalRoot",
-    "showModal",
-  ],
+  title: "Emulator Manager",
+  id: "wsgm-emulators",
+  style: emulatorStyles,
+  loading: "Loading emulators…",
+  // The emulator tool publishes no notice of its own; a refused command is the frame's banner.
+  banner: false,
+  tabs: { source: "local", initial: "installed", list: (state) => emulatorTabs(state) },
+  // The progress publication is followed while the gate holds, so every sheet sees it.
+  prepare: () => {
+    try {
+      emulatorProgressEnd = subscribe(EmulatorProgressId, (progress: any) => {
+        emulatorProgress = progress ?? { busy: false, status: "" };
+        emulatorProgressStore.changed();
+      });
+    } catch {
+      // A host without the progress publication runs every operation without a progress line.
+      emulatorProgressEnd = null;
+    }
+    return null;
+  },
+  release: () => {
+    endSubscription(emulatorProgressEnd);
+    emulatorProgressEnd = null;
+    emulatorProgress = { busy: false, status: "" };
+    emulatorProgressStore.changed();
+    emulatorRouteMemory.reset();
+  },
+  status: () => ({ busy: !!emulatorProgress.busy }),
   Page: EmulatorManagerPage,
 });

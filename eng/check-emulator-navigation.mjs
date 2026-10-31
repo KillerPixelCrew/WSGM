@@ -1,5 +1,7 @@
 // Exercise the shipped emulator page with Steam's native navigation-container contract.
-// Equal-size cells model wide and wrapped layouts; no Steam session or hardware is started.
+// Equal-size cells model wide and wrapped layouts; no Steam session or hardware is started. The
+// page frame owns the tabs, so the check plays the frame: it keeps the active tab, remounts a tab's
+// content when the tab changes and runs each mounted content's effects once.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -15,13 +17,22 @@ import {
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const asset = readFileSync(
-  resolve(root, "src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js"),
+  resolve(root, process.argv[2] ?? "src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js"),
   "utf8",
 );
-const hooks = createHooks();
+let hooks = createHooks();
+const effects = [];
 const react = createReact({
-  ...hooks,
   useState: (initial) => hooks.useState(typeof initial === "function" ? initial() : initial),
+  useRef: (initial) => hooks.useRef(initial),
+  // Once per mount, after the render, as React runs an effect with an empty dependency list.
+  useEffect: (effect) => {
+    const ran = hooks.useRef(false);
+    if (!ran.current) {
+      ran.current = true;
+      effects.push(effect);
+    }
+  },
 });
 // The shared fixture preserves keys on clones; real React replaces an explicitly supplied key.
 const clone = react.cloneElement;
@@ -33,7 +44,6 @@ const Focusable = "NativeFocusable";
 const Button = "NativeButton";
 const TextField = "NativeTextField";
 const Dropdown = "NativeDropdown";
-const Tabs = "NativeTabs";
 const ui = {
   react,
   focusable: Focusable,
@@ -41,21 +51,30 @@ const ui = {
   dialogButtonPrimary: Button,
   textField: TextField,
   dropdownControl: Dropdown,
-  tabs: Tabs,
 };
 const progress = { busy: false, status: "" };
 const commands = [];
-const Page = instantiate(
+const { Page, emulatorTabs, memory } = instantiate(
   {
     window: {},
     importUi: ui,
     useEmulatorProgress: () => progress,
     emulatorAct: (command) => commands.push(command),
+    emulatorPage: { send: (command) => Promise.resolve(commands.push(command)) },
     EmulatorPatchId: "wsgm.emulators",
   },
   helperFragments(asset) + "\n" + fragment(asset, "consumer/emulators.ts"),
-  "ImportEmulatorPage",
+  "({ Page: ImportEmulatorPage, emulatorTabs, memory: emulatorRouteMemory })",
 );
+// The frame's local tab: a change remounts the tab's content.
+let activeTab = "installed";
+let mountedTab = activeTab;
+const context = {
+  tab: () => activeTab,
+  setTab: (tab) => {
+    activeTab = tab;
+  },
+};
 const definitions = Array.from({ length: 6 }, (_, index) => ({
   id: "definition" + index,
   name: "Emulator " + index,
@@ -93,20 +112,15 @@ const state = {
   },
 };
 const render = () => {
+  if (mountedTab !== activeTab) {
+    hooks = createHooks();
+    mountedTab = activeTab;
+  }
   hooks.reset();
-  const tree = Page({ state });
-  const tabs = tree.props.children.at(-1);
-  // Valve owns tab navigation. Expose only its selected content to the inert tree traversal.
-  return react.cloneElement(
-    tree,
-    {},
-    ...tree.props.children.slice(0, -1),
-    react.cloneElement(
-      tabs,
-      {},
-      tabs.props.tabs.find((item) => item.id === tabs.props.activeTab)?.content,
-    ),
-  );
+  const tree = Page({ context, state, tab: activeTab });
+  const ran = effects.splice(0);
+  for (const effect of ran) effect();
+  return ran.length && mountedTab !== activeTab ? render() : tree;
 };
 const classNode = (tree, name) => find(react, tree, (node) => node.props.className === name)[0];
 const text = (node) =>
@@ -115,11 +129,10 @@ const text = (node) =>
     : react.Children.toArray(node?.props?.children).map(text).join("");
 const button = (tree, label) =>
   find(react, tree, (node) => node.type === Button && text(node) === label)[0];
-const tab = (tree, label) => {
-  const tabs = find(react, tree, (node) => node.type === Tabs)[0];
-  const target = tabs.props.tabs.find((item) => item.title === label);
+const tab = (_tree, label) => {
+  const target = emulatorTabs(state).find((item) => item.title === label);
   assert.ok(target, label);
-  tabs.props.onShowTab(target.id);
+  context.setTab(target.id);
   return render();
 };
 const routeContent = (tree) => classNode(tree, "wsgm-emu-pane").props.children.at(-1);
@@ -157,11 +170,10 @@ const move = (group, current, direction, columns = 2) => {
 let tree = render();
 const installedContent = routeContent(tree);
 assert.equal(installedContent.props.autoFocus, true, "the mounted route takes native focus");
-const tabs = find(react, tree, (node) => node.type === Tabs)[0];
-assert.equal(tabs.props.autoFocusContents, true, "Valve owns entry into the active tab");
 assert.deepEqual(
-  tabs.props.tabs.map((item) => item.id),
+  emulatorTabs(state).map((item) => item.id),
   ["installed", "available", "bios", "defaults"],
+  "the frame draws the four tabs",
 );
 
 for (const label of ["Installed (3)", "Available (3)"]) {
@@ -232,18 +244,22 @@ const browse = button(tree, "Browse available emulators");
 assert.ok(browse, "an empty installed list has an actionable catalogue entry");
 browse.props.onClick();
 tree = render();
-assert.equal(find(react, tree, (node) => node.type === Tabs)[0].props.activeTab, "available");
-const freshHooks = createHooks();
-ui.react = createReact({
-  ...freshHooks,
-  useState: (initial) => freshHooks.useState(typeof initial === "function" ? initial() : initial),
-});
+assert.equal(activeTab, "available");
+// The first look at an empty installation is the catalogue, chosen once per page session.
+memory.reset();
+context.setTab("installed");
+hooks = createHooks();
+mountedTab = "installed";
+render();
 assert.equal(
-  Page({ state }).props.children.at(-1).props.activeTab,
+  activeTab,
   "available",
   "an empty installation opens directly into the available catalogue",
 );
+context.setTab("installed");
+render();
+assert.equal(activeTab, "installed", "Installed stays reachable once the first tab was chosen");
 assert.deepEqual(commands, [], "directional traversal never performs a backend write");
 console.log(
-  "Emulator native navigation: Valve tabs, list rows, detail columns, return focus and BIOS/default groups passed.",
+  "Emulator native navigation: frame tabs, list rows, detail columns, return focus and BIOS/default groups passed.",
 );

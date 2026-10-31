@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using SteamUiToolkit;
+using WSGM.Core;
 
 namespace WSGM.Shell;
 
@@ -22,9 +24,13 @@ internal static class SteamArtworkBrowserSurface
     /// <summary>The exact command vocabulary emitted by the page.</summary>
     public static IReadOnlyList<string> Commands { get; } =
     [
-        "selectTab", "apply", "applyOfficial", "clear", "loadMore", "applyLocal", "applyInvisible", "setFilter",
-        "searchGames", "selectGame", "saveLogoPosition", "resetLogoPosition"
+        SteamUiBrowseCommands.SetTab, SteamUiBrowseCommands.More, "apply", "applyOfficial", "clear", "applyLocal",
+        "applyInvisible", "setFilter", "searchGames", "selectGame", "saveLogoPosition", "resetLogoPosition"
     ];
+
+    /// <summary>Every tab the page can show: each artwork slot and the manage tab.</summary>
+    private static readonly string[] Tabs =
+        [.. ArtworkAssetNames.Ordered.Select(slot => slot.Id), ArtworkBrowserTabs.ManageTab];
 
     /// <summary>Installs the artwork renderer and its state subscription.</summary>
     public static ISteamUiPatch Patch { get; } = SteamPagePatch.Create(
@@ -65,15 +71,19 @@ internal static class SteamArtworkBrowserSurface
                     ArtworkJsonContext.Default.SteamArtworkBrowserState)
             ],
             [
-                SteamUiModuleBuilder.Command<string>(PatchId, "selectTab", TryReadTab,
-                    backend.SelectTabAsync, "The artwork tab payload is invalid."),
+                .. SteamUiModuleBuilder.BrowseCommands(PatchId, new SteamUiBrowseBindings
+                {
+                    Subject = "artwork",
+                    Tabs = Tabs,
+                    SetTab = backend.SelectTabAsync,
+                    More = backend.LoadMoreAsync
+                }),
                 SteamUiModuleBuilder.Command<string>(PatchId, "apply", TryReadId,
                     backend.ApplyAsync, "The artwork selection payload is invalid."),
                 SteamUiModuleBuilder.Command<string>(PatchId, "applyOfficial", TryReadId,
                     backend.ApplyOfficialAsync, "The official artwork selection payload is invalid."),
                 SteamUiModuleBuilder.Command<string>(PatchId, "clear", TryReadTab,
                     backend.ClearAsync, "The artwork reset payload is invalid."),
-                SteamUiModuleBuilder.Command(PatchId, "loadMore", backend.LoadMoreAsync),
                 SteamUiModuleBuilder.Command<(string Tab, string Path)>(
                     PatchId, "applyLocal", TryReadLocal,
                     (value, token) => backend.ApplyLocalAsync(value.Tab, value.Path, token),

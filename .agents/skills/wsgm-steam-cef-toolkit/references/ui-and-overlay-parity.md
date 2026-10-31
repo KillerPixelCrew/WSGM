@@ -43,9 +43,9 @@ the external state the feature reads or changes.
 | Edit a boolean, choice or bounded value       | Existing native surface/row; for host settings, the toolkit settings renderer's `boolean`, `choice` or `range` row | [`DeviceControlRows`](../../../../src/WSGM/Overlay/DeviceControlRows.cs), [`DeviceSliderRow`](../../../../src/WSGM/Overlay/DeviceSliderRow.cs), or `OverlaySubView.ChoiceRow` for service pages. A value editor should remain an editor rather than a command that cycles values.                                                        |
 | Render a capability or profile descriptor     | Existing device/performance row projection and its action generation                                               | [`DescriptorControlView`](../../../../src/WSGM/Overlay/DescriptorControlView.cs), [`CapabilityRowRenderer`](../../../../src/WSGM/Overlay/CapabilityRowRenderer.cs), and [`ProfileOverrideMarker`](../../../../src/WSGM/Controls/ProfileOverrideMarker.cs). Reuse descriptor identity and validation when placing the same setting twice. |
 | Group or fold related controls                | `renderSteamUiHeader` / `renderSteamUiGroup`                                                                       | [`CollapsibleSection`](../../../../src/WSGM/Controls/CollapsibleSection.cs), with `Summary` and optional independent action such as a pin. Both implementations retain the mounted body while folded and keep hidden children out of navigation.                                                                                         |
-| Switch tabs or descend into details           | `renderSteamUiTabbedPage`, `renderSteamUiLevel` and `renderSteamUiDetail`                                          | [`ServiceSubView`](../../../../src/WSGM/Overlay/ServiceSubView.cs), `Navigate` / Back, and `ToolTabs` from [`OverlaySubView.Tools`](../../../../src/WSGM/Overlay/OverlaySubView.Tools.cs). Use the window's existing destinations and modal host.                                                                                        |
+| Switch tabs or descend into details           | `registerSteamPage` tabs, `renderSteamUiLevel` and `renderSteamUiItem` / `renderSteamUiDetail`                     | [`ServiceSubView`](../../../../src/WSGM/Overlay/ServiceSubView.cs), `Navigate` / Back, and `ToolTabs` from [`OverlaySubView.Tools`](../../../../src/WSGM/Overlay/OverlaySubView.Tools.cs). Use the window's existing destinations and modal host.                                                                                        |
 | Browse images or previews                     | `renderSteamUiGrid`, `renderSteamUiCard`, `renderSteamUiGallery`, `renderSteamUiVideo`                             | `PreviewCard`, [`OverlayPreviewImage`](../../../../src/WSGM/Overlay/OverlayPreviewImage.cs) and [`OverlayMediaPreview`](../../../../src/WSGM/Overlay/OverlayMediaPreview.cs). Keep bounded image loading and explicit media playback/release.                                                                                            |
-| Explain loading, an empty result or a refusal | `renderSteamUiEmpty` / `renderSteamUiBanner`; WSGM pages use `wsgmPageFrame`                                       | `ServiceSubView.AddStatus`, captions and `Run` / `ConfirmCommand`. Distinguish unavailable, working, no results and failed; preserve the service's reason.                                                                                                                                                                               |
+| Explain loading, an empty result or a refusal | The page frame's loading and banner, `renderSteamUiEmpty` kinds and `renderSteamUiStatus`                          | `ServiceSubView.AddStatus`, captions and `Run` / `ConfirmCommand`. Distinguish unavailable, working, no results and failed; preserve the service's reason.                                                                                                                                                                               |
 | Enter text or choose a file/folder            | Toolkit text/modal controls and file-picker surface                                                                | `OverlaySubView.EditText` / [`OverlayWindow.RequestText`](../../../../src/WSGM/Overlay/OverlayWindow.Surfaces.cs) and [`OverlayFilePicker`](../../../../src/WSGM/Overlay/OverlayFilePicker.cs) through the owning view. Use the in-window controller flow; a normal `TextBox` alone does not supply it.                                  |
 
 The `OverlaySubView` helpers are `private protected` implementation helpers for WSGM views, not a
@@ -165,12 +165,12 @@ stack.Children.Add(Tagged(Row("Scan for games", "Look again. Nothing is written 
 
 For a store/detail page, follow the pair
 [`themes.ts`](../../../../src/WSGM/Core/SteamUiAssets/Source/themes.ts) and
-[`ThemesView`](../../../../src/WSGM/Overlay/ThemesView.cs). The Steam page composes native settings
-rows and toolkit cards/galleries. Its shared
-[`page-kit.ts`](../../../../src/WSGM/Core/SteamUiAssets/Source/page-kit.ts) maps `activeTab`,
-`error`/`notice`, `setTab` and `dismiss`. The Overlay presents the same browse-session commands with
-tabs, preview cards and nested detail levels. Keep labels, busy state, available actions and
-operation results consistent across both.
+[`ThemesView`](../../../../src/WSGM/Overlay/ThemesView.cs). The Steam page is the toolkit's
+`registerSteamPage` frame, which maps `activeTab`, `error`/`notice`, `setTab` and `dismiss`, around
+`renderSteamUiCollection`, `renderSteamUiItem` and `renderSteamUiFields`; its host declares the
+browse steps with `SteamUiModuleBuilder.BrowseCommands`. The Overlay presents the same
+browse-session commands with tabs, preview cards and nested detail levels. Keep labels, busy state,
+available actions and operation results consistent across both.
 
 ## Small feature handoff template
 

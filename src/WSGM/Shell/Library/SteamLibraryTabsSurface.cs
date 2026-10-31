@@ -78,7 +78,8 @@ internal static class SteamLibraryTabsSurface
                     var picker = await service.LoadGamesAsync(token).ConfigureAwait(false);
                     return picker.Error is null ? SteamUiCommandResult.Applied : new SteamUiCommandResult(false, picker.Error);
                 }),
-                SteamUiModuleBuilder.Command(PatchId, "dismiss", service.DismissAsync)
+                .. SteamUiModuleBuilder.BrowseCommands(PatchId,
+                    new SteamUiBrowseBindings { Subject = "library tab", Dismiss = service.DismissAsync })
             ]);
     }
 

@@ -130,6 +130,43 @@ public sealed class SoundPackServiceTests : IDisposable
         Assert.Equal("Steam defaults are active.", service.ReadState().Integration);
     }
 
+    [Fact]
+    public async Task LoadMoreAppendsTheNextPageOfTheLastSearch()
+    {
+        using var handler = new PagedStore();
+        var store = new ThemeStoreClient(handler, apiUrl: "https://example.invalid");
+        await using var service = new SoundPackService(new SoundPackLibrary(Root), () => "", _ => { },
+            () => null, store, _ => { });
+
+        Assert.True((await service.BrowseAsync(1, "wind", CancellationToken.None)).Succeeded);
+        Assert.True((await service.BrowseMoreAsync(CancellationToken.None)).Succeeded);
+
+        var state = service.ReadState();
+        Assert.Equal(["page1", "page2"], state.Listings.Select(item => item.Id));
+        Assert.Equal(2, state.Page);
+        Assert.Equal("wind", state.Search);
+        Assert.Equal(["page=1&search=wind", "page=2&search=wind"], handler.Queries);
+
+        // A new search starts again from its first page rather than appending to the old one.
+        Assert.True((await service.BrowseAsync(1, "rain", CancellationToken.None)).Succeeded);
+        Assert.Equal(["page1"], service.ReadState().Listings.Select(item => item.Id));
+        Assert.Equal("rain", service.ReadState().Search);
+    }
+
+    private sealed class PagedStore : HttpMessageHandler
+    {
+        internal List<string> Queries { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var query = System.Web.HttpUtility.ParseQueryString(request.RequestUri!.Query);
+            Queries.Add($"page={query["page"]}&search={query["search"]}");
+            var json = $$"""{"total":2,"items":[{"id":"page{{query["page"]}}","name":"Pack {{query["page"]}}"}]}""";
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json) });
+        }
+    }
+
     private sealed class HeldRequest : HttpMessageHandler
     {
         internal TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);

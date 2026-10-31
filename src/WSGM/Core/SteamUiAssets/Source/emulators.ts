@@ -1,8 +1,6 @@
 // Emulator management presentation. All package, BIOS and preference writes belong to EmulatorService.
 const emulatorStyles = `
-#wsgm-import.wsgm-emulators .wsgm-import-head { width:100%; max-width:1136px; box-sizing:border-box; margin-inline:auto; padding-bottom:12px; }
-#wsgm-import.wsgm-emulators .wsgm-import-body { display:block; overflow:auto; padding-bottom:56px; }
-.wsgm-emu-content { display:flex; flex-direction:column; gap:14px; width:100%; height:100%; min-width:0; max-width:1040px; margin-inline:auto; box-sizing:border-box; }
+.wsgm-emu-content { padding:0 0 56px; display:flex; flex-direction:column; gap:14px; width:100%; height:100%; min-width:0; max-width:1040px; margin-inline:auto; box-sizing:border-box; }
 .wsgm-emu-content h2,.wsgm-emu-content p { margin:0; }
 .wsgm-emu-pane { display:flex; flex-direction:column; gap:16px; padding-top:16px; min-width:0; }
 .wsgm-emu-toolbar { display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; }
@@ -16,8 +14,6 @@ const emulatorStyles = `
 .wsgm-emu-list > .DialogButton { width:100%; min-width:0; height:auto; min-height:62px; margin:0; padding:12px 16px; box-sizing:border-box; white-space:normal; }
 .wsgm-emu-list .steam-ui-kit-select-row-title { font-size:16px; font-weight:600; }
 .wsgm-emu-list .steam-ui-kit-select-row-detail { line-height:1.4; }
-.wsgm-emu-empty { align-items:flex-start; padding:20px; }
-.wsgm-emu-empty .DialogButton { width:auto; min-width:0; }
 .wsgm-emu-split { display:grid; grid-template-columns:minmax(0,2fr) minmax(240px,1fr); gap:24px; }
 .wsgm-emu-column { display:flex; flex-direction:column; gap:14px; min-width:0; }
 .wsgm-emu-actions { display:flex; gap:10px; flex-wrap:wrap; }
@@ -36,27 +32,71 @@ const emulatorStyles = `
 @media(max-width:750px) { .wsgm-emu-split { grid-template-columns:1fr; } .wsgm-emu-default { grid-template-columns:1fr; } }
 `;
 
-function ImportEmulatorPage({ state, status, onBack }: any) {
+// Where the emulator tool goes back to across a tab change: the frame remounts a tab's content, so a
+// detour to BIOS & firmware remembers the tab and route it came from here, and the route to restore
+// waits here until that tab mounts again. Whether the first tab was chosen for the user is kept too,
+// so an empty installation opens on the catalogue once rather than every time Installed is shown.
+const emulatorRouteMemory = {
+  biosReturn: null as null | { tab: string; route: any },
+  pending: null as null | { tab: string; route: any },
+  chosen: false,
+  take(tab: string) {
+    const pending = this.pending?.tab === tab ? this.pending.route : null;
+    this.pending = null;
+    return pending;
+  },
+  reset() {
+    this.biosReturn = null;
+    this.pending = null;
+    this.chosen = false;
+  },
+};
+
+// The emulator tool's tabs, counted from the host's state.
+const emulatorTabs = (state: any) => {
+  const manager = state?.emulators ?? { definitions: [], installations: [] };
+  const installed = manager.installations ?? [];
+  const available = (manager.definitions ?? []).filter(
+    (item: any) => !installed.some((entry: any) => entry.definitionId === item.id),
+  );
+  return [
+    { id: "installed", title: `Installed (${installed.length})` },
+    { id: "available", title: `Available (${available.length})` },
+    { id: "bios", title: "BIOS & firmware" },
+    { id: "defaults", title: "System defaults" },
+  ];
+};
+
+function ImportEmulatorPage({ context, state, tab }: any) {
   const react = importUi.react;
   const h = react.createElement;
   const progress = useEmulatorProgress();
-  const [tab, setTab] = react.useState(() => state.emulators?.installations?.length ? "installed" : "available");
-  const [route, setRoute] = react.useState({ kind: "list", id: "" });
+  const [route, setRoute] = react.useState(
+    () => emulatorRouteMemory.take(tab) ?? { kind: "list", id: "" },
+  );
   const [channel, setChannel] = react.useState("");
   const [search, setSearch] = react.useState("");
   const [coreSearch, setCoreSearch] = react.useState("");
   const [coreFilter, setCoreFilter] = react.useState("all");
   const [biosId, setBiosId] = react.useState("");
-  const [biosReturn, setBiosReturn] = react.useState(null as any);
   const [returnTo, setReturnTo] = react.useState("");
   const manager = state.emulators ?? { definitions: [], installations: [], offers: [], systemPreferences: [] };
   const bios = state.bios ?? { folder: "", checked: false, systems: [] };
   const installed = manager.installations ?? [];
   const available = manager.definitions.filter((item: any) => !installed.some((entry: any) => entry.definitionId === item.id));
-  const selectTab = (value: string) => { setBiosReturn(null); setTab(value); setRoute({kind:"list",id:""}); };
+  // An empty installation opens on the catalogue, once per page session.
+  react.useEffect(() => {
+    if (emulatorRouteMemory.chosen) return;
+    emulatorRouteMemory.chosen = true;
+    if (tab === "installed" && !installed.length) context.setTab("available");
+  }, []);
+  // A tab change remounts the content, which is what returns the new tab to its list.
+  const selectTab = (value: string) => { emulatorRouteMemory.biosReturn = null; context.setTab(value); };
+  const biosReturn = tab === "bios" ? emulatorRouteMemory.biosReturn : null;
   const back = () => route.kind === "cores" ? setRoute({kind:"installation",id:route.id})
     : route.kind !== "list" ? setRoute({kind:"list",id:""}) : biosReturn
-      ? (setTab(biosReturn.tab), setRoute(biosReturn.route), setBiosReturn(null)) : onBack?.();
+      ? ((emulatorRouteMemory.pending = biosReturn), (emulatorRouteMemory.biosReturn = null), context.setTab(biosReturn.tab))
+      : undefined;
   const button = (label: string, run: any, idle = true, primary = false) => h(
     primary ? importUi.dialogButtonPrimary : importUi.dialogButton,
     { disabled: idle && progress.busy, onClick: run }, label);
@@ -75,15 +115,14 @@ function ImportEmulatorPage({ state, status, onBack }: any) {
     void showSteamFilePicker(importUi,{title,mode}).then((path: string | null) => path && void emulatorAct(command,{path,...extra}));
   const setup = (installationId: string, name: string) => showSteamModal(importUi, {
     title:name+" setup", render:(close: any)=>h(ImportEmulatorSetupBody,{installationId,close})});
-  const toBios = () => {setBiosReturn({tab,route});setTab("bios");setRoute({kind:"list",id:""});};
-  const canBack = route.kind !== "list" || !!biosReturn || typeof onBack === "function";
-  const tabs = [["installed",`Installed (${installed.length})`],["available",`Available (${available.length})`],
-    ["bios","BIOS & firmware"],["defaults","System defaults"]];
+  const toBios = () => {emulatorRouteMemory.biosReturn = {tab,route};context.setTab("bios");};
+  const canBack = route.kind !== "list" || !!biosReturn;
   let content: any;
   if (route.kind === "installation" || route.kind === "cores") {
     const entry = installed.find((item: any)=>item.id===route.id);
     if (!entry) {
-      content = h("p",{},"That installation is no longer registered. Go Back to the installed list.");
+      content = renderSteamUiEmpty(importUi,{kind:"unavailable",text:"That installation is no longer registered.",
+        action:{label:"Back to the installed list",onClick:back}});
     } else {
       const offer = offerFor(entry);
       const installationId = entry.id;
@@ -104,7 +143,7 @@ function ImportEmulatorPage({ state, status, onBack }: any) {
         title:entry.managed ? "Remove emulator?" : "Forget external installation?",
         confirmLabel:entry.managed ? "Remove" : "Forget",
         text:((state.dependencies ?? []).find((item: any)=>item.installationId===installationId)?.summary ?? "Titles using this installation will need another emulator.") + " ROMs, saves, settings and firmware stay.",
-        onConfirm:()=>void request(EmulatorPatchId,"removeEmulator",{installationId}).then(
+        onConfirm:()=>void emulatorPage.send("removeEmulator",{installationId}).then(
           ()=>setRoute({kind:"list",id:""}), (error: any)=>emulatorReport({text:importError(error),error:true}))
       });
       const maintenance = box("Maintenance",
@@ -161,7 +200,8 @@ function ImportEmulatorPage({ state, status, onBack }: any) {
     }
   } else if (route.kind === "definition") {
     const definition = manager.definitions.find((item: any)=>item.id===route.id);
-    if (!definition) content=h("p",{},"That emulator is no longer listed.");
+    if (!definition) content=renderSteamUiEmpty(importUi,{kind:"unavailable",text:"That emulator is no longer listed.",
+      action:{label:"Back to the catalogue",onClick:back}});
     else {
       const offer = manager.offers.find((item: any)=>item.definitionId===definition.id && item.channel===channel);
       content=renderSteamUiDetail(importUi,{title:definition.name,onBack:back,main:[fact("Source",definition.source),
@@ -248,27 +288,30 @@ function ImportEmulatorPage({ state, status, onBack }: any) {
           onClick:()=>{setReturnTo(entry.id);setRoute({kind:tab==="installed" ? "installation" : "definition",id:entry.id});setChannel(entry.channels?.[0] ?? "");}});
         return react.cloneElement(row,{autoFocus:entry.id===returnTo});
       })),
-      visible.length ? null : entries.length ? renderSteamUiEmpty(react,"No emulators match your search.")
-        : tab==="installed" ? h("div",{className:"steam-ui-kit-box wsgm-emu-empty"},h("h2",{},"No emulators installed"),
-          h("p",{},"Browse the catalogue to install an emulator or register one you already have."),
-          button("Browse available emulators",()=>selectTab("available"),false,true))
-          : renderSteamUiEmpty(react,"All supported emulators are installed."));
+      visible.length ? null : entries.length
+        ? renderSteamUiEmpty(importUi,{kind:"noMatch",text:"No emulators match your search.",
+          action:{label:"Clear search",onClick:()=>setSearch("")}})
+        : tab==="installed" ? renderSteamUiEmpty(importUi,{kind:"empty",title:"No emulators installed",
+          text:"Browse the catalogue to install an emulator or register one you already have.",
+          action:{label:"Browse available emulators",onClick:()=>selectTab("available")}})
+          : renderSteamUiEmpty(importUi,{kind:"empty",text:"All supported emulators are installed."}));
   }
   // A route removes its old focus target. Mount the new native navigation subtree once per
   // route, so Steam enters it; ordinary state/progress updates retain the same focus owner.
   if (content.type === importUi.focusable) {
     content = react.cloneElement(content,{key:`${tab}:${route.kind}:${route.id}`,autoFocus:true});
   }
-  const pane = h("div",{className:"wsgm-emu-pane"},status,
-    state.shortcutStatus ? h("p",{role:"status"},state.shortcutStatus) : null,
+  // The running operation is the kit's progress, with its stop; once it ends its last word, and the
+  // shortcut's, are status lines.
+  const pane = h("div",{className:"wsgm-emu-pane"},
+    progress.busy
+      ? renderSteamUiProgress(importUi,{phase:progress.status || "Working…",cancelLabel:"Stop operation",
+        onCancel:()=>void emulatorAct("cancel")})
+      : renderSteamUiStatus(importUi,[progress.status ? {key:"progress",text:progress.status} : null]),
+    renderSteamUiStatus(importUi,[state.shortcutStatus ? {key:"shortcut",text:state.shortcutStatus} : null]),
     h(importUi.focusable,{className:"wsgm-emu-toolbar","flow-children":"grid",
       onOptionsButton:()=>!progress.busy && void emulatorAct("refreshEmulators"),onOptionsActionDescription:"Check for updates"},
       canBack ? button("Back",back,false) : null,
-      button("Check for updates",()=>void emulatorAct("refreshEmulators")),
-      progress.busy ? button("Stop operation",()=>void emulatorAct("cancel"),false) : null,
-      progress.status ? h("span",{role:"status"},progress.status) : null),content);
-  return renderSteamUiLevel(importUi,{className:"wsgm-emu-content",onBack:canBack ? back : undefined},
-    h("style",{},emulatorStyles),steamUiKitStyle(react),h(importUi.tabs,{
-      autoFocusContents:true,activeTab:tab,onShowTab:selectTab,
-      tabs:tabs.map(([id,title])=>({id,title,content:id===tab ? pane : null}))}));
+      button("Check for updates",()=>void emulatorAct("refreshEmulators"))),content);
+  return renderSteamUiLevel(importUi,{className:"wsgm-emu-content",onBack:canBack ? back : undefined},pane);
 }

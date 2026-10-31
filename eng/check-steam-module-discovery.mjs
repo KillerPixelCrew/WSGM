@@ -15,7 +15,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 // flag, process start) is C# behaviour and belongs in WSGM.Tests, not in a regex over source text.
 // Never launch live Steam here.
 const composedAsset = readFileSync(
-  resolve(root, "src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js"),
+  resolve(root, process.argv[2] ?? "src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js"),
   "utf8",
 );
 const resolver = fragment(composedAsset, "module-resolver.ts");

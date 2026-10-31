@@ -39,8 +39,6 @@ const notes = instantiate(
     request: (_patch, _command, payload, _generation, signal) =>
       new Promise((resolve) => requests.push({ payload, signal, resolve })),
     registerSteamPage: () => ({}),
-    resolveSteamSettingsComponents: () => ({}),
-    SteamSettingsRequired: [],
   },
   fragment(loadAsset(), "consumer/notes.ts"),
   "({NotesSurface})",

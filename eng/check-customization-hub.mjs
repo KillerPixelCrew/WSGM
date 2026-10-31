@@ -3,18 +3,21 @@
 //   node eng/check-customization-hub.mjs [<asset>]
 //
 // Resolution is checked live. What this proves is what the shipped bytes do once they hold Steam's
-// Settings page list: only the customization page is wrapped, the hub lands once in front of Valve's
-// Startup Movie section and Valve's sections stay, the toolkit's screensaver gate still decorates
-// its own section in either transform order, the hub's rows send the Themes, UI sounds and
-// Animations pages' own commands, a session without one of those services shows no section for it,
-// a re-transformed list never nests a second hub, and removal and reinstallation (a CEF reload)
-// hand Steam's tree back and draw exactly one hub again.
+// Settings page list through the toolkit's shared Settings sections: only the customization page is
+// wrapped, the hub lands once in front of Valve's Startup Movie section and Valve's sections stay,
+// the toolkit's screensaver gate still decorates its own section in either install order, the hub's
+// rows send the Themes, UI sounds and Animations pages' own commands and hand the request back so a
+// refusal lands on its row, a session without one of those services shows no section for it, a
+// re-transformed list never nests a second hub, and removal and reinstallation (a CEF reload) hand
+// Steam's tree back and draw exactly one hub again.
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import {
   createReact,
+  declaration,
   element,
   find,
+  fragment,
   gateSource,
   instantiate,
   loadAsset,
@@ -120,8 +123,9 @@ const getWebpackRuntime = () => {
   return require;
 };
 
-// The settings renderer and kit stylesheet are the toolkit's; here a row is an element carrying its
-// descriptor and the callbacks the hub gave it.
+// The kit's settings section and stylesheet are the toolkit's; here a section is an element carrying
+// its title and its rows, and a row an element carrying its descriptor and the callbacks the hub gave
+// the section, as the kit's drafts would call them.
 const ui = {
   react,
   settingsSection: "SettingsSection",
@@ -131,11 +135,20 @@ const ui = {
   dialogButton: "Button",
 };
 const Row = "Row";
-const renderSteamSettingRow = (_ui, row, _draft, change, action) =>
+const renderSteamUiFields = (_ui, props) =>
   element(
-    Row,
-    { row, send: (value) => change(row, value), act: () => action(row) },
-    `steam-setting-${row.key}`,
+    "SettingsSection",
+    {
+      label: props.title,
+      children: props.rows.map((row) =>
+        element(
+          Row,
+          { row, send: (value) => props.onChange(row, value), act: () => props.onAction?.(row) },
+          `steam-setting-${row.key}`,
+        ),
+      ),
+    },
+    props.key,
   );
 
 const published = new Map();
@@ -159,8 +172,8 @@ const globals = {
   setTimeout: () => 0,
   clearTimeout: () => {},
   getWebpackRuntime,
-  resolveSteamSettingsComponents: () => ui,
-  renderSteamSettingRow,
+  resolveSteamUiComponents: () => ui,
+  renderSteamUiFields,
   steamUiKitStyle: () => element("style", {}),
   request: (patchId, command, payload) => {
     requests.push({ patchId, command, payload });
@@ -169,14 +182,18 @@ const globals = {
   subscribe,
 };
 
-const shared = sharedFragments(asset);
+// The real gate helpers and Settings sections, with Steam's components resolved by the fixture: the
+// resolver is the one declaration taken out, so the global stands in for it.
+const helpers = sharedFragments(asset);
+const shared = `${helpers.replace(declaration(helpers, "resolveSteamUiComponents"), "")}
+${fragment(asset, "ui-flows.ts")}`;
 const createHub = () =>
   instantiate(
     globals,
     `${shared}\n${gateSource(asset, "consumer/customization.ts")}`,
     "createWsgmCustomization()",
   );
-// Both gates in one scope, as the asset composes them, so they share the one useMemo claim.
+// Both gates in one scope, as the asset composes them, so they share the one Settings sections claim.
 const createBoth = () =>
   instantiate(
     globals,
@@ -195,7 +212,7 @@ const renderCustomization = (list = pageList()) => {
     tree,
     undefined,
     ...react.Children.toArray(tree.props.children).map((child) =>
-      typeof child.type === "function" && child.type.name === "SteamUiScreensaverSection"
+      typeof child.type === "function" && child.type.name === "SteamUiSettingsSectionHost"
         ? { ...child, rendered: child.type(child.props) }
         : child,
     ),
@@ -278,7 +295,7 @@ const hub = createHub();
 // The probe is the gate's own: ready once Steam's modules load, and it installs nothing.
 assert.equal(hub.probe().outcome, "ready");
 assert.equal(hub.status().claims, 0);
-assert.deepEqual(hub.install(), { ok: true, installed: true });
+assert.deepEqual(hub.install(), { ok: true, installed: true, reclaimed: false });
 assert.equal(hub.status().registered, true);
 assert.equal(hub.status().held, true, "the standard status must show the transform held");
 assert.equal(hub.probe().installed, true, "an installed gate answers from what it holds");
@@ -337,7 +354,8 @@ assert.deepEqual(
 assert.equal(rowByKey(body, "animations-restart").props.row.accent, true);
 rowByKey(body, "animations-suspend");
 
-rowByKey(body, "themes-on").props.send(false);
+// The request is the answer the kit's drafts wait on, so a refusal is drawn on the row that asked.
+assert.equal(typeof rowByKey(body, "themes-on").props.send(false)?.then, "function");
 rowByKey(body, "themes-theme-b").props.send(true);
 rowByKey(body, "themes-profile").props.send("p");
 rowByKey(body, "themes-update").props.act();
@@ -404,7 +422,7 @@ for (const first of ["hub", "screensaver"]) {
   tree = renderCustomization();
   assert.equal(hubsIn(tree).length, 1, `one hub with ${first} first`);
   const children = react.Children.toArray(tree.props.children);
-  const decorated = children.filter((child) => child.type.name === "SteamUiScreensaverSection");
+  const decorated = children.filter((child) => child.type.name === "SteamUiSettingsSectionHost");
   assert.equal(decorated.length, 1, `the screensaver section stays decorated with ${first} first`);
   assert.equal(
     children.findIndex((child) => child.key === "wsgm-customization-hub") + 1,

@@ -1,11 +1,11 @@
-// Artwork frontend; host services own searches and file writes, and the toolkit owns native UI primitives.
+// Artwork frontend; host services own searches and file writes, and the toolkit owns the page frame,
+// its tabs and the kit around Steam's components. What stays here is SteamGridDB's own: its result
+// cards and chips, its filter, the official and local artwork, the logo anchor editor and the game
+// the results are for.
 const ArtworkBrowserPatchId = "wsgm.artwork-browser";
 
-// The resolved components and the latest state, for the modals: a modal is drawn outside the page's
-// tree, so it reads them here and hears about new state through the listeners the page notifies.
-let artworkUi: any = null;
-let artworkDesired: any = null;
-const artworkListeners = new Set<(state: any) => void>();
+// The thumbnail size the user chose; one per page session, so it survives a tab change.
+let artworkCardSize = 170;
 
 const artworkFilterOptions = (tab: string) => ({
   styles:
@@ -36,45 +36,49 @@ const artworkFilterOptions = (tab: string) => ({
 
 const readableFilter = (value: string) =>
   value.replace("image/", "").replaceAll("_", " ").replace("x", "×");
-/**
- * Sends one artwork action to the shared host service.
- * @param command Allowlisted artwork command.
- * @param payload JSON action arguments.
- * @returns The backend result promise; callers own refusal handling.
- */
 
-const sendArtworkCommand = (command: string, payload: any = {}) =>
-  request(ArtworkBrowserPatchId, command, payload);
+// Sends one artwork command; a refusal shows in the page's banner and resolves undefined.
+const artworkAct = (command: string, payload: any = {}) => artworkBrowserPage.act(command, payload);
 
-/**
- * Opens the controller-accessible file picker and sends the chosen path to the host.
- * @param tab Artwork slot; icon additionally permits ICO files.
- * @param failed Receives an applyLocal refusal; cancellation sends no command.
- */
-const chooseLocalArtwork = (tab: string, failed: (message: string) => void) => {
-  void showSteamFilePicker(artworkUi, {
+// The file-pick action that applies a local image to one slot; cancelling sends nothing.
+const artworkLocalPick = (tab: string): SteamUiAction => ({
+  id: `local-${tab}`,
+  label: "Browse Local",
+  pick: {
     title: "Choose an image",
     mode: "file",
-    extensions: tab === "icon" ? [".png", ".jpg", ".jpeg", ".webp", ".ico"] : [".png", ".jpg", ".jpeg", ".webp"],
-  }).then((path) => {
-    if (!path) return;
-    void sendArtworkCommand("applyLocal", { tab, path }).catch((error) => failed(String(error?.message || error)));
-  });
-};
+    extensions:
+      tab === "icon"
+        ? [".png", ".jpg", ".jpeg", ".webp", ".ico"]
+        : [".png", ".jpg", ".jpeg", ".webp"],
+  },
+  onPick: (path) => void artworkAct("applyLocal", { tab, path }),
+});
+
+const artworkTabLabel = (state: any) =>
+  (Array.isArray(state?.tabs) ? state.tabs : []).find((tab) => tab.id === state?.activeTab)
+    ?.label || "Artwork";
 
 /**
- * Opens a page-styled modal through Steam's native modal host.
+ * Opens a page-styled modal through Steam's native modal host. The modal is drawn outside the
+ * page's tree, so it takes the components it was opened with and reads live state through the
+ * frame's `useState`.
+ * @param ui The page's resolved components.
  * @param className Page-specific layout classes.
  * @param render Body renderer receiving the close callback.
  * @returns True if a modal was opened, or false when required native components are unavailable.
  */
-const showArtworkModal = (className: string, render: (close: () => void) => any) =>
-  showSteamModal(artworkUi, { title: "SteamGridDB", className: `sgdb-modal ${className}`, render });
+const showArtworkModal = (ui, className: string, render: (close: () => void) => any) =>
+  showSteamModal(ui, { title: "SteamGridDB", className: `sgdb-modal ${className}`, render });
 
-function ArtworkDetailsModal({ asset, label, closeModal }) {
-  const h = artworkUi.react.createElement;
-  const PrimaryButton = artworkUi.dialogButtonPrimary;
-  const Focusable = artworkUi.focusable;
+function ArtworkDetailsModal({ ui, asset, label, closeModal }) {
+  const h = ui.react.createElement;
+  const PrimaryButton = ui.dialogButtonPrimary;
+  const Focusable = ui.focusable;
+  const apply = () => {
+    void artworkAct("apply", { id: asset.id });
+    closeModal?.();
+  };
   return h(
     "div",
     {},
@@ -85,10 +89,7 @@ function ArtworkDetailsModal({ asset, label, closeModal }) {
         Focusable,
         {
           className: "image-wrap modal-image",
-          onActivate: () => {
-            void sendArtworkCommand("apply", { id: asset.id });
-            closeModal?.();
-          },
+          onActivate: apply,
           onOKActionDescription: `Apply ${label}`,
         },
         h("img", { src: asset.imageUrl, alt: "" }),
@@ -96,17 +97,7 @@ function ArtworkDetailsModal({ asset, label, closeModal }) {
       h(
         "div",
         { className: "info" },
-        h(
-          PrimaryButton,
-          {
-            onClick: () => {
-              void sendArtworkCommand("apply", { id: asset.id });
-              closeModal?.();
-            },
-            onOKActionDescription: `Apply ${label}`,
-          },
-          `Apply ${label}`,
-        ),
+        h(PrimaryButton, { onClick: apply, onOKActionDescription: `Apply ${label}` }, `Apply ${label}`),
         h(
           "span",
           { className: "meta" },
@@ -121,13 +112,18 @@ function ArtworkDetailsModal({ asset, label, closeModal }) {
   );
 }
 
-function ArtworkOfficialModal({ assets, label, closeModal }) {
-  const h = artworkUi.react.createElement;
-  const PrimaryButton = artworkUi.dialogButtonPrimary;
+function ArtworkOfficialModal({ ui, label, closeModal }) {
+  const h = ui.react.createElement;
+  const PrimaryButton = ui.dialogButtonPrimary;
+  const state = artworkBrowserPage.useState();
+  const assets = Array.isArray(state?.officialAssets) ? state.officialAssets : [];
   return h(
     "div",
     {},
     h("h2", null, `Official ${label}`),
+    assets.length
+      ? null
+      : renderSteamUiEmpty(ui, { kind: "unavailable", text: `Steam has no official ${label} here.` }),
     ...assets.map((asset) =>
       h(
         "div",
@@ -141,7 +137,7 @@ function ArtworkOfficialModal({ assets, label, closeModal }) {
             PrimaryButton,
             {
               onClick: () => {
-                void sendArtworkCommand("applyOfficial", { id: asset.id });
+                void artworkAct("applyOfficial", { id: asset.id });
                 closeModal?.();
               },
             },
@@ -153,24 +149,20 @@ function ArtworkOfficialModal({ assets, label, closeModal }) {
   );
 }
 
-function ArtworkFilterModal({ tab, label, initialFilter, closeModal }) {
-  const react = artworkUi.react;
+function ArtworkFilterModal({ ui, tab, label, initialFilter, closeModal }) {
+  const react = ui.react;
   const h = react.createElement;
-  const Button = artworkUi.dialogButton;
-  const PrimaryButton = artworkUi.dialogButtonPrimary;
-  const ToggleField = artworkUi.toggleField;
-  const TextField = artworkUi.textField;
-  const Focusable = artworkUi.focusable;
+  const Button = ui.dialogButton;
+  const PrimaryButton = ui.dialogButtonPrimary;
+  const ToggleField = ui.toggleField;
+  const TextField = ui.textField;
+  const Focusable = ui.focusable;
+  // The game matches the host publishes after a search reach the open modal through the frame.
+  const state = artworkBrowserPage.useState();
   const options = artworkFilterOptions(tab);
   const [filter, setFilter] = react.useState({ ...initialFilter });
-  const [searchTerm, setSearchTerm] = react.useState(artworkDesired?.selectedGame || "");
-  const [matches, setMatches] = react.useState(artworkDesired?.gameMatches || []);
-  react.useEffect(() => {
-    const listener = (state) =>
-      setMatches(Array.isArray(state?.gameMatches) ? state.gameMatches : []);
-    artworkListeners.add(listener);
-    return () => artworkListeners.delete(listener);
-  }, []);
+  const [searchTerm, setSearchTerm] = react.useState(state?.selectedGame || "");
+  const matches = Array.isArray(state?.gameMatches) ? state.gameMatches : [];
 
   const multiSelect = (title: string, name: string, values: string[]) =>
     h(
@@ -226,7 +218,7 @@ function ArtworkFilterModal({ tab, label, initialFilter, closeModal }) {
         ? h(TextField, {
             label: "Game",
             value: searchTerm,
-            placeholder: artworkDesired?.appName || "Search for a game",
+            placeholder: state?.appName || "Search for a game",
             onChange: (event) => setSearchTerm(event.currentTarget.value),
           })
         : null,
@@ -234,16 +226,14 @@ function ArtworkFilterModal({ tab, label, initialFilter, closeModal }) {
         Button,
         {
           onClick: () =>
-            void sendArtworkCommand("searchGames", {
-              term: searchTerm || artworkDesired?.appName || "Steam",
-            }),
+            void artworkAct("searchGames", { term: searchTerm || state?.appName || "Steam" }),
         },
         "Search",
       ),
-      artworkDesired?.selectedGame
+      state?.selectedGame
         ? h(
             Button,
-            { onClick: () => void sendArtworkCommand("selectGame", { id: null }) },
+            { onClick: () => void artworkAct("selectGame", { id: null }) },
             "Use Steam game",
           )
         : null,
@@ -255,10 +245,7 @@ function ArtworkFilterModal({ tab, label, initialFilter, closeModal }) {
           ...matches.map((match) =>
             h(
               Button,
-              {
-                key: match.id,
-                onClick: () => void sendArtworkCommand("selectGame", { id: match.id }),
-              },
+              { key: match.id, onClick: () => void artworkAct("selectGame", { id: match.id }) },
               `${match.name} · ${match.provider}`,
             ),
           ),
@@ -283,7 +270,7 @@ function ArtworkFilterModal({ tab, label, initialFilter, closeModal }) {
         PrimaryButton,
         {
           onClick: () => {
-            void sendArtworkCommand("setFilter", filter);
+            void artworkAct("setFilter", filter);
             closeModal?.();
           },
         },
@@ -293,13 +280,13 @@ function ArtworkFilterModal({ tab, label, initialFilter, closeModal }) {
   );
 }
 
-function ArtworkLogoModal({ closeModal }) {
-  const react = artworkUi.react;
+function ArtworkLogoModal({ ui, closeModal }) {
+  const react = ui.react;
   const h = react.createElement;
-  const Button = artworkUi.dialogButton;
-  const PrimaryButton = artworkUi.dialogButtonPrimary;
-  const SliderField = artworkUi.sliderField;
-  const Focusable = artworkUi.focusable;
+  const Button = ui.dialogButton;
+  const PrimaryButton = ui.dialogButtonPrimary;
+  const SliderField = ui.sliderField;
+  const Focusable = ui.focusable;
   const [position, setPosition] = react.useState({ anchor: "BottomLeft", width: 50, height: 50 });
   const anchors = [
     "TopLeft",
@@ -364,7 +351,7 @@ function ArtworkLogoModal({ closeModal }) {
         PrimaryButton,
         {
           onClick: () => {
-            void sendArtworkCommand("saveLogoPosition", position);
+            void artworkAct("saveLogoPosition", position);
             closeModal?.();
           },
         },
@@ -374,284 +361,282 @@ function ArtworkLogoModal({ closeModal }) {
   );
 }
 
-/**
- * Renders artwork selection and coordinates the modals subscribed to its host snapshot.
- * @param context Registered page accessors for Steam components, latest state and publication refusal.
- * @returns The page React tree, including loading or refusal state when data is unavailable.
- */
-function ArtworkBrowserPage({ context }: any) {
-  const react = context.react();
+// The filter for the slot on screen, opened from the toolbar, from a card's X and from the tab's
+// footer action.
+const openArtworkFilters = () => {
+  const ui = artworkBrowserPage.ui();
+  const state = artworkBrowserPage.state();
+  if (!ui || !state) return;
+  showArtworkModal(ui, "sgdb-modal-filters", (close) =>
+    ui.react.createElement(ArtworkFilterModal, {
+      ui,
+      tab: state.activeTab,
+      label: artworkTabLabel(state),
+      initialFilter: state.filter,
+      closeModal: close,
+    }),
+  );
+};
+
+const openArtworkLogo = (ui) =>
+  showArtworkModal(ui, "sgdb-modal-logo", (close) =>
+    ui.react.createElement(ArtworkLogoModal, { ui, closeModal: close }),
+  );
+
+// Whose artwork this is: the Steam title, and the SteamGridDB game the results are for.
+const artworkGameContext = (ui, state) =>
+  ui.react.createElement(
+    "div",
+    { className: "sgdb-game-context" },
+    renderSteamUiHeader(ui, {
+      sub: true,
+      title: state.appName ? `Artwork for ${state.appName}` : `Artwork for app ${state.appId}`,
+      detail: state.selectedGame ? `Results for ${state.selectedGame}` : undefined,
+    }),
+  );
+
+function ArtworkAssets({ ui, state }: any) {
+  const react = ui.react;
   const h = react.createElement;
-  const [actionError, setActionError] = react.useState("");
-  const [cardSize, setCardSize] = react.useState(170);
-  const state = context.state();
-  artworkUi = context.ui();
-  artworkDesired = state;
-
-  // An open filter modal lists the matches the host publishes after its search.
-  react.useEffect(() => {
-    for (const listener of [...artworkListeners]) listener(state);
-  }, [state]);
-
-  // After the hooks, so a render before the first publication calls the same ones as one after.
-  if (!state) return h("div", { className: "sgdb-loading" }, context.refusal() ?? "Loading artwork…");
-    const Focusable = artworkUi.focusable;
-    const Button = artworkUi.dialogButton;
-    const SliderField = artworkUi.sliderField;
-    const Tabs = artworkUi.tabs;
-
-    const activate = (command: string, payload: any = {}) =>
-      sendArtworkCommand(command, payload).catch((error) => {
-        setActionError(String(error?.message || error));
-        return undefined;
-      });
-    const tabs = Array.isArray(state.tabs) ? state.tabs : [];
-    const assets = Array.isArray(state.assets) ? state.assets : [];
-    const officialAssets = Array.isArray(state.officialAssets) ? state.officialAssets : [];
-    const managed = Array.isArray(state.managedSlots) ? state.managedSlots : [];
-    const active = tabs.find((tab) => tab.id === state.activeTab) || tabs[0];
-    const filtersActive = !!(
-      state.filter?.styles?.length || state.filter?.dimensions?.length || state.filter?.mimes?.length
-      || state.filter?.static === false || state.filter?.animated === false
-      || state.filter?.adult === false || state.filter?.humor === false
-      || state.filter?.epilepsy === false || state.filter?.untagged === false
+  const Focusable = ui.focusable;
+  const Button = ui.dialogButton;
+  const SliderField = ui.sliderField;
+  const [cardSize, setCardSize] = react.useState(artworkCardSize);
+  const assets = Array.isArray(state.assets) ? state.assets : [];
+  const officialAssets = Array.isArray(state.officialAssets) ? state.officialAssets : [];
+  const label = artworkTabLabel(state);
+  const filter = state.filter ?? {};
+  const filtersActive = !!(
+    filter.styles?.length ||
+    filter.dimensions?.length ||
+    filter.mimes?.length ||
+    filter.static === false ||
+    filter.animated === false ||
+    filter.adult === false ||
+    filter.humor === false ||
+    filter.epilepsy === false ||
+    filter.untagged === false
+  );
+  // Notices can contain both provider failures and deliberately disabled optional providers.
+  // Only the latter belong in the secondary note; every other reason is a status line.
+  const notices = String(state.notice || "")
+    .split(/ {2,}/)
+    .filter(Boolean);
+  const disabledNotices = notices.filter((notice) => notice.endsWith(": Turned off in Settings."));
+  const providerNotices = notices.filter((notice) => !disabledNotices.includes(notice));
+  const openDetails = (asset) =>
+    showArtworkModal(ui, "sgdb-modal-details", (close) =>
+      h(ArtworkDetailsModal, { ui, asset, label, closeModal: close }),
     );
-    // Notices can contain both provider failures and deliberately disabled optional providers.
-    // Only the latter belong in the secondary note; retain every other reason in the status.
-    const notices = String(state.notice || "").split(/ {2,}/).filter(Boolean);
-    const disabledNotices = notices.filter((notice) => notice.endsWith(": Turned off in Settings."));
-    const providerNotice = notices.filter((notice) => !disabledNotices.includes(notice)).join("  ");
-    const gameContext = h(
+  const assetCard = (asset) =>
+    h(
       "div",
-      { className: "sgdb-game-context" },
-      renderSteamUiHeader(artworkUi, {
-        sub: true,
-        title: state.appName ? `Artwork for ${state.appName}` : `Artwork for app ${state.appId}`,
-        detail: state.selectedGame ? `Results for ${state.selectedGame}` : undefined,
-      }),
-    );
-
-    const openFilters = () =>
-      showArtworkModal("sgdb-modal-filters", (close) =>
-        h(ArtworkFilterModal, {
-          tab: state.activeTab,
-          label: active?.label || "Artwork",
-          initialFilter: state.filter,
-          closeModal: close,
-        }),
-      );
-    const openDetails = (asset) =>
-      showArtworkModal("sgdb-modal-details", (close) =>
-        h(ArtworkDetailsModal, { asset, label: active?.label || "artwork", closeModal: close }),
-      );
-    const openLogo = () =>
-      showArtworkModal("sgdb-modal-logo", (close) => h(ArtworkLogoModal, { closeModal: close }));
-    const assetCard = (asset) =>
-      h(
-        "div",
-        { className: "asset-box-wrap", key: asset.id },
-        h(
-          Focusable,
-          {
-            className: `image-wrap type-${state.activeTab}`,
-            style: {
-              paddingBottom: `${asset.width === asset.height ? 100 : (asset.height / asset.width) * 100}%`,
-            },
-            onActivate: () => activate("apply", { id: asset.id }),
-            onSecondaryButton: openFilters,
-            onMenuButton: () => openDetails(asset),
-            onContextMenu: (event) => {
-              event.preventDefault();
-              openDetails(asset);
-            },
-            onOKActionDescription: `Apply ${active?.label || "artwork"}`,
-            onSecondaryActionDescription: "Filter",
-            onMenuActionDescription: "Details",
-          },
-          h(
-            "div",
-            { className: "thumb" },
-            h("img", { src: asset.thumbnailUrl || asset.imageUrl, alt: "", loading: "lazy" }),
-          ),
-          asset.animated || asset.nsfw || asset.humor || asset.epilepsy
-            ? h(
-                "ul",
-                { className: "chips" },
-                asset.animated ? h("li", { className: "chip animated" }, "Animated") : null,
-                asset.nsfw ? h("li", { className: "chip nsfw" }, "Adult") : null,
-                asset.humor ? h("li", { className: "chip humor" }, "Humor") : null,
-                asset.epilepsy ? h("li", { className: "chip epilepsy" }, "Epilepsy") : null,
-              )
-            : null,
-        ),
-        asset.author ? h("div", { className: "author" }, asset.author) : null,
-      );
-
-    const assetContent = h(
-      "div",
-      { className: "tabcontents-wrap" },
-      gameContext,
-      state.loading
-        ? h("div", { className: "spinnyboi" }, h("img", { src: "/images/steam_spinner.png" }))
-        : null,
-      h(
-        Focusable,
-        { className: "sgdb-asset-toolbar", "flow-children": "row" },
-        h(
-          Focusable,
-          { className: "filter-buttons", "flow-children": "row" },
-          h(Button, { noFocusRing: true, onClick: openFilters }, filtersActive ? "Filter · Active" : "Filter"),
-          officialAssets.length
-            ? h(
-                Button,
-                {
-                  noFocusRing: true,
-                  onClick: () =>
-                    showArtworkModal("sgdb-modal-official-assets", (close) =>
-                      h(ArtworkOfficialModal, {
-                        assets: officialAssets,
-                        label: active?.label || "Artwork",
-                        closeModal: close,
-                      }),
-                    ),
-                },
-                `Official ${active?.label || "Artwork"}`,
-              )
-            : null,
-          h(
-            Button,
-            {
-              noFocusRing: true,
-              onClick: () => chooseLocalArtwork(state.activeTab, setActionError),
-            },
-            "Browse Local",
-          ),
-          state.activeTab === "logo"
-            ? h(
-                Button,
-                { noFocusRing: true, onClick: openLogo },
-                "Adjust Logo Position",
-              )
-            : null,
-        ),
-        h(
-          "div",
-          { className: "size-slider" },
-          h(SliderField, {
-            label: "Thumbnail size",
-            value: cardSize,
-            min: 100,
-            max: 260,
-            step: 5,
-            showValue: true,
-            valueSuffix: "px",
-            layout: "below",
-            bottomSeparator: "none",
-            onChange: setCardSize,
-          }),
-        ),
-      ),
-      state.error || providerNotice || actionError
-        ? h(
-            "div",
-            { className: `sgdb-status${state.error || actionError ? " error" : ""}`, role: "status" },
-            state.error || actionError || providerNotice,
-          )
-        : null,
-      disabledNotices.length && !state.error && !actionError
-        ? h("p", { className: "steam-ui-kit-sheet-note" }, disabledNotices.join("  "))
-        : null,
+      { className: "asset-box-wrap", key: asset.id },
       h(
         Focusable,
         {
-          id: "images-container",
-          style: { "--asset-size": `${cardSize}px` },
+          className: `image-wrap type-${state.activeTab}`,
+          style: {
+            paddingBottom: `${asset.width === asset.height ? 100 : (asset.height / asset.width) * 100}%`,
+          },
+          onActivate: () => void artworkAct("apply", { id: asset.id }),
+          onSecondaryButton: openArtworkFilters,
+          onMenuButton: () => openDetails(asset),
+          onContextMenu: (event) => {
+            event.preventDefault();
+            openDetails(asset);
+          },
+          onOKActionDescription: `Apply ${label}`,
+          onSecondaryActionDescription: "Filter",
+          onMenuActionDescription: "Details",
         },
-        ...assets.map(assetCard),
-      ),
-      !state.loading && assets.length === 0 && !state.error
-        ? h("div", { className: "sgdb-empty" }, "No Results Found.")
-        : null,
-      state.hasMore
-        ? h(
-            "div",
-            { className: "sgdb-load-more" },
-            h(Button, { onClick: () => activate("loadMore") }, "Load More"),
-          )
-        : null,
-    );
-
-    const manageContent = h(
-      Focusable,
-      { id: "local-images-container" },
-      gameContext,
-      ...managed.map((slot) =>
         h(
           "div",
-          { className: `asset-wrap asset-wrap-${slot.id}`, key: slot.id },
-          h("div", { className: "asset-label" }, `Current ${slot.label}`),
+          { className: "thumb" },
+          h("img", { src: asset.thumbnailUrl || asset.imageUrl, alt: "", loading: "lazy" }),
+        ),
+        asset.animated || asset.nsfw || asset.humor || asset.epilepsy
+          ? h(
+              "ul",
+              { className: "chips" },
+              asset.animated ? h("li", { className: "chip animated" }, "Animated") : null,
+              asset.nsfw ? h("li", { className: "chip nsfw" }, "Adult") : null,
+              asset.humor ? h("li", { className: "chip humor" }, "Humor") : null,
+              asset.epilepsy ? h("li", { className: "chip epilepsy" }, "Epilepsy") : null,
+            )
+          : null,
+      ),
+      asset.author ? h("div", { className: "author" }, asset.author) : null,
+    );
+  const toolbarButton = (action: SteamUiAction) =>
+    h(
+      Button,
+      { key: action.id, noFocusRing: true, onClick: () => runSteamUiAction(ui, action) },
+      action.label,
+    );
+
+  let empty: any = null;
+  if (!assets.length && !state.loading && !state.error) {
+    empty = filtersActive
+      ? renderSteamUiEmpty(ui, {
+          kind: "noMatch",
+          text: `No ${label.toLowerCase()} matches the filter.`,
+          action: { label: "Change Filter", onClick: openArtworkFilters },
+        })
+      : renderSteamUiEmpty(ui, {
+          kind: "empty",
+          text: `No ${label.toLowerCase()} found for this game.`,
+          action: { label: "Search Another Game", onClick: openArtworkFilters },
+        });
+  }
+
+  return h(
+    "div",
+    { className: "tabcontents-wrap" },
+    artworkGameContext(ui, state),
+    h(
+      Focusable,
+      { className: "sgdb-asset-toolbar", "flow-children": "row" },
+      h(
+        Focusable,
+        { className: "filter-buttons", "flow-children": "row" },
+        toolbarButton({
+          id: "filter",
+          label: filtersActive ? "Filter · Active" : "Filter",
+          onClick: openArtworkFilters,
+        }),
+        officialAssets.length
+          ? toolbarButton({
+              id: "official",
+              label: `Official ${label}`,
+              onClick: () =>
+                showArtworkModal(ui, "sgdb-modal-official-assets", (close) =>
+                  h(ArtworkOfficialModal, { ui, label, closeModal: close }),
+                ),
+            })
+          : null,
+        toolbarButton(artworkLocalPick(state.activeTab)),
+        state.activeTab === "logo"
+          ? toolbarButton({
+              id: "logo",
+              label: "Adjust Logo Position",
+              onClick: () => openArtworkLogo(ui),
+            })
+          : null,
+      ),
+      h(
+        "div",
+        { className: "size-slider" },
+        h(SliderField, {
+          label: "Thumbnail size",
+          value: cardSize,
+          min: 100,
+          max: 260,
+          step: 5,
+          showValue: true,
+          valueSuffix: "px",
+          layout: "below",
+          bottomSeparator: "none",
+          onChange: (size) => {
+            artworkCardSize = size;
+            setCardSize(size);
+          },
+        }),
+      ),
+    ),
+    renderSteamUiStatus(ui, [
+      state.error ? { key: "error", text: String(state.error), error: true } : null,
+      ...providerNotices.map((notice) => ({ key: notice, text: notice })),
+    ]),
+    disabledNotices.length ? h("p", { className: "steam-ui-kit-sheet-note" }, disabledNotices.join("  ")) : null,
+    assets.length
+      ? h(
+          Focusable,
+          { id: "images-container", style: { "--asset-size": `${cardSize}px` } },
+          ...assets.map(assetCard),
+        )
+      : null,
+    state.loading
+      ? renderSteamUiEmpty(ui, { kind: "loading", text: `Asking for ${label.toLowerCase()}…` })
+      : null,
+    empty,
+    state.hasMore && !state.loading
+      ? renderSteamUiMore(ui, { onClick: () => void artworkAct(SteamUiBrowse.more) })
+      : null,
+  );
+}
+
+function ArtworkManage({ ui, state }: any) {
+  const h = ui.react.createElement;
+  const Focusable = ui.focusable;
+  const Button = ui.dialogButton;
+  const managed = Array.isArray(state.managedSlots) ? state.managedSlots : [];
+  return h(
+    Focusable,
+    { id: "local-images-container" },
+    artworkGameContext(ui, state),
+    ...managed.map((slot) =>
+      h(
+        "div",
+        { className: `asset-wrap asset-wrap-${slot.id}`, key: slot.id },
+        h("div", { className: "asset-label" }, `Current ${slot.label}`),
+        h(
+          Focusable,
+          { className: "manage-asset", focusWithinClassName: "is-focused" },
+          h(
+            "div",
+            { className: "asset" },
+            slot.imageUrl
+              ? h("img", { className: "asset-img", src: slot.imageUrl, alt: "" })
+              : h("span", null, slot.hasCustomArtwork ? "Custom artwork" : "Steam default"),
+          ),
           h(
             Focusable,
-            { className: "manage-asset", focusWithinClassName: "is-focused" },
+            { className: "action-overlay", "flow-children": "row" },
+            h(Button, { onClick: () => void artworkAct("clear", { tab: slot.id }) }, "Clear"),
             h(
-              "div",
-              { className: "asset" },
-              slot.imageUrl
-                ? h("img", { className: "asset-img", src: slot.imageUrl, alt: "" })
-                : h("span", null, slot.hasCustomArtwork ? "Custom artwork" : "Steam default"),
+              Button,
+              { onClick: () => runSteamUiAction(ui, { ...artworkLocalPick(slot.id), label: "Browse" }) },
+              "Browse",
             ),
-            h(
-              Focusable,
-              { className: "action-overlay", "flow-children": "row" },
-              h(Button, { onClick: () => activate("clear", { tab: slot.id }) }, "Clear"),
-              h(Button, { onClick: () => chooseLocalArtwork(slot.id, setActionError) }, "Browse"),
-              slot.id !== "icon"
-                ? h(Button, { onClick: () => activate("applyInvisible", { tab: slot.id }) }, "Invisible")
-                : null,
-            ),
+            slot.id !== "icon"
+              ? h(
+                  Button,
+                  { onClick: () => void artworkAct("applyInvisible", { tab: slot.id }) },
+                  "Invisible",
+                )
+              : null,
           ),
         ),
       ),
-      h(
-        Focusable,
-        { className: "manage-actions", "flow-children": "row" },
-        h(Button, { onClick: openLogo }, "Adjust Logo Position"),
-        h(Button, { onClick: () => activate("resetLogoPosition") }, "Reset Logo Position"),
-      ),
-    );
-
-    const nativeTabs = tabs.map((tab) => ({
-      id: tab.id,
-      title: tab.label,
-      content: tab.manage ? manageContent : tab.id === state.activeTab ? assetContent : null,
-      footer: tab.manage
-        ? undefined
-        : {
-            onSecondaryActionDescription: "Filter",
-            onSecondaryButton: openFilters,
-          },
-    }));
-
-    return h(
-      "div",
-      { id: "sgdb-wrap", "aria-label": `Artwork for ${state.appName}` },
-      h("style", null, artworkBrowserStyles),
-      steamUiKitStyle(react),
-      h(Tabs, {
-        autoFocusContents: true,
-        activeTab: state.activeTab,
-        onShowTab: (tab) => activate("selectTab", { tab }),
-        tabs: nativeTabs,
-      }),
-    );
+    ),
+    h(
+      Focusable,
+      { className: "manage-actions", "flow-children": "row" },
+      h(Button, { onClick: () => openArtworkLogo(ui) }, "Adjust Logo Position"),
+      h(Button, { onClick: () => void artworkAct("resetLogoPosition") }, "Reset Logo Position"),
+    ),
+  );
 }
 
+/**
+ * Draws the active tab of the artwork page: a slot's SteamGridDB results, or the title's current
+ * artwork on the manage tab.
+ * @param props The frame's context, the host's state and the active tab.
+ * @returns The tab's content.
+ */
+function ArtworkBrowserPage({ context, state, tab }: any) {
+  const ui = context.ui();
+  const h = ui.react.createElement;
+  const manage = (Array.isArray(state.tabs) ? state.tabs : []).find((entry) => entry.id === tab)?.manage;
+  return manage ? h(ArtworkManage, { ui, state }) : h(ArtworkAssets, { ui, state });
+}
+
+// SteamGridDB's own layout: its result cards and chips, the manage tab's slots, its modals and the
+// logo anchor editor. The frame draws the header offset, the background, the tab header and the kit.
 const artworkBrowserStyles = `
-#sgdb-wrap{--asset-size:170px;margin-top:var(--basicui-header-height,40px);height:calc(100% - var(--basicui-header-height,40px));background:var(--gpSystemDarkestGrey,#0e141b);color:#fff}
-#sgdb-wrap div[class*="gamepadtabbedpage_TabHeaderRowWrapper"]{background:#1b2838}
+#sgdb-wrap{--asset-size:170px;color:#fff}
 #sgdb-wrap .tabcontents-wrap{display:flex;height:100%;width:100%;flex-direction:column}
-#sgdb-wrap .spinnyboi{display:flex;align-items:center;justify-content:center;position:fixed;inset:0;z-index:10008;background:#0e141b}
-#sgdb-wrap .spinnyboi img{transform:scale(.75)}
 #sgdb-wrap .sgdb-game-context{grid-column:1 / -1;padding:0 0 .5em;min-width:0}
 #sgdb-wrap .sgdb-asset-toolbar{display:flex;align-items:center;flex-wrap:wrap;width:100%;gap:var(--gpSpace-Gap,.6em)}
 #sgdb-wrap .filter-buttons{align-items:center;display:flex;flex-wrap:wrap;gap:.5em;min-width:0}
@@ -672,7 +657,6 @@ const artworkBrowserStyles = `
 #sgdb-wrap .chip{display:flex;align-items:center;justify-content:center;padding:.3em .8em;min-height:2em;border-radius:0 5px 5px 0;transition:transform 300ms cubic-bezier(.33,1,.68,1)}
 #sgdb-wrap .chip.animated{background:#e2a256}.chip.nsfw{background:#e5344c}.chip.humor{background:#eec314;color:#434343}.chip.epilepsy{background:#735f9f}
 #sgdb-wrap .image-wrap.gpfocus .chip,#sgdb-wrap .image-wrap:hover .chip{transform:translateX(calc(100% - .5em - 1px));box-shadow:1px 2px 3px #0004}
-#sgdb-wrap .sgdb-status,#sgdb-wrap .sgdb-empty{padding:1em;text-align:center}#sgdb-wrap .sgdb-status.error{color:#ff6b6b}.sgdb-load-more{display:flex;justify-content:center;padding:1em 0 3em}
 #sgdb-wrap #local-images-container{display:grid;grid-template-columns:30% 1fr;gap:1em;margin-bottom:2em}
 #sgdb-wrap .asset-label{color:#fff;font-weight:500;letter-spacing:1px;text-transform:uppercase;line-height:20px;margin-bottom:.5em}
 #sgdb-wrap .manage-asset{position:relative}.manage-asset .asset{display:flex;min-height:100px;overflow:hidden;background:url('/images/defaultappimage.png') center/cover;align-items:center;justify-content:center}.manage-asset .asset-img{display:block;width:100%;max-height:260px;object-fit:contain}
@@ -687,23 +671,20 @@ const artworkBrowserPage = registerSteamPage({
   template: "artwork-browser",
   gate: "artworkBrowser",
   patchId: ArtworkBrowserPatchId,
-  components: resolveSteamUiComponents,
-  required: [
-    "react",
-    "focusable",
-    "sliderField",
-    "toggleField",
-    "dialogButton",
-    "dialogButtonPrimary",
-    "tabs",
-    "modalRoot",
-    "showModal",
-  ],
-  // A modal left open when the gate goes keeps drawing with Steam's components, which stay valid, so
-  // it never throws inside Steam's modal layer; it only loses the state.
-  release: () => {
-    artworkDesired = null;
-    for (const listener of [...artworkListeners]) listener(null);
+  title: "Artwork",
+  id: "sgdb-wrap",
+  style: artworkBrowserStyles,
+  loading: "Loading artwork…",
+  // The search's error and the providers' notices are drawn beside the results they belong to.
+  banner: false,
+  tabs: {
+    source: "host",
+    list: (state) =>
+      (Array.isArray(state?.tabs) ? state.tabs : []).map((tab) => ({
+        id: tab.id,
+        title: tab.label,
+        footer: tab.manage ? null : { label: "Filter", onActivate: openArtworkFilters },
+      })),
   },
   status: () => ({ appId: artworkBrowserPage.state()?.appId ?? 0 }),
   Page: ArtworkBrowserPage,

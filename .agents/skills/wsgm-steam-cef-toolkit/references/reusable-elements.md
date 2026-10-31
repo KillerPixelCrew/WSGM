@@ -116,10 +116,11 @@ dispatch and a potentially executed write. Never retry `Unknown` automatically.
 
 ## Native fields and visual style
 
-Resolve Steam's components through `resolveSteamUiComponents` or `resolveSteamSettingsComponents`;
-use Steam's React, Focusable, ToggleField, DropDownField, SliderField, TextField, DialogButton, tabs
-and modals. Use `SteamUiTabbedPageRequired` or `SteamSettingsRequired` to make missing components an
-explicit incompatibility. Do not draw an HTML imitation when the native field exists.
+Resolve Steam's components through the one resolver, `resolveSteamUiComponents`; use Steam's React,
+Focusable, ToggleField, DropDownField, SliderField, TextField, DialogButton, settings sections, tabs
+and modals. `SteamUiPageRequired` is a page's default requirement; append a name a page also needs
+(`routedPages` for a settings page) to make its absence an explicit incompatibility. Do not draw an
+HTML imitation when the native field exists.
 
 `SteamSettingsRowKind` covers `boolean`, `choice`, `range`, `text`, `secret`, `order`, `action`,
 `note` and `color`. Native Settings intentionally accepts the subset boolean/choice/range/text/
@@ -129,16 +130,19 @@ color editor stages changes and sends on Save; cancelling sends nothing.
 
 Everything around native fields comes from `ui-kit.ts`, rendered with the same resolved `ui`:
 
-| Need                        | Helpers                                                                                                     |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Styles and sections         | `steamUiKitStyle`, `renderSteamUiHeader`, `renderSteamUiGroup`.                                             |
-| Actions and pagination      | `renderSteamUiActions`, `renderSteamUiMore`.                                                                |
-| Page/focus levels           | `renderSteamUiPane`, `renderSteamUiLevel`, `renderSteamUiTabbedPage`, `renderSteamUiDetail`.                |
-| Color and empty/error state | `renderSteamUiSwatch`, `renderSteamUiEmpty`, `renderSteamUiBanner`.                                         |
-| Cards and media             | `renderSteamUiCard`, `renderSteamUiGrid`, `renderSteamUiGallery`, `renderSteamUiVideo`.                     |
-| Inline controls             | `renderSteamUiToolbar`, `renderSteamUiTool`, `renderSteamUiChips`, `renderSteamUiBox`.                      |
-| Glyphs                      | `renderSteamUiGlyph`, `SteamUiGlyphs`, `renderSteamGlyph` and the shared `icons.ts` vocabulary.             |
-| Dialogs                     | `showSteamUiConfirm`, `showSteamUiPrompt`, `showSteamModal`, `showSteamFilePicker`, `showSteamColorEditor`. |
+| Need                    | Helpers                                                                                                     |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Styles and sections     | `steamUiKitStyle`, `renderSteamUiHeader`, `renderSteamUiGroup`.                                             |
+| Actions and pagination  | `renderSteamUiActions` (with the `pick` file-pick kind), `renderSteamUiMore`.                               |
+| Page/focus levels       | The `registerSteamPage` frame, `renderSteamUiPane`, `renderSteamUiLevel`, `renderSteamUiDetail`.            |
+| Color and state         | `renderSteamUiSwatch`, `renderSteamUiEmpty` (kinds), `renderSteamUiStatus`, `renderSteamUiProgress`.        |
+| Settings rows on a page | `renderSteamUiFields`, which draws a refusal on the row that asked.                                         |
+| Flows (`ui-flows.ts`)   | `renderSteamUiCollection`, `renderSteamUiItem`, `renderSteamUiAcquire`, `renderSteamUiManage`.              |
+| Steam Settings sections | `registerSteamSettingsSection`, one shared useMemo transform for every section.                             |
+| Cards and media         | `renderSteamUiCard`, `renderSteamUiGrid`, `renderSteamUiGallery`, `renderSteamUiVideo`.                     |
+| Inline controls         | `renderSteamUiToolbar`, `renderSteamUiTool`, `renderSteamUiChips`, `renderSteamUiBox`.                      |
+| Glyphs                  | `renderSteamUiIcon` over the one `icons.ts` table, and `renderSteamGlyph` for host-supplied paths.          |
+| Dialogs                 | `showSteamUiConfirm`, `showSteamUiPrompt`, `showSteamModal`, `showSteamFilePicker`, `showSteamColorEditor`. |
 
 Render `steamUiKitStyle(react)` once per consuming document root. Keep flat `steam-ui-kit-*`
 classes, Steam panel spacing/vocabulary, Focusable controller behavior and the `gpfocus` highlight.
@@ -154,9 +158,11 @@ The complete
 [consumer script API](../../../../external/steam-ui-toolkit/docs/reference.md#script-api-for-consumer-fragments)
 lists the supported names. They share one IIFE scope; they are not extra window globals:
 
-- Pages/settings: `registerSteamPage`, `renderSteamSettings`, `renderSteamSettingRow`,
-  `useSteamSettingDrafts`, the resolvers and required-component sets above. Use drafts for pending
-  values/refusals; do not build a second cache or hide a refused write as success.
+- Pages/settings: `registerSteamPage` and its context (`act`, `send`, `report`, `useState`),
+  `renderSteamSettings`, `renderSteamSettingRow`, `renderSteamUiFields`, `useSteamSettingDrafts`,
+  the resolver and required list above. Use drafts for pending values/refusals; do not build a
+  second cache or hide a refused write as success. Browse steps use `SteamUiBrowse` and
+  `SteamUiModuleBuilder.BrowseCommands` (setTab, browse, more, open, closeDetail, dismiss).
 - Native presentation: `createSteamCapsule`, `resolveSteamLibraryClasses`, `renderSteamDropdown`,
   `steamCheckbox`, `SteamGamepadButton`, `onSteamTriggers`, `navigateSteamRoute`.
 - Bridge/gates: `request`, `subscribe`, `registerGate`. Use the existing gate/page subscription

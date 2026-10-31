@@ -62,9 +62,11 @@ internal static class SteamSoundsSurface
                     sounds.DeleteAsync, "The sound pack id payload is invalid."),
                 SteamUiModuleBuilder.Command<string>(PatchId, "import", TryReadPath,
                     sounds.ImportAsync, "The sound pack file payload is invalid."),
-                SteamUiModuleBuilder.Command<(int Page, string Search)>(PatchId, "browse", TryReadBrowse,
-                    (request, token) => sounds.BrowseAsync(request.Page, request.Search, token),
-                    "The sound pack browse payload is invalid."),
+                // The store's first page for a search, then the next one appended on Load More.
+                .. SteamUiModuleBuilder.BrowseCommands<string>(PatchId,
+                    new SteamUiBrowseBindings { Subject = "sound pack", More = sounds.BrowseMoreAsync },
+                    TryReadSearch,
+                    (search, token) => sounds.BrowseAsync(1, search, token)),
                 SteamUiModuleBuilder.Command<string>(PatchId, "install", TryReadId,
                     sounds.InstallAsync, "The sound pack listing payload is invalid."),
                 SteamUiModuleBuilder.Command<(string Id, string Asset)>(PatchId, "preview", TryReadPreview,
@@ -125,7 +127,7 @@ internal static class SteamSoundsSurface
         return new SteamSoundsState(
             state.Selected,
             packs,
-            new SteamSoundsBrowse(listings, state.Total, state.Page, ThemeStoreClient.SoundsPageSize),
+            new SteamSoundsBrowse(listings, state.Total, state.Page, ThemeStoreClient.SoundsPageSize, state.Search),
             state.Busy,
             state.Error,
             state.Compatibility,
@@ -148,18 +150,9 @@ internal static class SteamSoundsSurface
         return SteamUiPayload.TryReadOnlyString(payload, "path", out path);
     }
 
-    private static bool TryReadBrowse(JsonElement payload, out (int Page, string Search) request)
+    private static bool TryReadSearch(JsonElement payload, out string search)
     {
-        request = default;
-        if (!SteamUiPayload.HasExactly(payload, 2)
-            || !SteamUiPayload.TryReadInt(payload, "page", 1, int.MaxValue, out var page)
-            || !SteamUiPayload.TryReadString(payload, "search", out var search))
-        {
-            return false;
-        }
-
-        request = (page, search);
-        return true;
+        return SteamUiPayload.TryReadOnlyOptionalString(payload, "search", out search);
     }
 
     private static bool TryReadPreview(JsonElement payload, out (string Id, string Asset) request)

@@ -72,7 +72,8 @@ internal static class SteamCardManagerSurface
                             ? SteamUiCommandResult.Applied
                             : new SteamUiCommandResult(false, games.Error);
                     }, "The card payload is invalid."),
-                SteamUiModuleBuilder.Command(PatchId, "dismiss", service.DismissAsync)
+                .. SteamUiModuleBuilder.BrowseCommands(PatchId,
+                    new SteamUiBrowseBindings { Subject = "card", Dismiss = service.DismissAsync })
             ]);
     }
 

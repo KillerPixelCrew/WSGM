@@ -6,12 +6,14 @@ namespace WSGM.Shell;
 ///     Makes Steam's Settings &gt; Customization page the hub for WSGM's themes, UI sounds and boot animation.
 /// </summary>
 /// <remarks>
-///     The script is the <c>wsgmCustomization</c> gate in <c>Core\SteamUiAssets\Source\customization.ts</c>. It
-///     adds three native sections in front of Valve's Startup Movie section through a transform on the toolkit's
-///     shared <c>useMemo</c> claim, beside the toolkit's screensaver gate, and leaves Valve's own sections as Steam
-///     draws them. It declares no state and no command: its sections read the publications of
-///     <see cref="SteamThemesSurface" />, <see cref="SteamSoundsSurface" /> and <see cref="SteamAnimationsSurface" />
-///     and send those pages' commands, so their services stay the only authority.
+///     The script is the <c>wsgmCustomization</c> gate in <c>Core\SteamUiAssets\Source\customization.ts</c>, a
+///     toolkit <c>defineGate</c> gate whose probe resolves Steam's settings fields and the Customization route. It
+///     adds three native sections in front of Valve's Startup Movie section as one of the toolkit's shared Settings
+///     sections (<c>registerSteamSettingsSection</c>), the same claim the toolkit's screensaver gate draws its rows
+///     through, and leaves Valve's own sections as Steam draws them. It declares no state and no command: its
+///     sections read the publications of <see cref="SteamThemesSurface" />, <see cref="SteamSoundsSurface" /> and
+///     <see cref="SteamAnimationsSurface" /> and send those pages' commands, so their services stay the only
+///     authority, and a refused change is shown on the row that asked.
 /// </remarks>
 internal static class SteamCustomizationSurface
 {
@@ -25,7 +27,7 @@ internal static class SteamCustomizationSurface
     public static ISteamUiPatch Patch { get; } = new SteamGatePatch(
         PatchId,
         GateName,
-        "customization-hub-v1:use-memo+settings-pages",
+        "customization-hub-v2:settings-section",
         "Customization hub");
 
     /// <summary>Declares the hub's gate.</summary>
