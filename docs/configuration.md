@@ -7,13 +7,15 @@ covers how the document is read and changed safely.
 
 ## Files and owners
 
-| State                                                          | Owner                                               | Purpose                                                                          |
-| -------------------------------------------------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `%LOCALAPPDATA%\WSGM\config.json`                              | `ConfigStore` over `UserDataContext`                | User preferences, profile choices and recovery snapshots                         |
-| `config.bad.<SHA256>.json` beside it                           | `ConfigStore.PreserveCorrupt`                       | The exact bytes of an unparseable document, once per distinct content hash       |
-| `config.v<schema>.json` beside it                              | `ConfigStore.PreserveOlderSchema`                   | The first older-schema document before a current-schema write replaces it        |
-| `boot.json` beside it                                          | `BootManifestWriter` and shared `BootManifestStore` | Minimal startup/elevation projection for the logon service                       |
-| Plugin state, theme libraries, artwork and other feature files | The respective feature owner                        | Separate data with its own lifetime and format; not arbitrary `AppConfig` fields |
+| State                                                          | Owner                                               | Purpose                                                                                                        |
+| -------------------------------------------------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `%LOCALAPPDATA%\WSGM\config.json`                              | `ConfigStore` over `UserDataContext`                | User preferences, profile choices and recovery snapshots                                                       |
+| `config.bad.<SHA256>.json` beside it                           | `ConfigStore.PreserveCorrupt`                       | The exact bytes of an unparseable document, once per distinct content hash                                     |
+| `config.v<schema>.json` beside it                              | `ConfigStore.PreserveOlderSchema`                   | The first older-schema document before a current-schema write replaces it                                      |
+| `boot.json` beside it                                          | `BootManifestWriter` and shared `BootManifestStore` | Minimal startup/elevation projection for the logon service                                                     |
+| `game-tools.json` beside it                                    | `GameToolStorage`                                   | Game Tools' remembered programs and per-tool ownership manifests; see [Game Tools](game-tools.md#the-manifest) |
+| `GameToolspackages` and `GameToolsackups` beside it            | `GameToolReleases`, `GameToolInstaller`             | Verified, extracted tool packages, and originals of game files replaced by a tool                              |
+| Plugin state, theme libraries, artwork and other feature files | The respective feature owner                        | Separate data with its own lifetime and format; not arbitrary `AppConfig` fields                               |
 
 `UserDataContext.ForCurrentUser()` chooses the production directory and the `Local\WSGM.Config`
 mutex name. Tests can supply a distinct root and mutex identity. Installed packages and application

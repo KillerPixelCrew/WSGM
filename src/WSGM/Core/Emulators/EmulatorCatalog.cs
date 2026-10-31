@@ -45,8 +45,9 @@ internal sealed record EmulatorCatalog
 
             foreach (var source in definition.Sources.Values)
             {
-                EmulatorNetwork.Https(source.BaseUrl);
-                if (source.Provider is not ("GitHub" or "Forgejo" or "Scoop" or "Buildbot" or "Dolphin" or "WebPage"))
+                DownloadClient.Https(source.BaseUrl);
+                if (!HostedReleases.Providers.Contains(source.Provider)
+                    && source.Provider is not ("Scoop" or "Buildbot" or "Dolphin" or "WebPage"))
                 {
                     throw new InvalidDataException("Unsupported emulator release provider: " + source.Provider);
                 }

@@ -366,6 +366,7 @@
             <ov:ThemesView x:Name="ThemesHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:AnimationsView x:Name="AnimationsHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:LaunchWrapperView x:Name="LaunchWrapperHost" IsVisible="False" HorizontalAlignment="Stretch" />
+            <ov:GameToolsView x:Name="GameToolsHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:WakeLockHoldersView x:Name="WakeLockHost" IsVisible="False" HorizontalAlignment="Stretch" />
 
             <!-- Device RGB editor. It stages changes and commits once so persistent

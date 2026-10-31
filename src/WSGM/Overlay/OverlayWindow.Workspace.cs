@@ -30,7 +30,8 @@ public partial class OverlayWindow
         if (_closed || e.PropertyName is not (
                 nameof(OverlayViewModel.ShowThemes) or nameof(OverlayViewModel.ShowAnimations)
                 or nameof(OverlayViewModel.ShowSounds) or nameof(OverlayViewModel.ShowArtwork)
-                or nameof(OverlayViewModel.ShowGameLibrary) or nameof(OverlayViewModel.ShowEmulators)))
+                or nameof(OverlayViewModel.ShowGameLibrary) or nameof(OverlayViewModel.ShowEmulators)
+                or nameof(OverlayViewModel.ShowGameTools)))
         {
             return;
         }
@@ -179,12 +180,16 @@ public partial class OverlayWindow
     {
         var face = new Grid { ColumnDefinitions = new ColumnDefinitions("4,24,*,Auto"), ColumnSpacing = 12 };
         face.Children.Add(new Border
-            { Classes = { "selection-rule" }, Height = 24, VerticalAlignment = VerticalAlignment.Center });
+        { Classes = { "selection-rule" }, Height = 24, VerticalAlignment = VerticalAlignment.Center });
         var icon = new Path
         {
-            Data = entry.Icon, Width = 20, Stretch = Stretch.Uniform,
-            StrokeThickness = 1.6, StrokeLineCap = PenLineCap.Round,
-            StrokeJoin = PenLineJoin.Round, VerticalAlignment = VerticalAlignment.Center,
+            Data = entry.Icon,
+            Width = 20,
+            Stretch = Stretch.Uniform,
+            StrokeThickness = 1.6,
+            StrokeLineCap = PenLineCap.Round,
+            StrokeJoin = PenLineJoin.Round,
+            VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Center
         };
         icon.Bind(Shape.StrokeProperty, this.GetResourceObservable("DeckSecondaryBrush"));
@@ -192,8 +197,11 @@ public partial class OverlayWindow
         face.Children.Add(icon);
         var label = new TextBlock
         {
-            Text = entry.Title, FontSize = 15, TextTrimming = TextTrimming.CharacterEllipsis,
-            TextWrapping = TextWrapping.Wrap, MaxLines = 2,
+            Text = entry.Title,
+            FontSize = 15,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            TextWrapping = TextWrapping.Wrap,
+            MaxLines = 2,
             VerticalAlignment = VerticalAlignment.Center
         };
         Grid.SetColumn(label, 2);
@@ -277,7 +285,7 @@ public partial class OverlayWindow
     {
         if (!HasActiveSurface && FocusManager?.GetFocusedElement() is Control sectionFocus
                               && sectionFocus.GetVisualAncestors().OfType<CollapsibleSection>().FirstOrDefault() is
-                                  { } fold
+                              { } fold
                               && ReferenceEquals(sectionFocus, fold.Heading)
                               && direction is NavigationDirection.Left or NavigationDirection.Right)
         {

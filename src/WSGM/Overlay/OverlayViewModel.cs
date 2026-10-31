@@ -271,6 +271,13 @@ public sealed class OverlayViewModel : ObservableObject
         set => SetFieldIfChanged(ref field, value, nameof(ShowGameLibrary));
     }
 
+    /// <summary>Whether Steam > Game Tools is offered: CEF is on and this session has the Game Tools owner.</summary>
+    public bool ShowGameTools
+    {
+        get;
+        set => SetFieldIfChanged(ref field, value, nameof(ShowGameTools));
+    }
+
     /// <summary>Whether the session offers the Artwork tool.</summary>
     public bool ShowArtwork
     {

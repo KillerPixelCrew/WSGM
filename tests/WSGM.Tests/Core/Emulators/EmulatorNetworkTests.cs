@@ -8,7 +8,7 @@ public sealed class EmulatorNetworkTests
     public async Task NetworkTimeoutIsDistinctFromCallerCancellation()
     {
         using var handler = new CancelledResponse();
-        using var network = new EmulatorNetwork(handler);
+        using var network = new DownloadClient(handler);
         var failure = await Assert.ThrowsAsync<TimeoutException>(() =>
             network.OpenAsync("https://example.test/release", CancellationToken.None));
         Assert.Contains("example.test", failure.Message);

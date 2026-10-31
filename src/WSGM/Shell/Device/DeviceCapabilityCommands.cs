@@ -460,6 +460,8 @@ internal sealed class DeviceCapabilityCommands
         var desired = view.Projection.DesiredValue?.IntegerValue;
         return view.Descriptor.Role switch
         {
+            // The power-limit path first, so the saved limits are written through the chosen path.
+            CapabilityRole.PowerBackend => -1,
             // Lower PL1 before lowering PL2, otherwise the new PL2 can fall below the old PL1.
             CapabilityRole.PowerSustainedLimit when desired < observed => 0,
             // Raise PL2 before raising PL1, otherwise the new PL1 can exceed the old PL2.

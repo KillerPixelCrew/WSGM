@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using Avalonia;
 using SteamUiToolkit;
 using WSGM.Controls;
 using WSGM.Core;
@@ -15,21 +16,25 @@ namespace WSGM.Overlay;
 ///     are their own thing, not a tab-builder level. The view is one projection of
 ///     <see cref="LibraryManagerService" />, which Steam's SD Card Manager page projects too:
 ///     every operation, the card model and its capacity come from there, and a change made in
-///     Steam or by a card insertion redraws the list here.
+///     Steam or by a card insertion redraws the list here. The view reaches it through
+///     <see cref="ICardManagerSource" />, so a headless capture supplies an explicit fake.
 /// </summary>
 public sealed class CardManagerView : ServiceSubView
 {
-    private LibraryManagerService? _service;
+    private ICardManagerSource? _service;
 
     /// <inheritdoc />
     protected override string LogScope => "Card manager";
 
-    private LibraryManagerService Service =>
+    private ICardManagerSource Service =>
         _service ?? throw new InvalidOperationException("The session library manager is unavailable.");
 
     /// <summary>Attaches the view to the session's shared manager, or detaches it with null.</summary>
-    /// <param name="service">The session's service, borrowed; null when the overlay closes or the session has none.</param>
-    internal void Attach(LibraryManagerService? service)
+    /// <param name="service">
+    ///     The session's <see cref="LibraryManagerService" />, or an explicit fake in a headless capture; borrowed,
+    ///     null when the overlay closes or the session has none.
+    /// </param>
+    internal void Attach(ICardManagerSource? service)
     {
         if (ReferenceEquals(_service, service))
         {
@@ -93,6 +98,15 @@ public sealed class CardManagerView : ServiceSubView
             var c = card;
             var row = Row(c.Name, Describe(c), Icons.SdCard, () => RenderCardEditor(c.ContentId));
             row.Tag = c.ContentId;
+            if (c.HasCapacity)
+            {
+                // Inside the card's own row, under the amounts it draws, as Steam's page shows it: a bar
+                // between two rows reads as a divider and belongs to neither.
+                var meter = OverlayProgress.UsageMeter(c.UsedBytes, c.CapacityBytes, c.Name + " space used");
+                meter.Margin = new Thickness(0, 2, 0, 2);
+                row.Footer = meter;
+            }
+
             stack.Children.Add(row);
         }
 

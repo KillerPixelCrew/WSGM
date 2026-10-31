@@ -48,11 +48,20 @@ bindings: the content drawn with Steam's fields, the kit and the toolkit's `ui-f
 - `library-tab-manager.ts`, the Library Tab Manager page: the custom tabs, the strip order and
   Steam-tab hiding, and the tab editor with its filter levels and pickers, over the same service.
 - `emulators.ts`, `notes.ts` and `browser.ts`: Emulator Manager, Notes and the browser handoff.
+- `game-tools.ts`, the Game Tools page for one game (`/wsgm/game-tools/:appid`, opened from the
+  game's cog menu): its program, detected upscalers and anti-cheat, and each tool's install, update,
+  repair, settings and removal with progress, over `GameToolsService`. Every command carries the
+  route's AppID; background results arrive as the published notice or error.
 
 A page sends its commands through the frame's `context.act`, which shows a refusal in the page's
 banner, and its settings rows through `renderSteamUiFields` over `context.send`, which shows a
 refusal on the row. Browse steps use the shared vocabulary (`setTab`, `browse`, `more`, `open`,
 `closeDetail`, `dismiss`) that the C# side declares with `SteamUiModuleBuilder.BrowseCommands`.
+
+`format-bytes.ts` holds `wsgmFormatBytes`, the one byte formatter for every fragment, with the rule
+of the Overlay's `LibraryCardView.FormatBytes`: binary units, from 1 GiB gigabytes to one decimal
+with a trailing ".0" dropped, below that whole megabytes. A progress or capacity bar is the
+toolkit's `renderSteamUiMeter` or `renderSteamUiProgress`, never a page's own track and fill.
 
 Five are gates of their own, registered with `registerGate`:
 
@@ -97,10 +106,10 @@ bridge uses to replace a script a previous build left running.
 `Shell/Steam/SteamUiSessionHost` composes the single toolkit bridge with the WSGM surface factories
 its `SteamUiModuleCatalog` declares: `SteamArtworkBrowserSurface`, `SteamLibraryImportSurface`,
 `SteamWsgmSettingsSurface`, `SteamThemesSurface`, `SteamAnimationsSurface`,
-`SteamCardManagerSurface` and `SteamLibraryTabsSurface`. Their service readings become publications;
-these renderers subscribe through `registerSteamPage`, send their exact semantic commands back
-through the bridge, and let the service validate/save the result. One `SteamPageSurface` merges
-routes, so a page renderer does not claim the router independently.
+`SteamCardManagerSurface`, `SteamGameToolsSurface` and `SteamLibraryTabsSurface`. Their service
+readings become publications; these renderers subscribe through `registerSteamPage`, send their
+exact semantic commands back through the bridge, and let the service validate/save the result. One
+`SteamPageSurface` merges routes, so a page renderer does not claim the router independently.
 
 Host pages follow CEF master enablement and remain available with custom Quick Access rows off.
 Sound packs have no renderer fragment here: the overlay owns their browser and preview, while the

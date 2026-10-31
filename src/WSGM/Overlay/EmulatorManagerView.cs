@@ -72,21 +72,21 @@ public sealed partial class EmulatorManagerView : ServiceSubView
     private void RenderEmulators()
     {
         var body = NewStack("Emulators");
-        var state = _service?.ReadPageState();
-        if (state is null)
+        var shown = ReadShown();
+        if (shown is null)
         {
             body.Children.Add(Caption("Emulator information is not available in this session."));
             SetContent(body);
             return;
         }
 
-        var snapshot = state.Emulators;
-        var listedById = state.Installed.ToDictionary(item => item.Id);
-        var progress = AddEmulatorStatus(body);
+        var snapshot = shown.Snapshot;
+        var listedById = shown.Page.Installed.ToDictionary(item => item.Id);
+        AddEmulatorStatus(body, shown);
         body.Children.Add(Tagged(Row("Check for updates", "Refresh available releases from their sources",
-            Icons.Restart, progress.Busy ? null : () => Run(_service!.RefreshEmulatorsAsync)), "emu.refresh"));
+            Icons.Restart, snapshot.Busy ? null : () => Run(_service!.RefreshEmulatorsAsync)), "emu.refresh"));
         body.Children.Insert(1, ManagerTabs(snapshot));
-        var updates = state.Installed.Count(item => item.UpdateAvailable);
+        var updates = shown.Page.Installed.Count(item => item.UpdateAvailable);
         var missing = snapshot.Installations.Count(item => item.MissingRequirements.Length > 0);
         body.Children.Add(
             Caption($"{snapshot.Installations.Length} installed · {updates} updates · {missing} need setup"));
@@ -129,7 +129,7 @@ public sealed partial class EmulatorManagerView : ServiceSubView
             }
         }
 
-        SetContent(body);
+        SetEmulatorContent(body, shown);
     }
 
     internal bool CheckForUpdates()
@@ -200,17 +200,19 @@ public sealed partial class EmulatorManagerView : ServiceSubView
 
     private void RenderEmulator(string definitionId)
     {
-        var state = _service?.ReadPageState();
-        var snapshot = state?.Emulators;
-        var definition = snapshot?.Definitions.FirstOrDefault(item => item.Id == definitionId);
-        if (snapshot is null || definition is null)
+        var shown = ReadShown();
+        var definition = shown?.Snapshot.Definitions.FirstOrDefault(item => item.Id == definitionId);
+        if (shown is null || definition is null)
         {
             RenderMessage("Emulator", "That emulator is no longer listed.");
             return;
         }
 
+        var state = shown.Page;
+        var snapshot = shown.Snapshot;
+
         var body = NewStack(definition.Name);
-        var progress = AddEmulatorStatus(body);
+        AddEmulatorStatus(body, shown);
         body.Children.Add(Caption("Emulators › Available"));
         body.Children.Add(Caption(definition.Source));
         body.Children.Add(Caption("Systems: " +
@@ -233,22 +235,22 @@ public sealed partial class EmulatorManagerView : ServiceSubView
             definition.DataPolicy.HasCores
                 ? "Installs RetroArch and the complete published Windows core catalogue"
                 : "Download and manage this emulator",
-            Icons.Grid4, progress.Busy
+            Icons.Grid4, snapshot.Busy
                 ? null
                 : () => Run(token =>
                     _service!.InstallEmulatorAsync(definitionId, _emulatorChannel, token))), "emu.install"));
         install.Children.Add(Tagged(Row("Use an existing installation", "Choose this emulator's executable",
-                Icons.Grid4, progress.Busy ? null : () => _ = RunSafelyAsync(ChooseExternalAsync(), "choose emulator")),
+                Icons.Grid4, snapshot.Busy ? null : () => _ = RunSafelyAsync(ChooseExternalAsync(), "choose emulator")),
             "emu.external"));
         if (definition.DataPolicy.RequiresVisualCpp || definition.Id == "model2")
         {
             install.Children.Add(Tagged(Row("Install required runtimes",
                 "Install verified Microsoft components; Windows may request permission",
-                Icons.Grid4, progress.Busy ? null : () => Run(token =>
+                Icons.Grid4, snapshot.Busy ? null : () => Run(token =>
                     _service!.InstallEmulatorRuntimeDependenciesAsync(definitionId, token))), "emu.runtimes"));
         }
         var setup = Group(body, "Set up from your BIOS folder", "setup");
-        setup.Children.Add(Caption(state?.Bios.Folder ?? "Choose your BIOS folder on the BIOS & firmware tab."));
+        setup.Children.Add(Caption(state.Bios.Folder ?? "Choose your BIOS folder on the BIOS & firmware tab."));
         foreach (var prerequisite in definition.Prerequisites)
         {
             setup.Children.Add(Caption(prerequisite.Name + ": " + prerequisite.Description));
@@ -265,7 +267,7 @@ public sealed partial class EmulatorManagerView : ServiceSubView
                 Icons.ListLines, () => Navigate(() => RenderEmulatorInstallation(id))), "emu.installation:" + id));
         }
 
-        SetContent(body);
+        SetEmulatorContent(body, shown);
         return;
 
         async Task ChooseExternalAsync()
@@ -281,24 +283,26 @@ public sealed partial class EmulatorManagerView : ServiceSubView
 
     private void RenderEmulatorInstallation(string installationId)
     {
-        var state = _service?.ReadPageState();
-        var snapshot = state?.Emulators;
-        var installation = snapshot?.Installations.FirstOrDefault(item => item.Id == installationId);
-        if (snapshot is null || installation is null)
+        var shown = ReadShown();
+        var installation = shown?.Snapshot.Installations.FirstOrDefault(item => item.Id == installationId);
+        if (shown is null || installation is null)
         {
             RenderMessage("Installation", "That installation is no longer registered.");
             return;
         }
 
+        var state = shown.Page;
+        var snapshot = shown.Snapshot;
+
         var body = NewStack(installation.Name);
-        var progress = AddEmulatorStatus(body);
+        AddEmulatorStatus(body, shown);
         body.Children.Add(Caption("Emulators › Installed"));
         var details = Group(body, "Installation", "installation");
         details.Children.Add(Caption(
             $"{installation.Version} · {installation.Channel} · {installation.Architecture} · {installation.Source}\n"
             + installation.Integrity + "\n" + installation.ExecutablePath + "\nData: " + installation.DataPath));
         var shortcut = Group(body, "Steam shortcut", "steam-shortcut");
-        shortcut.IsEnabled = !progress.Busy;
+        shortcut.IsEnabled = !snapshot.Busy;
         shortcut.Children.Add(ToggleRow("Show emulator in Steam", installation.SteamShortcutEnabled,
             enabled => Run(token => _service!.SetEmulatorShortcutAsync(installationId, enabled,
                 installation.SteamShortcutLaunchMode, token))));
@@ -308,7 +312,7 @@ public sealed partial class EmulatorManagerView : ServiceSubView
             }, installation.SteamShortcutLaunchMode,
             mode => Run(token => _service!.SetEmulatorShortcutAsync(installationId,
                 installation.SteamShortcutEnabled, mode, token))));
-        shortcut.Children.Add(Caption(state?.ShortcutStatus is { Length: > 0 } status
+        shortcut.Children.Add(Caption(state.ShortcutStatus is { Length: > 0 } status
             ? status
             : "Opens the emulator interface using its current installation. Input lease lets it read the controller directly."));
         var setup = Group(body, "BIOS & firmware", "setup");
@@ -316,7 +320,7 @@ public sealed partial class EmulatorManagerView : ServiceSubView
         {
             setup.Children.Add(Tagged(Row("Install required runtimes",
                 "Install verified Microsoft components, then refresh or repair this emulator",
-                Icons.Grid4, progress.Busy ? null : () => Run(token =>
+                Icons.Grid4, snapshot.Busy ? null : () => Run(token =>
                     _service!.InstallEmulatorRuntimeDependenciesAsync(installation.DefinitionId, token))), "emu.runtimes"));
         }
         foreach (var missing in installation.MissingRequirements)
@@ -327,7 +331,7 @@ public sealed partial class EmulatorManagerView : ServiceSubView
         if (snapshot.Definitions.FirstOrDefault(item => item.Id == installation.DefinitionId) is { } definition
             && definition.Prerequisites.Length > 0)
         {
-            setup.Children.Add(Tagged(Row("Open BIOS & firmware", state?.Bios.Folder ?? "Choose a shared BIOS folder",
+            setup.Children.Add(Tagged(Row("Open BIOS & firmware", state.Bios.Folder ?? "Choose a shared BIOS folder",
                 Icons.Grid4, () => Navigate(RenderBios)), "emu.bios"));
             setup.Children.Add(Tagged(Row("Emulator-specific setup",
                 "Supply local files or use the native firmware installer",
@@ -353,12 +357,12 @@ public sealed partial class EmulatorManagerView : ServiceSubView
                     offer.ReleaseId == installation.IgnoredReleaseId
                         ? "You skipped this version; install it now"
                         : "Preserve settings, saves and supplied firmware",
-                    Icons.Restart, progress.Busy || !installation.Managed
+                    Icons.Restart, snapshot.Busy || !installation.Managed
                         ? null
                         : () => Run(token =>
                             _service!.UpdateEmulatorAsync(installationId, token))), "emu.update"));
                 update.Children.Add(Tagged(Row("Skip this version", "Remember this release until another is published",
-                        Icons.BlockedCircle, progress.Busy
+                        Icons.BlockedCircle, snapshot.Busy
                             ? null
                             : () => Run(token =>
                                 _service!.IgnoreEmulatorVersionAsync(installationId, offer.ReleaseId, token))),
@@ -381,7 +385,7 @@ public sealed partial class EmulatorManagerView : ServiceSubView
                 body.Children.Add(Tagged(Row("Update installed cores",
                         "Check the complete core catalogue independently of the frontend release",
                         Icons.Restart,
-                        progress.Busy
+                        snapshot.Busy
                             ? null
                             : () => Run(token => _service!.UpdateEmulatorAsync(installationId, token))),
                     "emu.cores.update"));
@@ -389,16 +393,16 @@ public sealed partial class EmulatorManagerView : ServiceSubView
 
             details.Children.Add(Tagged(Row("Repair installation",
                 "Restore the selected package and required core files",
-                Icons.Restart, progress.Busy
+                Icons.Restart, snapshot.Busy
                     ? null
                     : () => Run(token =>
                         _service!.RepairEmulatorAsync(installationId, token))), "emu.repair"));
         }
 
-        var dependency = state?.Dependencies.FirstOrDefault(item => item.InstallationId == installationId);
+        var dependency = state.Dependencies.FirstOrDefault(item => item.InstallationId == installationId);
         var warning = dependency?.Summary ?? "Imported ROMs that use this installation will need another emulator.";
         details.Children.Add(Tagged(DangerRow(installation.Managed ? "Remove emulator" : "Forget external installation",
-            warning + " Saves and ROMs stay.", Icons.Close, progress.Busy
+            warning + " Saves and ROMs stay.", Icons.Close, snapshot.Busy
                 ? null
                 : () => ConfirmCommand("Remove " + installation.Name + "?",
                     warning + " Your ROMs, saves, settings and firmware are preserved.",
@@ -421,19 +425,23 @@ public sealed partial class EmulatorManagerView : ServiceSubView
                 () => Navigate(() => RenderEmulatorCores(installationId))), "emu.cores"));
         }
 
-        SetContent(body);
+        SetEmulatorContent(body, shown);
     }
 
     private void RenderEmulatorCores(string installationId)
     {
-        var installation = _service?.ReadPageState().Emulators.Installations
-            .FirstOrDefault(item => item.Id == installationId);
-        if (installation is null)
+        var shown = ReadShown();
+        var installation = shown?.Snapshot.Installations.FirstOrDefault(item => item.Id == installationId);
+        if (shown is null || installation is null)
         {
             Back();
             return;
         }
 
+        var page = shown.Page;
+        var snapshot = shown.Snapshot;
+
+        var coreStatus = page.CoreStatus;
         var body = NewStack("Installed cores");
         body.Children.Add(Caption(installation.Name + $" · {installation.Cores.Length} cores"));
         body.Children.Add(Tagged(Row("Search cores", _coreSearch, Icons.ListLines, () =>
@@ -472,7 +480,8 @@ public sealed partial class EmulatorManagerView : ServiceSubView
                         details.Children.Add(Caption("Required: " + required));
                     }
 
-                    SetContent(details);
+                    // Fixed facts about the core: the manager's progress must not redraw them.
+                    SetStaticContent(details);
                 })), "core:" + core.Id);
             row.TrailingText = core.MetadataMissing ? "No metadata" : NeedsFiles(core) ? "Need files" : "Ready";
             body.Children.Add(row);
@@ -481,7 +490,7 @@ public sealed partial class EmulatorManagerView : ServiceSubView
         body.Children.Add(Tagged(Row("Open BIOS & firmware", "Configure required system files", Icons.Grid4,
             () => Navigate(RenderBios)), "emu.bios"));
 
-        SetContent(body);
+        SetEmulatorContent(body, shown);
         return;
 
         void Filter(string value)
@@ -492,47 +501,88 @@ public sealed partial class EmulatorManagerView : ServiceSubView
 
         bool NeedsFiles(EmulatorCore core)
         {
-            return _service?.ReadPageState().CoreStatus.FirstOrDefault(item => item.InstallationId == installationId
-                                                                               && item.CoreId == core.Id)?.Missing ==
-                   true;
+            return coreStatus.FirstOrDefault(item => item.InstallationId == installationId
+                                                    && item.CoreId == core.Id)?.Missing == true;
         }
     }
 
-    /// <summary>Adds the shortcut and progress status from one progress read and returns that read.</summary>
-    private EmulatorProgressState AddEmulatorStatus(StackPanel body)
+    private void AddEmulatorStatus(StackPanel body, EmulatorShown shown)
     {
-        if (_service!.ReadPageState().ShortcutStatus is { Length: > 0 } shortcutStatus)
+        if (shown.Page.ShortcutStatus is { Length: > 0 } shortcutStatus)
         {
-            body.Children.Add(Caption(shortcutStatus));
+            body.Children.Add(Tagged(Caption(shortcutStatus), "emu.shortcut-status"));
         }
 
-        var progress = _service.ReadProgressState();
-        if (progress.Status.Length > 0)
-        {
-            body.Children.Add(Caption(progress.Status));
-        }
+        body.Children.Add(new OverlayProgress("emu.progress", ProgressOf(shown.Progress), "emu.stop"));
+    }
 
-        if (progress.Busy)
-        {
-            body.Children.Add(Tagged(Row("Stop operation", "Keep the active installation", Icons.Close,
-                () => Run(_service!.CancelAsync)), "emu.stop"));
-        }
+    /// <summary>
+    ///     The manager's running work and its last result, from the service's progress channel: the status line, a
+    ///     bar while it works and Stop while it can be stopped.
+    /// </summary>
+    private OverlayProgressState ProgressOf(EmulatorProgressState progress)
+    {
+        return new OverlayProgressState(progress.Status, progress.Busy, null,
+            progress.Busy
+                ? new OverlayProgressCancel("Stop operation", "Keep the active installation",
+                    () => Run(_service!.CancelAsync))
+                : null);
+    }
 
-        return progress;
+    /// <summary>
+    ///     Sets an emulator level: the service's progress channel updates its progress element in place, and only a
+    ///     new catalogue revision or a change of the manager's busy state, which enables and disables its commands,
+    ///     redraws it.
+    /// </summary>
+    /// <param name="body">The level.</param>
+    /// <param name="shown">The reading the level was drawn from.</param>
+    private void SetEmulatorContent(StackPanel body, EmulatorShown shown)
+    {
+        SetLiveContent(body, shown, ReadShown, SameStructure, next => ProgressOf(next.Progress));
+    }
+
+    /// <summary>Reads what an emulator level draws: the catalogue revision, its page projection and the progress.</summary>
+    /// <returns>The reading, or null when the session has no emulator manager.</returns>
+    private EmulatorShown? ReadShown()
+    {
+        // The revision first: a projection that changes after it is read carries a newer revision, so the next
+        // publication sees it as a change and redraws.
+        return _service is { } service
+            ? new EmulatorShown(service.CatalogRevision, service.ReadPageState(), service.ReadProgressState())
+            : null;
+    }
+
+    /// <summary>Whether two readings draw the same level apart from the status line and the bar.</summary>
+    private static bool SameStructure(EmulatorShown shown, EmulatorShown next)
+    {
+        return shown.Catalog == next.Catalog && shown.Progress.Busy == next.Progress.Busy;
+    }
+
+    /// <summary>What an emulator level was drawn from, split as the service publishes it.</summary>
+    /// <param name="Catalog">The service's catalogue revision when it was read.</param>
+    /// <param name="Page">The page projection: catalogue, installations, BIOS, choices and shortcut status.</param>
+    /// <param name="Progress">The manager's busy state and status line.</param>
+    private sealed record EmulatorShown(long Catalog, EmulatorPageState Page, EmulatorProgressState Progress)
+    {
+        /// <summary>The projection's catalogue with the manager's busy state and status line.</summary>
+        internal EmulatorSnapshot Snapshot { get; } =
+            Page.Emulators with { Busy = Progress.Busy, Status = Progress.Status };
     }
 
     private void RenderEmulatorDefaults()
     {
-        var state = _service?.ReadPageState();
-        var snapshot = state?.Emulators;
-        if (state is null || snapshot is null)
+        var shown = ReadShown();
+        if (shown is null)
         {
             return;
         }
 
+        var state = shown.Page;
+        var snapshot = shown.Snapshot;
+
         var body = NewStack("System defaults");
         body.Children.Add(ManagerTabs(snapshot));
-        var progress = AddEmulatorStatus(body);
+        AddEmulatorStatus(body, shown);
         body.Children.Add(Caption(
             "New ROM libraries start with these choices. Existing libraries and title overrides keep their selections."));
         foreach (var systemGroup in state.RomSystems.GroupBy(system => EmulatorPresentation.SystemGroup(system.Id)))
@@ -544,7 +594,7 @@ public sealed partial class EmulatorManagerView : ServiceSubView
             }
         }
 
-        SetContent(body);
+        SetEmulatorContent(body, shown);
         return;
 
         void AddDefault(StackPanel parent, string systemId, string name)
@@ -553,19 +603,23 @@ public sealed partial class EmulatorManagerView : ServiceSubView
             var choices = state.Choices.FirstOrDefault(item => item.SystemId == systemId)?.Installations ?? [];
             var row = new Grid
             {
-                ColumnDefinitions = new ColumnDefinitions("1.1*,1.5*,1.2*"), ColumnSpacing = 10,
-                Tag = "default:" + systemId, MinHeight = 44
+                ColumnDefinitions = new ColumnDefinitions("1.1*,1.5*,1.2*"),
+                ColumnSpacing = 10,
+                Tag = "default:" + systemId,
+                MinHeight = 44
             };
             row.Children.Add(new TextBlock
             {
-                Text = name, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center
+                Text = name,
+                TextWrapping = TextWrapping.Wrap,
+                VerticalAlignment = VerticalAlignment.Center
             });
             var emulator = Tagged(new OverlayChoice<string>(
                         new[] { ("", "No default") }.Concat(choices.Select(item => (item.Id, item.Label))).ToArray(),
                         preference?.InstallationId ?? "",
                         value => Run(token => _service!.SetPreferredEmulatorAsync(systemId, value,
                             choices.FirstOrDefault(item => item.Id == value)?.DefaultCoreId ?? "", token)))
-                    { IsEnabled = !progress.Busy, HorizontalAlignment = HorizontalAlignment.Stretch },
+            { IsEnabled = !snapshot.Busy, HorizontalAlignment = HorizontalAlignment.Stretch },
                 "default.emulator:" + systemId);
             AutomationProperties.SetName(emulator, name + " emulator");
             Grid.SetColumn(emulator, 1);
@@ -578,7 +632,7 @@ public sealed partial class EmulatorManagerView : ServiceSubView
                             preference?.CoreId ?? selected.DefaultCoreId,
                             value => Run(token =>
                                 _service!.SetPreferredEmulatorAsync(systemId, selected.Id, value, token)))
-                        { IsEnabled = !progress.Busy, HorizontalAlignment = HorizontalAlignment.Stretch },
+                { IsEnabled = !snapshot.Busy, HorizontalAlignment = HorizontalAlignment.Stretch },
                     "default.core:" + systemId);
                 AutomationProperties.SetName(core, name + " core");
             }
@@ -596,20 +650,22 @@ public sealed partial class EmulatorManagerView : ServiceSubView
 
     private void RenderEmulatorSetup(string installationId)
     {
-        var snapshot = _service?.ReadPageState().Emulators;
-        var installation = snapshot?.Installations.FirstOrDefault(item => item.Id == installationId);
-        var definition = snapshot?.Definitions.FirstOrDefault(item => item.Id == installation?.DefinitionId);
-        if (snapshot is null || installation is null || definition is null)
+        var shown = ReadShown();
+        var installation = shown?.Snapshot.Installations.FirstOrDefault(item => item.Id == installationId);
+        var definition = shown?.Snapshot.Definitions.FirstOrDefault(item => item.Id == installation?.DefinitionId);
+        if (shown is null || installation is null || definition is null)
         {
             Back();
             return;
         }
 
+        var snapshot = shown.Snapshot;
+
         var body = NewStack(installation.Name + " setup");
-        var progress = AddEmulatorStatus(body);
+        AddEmulatorStatus(body, shown);
         body.Children.Add(Caption("Choose BIOS, firmware or system files you already have."));
         body.Children.Add(Tagged(Row("Recheck setup", "Refresh required files after completing the emulator's setup",
-            Icons.Restart, progress.Busy ? null : () => Run(_service!.RefreshEmulatorsAsync)), "emu.setup.recheck"));
+            Icons.Restart, snapshot.Busy ? null : () => Run(_service!.RefreshEmulatorsAsync)), "emu.setup.recheck"));
         foreach (var prerequisite in definition.Prerequisites)
         {
             var kind = prerequisite.Kind;
@@ -621,21 +677,21 @@ public sealed partial class EmulatorManagerView : ServiceSubView
             }
 
             body.Children.Add(Tagged(Row("Choose " + prerequisite.Name + " file", "", Icons.Grid4,
-                    progress.Busy
+                    snapshot.Busy
                         ? null
                         : () => _ = RunSafelyAsync(ChooseAsync(prerequisite, false), "prerequisite file")),
                 "emu.setup.file:" + kind));
             if (prerequisite.AllowDirectory)
             {
                 body.Children.Add(Tagged(Row("Choose " + prerequisite.Name + " folder", "", Icons.Grid4,
-                        progress.Busy
+                        snapshot.Busy
                             ? null
                             : () => _ = RunSafelyAsync(ChooseAsync(prerequisite, true), "prerequisite folder")),
                     "emu.setup.folder:" + kind));
             }
         }
 
-        SetContent(body);
+        SetEmulatorContent(body, shown);
         return;
 
         async Task ChooseAsync(EmulatorPrerequisite prerequisite, bool folder)

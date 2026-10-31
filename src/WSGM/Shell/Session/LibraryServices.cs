@@ -66,6 +66,9 @@ internal sealed class LibraryServices(SessionState state, SteamUiServices steamU
     /// <summary>The per-game launch actions.</summary>
     internal LaunchActionService? LaunchActions { get; private set; }
 
+    /// <summary>The per-game Game Tools, shared by Steam's page and the Overlay.</summary>
+    internal GameToolsService? GameTools { get; private set; }
+
     /// <summary>Creates the emulator manager off the UI thread; a failure leaves the session without emulators.</summary>
     /// <returns>Completion of the start, which faults only when shutdown cancelled it.</returns>
     internal async Task StartEmulatorsAsync()
@@ -156,7 +159,9 @@ internal sealed class LibraryServices(SessionState state, SteamUiServices steamU
     /// <param name="profiles">The profile owner the importer saves controller targets through.</param>
     /// <param name="storage">The drive manager the availability tracker follows.</param>
     /// <param name="messageWindow">The process's message window.</param>
-    internal void StartGameLibrary(ProfileService profiles, StorageServices storage, MessageWindow? messageWindow)
+    /// <param name="runningAppId">Steam's running AppID, or null when Steam reports none.</param>
+    internal void StartGameLibrary(ProfileService profiles, StorageServices storage, MessageWindow? messageWindow,
+        Func<uint?> runningAppId)
     {
         ReleaseAbandonedPackageExemptions();
 
@@ -200,7 +205,7 @@ internal sealed class LibraryServices(SessionState state, SteamUiServices steamU
                     profiles.SetApplicationControllerTargetAsync(id, name, target, removeEmptyProfile, token),
                 openArtwork: ArtworkPage is { } artwork ? artwork.OpenAsync : null,
                 controllerManaged: () => state.Config.DeviceIntegration is
-                    { Enabled: true, ControllerManagementEnabled: true },
+                { Enabled: true, ControllerManagementEnabled: true },
                 updateSettings: change =>
                     state.CommitSetting(config => change(config.GameLibrary), false).GameLibrary,
                 folderSource: folder => new ShortcutFolderSource(folder),
@@ -217,6 +222,9 @@ internal sealed class LibraryServices(SessionState state, SteamUiServices steamU
 
         LaunchActions ??= new LaunchActionService(state.Store, () => steamUi.Client,
             () => state.Config.SteamInputManagementEnabled);
+        // Steam's running AppID is extra evidence only; the exact process-path check stays authoritative.
+        GameTools ??= new GameToolsService(state.Store.Context, () => steamUi.Client,
+            appId => runningAppId() is { } running ? running == appId : null);
         EmulatorTool?.AttachSteamShortcuts(ImportState, shortcuts.CreateWriter,
             shortcuts.ReadShortcutsAsync, shortcuts.ReadShortcutAsync, () => state.Config.SteamInputManagementEnabled,
             () => steamUi.Readiness.IsReady, async (definition, appId, token) =>
@@ -344,7 +352,7 @@ internal sealed class LibraryServices(SessionState state, SteamUiServices steamU
 
     /// <summary>
     ///     Stops the availability tracker, before the drive manager whose collection the importer's bridge is
-    ///     subscribed to, then the importer and the emulator manager.
+    ///     subscribed to, then the importer, the emulator manager and Game Tools.
     /// </summary>
     /// <param name="steps">The shutdown's step runner.</param>
     /// <returns>Completion of the steps, which never fault.</returns>
@@ -373,6 +381,12 @@ internal sealed class LibraryServices(SessionState state, SteamUiServices steamU
             EmulatorTool = null;
             Emulators?.Dispose();
             Emulators = null;
+            return Task.CompletedTask;
+        }).ConfigureAwait(false);
+        await steps.StepAsync("Disposing Game Tools during application shutdown failed", () =>
+        {
+            GameTools?.Dispose();
+            GameTools = null;
             return Task.CompletedTask;
         }).ConfigureAwait(false);
     }

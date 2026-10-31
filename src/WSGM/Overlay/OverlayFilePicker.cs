@@ -34,7 +34,7 @@ internal sealed class OverlayFilePicker : UserControl
     private readonly Func<CancellationToken, Task<SteamFilePlaces>> _readPlaces;
 
     private readonly TextBlock _selection = new()
-        { Classes = { "caption" }, TextTrimming = TextTrimming.CharacterEllipsis };
+    { Classes = { "caption" }, TextTrimming = TextTrimming.CharacterEllipsis };
 
     private readonly TextBlock _status = new() { Classes = { "caption" }, TextWrapping = TextWrapping.Wrap };
     private readonly ActionButton _up = new() { Title = "Up", IconGeometry = Icons.ArrowLeft, IsEnabled = false };
@@ -44,12 +44,24 @@ internal sealed class OverlayFilePicker : UserControl
     private long _generation;
     private SteamFileListing? _listing;
     private CancellationTokenSource? _load;
+    private readonly string? _start;
 
+    /// <summary>Creates a picker for one file or folder.</summary>
+    /// <param name="folder">True to choose a directory, false to choose a file.</param>
+    /// <param name="extensions">Allowed file extensions; empty permits all file types.</param>
+    /// <param name="readPlaces">Reads the places pane; defaults to the shared local places.</param>
+    /// <param name="readFolder">Lists one folder; defaults to the shared local listing.</param>
+    /// <param name="start">
+    ///     The folder shown first, such as a game's install folder. Null or a missing folder opens the first
+    ///     place instead.
+    /// </param>
     internal OverlayFilePicker(bool folder, IEnumerable<string> extensions,
         Func<CancellationToken, Task<SteamFilePlaces>>? readPlaces = null,
-        Func<string, IReadOnlyCollection<string>, CancellationToken, Task<SteamFileListing>>? readFolder = null)
+        Func<string, IReadOnlyCollection<string>, CancellationToken, Task<SteamFileListing>>? readFolder = null,
+        string? start = null)
     {
         _folder = folder;
+        _start = string.IsNullOrWhiteSpace(start) ? null : start;
         _extensions = extensions.ToArray();
         _readPlaces = readPlaces ?? (token => Task.Run(SteamFilePickerSurface.ListPlaces, token).WaitAsync(token));
         _readFolder = readFolder ?? ((path, filters, token) =>
@@ -77,7 +89,7 @@ internal sealed class OverlayFilePicker : UserControl
         Entries.ItemTemplate = new FuncDataTemplate<SteamFileEntry>((entry, _) =>
         {
             var row = new Grid
-                { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12, MinHeight = 36 };
+            { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12, MinHeight = 36 };
             var name = new TextBlock
             {
                 VerticalAlignment = VerticalAlignment.Center,
@@ -99,7 +111,8 @@ internal sealed class OverlayFilePicker : UserControl
             row.Children.Add(kind);
             var border = new Border
             {
-                Child = row, Padding = new Thickness(8, 4),
+                Child = row,
+                Padding = new Thickness(8, 4),
                 BorderThickness = new Thickness(0, 0, 0, 1)
             };
             border.Bind(Border.BorderBrushProperty, border.GetResourceObservable("DeckDividerBrush"));
@@ -131,10 +144,11 @@ internal sealed class OverlayFilePicker : UserControl
         var placesPane = new Border { Padding = new Thickness(8), Classes = { "device-group" } };
         var placeBody = new Grid { RowDefinitions = new RowDefinitions("Auto,*"), RowSpacing = 8 };
         placeBody.Children.Add(new TextBlock
-            { Text = "Places", Classes = { "eyebrow" }, Margin = new Thickness(8, 4) });
+        { Text = "Places", Classes = { "eyebrow" }, Margin = new Thickness(8, 4) });
         var placesScroller = new ScrollViewer
         {
-            Content = _places, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+            Content = _places,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
         };
         Grid.SetRow(placesScroller, 1);
         placeBody.Children.Add(placesScroller);
@@ -156,7 +170,7 @@ internal sealed class OverlayFilePicker : UserControl
         var cancel = new ActionButton { Title = "Cancel" };
         cancel.Click += (_, _) => Finish(null);
         var actions = new StackPanel
-            { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
+        { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
         foreach (var action in new[] { cancel, _open, _choose })
         {
             action.MinWidth = 100;
@@ -257,7 +271,16 @@ internal sealed class OverlayFilePicker : UserControl
                 _places.Children.Add(button);
             }
 
-            if (_generation == 0 && places.Places.FirstOrDefault() is { } first)
+            if (_generation == 0 && _start is { } start
+                                 && await Task.Run(() => Directory.Exists(start), _lifetime.Token))
+            {
+                // The user may have opened a place while the start folder was being checked.
+                if (_generation == 0)
+                {
+                    await ReadDirectoryAsync(start);
+                }
+            }
+            else if (_generation == 0 && places.Places.FirstOrDefault() is { } first)
             {
                 await ReadDirectoryAsync(first.Path);
             }

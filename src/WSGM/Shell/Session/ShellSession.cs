@@ -493,7 +493,8 @@ public sealed class ShellSession
         _library.StartPersonalization(() => _monitor?.IsAlive ?? true);
         // WSGM's own settings, from its row in Steam's main menu.
         TryStart("Steam settings page", () => _steamUi.StartSettingsPage(_steamInput));
-        _library.StartGameLibrary(_profiles, _storage, _messageWindow);
+        _library.StartGameLibrary(_profiles, _storage, _messageWindow,
+            () => _performance.RunningApplications?.Current.SteamAppId);
         return (modes, monitor);
     }
 
@@ -566,7 +567,8 @@ public sealed class ShellSession
                 _library.LibraryManager,
                 Notes: _tools.Notes,
                 Screensavers: _tools.Screensavers,
-                Browser: _tools.Browser),
+                Browser: _tools.Browser,
+                GameTools: _library.GameTools),
             _system.Audio,
             _system.AudioProfiles,
             _system.Radios,
@@ -778,6 +780,7 @@ public sealed class ShellSession
             Notes = _tools.Notes,
             Screensavers = _tools.Screensavers,
             LaunchActions = _library.LaunchActions,
+            GameTools = _library.GameTools,
             ScaledResolutions = _integrations.ScaledResolutions,
             WsgmSettings = _steamUi.SettingsPage,
             CpuBoost = _cpuBoost.Available ? _cpuBoost : null,

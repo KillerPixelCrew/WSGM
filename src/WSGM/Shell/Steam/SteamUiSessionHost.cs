@@ -195,6 +195,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _backends.LibraryImport?.Changed += QueueStatePublication;
         _backends.Emulators?.Changed += QueueStatePublication;
         _backends.LaunchActions?.Changed += QueueStatePublication;
+        _backends.GameTools?.Changed += QueueStatePublication;
         _backends.LibraryManager?.Changed += QueueStatePublication;
         _backends.Notes?.Changed += QueueStatePublication;
         _backends.ChordMirror?.Changed += QueueStatePublication;
@@ -232,6 +233,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _backends.LibraryImport?.Changed -= QueueStatePublication;
         _backends.Emulators?.Changed -= QueueStatePublication;
         _backends.LaunchActions?.Changed -= QueueStatePublication;
+        _backends.GameTools?.Changed -= QueueStatePublication;
         _backends.LibraryManager?.Changed -= QueueStatePublication;
         _backends.Notes?.Changed -= QueueStatePublication;
         _backends.ChordMirror?.Changed -= QueueStatePublication;

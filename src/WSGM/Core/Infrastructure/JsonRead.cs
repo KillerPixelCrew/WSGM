@@ -18,6 +18,18 @@ internal static class JsonRead
             : null;
     }
 
+    /// <summary>A string property, or the raw text of a number property, such as a release id.</summary>
+    /// <param name="json">The object.</param>
+    /// <param name="property">The property's name.</param>
+    /// <returns>The text, or an empty string when absent or another JSON type.</returns>
+    internal static string StringOrNumber(JsonElement json, string property)
+    {
+        return OptionalString(json, property)
+               ?? (json.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.Number
+                   ? value.GetRawText()
+                   : "");
+    }
+
     /// <summary>A boolean flag, false when absent or represented by another JSON type.</summary>
     /// <param name="json">The object.</param>
     /// <param name="property">The property's name.</param>

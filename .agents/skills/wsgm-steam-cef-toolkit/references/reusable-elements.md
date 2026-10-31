@@ -130,19 +130,19 @@ color editor stages changes and sends on Save; cancelling sends nothing.
 
 Everything around native fields comes from `ui-kit.ts`, rendered with the same resolved `ui`:
 
-| Need                    | Helpers                                                                                                     |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Styles and sections     | `steamUiKitStyle`, `renderSteamUiHeader`, `renderSteamUiGroup`.                                             |
-| Actions and pagination  | `renderSteamUiActions` (with the `pick` file-pick kind), `renderSteamUiMore`.                               |
-| Page/focus levels       | The `registerSteamPage` frame, `renderSteamUiPane`, `renderSteamUiLevel`, `renderSteamUiDetail`.            |
-| Color and state         | `renderSteamUiSwatch`, `renderSteamUiEmpty` (kinds), `renderSteamUiStatus`, `renderSteamUiProgress`.        |
-| Settings rows on a page | `renderSteamUiFields`, which draws a refusal on the row that asked.                                         |
-| Flows (`ui-flows.ts`)   | `renderSteamUiCollection`, `renderSteamUiItem`, `renderSteamUiAcquire`, `renderSteamUiManage`.              |
-| Steam Settings sections | `registerSteamSettingsSection`, one shared useMemo transform for every section.                             |
-| Cards and media         | `renderSteamUiCard`, `renderSteamUiGrid`, `renderSteamUiGallery`, `renderSteamUiVideo`.                     |
-| Inline controls         | `renderSteamUiToolbar`, `renderSteamUiTool`, `renderSteamUiChips`, `renderSteamUiBox`.                      |
-| Glyphs                  | `renderSteamUiIcon` over the one `icons.ts` table, and `renderSteamGlyph` for host-supplied paths.          |
-| Dialogs                 | `showSteamUiConfirm`, `showSteamUiPrompt`, `showSteamModal`, `showSteamFilePicker`, `showSteamColorEditor`. |
+| Need                    | Helpers                                                                                                                    |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Styles and sections     | `steamUiKitStyle`, `renderSteamUiHeader`, `renderSteamUiGroup`.                                                            |
+| Actions and pagination  | `renderSteamUiActions` (with the `pick` file-pick kind), `renderSteamUiMore`.                                              |
+| Page/focus levels       | The `registerSteamPage` frame, `renderSteamUiPane`, `renderSteamUiLevel`, `renderSteamUiDetail`.                           |
+| Color, meters and state | `renderSteamUiSwatch`, `renderSteamUiMeter`, `renderSteamUiEmpty` (kinds), `renderSteamUiStatus`, `renderSteamUiProgress`. |
+| Settings rows on a page | `renderSteamUiFields`, which draws a refusal on the row that asked.                                                        |
+| Flows (`ui-flows.ts`)   | `renderSteamUiCollection`, `renderSteamUiItem`, `renderSteamUiAcquire`, `renderSteamUiManage`.                             |
+| Steam Settings sections | `registerSteamSettingsSection`, one shared useMemo transform for every section.                                            |
+| Cards and media         | `renderSteamUiCard`, `renderSteamUiGrid`, `renderSteamUiGallery`, `renderSteamUiVideo`.                                    |
+| Inline controls         | `renderSteamUiToolbar`, `renderSteamUiTool`, `renderSteamUiChips`, `renderSteamUiBox`.                                     |
+| Glyphs                  | `renderSteamUiIcon` over the one `icons.ts` table, and `renderSteamGlyph` for host-supplied paths.                         |
+| Dialogs                 | `showSteamUiConfirm`, `showSteamUiPrompt`, `showSteamModal`, `showSteamFilePicker`, `showSteamColorEditor`.                |
 
 Render `steamUiKitStyle(react)` once per consuming document root. Keep flat `steam-ui-kit-*`
 classes, Steam panel spacing/vocabulary, Focusable controller behavior and the `gpfocus` highlight.

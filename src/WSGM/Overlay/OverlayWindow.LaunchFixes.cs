@@ -118,7 +118,7 @@ public partial class OverlayWindow
     {
         var title = button.Title;
         button.Title = "Asking Steam…";
-        var appId = await CurrentAppIdAsync();
+        var appId = await SteamCurrentGame.AppIdAsync(_steam);
         if (_closed)
         {
             return null;
@@ -147,18 +147,6 @@ public partial class OverlayWindow
         return result.Games.FirstOrDefault(g => g.AppId == appId)
                ?? new SteamLibraryApp(
                    appId, appId.ToString(CultureInfo.InvariantCulture), SteamApps.IsShortcutAppId(appId));
-    }
-
-    /// <summary>The game page Steam shows, or 0 when none does or Steam did not answer.</summary>
-    private async Task<uint> CurrentAppIdAsync()
-    {
-        if (_steam is null)
-        {
-            return 0;
-        }
-
-        var page = await _steam.CurrentPage.GetAsync();
-        return page.Succeeded ? page.Value.AppId : 0;
     }
 
     private void OnCustomLaunchGamePicked(
@@ -257,7 +245,7 @@ public partial class OverlayWindow
         try
         {
             button.Title = "Asking Steam…";
-            var appId = await CurrentAppIdAsync();
+            var appId = await SteamCurrentGame.AppIdAsync(_steam);
             if (_closed)
             {
                 return;

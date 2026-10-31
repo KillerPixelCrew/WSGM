@@ -41,6 +41,8 @@
                       LogicalName="WSGM.Core.Emulators.bios-catalog.json"/>
     <EmbeddedResource Include="Core\Emulators\retrobios-LICENSE.txt"
                       LogicalName="WSGM.Core.Emulators.retrobios-LICENSE.txt"/>
+    <EmbeddedResource Include="Core\GameTools\game-tools.json"
+                      LogicalName="WSGM.Core.GameTools.game-tools.json"/>
   </ItemGroup>
   <ItemGroup>
     <!-- The Steam Input Lease submodule's binding is the single managed ABI source. Both
@@ -103,6 +105,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\external\inpout\*" Link="Resources\InpOut\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"/>
+    <None Include="..\..\external\kx\KX.exe;..\..\external\kx\kx.lock.json"
+          Link="Resources\Intel\KX\%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"/>
     <!-- Plugins are loaded dynamically; the shared SDK preserves type identity
          without making the installed package a production project reference. -->

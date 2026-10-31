@@ -26,8 +26,8 @@ internal static class EmulatorValidation
             using (var input = File.OpenRead(installed.ExecutablePath))
             using (PEReader image = new(input))
             {
-                if (image.PEHeaders.PEHeader is not { AddressOfEntryPoint: > 0 }
-                    || EmulatorPackages.PeArchitecture(image) != installed.Architecture)
+                var architecture = PeImage.Architecture(image.PEHeaders.CoffHeader.Machine);
+                if (image.PEHeaders.PEHeader is not { AddressOfEntryPoint: > 0 } || architecture != installed.Architecture)
                 {
                     throw new InvalidDataException("The package has no Windows executable matching the selected architecture.");
                 }

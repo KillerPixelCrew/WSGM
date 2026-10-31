@@ -57,6 +57,8 @@ internal static class HandheldUiProjection
             CapabilityRole.PowerFastLimit => (DeviceSections.PowerId, "limits", 2),
             CapabilityRole.PowerPeakLimit => (DeviceSections.PowerId, "limits", 3),
             CapabilityRole.ScenarioMode => (DeviceSections.PowerId, "performance", 0),
+            // Which hardware path carries the limits, shown first among them.
+            CapabilityRole.PowerBackend => (DeviceSections.PowerId, "limits", -1),
             CapabilityRole.ChargeLimit or CapabilityRole.ChargeProtectionMode or CapabilityRole.ChargeBypass => (
                 DeviceSections.PowerId, "charging", 0),
             CapabilityRole.FanMode => (DeviceSections.PowerId, "fans", 0),
@@ -77,24 +79,34 @@ internal static class HandheldUiProjection
         };
         return new CapabilityDescriptor
         {
-            CapabilityId = value.CapabilityId, InstanceId = value.InstanceId, Role = role,
-            ValueKind = (CapabilityValueKind)value.ValueKind, Display = Display(value.Display),
-            SupportsRead = value.SupportsRead, SupportsWrite = value.SupportsWrite,
+            CapabilityId = value.CapabilityId,
+            InstanceId = value.InstanceId,
+            Role = role,
+            ValueKind = (CapabilityValueKind)value.ValueKind,
+            Display = Display(value.Display),
+            SupportsRead = value.SupportsRead,
+            SupportsWrite = value.SupportsWrite,
             SupportsAction = value.SupportsAction,
-            Minimum = value.Minimum, Maximum = value.Maximum, Step = value.Step, Unit = (CapabilityUnit)value.Unit,
+            Minimum = value.Minimum,
+            Maximum = value.Maximum,
+            Step = value.Step,
+            Unit = (CapabilityUnit)value.Unit,
             PairedPowerLimitId = value.PairedPowerLimitId,
             Choices = value.Choices.Select(choice => new CapabilityChoice(choice.Value, Display(choice.Display)))
                 .ToArray(),
             CurveInputs = value.CurveInputs,
             PowerPresets = value.PowerPresets.Select(preset => new DevicePowerPreset(preset.Id, preset.Name,
                     preset.SustainedWatts, preset.SlowWatts, (DevicePowerMode)preset.WindowsMode)
-                { FastWatts = preset.FastWatts, ScenarioOnAc = preset.ScenarioOnAc, ScenarioOnDc = preset.ScenarioOnDc })
+            { FastWatts = preset.FastWatts, ScenarioOnAc = preset.ScenarioOnAc, ScenarioOnDc = preset.ScenarioOnDc })
                 .ToArray(),
-            MaximumLength = value.MaximumLength, AvailableOnAc = value.AvailableOnAc,
+            MaximumLength = value.MaximumLength,
+            AvailableOnAc = value.AvailableOnAc,
             AvailableOnDc = value.AvailableOnDc,
             Persistence = (CapabilityPersistence)value.Persistence,
             ProfileScope = (CapabilityProfileScope)value.ProfileScope,
-            ApplyTiming = (CapabilityApplyTiming)value.ApplyTiming, SectionId = section, CategoryId = category,
+            ApplyTiming = (CapabilityApplyTiming)value.ApplyTiming,
+            SectionId = section,
+            CategoryId = category,
             SortOrder = order,
             Prominence = role is CapabilityRole.PowerSustainedLimit or CapabilityRole.ScenarioMode
                 ? CapabilityProminence.Primary
@@ -112,7 +124,9 @@ internal static class HandheldUiProjection
     {
         return new CapabilityDisplay
         {
-            Key = (DisplayKey)display.Key, CustomLabel = display.CustomText, Description = display.Description
+            Key = (DisplayKey)display.Key,
+            CustomLabel = display.CustomText,
+            Description = display.Description
         };
     }
 
@@ -138,10 +152,13 @@ internal static class HandheldUiProjection
     {
         return new CapabilityState
         {
-            CapabilityId = value.CapabilityId, InstanceId = value.InstanceId, Available = value.Available,
+            CapabilityId = value.CapabilityId,
+            InstanceId = value.InstanceId,
+            Available = value.Available,
             Reason = value.Reason is null ? null : Reason(value.Reason),
             ObservedValue = value.ObservedValue is null ? null : Value(value.ObservedValue),
-            Quality = (HardwareStateQuality)value.Quality, ObservedAt = value.ObservedAt
+            Quality = (HardwareStateQuality)value.Quality,
+            ObservedAt = value.ObservedAt
         };
     }
 
@@ -149,9 +166,12 @@ internal static class HandheldUiProjection
     {
         return new CapabilityValue
         {
-            Kind = (CapabilityValueKind)value.Kind, BooleanValue = value.BooleanValue,
+            Kind = (CapabilityValueKind)value.Kind,
+            BooleanValue = value.BooleanValue,
             IntegerValue = value.IntegerValue,
-            ChoiceValue = value.ChoiceValue, ColorValue = value.ColorValue, TextValue = value.TextValue,
+            ChoiceValue = value.ChoiceValue,
+            ColorValue = value.ColorValue,
+            TextValue = value.TextValue,
             CurveValue = value.CurveValue.Select(point => new CurvePoint(point.Input, point.Output)).ToArray()
         };
     }
@@ -160,9 +180,12 @@ internal static class HandheldUiProjection
     {
         return new P.CapabilityValue
         {
-            Kind = (P.CapabilityValueKind)value.Kind, BooleanValue = value.BooleanValue,
+            Kind = (P.CapabilityValueKind)value.Kind,
+            BooleanValue = value.BooleanValue,
             IntegerValue = value.IntegerValue,
-            ChoiceValue = value.ChoiceValue, ColorValue = value.ColorValue, TextValue = value.TextValue,
+            ChoiceValue = value.ChoiceValue,
+            ColorValue = value.ColorValue,
+            TextValue = value.TextValue,
             CurveValue = value.CurveValue.Select(point => new P.CurvePoint(point.Input, point.Output)).ToArray()
         };
     }
@@ -188,8 +211,10 @@ internal static class HandheldUiProjection
     {
         return new CapabilityCommandResult
         {
-            CommandId = result.CommandId, Outcome = Outcome(result.Outcome),
-            Reason = result.Reason is null ? null : Reason(result.Reason), CompletedAt = result.CompletedAt
+            CommandId = result.CommandId,
+            Outcome = Outcome(result.Outcome),
+            Reason = result.Reason is null ? null : Reason(result.Reason),
+            CompletedAt = result.CompletedAt
         };
     }
 
@@ -197,7 +222,10 @@ internal static class HandheldUiProjection
     {
         return new CapabilityCategory
         {
-            CategoryId = id, Key = SettingSectionKey.Custom, CustomTitle = title, SortOrder = order
+            CategoryId = id,
+            Key = SettingSectionKey.Custom,
+            CustomTitle = title,
+            SortOrder = order
         };
     }
 }

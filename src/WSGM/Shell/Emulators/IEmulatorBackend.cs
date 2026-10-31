@@ -7,8 +7,18 @@ namespace WSGM.Shell;
 /// <summary>The emulator tool's commands, independent of library scans and Steam writes.</summary>
 internal interface IEmulatorBackend : IChangeSource
 {
+    /// <summary>
+    ///     Advances whenever <see cref="ReadPageState" />'s projection changes: catalogue, installations, BIOS,
+    ///     choices, dependencies or shortcut status. Progress alone never advances it.
+    /// </summary>
+    long CatalogRevision { get; }
+
+    /// <summary>The page projection; its catalogue carries no busy state or status line.</summary>
     EmulatorPageState ReadPageState();
+
+    /// <summary>The manager's busy state and status line, published apart from the catalogue.</summary>
     EmulatorProgressState ReadProgressState();
+
     Task<SteamUiCommandResult> CancelAsync(CancellationToken cancellationToken);
     Task<SteamUiCommandResult> RefreshEmulatorsAsync(CancellationToken cancellationToken);
     Task<SteamUiCommandResult> SetBiosFolderAsync(string path, CancellationToken cancellationToken);

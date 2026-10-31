@@ -217,7 +217,7 @@ internal sealed class OverlayNavigation
             OverlayPage.QuickAccess => OverlayDestination.QuickAccess,
             OverlayPage.Steam or OverlayPage.SteamLibrary or OverlayPage.SteamLaunchFixes
                 or OverlayPage.SteamLibraryTabs or OverlayPage.SteamCardManager
-                or OverlayPage.SteamLaunchConfiguration
+                or OverlayPage.SteamLaunchConfiguration or OverlayPage.SteamGameTools
                 => OverlayDestination.Steam,
             OverlayPage.Device or OverlayPage.DeviceOverview or OverlayPage.DeviceGpu
                 or OverlayPage.DevicePowerAndThermals or OverlayPage.DeviceControllerAndMotion

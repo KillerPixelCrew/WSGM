@@ -207,7 +207,8 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
                 {
                     ObservedValue = new CapabilityValue
                     {
-                        Kind = CapabilityValueKind.Choice, ChoiceValue = FanControlModes.Software
+                        Kind = CapabilityValueKind.Choice,
+                        ChoiceValue = FanControlModes.Software
                     }
                 };
             }
@@ -329,7 +330,8 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
         var directory = Path.Combine(Path.GetFullPath(stateRoot), definition.FamilyId);
         var device = HandheldDevice.Create(definition, identity, directory, Trace, new P.HandheldResources
         {
-            InpOutPath = Path.Combine(AppContext.BaseDirectory, "Resources", "InpOut", "inpoutx64.dll")
+            InpOutPath = Path.Combine(AppContext.BaseDirectory, "Resources", "InpOut", "inpoutx64.dll"),
+            IntelKxPath = Path.Combine(AppContext.BaseDirectory, "Resources", "Intel", "KX", "KX.exe")
         });
         Log.Info($"Handheld selected: model={definition.Id}, family={definition.FamilyId}, source={SourceVersion}, "
                  + $"bios={identity.BiosVersion ?? "unknown"}, hardwareVerified={definition.HardwareVerified}.");
@@ -411,7 +413,7 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
 
         if (_hasSoftwareFanCurve && command.CapabilityId == CapabilityIds.FanCurve
                                  && command.InstanceId is null && command.RequestedValue is
-                                     { Kind: CapabilityValueKind.Curve } curve)
+                                 { Kind: CapabilityValueKind.Curve } curve)
         {
             await ApplySoftwareFanCurveAsync!(curve.CurveValue, token).ConfigureAwait(false);
             _softwareFanCurve = curve.CurveValue.ToArray();
@@ -419,7 +421,9 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
             PublishSoftwareFanCurve();
             return new CapabilityCommandResult
             {
-                CommandId = command.CommandId, Outcome = CommandOutcome.Applied, CompletedAt = DateTimeOffset.UtcNow
+                CommandId = command.CommandId,
+                Outcome = CommandOutcome.Applied,
+                CompletedAt = DateTimeOffset.UtcNow
             };
         }
 
@@ -430,7 +434,9 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
         {
             return new CapabilityCommandResult
             {
-                CommandId = command.CommandId, Outcome = CommandOutcome.Applied, CompletedAt = DateTimeOffset.UtcNow
+                CommandId = command.CommandId,
+                Outcome = CommandOutcome.Applied,
+                CompletedAt = DateTimeOffset.UtcNow
             };
         }
 
@@ -445,7 +451,9 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
             PublishSoftwareChargeLimit();
             return new CapabilityCommandResult
             {
-                CommandId = command.CommandId, Outcome = CommandOutcome.Applied, CompletedAt = DateTimeOffset.UtcNow
+                CommandId = command.CommandId,
+                Outcome = CommandOutcome.Applied,
+                CompletedAt = DateTimeOffset.UtcNow
             };
         }
 
@@ -515,7 +523,8 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
         {
             return new CapabilityCommandResult
             {
-                CommandId = command.CommandId, Outcome = HandheldUiProjection.Outcome(operation.Outcome),
+                CommandId = command.CommandId,
+                Outcome = HandheldUiProjection.Outcome(operation.Outcome),
                 Reason = operation.Reason is null ? null : HandheldUiProjection.Reason(operation.Reason),
                 CompletedAt = DateTimeOffset.UtcNow
             };
@@ -523,10 +532,13 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
 
         var native = new P.CapabilityCommand
         {
-            CommandId = command.CommandId, CapabilityId = command.CapabilityId, InstanceId = command.InstanceId,
+            CommandId = command.CommandId,
+            CapabilityId = command.CapabilityId,
+            InstanceId = command.InstanceId,
             RequestedValue = value is null ? null : HandheldUiProjection.NativeValue(value),
             PairedPowerLimitWatts = command.PairedPowerLimitWatts,
-            ApplyUniformPowerTarget = command.ApplyUniformPowerTarget, Deadline = deadline
+            ApplyUniformPowerTarget = command.ApplyUniformPowerTarget,
+            Deadline = deadline
         };
         return HandheldUiProjection.Result(await Device.ExecuteAsync(native, token).ConfigureAwait(false));
     }
@@ -681,8 +693,10 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
     {
         return new CapabilityCommandResult
         {
-            CommandId = command.CommandId, Outcome = outcome,
-            Reason = new CapabilityReason(CapabilityReasonCode.Quiescing, detail), CompletedAt = DateTimeOffset.UtcNow
+            CommandId = command.CommandId,
+            Outcome = outcome,
+            Reason = new CapabilityReason(CapabilityReasonCode.Quiescing, detail),
+            CompletedAt = DateTimeOffset.UtcNow
         };
     }
 
@@ -749,7 +763,8 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
         CapabilityStateReceived?.Invoke(new CapabilityStateDelta(Interlocked.Increment(ref _stateSequence),
             new CapabilityState
             {
-                CapabilityId = CapabilityIds.FanCurve, Available = available,
+                CapabilityId = CapabilityIds.FanCurve,
+                Available = available,
                 Reason = _softwareFanReason is null
                     ? null
                     : new CapabilityReason(CapabilityReasonCode.ObservationExpired,
@@ -774,7 +789,8 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
         CapabilityStateReceived?.Invoke(new CapabilityStateDelta(Interlocked.Increment(ref _stateSequence),
             new CapabilityState
             {
-                CapabilityId = CapabilityIds.ChargeLimit, Available = available,
+                CapabilityId = CapabilityIds.ChargeLimit,
+                Available = available,
                 Reason = _softwareChargeSuspended
                     ? new CapabilityReason(CapabilityReasonCode.ResourceReleased,
                         "Software charge ceiling paused by a firmware bypass selection. Select a ceiling to resume.")

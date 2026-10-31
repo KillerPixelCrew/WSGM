@@ -106,11 +106,14 @@ internal sealed class SteamUiModuleCatalog
         // source the way it was while artwork was a package.
         var artwork = backends.Artwork;
         var launchActions = backends.LaunchActions;
+        var gameTools = backends.GameTools;
         _gameContextMenu = new SteamGameContextMenuBackend(
             backends.PluginSteamUi,
             artwork is null ? null : artwork.OpenAsync,
             artwork is null ? null : SteamArtworkBrowserSurface.RouteFor,
-            launchActions is null ? null : launchActions.OpenAsync);
+            launchActions is null ? null : launchActions.OpenAsync,
+            gameTools is null ? null : gameTools.OpenAsync,
+            gameTools is null ? null : SteamGameToolsSurface.RouteFor);
         var libraryImport = backends.LibraryImport;
         var libraryManager = backends.LibraryManager;
         _extensionsTab = new SteamExtensionsTabBackend(
@@ -419,6 +422,11 @@ internal sealed class SteamUiModuleCatalog
             modules.Add(SteamLaunchActionsSurface.Module(HostSteamUiEnabled, launchActions));
         }
 
+        if (_backends.GameTools is { } gameTools)
+        {
+            modules.Add(SteamGameToolsSurface.Module(HostSteamUiEnabled, gameTools));
+        }
+
         if (_backends.LibraryManager is { } libraryManager)
         {
             modules.Add(SteamCardManagerSurface.Module(
@@ -428,7 +436,8 @@ internal sealed class SteamUiModuleCatalog
         }
 
         if (_backends.LibraryImport is not null || _backends.Artwork is not null || _backends.Emulators is not null
-            || _backends.LaunchActions is not null || _backends.Screensavers is not null)
+            || _backends.LaunchActions is not null || _backends.GameTools is not null
+            || _backends.Screensavers is not null)
         {
             modules.Add(SteamFilePickerSurface.Module(HostSteamUiEnabled));
         }
@@ -620,6 +629,15 @@ internal sealed class SteamUiModuleCatalog
                 SteamEmulatorSurface.Route,
                 "Emulator Manager",
                 Template: SteamEmulatorSurface.Template));
+        }
+
+        if (_backends.GameTools is not null)
+        {
+            pages.Add(new SteamPage(
+                SteamGameToolsSurface.PageId,
+                SteamGameToolsSurface.Route,
+                SteamGameToolsSurface.Title,
+                Template: SteamGameToolsSurface.Template));
         }
 
         if (_backends.LibraryManager is { } libraryManager)

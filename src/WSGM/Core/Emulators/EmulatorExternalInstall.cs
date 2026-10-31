@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Win32;
@@ -93,18 +92,30 @@ internal static class EmulatorExternalInstall
         var version = FileVersionInfo.GetVersionInfo(executable).ProductVersion ?? "External";
         EmulatorInstallation installed = new()
         {
-            Id = Id(definition.Id, executable), DefinitionId = definition.Id, Name = definition.Name, Managed = false,
+            Id = Id(definition.Id, executable),
+            DefinitionId = definition.Id,
+            Name = definition.Name,
+            Managed = false,
             SteamShortcutEnabled = previous?.SteamShortcutEnabled ?? true,
             SteamShortcutLaunchMode = previous?.SteamShortcutLaunchMode ?? 2,
-            Channel = definition.Sources.Keys.First(), Architecture = architecture, Version = version,
-            Root = directory, ExecutablePath = executable, DataPath = externalData, OwnsData = false,
-            Source = "External", Systems = definition.Systems, LaunchArguments = [.. args],
+            Channel = definition.Sources.Keys.First(),
+            Architecture = architecture,
+            Version = version,
+            Root = directory,
+            ExecutablePath = executable,
+            DataPath = externalData,
+            OwnsData = false,
+            Source = "External",
+            Systems = definition.Systems,
+            LaunchArguments = [.. args],
             DataPolicy = definition.DataPolicy,
             Cores = definition.DataPolicy.HasCores && Directory.Exists(Path.Combine(directory, "cores"))
                 ? Directory.EnumerateFiles(Path.Combine(directory, "cores"), "*.dll").Select(path => new EmulatorCore
                 {
-                    Id = Path.GetFileNameWithoutExtension(path), Name = Path.GetFileNameWithoutExtension(path),
-                    Path = path, MetadataMissing = true
+                    Id = Path.GetFileNameWithoutExtension(path),
+                    Name = Path.GetFileNameWithoutExtension(path),
+                    Path = path,
+                    MetadataMissing = true
                 }).ToArray()
                 : []
         };
@@ -114,9 +125,7 @@ internal static class EmulatorExternalInstall
 
     private static string PeArchitecture(string path)
     {
-        using var stream = File.OpenRead(path);
-        using PEReader reader = new(stream);
-        var architecture = EmulatorPackages.PeArchitecture(reader);
+        var architecture = PeImage.Architecture(path);
         return architecture.Length > 0
             ? architecture
             : throw new InvalidDataException("This Windows emulator architecture is unsupported.");

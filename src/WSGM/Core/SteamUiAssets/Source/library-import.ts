@@ -1643,8 +1643,9 @@ function LibraryImportPage({ context, state }: any) {
   );
 
   // Every message stays visible: a refusal does not hide what the host says, and the other way
-  // round. A command the page sent that was refused is the frame's banner; the save's progress is
-  // the kit's progress over the stack.
+  // round. A command the page sent that was refused is the frame's banner; a scan or a save is the
+  // kit's progress over the stack, a moving bar while scanning and a counted one while saving, as in
+  // the Overlay.
   const refusal = context.refusal();
   const status = h(
     react.Fragment,
@@ -1655,7 +1656,9 @@ function LibraryImportPage({ context, state }: any) {
           done: state.progress ?? 0,
           total: state.progressTotal ?? 0,
         })
-      : null,
+      : state.phase === "scanning"
+        ? renderSteamUiProgress(ui, { phase: "Scanning" })
+        : null,
     renderSteamUiStatus(ui, [
       refusal
         ? { key: "refusal", text: `The library could not be shown in full: ${refusal}`, error: true }

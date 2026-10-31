@@ -41,7 +41,9 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
         OnChanged();
     }
 
-    internal long CatalogRevision => Interlocked.Read(ref _catalogRevision);
+    /// <inheritdoc />
+    public long CatalogRevision => Interlocked.Read(ref _catalogRevision);
+
     internal long ProgressRevision => Interlocked.Read(ref _progressRevision);
 
     /// <summary>The session's admitted operation, including cancellation and staging cleanup.</summary>

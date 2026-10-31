@@ -39,7 +39,8 @@ public sealed partial class EmulatorManager
                 installed.DefinitionId == definitionId && installed.Architecture == architecture)
                 ?? new EmulatorInstallation
                 {
-                    DefinitionId = definition.Id, Architecture = architecture,
+                    DefinitionId = definition.Id,
+                    Architecture = architecture,
                     ExecutablePath = Path.Combine(_context.Root, "Emulation", "runtime-check.exe"),
                     DataPolicy = definition.DataPolicy
                 };
@@ -112,7 +113,7 @@ public sealed partial class EmulatorManager
 
                     SetStatus("Downloading " + label + " from Microsoft");
                     var installer = Path.Combine(root, name);
-                    await _packages.DownloadAsync(new EmulatorAsset(name, url), installer, cancellation)
+                    await _client.DownloadAsync(new ReleaseAsset(name, url), installer, cancellation)
                         .ConfigureAwait(false);
                     using var held = new FileStream(installer, FileMode.Open, FileAccess.Read, FileShare.Read);
                     if (NativeAuthenticode.VerifyFile(installer) != 0)
@@ -136,7 +137,10 @@ public sealed partial class EmulatorManager
                     {
                         started = Process.Start(new ProcessStartInfo(installer)
                         {
-                            Arguments = arguments, WorkingDirectory = root, UseShellExecute = true, Verb = "runas"
+                            Arguments = arguments,
+                            WorkingDirectory = root,
+                            UseShellExecute = true,
+                            Verb = "runas"
                         });
                     }
                     catch (Win32Exception exception) when (exception.NativeErrorCode == 1223)

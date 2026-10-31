@@ -4,19 +4,16 @@ using System.Globalization;
 using System.IO;
 using System.IO.Hashing;
 using System.Linq;
-using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using SharpCompress.Archives;
-using SharpCompress.Common;
 
 namespace WSGM.Core;
 
-internal sealed class EmulatorPackages(EmulatorNetwork network)
+internal sealed class EmulatorPackages(DownloadClient client)
 {
     /// <summary>The package architecture this machine runs natively: <c>arm64</c> or <c>x64</c>.</summary>
     internal static string HostArchitecture =>
@@ -24,44 +21,58 @@ internal sealed class EmulatorPackages(EmulatorNetwork network)
 
     private static readonly Dictionary<string, string[]> SystemAliases = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["Nintendo - Nintendo Entertainment System"] = ["nes"], ["nes"] = ["nes"],
-        ["Nintendo - Super Nintendo Entertainment System"] = ["snes"], ["super_nes"] = ["snes"], ["snes"] = ["snes"],
-        ["Nintendo - Game Boy"] = ["gb"], ["game_boy"] = ["gb"], ["gb"] = ["gb"],
-        ["Nintendo - Game Boy Color"] = ["gbc"], ["game_boy_color"] = ["gbc"], ["gbc"] = ["gbc"],
-        ["Nintendo - Game Boy Advance"] = ["gba"], ["game_boy_advance"] = ["gba"], ["gba"] = ["gba"],
-        ["Nintendo - Nintendo 64"] = ["n64"], ["nintendo_64"] = ["n64"], ["n64"] = ["n64"],
-        ["Nintendo - Nintendo DS"] = ["nds"], ["nintendo_ds"] = ["nds"], ["nds"] = ["nds"],
-        ["Sony - PlayStation"] = ["psx"], ["playstation"] = ["psx"], ["psx"] = ["psx"],
-        ["Sony - PlayStation 2"] = ["ps2"], ["playstation2"] = ["ps2"], ["ps2"] = ["ps2"],
-        ["Sony - PlayStation Portable"] = ["psp"], ["psp"] = ["psp"],
-        ["Sega - Mega Drive - Genesis"] = ["megadrive"], ["mega_drive"] = ["megadrive"],
-        ["genesis"] = ["megadrive"], ["megadrive"] = ["megadrive"],
-        ["Sega - Master System - Mark III"] = ["mastersystem"], ["master_system"] = ["mastersystem"],
-        ["Sega - Game Gear"] = ["gamegear"], ["game_gear"] = ["gamegear"],
-        ["Sega - 32X"] = ["sega32x"], ["Sega - PICO"] = ["pico"],
-        ["Sega - Sega Saturn"] = ["saturn"], ["saturn"] = ["saturn"],
-        ["Sega - Dreamcast"] = ["dreamcast"], ["dreamcast"] = ["dreamcast"],
-        ["NEC - PC Engine - TurboGrafx 16"] = ["pcengine"], ["pc_engine"] = ["pcengine"],
-        ["arcade"] = ["arcade"], ["MAME"] = ["arcade"]
+        ["Nintendo - Nintendo Entertainment System"] = ["nes"],
+        ["nes"] = ["nes"],
+        ["Nintendo - Super Nintendo Entertainment System"] = ["snes"],
+        ["super_nes"] = ["snes"],
+        ["snes"] = ["snes"],
+        ["Nintendo - Game Boy"] = ["gb"],
+        ["game_boy"] = ["gb"],
+        ["gb"] = ["gb"],
+        ["Nintendo - Game Boy Color"] = ["gbc"],
+        ["game_boy_color"] = ["gbc"],
+        ["gbc"] = ["gbc"],
+        ["Nintendo - Game Boy Advance"] = ["gba"],
+        ["game_boy_advance"] = ["gba"],
+        ["gba"] = ["gba"],
+        ["Nintendo - Nintendo 64"] = ["n64"],
+        ["nintendo_64"] = ["n64"],
+        ["n64"] = ["n64"],
+        ["Nintendo - Nintendo DS"] = ["nds"],
+        ["nintendo_ds"] = ["nds"],
+        ["nds"] = ["nds"],
+        ["Sony - PlayStation"] = ["psx"],
+        ["playstation"] = ["psx"],
+        ["psx"] = ["psx"],
+        ["Sony - PlayStation 2"] = ["ps2"],
+        ["playstation2"] = ["ps2"],
+        ["ps2"] = ["ps2"],
+        ["Sony - PlayStation Portable"] = ["psp"],
+        ["psp"] = ["psp"],
+        ["Sega - Mega Drive - Genesis"] = ["megadrive"],
+        ["mega_drive"] = ["megadrive"],
+        ["genesis"] = ["megadrive"],
+        ["megadrive"] = ["megadrive"],
+        ["Sega - Master System - Mark III"] = ["mastersystem"],
+        ["master_system"] = ["mastersystem"],
+        ["Sega - Game Gear"] = ["gamegear"],
+        ["game_gear"] = ["gamegear"],
+        ["Sega - 32X"] = ["sega32x"],
+        ["Sega - PICO"] = ["pico"],
+        ["Sega - Sega Saturn"] = ["saturn"],
+        ["saturn"] = ["saturn"],
+        ["Sega - Dreamcast"] = ["dreamcast"],
+        ["dreamcast"] = ["dreamcast"],
+        ["NEC - PC Engine - TurboGrafx 16"] = ["pcengine"],
+        ["pc_engine"] = ["pcengine"],
+        ["arcade"] = ["arcade"],
+        ["MAME"] = ["arcade"]
     };
 
     /// <summary>The RetroArch asset bundles every install downloads and every repair restores.</summary>
     private static readonly string[] RetroArchBundles = ["info", "assets", "autoconfig", "database-rdb", "database-cursors"];
 
     public string CoreCatalogueRevision { get; private set; } = "";
-
-    public async Task<string> DownloadAsync(EmulatorAsset asset, string destination,
-        CancellationToken cancellationToken)
-    {
-        if (asset.Name.Length == 0 || Path.GetFileName(asset.Name) != asset.Name
-                                   || asset.Name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-        {
-            throw new InvalidDataException("The emulator asset has an unsafe filename.");
-        }
-
-        return await VerifiedDownload.WriteAsync(token => network.OpenAsync(asset.Url, token), destination,
-            asset.Sha256, asset.Size, cancellationToken).ConfigureAwait(false);
-    }
 
     public async Task<string> RestoreArchiveAsync(EmulatorInstallation installed, string name, string destination,
         string url, string expected, CancellationToken cancellationToken)
@@ -82,7 +93,7 @@ internal sealed class EmulatorPackages(EmulatorNetwork network)
             return hash;
         }
 
-        return await DownloadAsync(new EmulatorAsset(name, url, expected), destination, cancellationToken)
+        return await client.DownloadAsync(new ReleaseAsset(name, url, expected), destination, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -119,7 +130,7 @@ internal sealed class EmulatorPackages(EmulatorNetwork network)
 
             await RestoreArchiveAsync(installed, name + ".zip", archive, "", "", cancellationToken)
                 .ConfigureAwait(false);
-            Extract(archive, Path.Combine(programRoot, name), cancellationToken);
+            PackageArchive.Extract(archive, Path.Combine(programRoot, name), cancellationToken);
         }
 
         var cores = new List<EmulatorCore>();
@@ -130,7 +141,7 @@ internal sealed class EmulatorPackages(EmulatorNetwork network)
             await RestoreArchiveAsync(installed, name, archive, core.SourceUrl, "", cancellationToken)
                 .ConfigureAwait(false);
             var extracted = Path.Combine(downloads, "repair-" + core.Id);
-            Extract(archive, extracted, cancellationToken);
+            PackageArchive.Extract(archive, extracted, cancellationToken);
             var dll = Directory.EnumerateFiles(extracted, Path.GetFileName(core.Path), SearchOption.AllDirectories)
                 .Single();
             var digest = CoreDigests(dll);
@@ -148,63 +159,6 @@ internal sealed class EmulatorPackages(EmulatorNetwork network)
         }
 
         return [.. cores];
-    }
-
-    public static void Extract(string archivePath, string destination, CancellationToken cancellationToken)
-    {
-        if (Path.GetExtension(archivePath).Equals(".exe", StringComparison.OrdinalIgnoreCase))
-        {
-            EmulatorSfxArchive.Extract(archivePath, destination, cancellationToken);
-            return;
-        }
-
-        Directory.CreateDirectory(destination);
-        using var archive = ArchiveFactory.OpenArchive(archivePath);
-        var buffer = new byte[81920];
-        if (archive.IsSolid || archive.Type == ArchiveType.SevenZip)
-        {
-            using var reader = archive.ExtractAllEntries();
-            while (reader.MoveToNextEntry())
-            {
-                CopyEntry(reader.Entry, reader.OpenEntryStream);
-            }
-        }
-        else
-        {
-            foreach (var entry in archive.Entries)
-            {
-                CopyEntry(entry, entry.OpenEntryStream);
-            }
-        }
-
-        return;
-
-        void CopyEntry(IEntry entry, Func<Stream> open)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var name = entry.Key?.Replace('/', Path.DirectorySeparatorChar) ?? "";
-            var target = Path.GetFullPath(Path.Combine(destination, name));
-            if (!StoragePaths.IsUnder(destination, target))
-            {
-                throw new InvalidDataException("An emulator archive path escapes its private staging directory.");
-            }
-
-            if (entry.IsDirectory)
-            {
-                Directory.CreateDirectory(target);
-                return;
-            }
-
-            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            using var source = open();
-            using var output = new FileStream(target, FileMode.Create, FileAccess.Write, FileShare.None);
-            int read;
-            while ((read = source.Read(buffer, 0, buffer.Length)) > 0)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                output.Write(buffer, 0, read);
-            }
-        }
     }
 
     public static void DeleteOwned(string path, string root)
@@ -239,7 +193,7 @@ internal sealed class EmulatorPackages(EmulatorNetwork network)
         string downloadRoot,
         string dataRoot, Action<string> progress, CancellationToken cancellationToken)
     {
-        var plain = await network.TextAsync(coreRoot + ".index", cancellationToken).ConfigureAwait(false);
+        var plain = await client.TextAsync(coreRoot + ".index", cancellationToken).ConfigureAwait(false);
         var names = plain.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
             .Select(name => name.Trim()).Where(name => name.EndsWith(".dll.zip", StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -248,7 +202,7 @@ internal sealed class EmulatorPackages(EmulatorNetwork network)
             throw new InvalidDataException("The complete Libretro core catalogue could not be read.");
         }
 
-        var extended = await network.TextAsync(coreRoot + ".index-extended", cancellationToken).ConfigureAwait(false);
+        var extended = await client.TextAsync(coreRoot + ".index-extended", cancellationToken).ConfigureAwait(false);
         CoreCatalogueRevision = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(plain + extended)));
         var crcs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var line in extended.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
@@ -265,9 +219,9 @@ internal sealed class EmulatorPackages(EmulatorNetwork network)
             progress("RetroArch: installing " + asset);
             var archive = Path.Combine(downloadRoot, asset + ".zip");
             var assetBase = new Uri(assetRoot);
-            await DownloadAsync(new EmulatorAsset(asset + ".zip", new Uri(assetBase, asset + ".zip").AbsoluteUri),
+            await client.DownloadAsync(new ReleaseAsset(asset + ".zip", new Uri(assetBase, asset + ".zip").AbsoluteUri),
                 archive, cancellationToken).ConfigureAwait(false);
-            Extract(archive, Path.Combine(programRoot, asset), cancellationToken);
+            PackageArchive.Extract(archive, Path.Combine(programRoot, asset), cancellationToken);
         }
 
         var cores = new EmulatorCore[names.Length];
@@ -284,10 +238,10 @@ internal sealed class EmulatorPackages(EmulatorNetwork network)
             try
             {
                 var archive = Path.Combine(downloadRoot, name);
-                await DownloadAsync(new EmulatorAsset(name, coreRoot + Uri.EscapeDataString(name)), archive,
+                await client.DownloadAsync(new ReleaseAsset(name, coreRoot + Uri.EscapeDataString(name)), archive,
                     coreToken).ConfigureAwait(false);
                 var extracted = Path.Combine(downloadRoot, "core-" + index);
-                Extract(archive, extracted, coreToken);
+                PackageArchive.Extract(archive, extracted, coreToken);
                 var expectedName = name[..^4];
                 var dlls = Directory.EnumerateFiles(extracted, "*.dll", SearchOption.AllDirectories)
                     .Where(path => Path.GetFileName(path).Equals(expectedName, StringComparison.OrdinalIgnoreCase))
@@ -338,7 +292,7 @@ internal sealed class EmulatorPackages(EmulatorNetwork network)
             }
         }).ToArray();
         await Task.WhenAll(tasks).ConfigureAwait(false);
-        var current = await network.TextAsync(coreRoot + ".index", cancellationToken).ConfigureAwait(false);
+        var current = await client.TextAsync(coreRoot + ".index", cancellationToken).ConfigureAwait(false);
         if (!plain.Equals(current, StringComparison.Ordinal))
         {
             throw new InvalidDataException(
@@ -393,19 +347,5 @@ internal sealed class EmulatorPackages(EmulatorNetwork network)
 
         return (crc.GetCurrentHashAsUInt32().ToString("x8", CultureInfo.InvariantCulture),
             Convert.ToHexStringLower(sha.GetHashAndReset()));
-    }
-
-    /// <summary>The package architecture a Windows image was built for.</summary>
-    /// <param name="image">The executable's PE image.</param>
-    /// <returns><c>x64</c>, <c>arm64</c> or <c>x86</c>; empty for any other machine type.</returns>
-    internal static string PeArchitecture(PEReader image)
-    {
-        return image.PEHeaders.CoffHeader.Machine switch
-        {
-            Machine.Amd64 => "x64",
-            Machine.Arm64 => "arm64",
-            Machine.I386 => "x86",
-            _ => ""
-        };
     }
 }

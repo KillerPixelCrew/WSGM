@@ -41,6 +41,7 @@ public partial class OverlayWindow
         AnimationsHost.Attach(sources.Animations);
         SoundsHost.Attach(sources.Sounds, _session.ExpandedSections);
         ArtworkHost.Attach(sources.Artwork);
+        GameToolsHost.Attach(sources.GameTools);
         AttachPerformanceSource(sources.Performance);
         RefreshWorkspace();
     }

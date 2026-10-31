@@ -5,7 +5,7 @@ internal sealed record EmulatorRelease(
     string Id,
     string NotesUrl,
     string Provider,
-    EmulatorAsset Asset,
+    ReleaseAsset Asset,
     string ExtractDirectory = "",
     string CoreIndexUrl = "",
     string CoreAssetsUrl = "");

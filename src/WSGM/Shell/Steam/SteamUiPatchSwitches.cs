@@ -48,7 +48,7 @@ internal static class SteamUiPatchSwitches
                 SteamPageSurface.PatchId or SteamExtensionsTabSurface.PatchId
                     or SteamGameContextMenuSurface.PatchId or SteamPowerMenuSurface.PatchId
                     or SteamArtworkBrowserSurface.PatchId
-                    or SteamLaunchActionsSurface.PatchId
+                    or SteamLaunchActionsSurface.PatchId or SteamGameToolsSurface.PatchId
                     or SteamCardManagerSurface.PatchId or SteamLibraryTabsSurface.PatchId
                     or SteamLibraryImportSurface.PatchId or SteamEmulatorSurface.PatchId
                     or SteamWsgmSettingsSurface.PatchId

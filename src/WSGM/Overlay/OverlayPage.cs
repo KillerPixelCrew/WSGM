@@ -97,5 +97,8 @@ internal enum OverlayPage
     SystemBrowser,
 
     /// <summary>Local image and scene screensaver sources.</summary>
-    Screensavers
+    Screensavers,
+
+    /// <summary>Per-game Game Tools such as OptiScaler, shared with the routed Steam page.</summary>
+    SteamGameTools
 }

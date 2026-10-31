@@ -61,7 +61,8 @@ public sealed partial class GameLibraryView
                     token => _service!.RemoveManualSourceAsync(id, token))), "manual.remove"));
         }
 
-        SetContent(body);
+        // The form is the view's own draft, so the library's publications leave it as drawn.
+        SetStaticContent(body);
         return;
 
         void AddManualText(string name, string value, Action<string> change)

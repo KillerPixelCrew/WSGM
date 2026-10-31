@@ -24,6 +24,7 @@ namespace WSGM.Overlay;
 /// <param name="Notes">Structured game notebooks shared with Steam.</param>
 /// <param name="Browser">The session-owned browser, initialized only on explicit opening.</param>
 /// <param name="Screensavers">Local screensaver sources shared with Steam.</param>
+/// <param name="GameTools">Per-game Game Tools shared with the Steam page, outside overlay-test.</param>
 internal sealed record OverlaySources(
     IDeviceOverlaySource? Device = null,
     PerformanceOverlayBridge? Performance = null,
@@ -45,4 +46,5 @@ internal sealed record OverlaySources(
     LibraryManagerService? LibraryManager = null,
     NotesService? Notes = null,
     BrowserSession? Browser = null,
-    ScreensaverService? Screensavers = null);
+    ScreensaverService? Screensavers = null,
+    IGameToolsSource? GameTools = null);

@@ -21,7 +21,7 @@ namespace WSGM.Shell;
 ///     configuration, and a finished sync hands over the scan it already made. Every operation
 ///     validates once here, so neither surface carries its own copy of the rules.
 /// </remarks>
-internal sealed class LibraryManagerService : IDisposable, IChangeSource
+internal sealed class LibraryManagerService : ICardManagerSource, IDisposable
 {
     /// <summary>The Extensions-tab item and page namespace of the card manager.</summary>
     internal const string CardsId = "wsgm.cards";
@@ -140,9 +140,8 @@ internal sealed class LibraryManagerService : IDisposable, IChangeSource
         RequestRefresh();
     }
 
-    /// <summary>The card manager as it is now.</summary>
-    /// <returns>The state; cheap, no I/O.</returns>
-    internal SteamCardManagerState ReadCardState()
+    /// <inheritdoc />
+    public SteamCardManagerState ReadCardState()
     {
         var snapshot = Volatile.Read(ref _snapshot);
         return new SteamCardManagerState(
@@ -160,10 +159,8 @@ internal sealed class LibraryManagerService : IDisposable, IChangeSource
             Revision);
     }
 
-    /// <summary>Scans the drives and rereads the configuration; concurrent requests share one run.</summary>
-    /// <param name="cancellationToken">Cancels waiting for the run, not the run itself.</param>
-    /// <returns>Completion of a refresh that started at or after this call.</returns>
-    internal Task RefreshAsync(CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public Task RefreshAsync(CancellationToken cancellationToken = default)
     {
         return QueueRefresh(scan: true).WaitAsync(cancellationToken);
     }
@@ -284,10 +281,8 @@ internal sealed class LibraryManagerService : IDisposable, IChangeSource
         }
     }
 
-    /// <summary>Clears the error and the notice.</summary>
-    /// <param name="cancellationToken">Unused; the change is immediate.</param>
-    /// <returns>Applied.</returns>
-    internal Task<SteamUiCommandResult> DismissAsync(CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> DismissAsync(CancellationToken cancellationToken = default)
     {
         Mutate(static snapshot => snapshot with { Error = null, Notice = null });
         return Task.FromResult(SteamUiCommandResult.Applied);
@@ -295,15 +290,8 @@ internal sealed class LibraryManagerService : IDisposable, IChangeSource
 
     // ---- Cards ----
 
-    /// <summary>Renames a card everywhere it has a name, through the catalog's one rename path.</summary>
-    /// <param name="contentId">The card.</param>
-    /// <param name="name">The new name.</param>
-    /// <param name="cancellationToken">Cancels the writes.</param>
-    /// <returns>
-    ///     Failure with the catalog's reason when nothing was renamed; success otherwise, with any
-    ///     partial-write note published as the notice.
-    /// </returns>
-    internal Task<SteamUiCommandResult> RenameCardAsync(string contentId, string name,
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> RenameCardAsync(string contentId, string name,
         CancellationToken cancellationToken = default)
     {
         return RunAsync(async token =>
@@ -336,12 +324,8 @@ internal sealed class LibraryManagerService : IDisposable, IChangeSource
         }, "rename", cancellationToken);
     }
 
-    /// <summary>Keeps or drops the card's Steam tab, then rebuilds Steam's tabs in the background.</summary>
-    /// <param name="contentId">The card.</param>
-    /// <param name="enabled">Whether to maintain a tab.</param>
-    /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns>Whether the preference was saved; the Steam-tab synchronization is not awaited.</returns>
-    internal Task<SteamUiCommandResult> SetCardEnabledAsync(string contentId, bool enabled,
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> SetCardEnabledAsync(string contentId, bool enabled,
         CancellationToken cancellationToken = default)
     {
         return RunAsync(async token =>
@@ -353,12 +337,8 @@ internal sealed class LibraryManagerService : IDisposable, IChangeSource
         }, "tab switch", cancellationToken);
     }
 
-    /// <summary>Hides a card from tab creation, or shows it again, then rebuilds Steam's tabs in the background.</summary>
-    /// <param name="contentId">The card.</param>
-    /// <param name="hidden">Whether to hide it.</param>
-    /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns>Whether the preference was saved; the Steam-tab synchronization is not awaited.</returns>
-    internal Task<SteamUiCommandResult> SetCardHiddenAsync(string contentId, bool hidden,
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> SetCardHiddenAsync(string contentId, bool hidden,
         CancellationToken cancellationToken = default)
     {
         return RunAsync(async token =>
@@ -370,11 +350,8 @@ internal sealed class LibraryManagerService : IDisposable, IChangeSource
         }, "hide", cancellationToken);
     }
 
-    /// <summary>Forgets a card: its tab and its tracking. A reinserted card is rediscovered fresh.</summary>
-    /// <param name="contentId">The card.</param>
-    /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns>Whether the card was removed from tracking; the Steam-tab synchronization is not awaited.</returns>
-    internal Task<SteamUiCommandResult> ForgetCardAsync(string contentId, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> ForgetCardAsync(string contentId, CancellationToken cancellationToken = default)
     {
         return RunAsync(async token =>
         {
@@ -389,11 +366,8 @@ internal sealed class LibraryManagerService : IDisposable, IChangeSource
         }, "forget", cancellationToken);
     }
 
-    /// <summary>Names the games on a card from Steam's library; the ids alone when it did not answer.</summary>
-    /// <param name="contentId">The card.</param>
-    /// <param name="cancellationToken">Cancels the read.</param>
-    /// <returns>The list, also published as the card state's <see cref="SteamCardManagerState.Games" />.</returns>
-    internal Task<LibraryCardGames> LoadCardGamesAsync(string contentId,
+    /// <inheritdoc />
+    public Task<LibraryCardGames> LoadCardGamesAsync(string contentId,
         CancellationToken cancellationToken = default)
     {
         return WorkAsync(token => LoadCardGamesCoreAsync(contentId, token), cancellationToken);
