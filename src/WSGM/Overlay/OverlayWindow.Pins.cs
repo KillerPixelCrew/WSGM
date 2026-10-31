@@ -46,14 +46,12 @@ public partial class OverlayWindow
 
         var ids = _pins.Ids;
         // Each source is read at most once for the whole list, and only when a pin draws from it.
-        (DeviceOverlaySnapshot Snapshot, DevicePinSection[] Sections)? pinnedDevice = null;
-        if (_deviceBridge is { } bridge && ids.Any(IsDevicePin))
+        if (device is null && _deviceBridge is { } bridge && ids.Any(IsDevicePin))
         {
-            device ??= bridge.Snapshot();
-            pinnedDevice = (device, DevicePinSections(device));
+            device = bridge.Snapshot();
         }
 
-        if (performance is null && ids.Contains("section.performance"))
+        if (performance is null && ids.Contains(DevicePages.PerformanceId))
         {
             performance = _performanceSource?.Snapshot();
         }
@@ -69,19 +67,26 @@ public partial class OverlayWindow
         List<Control> valueControls = [];
         foreach (var id in ids)
         {
-            Control? row;
+            Control? row = null;
             if (_pins.IsRow(id))
             {
                 row = _pins.Mirror(id);
             }
-            else
+            else if (id.StartsWith(ProgramsService.PinPrefix, StringComparison.Ordinal))
             {
-                row = CreatePinnedSection(id, pinnedDevice, performance, graphics);
-                if (row is not null)
-                {
-                    row.Margin = new Thickness(0);
-                    valueControls.Add(row);
-                }
+                row = CreateProgramPin(id);
+            }
+            else if (DevicePages.Pinned(id, device, performance, graphics, _controlPinFactories.ContainsKey) is
+                     { } group)
+            {
+                var drawn = PinnedSectionsGrid.Children.FirstOrDefault(child => Equals(child.Tag, PinTagPrefix + id));
+                row = _deviceRenderer.Render(drawn, group, true);
+            }
+
+            if (row is not null && !_pins.IsRow(id))
+            {
+                row.Margin = new Thickness(0);
+                valueControls.Add(row);
             }
 
             if (row is not null && string.Equals(row.Tag as string, focusedKey, StringComparison.Ordinal))
@@ -92,7 +97,7 @@ public partial class OverlayWindow
 
         // Host controls own subscriptions and user selections. Keep them attached across
         // telemetry refreshes; removing a pin is what ends that view's lifetime.
-        ReconcileChildren(PinnedSectionsGrid, valueControls);
+        DeviceGroupRenderer.ReconcileChildren(PinnedSectionsGrid, valueControls);
         var mirrors = _pins.PlaceGhost(valueControls.Count > 0);
         if (restoreFocus is null && PanelQuickAccess.IsVisible && !AnySubView && focusedKey is not null)
         {
@@ -122,67 +127,34 @@ public partial class OverlayWindow
         }
     }
 
-    /// <summary>
-    ///     Makes <paramref name="panel" /> hold exactly <paramref name="rows" /> in that order, keeping every
-    ///     surviving control in place so its focus, drafts and subscriptions survive.
-    /// </summary>
-    private static void ReconcileChildren(Panel panel, IReadOnlyList<Control> rows)
-    {
-        HashSet<Control> current = [.. rows];
-        foreach (var stale in panel.Children.Where(child => !current.Contains(child)).ToArray())
-        {
-            panel.Children.Remove(stale);
-        }
-
-        for (var index = 0; index < rows.Count; index++)
-        {
-            var existing = panel.Children.IndexOf(rows[index]);
-            if (existing < 0)
-            {
-                panel.Children.Insert(index, rows[index]);
-            }
-            else if (existing != index)
-            {
-                panel.Children.Move(existing, index);
-            }
-        }
-    }
-
-    private static string DeviceRowKey(DeviceOverlayCapability capability)
-    {
-        return new DeviceCapabilityKey(capability.CapabilityId, capability.InstanceId).ToString();
-    }
-
     /// <summary>Whether a pin id names a Device group, the one kind drawn from the Device snapshot.</summary>
     private bool IsDevicePin(string id)
     {
         return id.StartsWith("section.", StringComparison.Ordinal)
-               && id != "section.performance"
+               && id != DevicePages.PerformanceId
                && !id.StartsWith(GraphicsSectionPins.Prefix, StringComparison.Ordinal)
                && !_pins.IsRow(id)
                && !_controlPinFactories.ContainsKey(id);
     }
 
     /// <summary>Static actions and whole Device and Graphics sections are the pin targets.</summary>
-    private bool IsPinnable(string id, Lazy<DevicePinSection[]?> deviceSections,
+    private bool IsPinnable(string id, Lazy<IReadOnlyList<DeviceOverlayGroup>?> deviceGroups,
         Lazy<GraphicsOverlaySnapshot?> graphics)
     {
         return id.StartsWith(ProgramsService.PinPrefix, StringComparison.Ordinal)
                || _pins.IsRow(id) || _controlPinFactories.ContainsKey(id)
-                                         || (id == "section.performance" &&
-                                             _performanceSource?.Snapshot().Visible is true)
-                                         || (_pins.Contains(id) && id.StartsWith("section.", StringComparison.Ordinal))
-                                         || (id.StartsWith(GraphicsSectionPins.Prefix, StringComparison.Ordinal)
-                                             && GraphicsSectionPins.Resolve(graphics.Value, id) is not null)
-                                         || deviceSections.Value?.Any(section => section.Id == id) is true;
+               || (id == DevicePages.PerformanceId && _performanceSource?.Snapshot().Visible is true)
+               || (_pins.Contains(id) && id.StartsWith("section.", StringComparison.Ordinal))
+               || GraphicsSectionPins.Resolve(graphics.Value, id) is not null
+               || deviceGroups.Value?.Any(group => group.Id == id) is true;
     }
 
     /// <summary>Resolves the row id a row or its Quick access mirror stands for.</summary>
     private bool TryGetPinId(Control? control, out string id)
     {
         // One read of each source for the whole ancestor walk instead of one per node.
-        Lazy<DevicePinSection[]?> deviceSections = new(
-            () => _deviceBridge?.Snapshot() is { } snapshot ? DevicePinSections(snapshot) : null,
+        Lazy<IReadOnlyList<DeviceOverlayGroup>?> deviceGroups = new(
+            () => _deviceBridge?.Snapshot() is { } snapshot ? DeviceOverlayGroups.Build(snapshot) : null,
             LazyThreadSafetyMode.None);
         Lazy<GraphicsOverlaySnapshot?> graphics = new(() => _graphicsSource?.Snapshot(), LazyThreadSafetyMode.None);
         for (Visual? node = control; node is not null; node = node.GetVisualParent())
@@ -193,7 +165,7 @@ public partial class OverlayWindow
             }
 
             id = tag.StartsWith(PinTagPrefix, StringComparison.Ordinal) ? tag[PinTagPrefix.Length..] : tag;
-            if (IsPinnable(id, deviceSections, graphics))
+            if (IsPinnable(id, deviceGroups, graphics))
             {
                 return true;
             }

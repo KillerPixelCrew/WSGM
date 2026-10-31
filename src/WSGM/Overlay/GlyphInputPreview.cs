@@ -52,14 +52,14 @@ internal sealed class GlyphInputPreview : StackPanel
     /// <inheritdoc />
     protected override Type StyleKeyOverride => typeof(StackPanel);
 
-    /// <summary>Draws a preview into a section body, moving the control there from any earlier page.</summary>
+    /// <summary>Draws a preview for a group's body, taking the control out of any earlier group.</summary>
     /// <param name="preview">The resolved preview.</param>
-    /// <param name="target">The section body containing the preview.</param>
-    internal void Show(DeviceOverlayGlyphPreview preview, Panel target)
+    /// <returns>This control, for the group to place after the glyph selection.</returns>
+    internal GlyphInputPreview Show(DeviceOverlayGlyphPreview preview)
     {
         (Parent as Panel)?.Children.Remove(this);
-        // The section body's own gap, so caption, hint and tiles keep the spacing they had as its rows.
-        Spacing = target is StackPanel stack ? stack.Spacing : 0;
+        // A group body's own gap, so caption, hint and tiles keep the spacing they would have as its rows.
+        Spacing = 8;
         Children.Clear();
         _tiles.Clear();
         TextBlock caption = new()
@@ -117,8 +117,8 @@ internal sealed class GlyphInputPreview : StackPanel
         }
 
         Children.Add(tiles);
-        target.Children.Add(this);
         Apply();
+        return this;
     }
 
     /// <summary>Starts or stops the input test's sample observation.</summary>

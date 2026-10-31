@@ -1,8 +1,6 @@
 using System;
 using System.Linq;
-using Avalonia;
 using Avalonia.Controls;
-using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using WSGM.Controls;
 using WSGM.Core;
@@ -48,16 +46,16 @@ public partial class OverlayWindow
 
     internal void AttachPowerPresets(DevicePowerPresetSelection selection)
     {
+        _powerPresetSelection = selection;
         // Read once on open; after that the selection follows the assignment owner's changes.
         Opened += async (_, _) => await selection.RefreshAsync();
         Closed += (_, _) => selection.Dispose();
-        DevicePowerPresetHost.Attach(selection);
-        DevicePowerPresetContainer.Tag = "section.device.power-presets";
-        DevicePowerPresetContainer.Children.Insert(0,
-            CreateSectionHeader("section.device.power-presets", "Power assignments"));
-        _controlPinFactories["section.device.power-presets"] = ("Power assignments",
+        // The assignments are shown only once a preset has been read to choose from.
+        selection.Changed += RefreshDevicePanel;
+        _controlPinFactories[DevicePages.PowerPresetsId] =
             AttachedPin<DevicePowerPresetView, DevicePowerPresetSelection>(selection,
-                (view, model) => view.Attach(model)));
+                (view, model) => view.Attach(model));
+        RefreshDevicePanel();
         RenderPins();
     }
 
@@ -79,47 +77,14 @@ public partial class OverlayWindow
 
     internal void AttachManualTdp(DeviceCoordinator coordinator)
     {
-        ManualTdpHost.Tag = "section.device.manual-tdp";
-        ManualTdpHost.Children.Add(CreateSectionHeader("section.device.manual-tdp", "Manual power mode"));
-        var view = Create();
-        // The device refresh owns the host's visibility, which also depends on the snapshot and decides the card's.
-        view.PropertyChanged += (_, change) =>
-        {
-            if (change.Property == IsVisibleProperty)
-            {
-                OnDeviceChanged();
-            }
-        };
-        ManualTdpHost.Children.Add(view);
-        _controlPinFactories["section.device.manual-tdp"] = ("Manual power mode", Create);
+        // The mode, its availability and its game override all arrive with the device's change event, which
+        // redraws the page and refreshes every selector in place.
+        _manualTdpMode = () => coordinator.Power.ManualTdpMode;
+        _controlPinFactories[DevicePages.ManualTdpId] = () => new ManualTdpModeView(
+            () => coordinator.Power.ManualTdpMode, coordinator.Power.SetManualTdpModeAsync,
+            () => coordinator.Power.ManualTdpOverrideId, _ => coordinator.Power.UseGlobalManualTdpAsync());
+        RefreshDevicePanel();
         RenderPins();
-        return;
-
-        Control Create()
-        {
-            return new ManualTdpModeView(() => coordinator.Power.ManualTdpMode,
-                coordinator.Power.SetManualTdpModeAsync,
-                () => coordinator.Power.ManualTdpOverrideId, _ => coordinator.Power.UseGlobalManualTdpAsync());
-        }
-    }
-
-    /// <summary>Follows a device change in the manual power mode selectors, on their page and pinned.</summary>
-    /// <remarks>The mode, its availability and its game override all arrive with the device's change event.</remarks>
-    private void RefreshManualTdp()
-    {
-        foreach (var view in ManualTdpHost.Children.OfType<ManualTdpModeView>())
-        {
-            view.Refresh();
-        }
-
-        const string pinTag = PinTagPrefix + "section.device.manual-tdp";
-        if (PinnedSectionsGrid.Children.FirstOrDefault(row => Equals(row.Tag, pinTag)) is { } pinned)
-        {
-            foreach (var view in pinned.GetLogicalDescendants().OfType<ManualTdpModeView>())
-            {
-                view.Refresh();
-            }
-        }
     }
 
     internal void AttachBrightness(NativeQamBrightnessService service,
@@ -141,10 +106,10 @@ public partial class OverlayWindow
             displayModes.Changes));
         if (_opened)
         {
-            FoldStaticSections();
+            FoldDisplaySection();
         }
 
-        _controlPinFactories["section.display"] = ("Display", () => new StackPanel
+        _controlPinFactories[DevicePages.DisplayId] = () => new StackPanel
         {
             Spacing = 4,
             Children =
@@ -152,8 +117,30 @@ public partial class OverlayWindow
                 new DisplayBrightnessView(service),
                 new DisplayModeView(displayModes.Read, displayModes.Apply, display, displayModes.Changes)
             }
-        });
+        };
         RenderPins();
+    }
+
+    /// <summary>Folds the Display page under its pinnable heading, once its heading is in place.</summary>
+    private void FoldDisplaySection()
+    {
+        if (PanelSystemDisplay.Children.FirstOrDefault() is not SectionPinHeader header)
+        {
+            return;
+        }
+
+        var body = new StackPanel { Spacing = PanelSystemDisplay.Spacing, Tag = DevicePages.DisplayId };
+        foreach (var child in PanelSystemDisplay.Children.Skip(1).ToArray())
+        {
+            PanelSystemDisplay.Children.Remove(child);
+            body.Children.Add(child);
+        }
+
+        PanelSystemDisplay.Children.Clear();
+        // The fold's heading carries the title; the header keeps only its pin action there.
+        header.ShowPinOnly();
+        PanelSystemDisplay.Children.Add(CollapsibleSection.Persisted(header.Title, body, _session.ExpandedSections,
+            DevicePages.DisplayId, DevicePages.DisplayId + ".expand", header));
     }
 
     internal void AttachPowerSchemes(ChoiceRowSelection selection)
@@ -164,13 +151,8 @@ public partial class OverlayWindow
         Closed += (_, _) => selection.Dispose();
         // The section is shown only once Windows has been read and offers a choice.
         selection.Changed += RefreshDevicePanel;
-        DevicePowerSchemeHost.Attach(selection);
-        DevicePowerSchemeHost.Tag = "section.system.power-profile";
-        DevicePowerSchemeHeading.Children.Clear();
-        DevicePowerSchemeHeading.Children.Add(
-            CreateSectionHeader("section.system.power-profile", "Windows energy plan"));
-        _controlPinFactories["section.system.power-profile"] = ("Windows energy plan",
-            AttachedPin<ChoiceRowView, ChoiceRowSelection>(selection, (view, model) => view.Attach(model)));
+        _controlPinFactories[DevicePages.PowerProfileId] =
+            AttachedPin<ChoiceRowView, ChoiceRowSelection>(selection, (view, model) => view.Attach(model));
         RefreshDevicePanel();
     }
 
@@ -181,11 +163,11 @@ public partial class OverlayWindow
         _hybridCoreSelection = selection;
         Opened += async (_, _) => await selection.RefreshAsync();
         Closed += (_, _) => selection.Dispose();
-        DeviceHybridCoreHost.Attach(selection);
-        DeviceHybridCoreHost.Tag = "section.system.processor-cores";
-        DeviceHybridCores.Header = CreateSectionHeader("section.system.processor-cores", "Processor cores");
-        _controlPinFactories["section.system.processor-cores"] = ("Processor cores",
-            AttachedPin<ChoiceRowView, ChoiceRowSelection>(selection, (view, model) => view.Attach(model)));
+        // Only on a hybrid CPU whose active scheme exposes the policy. Everywhere else the section would
+        // open on a control that has nothing to offer.
+        selection.Changed += RefreshDevicePanel;
+        _controlPinFactories[DevicePages.ProcessorCoresId] =
+            AttachedPin<ChoiceRowView, ChoiceRowSelection>(selection, (view, model) => view.Attach(model));
         RefreshDevicePanel();
     }
 
@@ -230,7 +212,7 @@ public partial class OverlayWindow
     {
         DetachCommonPlugins();
         CommonPluginRows.Children.Clear();
-        DeviceWidgetPinsHost.Children.Clear();
+        DevicePage.WidgetPins.Children.Clear();
         PinnedPluginWidgetsHost.Children.Clear();
         SystemPluginsTile.IsVisible = source is not null;
         if (source is null)
@@ -240,7 +222,7 @@ public partial class OverlayWindow
 
         _pluginSource = source;
         source.Changed += OnPluginsChanged;
-        DeviceWidgetsExpander.PropertyChanged += OnDeviceWidgetsExpanded;
+        DevicePage.PinsExpanded += RefreshDeviceWidgetPins;
         var preferences = source.WidgetPreferences;
         CommonPluginPanel panel = new(source, preferences: preferences, folds: _session.ExpandedSections,
             independent: source.IndependentSnapshot);
@@ -263,7 +245,7 @@ public partial class OverlayWindow
         };
         if (source.Device is { } device)
         {
-            DeviceWidgetPinsHost.Children.Add(new CommonPluginPanel(device, pinsOnly: true,
+            DevicePage.WidgetPins.Children.Add(new CommonPluginPanel(device, pinsOnly: true,
                 preferences: preferences));
         }
 
@@ -300,21 +282,13 @@ public partial class OverlayWindow
             _pluginSource = null;
         }
 
-        DeviceWidgetsExpander.PropertyChanged -= OnDeviceWidgetsExpanded;
+        DevicePage.PinsExpanded -= RefreshDeviceWidgetPins;
     }
 
     // Raised on whatever thread the plugin host or manager finished its work on.
     private void OnPluginsChanged()
     {
         QueueLiveRefresh(PluginsLiveRefresh);
-    }
-
-    private void OnDeviceWidgetsExpanded(object? sender, AvaloniaPropertyChangedEventArgs change)
-    {
-        if (change.Property == Expander.IsExpandedProperty && DeviceWidgetsExpander.IsExpanded)
-        {
-            RefreshDeviceWidgetPins();
-        }
     }
 
     /// <summary>Follows a device or plugin-host change in the plugin panels that are showing.</summary>
@@ -351,12 +325,12 @@ public partial class OverlayWindow
     /// <summary>Refreshes the Device page's widget pin toggles while they show.</summary>
     private void RefreshDeviceWidgetPins()
     {
-        if (!DeviceWidgetPinsHost.IsEffectivelyVisible)
+        if (!DevicePage.WidgetPins.IsEffectivelyVisible)
         {
             return;
         }
 
-        foreach (var panel in DeviceWidgetPinsHost.Children.OfType<CommonPluginPanel>())
+        foreach (var panel in DevicePage.WidgetPins.Children.OfType<CommonPluginPanel>())
         {
             panel.Refresh();
         }
@@ -393,8 +367,6 @@ public partial class OverlayWindow
 
         var snapshot = DeviceSnapshotOrOff();
         ConfigureTabs(snapshot);
-        ObserveGlyphInput(_navigation.Page == OverlayPage.DevicePluginSection
-                          && IsControllerSection(snapshot, _navigation.SectionId));
         RefreshNavigationHints();
         RefreshDevicePrerequisites(snapshot);
         if (DevicePanelShowing())
@@ -419,13 +391,6 @@ public partial class OverlayWindow
             _performanceSource.Changed -= OnPerformanceChanged;
         }
 
-        PerformanceSection.Tag = "section.performance";
-        if (PerformanceSection.Children.FirstOrDefault() is not CollapsibleSection)
-        {
-            PerformanceSection.Children.Insert(0, CreateSectionHeader("section.performance", "Performance"));
-            FoldStaticSections();
-        }
-
         _performanceSource = source;
         if (_performanceSource is not null)
         {
@@ -444,6 +409,7 @@ public partial class OverlayWindow
 
         _profileScope.Attach(_performanceSource);
         RefreshPerformancePanel();
+        RefreshDevicePanel();
         RenderPins();
     }
 }

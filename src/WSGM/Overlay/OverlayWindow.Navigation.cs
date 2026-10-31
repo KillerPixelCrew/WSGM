@@ -40,7 +40,12 @@ public partial class OverlayWindow
             Title: "Game Tools", Icon: Icons.Wrench, Available: () => ViewModel.ShowGameTools),
         new SubView(OverlayPage.SystemTools, PanelSystemTools, PanelSystem, OverlayDestination.System, Title: "System",
             Icon: Icons.Gear),
-        new SubView(OverlayPage.DeviceGpu, GpuHost, PanelDevice, OverlayDestination.Device),
+        // The Device pages are one view, which draws whichever page the stack names: entering or leaving one
+        // redraws it, and the Controller page holds the glyph input lease while it shows.
+        new SubView(OverlayPage.DevicePluginSection, DevicePage, DevicePage, OverlayDestination.Device,
+            LeaveDevicePage, OnEnter: RefreshDevicePanel),
+        new SubView(OverlayPage.DeviceGpu, DevicePage, DevicePage, OverlayDestination.Device, LeaveDevicePage,
+            OnEnter: RefreshDevicePanel),
         new SubView(OverlayPage.SystemPerformance, PanelSystemPerformance, PanelSystem, OverlayDestination.System,
             Title: "Performance", Icon: Icons.Monitor, Available: () => SystemPerformanceTile.IsVisible),
         new SubView(OverlayPage.SystemStorage, PanelSystemStorage, PanelSystem, OverlayDestination.System,
@@ -100,7 +105,7 @@ public partial class OverlayWindow
                 }
             }),
         new SubView(OverlayPage.PowerWakeLocks, WakeLockHost, PanelPowerWake, OverlayDestination.Power),
-        new SubView(OverlayPage.DeviceColor, DeviceColorHost, PanelDevice, OverlayDestination.Device)
+        new SubView(OverlayPage.DeviceColor, DeviceColorHost, DevicePage, OverlayDestination.Device)
     ];
 
     /// <summary>The nested page currently owning the surface, or null at a destination root.</summary>
@@ -152,7 +157,10 @@ public partial class OverlayWindow
         }
     }
 
-    private void EnterSubView(OverlayPage page)
+    /// <summary>Opens a nested page over its parent.</summary>
+    /// <param name="page">The page.</param>
+    /// <param name="sectionId">The published section a Device section page draws, or null.</param>
+    private void EnterSubView(OverlayPage page, string? sectionId = null)
     {
         var view = SubViews.First(candidate => candidate.Page == page);
         if (ActiveSubView is { } current)
@@ -160,7 +168,7 @@ public partial class OverlayWindow
             _nestedScroll[current.Page] = ContentScroller.Offset.Y;
         }
 
-        if (!_navigation.Push(page, CurrentSemanticFocusKey()))
+        if (!_navigation.Push(page, CurrentSemanticFocusKey(), sectionId))
         {
             return;
         }
@@ -182,11 +190,7 @@ public partial class OverlayWindow
         view.Host.IsVisible = true;
         RefreshBrowserPageLifetime();
         ContentScroller.Offset = default;
-        if (page == OverlayPage.DeviceGpu)
-        {
-            RefreshGraphicsPanel();
-        }
-
+        view.OnEnter?.Invoke();
         SyncBackAffordance();
         FocusFirstControl(view.Host);
     }
@@ -231,7 +235,7 @@ public partial class OverlayWindow
         }
 
         // The Device panel skips refreshes while a page covers it, so it draws what it missed now.
-        if (_devicePanelStale && PanelDevice.IsVisible)
+        if (_devicePanelStale && DevicePage.IsVisible)
         {
             RefreshDevicePanel();
         }
@@ -265,7 +269,7 @@ public partial class OverlayWindow
 
         if (!showDevice)
         {
-            // A coordinator can retract Device while the Glyphs page is still selected. No tab
+            // A coordinator can retract Device while the Controller page is still selected. No tab
             // selection event is raised for that removal, so release the high-rate sample observer
             // here before the page and its tiles disappear.
             ObserveGlyphInput(false);
@@ -285,16 +289,17 @@ public partial class OverlayWindow
             _session.Destination = OverlayDestination.QuickAccess;
         }
 
-        PlacePerformanceSection(deviceAvailable);
         RebuildDestinationTabs();
+        // The shared performance rows live on Tools only while there is no Device destination.
+        RefreshPerformancePanel();
     }
 
     private void ConfigureGpuDestination(bool showGraphics)
     {
         if (_navigation.SetGraphicsVisible(showGraphics) || Tabs.Tabs is null)
         {
-            PlacePerformanceSection(_navigation.IsVisible(OverlayDestination.Device));
             RebuildDestinationTabs();
+            RefreshPerformancePanel();
         }
     }
 
@@ -501,12 +506,6 @@ public partial class OverlayWindow
                     return true;
                 }
 
-                if (_navigation.Page is OverlayPage.DevicePluginSection)
-                {
-                    LeaveDevicePluginSection();
-                    return true;
-                }
-
                 // Every branch above owns its own return focus. This is the fallback for a nested
                 // page none of them claimed — a page added later, or a sub-view flag that went out
                 // of step with the stack — and it has to restore focus like the rest of them.
@@ -576,8 +575,8 @@ public partial class OverlayWindow
         SyncBackAffordance();
         PanelQuickAccess.IsVisible = destination == OverlayDestination.QuickAccess;
         PanelSteam.IsVisible = destination == OverlayDestination.Steam;
-        PanelDevice.IsVisible = destination == OverlayDestination.Device
-                                && _navigation.IsVisible(OverlayDestination.Device);
+        DevicePage.IsVisible = destination == OverlayDestination.Device
+                               && _navigation.IsVisible(OverlayDestination.Device);
         PanelSystem.IsVisible = destination == OverlayDestination.System;
         PanelPower.IsVisible = destination == OverlayDestination.Power;
 
@@ -588,9 +587,9 @@ public partial class OverlayWindow
         // a section's contents under the root heading, or nothing at all when the attach-time
         // render had happened before the plugin published anything. The user reached an empty
         // "DEVICE CONTROLS" this way while all 16 capabilities were live.
-        if (PanelDevice.IsVisible)
+        if (DevicePage.IsVisible)
         {
-            RefreshDevicePage();
+            RefreshDevicePanel();
         }
 
         // Quick access and the Device page's widget toggles are not kept current while hidden, so
@@ -611,7 +610,7 @@ public partial class OverlayWindow
         return _navigation.Destination switch
         {
             OverlayDestination.Steam => PanelSteam,
-            OverlayDestination.Device => PanelDevice,
+            OverlayDestination.Device => DevicePage,
             OverlayDestination.System => PanelSystem,
             OverlayDestination.Power => PanelPower,
             _ => PanelQuickAccess
@@ -678,10 +677,13 @@ public partial class OverlayWindow
         {
             LeaveActiveSubView();
         }
+    }
 
-        // The Device sections are not sub-views with hosts of their own, so leaving them is only
-        // this: dropping the one thing a section page holds beyond its rendered controls.
+    /// <summary>Leaves a Device section or the GPU page: the view draws the page beneath it.</summary>
+    private void LeaveDevicePage()
+    {
         ObserveGlyphInput(false);
+        RefreshDevicePanel();
     }
 
     private static void FocusFirstControl(Control panel)
@@ -750,6 +752,7 @@ public partial class OverlayWindow
     /// <param name="Title">The section rail label, or null for a deeper page.</param>
     /// <param name="Icon">The section icon.</param>
     /// <param name="Available">Whether the section is currently offered.</param>
+    /// <param name="OnEnter">Draws the page once it is on the stack and shown.</param>
     private sealed record SubView(
         OverlayPage Page,
         Control Host,
@@ -758,5 +761,6 @@ public partial class OverlayWindow
         Action? OnLeave = null,
         string? Title = null,
         Geometry? Icon = null,
-        Func<bool>? Available = null);
+        Func<bool>? Available = null,
+        Action? OnEnter = null);
 }

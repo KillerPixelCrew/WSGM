@@ -2,32 +2,32 @@ using System;
 
 namespace WSGM.Overlay;
 
-/// <summary>Stable device section identity with distinct focus and persisted-pin encodings.</summary>
-/// <param name="Id">Unprefixed shared device-section identifier.</param>
+/// <summary>A Device section's bare id and the two persisted keys built from it.</summary>
+/// <param name="Id">Unprefixed shared device-section identifier, such as <c>plugin.power</c>.</param>
 internal readonly record struct SectionKey(string Id)
 {
-    private const string FocusPrefix = "section.device.";
-    private const string PinPrefix = "device.section.";
+    private const string PinPrefix = "section.device.";
+    private const string RailPrefix = "device.section.";
 
-    /// <summary>Semantic focus key for the source section heading.</summary>
-    internal string FocusKey => FocusPrefix + Id;
+    /// <summary>The Quick Access pin and heading id of the section.</summary>
+    internal string PinId => PinPrefix + Id;
 
-    /// <summary>Persisted Quick Access pin key for this section.</summary>
-    internal string PinKey => PinPrefix + Id;
+    /// <summary>The section rail key of the section's page.</summary>
+    internal string RailKey => RailPrefix + Id;
 
-    /// <summary>Decodes a recognized focus or pin key.</summary>
+    /// <summary>Decodes a pin id or rail key.</summary>
     /// <param name="key">A section.device. or device.section. prefixed key.</param>
     /// <returns>The unprefixed section identity; unknown prefixes throw ArgumentException.</returns>
     internal static SectionKey FromKey(string key)
     {
-        if (key.StartsWith(FocusPrefix, StringComparison.Ordinal))
-        {
-            return new SectionKey(key[FocusPrefix.Length..]);
-        }
-
         if (key.StartsWith(PinPrefix, StringComparison.Ordinal))
         {
             return new SectionKey(key[PinPrefix.Length..]);
+        }
+
+        if (key.StartsWith(RailPrefix, StringComparison.Ordinal))
+        {
+            return new SectionKey(key[RailPrefix.Length..]);
         }
 
         throw new ArgumentException("Unknown device section key.", nameof(key));

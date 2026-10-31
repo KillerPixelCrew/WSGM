@@ -507,7 +507,7 @@ public sealed class DeviceOverlayBridgeTests
                 true,
                 Status(ControllerManagementState.Active, ManagedControllerTarget.Xbox360)));
 
-        var entry = Assert.Single(DeviceOverlaySectionPages.Build(snapshot));
+        var entry = Assert.Single(DevicePages.Build(snapshot, null, default), page => page.SectionId is not null && page.Count > 0);
 
         Assert.Equal(DeviceSections.ControllerId, entry.SectionId);
         Assert.Equal(1, entry.Count);
@@ -540,7 +540,8 @@ public sealed class DeviceOverlayBridgeTests
                 (DeviceSections.ControllerId, 2),
                 (DeviceSections.InfoId, 1)
             ],
-            DeviceOverlaySectionPages.Build(snapshot).Select(entry => (entry.SectionId, entry.Count)));
+            DevicePages.Build(snapshot, null, default).Where(page => page.SectionId is not null && page.Count > 0)
+                .Select(page => (page.SectionId, page.Count)));
     }
 
     private static DeviceAuthoredProfile Profile(

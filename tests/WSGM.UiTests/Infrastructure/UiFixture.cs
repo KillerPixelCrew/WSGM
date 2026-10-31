@@ -255,6 +255,17 @@ internal sealed class UiFixture : IDisposable
         return parent.FindControl<T>(name) ?? throw new InvalidOperationException($"Missing control {name}");
     }
 
+    /// <summary>The one visible control of a type carrying a semantic key below a root.</summary>
+    /// <param name="parent">The root to search.</param>
+    /// <param name="tag">The control's Tag.</param>
+    /// <returns>The control.</returns>
+    internal static T Tagged<T>(Control parent, string tag) where T : Control
+    {
+        return parent.GetVisualDescendants().OfType<T>()
+                   .SingleOrDefault(control => control.IsEffectivelyVisible && Equals(control.Tag, tag))
+               ?? throw new InvalidOperationException($"Missing {typeof(T).Name} tagged {tag}");
+    }
+
     internal static Button Tab(Window window, int index)
     {
         return Named<TabStrip>(window, "Tabs").GetVisualDescendants().OfType<Button>().ElementAt(index);

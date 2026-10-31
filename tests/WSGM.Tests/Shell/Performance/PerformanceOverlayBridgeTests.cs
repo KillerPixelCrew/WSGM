@@ -103,11 +103,11 @@ public sealed class PerformanceOverlayBridgeTests
         // where they render; the enable toggle is the headline on the Device root, so it is not
         // counted into any section.
         DeviceOverlaySnapshot device = new(true, "Ready", string.Empty, null, []);
-        var power = Assert.Single(
-            DeviceOverlaySectionPages.Build(device, before));
+        var power = Assert.Single(DevicePages.Build(device, before, default),
+            page => page.SectionId is not null && page.Count > 0);
         Assert.Equal(DeviceSections.PowerId, power.SectionId);
         var toggleRows = before.ProfileRows.Count(row =>
-            row.Id == DeviceOverlaySectionPages.ApplicationProfileRowId);
+            row.Id == PerformanceOverlaySnapshot.ApplicationProfileRowId);
         Assert.Equal(1, toggleRows);
         Assert.Equal(before.ProfileRows.Count - toggleRows + before.Rows.Count, power.Count);
 

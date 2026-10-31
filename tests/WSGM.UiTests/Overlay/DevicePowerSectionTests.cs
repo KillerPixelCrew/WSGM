@@ -74,7 +74,7 @@ public sealed class DevicePowerSectionTests
         }
 
         Dispatcher.UIThread.RunJobs();
-        var host = UiFixture.Named<Panel>(window, pinned ? "PinnedSectionsGrid" : "DeviceCapabilityList");
+        var host = UiFixture.Named<Panel>(window, pinned ? "PinnedSectionsGrid" : "DevicePage");
         var group = Assert.Single(host.GetVisualDescendants().OfType<Border>(), border =>
             Equals(border.Tag, (pinned ? "pin:" : "") + "section.device.plugin.power.configuration"));
         var editors = keys.Select(key => Assert.Single(host.GetVisualDescendants().OfType<ComboBox>(), combo =>

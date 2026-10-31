@@ -252,13 +252,15 @@ public sealed class OverlayInteractionTests
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, UiFixture.Named<StackPanel>(window, "SectionRail").Children.OfType<Button>()
             .Single(button => AutomationProperties.GetName(button) == "Power"));
-        var plans = UiFixture.Named<StackPanel>(window, "DeviceWindowsPower");
-        Assert.True(plans.IsVisible);
+        UiFixture.OpenSections(window);
+        var plans = UiFixture.Tagged<DeviceGroupView>(window, "section.system.power-profile");
+        Assert.True(plans.IsEffectivelyVisible);
         device.State = device.State with { Visible = false };
         device.Notify();
         Dispatcher.UIThread.RunJobs();
-        Assert.True(plans.IsVisible);
-        Assert.True(UiFixture.Named<ChoiceRowView>(window, "DevicePowerSchemeHost").IsEffectivelyVisible);
+        // The plan keeps its control: only the device groups beside it left.
+        Assert.Same(plans, UiFixture.Tagged<DeviceGroupView>(window, "section.system.power-profile"));
+        Assert.True(UiFixture.Tagged<ChoiceRowView>(window, "section.system.power-profile").IsEffectivelyVisible);
     }
 
     [AvaloniaFact]

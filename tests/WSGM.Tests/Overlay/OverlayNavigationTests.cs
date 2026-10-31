@@ -32,10 +32,10 @@ public sealed class OverlayNavigationTests
     public void DeviceSectionKeysPreserveBothStoredSpellings(string id)
     {
         var key = new SectionKey(id);
-        Assert.Equal("section.device." + id, key.FocusKey);
-        Assert.Equal("device.section." + id, key.PinKey);
-        Assert.Equal(key, SectionKey.FromKey(key.FocusKey));
-        Assert.Equal(key, SectionKey.FromKey(key.PinKey));
+        Assert.Equal("section.device." + id, key.PinId);
+        Assert.Equal("device.section." + id, key.RailKey);
+        Assert.Equal(key, SectionKey.FromKey(key.PinId));
+        Assert.Equal(key, SectionKey.FromKey(key.RailKey));
     }
 
     [Fact]

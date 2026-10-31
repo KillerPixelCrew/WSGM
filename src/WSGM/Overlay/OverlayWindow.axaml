@@ -288,78 +288,10 @@
                          firmware lighting is never written continuously while navigating. -->
             <ov:DeviceColorView x:Name="DeviceColorHost" IsVisible="False" HorizontalAlignment="Stretch" />
 
-            <!-- Device destination. Plugin rows come from the closed semantic descriptor
-                         vocabulary; WSGM-owned commands are separate view models. Packages cannot
-                         provide markup, styles, URLs, or arbitrary commands through this surface. -->
-            <StackPanel x:Name="PanelDevice" Spacing="12" MaxWidth="{StaticResource DeckContentMaxWidth}" HorizontalAlignment="Stretch"
-                        IsVisible="False">
-              <TextBlock x:Name="DeviceStatusTitle"
-                         Text="Device integration"
-                         FontSize="16"
-                         FontWeight="SemiBold"
-                         Margin="2,0,2,0" />
-              <TextBlock x:Name="DeviceStatusDetail"
-                         Text="Waiting for coordinator state"
-                         Classes="caption"
-                         TextWrapping="Wrap"
-                         Margin="2,0,2,6" />
-              <!-- A device package can arrive on an install that has no controller
-                             support, because the Plugins folder is one an administrator can
-                             copy a package file into. Without this the package simply does nothing and
-                             nothing says why. Lives on the Device page because that is where a
-                             person goes when their device is not working. -->
-              <Border x:Name="DevicePrerequisiteBanner" Classes="device-group"
-                      IsVisible="False" Margin="2,0,2,8">
-                <TextBlock x:Name="DevicePrerequisiteDetail" TextWrapping="Wrap" />
-              </Border>
-              <StackPanel x:Name="DevicePowerOverview" Spacing="12" IsVisible="False">
-                <!-- The Overview's headline: the per-application profile switch, above what it scopes. -->
-                <StackPanel x:Name="DeviceApplicationProfileHost" IsVisible="False" />
-                <Border x:Name="DevicePowerControlsCard" VerticalAlignment="Top">
-                  <StackPanel x:Name="UnifiedDevicePowerBody" Spacing="12">
-                    <!-- AC and battery assignments lead, as in Steam's Quick Access; the Windows
-                         profile follows them. -->
-                    <Border Classes="device-group" IsVisible="{Binding #DevicePowerPresetContainer.IsVisible}">
-                      <StackPanel x:Name="DevicePowerPresetContainer" IsVisible="False">
-                        <ov:DevicePowerPresetView x:Name="DevicePowerPresetHost" IsVisible="False" />
-                      </StackPanel>
-                    </Border>
-                    <Border Classes="device-group" IsVisible="{Binding #DeviceWindowsPower.IsVisible}">
-                      <StackPanel x:Name="DeviceWindowsPower" Spacing="8">
-                        <StackPanel x:Name="DevicePowerSchemeHeading" />
-                        <ov:ChoiceRowView x:Name="DevicePowerSchemeHost" />
-                      </StackPanel>
-                    </Border>
-                    <Border Classes="device-group" IsVisible="{Binding #ManualTdpHost.IsVisible}">
-                      <StackPanel x:Name="ManualTdpHost" IsVisible="False" />
-                    </Border>
-                  </StackPanel>
-                </Border>
-                <!-- Cooling is its own fold beside Power rather than one of Power's groups: fan
-                     mode, curve and speed are visited on their own, not on the way to a limit. -->
-                <StackPanel x:Name="DeviceFansHost" Spacing="12" IsVisible="False" />
-                <Border x:Name="DevicePerformanceCard" VerticalAlignment="Top">
-                  <StackPanel x:Name="DevicePerformanceColumn" />
-                </Border>
-              </StackPanel>
-              <StackPanel x:Name="DeviceCapabilityList" Spacing="12" />
-              <Expander x:Name="DeviceWidgetsExpander" Header="Quick Access pins" HorizontalAlignment="Stretch"
-                        HorizontalContentAlignment="Stretch">
-                <StackPanel Spacing="8">
-                  <TextBlock Text="Choose sections and widgets to show on Quick Access." Classes="caption" />
-                  <StackPanel x:Name="DeviceSectionPinsHost" Spacing="8" />
-                  <StackPanel x:Name="DeviceWidgetPinsHost" Spacing="8" />
-                </StackPanel>
-              </Expander>
-
-              <!-- Windows power policy like the energy plan above, so it belongs here
-                             rather than in WSGM Settings, and it stays available with device
-                             integration off. Hidden on a CPU with one kind of core. -->
-              <Expander x:Name="DeviceHybridCores" Header="Processor cores" IsVisible="False"
-                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Margin="0,12,0,0">
-                <ov:ChoiceRowView x:Name="DeviceHybridCoreHost" />
-              </Expander>
-            </StackPanel>
+            <!-- Device destination: the Overview, the section pages and the GPU page, each drawn from its
+                         description. Plugin rows come from the closed semantic descriptor vocabulary;
+                         packages cannot provide markup, styles, URLs, or arbitrary commands here. -->
+            <ov:DevicePageView x:Name="DevicePage" IsVisible="False" />
 
             <!-- Tools (the System destination): what is left once Steam, Device
                          and Power have their own destinations, as a menu of categories.
@@ -477,16 +409,10 @@
               <StackPanel x:Name="UacPolicyHost" Spacing="8" />
             </StackPanel>
 
-            <!-- One shared performance projection is reparented into Device while
-                         integration is visible and lives on this page otherwise. Its source owns
-                         RTSS lifetime and state; this window only observes and invokes rows. -->
+            <!-- The shared performance rows live here while there is no Device destination to hold them.
+                         Their source owns RTSS lifetime and state; this window only observes and invokes rows. -->
             <StackPanel x:Name="PanelSystemPerformance" Spacing="10" IsVisible="False"
-                        HorizontalAlignment="Stretch">
-              <!-- Attaching the performance source adds the section heading and folds the rows. -->
-              <StackPanel x:Name="PerformanceSection" Spacing="4" IsVisible="False">
-                <StackPanel x:Name="PerformanceRows" Spacing="4" />
-              </StackPanel>
-            </StackPanel>
+                        HorizontalAlignment="Stretch" />
 
             <StackPanel x:Name="PanelSystemStorage" Spacing="10" IsVisible="False"
                         HorizontalAlignment="Stretch">
@@ -553,16 +479,6 @@
             </StackPanel>
 
             <ov:SoundsView x:Name="SoundsHost" IsVisible="False" />
-
-            <StackPanel x:Name="GpuHost" Spacing="12" IsVisible="False" HorizontalAlignment="Stretch">
-              <TextBlock Text="GPU" Classes="eyebrow" />
-              <TextBlock Text="Graphics and driver controls for your GPU. Availability depends on the GPU, display and installed driver."
-                         Classes="caption" TextWrapping="Wrap" />
-              <TextBlock x:Name="GraphicsStatus" Classes="caption" TextWrapping="Wrap" IsVisible="False" />
-              <StackPanel x:Name="GraphicsCapabilityList" Spacing="12" />
-              <TextBlock x:Name="GpuUnavailable" Text="GPU controls will appear here when a supported Intel, NVIDIA or AMD plugin is enabled."
-                         Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
 
             <StackPanel x:Name="PanelSystemController" Spacing="10" IsVisible="False"
                         HorizontalAlignment="Stretch">

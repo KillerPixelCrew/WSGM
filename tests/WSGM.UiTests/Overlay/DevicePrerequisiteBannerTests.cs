@@ -26,10 +26,15 @@ public sealed class DevicePrerequisiteBannerTests
     ///     the tab that normally shows it needs a device coordinator or a power-scheme selection, and
     ///     neither is what these tests are about.
     /// </summary>
+    private static Border Banner(OverlayWindow window)
+    {
+        return UiFixture.Named<DevicePageView>(window, "DevicePage").PrerequisiteBanner;
+    }
+
     private static async Task<OverlayWindow> DeviceAsync(UiFixture fixture, DevicePrerequisiteSource source)
     {
         var window = fixture.Overlay();
-        UiFixture.Named<Control>(window, "PanelDevice").IsVisible = true;
+        UiFixture.Named<Control>(window, "DevicePage").IsVisible = true;
         window.AttachDevicePrerequisites(source);
         await window.DevicePrerequisitesRefresh;
         return window;
@@ -43,8 +48,8 @@ public sealed class DevicePrerequisiteBannerTests
 
         var window = await DeviceAsync(fixture, source);
 
-        var banner = UiFixture.Named<Border>(window, "DevicePrerequisiteBanner");
-        var detail = UiFixture.Named<TextBlock>(window, "DevicePrerequisiteDetail");
+        var banner = Banner(window);
+        var detail = UiFixture.Named<DevicePageView>(window, "DevicePage").PrerequisiteDetail;
         Assert.True(banner.IsVisible);
         Assert.Contains("neither the virtual controller library nor the HidHide driver", detail.Text!,
             StringComparison.Ordinal);
@@ -63,7 +68,7 @@ public sealed class DevicePrerequisiteBannerTests
 
         var window = await DeviceAsync(fixture, source);
 
-        Assert.False(UiFixture.Named<Border>(window, "DevicePrerequisiteBanner").IsVisible);
+        Assert.False(Banner(window).IsVisible);
     }
 
     [AvaloniaFact]
@@ -74,7 +79,7 @@ public sealed class DevicePrerequisiteBannerTests
 
         var window = await DeviceAsync(fixture, source);
 
-        Assert.False(UiFixture.Named<Border>(window, "DevicePrerequisiteBanner").IsVisible);
+        Assert.False(Banner(window).IsVisible);
     }
 
     [AvaloniaFact]
@@ -85,7 +90,7 @@ public sealed class DevicePrerequisiteBannerTests
 
         var window = await DeviceAsync(fixture, source);
 
-        Assert.False(UiFixture.Named<Border>(window, "DevicePrerequisiteBanner").IsVisible);
+        Assert.False(Banner(window).IsVisible);
     }
 
     [AvaloniaFact]
@@ -97,6 +102,6 @@ public sealed class DevicePrerequisiteBannerTests
 
         var window = await DeviceAsync(fixture, source);
 
-        Assert.False(UiFixture.Named<Border>(window, "DevicePrerequisiteBanner").IsVisible);
+        Assert.False(Banner(window).IsVisible);
     }
 }

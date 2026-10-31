@@ -25,8 +25,12 @@ public partial class OverlayWindow : Window
     private const int ProgramsLiveRefresh = 8;
     private const int PluginsLiveRefresh = 16;
 
-    private readonly Dictionary<string, (string Title, Func<Control> Create)> _controlPinFactories = [];
+    // The composite WSGM views by pin id: each call makes a new view for a page or a pinned copy.
+    private readonly Dictionary<string, Func<Control>> _controlPinFactories = [];
     private readonly CancellationTokenSource _deviceLifetime = new();
+
+    // Draws every Device, GPU, performance and pinned group description.
+    private readonly DeviceGroupRenderer _deviceRenderer;
     private readonly Action<OverlayWindow> _dock;
 
     /// <summary>The Controller page's glyph preview, which holds the input test's sample lease.</summary>
@@ -62,6 +66,9 @@ public partial class OverlayWindow : Window
     private bool _devicePrerequisitesStale;
 
     private ChoiceRowSelection? _hybridCoreSelection;
+
+    // Reads whether the device offers a manual power mode; null until the coordinator attaches.
+    private Func<(bool Available, bool Unified)>? _manualTdpMode;
     private int _liveRefreshScheduled;
 
     // Renders wait for the window to open, and OnOpened runs each once. Each source attached while
@@ -71,9 +78,8 @@ public partial class OverlayWindow : Window
 
     private PerformanceOverlayBridge? _performanceSource;
     private CommonPluginOverlaySource? _pluginSource;
+    private DevicePowerPresetSelection? _powerPresetSelection;
     private ChoiceRowSelection? _powerSchemeSelection;
-    private OverlayPage? _renderedDevicePage;
-    private string? _renderedDeviceSection;
 
     /// <summary>Creates the sheet bound to the supplied state.</summary>
     /// <param name="store">The persistence owner supplied by the process or resident session.</param>
@@ -129,6 +135,9 @@ public partial class OverlayWindow : Window
         AppsStrip.DataContext = switcher;
         StatusZone.DataContext = status;
         _pins = new QuickAccessPins(this, PinnedGrid, PinToast, PinToastText, PinToastHint);
+        _deviceRenderer = new DeviceGroupRenderer(CreateDeviceRow,
+            (id, title, pinned) => CreateSectionHeader(id, title, pinned), session.ExpandedSections);
+        DevicePage.Configure(_deviceRenderer, session.ExpandedSections);
         StorageFormatHost.CloseRequested += () => LeaveSubView(OverlayPage.SteamStorageFormat);
         StorageFormatHost.ScrollToTopRequested += () => ContentScroller.Offset = default;
 
@@ -275,7 +284,7 @@ public partial class OverlayWindow : Window
     {
         // Before the warm-up return: rendering is part of what the warm pass exercises.
         _opened = true;
-        FoldStaticSections();
+        FoldDisplaySection();
         var performance = _performanceSource?.Snapshot();
         var device = DeviceSnapshotOrOff();
         RefreshNavigationHints();
@@ -283,7 +292,6 @@ public partial class OverlayWindow : Window
         // Drawn even while the panel is hidden: the warm pass exercises it, and the first Device
         // visit then only refreshes values.
         RefreshDevicePanel(device, performance);
-        RefreshGraphicsPanel();
         RenderPins(device, performance);
         if (WarmingUp)
         {
@@ -321,7 +329,6 @@ public partial class OverlayWindow : Window
         _profileScope.Detach();
         ViewModel.PropertyChanged -= OnWorkspacePolicyChanged;
         _pins.Detach();
-        DevicePowerSchemeHost.Attach(null);
         GameLibraryHost.Attach(null);
         LibraryTabsHost.Attach(null);
         CardManagerHost.Attach(null);
@@ -334,8 +341,6 @@ public partial class OverlayWindow : Window
         SoundsHost.Attach(null);
         ArtworkHost.Attach(null);
         GameToolsHost.Attach(null);
-        DeviceHybridCoreHost.Attach(null);
-        DevicePowerPresetHost.Attach(null);
         _deviceLifetime.Cancel();
         if (_deviceBridge is not null)
         {

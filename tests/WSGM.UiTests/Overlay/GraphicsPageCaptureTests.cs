@@ -43,7 +43,7 @@ public sealed class GraphicsPageCaptureTests
         Assert.Equal("Device", UiFixture.Named<TextBlock>(window, "WorkspaceTitle").Text);
         UiFixture.Click(window, UiFixture.Rail(window, "device.gpu"));
         Assert.Contains("selected", UiFixture.Rail(window, "device.gpu").Classes);
-        UiFixture.OpenSections(window, UiFixture.Named<StackPanel>(window, "GraphicsCapabilityList"));
+        UiFixture.OpenSections(window, UiFixture.Named<Panel>(window, "DevicePage"));
         if (page == "pinned")
         {
             List<string> pins = [];
@@ -74,7 +74,7 @@ public sealed class GraphicsPageCaptureTests
         {
             var key = page == "display" ? FixtureGraphicsSource.DisplaySection : FixtureGraphicsSource.AdapterSection;
             var section = graphics.Snapshot().Sections.Single(candidate => candidate.Key == key);
-            var list = UiFixture.Named<StackPanel>(window, "GraphicsCapabilityList");
+            var list = UiFixture.Named<Panel>(window, "DevicePage");
             UiFixture.OpenSections(window, list);
             // Groups fill the shorter column first, so the visual order is not the declared one.
             Assert.Equal(
@@ -120,7 +120,7 @@ public sealed class GraphicsPageCaptureTests
 
         if (page == "display")
         {
-            var list = UiFixture.Named<StackPanel>(window, "GraphicsCapabilityList");
+            var list = UiFixture.Named<Panel>(window, "DevicePage");
             var header = list.GetVisualDescendants().OfType<SectionPinHeader>()
                 .Single(candidate => candidate.SectionId == RefreshPin);
             var group = header.GetVisualAncestors().OfType<CollapsibleSection>().First();
@@ -150,7 +150,7 @@ public sealed class GraphicsPageCaptureTests
         Dispatcher.UIThread.RunJobs();
         AssertRestingGraphics(page == "pinned"
             ? UiFixture.Named<Panel>(window, "PinnedSectionsGrid")
-            : UiFixture.Named<StackPanel>(window, "GraphicsCapabilityList"), graphics);
+            : UiFixture.Named<Panel>(window, "DevicePage"), graphics);
         Assert.Equal(width, window.ClientSize.Width);
         Assert.Equal(height, window.ClientSize.Height);
         // Thin icon strokes antialias a level or two apart between runs: the device overview icon on the

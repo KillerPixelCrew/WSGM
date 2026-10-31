@@ -95,7 +95,7 @@ public sealed class ControllerNavigationTests
         Assert.DoesNotContain(UiFixture.Named<StackPanel>(window, "SectionRail").Children,
             control => Equals(control.Tag, "rail.device.section.plugin." + DeviceSections.RgbId));
         Assert.NotNull(UiFixture.Rail(window, "device.section.plugin.info"));
-        Assert.True(UiFixture.Named<Control>(window, "PanelDevice").IsVisible);
+        Assert.True(UiFixture.Named<Control>(window, "DevicePage").IsVisible);
     }
 
     [AvaloniaFact]

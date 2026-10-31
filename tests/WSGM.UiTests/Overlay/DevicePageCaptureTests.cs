@@ -2,7 +2,6 @@ using System.Text.Json;
 using Avalonia;
 using Avalonia.Animation;
 using Avalonia.Controls;
-using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Media.Imaging;
@@ -100,10 +99,10 @@ public sealed class DevicePageCaptureTests
                 .Where(section => section.IsEffectivelyVisible).ToArray();
             var power = Assert.Single(folds, card => Equals(card.Heading.Tag, "section.device.unified-power.expand"));
             Assert.Single(folds, card => Equals(card.Heading.Tag, "section.device.plugin.power.category.control.expand"));
-            Assert.True(UiFixture.Named<StackPanel>(window, "DevicePowerPresetContainer").IsEffectivelyVisible);
+            Assert.True(UiFixture.Tagged<DeviceGroupView>(window, "section.device.power-presets").IsEffectivelyVisible);
             Assert.Contains(power.GetVisualDescendants().OfType<Control>(),
                 control => Equals(control.Tag, "power.primary-limit"));
-            var toggle = UiFixture.Named<StackPanel>(window, "DeviceApplicationProfileHost");
+            var toggle = UiFixture.Tagged<DeviceCapabilityControl>(window, "device.application-profile");
             Assert.True(toggle.IsEffectivelyVisible);
             Assert.True(toggle.TranslatePoint(default, window)!.Value.Y < power.TranslatePoint(default, window)!.Value.Y,
                 "The per-application switch heads the Overview.");
@@ -115,11 +114,11 @@ public sealed class DevicePageCaptureTests
             UiFixture.Named<ScrollViewer>(window, "ContentScroller").Offset = default;
             Dispatcher.UIThread.RunJobs();
             Assert.Equal(0, UiFixture.Named<ScrollViewer>(window, "ContentScroller").Offset.Y);
-            Assert.True(UiFixture.Named<StackPanel>(window, "DeviceWindowsPower").IsEffectivelyVisible);
+            Assert.True(UiFixture.Tagged<DeviceGroupView>(window, "section.system.power-profile").IsEffectivelyVisible);
             var cards = window.GetVisualDescendants().OfType<CollapsibleSection>()
                 .Where(section => section.IsEffectivelyVisible).ToArray();
             Assert.NotEmpty(cards);
-            var detail = UiFixture.Named<Control>(window, "DevicePowerOverview");
+            var detail = UiFixture.Named<Control>(window, "DevicePage");
             Assert.All(cards, card => Assert.InRange(card.Bounds.Width, 240, detail.Bounds.Width));
             var power = Assert.Single(cards, card => Equals(card.Heading.Tag, "section.device.unified-power.expand"));
             Assert.DoesNotContain(cards, card => Equals(card.Heading.Tag, "section.system.power-profile.expand"));
@@ -127,7 +126,6 @@ public sealed class DevicePageCaptureTests
             var fans = Assert.Single(cards, card => Equals(card.Heading.Tag,
                 "section.device.plugin.power.category.control.expand"));
             Assert.DoesNotContain(fans, power.GetVisualDescendants());
-            Assert.Contains(fans, UiFixture.Named<Panel>(window, "DeviceFansHost").GetVisualDescendants());
             Assert.Contains(fans.GetVisualDescendants().OfType<Control>(), control => Equals(control.Tag, "fan.mode"));
             Assert.DoesNotContain(power.GetVisualDescendants().OfType<Control>(),
                 control => Equals(control.Tag, "fan.mode"));
@@ -156,10 +154,10 @@ public sealed class DevicePageCaptureTests
                 Assert.InRange(pin.Bounds.Height, 36, header.Bounds.Height);
             }
 
-            var planGroup = UiFixture.Named<StackPanel>(window, "DeviceWindowsPower").GetVisualAncestors()
-                .OfType<Border>().First(border => border.Classes.Contains("device-group"));
-            var assignmentsGroup = UiFixture.Named<StackPanel>(window, "DevicePowerPresetContainer")
-                .GetVisualAncestors().OfType<Border>().First(border => border.Classes.Contains("device-group"));
+            var planGroup = UiFixture.Tagged<DeviceGroupView>(window, "section.system.power-profile");
+            Assert.Contains("device-group", planGroup.Classes);
+            var assignmentsGroup = UiFixture.Tagged<DeviceGroupView>(window, "section.device.power-presets");
+            Assert.Contains("device-group", assignmentsGroup.Classes);
             // AC and battery assignments lead; the Windows plan follows after a visible gap.
             Assert.True(planGroup.TranslatePoint(default, window)!.Value.Y
                 - assignmentsGroup.TranslatePoint(new Point(0, assignmentsGroup.Bounds.Height), window)!.Value.Y >= 12,
@@ -179,7 +177,7 @@ public sealed class DevicePageCaptureTests
             Assert.Equal(AutoTdpTarget.MaximumFps, slider.Maximum);
             Assert.True(slider.TranslatePoint(default, window)!.Value.Y > toggle.TranslatePoint(default, window)!.Value.Y,
                 "The target slider follows the AutoTDP switch.");
-            var detail = UiFixture.Named<Control>(window, "DevicePowerOverview");
+            var detail = UiFixture.Named<Control>(window, "DevicePage");
             Assert.True(slider.TranslatePoint(new Point(slider.Bounds.Width, 0), detail)!.Value.X <= detail.Bounds.Width,
                 "The target slider fits the controls pane.");
             slider.BringIntoView();
@@ -188,8 +186,9 @@ public sealed class DevicePageCaptureTests
 
         if (page is "Device" or "RGB" or "Info" or "Controller")
         {
-            // Open groups, from the top of the page.
+            // Open groups, from the top of the page. The pin choices have their own capture.
             UiFixture.OpenSections(window);
+            ClosePinChoices(window);
             ScrollToTop(window);
         }
 
@@ -224,19 +223,24 @@ public sealed class DevicePageCaptureTests
     {
         await using var claw = await ClawOverlay.CreateAsync(1280, 800);
         var window = claw.Window;
-        var expander = UiFixture.Named<Expander>(window, "DeviceWidgetsExpander");
-        expander.ContentTransition = null;
-        UiFixture.Click(window, expander.GetVisualDescendants().OfType<ToggleButton>().First());
+        var pinsFold = window.GetVisualDescendants().OfType<CollapsibleSection>()
+            .Single(section => Equals(section.Heading.Tag, "device.quick-access-pins.expand"));
+        foreach (var expander in pinsFold.GetVisualDescendants().OfType<Expander>())
+        {
+            expander.ContentTransition = null;
+        }
+
+        UiFixture.Click(window, pinsFold.Heading);
         Dispatcher.UIThread.RunJobs();
-        Assert.True(expander.IsExpanded);
-        var offered = UiFixture.Named<StackPanel>(window, "DeviceSectionPinsHost").Children
+        Assert.True(pinsFold.IsExpanded);
+        var offered = UiFixture.Named<DevicePageView>(window, "DevicePage").SectionPins.Children
             .OfType<SectionPinHeader>().Select(header => header.SectionId).ToArray();
         Assert.Contains("section.device.plugin.power.category.control", offered);
         ScrollToTop(window);
         VerifyFullPage(window, "claw-device-pins-1280x800-full");
     }
 
-    /// <summary>The GPU page entered from the Overview, which draws the graphics groups as the Overview left them.</summary>
+    /// <summary>The GPU page entered from the Overview, whose groups fold as on the GPU page entered from anywhere.</summary>
     [AvaloniaTheory]
     [InlineData(1280, 800)]
     [InlineData(980, 640)]
@@ -247,8 +251,12 @@ public sealed class DevicePageCaptureTests
         Assert.Contains("selected", UiFixture.Rail(window, "device.overview").Classes);
         UiFixture.Click(window, UiFixture.Rail(window, "device.gpu"));
         Dispatcher.UIThread.RunJobs();
-        var list = UiFixture.Named<StackPanel>(window, "GraphicsCapabilityList");
-        Assert.NotEmpty(list.GetVisualDescendants().OfType<DeviceCapabilityControl>());
+        var list = UiFixture.Named<DevicePageView>(window, "DevicePage");
+        // The GPU groups fold on their own, as on a GPU page entered from anywhere else.
+        var groups = list.GetVisualDescendants().OfType<DeviceGroupView>()
+            .Where(group => group.IsEffectivelyVisible && group.Group.Fold == DeviceFold.Folded).ToArray();
+        Assert.NotEmpty(groups);
+        Assert.All(groups, group => Assert.IsType<CollapsibleSection>(group.Child));
         VisualBaseline.Verify(window, $"claw-gpu-from-overview-{width}x{height}");
     }
 
@@ -263,11 +271,12 @@ public sealed class DevicePageCaptureTests
         var window = claw.Window;
         UiFixture.Click(window, UiFixture.Rail(window, "device.gpu"));
         Dispatcher.UIThread.RunJobs();
-        var list = UiFixture.Named<StackPanel>(window, "GraphicsCapabilityList");
-        Assert.Equal(state == "unavailable", UiFixture.Named<TextBlock>(window, "GpuUnavailable").IsEffectivelyVisible);
-        Assert.Equal(state == "empty", list.GetVisualDescendants().OfType<TextBlock>()
-            .Any(text => text.IsEffectivelyVisible
-                         && text.Text == "The graphics driver has not published any settings yet."));
+        var list = UiFixture.Named<DevicePageView>(window, "DevicePage");
+        var caption = Assert.Single(list.GetVisualDescendants().OfType<TextBlock>(),
+            text => text.IsEffectivelyVisible && text.Text is
+                "The graphics driver has not published any settings yet."
+                or "GPU controls will appear here when a supported Intel, NVIDIA or AMD plugin is enabled.");
+        Assert.Equal(state == "empty", caption.Text!.StartsWith("The graphics driver", StringComparison.Ordinal));
         VisualBaseline.Verify(window, $"claw-gpu-{state}-1280x800");
     }
 
@@ -325,8 +334,9 @@ public sealed class DevicePageCaptureTests
             new DevicePrerequisiteState(true, true, false, false, [SetupComponent.ControllerStack])));
         await window.DevicePrerequisitesRefresh;
         UiFixture.OpenSections(window);
+        ClosePinChoices(window);
         ScrollToTop(window);
-        Assert.True(UiFixture.Named<Border>(window, "DevicePrerequisiteBanner").IsEffectivelyVisible);
+        Assert.True(UiFixture.Named<DevicePageView>(window, "DevicePage").PrerequisiteBanner.IsEffectivelyVisible);
         VisualBaseline.Verify(window, $"claw-prerequisites-{width}x{height}");
     }
 
@@ -372,7 +382,7 @@ public sealed class DevicePageCaptureTests
         UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin." + section));
         UiFixture.OpenSections(window);
         ScrollToTop(window);
-        var list = UiFixture.Named<StackPanel>(window, "DeviceCapabilityList");
+        var list = UiFixture.Named<DevicePageView>(window, "DevicePage");
         Assert.Contains(list.GetVisualDescendants().OfType<Control>(),
             control => control is DeviceCapabilityControl or DeviceSettingRow);
         VisualBaseline.Verify(window, $"device-unplaced-{section}-1280x800");
@@ -445,6 +455,18 @@ public sealed class DevicePageCaptureTests
         using var frame = window.CaptureRenderedFrame();
         Assert.NotNull(frame);
         frame.Save(path, new PngBitmapEncoderOptions());
+    }
+
+    /// <summary>Folds the Overview's pin choices again, which have a capture of their own.</summary>
+    private static void ClosePinChoices(Window window)
+    {
+        foreach (var pins in window.GetVisualDescendants().OfType<CollapsibleSection>()
+                     .Where(section => Equals(section.Heading.Tag, "device.quick-access-pins.expand")))
+        {
+            pins.IsExpanded = false;
+        }
+
+        Dispatcher.UIThread.RunJobs();
     }
 
     /// <summary>Returns the controls pane to the top of its page.</summary>

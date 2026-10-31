@@ -58,7 +58,7 @@ public partial class OverlayWindow
         };
         if (_navigation.Destination == OverlayDestination.Device)
         {
-            RefreshDeviceSectionRail(DeviceSectionPages(DeviceSnapshotOrOff(), _performanceSource?.Snapshot()));
+            RefreshDeviceSectionRail(DescribeDevicePages(DeviceSnapshotOrOff(), _performanceSource?.Snapshot()));
             return;
         }
 
@@ -82,28 +82,30 @@ public partial class OverlayWindow
         ReconcileSectionRail(sections);
     }
 
-    private void RefreshDeviceSectionRail(IReadOnlyList<DeviceOverlaySectionEntry> sections)
+    /// <summary>Shows the Overview, every section page with rows and the GPU page on the rail, with row counts.</summary>
+    /// <param name="pages">The Overview, then the section pages, as described for this pass.</param>
+    private void RefreshDeviceSectionRail(IReadOnlyList<DevicePage> pages)
     {
         if (_navigation.Destination != OverlayDestination.Device)
         {
             return;
         }
 
+        var sections = pages.Where(page => page.SectionId is not null && page.Count > 0).ToArray();
         var entries = new List<WorkspaceSection>
         {
-            new("device.overview", "Overview", Icons.Gear, OverlayPage.Device, null)
+            new(DevicePages.OverviewKey, "Overview", Icons.Gear, OverlayPage.Device, null)
         };
-        entries.AddRange(sections.Select(entry =>
-            new WorkspaceSection(DeviceOverlaySectionPages.FocusKey(entry), entry.Title,
-                SectionIconFor(entry.Icon) ?? Icons.ListLines, OverlayPage.DevicePluginSection, entry.SectionId)));
-        entries.Add(new WorkspaceSection("device.gpu", "GPU", Icons.Monitor, OverlayPage.DeviceGpu, null));
+        entries.AddRange(sections.Select(page => new WorkspaceSection(page.RailKey, page.Title,
+            SectionIconFor(page.Icon) ?? Icons.ListLines, OverlayPage.DevicePluginSection, page.SectionId)));
+        entries.Add(new WorkspaceSection(DevicePages.GpuKey, "GPU", Icons.Monitor, OverlayPage.DeviceGpu, null));
         ReconcileSectionRail(entries);
-        foreach (var entry in sections)
+        foreach (var page in sections)
         {
-            if (_sectionBadges.TryGetValue(DeviceOverlaySectionPages.FocusKey(entry), out var badge))
+            if (_sectionBadges.TryGetValue(page.RailKey, out var badge))
             {
-                badge.Value = entry.Count;
-                badge.IsVisible = entry.Count > 0;
+                badge.Value = page.Count;
+                badge.IsVisible = true;
             }
         }
     }
@@ -146,7 +148,7 @@ public partial class OverlayWindow
                 _sectionBadges.Remove(gone.Key);
             }
 
-            ReconcileChildren(SectionRail, rows);
+            DeviceGroupRenderer.ReconcileChildren(SectionRail, rows);
             created?.Focus(NavigationMethod.Directional);
         }
 
@@ -226,18 +228,9 @@ public partial class OverlayWindow
         LeaveAllNestedPages();
         _navigation.Select(_navigation.Destination);
         _session.Sections[_navigation.Destination] = section.Key;
-        if (section.PluginSection is { } plugin)
+        if (section.Page is not (OverlayPage.QuickAccess or OverlayPage.Device))
         {
-            EnterDevicePluginSection(plugin);
-        }
-        else if (section.Page == OverlayPage.Device)
-        {
-            PanelDevice.IsVisible = true;
-            RefreshDevicePage();
-        }
-        else if (section.Page != OverlayPage.QuickAccess)
-        {
-            EnterSubView(section.Page);
+            EnterSubView(section.Page, section.PluginSection);
         }
 
         ContentScroller.Offset = default;

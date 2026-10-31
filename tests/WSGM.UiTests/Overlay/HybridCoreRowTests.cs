@@ -4,6 +4,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WindowsDeviceControl;
+using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Overlay;
 using WSGM.Shell;
@@ -35,14 +36,15 @@ public sealed class HybridCoreRowTests
 
         OpenDevicePowerPage(window, device);
 
-        var section = UiFixture.Named<Expander>(window, "DeviceHybridCores");
-        Assert.True(section.IsVisible);
+        var section = UiFixture.Tagged<DeviceGroupView>(window, "section.system.processor-cores");
+        var fold = Assert.IsType<CollapsibleSection>(section.Child);
 
         // Collapsed by default, like the energy plan beside it, so its content is only realized
         // once the section is opened.
-        section.IsExpanded = true;
+        Assert.False(fold.IsExpanded);
+        fold.IsExpanded = true;
         Dispatcher.UIThread.RunJobs();
-        var modes = UiFixture.Named<ChoiceRowView>(window, "DeviceHybridCoreHost")
+        var modes = UiFixture.Tagged<ChoiceRowView>(window, "section.system.processor-cores")
             .GetVisualDescendants().OfType<ComboBox>().First();
         Assert.Equal(5, modes.ItemsSource!.Cast<object>().Count());
         Assert.Equal(HybridCores.IdFor(HybridCoreMode.Automatic), selection.State.Current);
@@ -65,7 +67,8 @@ public sealed class HybridCoreRowTests
 
         OpenDevicePowerPage(window, device);
 
-        Assert.False(UiFixture.Named<Control>(window, "DeviceHybridCores").IsVisible);
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<DeviceGroupView>(),
+            group => Equals(group.Tag, "section.system.processor-cores"));
     }
 
     [AvaloniaTheory]
