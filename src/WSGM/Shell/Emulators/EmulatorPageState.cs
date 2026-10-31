@@ -15,4 +15,7 @@ internal sealed record EmulatorPageState(
     public EmulatorListItem[] Installed { get; init; } = [];
     public EmulatorCoreStatus[] CoreStatus { get; init; } = [];
     public string ShortcutStatus { get; init; } = "";
+
+    /// <summary>The launch modes an emulator shortcut offers, listed alike by the Steam page and the overlay.</summary>
+    public IReadOnlyList<EmulatorLaunchMode> LaunchModes { get; init; } = EmulatorLaunchMode.Offered;
 }

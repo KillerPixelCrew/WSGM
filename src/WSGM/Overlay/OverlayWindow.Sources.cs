@@ -156,7 +156,7 @@ public partial class OverlayWindow
         RenderPins();
     }
 
-    internal void AttachPowerSchemes(PowerSchemeSelection selection)
+    internal void AttachPowerSchemes(ChoiceRowSelection selection)
     {
         _powerSchemeSelection = selection;
         ConfigureTabs(DeviceSnapshotOrOff().Visible);
@@ -170,13 +170,13 @@ public partial class OverlayWindow
         DevicePowerSchemeHeading.Children.Add(
             CreateSectionHeader("section.system.power-profile", "Windows energy plan"));
         _controlPinFactories["section.system.power-profile"] = ("Windows energy plan",
-            AttachedPin<PowerSchemeView, PowerSchemeSelection>(selection, (view, model) => view.Attach(model)));
+            AttachedPin<ChoiceRowView, ChoiceRowSelection>(selection, (view, model) => view.Attach(model)));
         RefreshDevicePanel();
     }
 
     /// <summary>Attaches the hybrid core-placement workflow shown beside the Windows energy plan.</summary>
     /// <param name="selection">The workflow for this open; refreshed when the window opens and disposed when it closes.</param>
-    internal void AttachHybridCores(HybridCoreSelection selection)
+    internal void AttachHybridCores(ChoiceRowSelection selection)
     {
         _hybridCoreSelection = selection;
         Opened += async (_, _) => await selection.RefreshAsync();
@@ -185,7 +185,7 @@ public partial class OverlayWindow
         DeviceHybridCoreHost.Tag = "section.system.processor-cores";
         DeviceHybridCores.Header = CreateSectionHeader("section.system.processor-cores", "Processor cores");
         _controlPinFactories["section.system.processor-cores"] = ("Processor cores",
-            AttachedPin<HybridCoreView, HybridCoreSelection>(selection, (view, model) => view.Attach(model)));
+            AttachedPin<ChoiceRowView, ChoiceRowSelection>(selection, (view, model) => view.Attach(model)));
         RefreshDevicePanel();
     }
 

@@ -6,6 +6,7 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using WSGM.Controls;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
@@ -44,7 +45,7 @@ internal sealed class DescriptorControlView : ContentControl
             _body = new DeviceSliderRow(key, descriptor.Title, descriptor.Description, range.Minimum, range.Maximum,
                 range.Step, CapabilityUnit.None, descriptor.Value ?? range.Minimum, descriptor.CanInvoke,
                 value => setValue(value < range.OffBelow ? 0 : value),
-                value => value < range.OffBelow || value == 0 ? "Off" : $"{value} FPS");
+                range.Label);
         }
         else if (descriptor.CanInvoke)
         {

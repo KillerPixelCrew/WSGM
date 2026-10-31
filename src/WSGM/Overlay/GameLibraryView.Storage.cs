@@ -149,12 +149,11 @@ public sealed partial class GameLibraryView
         if (more is { } next)
         {
             var total = shortcuts.Count;
-            stack.Children.Add(Tagged(Row("Load more", $"{shown} of {total}", Icons.ArrowDown, () =>
+            stack.Children.Add(PagedRows.More(this, "storage.more", $"{shown} of {total}", next, () =>
             {
                 _storageShown += 48;
                 RenderStorage();
-                PagedRows.FocusAdded(this, next);
-            }), "storage.more"));
+            }));
         }
 
         SetLibraryContent(stack, state, SameStorage);

@@ -40,6 +40,7 @@ public sealed partial class OverlayController : IDisposable
     private readonly SdFormatManager? _formatManager;
 
     private readonly GamepadService _gamepad = new();
+    private readonly NativeQamHybridCoreService _hybridCores;
     private readonly HotkeyService? _hotkey;
     private readonly KeepAwakeService? _keepAwake;
 
@@ -201,6 +202,7 @@ public sealed partial class OverlayController : IDisposable
         // A preview writes nothing, so a set of its own never needs the session's lock.
         _power = power ?? WindowsPowerPolicy.OverWindows();
         _powerProfiles = _sources.PowerProfiles ?? new NativeQamPowerProfileService(_power.Schemes);
+        _hybridCores = _sources.HybridCores ?? new NativeQamHybridCoreService(_power.HybridCores);
         _store = store;
         _steamInput = steamInput ?? throw new ArgumentNullException(nameof(steamInput));
         _displayTimeouts = displayTimeouts;
@@ -610,12 +612,14 @@ public sealed partial class OverlayController : IDisposable
         }
 
         _overlay.OnScreenKeyboardRequested += async () => await RequestOnScreenKeyboardAsync();
-        var powerSchemes = new PowerSchemeSelection(_powerProfiles,
+        var powerSchemes = new ChoiceRowSelection("system.power-profile.choice", "Windows power profile",
+            _powerProfiles.ReadAsync, _powerProfiles.SetPowerProfileAsync,
             _previewOnly || _sources.PowerProfiles is null);
         _overlay.AttachPowerSchemes(powerSchemes);
         // Read on every open rather than cached for the session: activating a power scheme can
         // carry a different core preference with it, so a value read once would go stale silently.
-        var hybridCores = new HybridCoreSelection(_power.HybridCores, _previewOnly);
+        var hybridCores = new ChoiceRowSelection("system.hybrid-cores.choice", "Processor core preference",
+            _hybridCores.ReadAsync, _hybridCores.SetHybridCoresAsync, _previewOnly);
         _overlay.AttachHybridCores(hybridCores);
         RefreshWindowsPolicies(_overlay);
         if (_powerPresets is not null)
@@ -626,7 +630,7 @@ public sealed partial class OverlayController : IDisposable
 
         powerSchemes.Changed += () =>
         {
-            if (powerSchemes is { Busy: false, ActiveId: not null } && ReferenceEquals(_overlayViewModel, vm))
+            if (powerSchemes is { Busy: false, State.Current.Length: > 0 } && ReferenceEquals(_overlayViewModel, vm))
             {
                 RefreshPowerTimeouts(vm);
             }

@@ -1,6 +1,5 @@
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Overlay;
 using WSGM.Shell;
 
 namespace WSGM.Tests.Shell;

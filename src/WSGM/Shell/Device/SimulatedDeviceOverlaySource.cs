@@ -9,7 +9,6 @@ using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Settings;
-using WSGM.Overlay;
 using CanonicalControllerSample = LibHandheld.Contracts.CanonicalControllerSample;
 
 namespace WSGM.Shell;
@@ -320,9 +319,10 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 [DeviceHostRowIds.ControllerTarget] = new(_controllerTarget.ToString(),
                     DeviceHostRows.Targets
                         .Select(option => DeviceHostRows.HostChoice(option.Target.ToString(), option.Label))
-                        .ToArray())
+                        .ToArray()),
+                [DeviceHostRowIds.GlyphSelection] = new(((DeviceGlyphSelection)_glyphSelection).ToString(),
+                    DeviceHostRows.GlyphChoices())
             },
-            GlyphMode = (DeviceGlyphSelection)_glyphSelection,
             PluginSections = PreviewSections,
             AutoTdpTarget = DeviceHostRows.AutoTdpTargetRow(_autoTdp,
                 new AutoTdpTargetView(_autoTdpTarget, _autoTdpTarget, false))
@@ -338,6 +338,9 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
             case DeviceHostRowIds.AutoTdp: _autoTdp = value == "on"; break;
             case DeviceHostRowIds.ControllerTarget when Enum.TryParse<ManagedControllerTarget>(value, out var target):
                 _controllerTarget = target; break;
+            case DeviceHostRowIds.GlyphSelection when Enum.TryParse<DeviceGlyphSelection>(value, out var glyphs)
+                                                      && Enum.IsDefined(glyphs):
+                _glyphSelection = (int)glyphs; break;
         }
 
         Changed?.Invoke();
@@ -392,21 +395,6 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
     {
         cancellationToken.ThrowIfCancellationRequested();
         _autoTdpTarget = fps;
-        Changed?.Invoke();
-        return Task.CompletedTask;
-    }
-
-    /// <inheritdoc />
-    public Task SetPhysicalGlyphSelectionAsync(DeviceGlyphSelection selection,
-        CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        if (!Enum.IsDefined(selection))
-        {
-            throw new ArgumentOutOfRangeException(nameof(selection));
-        }
-
-        _glyphSelection = (int)selection;
         Changed?.Invoke();
         return Task.CompletedTask;
     }

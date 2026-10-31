@@ -7,7 +7,6 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Lifecycle;
-using WSGM.Overlay;
 
 namespace WSGM.Shell;
 
@@ -427,7 +426,7 @@ internal static class DeviceHostRows
             ? new DescriptorRow(DeviceHostRowIds.AutoTdpTarget, "Target frame rate", target.Description,
                 string.Create(CultureInfo.InvariantCulture, $"{target.Fps} FPS"), true, DescriptorStatus.Available)
             {
-                Range = new DescriptorRange(AutoTdpTarget.MinimumFps, AutoTdpTarget.MaximumFps, 1),
+                Range = new DescriptorRange(AutoTdpTarget.MinimumFps, AutoTdpTarget.MaximumFps, Step: 1, Unit: "FPS"),
                 Value = target.Fps,
                 OverrideId = target.GameOverride ? nameof(ProfileField.AutoTdpTarget) : null
             }
@@ -446,6 +445,21 @@ internal static class DeviceHostRows
             DeviceGlyphSelection.ManualReviewedProfile => "REVIEWED",
             _ => "AUTO"
         };
+    }
+
+    /// <summary>The physical-glyph policies the glyph row chooses between, keyed by their enum names.</summary>
+    /// <returns>Every policy in declaration order with the name a user reads.</returns>
+    internal static IReadOnlyList<CapabilityChoice> GlyphChoices()
+    {
+        return
+        [
+            .. Enum.GetValues<DeviceGlyphSelection>().Select(mode => HostChoice(mode.ToString(), mode switch
+            {
+                DeviceGlyphSelection.Automatic => "Automatic",
+                DeviceGlyphSelection.NativeSteam => "Steam native",
+                _ => "Reviewed device profile"
+            }))
+        ];
     }
 
     internal static DescriptorRow PhysicalGlyphSelectionView(

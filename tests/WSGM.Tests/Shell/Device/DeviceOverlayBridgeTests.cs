@@ -279,7 +279,7 @@ public sealed class DeviceOverlayBridgeTests
     }
 
     [Fact]
-    public async Task SimulatedGlyphSelectionUsesItsDedicatedCommandPath()
+    public async Task SimulatedGlyphSelectionIsAHostSelection()
     {
         using SimulatedDeviceOverlaySource source = new();
         var changes = 0;
@@ -287,12 +287,14 @@ public sealed class DeviceOverlayBridgeTests
 
         var before = Assert.IsType<DescriptorRow>(
             source.Snapshot().GlyphSelection);
-        await source.SetPhysicalGlyphSelectionAsync(DeviceGlyphSelection.NativeSteam);
+        await source.SetHostSelectionAsync(DeviceHostRowIds.GlyphSelection, nameof(DeviceGlyphSelection.NativeSteam));
         var after = Assert.IsType<DescriptorRow>(
             source.Snapshot().GlyphSelection);
 
         Assert.Equal("AUTO", before.TrailingText);
         Assert.Equal("STEAM", after.TrailingText);
+        Assert.Equal(nameof(DeviceGlyphSelection.NativeSteam),
+            source.Snapshot().HostSelections[DeviceHostRowIds.GlyphSelection].Value);
         Assert.Equal(1, changes);
     }
 
@@ -701,7 +703,8 @@ public sealed class DeviceOverlayBridgeTests
         var row = DeviceHostRows.AutoTdpTargetRow(true, new AutoTdpTargetView(45, 40, true))!;
 
         Assert.Equal(DeviceHostRowIds.AutoTdpTarget, row.Id);
-        Assert.Equal(new DescriptorRange(AutoTdpTarget.MinimumFps, AutoTdpTarget.MaximumFps, 1), row.Range);
+        Assert.Equal(new DescriptorRange(AutoTdpTarget.MinimumFps, AutoTdpTarget.MaximumFps, Step: 1, Unit: "FPS"),
+            row.Range);
         Assert.Equal(45, row.Value);
         Assert.Equal(nameof(ProfileField.AutoTdpTarget), row.OverrideId);
         Assert.Equal("Held to the 40 FPS frame limit.", row.Description);

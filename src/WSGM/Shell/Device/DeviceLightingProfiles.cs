@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Lifecycle;
-using WSGM.Overlay;
 using HandheldDefinition = LibHandheld.Contracts.HandheldDefinition;
 
 namespace WSGM.Shell;

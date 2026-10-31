@@ -23,6 +23,7 @@ internal sealed class DeviceFanCurves
     private readonly Func<bool> _integrationEnabled;
     private readonly Func<FanCurvePresetTable> _presets;
     private readonly CancellationToken _lifetime;
+    private readonly Func<RtssOsdMetrics> _metrics;
     private readonly ProfileService _profiles;
     private readonly Func<HandheldDeviceRuntime?> _runtime;
     private readonly Func<DeviceCycleState> _state;
@@ -62,14 +63,9 @@ internal sealed class DeviceFanCurves
         _activeProfileScope = activeProfileScope;
         _closed = closed;
         _lifetime = lifetime;
+        _metrics = metrics;
         Controller = new DeviceFanCurveController(
-            _ =>
-            {
-                // The handheld's own EC temperature is available outside games and independently
-                // of RTSS. Preserve each source's sampling time instead of refreshing a cached value.
-                var native = _capabilities.TryGetView(new DeviceCapabilityKey(CapabilityIds.Temperature, null));
-                return SelectFanTemperature(native?.Projection.State, metrics(), DateTimeOffset.UtcNow);
-            },
+            _ => Temperature(),
             async (instance, duty, token) =>
             {
                 var fan = FanDutyView(_capabilities.Snapshot(), instance);
@@ -141,6 +137,18 @@ internal sealed class DeviceFanCurves
 
     /// <summary>The software fan loop; the coordinator suspends, resumes, stops and disposes it with the cycle.</summary>
     internal DeviceFanCurveController Controller { get; }
+
+    /// <summary>The temperature the software curve follows now, which also places every surface's curve marker.</summary>
+    /// <returns>The hottest plausible fresh reading with its sampling time, or no reading.</returns>
+    /// <remarks>
+    ///     The handheld's own EC temperature is available outside games and independently of RTSS. Each
+    ///     source keeps its own sampling time instead of refreshing a cached value.
+    /// </remarks>
+    internal DeviceFanCurveTemperature Temperature()
+    {
+        var native = _capabilities.TryGetView(new DeviceCapabilityKey(CapabilityIds.Temperature, null));
+        return SelectFanTemperature(native?.Projection.State, _metrics(), DateTimeOffset.UtcNow);
+    }
 
     /// <summary>Picks the hottest fresh temperature the native sensor and RTSS report.</summary>
     /// <param name="native">The handheld's own temperature state, or null when it publishes none.</param>

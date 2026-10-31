@@ -362,12 +362,11 @@ public abstract class ServiceSubView : OverlaySubView
         if (games.Length > list.Shown)
         {
             var added = "game:" + games[list.Shown].AppId;
-            body.Children.Add(Tagged(Row("Load more", $"{list.Shown} of {games.Length}", Icons.ArrowDown, () =>
+            body.Children.Add(PagedRows.More(this, "games.more", $"{list.Shown} of {games.Length}", added, () =>
             {
                 list.Shown += GameList.Chunk;
                 render();
-                PagedRows.FocusAdded(this, added);
-            }), "games.more"));
+            }));
         }
 
         if (list.Loaded && !list.Reading && list.Error is null && games.Length == 0)

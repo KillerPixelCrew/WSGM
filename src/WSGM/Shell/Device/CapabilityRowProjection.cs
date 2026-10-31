@@ -5,7 +5,6 @@ using System.Linq;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
-using WSGM.Overlay;
 
 namespace WSGM.Shell;
 
@@ -90,7 +89,10 @@ internal static class CapabilityRowProjection
             descriptor.InstanceId,
             SectionFor(descriptor.Role),
             StatusFor(projection),
-            CapabilityDisplayLabels.For(descriptor.Display, "Device control"),
+            // Scenario rows name the firmware mode they choose, on every surface.
+            descriptor.Role == CapabilityRole.ScenarioMode
+                ? "Firmware power mode"
+                : CapabilityDisplayLabels.For(descriptor.Display, "Device control"),
             description,
             descriptor.SupportsAction ? "RUN" : FormatValue(displayed, descriptor),
             canInvoke,

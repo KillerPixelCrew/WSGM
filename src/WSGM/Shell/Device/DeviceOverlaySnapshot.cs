@@ -1,7 +1,5 @@
 using System.Collections.Generic;
-using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Overlay;
 
 namespace WSGM.Shell;
 
@@ -40,8 +38,11 @@ internal sealed record DeviceOverlaySnapshot(
     public IReadOnlyDictionary<string, DeviceHostSelection> HostSelections { get; init; } =
         new Dictionary<string, DeviceHostSelection>();
 
-    /// <summary>The selected physical button presentation policy.</summary>
-    public DeviceGlyphSelection GlyphMode { get; init; }
+    /// <summary>
+    ///     The temperature the software fan curve follows, rounded to a degree, which places the curve
+    ///     marker; null without a fresh reading.
+    /// </summary>
+    public int? FanTemperature { get; init; }
 
     /// <summary>Plugin-declared overlay sections in presentation order.</summary>
     public IReadOnlyList<DeviceOverlayPluginSection> PluginSections { get; init; } =

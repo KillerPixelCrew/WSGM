@@ -221,7 +221,7 @@ public sealed class NotesView : ServiceSubView
             }));
         body.Children.Add(Tagged(Caption(ScopeCaption(scope)), "notes.scope"));
         AddCaptureOutcome(body, service);
-        body.Children.Add(Toolbar(Tool("notes.create", "New page", true, () => Create(scope))));
+        body.Children.Add(CommandStrip(Command("notes.create", "New page", () => Create(scope), true)));
         var pages = service.ReadPages(scope);
         var grid = new UniformGrid { Columns = _columns, Tag = "notes.library:" + _columns };
         foreach (var summary in pages)
@@ -414,45 +414,49 @@ public sealed class NotesView : ServiceSubView
         // Three rows at most: the modes with the two additions, then navigation or the ink tools, then
         // the ink widths and colors.
         var mode = _canvas.Mode;
-        _tools.Children.Add(Toolbar([
-            Tool("notes.mode.navigate", "Navigate", mode == NotesCanvasMode.Navigate, () => SetMode(NotesCanvasMode.Navigate)),
-            Tool("notes.mode.text", "Text", mode == NotesCanvasMode.Text, () => SetMode(NotesCanvasMode.Text), !readOnly),
-            Tool("notes.mode.ink", "Ink", mode == NotesCanvasMode.Ink, () => SetMode(NotesCanvasMode.Ink), !readOnly),
+        _tools.Children.Add(CommandStrip([
+            Command("notes.mode.navigate", "Navigate", () => SetMode(NotesCanvasMode.Navigate),
+                mode == NotesCanvasMode.Navigate),
+            Command("notes.mode.text", "Text", readOnly ? null : () => SetMode(NotesCanvasMode.Text),
+                mode == NotesCanvasMode.Text),
+            Command("notes.mode.ink", "Ink", readOnly ? null : () => SetMode(NotesCanvasMode.Ink),
+                mode == NotesCanvasMode.Ink),
             .. readOnly
                 ? Array.Empty<Control>()
                 :
                 [
-                    Tool("notes.add.text", "Add text", false, () => OnTextRequested(null, _canvas.VisibleCenter())),
-                    Tool("notes.add.screenshot", "Screenshot", false, () => Navigate(RenderCapture),
-                        StartCapture is not null && !service.Capture.Pending)
+                    Command("notes.add.text", "Add text", () => OnTextRequested(null, _canvas.VisibleCenter())),
+                    Command("notes.add.screenshot", "Screenshot",
+                        StartCapture is not null && !service.Capture.Pending ? () => Navigate(RenderCapture) : null)
                 ],
-            Tool("notes.options", "Page…", false, () => Navigate(RenderPageOptions))
+            Command("notes.options", "Page…", () => Navigate(RenderPageOptions))
         ]));
         if (mode == NotesCanvasMode.Ink && !readOnly)
         {
-            _tools.Children.Add(Toolbar(
-                Tool("notes.tool.pen", "Pen", _inkTool == NotesInkTool.Pen, () => SetTool(NotesInkTool.Pen)),
-                Tool("notes.tool.highlighter", "Highlighter", _inkTool == NotesInkTool.Highlighter,
-                    () => SetTool(NotesInkTool.Highlighter)),
-                Tool("notes.tool.eraser", "Eraser", _inkTool == NotesInkTool.Eraser, () => SetTool(NotesInkTool.Eraser)),
-                Tool("notes.undo", "Undo", false, Undo, _undo.Count > 0),
-                Tool("notes.redo", "Redo", false, Redo, _redo.Count > 0),
-                Tool("notes.clear", "Clear ink…", false, ConfirmClearInk, page.Strokes.Count > 0)));
+            _tools.Children.Add(CommandStrip(
+                Command("notes.tool.pen", "Pen", () => SetTool(NotesInkTool.Pen), _inkTool == NotesInkTool.Pen),
+                Command("notes.tool.highlighter", "Highlighter", () => SetTool(NotesInkTool.Highlighter),
+                    _inkTool == NotesInkTool.Highlighter),
+                Command("notes.tool.eraser", "Eraser", () => SetTool(NotesInkTool.Eraser),
+                    _inkTool == NotesInkTool.Eraser),
+                Command("notes.undo", "Undo", _undo.Count > 0 ? Undo : null),
+                Command("notes.redo", "Redo", _redo.Count > 0 ? Redo : null),
+                Command("notes.clear", "Clear ink…", page.Strokes.Count > 0 ? ConfirmClearInk : null)));
             var widthChoice = ChoiceRow("Width", Widths.Select(width => (width.Width, width.Name)).ToArray(), _inkWidth, SetWidth);
             widthChoice.Width = 240;
             widthChoice.Margin = new Thickness(0, 0, 8, 8);
-            _tools.Children.Add(Toolbar([
+            _tools.Children.Add(CommandStrip([
                 widthChoice,
                 .. Palette.Select(color => Swatch(color.Color, color.Name))
             ]));
         }
         else
         {
-            _tools.Children.Add(Toolbar(
-                Tool("notes.zoom.out", "Zoom −", false, () => SetZoom(_canvas.Zoom - 0.5), _canvas.Zoom > 1),
-                Tool("notes.zoom.in", "Zoom +", false, () => SetZoom(_canvas.Zoom + 0.5), _canvas.Zoom < 4),
-                Tool("notes.scroll.up", "Page up", false, () => _canvas.ScrollBy(new Vector(0, -360))),
-                Tool("notes.scroll.down", "Page down", false, () => _canvas.ScrollBy(new Vector(0, 360)))));
+            _tools.Children.Add(CommandStrip(
+                Command("notes.zoom.out", "Zoom −", _canvas.Zoom > 1 ? () => SetZoom(_canvas.Zoom - 0.5) : null),
+                Command("notes.zoom.in", "Zoom +", _canvas.Zoom < 4 ? () => SetZoom(_canvas.Zoom + 0.5) : null),
+                Command("notes.scroll.up", "Page up", () => _canvas.ScrollBy(new Vector(0, -360))),
+                Command("notes.scroll.down", "Page down", () => _canvas.ScrollBy(new Vector(0, 360)))));
         }
 
         SizeCanvas();
@@ -526,9 +530,11 @@ public sealed class NotesView : ServiceSubView
             body.Children.Add(Tagged(Row("Rename page", page.Title, Icons.Keyboard, EditTitle), "notes.title"));
             body.Children.Add(Tagged(Row(page.Pinned ? "Unpin page" : "Pin page", "Pinned pages stay at the top", Icons.Pin,
                 () => Run(_ => Task.FromResult(service.SetPinned(page.Id, !page.Pinned).ToCommandResult()))), "notes.pin"));
-            body.Children.Add(Toolbar(
-                Tool("notes.move.up", "Move page up", false, () => Run(_ => Task.FromResult(service.MovePage(page.Id, -1).ToCommandResult()))),
-                Tool("notes.move.down", "Move page down", false, () => Run(_ => Task.FromResult(service.MovePage(page.Id, 1).ToCommandResult())))));
+            body.Children.Add(CommandStrip(
+                Command("notes.move.up", "Move page up",
+                    () => Run(_ => Task.FromResult(service.MovePage(page.Id, -1).ToCommandResult()))),
+                Command("notes.move.down", "Move page down",
+                    () => Run(_ => Task.FromResult(service.MovePage(page.Id, 1).ToCommandResult())))));
             body.Children.Add(Tagged(DangerRow("Delete page", "Removes its text, drawings and screenshots", Icons.Close,
                 () => ConfirmCommand("Delete page", $"Delete “{page.Title}”? This cannot be undone.",
                     _ => Task.FromResult(DeleteAndReturn(page)))), "notes.delete"));
@@ -579,14 +585,14 @@ public sealed class NotesView : ServiceSubView
                 () => OnTextRequested(element.Id, default)), "notes.selection.edit"));
         }
 
-        target.Children.Add(Toolbar(
-            Tool("notes.selection.left", "◀", false, () => Place(element, -Nudge, 0, 1)),
-            Tool("notes.selection.up", "▲", false, () => Place(element, 0, -Nudge, 1)),
-            Tool("notes.selection.down", "▼", false, () => Place(element, 0, Nudge, 1)),
-            Tool("notes.selection.right", "▶", false, () => Place(element, Nudge, 0, 1)),
-            Tool("notes.selection.smaller", "Smaller", false, () => Place(element, 0, 0, 0.85)),
-            Tool("notes.selection.bigger", "Bigger", false, () => Place(element, 0, 0, 1.15)),
-            Tool("notes.selection.front", "To front", false,
+        target.Children.Add(CommandStrip(
+            Command("notes.selection.left", "◀", () => Place(element, -Nudge, 0, 1)),
+            Command("notes.selection.up", "▲", () => Place(element, 0, -Nudge, 1)),
+            Command("notes.selection.down", "▼", () => Place(element, 0, Nudge, 1)),
+            Command("notes.selection.right", "▶", () => Place(element, Nudge, 0, 1)),
+            Command("notes.selection.smaller", "Smaller", () => Place(element, 0, 0, 0.85)),
+            Command("notes.selection.bigger", "Bigger", () => Place(element, 0, 0, 1.15)),
+            Command("notes.selection.front", "To front",
                 () => Edit(() => _service!.RaiseElement(page.Id, revision, element.Id)))));
         target.Children.Add(Tagged(DangerRow(element.Kind == NoteElement.ImageKind ? "Delete screenshot" : "Delete text",
             "The rest of the page stays", Icons.Close,
@@ -654,8 +660,7 @@ public sealed class NotesView : ServiceSubView
 
         service.OverlayTextDraft = draft;
         var prompt = draft.ElementId is null ? "New text" : "Edit text";
-        if (TopLevel.GetTopLevel(this) is OverlayWindow window
-            && window.RequestText(prompt, draft.Text, 0, SaveText, true, text =>
+        if (OverlayWindow.RequestTextFor(this, prompt, draft.Text, 0, SaveText, true, text =>
             {
                 if (service.OverlayTextDraft is { } current && current.PageId == draft.PageId)
                 {
@@ -1158,28 +1163,6 @@ public sealed class NotesView : ServiceSubView
         _pendingConflict = null;
         _page = null;
         _canvas = null;
-    }
-
-    private static Control Toolbar(params Control[] tools)
-    {
-        var panel = new WrapPanel { Orientation = Orientation.Horizontal };
-        foreach (var tool in tools)
-        {
-            panel.Children.Add(tool);
-        }
-
-        return panel;
-    }
-
-    private static Control Tool(string tag, string label, bool selected, Action onClick, bool enabled = true)
-    {
-        var button = (OverlayActionButton)Row(label, "", null, enabled ? onClick : null);
-        button.Tag = tag;
-        button.MinWidth = 52;
-        button.Padding = new Thickness(6, 6);
-        button.Margin = new Thickness(0, 0, 8, 8);
-        button.Classes.Set("primary", selected);
-        return button;
     }
 
     // A compact color choice: the color itself, named for screen readers and as a tooltip, so the widths

@@ -67,7 +67,6 @@ public partial class OverlayWindow
     private static void RefreshDeviceValues(Control root, DeviceOverlaySnapshot snapshot,
         PerformanceOverlaySnapshot? performance)
     {
-        var temperature = DeviceTemperature(snapshot);
         Dictionary<(string?, string, string?), DeviceOverlayCapability>? published = null;
         // Materialized because a refresh may replace an editor inside the row it refreshes.
         foreach (var control in root.GetLogicalDescendants().ToArray())
@@ -76,7 +75,7 @@ public partial class OverlayWindow
             {
                 case DeviceCapabilityControl capability:
                     published ??= CapabilityRowRenderer.Index(snapshot.Capabilities);
-                    CapabilityRowRenderer.Refresh(capability, published, temperature);
+                    CapabilityRowRenderer.Refresh(capability, published, snapshot.FanTemperature);
                     break;
                 case DeviceSettingRow row:
                     RefreshHostSetting(row, snapshot);
@@ -100,14 +99,6 @@ public partial class OverlayWindow
     private static void RefreshHostSetting(DeviceSettingRow row, DeviceOverlaySnapshot snapshot)
     {
         var key = UnpinnedKey(row.Tag);
-        if (key == DeviceHostRowIds.GlyphSelection && snapshot.GlyphSelection is { } glyphs)
-        {
-            row.Refresh(
-                new CapabilityValue
-                    { Kind = CapabilityValueKind.Choice, ChoiceValue = ((int)snapshot.GlyphMode).ToString() },
-                glyphs.CanInvoke, glyphs.Description);
-        }
-
         if (snapshot.HostSelections.TryGetValue(key, out var selection))
         {
             var descriptor = HostDescriptor(snapshot, key);
@@ -139,6 +130,7 @@ public partial class OverlayWindow
             DeviceHostRowIds.AuthoredProfile => snapshot.AuthoredProfile,
             DeviceHostRowIds.LightingProfile => snapshot.LightingProfile,
             DeviceHostRowIds.Retry => snapshot.Recovery,
+            DeviceHostRowIds.GlyphSelection => snapshot.GlyphSelection,
             _ => null
         };
     }

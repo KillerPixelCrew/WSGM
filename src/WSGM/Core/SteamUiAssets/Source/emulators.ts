@@ -134,11 +134,11 @@ function ImportEmulatorPage({ context, state, tab }: any) {
           onChange:(option: any)=>option && void emulatorAct("setEmulatorShortcut",{
             installationId,enabled:option.data,launchMode:entry.steamShortcutLaunchMode ?? 2})}),
         renderSteamUiChoice(importUi, {label:"Launch mode",
-          rgOptions:[{data:2,label:"Input lease"},{data:0,label:"No lease"},{data:1,label:"De-elevate"},{data:3,label:"De-elevate + input lease"}],
+          rgOptions:(state.launchModes ?? []).map((mode: any)=>({data:mode.value,label:mode.label})),
           selectedOption:entry.steamShortcutLaunchMode ?? 2,disabled:progress.busy,
           onChange:(option: any)=>option && void emulatorAct("setEmulatorShortcut",{
             installationId,enabled:entry.steamShortcutEnabled !== false,launchMode:option.data})}),
-        h("p",{className:"steam-ui-kit-muted"},state.shortcutStatus || "Opens the current emulator installation. Input lease lets it read the controller directly."));
+        h("p",{className:"steam-ui-kit-muted"},state.shortcutStatus || "Opens the current emulator installation. With Give the game the controller, the emulator reads the controller directly."));
       const remove = () => showSteamUiConfirm(importUi,{
         title:entry.managed ? "Remove emulator?" : "Forget external installation?",
         confirmLabel:entry.managed ? "Remove" : "Forget",

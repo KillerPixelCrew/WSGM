@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using WindowsDeviceControl;
@@ -35,6 +36,18 @@ internal static class AudioPlaybackChoices
             .Where(format => format.Channels == current.Channels && format.ChannelMask == current.ChannelMask)
             .Select(format => new AudioPlaybackChoice(format, FormatLabel(format)))
             .ToArray();
+    }
+
+    /// <summary>Offers spatial sound off first, then each supported spatial format once.</summary>
+    /// <param name="supported">The endpoint's supported spatial formats; no new device queries are made.</param>
+    /// <returns>The choices every audio surface lists, with their display names.</returns>
+    internal static IReadOnlyList<SpatialAudioOption> Spatial(IReadOnlyList<Guid> supported)
+    {
+        return
+        [
+            .. new[] { CoreAudio.SpatialAudioFormats.Off }.Concat(supported).Distinct()
+                .Select(static format => new SpatialAudioOption(format, SpatialAudioNames.For(format)))
+        ];
     }
 
     private static string ChannelLabel(CoreAudio.AudioDeviceFormat format)

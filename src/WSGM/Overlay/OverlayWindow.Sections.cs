@@ -78,23 +78,7 @@ public partial class OverlayWindow
 
     private CollapsibleSection CreateFold(string key, string title, Control content, Control? action = null)
     {
-        var section = new CollapsibleSection(title, content, action)
-        {
-            IsExpanded = _session.ExpandedSections.Contains(key)
-        };
-        section.Heading.Tag = key + ".expand";
-        section.ExpansionChanged += expanded =>
-        {
-            if (expanded)
-            {
-                _session.ExpandedSections.Add(key);
-            }
-            else
-            {
-                _session.ExpandedSections.Remove(key);
-            }
-        };
-        return section;
+        return CollapsibleSection.Persisted(title, content, _session.ExpandedSections, key, key + ".expand", action);
     }
 
     private void FoldStaticSections()
@@ -277,11 +261,10 @@ public partial class OverlayWindow
             }
         }
 
-        var temperature = DeviceTemperature(snapshot);
         foreach (var capability in OrderDeviceCapabilities(section.Capabilities))
         {
             var key = (pinned ? PinTagPrefix : "") + DeviceRowKey(capability);
-            var row = CreateDeviceCapabilityRow(CapabilityRowRenderer.Present(capability), key, temperature);
+            var row = CreateDeviceCapabilityRow(capability, key, snapshot.FanTemperature);
             ToolTip.SetTip(row, capability.Description);
             CapabilityRowRenderer.AddRow(target, row,
                 !capability.Writable && capability.ValueKind != CapabilityValueKind.None

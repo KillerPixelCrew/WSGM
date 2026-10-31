@@ -168,13 +168,17 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                     DeviceHostRows.ProfileChoices(authored?.Profiles, "None")),
                 [DeviceHostRowIds.LightingProfile] = new(lighting?.Selected.Value ?? "",
                     DeviceHostRows.ProfileChoices(lighting?.Profiles,
-                        DeviceHostRows.LightingProfileEmptyLabel(_coordinator.Profiles.Current.EditsGame)))
+                        DeviceHostRows.LightingProfileEmptyLabel(_coordinator.Profiles.Current.EditsGame))),
+                [DeviceHostRowIds.GlyphSelection] = new(_coordinator.PhysicalGlyphSelection.ToString(),
+                    DeviceHostRows.GlyphChoices())
             },
             LightingProfile = lighting is { } colors
                 ? DeviceHostRows.LightingProfileView(colors.Profiles, colors.Selected,
                     _coordinator.Lighting.Detail, _coordinator.Lighting.Status)
                 : null,
-            GlyphMode = _coordinator.PhysicalGlyphSelection,
+            FanTemperature = _coordinator.FanCurves.Temperature().Celsius is { } celsius
+                ? (int)Math.Round(celsius)
+                : null,
             PluginSections = CapabilityRowProjection.ProjectSections(declaredSections),
             AutoTdpTarget = DeviceHostRows.AutoTdpTargetRow(
                 _coordinator.Power.AutoTdpEnabled,
@@ -230,15 +234,11 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 string.IsNullOrEmpty(value) ? null : value, cancellationToken),
             DeviceHostRowIds.LightingProfile => _coordinator.Lighting.SelectAsync(
                 string.IsNullOrEmpty(value) ? null : value, cancellationToken),
+            DeviceHostRowIds.GlyphSelection when Enum.TryParse<DeviceGlyphSelection>(value, out var glyphs)
+                                                 && Enum.IsDefined(glyphs) =>
+                _coordinator.SetPhysicalGlyphSelectionAsync(glyphs, cancellationToken),
             _ => Task.CompletedTask
         };
-    }
-
-    /// <inheritdoc />
-    public Task SetPhysicalGlyphSelectionAsync(DeviceGlyphSelection selection,
-        CancellationToken cancellationToken = default)
-    {
-        return _coordinator.SetPhysicalGlyphSelectionAsync(selection, cancellationToken);
     }
 
     /// <inheritdoc />

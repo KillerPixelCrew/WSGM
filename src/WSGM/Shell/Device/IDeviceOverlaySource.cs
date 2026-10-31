@@ -2,7 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Controls;
-using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
 using CanonicalControllerSample = LibHandheld.Contracts.CanonicalControllerSample;
 
@@ -57,12 +56,6 @@ internal interface IDeviceOverlaySource : IDisposable
     Task InvokeAsync(
         DeviceOverlayCapability capability,
         CancellationToken cancellationToken = default);
-
-    /// <summary>Persists the host's physical-button artwork policy and republishes presentation.</summary>
-    /// <param name="selection">Declared physical glyph policy.</param>
-    /// <param name="cancellationToken">Cancels configuration persistence or reconciliation.</param>
-    /// <returns>Completion after the requested host setting is applied; no device firmware is written.</returns>
-    Task SetPhysicalGlyphSelectionAsync(DeviceGlyphSelection selection, CancellationToken cancellationToken = default);
 
     /// <summary>Stores AutoTDP's frame-rate target in the layer in force.</summary>
     /// <param name="fps">The target the slider settled on.</param>

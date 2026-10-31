@@ -412,7 +412,7 @@
                     <Border Classes="device-group" IsVisible="{Binding #DeviceWindowsPower.IsVisible}">
                       <StackPanel x:Name="DeviceWindowsPower" Spacing="8">
                         <StackPanel x:Name="DevicePowerSchemeHeading" />
-                        <ov:PowerSchemeView x:Name="DevicePowerSchemeHost" />
+                        <ov:ChoiceRowView x:Name="DevicePowerSchemeHost" />
                       </StackPanel>
                     </Border>
                     <Border Classes="device-group" IsVisible="{Binding #ManualTdpHost.IsVisible}">
@@ -442,7 +442,7 @@
                              integration off. Hidden on a CPU with one kind of core. -->
               <Expander x:Name="DeviceHybridCores" Header="Processor cores" IsVisible="False"
                         HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Margin="0,12,0,0">
-                <ov:HybridCoreView x:Name="DeviceHybridCoreHost" />
+                <ov:ChoiceRowView x:Name="DeviceHybridCoreHost" />
               </Expander>
             </StackPanel>
 

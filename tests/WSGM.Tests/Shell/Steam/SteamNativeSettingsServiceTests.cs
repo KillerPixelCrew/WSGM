@@ -2,7 +2,6 @@ using System.Text.Json;
 using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Overlay;
 using WSGM.Shell;
 using WSGM.Tests.Builders;
 using WSGM.Testing;

@@ -276,19 +276,6 @@ public sealed class SoundsView : ServiceSubView
 
     private CollapsibleSection Section(string key, string title, Control body)
     {
-        var section = new CollapsibleSection(title, body) { IsExpanded = _expanded.Contains(key) };
-        section.Heading.Tag = key + ".expand";
-        section.ExpansionChanged += expanded =>
-        {
-            if (expanded)
-            {
-                _expanded.Add(key);
-            }
-            else
-            {
-                _expanded.Remove(key);
-            }
-        };
-        return section;
+        return CollapsibleSection.Persisted(title, body, _expanded, key, key + ".expand");
     }
 }

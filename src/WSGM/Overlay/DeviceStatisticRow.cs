@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using FluentAvalonia.UI.Controls;
+using WSGM.Shell;
 
 namespace WSGM.Overlay;
 

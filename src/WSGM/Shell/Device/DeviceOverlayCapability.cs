@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using System.Linq;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Overlay;
 
 namespace WSGM.Shell;
 

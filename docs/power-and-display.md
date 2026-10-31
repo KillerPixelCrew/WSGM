@@ -144,19 +144,20 @@ accepts it. No read follows the write, and a failed write never triggers a retry
 Windows remains authoritative through independent refreshes, including subsequent changes made by
 Settings or OEM tools. Native failures retain their error codes.
 
-Overlay → Device → Power offers a Windows power-profile dropdown, Apply and Refresh inside the
-Windows energy plan card, shown only once Windows has been read and enumerates more than one plan; a
-single plan is nothing to choose, and the card and its pin stay hidden. It stays available with
-Device Integration off. Choosing an entry stages it; only Apply writes Windows. The current scheme
-is read when the sheet opens, when Device is selected and on Refresh. Apply publishes its written
-selection. Duplicate names include their GUIDs. An unknown active scheme leaves the picker
-unselected; an empty or failed read disables Apply. A failed write keeps the published options
-available for another explicit attempt. QAM validates against its published option list and has no
-refresh-required write latch. Its first publication after an accepted write uses that value; later
-independent refreshes read Windows. Explicit display-timeout selections also write without a prior
-read and publish the accepted value. Preview mode allows reads only. Native calls run off the UI
-thread, and closing the overlay discards late UI updates. Idle-timeout selectors refresh after the
-active scheme is read.
+Overlay → Device → Power offers a Windows power-profile dropdown inside the Windows energy plan
+card, shown only once Windows has been read and enumerates more than one plan; a single plan is
+nothing to choose, and the card and its pin stay hidden. It stays available with Device Integration
+off. It draws the same row Steam's Quick Access does, from `NativeQamPowerProfileService`: the same
+options, selection and status line. A settled choice writes Windows at once, as on Steam; browsing
+an open dropdown commits nothing. The current scheme is read when the sheet opens and when Device is
+selected. The write publishes its selection. Duplicate names include their GUIDs. An unknown active
+scheme leaves the picker unselected; an empty or failed read disables it. A failed write keeps the
+published options available for another explicit attempt. QAM validates against its published option
+list and has no refresh-required write latch. Its first publication after an accepted write uses
+that value; later independent refreshes read Windows. Explicit display-timeout selections also write
+without a prior read and publish the accepted value. Preview mode allows reads only. Native calls
+run off the UI thread, and closing the overlay discards late UI updates. Idle-timeout selectors
+refresh after the active scheme is read.
 
 WSGM saves no copy of the selection: Windows keeps the active scheme, and WSGM never reapplies one
 at startup, config reload or a session transition. Timeout edits and scheme selection share one

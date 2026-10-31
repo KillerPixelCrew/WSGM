@@ -77,9 +77,8 @@ public sealed partial class AnimationsView
 
         if (browse.Items.Count < browse.Matched)
         {
-            body.Children.Add(Tagged(
-                Row("Load more", $"{browse.Items.Count} of {browse.Matched}", Icons.ArrowDown,
-                    browse.Loading ? null : () => Run(_browser!.BrowseMoreAsync)), "load-more"));
+            body.Children.Add(PagedRows.More("load-more", $"{browse.Items.Count} of {browse.Matched}",
+                browse.Loading ? null : () => Run(_browser!.BrowseMoreAsync)));
         }
     }
 

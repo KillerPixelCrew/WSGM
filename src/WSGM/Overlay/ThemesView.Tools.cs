@@ -69,8 +69,8 @@ public sealed partial class ThemesView
 
         if (browse.Items.Count < browse.Total)
         {
-            body.Children.Add(Tagged(Row("Load more", $"{browse.Items.Count} of {browse.Total}", Icons.ArrowDown,
-                browse.Loading ? null : () => Run(_browser!.LoadMoreAsync)), "load-more"));
+            body.Children.Add(PagedRows.More("load-more", $"{browse.Items.Count} of {browse.Total}",
+                browse.Loading ? null : () => Run(_browser!.LoadMoreAsync)));
         }
     }
 

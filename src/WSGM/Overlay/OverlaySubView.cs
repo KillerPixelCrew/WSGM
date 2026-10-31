@@ -285,7 +285,7 @@ public abstract partial class OverlaySubView : UserControl
         // has to land BEFORE anything re-renders or the user sees the old text. The keyboard
         // surface pushes no navigation level, so this re-renders the
         // current level itself instead of relying on a pop to do it.
-        if (TopLevel.GetTopLevel(this) is OverlayWindow window && window.RequestText(title, current, maxLen, v =>
+        if (OverlayWindow.RequestTextFor(this, title, current, maxLen, v =>
             {
                 onAccept(v);
                 CurrentLevel?.Invoke();

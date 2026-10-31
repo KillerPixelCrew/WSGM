@@ -42,6 +42,7 @@ public sealed class ShellSession
     private readonly DisplayTimeouts _displayTimeouts;
 
     private readonly GameModeEntryBackend _entryBackend;
+    private readonly NativeQamHybridCoreService _hybridCores;
     private readonly IntegrationServices _integrations;
     private readonly LibraryServices _library;
     private readonly PerformanceServices _performance;
@@ -118,6 +119,7 @@ public sealed class ShellSession
         _steamInput = steamInput ?? throw new ArgumentNullException(nameof(steamInput));
         _displayTimeouts = new DisplayTimeouts(_power.Timeouts);
         _powerProfiles = new NativeQamPowerProfileService(_power.Schemes);
+        _hybridCores = new NativeQamHybridCoreService(_power.HybridCores);
         _verboseLogging = verboseLogging;
         _integrations = new IntegrationServices(_state);
         // Overlay-test keeps profile edits in memory: it is a safe UI mode and must never rewrite the
@@ -568,7 +570,8 @@ public sealed class ShellSession
                 Notes: _tools.Notes,
                 Screensavers: _tools.Screensavers,
                 Browser: _tools.Browser,
-                GameTools: _library.GameTools),
+                GameTools: _library.GameTools,
+                HybridCores: _hybridCores),
             _system.Audio,
             _system.AudioProfiles,
             _system.Radios,
@@ -753,7 +756,7 @@ public sealed class ShellSession
                          ?? throw new InvalidOperationException("Brightness was not created."),
             Folds = new QuickAccessFolds(_state.Store.Context),
             PowerProfiles = _powerProfiles,
-            HybridCores = new NativeQamHybridCoreService(_power.HybridCores),
+            HybridCores = _hybridCores,
             DeviceCoordinator = _integrations.Device,
             PerfSupport = _performance.ReadNativeQamPerfSupport,
             ApplyRefreshRate = _performance.ApplyManualRefreshRate,

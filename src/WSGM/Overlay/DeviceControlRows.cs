@@ -115,26 +115,11 @@ internal static class DeviceControlRows
         Action<string> onCommit)
     {
         ArgumentNullException.ThrowIfNull(onCommit);
-        var draft = text ?? string.Empty;
-        var editor = new Button { Content = string.IsNullOrEmpty(draft) ? "Edit" : draft, IsEnabled = enabled };
-        var row = new DeviceSettingRow(key, title, string.Empty, editor, value =>
-        {
-            draft = value?.TextValue ?? string.Empty;
-            editor.Content = string.IsNullOrEmpty(draft) ? "Edit" : draft;
-        });
-        editor.Click += (_, _) =>
-        {
-            if (TopLevel.GetTopLevel(editor) is not OverlayWindow window
-                || !window.RequestText(title, draft, maximumLength ?? 0, value =>
-                {
-                    draft = value;
-                    editor.Content = value;
-                    onCommit(value);
-                }))
-            {
-                row.Description = "Keyboard unavailable. Reopen the overlay to retry.";
-            }
-        };
+        DeviceSettingRow? row = null;
+        var editor = new PressToEditButton(title, text, maximumLength ?? 0, "Edit", onCommit,
+            () => row!.Description = "Keyboard unavailable. Reopen the overlay to retry.") { IsEnabled = enabled };
+        row = new DeviceSettingRow(key, title, string.Empty, editor,
+            value => editor.Text = value?.TextValue ?? string.Empty);
         return row;
     }
 

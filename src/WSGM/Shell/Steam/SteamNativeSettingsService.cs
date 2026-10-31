@@ -10,7 +10,6 @@ using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
-using WSGM.Overlay;
 
 namespace WSGM.Shell;
 
@@ -176,7 +175,7 @@ internal sealed partial class SteamNativeSettingsService(
         // The backends are independent, so their reads run together and each page awaits its own.
         // A default read completes with nothing, which omits the rows of an owner that does not exist.
         var lightRead = brightness.ReadAsync();
-        var presetsRead = ReadPowerPresetsAsync(coordinator?.Power.PowerPresets, coordinator?.Power.PowerAssignments);
+        var presetsRead = PowerPresetRows.ReadAsync(coordinator?.Power.PowerPresets, coordinator?.Power.PowerAssignments);
         var schemesRead = powerProfiles.ReadAsync();
         var boostRead = cpuBoost is null ? default : ReadCpuBoostAsync(cpuBoost, profiles);
         var coresRead = hybridCores.ReadAsync();

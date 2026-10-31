@@ -25,12 +25,13 @@ public sealed class LaunchWrapperView : ServiceSubView
     // A full Steam library is one ActionButton per title in a non-virtualizing
     // host, so it is paged the way LibraryTabsView's multi-select is: laying out
     // a 1000+ title account in one pass stalls the overlay's UI thread.
-    private const int PageSize = 200;
+    private const int Chunk = 200;
     private string _customArguments = "";
     private SteamLibraryApp? _customGame;
 
     private string? _customPath;
     private IReadOnlyList<SteamLibraryApp> _games = [];
+    private int _gamesShown;
     private LaunchActionService? _actions;
     private SteamLibraryApp? _actionGame;
     private LaunchActionState? _state;
@@ -328,14 +329,12 @@ public sealed class LaunchWrapperView : ServiceSubView
         }
 
         _games = games;
-        Replace(() => RenderGamePage(heading, 0));
+        _gamesShown = Chunk;
+        Replace(() => RenderGamePage(heading));
     }
 
-    private void RenderGamePage(string heading, int page)
+    private void RenderGamePage(string heading)
     {
-        var pageCount = Math.Max(1, (_games.Count + PageSize - 1) / PageSize);
-        page = Math.Clamp(page, 0, pageCount - 1);
-        var current = page;
         var stack = NewStack(heading);
         if (_games.Count == 0)
         {
@@ -347,20 +346,10 @@ public sealed class LaunchWrapperView : ServiceSubView
         {
             stack.Children.Add(Caption(
                 "Choose a game, or open one in Steam and use this panel from its page."));
-            if (pageCount > 1)
-            {
-                stack.Children.Add(Caption($"Page {page + 1} of {pageCount} · {_games.Count} games"));
-                if (page > 0)
-                {
-                    stack.Children.Add(Row("Previous page", "", Icons.Restart,
-                        () => Replace(() => RenderGamePage(heading, current - 1))));
-                }
-            }
-
-            foreach (var game in _games.Skip(page * PageSize).Take(PageSize))
+            foreach (var game in _games.Take(_gamesShown))
             {
                 var g = game;
-                stack.Children.Add(Row(
+                stack.Children.Add(Tagged(Row(
                     g.Name,
                     g.Shortcut ? "Non-Steam shortcut" : "",
                     Icons.SteamLike,
@@ -374,18 +363,21 @@ public sealed class LaunchWrapperView : ServiceSubView
                         {
                             Picked?.Invoke(g);
                         }
+                    }), "game:" + g.AppId));
+            }
+
+            if (_games.Count > _gamesShown)
+            {
+                stack.Children.Add(PagedRows.More(this, "games.more", $"{_gamesShown} of {_games.Count}",
+                    "game:" + _games[_gamesShown].AppId, () =>
+                    {
+                        _gamesShown += Chunk;
+                        Replace(() => RenderGamePage(heading));
                     }));
             }
         }
 
         stack.Children.Add(SectionLabel(""));
-        if (page + 1 < pageCount)
-        {
-            stack.Children.Add(Row("Next page",
-                $"Games {(page + 1) * PageSize + 1}–{Math.Min(_games.Count, (page + 2) * PageSize)}",
-                Icons.Play, () => Replace(() => RenderGamePage(heading, current + 1))));
-        }
-
         stack.Children.Add(Row("Back", "Cancel", Icons.ExitFullscreen, () => Back()));
         SetContent(stack);
     }

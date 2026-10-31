@@ -55,7 +55,7 @@ public sealed class DevicePowerAssignmentsTests
         Assert.Equal(writes, rig.Device.Calls.Count);
         await assignments.ReconcileAsync(CancellationToken.None);
         Assert.Equal(1, rig.Saves);
-        var qam = (await SteamNativeSettingsService.ReadPowerPresetsAsync(presets, assignments))!;
+        var qam = (await PowerPresetRows.ReadAsync(presets, assignments))!;
         Assert.Equal("custom", ac ? qam.Ac : qam.Battery);
         Assert.Contains(qam.Options, item => item is { Id: "custom", Label: "Custom" });
 
@@ -322,12 +322,12 @@ public sealed class DevicePowerAssignmentsTests
         var qamPresets = rig.Device.Create();
         DevicePowerAssignments? qamAssignments = assignments;
         Assert.True(assignments.Snapshot().IsGlobal);
-        Assert.Equal("Manual selection", (await SteamNativeSettingsService.ReadPowerPresetsAsync(qamPresets, qamAssignments))!.UnsetLabel);
+        Assert.Equal("Manual selection", (await PowerPresetRows.ReadAsync(qamPresets, qamAssignments))!.UnsetLabel);
         rig.Application = "steam:42";
         rig.Config.Games.Add(new GameProfile
             { Id = rig.Application, Enabled = true });
         Assert.False(assignments.Snapshot().IsGlobal);
-        Assert.Equal("Use global assignment", (await SteamNativeSettingsService.ReadPowerPresetsAsync(qamPresets, qamAssignments))!.UnsetLabel);
+        Assert.Equal("Use global assignment", (await PowerPresetRows.ReadAsync(qamPresets, qamAssignments))!.UnsetLabel);
     }
 
     [Theory]
@@ -399,18 +399,18 @@ public sealed class DevicePowerAssignmentsTests
         var assignments = rig.Create();
         var qamPresets = rig.Device.Create();
         DevicePowerAssignments? qamAssignments = assignments;
-        Assert.True((await SteamNativeSettingsService.AssignPresetAsync(qamAssignments, false, "balanced", CancellationToken.None)).Succeeded);
+        Assert.True((await PowerPresetRows.AssignAsync(qamAssignments, false, "balanced", CancellationToken.None)).Succeeded);
         Assert.Equal("balanced", rig.Config.Global.BatteryPowerPreset?.PresetId);
         Assert.Empty(rig.Device.Calls);
-        var state = (await SteamNativeSettingsService.ReadPowerPresetsAsync(qamPresets, qamAssignments))!;
+        var state = (await PowerPresetRows.ReadAsync(qamPresets, qamAssignments))!;
         Assert.Equal("", state.Ac);
         Assert.Equal("balanced", state.Battery);
         Assert.DoesNotContain(state.Options, option => option.Id == "custom");
-        Assert.True((await SteamNativeSettingsService.AssignPresetAsync(qamAssignments, true, "extreme", CancellationToken.None)).Succeeded);
+        Assert.True((await PowerPresetRows.AssignAsync(qamAssignments, true, "extreme", CancellationToken.None)).Succeeded);
         Assert.Equal(2, rig.Device.Calls.Count);
-        Assert.True((await SteamNativeSettingsService.AssignPresetAsync(qamAssignments, true, null, CancellationToken.None)).Succeeded);
+        Assert.True((await PowerPresetRows.AssignAsync(qamAssignments, true, null, CancellationToken.None)).Succeeded);
         Assert.Null(rig.Config.Global.AcPowerPreset);
-        Assert.False((await SteamNativeSettingsService.AssignPresetAsync(qamAssignments, false, "missing", CancellationToken.None)).Succeeded);
+        Assert.False((await PowerPresetRows.AssignAsync(qamAssignments, false, "missing", CancellationToken.None)).Succeeded);
     }
 
     [Fact]

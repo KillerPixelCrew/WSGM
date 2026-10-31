@@ -80,7 +80,7 @@ public partial class OverlayWindow : Window
 
     private long _glyphInputKey;
     private IDisposable? _glyphInputObservation;
-    private HybridCoreSelection? _hybridCoreSelection;
+    private ChoiceRowSelection? _hybridCoreSelection;
     private int _liveRefreshScheduled;
 
     // Renders wait for the window to open, and OnOpened runs each once. Each source attached while
@@ -91,7 +91,7 @@ public partial class OverlayWindow : Window
 
     private PerformanceOverlayBridge? _performanceSource;
     private CommonPluginOverlaySource? _pluginSource;
-    private PowerSchemeSelection? _powerSchemeSelection;
+    private ChoiceRowSelection? _powerSchemeSelection;
     private OverlayPage? _renderedDevicePage;
     private string? _renderedDeviceSection;
 

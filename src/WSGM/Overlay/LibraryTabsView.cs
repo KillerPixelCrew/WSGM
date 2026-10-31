@@ -25,6 +25,9 @@ namespace WSGM.Overlay;
 /// </summary>
 public sealed class LibraryTabsView : ServiceSubView
 {
+    // How many entries a tag or game picker adds per Load more.
+    private const int MultiSelectChunk = 200;
+
     // ---- Level: filter type picker ----
 
     // The service's table, so both surfaces offer the same kinds in the same order.
@@ -41,6 +44,9 @@ public sealed class LibraryTabsView : ServiceSubView
     // ---- Level: tab editor ----
 
     private CustomTabConfig? _editingOriginal;
+
+    // The entries the open tag or game picker shows, kept while a toggle redraws it.
+    private int _multiSelectShown;
 
     private FilterNode? _replacingFilter;
     private LibraryManagerService? _service;
@@ -625,6 +631,7 @@ public sealed class LibraryTabsView : ServiceSubView
         var selected = new HashSet<long>(node.TagIds.Select(static id => (long)id));
         // A new level over the loading message, drawn afresh rather than reconciled into it.
         NavigationGeneration++;
+        _multiSelectShown = MultiSelectChunk;
         Replace(() => RenderMultiSelect("Tags", tags.Select(t => ((long)t.TagId, $"{t.Name} ({t.Count})")),
             selected, () =>
             {
@@ -658,6 +665,7 @@ public sealed class LibraryTabsView : ServiceSubView
         // Ids compare unsigned, so a shortcut saved signed by an older build still shows as selected.
         var selected = new HashSet<long>(node.AppIds.Select(static id => (long)SteamApps.NormalizeAppId(id)));
         NavigationGeneration++;
+        _multiSelectShown = MultiSelectChunk;
         Replace(() => RenderMultiSelect("Games", games.Select(g => (g.AppId, g.Name)), selected, () =>
         {
             node.AppIds = [.. selected];
@@ -716,33 +724,17 @@ public sealed class LibraryTabsView : ServiceSubView
     }
 
     private void RenderMultiSelect(string title, IEnumerable<(long Id, string Label)> items,
-        HashSet<long> selected, Action onDone, int page = 0)
+        HashSet<long> selected, Action onDone)
     {
-        const int pageSize = 200;
         var all = items.ToList();
-        var pageCount = Math.Max(1, (all.Count + pageSize - 1) / pageSize);
-        page = Math.Clamp(page, 0, pageCount - 1);
         var stack = NewStack(title);
         stack.Children.Add(PrimaryRow("Done", $"{selected.Count} selected", Icons.Play, onDone));
-        if (pageCount > 1)
-        {
-            var currentPage = page;
-            stack.Children.Add(Row($"Page {page + 1} of {pageCount}", $"{all.Count} entries · previous",
-                Icons.Restart, page > 0 ? () => ShowPage(currentPage - 1) : null));
-            if (page + 1 < pageCount)
-            {
-                stack.Children.Add(Row("Next page",
-                    $"Entries {(page + 1) * pageSize + 1}–{Math.Min(all.Count, (page + 2) * pageSize)}",
-                    Icons.Play, () => ShowPage(currentPage + 1)));
-            }
-        }
-
-        foreach (var (id, label) in all.Skip(page * pageSize).Take(pageSize))
+        foreach (var (id, label) in all.Take(_multiSelectShown))
         {
             var itemId = id;
             var check = selected.Contains(itemId) ? "✓ " : "";
             // The level redraws in place, so the row and the Done count show the new selection.
-            stack.Children.Add(Row(check + label, "", null, () =>
+            stack.Children.Add(Tagged(Row(check + label, "", null, () =>
             {
                 if (!selected.Add(itemId))
                 {
@@ -750,18 +742,20 @@ public sealed class LibraryTabsView : ServiceSubView
                 }
 
                 CurrentLevel?.Invoke();
-            }));
+            }), "select:" + itemId));
+        }
+
+        if (all.Count > _multiSelectShown)
+        {
+            stack.Children.Add(PagedRows.More(this, "select.more", $"{_multiSelectShown} of {all.Count}",
+                "select:" + all[_multiSelectShown].Id, () =>
+                {
+                    _multiSelectShown += MultiSelectChunk;
+                    CurrentLevel?.Invoke();
+                }));
         }
 
         SetContent(stack);
-        return;
-
-        // Another page is drawn afresh, starting on Done, rather than reconciled into this one.
-        void ShowPage(int next)
-        {
-            NavigationGeneration++;
-            Replace(() => RenderMultiSelect(title, all, selected, onDone, next));
-        }
     }
 
     // ---- Tab-side builders ----

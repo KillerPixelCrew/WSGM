@@ -195,12 +195,11 @@ public sealed partial class GameLibraryView
         if (entries.Length > _shown)
         {
             var added = (_grid ? "item:" : "entry:") + entries[_shown].Id;
-            body.Children.Add(Tagged(Row("Load more", $"{_shown} of {entries.Length}", Icons.ArrowDown, () =>
+            body.Children.Add(PagedRows.More(this, "review.more", $"{_shown} of {entries.Length}", added, () =>
             {
                 _shown += 48;
                 RenderReview(importedOnly);
-                PagedRows.FocusAdded(this, added);
-            }), "review.more"));
+            }));
         }
 
         if (entries.Length == 0)
@@ -381,12 +380,11 @@ public sealed partial class GameLibraryView
         if (state.Entries.Where(entry => entry.Selected).Skip(_shown).FirstOrDefault() is { } next)
         {
             var added = "item:" + next.Id + ":" + Assets[0].Id;
-            body.Children.Add(Tagged(Row("Load more titles", "", Icons.ArrowDown, () =>
+            body.Children.Add(PagedRows.More(this, "all.more", "", added, () =>
             {
                 _shown += 48;
                 RenderAllArtwork();
-                PagedRows.FocusAdded(this, added);
-            }), "all.more"));
+            }, title: "Load more titles"));
         }
 
         body.Children.Add(Tagged(PrimaryRow($"Apply {state.SelectedCount}", "Save selected changes", Icons.Play,

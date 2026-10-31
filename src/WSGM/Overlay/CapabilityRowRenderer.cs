@@ -3,7 +3,6 @@ using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Labs.Panels;
 using Avalonia.LogicalTree;
-using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -38,16 +37,6 @@ internal static class CapabilityRowRenderer
                && current.SameLayoutAs(seen)
             ? current
             : null;
-    }
-
-    /// <summary>The row as the overlay presents it.</summary>
-    /// <param name="capability">Published capability to label for the Overlay.</param>
-    /// <returns>A copy labelled Firmware power mode for scenario controls, otherwise the original value.</returns>
-    internal static DeviceOverlayCapability Present(DeviceOverlayCapability capability)
-    {
-        return capability.Role == CapabilityRole.ScenarioMode
-            ? capability with { Title = "Firmware power mode" }
-            : capability;
     }
 
     /// <summary>
@@ -115,7 +104,7 @@ internal static class CapabilityRowRenderer
     {
         if (published.TryGetValue((view.GpuPluginId, view.CapabilityId, view.InstanceId), out var current))
         {
-            view.Refresh(Present(current), marker);
+            view.Refresh(current, marker);
         }
     }
 }

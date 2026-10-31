@@ -65,6 +65,22 @@ public partial class OverlayWindow
         return RequestText(prompt, initial, maxLength, onAccept, false, null);
     }
 
+    /// <summary>Opens the keyboard of the overlay window that hosts a control.</summary>
+    /// <param name="owner">A control in the overlay window.</param>
+    /// <param name="prompt">Accessible field label.</param>
+    /// <param name="initial">Text copied into the editor.</param>
+    /// <param name="maxLength">Character limit, or zero for no explicit limit.</param>
+    /// <param name="onAccept">UI-thread callback invoked once with accepted text; cancellation does not invoke it.</param>
+    /// <param name="multiline">Whether Enter starts a new line instead of accepting.</param>
+    /// <param name="changed">UI-thread callback with the text after every edit, or null.</param>
+    /// <returns>True when a keyboard was created; false outside an overlay window or after it closed.</returns>
+    internal static bool RequestTextFor(Control owner, string prompt, string initial, int maxLength,
+        Action<string> onAccept, bool multiline = false, Action<string>? changed = null)
+    {
+        return GetTopLevel(owner) is OverlayWindow window
+               && window.RequestText(prompt, initial, maxLength, onAccept, multiline, changed);
+    }
+
     /// <summary>Opens the local keyboard surface for a single-line or multiline field.</summary>
     /// <param name="prompt">Accessible field label.</param>
     /// <param name="initial">Text copied into the editor.</param>

@@ -1,4 +1,4 @@
-namespace WSGM.Overlay;
+namespace WSGM.Shell;
 
 /// <summary>Semantic presentation state shared by descriptor-driven overlay rows.</summary>
 internal enum DescriptorStatus

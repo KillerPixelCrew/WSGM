@@ -5,7 +5,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
-using WSGM.Overlay;
 
 namespace WSGM.Shell;
 
@@ -628,7 +627,9 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     {
         var (minimum, maximum, fromPanel) =
             PerformanceProjection.FrameLimitBounds(capabilities, _panelFrameLimitRange());
-        return fromPanel ? new DescriptorRange(0, maximum, 1, minimum) : new DescriptorRange(minimum, maximum, 1);
+        return fromPanel
+            ? new DescriptorRange(0, maximum, Step: 1, Unit: "FPS", OffBelow: minimum)
+            : new DescriptorRange(minimum, maximum, Step: 1, Unit: "FPS");
     }
 
     /// <summary>The named notches this RTSS build accepts, in order.</summary>

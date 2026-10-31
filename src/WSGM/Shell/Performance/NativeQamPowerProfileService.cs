@@ -9,8 +9,9 @@ using WSGM.Core;
 namespace WSGM.Shell;
 
 /// <summary>
-///     The session's Windows power-profile workflow for Steam and the overlay. Accepted writes are published first;
-///     independent refreshes read Windows. The installed list is cached briefly and writes are not retried.
+///     The session's Windows power-profile workflow; Steam and the overlay both draw its row. Accepted writes are
+///     published first; independent refreshes read Windows. The installed list is cached briefly and writes are not
+///     retried.
 /// </summary>
 internal sealed class NativeQamPowerProfileService
 {
@@ -69,7 +70,7 @@ internal sealed class NativeQamPowerProfileService
     /// <returns>Completion once Windows accepted the selection.</returns>
     /// <exception cref="InvalidOperationException">The GUID is not offered or Windows selection failed.</exception>
     /// <exception cref="OperationCanceledException">Cancellation was observed before the write.</exception>
-    internal Task SelectAsync(Guid id, CancellationToken cancellationToken)
+    private Task SelectAsync(Guid id, CancellationToken cancellationToken)
     {
         return Task.Run(() =>
         {
@@ -105,36 +106,7 @@ internal sealed class NativeQamPowerProfileService
         }, cancellationToken);
     }
 
-    /// <summary>Refreshes the overlay's list and active GUID without selecting or persisting anything.</summary>
-    /// <param name="cancellationToken">Cancels admission before the synchronous worker reads.</param>
-    /// <returns>
-    ///     Installed schemes and active GUID; an active-read failure retains the options with null Active and its error
-    ///     detail.
-    /// </returns>
-    /// <remarks>Enumeration failures fault the task. This forces a list refresh, bypassing the Steam cache interval.</remarks>
-    internal Task<(IReadOnlyList<PowerScheme> Items, Guid? Active, string? Detail)> ReadSchemesAsync(
-        CancellationToken cancellationToken)
-    {
-        return Task.Run<(IReadOnlyList<PowerScheme> Items, Guid? Active, string? Detail)>(() =>
-        {
-            lock (_sync)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var items = RefreshSchemes();
-                try
-                {
-                    return (items, _schemes.ReadActive(), null);
-                }
-                catch (Exception ex)
-                {
-                    // An unreadable active GUID does not prevent an explicit selection of an installed plan.
-                    return (items, null, ex.Message);
-                }
-            }
-        }, cancellationToken);
-    }
-
-    private IReadOnlyList<PowerScheme> RefreshSchemes()
+    private void RefreshSchemes()
     {
         var schemes = _schemes.Enumerate();
         Dictionary<string, int> nameCounts = new(StringComparer.Ordinal);
@@ -154,7 +126,6 @@ internal sealed class NativeQamPowerProfileService
         ];
         _refreshAfter = _timeProvider.GetUtcNow() + SchemeRefreshInterval;
         _refreshRequested = false;
-        return schemes;
     }
 
     /// <summary>Publishes one accepted selection without readback, then resumes independent state reads.</summary>

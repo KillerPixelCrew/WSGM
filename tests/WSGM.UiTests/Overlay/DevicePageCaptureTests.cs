@@ -67,7 +67,10 @@ public sealed class DevicePageCaptureTests
                 graphics.VariableRefreshRow(ids)
             ],
             PluginSections = CapabilityRowProjection.ProjectSections(sections),
-            Recovery = null
+            Recovery = null,
+            // The bridge publishes the temperature the fan loop follows; here, the handheld's own sensor.
+            FanTemperature = views.FirstOrDefault(view => view.Descriptor.CapabilityId == CapabilityIds.Temperature)
+                ?.Projection.State.ObservedValue?.IntegerValue
         };
         using FakeDevice device = new();
         device.SampleSource = hostControls;
@@ -98,7 +101,7 @@ public sealed class DevicePageCaptureTests
             (_, _, _) => throw new InvalidOperationException("Unexpected assignment save"));
         using DevicePowerPresetSelection selection = new(presets, false, assignments);
         await selection.RefreshAsync();
-        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower())));
+        using var schemes = UiFixture.PowerProfiles(new FakePower());
         await schemes.RefreshAsync();
         var window = fixture.Overlay(width, height);
         window.AttachDeviceBridge(device);

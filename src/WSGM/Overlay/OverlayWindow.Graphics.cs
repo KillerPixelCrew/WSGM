@@ -192,7 +192,7 @@ public partial class OverlayWindow
         foreach (var capability in capabilities)
         {
             var key = (pinned ? PinTagPrefix : "") + GraphicsRowKey(capability);
-            var row = CreateGraphicsCapabilityRow(CapabilityRowRenderer.Present(capability), key);
+            var row = CreateGraphicsCapabilityRow(capability, key);
             CapabilityRowRenderer.AddRow(target, row,
                 !capability.Writable && !capability.SupportsAction && capability.ValueKind != CapabilityValueKind.None
                     ? 160

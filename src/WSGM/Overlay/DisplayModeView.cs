@@ -6,6 +6,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Templates;
 using Avalonia.Layout;
 using WindowsDeviceControl;
+using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Interop;
 
@@ -55,24 +56,18 @@ internal sealed class DisplayModeView : StackPanel
         Children.Add(Selector("Resolution", _resolution));
         Children.Add(Selector("Refresh rate", _refresh));
         _refresh.ItemTemplate = new FuncDataTemplate<int>((hz, _) => new TextBlock { Text = $"{hz} Hz" });
-        _resolution.SelectionChanged += async (_, _) =>
+        // Browsing resolutions shows each one's rates; before the commit rule, so a settled resolution applies
+        // with the rate it lists.
+        _resolution.SelectionChanged += (_, _) =>
         {
             if (!_synchronizing)
             {
                 UpdateRates();
-                if (!_resolution.IsDropDownOpen)
-                {
-                    await ApplyAsync();
-                }
             }
         };
-        _refresh.SelectionChanged += async (_, _) =>
-        {
-            if (!_synchronizing && !_refresh.IsDropDownOpen)
-            {
-                await ApplyAsync();
-            }
-        };
+        ComboCommit.Attach<string>(_resolution, () => _synchronizing, chosen => _ = ApplyAsync());
+        ComboCommit.Attach<object>(_refresh, () => _synchronizing, chosen => _ = ApplyAsync());
+        // After the commit rule, so a closing dropdown applies before a deferred re-read.
         _resolution.DropDownClosed += async (_, _) => await OnDropDownClosedAsync();
         _refresh.DropDownClosed += async (_, _) => await OnDropDownClosedAsync();
         AttachedToVisualTree += (_, _) =>
@@ -112,7 +107,6 @@ internal sealed class DisplayModeView : StackPanel
 
     private async Task OnDropDownClosedAsync()
     {
-        await ApplyAsync();
         if (_changedWhileOpen && !_resolution.IsDropDownOpen && !_refresh.IsDropDownOpen)
         {
             _changedWhileOpen = false;

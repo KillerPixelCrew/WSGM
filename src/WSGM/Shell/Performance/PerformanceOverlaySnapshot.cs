@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace WSGM.Overlay;
+namespace WSGM.Shell;
 
 /// <summary>A bounded shared-performance snapshot for one overlay projection.</summary>
 /// <param name="Visible">Whether the performance section is available for presentation.</param>

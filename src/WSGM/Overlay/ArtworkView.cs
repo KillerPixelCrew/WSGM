@@ -174,9 +174,8 @@ public sealed class ArtworkView : ServiceSubView
 
             if (state.HasMore)
             {
-                body.Children.Add(Tagged(
-                    Row("Load more", "", Icons.ArrowDown, state.Loading ? null : () => Run(_source.LoadMoreAsync)),
-                    "more"));
+                body.Children.Add(PagedRows.More("more", "",
+                    state.Loading ? null : () => Run(_source.LoadMoreAsync)));
             }
         }
 

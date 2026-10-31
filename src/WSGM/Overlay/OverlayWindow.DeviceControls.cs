@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
@@ -83,30 +82,5 @@ public partial class OverlayWindow
             await RunCommandAsync(bridge, "Device capability action",
                 (source, token) => source.InvokeAsync(current, token));
         }, temperature, UseGlobalOnDevice);
-    }
-
-    /// <summary>The device's first Celsius reading, which places the fan curve's marker.</summary>
-    private static int? DeviceTemperature(DeviceOverlaySnapshot snapshot)
-    {
-        return snapshot.Capabilities.FirstOrDefault(capability =>
-                capability.Role == CapabilityRole.Telemetry && capability.Unit == CapabilityUnit.Celsius)?.CurrentValue
-            ?.IntegerValue;
-    }
-
-    private DeviceSettingRow CreateGlyphSelectionRow(DescriptorRow descriptor, DeviceGlyphSelection selected)
-    {
-        return DeviceControlRows.Choice(descriptor.Id, descriptor.Title, descriptor.Description,
-            Enum.GetValues<DeviceGlyphSelection>().Select(value => new CapabilityChoice(((int)value).ToString(),
-                new CapabilityDisplay
-                {
-                    Key = DisplayKey.Custom, CustomLabel = value switch
-                    {
-                        DeviceGlyphSelection.Automatic => "Automatic",
-                        DeviceGlyphSelection.NativeSteam => "Steam native",
-                        _ => "Reviewed device profile"
-                    }
-                })).ToArray(), ((int)selected).ToString(), descriptor.CanInvoke,
-            value => _ = RunCommandAsync(_deviceBridge, "Glyph selection", (source, token) =>
-                source.SetPhysicalGlyphSelectionAsync((DeviceGlyphSelection)int.Parse(value), token)));
     }
 }

@@ -5,7 +5,6 @@ using System.Text.Json;
 using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Serialization;
-using WSGM.Overlay;
 using WSGM.Shell;
 using WSGM.Tests.Builders;
 

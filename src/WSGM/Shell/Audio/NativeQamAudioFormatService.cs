@@ -113,11 +113,8 @@ internal sealed class NativeQamAudioFormatService : IDisposable
             .Select(choice => new ChoiceRowOption(FormatId(choice.Format), choice.Label)).ToArray();
         var formats = AudioPlaybackChoices.Formats(capabilities)
             .Select(choice => new ChoiceRowOption(FormatId(choice.Format), choice.Label)).ToArray();
-        var spatial = new[] { CoreAudio.SpatialAudioFormats.Off }
-            .Concat(capabilities.SupportedSpatialFormats)
-            .Distinct()
-            .Select(static format =>
-                new ChoiceRowOption(format.ToString(), SpatialAudioNames.For(format)))
+        var spatial = AudioPlaybackChoices.Spatial(capabilities.SupportedSpatialFormats)
+            .Select(static option => new ChoiceRowOption(option.Format.ToString(), option.Name))
             .ToArray();
         _offered = new Offered(
             capabilities.EndpointId,

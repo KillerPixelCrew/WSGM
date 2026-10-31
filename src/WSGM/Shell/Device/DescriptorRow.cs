@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace WSGM.Overlay;
+namespace WSGM.Shell;
 
 /// <summary>Immutable, presentation-only content for a descriptor-driven overlay row.</summary>
 /// <param name="Id">Stable semantic identity shared by placements and command routing.</param>

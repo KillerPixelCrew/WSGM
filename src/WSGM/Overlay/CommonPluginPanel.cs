@@ -316,21 +316,8 @@ internal sealed class CommonPluginPanel : StackPanel
                 AddContribution(content, instance, owner, contribution);
             }
 
-            var section = new CollapsibleSection(title, content);
             var foldId = "plugin." + instance.Identity.PluginId + "." + instance.Identity.InstanceId + "." + group.Key;
-            section.IsExpanded = _folds.Contains(foldId);
-            section.Heading.Tag = foldId;
-            section.ExpansionChanged += expanded =>
-            {
-                if (expanded)
-                {
-                    _folds.Add(foldId);
-                }
-                else
-                {
-                    _folds.Remove(foldId);
-                }
-            };
+            var section = CollapsibleSection.Persisted(title, content, _folds, foldId, foldId);
             _categories[(instance.Identity.PluginId, instance.Identity.InstanceId, group.Key)] = section;
             Children.Add(section);
         }
@@ -420,7 +407,7 @@ internal sealed class CommonPluginPanel : StackPanel
                     }
                     case PluginSettingKind.Number:
                     {
-                        var (editor, readArgument) = CreateTextArgumentEditor(field, RequestText);
+                        var (editor, readArgument) = CreateTextArgumentEditor(field);
                         inputs.Children.Add(editor);
                         argumentReaders.Add(field.Key, readArgument);
                         break;
@@ -437,7 +424,7 @@ internal sealed class CommonPluginPanel : StackPanel
                         }
                         else
                         {
-                            var (editor, readArgument) = CreateTextArgumentEditor(field, RequestText);
+                            var (editor, readArgument) = CreateTextArgumentEditor(field);
                             inputs.Children.Add(editor);
                             argumentReaders.Add(field.Key, readArgument);
                         }
@@ -589,35 +576,17 @@ internal sealed class CommonPluginPanel : StackPanel
             : value.Number?.ToString("G", CultureInfo.CurrentCulture) ?? value.Text ?? "No confirmed value";
     }
 
-    private bool RequestText(string prompt, string initial, int maximum, Action<string> accept)
+    internal static (Button Editor, Func<PluginValue> Read) CreateTextArgumentEditor(PluginSetting field)
     {
-        return TopLevel.GetTopLevel(this) is OverlayWindow window
-               && window.RequestText(prompt, initial, maximum, accept);
-    }
-
-    internal static (Button Editor, Func<PluginValue> Read) CreateTextArgumentEditor(PluginSetting field,
-        Func<string, string, int, Action<string>, bool> requestText)
-    {
-        var draft = field.Default.Text ?? field.Default.Number?.ToString("G", CultureInfo.CurrentCulture) ?? "";
-        Button editor = new() { Content = draft.Length > 0 ? draft : "Enter value" };
-        editor.Click += (_, _) =>
-        {
-            var opened = requestText(field.Label, draft, 0,
-                value =>
-                {
-                    draft = value;
-                    editor.Content = draft.Length > 0 ? draft : "Enter value";
-                });
-            if (!opened)
-            {
-                editor.Content = "Keyboard unavailable. Reopen the overlay to retry.";
-            }
-        };
+        PressToEditButton? editor = null;
+        editor = new PressToEditButton(field.Label,
+            field.Default.Text ?? field.Default.Number?.ToString("G", CultureInfo.CurrentCulture), 0, "Enter value",
+            _ => { }, () => editor!.Content = "Keyboard unavailable. Reopen the overlay to retry.");
         return (editor, () => field.Kind == PluginSettingKind.Number
             ? new PluginValue(
-                Number: double.TryParse(draft, NumberStyles.Float, CultureInfo.CurrentCulture, out var number)
+                Number: double.TryParse(editor.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var number)
                     ? number
                     : double.NaN)
-            : new PluginValue(Text: draft));
+            : new PluginValue(Text: editor.Text));
     }
 }

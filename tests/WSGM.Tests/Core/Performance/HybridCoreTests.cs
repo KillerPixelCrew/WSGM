@@ -36,17 +36,18 @@ public sealed class HybridCoreTests
     }
 
     [Fact]
-    public async Task OverlayApplyPublishesTheWrittenModeWithoutQueryingAgain()
+    public async Task OverlaySelectionPublishesTheWrittenModeWithoutQueryingAgain()
     {
         FakeHybridCoreApi api = new() { IgnoreWrites = true };
-        using HybridCoreSelection selection = new(api.Owner());
+        NativeQamHybridCoreService qam = new(api.Owner());
+        using ChoiceRowSelection selection = new("system.hybrid-cores.choice", "Processor core preference",
+            qam.ReadAsync, qam.SetHybridCoresAsync);
         await selection.RefreshAsync();
         api.Calls.Clear();
 
-        await selection.ApplyAsync(HybridCoreMode.EfficiencyOnly);
+        await selection.SelectAsync(HybridCores.IdFor(HybridCoreMode.EfficiencyOnly));
 
-        Assert.Equal(HybridCoreMode.EfficiencyOnly, selection.Status.OnAc);
-        Assert.Equal(HybridCoreMode.EfficiencyOnly, selection.Status.OnBattery);
+        Assert.Equal(HybridCores.IdFor(HybridCoreMode.EfficiencyOnly), selection.State.Current);
         Assert.Equal(["read", "read", "write", "write", "refresh"], api.Calls);
     }
 

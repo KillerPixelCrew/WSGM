@@ -21,7 +21,7 @@ public partial class OverlayWindow
         GraphicsPinSection[] graphics =
             [.. GraphicsSectionPins.Build(graphicsSnapshot ?? _graphicsSource?.Snapshot())];
         var ids = _controlPinFactories.Keys
-            .Where(id => (id == "section.system.power-profile" && _powerSchemeSelection is { Offered: true })
+            .Where(id => (id == "section.system.power-profile" && _powerSchemeSelection is { State.Options.Count: > 0 })
                          || (snapshot.Visible && id.StartsWith("section.device.", StringComparison.Ordinal)))
             .Concat(performance?.Visible is true ? ["section.performance"] : [])
             .Concat(pinSections.Where(section => section.Capabilities.Count > 0

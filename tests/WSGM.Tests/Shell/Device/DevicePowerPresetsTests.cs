@@ -22,7 +22,7 @@ public sealed class DevicePowerPresetsTests
         Assert.Equal(25, state.Values?.ToPreset().FastWatts);
         rig.Views[2] = DevicePowerPresetRig.View(CapabilityRole.PowerFastLimit, 24);
         Assert.Equal("custom", (await service.ReadAsync()).Current);
-        Assert.Equal("Custom", (await SteamNativeSettingsService.ReadPowerPresetsAsync(service, null))!.Current);
+        Assert.Equal("Custom", (await PowerPresetRows.ReadAsync(service, null))!.Current);
     }
 
     [Fact]
@@ -130,14 +130,14 @@ public sealed class DevicePowerPresetsTests
         DevicePowerAssignments? qamAssignments = null;
         using var overlay = Selection(service, false);
         await overlay.RefreshAsync();
-        Assert.Equal("balanced", overlay.State.Current);
+        Assert.Equal("Balanced", overlay.State.Current);
         rig.Views[0] = DevicePowerPresetRig.View(CapabilityRole.PowerSustainedLimit, 16);
         await overlay.RefreshAsync();
-        Assert.Equal("custom", overlay.State.Current);
-        Assert.Equal("Custom", (await SteamNativeSettingsService.ReadPowerPresetsAsync(qamPresets, qamAssignments))!.Current);
+        Assert.Equal("Custom", overlay.State.Current);
+        Assert.Equal("Custom", (await PowerPresetRows.ReadAsync(qamPresets, qamAssignments))!.Current);
         rig.Views[0] = DevicePowerPresetRig.View(CapabilityRole.PowerSustainedLimit, 17);
         rig.Api.Mode = WindowsPowerModes.Id(DevicePowerMode.BestPerformance);
-        Assert.Equal("Custom", (await SteamNativeSettingsService.ReadPowerPresetsAsync(qamPresets, qamAssignments))!.Current);
+        Assert.Equal("Custom", (await PowerPresetRows.ReadAsync(qamPresets, qamAssignments))!.Current);
         Assert.Empty(rig.Calls);
         Assert.Equal(0, rig.Api.Writes);
     }
@@ -226,7 +226,7 @@ public sealed class DevicePowerPresetsTests
         DevicePowerPresetRig rig = new() { Api = { FailRead = true } };
         var service = rig.Create();
         Assert.False((await service.ReadAsync()).Available);
-        Assert.False((await SteamNativeSettingsService.ReadPowerPresetsAsync(service, null))!.Available);
+        Assert.False((await PowerPresetRows.ReadAsync(service, null))!.Available);
         Assert.False((await service.ApplyAsync("battery", CancellationToken.None)).Succeeded);
         Assert.Empty(rig.Calls);
     }
@@ -263,11 +263,11 @@ public sealed class DevicePowerPresetsTests
         var service = rig.Create();
         using var overlay = Selection(service, false);
         await overlay.RefreshAsync();
-        Assert.NotEmpty(overlay.State.Presets);
+        Assert.NotEmpty(overlay.State.Options);
         rig.Views = [];
         await overlay.RefreshAsync();
-        Assert.Empty(overlay.State.Presets);
-        Assert.Empty((await SteamNativeSettingsService.ReadPowerPresetsAsync(service, null))!.Options);
+        Assert.Empty(overlay.State.Options);
+        Assert.Empty((await PowerPresetRows.ReadAsync(service, null))!.Options);
         await overlay.AssignAsync(true, "battery");
         Assert.Empty(rig.Calls);
     }
@@ -321,7 +321,7 @@ public sealed class DevicePowerPresetsTests
         }
 
         await Task.WhenAll(refresh, apply);
-        Assert.Equal("battery", overlay.State.Current);
+        Assert.Equal("Battery", overlay.State.Current);
         Assert.Equal(2, rig.Calls.Count);
     }
 

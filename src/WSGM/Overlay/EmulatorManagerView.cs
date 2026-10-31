@@ -183,18 +183,9 @@ public sealed partial class EmulatorManagerView : ServiceSubView
 
     private static void Commands(StackPanel parent, params ActionButton[] buttons)
     {
-        var bar = new WrapPanel { Orientation = Orientation.Horizontal, Tag = "emu.actions:" + buttons[0].Tag };
-        foreach (var button in buttons)
-        {
-            button.Description = "";
-            button.IconGeometry = null;
-            button.MinHeight = 36;
-            button.Margin = new Thickness(0, 0, 8, 4);
-            button.Padding = new Thickness(12, 6);
-            button.HorizontalAlignment = HorizontalAlignment.Left;
-            bar.Children.Add(button);
-        }
-
+        var bar = CommandStrip(buttons);
+        // Keyed by its first command, so a refresh reconciles the strip in place.
+        bar.Tag = "emu.actions:" + buttons[0].Tag;
         parent.Children.Add(bar);
     }
 
@@ -306,15 +297,14 @@ public sealed partial class EmulatorManagerView : ServiceSubView
         shortcut.Children.Add(ToggleRow("Show emulator in Steam", installation.SteamShortcutEnabled,
             enabled => Run(token => _service!.SetEmulatorShortcutAsync(installationId, enabled,
                 installation.SteamShortcutLaunchMode, token))));
-        shortcut.Children.Add(ChoiceRow("Launch mode", new[]
-            {
-                (2, "Input lease"), (0, "No lease"), (1, "De-elevate"), (3, "De-elevate + input lease")
-            }, installation.SteamShortcutLaunchMode,
+        shortcut.Children.Add(ChoiceRow("Launch mode",
+            state.LaunchModes.Select(mode => (mode.Value, mode.Label)).ToArray(), installation.SteamShortcutLaunchMode,
             mode => Run(token => _service!.SetEmulatorShortcutAsync(installationId,
                 installation.SteamShortcutEnabled, mode, token))));
         shortcut.Children.Add(Caption(state.ShortcutStatus is { Length: > 0 } status
             ? status
-            : "Opens the emulator interface using its current installation. Input lease lets it read the controller directly."));
+            : "Opens the emulator interface using its current installation. With Give the game the controller, the "
+              + "emulator reads the controller directly."));
         var setup = Group(body, "BIOS & firmware", "setup");
         if (installation.DataPolicy.RequiresVisualCpp || installation.DefinitionId == "model2")
         {

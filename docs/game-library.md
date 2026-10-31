@@ -431,9 +431,10 @@ alone. Y checks for updates in the Overlay and Steam page.
 
 Installing or registering an emulator also publishes its own interface as a managed Steam shortcut.
 Existing installations default to this on upgrade. Each installation's detail page, in Overlay and
-`/wsgm/emulators`, has the same shortcut switch and launch-mode choice: input lease (default), no
-lease, de-elevation, or de-elevation with a lease. The lease uses the current Steam Input Management
-setting, selecting the injecting route when management is off. Launch resolves the stable
+`/wsgm/emulators`, has the same shortcut switch and launch-mode choice, named as the launch
+configuration names them: give the game the controller (default), no WSGM launch action, run without
+admin, or both. Giving it the controller takes the Steam Input lease through the current Steam Input
+Management setting, selecting the injecting route when management is off. Launch resolves the stable
 installation identity and current active version, so updates and repairs preserve the Steam app id.
 Opening the emulator interface requires its portable program and data, without requiring a ROM, core
 or game BIOS/firmware to be configured first.

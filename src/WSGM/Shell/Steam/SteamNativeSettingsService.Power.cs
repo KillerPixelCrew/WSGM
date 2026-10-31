@@ -150,7 +150,7 @@ internal sealed partial class SteamNativeSettingsService
                 Disabled = !presets.Available
             };
             offer.Quick("powerPreset", offer.Add(rows, row,
-                (value, token) => AssignPresetAsync(coordinator?.Power.PowerAssignments, ac,
+                (value, token) => PowerPresetRows.AssignAsync(coordinator?.Power.PowerAssignments, ac,
                     EmptyToNull(value.GetString()), token), true));
         }
 
@@ -437,69 +437,6 @@ internal sealed partial class SteamNativeSettingsService
             CommandOutcome.Indeterminate => "The requested power-limit result is indeterminate.",
             _ => "The requested power-limit command did not complete."
         });
-    }
-
-    /// <summary>Reads the device presets and combines them with the current plugged-in and battery assignments.</summary>
-    /// <param name="presets">The device preset reader, or null when the device offers none.</param>
-    /// <param name="assignments">The assignment owner, or null when assignment is unavailable.</param>
-    /// <returns>
-    ///     Choices, the preset in effect and the assignments; unavailable dependencies produce an unavailable state, and
-    ///     Custom is listed unselectable while an assignment holds it.
-    /// </returns>
-    internal static async ValueTask<PowerPresetRowState> ReadPowerPresetsAsync(DevicePowerPresets? presets,
-        DevicePowerAssignments? assignments)
-    {
-        if (presets is null)
-        {
-            return new PowerPresetRowState(false, [], string.Empty, string.Empty, string.Empty, string.Empty,
-                string.Empty, "Manual selection");
-        }
-
-        var state = await presets.ReadAsync().ConfigureAwait(false);
-        ChoiceRowOption[] options = [.. state.Presets.Select(item => new ChoiceRowOption(item.Id, item.Name))];
-        var selection = assignments?.Snapshot();
-        if (selection?.AcPreset == "custom" || selection?.BatteryPreset == "custom")
-        {
-            // Values that match none of the presets: listed where they are the current assignment, never
-            // offered as a choice.
-            options = [.. options, new ChoiceRowOption("custom", "Custom", false)];
-        }
-
-        var current = state.Presets.FirstOrDefault(item => item.Id == state.Current)?.Name
-                      ?? (state.Current == "custom" ? "Custom" : "Unavailable");
-        return new PowerPresetRowState(state.Available && assignments is not null, options, current,
-            string.IsNullOrEmpty(selection?.Status) ? state.Status : selection.Status,
-            selection?.AcPreset ?? string.Empty, selection?.BatteryPreset ?? string.Empty,
-            selection?.Scope ?? string.Empty,
-            selection?.IsGlobal == false ? "Use global assignment" : "Manual selection",
-            selection?.AcSource is ProfileSource.Game,
-            selection?.BatterySource is ProfileSource.Game);
-    }
-
-    /// <summary>Assigns a preset to one power source.</summary>
-    /// <param name="assignments">The assignment owner, or null when assignment is unavailable.</param>
-    /// <param name="ac">True for plugged in, false for battery.</param>
-    /// <param name="option">The preset id, or null for none.</param>
-    /// <param name="cancellationToken">Cancels the assignment.</param>
-    /// <returns>Applied, or the owner's status as the refusal.</returns>
-    internal static async Task<SteamUiCommandResult> AssignPresetAsync(DevicePowerAssignments? assignments, bool ac,
-        string? option, CancellationToken cancellationToken)
-    {
-        if (assignments is null)
-        {
-            return new SteamUiCommandResult(false, "Device power assignments are unavailable.");
-        }
-
-        try
-        {
-            await assignments.AssignAsync(ac, option, cancellationToken).ConfigureAwait(false);
-            var status = assignments.Snapshot().Status;
-            return new SteamUiCommandResult(string.IsNullOrEmpty(status), string.IsNullOrEmpty(status) ? null : status);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return new SteamUiCommandResult(false, ex.Message);
-        }
     }
 
     /// <summary>Refreshes Windows boost capabilities and projects the effective profile preference.</summary>

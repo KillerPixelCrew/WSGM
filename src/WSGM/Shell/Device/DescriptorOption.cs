@@ -1,4 +1,4 @@
-namespace WSGM.Overlay;
+namespace WSGM.Shell;
 
 /// <summary>One named value of a row the user picks from a dropdown.</summary>
 /// <param name="Value">The value written when it is chosen.</param>

@@ -338,7 +338,7 @@ public partial class OverlayWindow
                                 _navigation.SectionId ?? string.Empty)
                             == DeviceOverlaySection.PowerAndThermals);
         DevicePowerSchemeHost.IsVisible = powerPage;
-        DeviceWindowsPower.IsVisible = _powerSchemeSelection is { Offered: true };
+        DeviceWindowsPower.IsVisible = _powerSchemeSelection is { State.Options.Count: > 0 };
         DevicePowerPresetContainer.IsVisible = powerPage && snapshot.Visible && DevicePowerPresetHost.IsVisible;
         ManualTdpHost.IsVisible = snapshot.Visible &&
                                   ManualTdpHost.Children.OfType<ManualTdpModeView>().Any(view => view.IsVisible);
@@ -351,7 +351,7 @@ public partial class OverlayWindow
         RefreshDeviceSectionPins(snapshot, pinSections, performance, graphics);
         // Only on a hybrid CPU whose active scheme exposes the policy. Everywhere else the section
         // would open on a control that has nothing to offer.
-        DeviceHybridCores.IsVisible = powerPage && _hybridCoreSelection?.Status.Supported is true;
+        DeviceHybridCores.IsVisible = powerPage && _hybridCoreSelection is { State.Options.Count: > 0 };
         DeviceStatusTitle.IsVisible =
             DeviceStatusDetail.IsVisible = _navigation.Page == OverlayPage.Device && snapshot.Visible;
         DeviceStatusTitle.Text = snapshot.Status;
@@ -755,7 +755,7 @@ public partial class OverlayWindow
         if (section is DeviceOverlaySection.ControllerAndMotion
             && snapshot.GlyphSelection is { } glyphSelection)
         {
-            target.Children.Add(CreateGlyphSelectionRow(glyphSelection, snapshot.GlyphMode));
+            target.Children.Add(CreateHostDeviceRow(snapshot, glyphSelection));
         }
 
         // After the selection row it is the result of, so changing the selection and seeing what it

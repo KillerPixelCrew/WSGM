@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -551,7 +552,31 @@ internal sealed class ScreensaverService : ISteamScreensaverContentBackend, IAsy
             Pack = source.Pack, ImageCount = content.Playback?.Images.Count ?? 0,
             HasPreview = content.Preview is not null, PreviewRevision = content.PreviewRevision,
             Shuffle = source.Shuffle, IntervalSeconds = source.IntervalSeconds, Fill = source.Fill,
-            FramesPerSecond = source.FramesPerSecond
+            FramesPerSecond = source.FramesPerSecond,
+            Kind = content.Type == "scene" ? "Scene pack" : source.Pack ? "Image pack" : "Image folder",
+            Summary = Summary(source, content)
         };
+    }
+
+    /// <summary>What a source plays, in one line both the Steam page and the overlay show.</summary>
+    /// <param name="source">The configured source.</param>
+    /// <param name="content">What discovery found in it.</param>
+    /// <returns>The frame rate of a scene, or the image count, order and interval of a slideshow.</returns>
+    private static string Summary(ScreensaverSourceConfig source, ScreensaverContentResult content)
+    {
+        if (content.Type == "scene")
+        {
+            return string.Create(CultureInfo.InvariantCulture, $"{source.FramesPerSecond} fps animation");
+        }
+
+        var images = content.Playback?.Images.Count ?? 0;
+        var seconds = source.IntervalSeconds;
+        var interval = seconds < 60
+            ? string.Create(CultureInfo.InvariantCulture, $"{seconds} seconds")
+            : seconds < 3600
+                ? string.Create(CultureInfo.InvariantCulture, $"{seconds / 60d} minutes")
+                : "1 hour";
+        return string.Create(CultureInfo.InvariantCulture,
+            $"{images} {(images == 1 ? "image" : "images")} · {(source.Shuffle ? "Shuffle" : "Filename order")} · {interval}");
     }
 }
