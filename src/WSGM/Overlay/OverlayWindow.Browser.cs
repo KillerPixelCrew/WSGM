@@ -40,7 +40,7 @@ public partial class OverlayWindow
         if (IsVisible && ReferenceEquals(ActiveSubView?.Host, _browserPage))
         {
             _browserPage.Enter();
-            _browserPage.Cover(HasActiveSurface);
+            _browserPage.Cover(Surfaces.HasActive);
         }
         else
         {
@@ -55,7 +55,7 @@ public partial class OverlayWindow
 
     private void OnBrowserKeyDown(object? sender, KeyEventArgs e)
     {
-        if (HasActiveSurface || _browserPage?.ViewportOwnsInput != true)
+        if (Surfaces.HasActive || _browserPage?.ViewportOwnsInput != true)
         {
             return;
         }
@@ -91,7 +91,7 @@ public partial class OverlayWindow
 
     private void OnBrowserTextInput(object? sender, TextInputEventArgs e)
     {
-        if (!HasActiveSurface && _browserPage?.ViewportOwnsInput == true && !string.IsNullOrEmpty(e.Text))
+        if (!Surfaces.HasActive && _browserPage?.ViewportOwnsInput == true && !string.IsNullOrEmpty(e.Text))
         {
             _browserPage.PageText(e.Text);
             e.Handled = true;
@@ -103,7 +103,7 @@ public partial class OverlayWindow
     {
         var filtered = new BrowserButtons(source, buttons =>
         {
-            if (_browserPage?.ViewportOwnsInput != true || HasActiveSurface)
+            if (_browserPage?.ViewportOwnsInput != true || Surfaces.HasActive)
             {
                 return false;
             }

@@ -5,11 +5,8 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using Avalonia.LiveBackdrop;
-using Avalonia.Threading;
 using SteamUiToolkit;
 using WSGM.Core;
-using WSGM.Device.Sdk.Glyphs;
 using WSGM.Interop;
 using WSGM.Shell;
 
@@ -32,17 +29,8 @@ public partial class OverlayWindow : Window
     private readonly CancellationTokenSource _deviceLifetime = new();
     private readonly Action<OverlayWindow> _dock;
 
-    /// <summary>Preview tiles by control, rebuilt with the Glyphs page and empty elsewhere.</summary>
-    /// <remarks>
-    ///     Held so the input test can light a tile without re-rendering the page on every sample. The
-    ///     tiles are owned by the visual tree; this only points at them, and is cleared whenever the
-    ///     page that made them is replaced.
-    /// </remarks>
-    private readonly Dictionary<GlyphControlId, Border> _glyphTiles = [];
-
-    private readonly HashSet<GlyphControlId> _glyphOemPressed = [];
-
-    private int _glyphOemEpoch;
+    /// <summary>The Controller page's glyph preview, which holds the input test's sample lease.</summary>
+    private readonly GlyphInputPreview _glyphPreview = new();
 
     private readonly OverlayNavigation _navigation = new();
 
@@ -55,7 +43,6 @@ public partial class OverlayWindow : Window
     private readonly SteamClient? _steam;
     private readonly ConfigStore _store;
     private readonly AppSwitcherViewModel _switcher;
-    private double _blurRadius = 8;
 
     /// <summary>
     ///     Set once this window instance is gone. Post-action feedback delays
@@ -64,7 +51,6 @@ public partial class OverlayWindow : Window
     /// </summary>
     private bool _closed;
 
-    private DispatcherTimer? _confirmResetTimer;
     private IDeviceOverlaySource? _deviceBridge;
     // Set while the Device panel is hidden and a refresh was asked for; it renders when shown again.
     private bool _devicePanelStale;
@@ -75,11 +61,6 @@ public partial class OverlayWindow : Window
     private bool _devicePrerequisitesReading;
     private bool _devicePrerequisitesStale;
 
-    private SdFormatManager? _format;
-    private LiveBackdrop? _glassBackdrop;
-
-    private long _glyphInputKey;
-    private IDisposable? _glyphInputObservation;
     private ChoiceRowSelection? _hybridCoreSelection;
     private int _liveRefreshScheduled;
 
@@ -87,18 +68,12 @@ public partial class OverlayWindow : Window
     // the sheet is being built otherwise rebuilt the Device page or the pins.
     private bool _opened;
     private int _pendingLiveRefreshes;
-    private FormatTargetEntry? _pendingTarget;
 
     private PerformanceOverlayBridge? _performanceSource;
     private CommonPluginOverlaySource? _pluginSource;
     private ChoiceRowSelection? _powerSchemeSelection;
     private OverlayPage? _renderedDevicePage;
     private string? _renderedDeviceSection;
-
-    private PixelPoint _slideEnd;
-    private PixelPoint _slideStart;
-    private DateTime _slideStartedUtc;
-    private DispatcherTimer? _slideTimer;
 
     /// <summary>Creates the sheet bound to the supplied state.</summary>
     /// <param name="store">The persistence owner supplied by the process or resident session.</param>
@@ -134,8 +109,6 @@ public partial class OverlayWindow : Window
         _store = store;
         _steam = steam;
         _dock = dock;
-        _uiScale = uiScale;
-        _preferredScreenPoint = preferredScreenPoint;
         _switcher = switcher;
         DataContext = viewModel;
         InitializeComponent();
@@ -143,15 +116,21 @@ public partial class OverlayWindow : Window
         ArtworkHost.ConfigureContext(store.Context);
         viewModel.PropertyChanged += OnWorkspacePolicyChanged;
         SurfaceRoot.SizeChanged += OnWorkspaceSizeChanged;
-        ApplyGlassTransparency();
-        InitializePowerEditors();
-        InitializeWindowsPolicies();
+        Placement = new OverlayPlacement(this, RootScale, GlassCanvas, TrayScroller, uiScale, preferredScreenPoint);
+        _powerConfirms = new PowerActionConfirms(viewModel, RestartButton, ShutdownButton, SignOutButton);
+        Surfaces = new OverlaySurfaceStack(this, SurfaceRoot, DeckContent, () => DefaultFocusTarget, CoverMedia,
+            _powerConfirms.Reset);
+        PowerEditors = new OverlayPowerEditors(viewModel, KeepAwakeHost, KeepAwakeDetail, PowerTimeoutEditors);
+        WindowsPolicies = new WindowsPolicyRows(UacPolicyHost, LockOnWakePolicyHost);
+        _profileScope = new HeaderProfileScope(HeaderProfile, ProfileContext, ManageProfiles, _deviceLifetime.Token);
         // Two subtrees bind different objects than the window (compiled bindings:
         // x:DataType on the TrayScroller / AppsStrip and StatusZone subtrees).
         TrayScroller.DataContext = switcher;
         AppsStrip.DataContext = switcher;
         StatusZone.DataContext = status;
-        IndexPinnableRows();
+        _pins = new QuickAccessPins(this, PinnedGrid, PinToast, PinToastText, PinToastHint);
+        StorageFormatHost.CloseRequested += () => LeaveSubView(OverlayPage.SteamStorageFormat);
+        StorageFormatHost.ScrollToTopRequested += () => ContentScroller.Offset = default;
 
         // Controller navigation moves focus with InputElement.Focus(Directional),
         // which does NOT raise RequestBringIntoView on its own — a chip scrolled
@@ -162,10 +141,6 @@ public partial class OverlayWindow : Window
         // them handled from a TUNNEL handler on the window.
         TileScroller.AddHandler(GotFocusEvent, OnStripGotFocus, RoutingStrategies.Bubble);
         TrayScroller.AddHandler(GotFocusEvent, OnStripGotFocus, RoutingStrategies.Bubble);
-        // Budget the tray against the XAML's declared width right away, so the
-        // strip is bounded even on the path where DockToTopEdge bails out (no
-        // primary screen); the dock recomputes it against the real display width.
-        TrayScroller.MaxWidth = ComputeTrayMaxWidth(Width, _contentScale);
         // Touch and mouse routes to pinning: a hold on a row, or a right click.
         AddHandler(HoldingEvent, OnHolding, RoutingStrategies.Bubble, true);
         AddHandler(PointerPressedEvent, OnPointerPressedForPin, RoutingStrategies.Tunnel);
@@ -230,17 +205,6 @@ public partial class OverlayWindow : Window
     ///     CEF tab sync so nothing user-visible or Steam-touching happens during the warm pass.
     /// </summary>
     internal bool WarmingUp { get; init; }
-
-    /// <summary>Updates the attached backdrop without recreating the Overlay window.</summary>
-    /// <param name="radius">Saved backdrop blur in physical pixels, normalized to the supported range before application.</param>
-    internal void SetBlurRadius(double radius)
-    {
-        _blurRadius = double.IsFinite(radius) ? Math.Clamp(radius, 0, LiveBackdrop.MaximumBlurRadius) : 8;
-        if (_glassBackdrop is not null)
-        {
-            _glassBackdrop.BlurRadius = _blurRadius;
-        }
-    }
 
     /// <summary>Raised when a nested page is torn down so its auxiliary surface closes too.</summary>
     public event Action? SubViewClosed;
@@ -327,9 +291,7 @@ public partial class OverlayWindow : Window
         }
 
         _dock(this);
-        _glassBackdrop = LiveBackdrop.Attach(this, _blurRadius);
-        _glassBackdrop.StateChanged += OnGlassBackdropChanged;
-        OnGlassBackdropChanged(_glassBackdrop, EventArgs.Empty);
+        Placement.AttachBackdrop();
         SelectDestination(_session.Destination);
         RestoreDestinationState(true);
     }
@@ -337,7 +299,7 @@ public partial class OverlayWindow : Window
     /// <summary>Returns an already open sheet to its selected section when summoned again.</summary>
     internal void ResetForResummon()
     {
-        if (HasActiveSurface)
+        if (Surfaces.HasActive)
         {
             return;
         }
@@ -348,28 +310,17 @@ public partial class OverlayWindow : Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
-        CloseAllSurfaces();
-        if (_glassBackdrop is not null)
-        {
-            _glassBackdrop.StateChanged -= OnGlassBackdropChanged;
-            _glassBackdrop.Dispose();
-            _glassBackdrop = null;
-        }
-
-        if (DataContext is OverlayViewModel powerState)
-        {
-            powerState.PropertyChanged -= OnPowerEditorStateChanged;
-        }
-
+        Surfaces.Detach();
+        Placement.Detach();
+        PowerEditors.Detach();
         RememberDestinationState(_navigation.Destination);
 
-        // Before _closed, because releasing reads the bridge, and after it the guard inside would
-        // skip the release and leave the subscription attached to a dead window.
-        UpdateGlyphInputObservation(false);
+        // Released against the bridge that granted the lease, before anything else lets go of it.
+        ObserveGlyphInput(false);
         _closed = true;
+        _profileScope.Detach();
         ViewModel.PropertyChanged -= OnWorkspacePolicyChanged;
-        _pinToastTimer?.Stop();
-        _pinToastTimer = null;
+        _pins.Detach();
         DevicePowerSchemeHost.Attach(null);
         GameLibraryHost.Attach(null);
         LibraryTabsHost.Attach(null);
@@ -402,9 +353,7 @@ public partial class OverlayWindow : Window
         // work is dropped here.
         _pressedPointers.Clear();
         Interlocked.Exchange(ref _pendingLiveRefreshes, 0);
-        StopSlide();
-        ResetConfirms();
-        ReleasePinMirrors();
+        _powerConfirms.Reset();
         _deviceLifetime.Dispose();
     }
 

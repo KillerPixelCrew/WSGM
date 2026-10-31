@@ -79,7 +79,7 @@ public sealed partial class OverlayController
             {
                 if (!_disposed && ReferenceEquals(_overlay, overlay))
                 {
-                    overlay.RefreshWindowsPolicies(uacPromptsDisabled, lockOnWakeDisabled, !_previewOnly);
+                    overlay.WindowsPolicies.Refresh(uacPromptsDisabled, lockOnWakeDisabled, !_previewOnly);
                 }
             };
         });
@@ -168,7 +168,7 @@ public sealed partial class OverlayController
             // Only the Wake page shows the indicator, so a tick while it is hidden reads nothing.
             _wakeLockRefresh.Tick += (_, _) =>
             {
-                if (_overlay?.KeepAwakeShowing == true)
+                if (_overlay?.PowerEditors.KeepAwakeShowing == true)
                 {
                     RefreshWakeLockIndicator();
                 }
@@ -222,7 +222,7 @@ public sealed partial class OverlayController
             var (state, summary) = WakeLockStatus.Compute(
                 entries, (uint)Environment.ProcessId);
             viewModel.WakeLockSummary = summary;
-            overlay.SetKeepAwakeStatus(state);
+            overlay.PowerEditors.SetKeepAwakeStatus(state);
         }
         finally
         {
@@ -252,7 +252,7 @@ public sealed partial class OverlayController
     {
         if (PowerMenuOpen)
         {
-            _overlay?.CloseActiveSurface();
+            _overlay?.Surfaces.CloseActive();
             return;
         }
 

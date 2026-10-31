@@ -187,7 +187,7 @@ public sealed class NotesLayoutTests
         UiFixture.Click(window, Tagged(window, "notes.add.text"));
         Dispatcher.UIThread.RunJobs();
         // The overlay's own full-width keyboard surface, multiline.
-        Assert.True(window.HasActiveSurface);
+        Assert.True(window.Surfaces.HasActive);
         var keyboard = Assert.Single(window.GetVisualDescendants().OfType<KeyboardPanel>());
         var editor = Assert.Single(keyboard.GetVisualDescendants().OfType<TextBox>());
         Assert.True(editor.AcceptsReturn);

@@ -477,7 +477,7 @@ public sealed partial class GameToolsView
         var generation = NavigationGeneration;
         var appId = _appId;
         var picker = new OverlayFilePicker(false, [".exe"], start: folder.Length > 0 ? folder : null);
-        var path = await window.PickLocalPathAsync(picker, false);
+        var path = await window.Surfaces.PickLocalPathAsync(picker, false);
         if (path is null || generation != NavigationGeneration || appId != _appId)
         {
             return;

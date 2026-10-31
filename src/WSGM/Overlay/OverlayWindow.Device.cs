@@ -16,7 +16,6 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Shell;
-using CanonicalControllerSample = LibHandheld.Contracts.CanonicalControllerSample;
 
 namespace WSGM.Overlay;
 
@@ -384,10 +383,6 @@ public partial class OverlayWindow
         DeviceFansHost.IsVisible = DeviceApplicationProfileHost.IsVisible = false;
         _renderedDevicePage = _navigation.Page;
         _renderedDeviceSection = _navigation.SectionId;
-
-        // The tiles belong to the tree that was just cleared. Dropping the references here, before
-        // anything can rebuild them, is what stops the input test writing to detached controls.
-        _glyphTiles.Clear();
         if (sectionPages.Count == 0)
         {
             DeviceCapabilityList.Children.Add(new TextBlock
@@ -763,101 +758,10 @@ public partial class OverlayWindow
         if (includePreview && section is DeviceOverlaySection.ControllerAndMotion
                            && snapshot.GlyphPreview is { } preview)
         {
-            RenderGlyphPreview(preview, target);
+            _glyphPreview.Show(preview, target);
         }
 
         return restoreFocus;
-    }
-
-    /// <summary>
-    ///     Draws the plugin's own glyphs, and lights the one being pressed.
-    /// </summary>
-    /// <param name="preview">The resolved preview.</param>
-    /// <param name="target">The section body containing the preview.</param>
-    /// <remarks>
-    ///     The preview answers the two questions a glyph profile can fail at, and it answers them with
-    ///     the same picture: whether the artwork resolves at all, and whether pressing a control reaches
-    ///     WSGM as the control the artwork claims. Neither is answerable from a list of names.
-    ///     <para>
-    ///         The tiles are not focusable. This is something to look at while pressing buttons on the
-    ///         device, so making it a focus stop would put a wall of stops between the selection row above
-    ///         it and whatever follows, for controls that do nothing when activated.
-    ///     </para>
-    /// </remarks>
-    private void RenderGlyphPreview(DeviceOverlayGlyphPreview preview, Panel target)
-    {
-        TextBlock caption = new()
-        {
-            Text = $"{preview.ProfileName} · {preview.Detail}",
-            Margin = new Thickness(2, 6, 2, 2),
-            TextWrapping = TextWrapping.Wrap
-        };
-        caption.Classes.Add("caption");
-        target.Children.Add(caption);
-
-        TextBlock hint = new()
-        {
-            Text = preview.InputTestAvailable
-                ? "Press a control on the device to light it here."
-                : "Input test unavailable · WSGM is not reading this device's controls.",
-            Margin = new Thickness(2, 0, 2, 4),
-            TextWrapping = TextWrapping.Wrap
-        };
-        hint.Classes.Add("caption");
-        target.Children.Add(hint);
-
-        WrapPanel tiles = new() { Margin = new Thickness(2, 0, 2, 4) };
-        foreach (var item in preview.Items)
-        {
-            Border tile = new()
-            {
-                Width = 64,
-                Height = 72,
-                Margin = new Thickness(0, 0, 6, 6),
-                CornerRadius = new CornerRadius(6),
-                Padding = new Thickness(4)
-            };
-            tile.Classes.Add("glyph-tile");
-            StackPanel stack = new() { Spacing = 2 };
-            PhysicalGlyphImage image = new()
-            {
-                Plan = item.Plan,
-                Width = 40,
-                Height = 40,
-                HorizontalAlignment = HorizontalAlignment.Center
-            };
-            stack.Children.Add(image);
-            TextBlock label = new()
-            {
-                Text = item.Label,
-                FontSize = 10,
-                TextAlignment = TextAlignment.Center,
-                TextWrapping = TextWrapping.Wrap,
-                MaxLines = 2,
-                TextTrimming = TextTrimming.CharacterEllipsis
-            };
-            stack.Children.Add(label);
-            tile.Child = stack;
-            tiles.Children.Add(tile);
-            _glyphTiles[item.Control] = tile;
-        }
-
-        target.Children.Add(tiles);
-        ApplyGlyphInputTest();
-    }
-
-    /// <summary>Applies the last physical sample to the preview tiles.</summary>
-    /// <remarks>
-    ///     Class-based rather than by setting a brush, so the lit appearance lives in the theme with
-    ///     every other visual state instead of as a literal colour here.
-    /// </remarks>
-    private void ApplyGlyphInputTest()
-    {
-        var key = Volatile.Read(ref _glyphInputKey);
-        foreach (var (control, tile) in _glyphTiles)
-        {
-            tile.Classes.Set("pressed", GlyphInputTestMap.Lights(key, control) || _glyphOemPressed.Contains(control));
-        }
     }
 
     /// <summary>Opens one plugin-declared section as its own page.</summary>
@@ -874,10 +778,8 @@ public partial class OverlayWindow
         // A declared section that absorbs the controller page draws the glyph preview and input
         // test, so it needs the same high-rate lease the WSGM page takes.
         var snapshot = DeviceSnapshotOrOff();
-        UpdateGlyphInputObservation(
-            _deviceBridge is not null
-            && DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, sectionId)
-                is DeviceOverlaySection.ControllerAndMotion);
+        ObserveGlyphInput(DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, sectionId)
+            is DeviceOverlaySection.ControllerAndMotion);
         RefreshDevicePage(snapshot);
         SyncBackAffordance();
         ContentScroller.Offset = default;
@@ -895,7 +797,7 @@ public partial class OverlayWindow
 
         // The sample stream fires at input rate, so it is leased only for the one page that draws
         // it and released the moment that page is left.
-        UpdateGlyphInputObservation(section is DeviceOverlaySection.ControllerAndMotion);
+        ObserveGlyphInput(section is DeviceOverlaySection.ControllerAndMotion);
 
         // The shared performance rows belong to one Device page, so entering or leaving any page
         // changes whether they are on screen.
@@ -907,7 +809,7 @@ public partial class OverlayWindow
 
     private void LeaveDeviceSection(DeviceOverlaySection section)
     {
-        UpdateGlyphInputObservation(false);
+        ObserveGlyphInput(false);
         var returnFocusKey = _navigation.Pop()
                              ?? DeviceOverlaySectionPages.FocusKey(section);
         RefreshDevicePage();
@@ -923,120 +825,17 @@ public partial class OverlayWindow
     private void LeaveDevicePluginSection()
     {
         var sectionId = _navigation.SectionId;
-        UpdateGlyphInputObservation(false);
+        ObserveGlyphInput(false);
         var returnFocusKey = _navigation.Pop()
                              ?? (sectionId is null ? null : "device.section.plugin." + sectionId);
         RefreshDevicePage();
         RestoreRootFocus(returnFocusKey);
     }
 
-    /// <summary>Starts or stops the glyph input test's sample observation.</summary>
-    /// <param name="observe">Whether the page that draws the samples is showing.</param>
-    /// <remarks>
-    ///     Idempotent in both directions, because the page can be entered and left by several paths —
-    ///     the section card, Back, a destination change, and the overlay closing — and each of them
-    ///     calls this without knowing what the others did.
-    /// </remarks>
-    private void UpdateGlyphInputObservation(bool observe)
+    /// <summary>Starts or stops the glyph input test for whether a Controller page is open.</summary>
+    /// <param name="controllerPage">Whether the page that draws the samples is showing.</param>
+    private void ObserveGlyphInput(bool controllerPage)
     {
-        if (observe == _glyphInputObservation is not null)
-        {
-            return;
-        }
-
-        if (!observe)
-        {
-            Interlocked.Increment(ref _glyphOemEpoch);
-            if (_deviceBridge is not null)
-            {
-                _deviceBridge.PhysicalSampleReceived -= OnPhysicalGlyphSample;
-                _deviceBridge.PhysicalOemControlReceived -= OnPhysicalGlyphOemControl;
-                _deviceBridge.PhysicalInputReset -= OnPhysicalGlyphReset;
-            }
-
-            _glyphInputObservation?.Dispose();
-            _glyphInputObservation = null;
-            Volatile.Write(ref _glyphInputKey, 0);
-            _glyphOemPressed.Clear();
-            return;
-        }
-
-        var bridge = _deviceBridge;
-        if (bridge is null || _closed)
-        {
-            return;
-        }
-
-        bridge.PhysicalSampleReceived += OnPhysicalGlyphSample;
-        bridge.PhysicalOemControlReceived += OnPhysicalGlyphOemControl;
-        bridge.PhysicalInputReset += OnPhysicalGlyphReset;
-        _glyphInputObservation = bridge.ObservePhysicalSamples();
-    }
-
-    private void OnPhysicalGlyphOemControl(GlyphControlId control, bool pressed)
-    {
-        var epoch = Volatile.Read(ref _glyphOemEpoch);
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (_closed || _glyphInputObservation is null || epoch != Volatile.Read(ref _glyphOemEpoch))
-            {
-                return;
-            }
-
-            if (pressed)
-            {
-                _glyphOemPressed.Add(control);
-            }
-            else
-            {
-                _glyphOemPressed.Remove(control);
-            }
-
-            ApplyGlyphInputTest();
-        });
-    }
-
-    private void OnPhysicalGlyphReset()
-    {
-        var epoch = Interlocked.Increment(ref _glyphOemEpoch);
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (_closed || epoch != Volatile.Read(ref _glyphOemEpoch))
-            {
-                return;
-            }
-
-            _glyphOemPressed.Clear();
-            Volatile.Write(ref _glyphInputKey, 0);
-            ApplyGlyphInputTest();
-        });
-    }
-
-    /// <summary>Marshals one physical sample onto the UI thread and lights what it presses.</summary>
-    /// <param name="sample">The unfiltered sample the plugin reported.</param>
-    /// <remarks>
-    ///     The sample's pressed-input key is compared with the last one before posting, so a controller
-    ///     sitting still, which is most samples, costs one integer comparison on the sampling thread and
-    ///     nothing on the UI thread. Without that, a 250 Hz stream would post 250 dispatcher items a
-    ///     second to change nothing.
-    /// </remarks>
-    private void OnPhysicalGlyphSample(CanonicalControllerSample sample)
-    {
-        var key = GlyphInputTestMap.Key(sample);
-        if (key == Volatile.Read(ref _glyphInputKey))
-        {
-            return;
-        }
-
-        Volatile.Write(ref _glyphInputKey, key);
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (_closed)
-            {
-                return;
-            }
-
-            ApplyGlyphInputTest();
-        });
+        _glyphPreview.Observe(controllerPage && !_closed ? _deviceBridge : null);
     }
 }

@@ -15,16 +15,6 @@ namespace WSGM.Overlay;
 public partial class OverlayWindow
 {
     private readonly Dictionary<OverlayPage, double> _nestedScroll = [];
-    private readonly PixelPoint? _preferredScreenPoint;
-
-    private readonly double _uiScale;
-
-    /// <summary>
-    ///     The factor RootScale currently applies (1.0 = no transform). The
-    ///     sheet's inner layout happens in pre-transform units, so every budget derived
-    ///     from the window's width has to divide by this first.
-    /// </summary>
-    private double _contentScale = 1.0;
 
     // A backing field rather than `field`: with `field ??=` the compiler loses the non-null flow
     // at the foreach in OverlayWindow.axaml.cs and fails the warning-clean build (CS8602).
@@ -91,8 +81,8 @@ public partial class OverlayWindow
         new SubView(OverlayPage.PowerSession, PanelPowerSession, PanelPower, OverlayDestination.Power, Title: "Session",
             Icon: Icons.Play),
 
-        new SubView(OverlayPage.SteamStorageFormat, PanelFormat, PanelSystemStorage, OverlayDestination.System,
-            () => { _pendingTarget = null; }),
+        new SubView(OverlayPage.SteamStorageFormat, StorageFormatHost, PanelSystemStorage, OverlayDestination.System,
+            StorageFormatHost.ForgetTarget),
         new SubView(OverlayPage.SteamLibraryTabs, LibraryTabsHost, PanelSteamLibrary, OverlayDestination.Steam),
         new SubView(OverlayPage.SteamCardManager, CardManagerHost, PanelSteamLibrary, OverlayDestination.Steam),
 
@@ -132,7 +122,7 @@ public partial class OverlayWindow
     {
         get
         {
-            if (ActiveSurfaceFocusTarget is { } surfaceTarget)
+            if (Surfaces.FocusTarget is { } surfaceTarget)
             {
                 return surfaceTarget;
             }
@@ -273,7 +263,7 @@ public partial class OverlayWindow
             // A coordinator can retract Device while the Glyphs page is still selected. No tab
             // selection event is raised for that removal, so release the high-rate sample observer
             // here before the page and its tiles disappear.
-            UpdateGlyphInputObservation(false);
+            ObserveGlyphInput(false);
         }
 
         var previous = _navigation.Destination;
@@ -377,7 +367,7 @@ public partial class OverlayWindow
     /// </summary>
     internal void SelectPreviousTab()
     {
-        if (!HasActiveSurface)
+        if (!Surfaces.HasActive)
         {
             Tabs.SelectPrevious();
         }
@@ -386,7 +376,7 @@ public partial class OverlayWindow
     /// <summary>Selects the next destination (RB). Suppressed while a nested page is open.</summary>
     internal void SelectNextTab()
     {
-        if (!HasActiveSurface)
+        if (!Surfaces.HasActive)
         {
             Tabs.SelectNext();
         }
@@ -399,7 +389,7 @@ public partial class OverlayWindow
             return;
         }
 
-        if (e.Key is Key.PageUp or Key.PageDown && !HasActiveSurface)
+        if (e.Key is Key.PageUp or Key.PageDown && !Surfaces.HasActive)
         {
             if (e.Key == Key.PageUp)
             {
@@ -475,22 +465,22 @@ public partial class OverlayWindow
         var selected = SelectedSectionButton;
         var focused = GetTopLevel(this)?.FocusManager.GetFocusedElement();
         var context = new OverlayBackContext(
-            _armedConfirm is not null,
-            HasActiveSurface,
+            _powerConfirms.IsArmed,
+            Surfaces.HasActive,
             ActiveSubView?.Host is OverlaySubView { HasNestedLevel: true },
             ReferenceEquals(focused, selected),
             selected is not null && focused is Control);
         switch (_navigation.BackAction(context))
         {
             case OverlayBackAction.CloseSurface:
-                return CloseActiveSurface();
+                return Surfaces.CloseActive();
             case OverlayBackAction.NestedBack:
                 return ActiveSubView?.Host is OverlaySubView currentView && currentView.Back();
             case OverlayBackAction.FocusRail:
                 selected?.Focus(NavigationMethod.Directional);
                 return true;
             case OverlayBackAction.CloseDialog:
-                ResetConfirms();
+                _powerConfirms.Reset();
                 return true;
             case OverlayBackAction.LeaveNestedPage:
                 // A self-drawing sub-view handles its own deeper levels; at its root it raises
@@ -665,7 +655,7 @@ public partial class OverlayWindow
 
         Dispatcher.UIThread.Post(() =>
         {
-            if (_closed || HasActiveSurface || AnySubView)
+            if (_closed || Surfaces.HasActive || AnySubView)
             {
                 return;
             }
@@ -692,7 +682,7 @@ public partial class OverlayWindow
 
         // The Device sections are not sub-views with hosts of their own, so leaving them is only
         // this: dropping the one thing a section page holds beyond its rendered controls.
-        UpdateGlyphInputObservation(false);
+        ObserveGlyphInput(false);
     }
 
     private static void FocusFirstControl(Control panel)

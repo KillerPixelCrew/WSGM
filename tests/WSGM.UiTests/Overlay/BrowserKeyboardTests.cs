@@ -31,7 +31,7 @@ public sealed class BrowserKeyboardTests
         UiFixture.Key(window, Key.Enter);
 
         Assert.Equal(0, activations);
-        Assert.False(window.HasActiveSurface);
+        Assert.False(window.Surfaces.HasActive);
         Assert.True(session.ViewportFocused);
     }
 
@@ -72,7 +72,7 @@ public sealed class BrowserKeyboardTests
         Assert.True(keyboard.Bounds.Height <= (multiline ? 284 : 240));
         input.Text = multiline ? "first\nsecond" : "typed into the website";
         var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        window.SurfaceClosed += () => closed.TrySetResult();
+        window.Surfaces.Closed += () => closed.TrySetResult();
         if (multiline)
         {
             UiFixture.Click(window, UiFixture.Named<Button>(keyboard, "AcceptButton"));
@@ -93,7 +93,7 @@ public sealed class BrowserKeyboardTests
         Assert.Equal(input.Text, packet.Text);
         Assert.Equal(!multiline, packet.Submit);
         Assert.True(packet.Replace);
-        Assert.False(window.HasActiveSurface);
+        Assert.False(window.Surfaces.HasActive);
         Assert.Equal(0, externalRequests);
     }
 

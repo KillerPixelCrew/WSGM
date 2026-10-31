@@ -15,7 +15,7 @@ namespace WSGM.Overlay;
 
 /// <summary>
 ///     The gamepad-driven custom-tab builder, hosted as a Tools sub-view of the
-///     overlay (the <c>PanelFormat</c> idiom; scaffolding in <see cref="OverlaySubView" />).
+///     overlay (the <c>StorageFormatView</c> idiom; scaffolding in <see cref="OverlaySubView" />).
 ///     The view is one projection of <see cref="LibraryManagerService" />, which Steam's Library
 ///     Tab Manager page projects too: the tabs, the strip order, the pickers' Steam data and every
 ///     save go through it, and a change made in Steam redraws the list here. A tab is injected into

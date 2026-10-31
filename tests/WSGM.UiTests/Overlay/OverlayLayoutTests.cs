@@ -51,7 +51,7 @@ public sealed class OverlayLayoutTests
         Assert.True(workspace.Bounds.Width >= 979.5);
         Assert.True(workspace.Bounds.Height >= 639.5);
         var keyboard = new KeyboardPanel("Text entry", "", 100);
-        window.ShowKeyboardSurface(keyboard);
+        window.Surfaces.ShowKeyboard(keyboard);
         Dispatcher.UIThread.RunJobs();
         foreach (var button in keyboard.GetVisualDescendants().OfType<Button>()
                      .Where(button => button.IsEffectivelyVisible))
@@ -74,8 +74,8 @@ public sealed class OverlayLayoutTests
     [InlineData(3840, 2160, 3.0)]
     public void SavedGameModeScaleMatchesNativeDesktopPhysicalSizing(int width, int height, double desiredScale)
     {
-        var gameMode = OverlayWindow.ComputeContentScale(desiredScale, 1, width, height);
-        var desktop = OverlayWindow.ComputeContentScale(1, desiredScale, width, height) * desiredScale;
+        var gameMode = OverlayPlacement.ComputeContentScale(desiredScale, 1, width, height);
+        var desktop = OverlayPlacement.ComputeContentScale(1, desiredScale, width, height) * desiredScale;
         Assert.Equal(gameMode, desktop, 5);
     }
 

@@ -150,7 +150,7 @@ public abstract partial class OverlaySubView : UserControl
     private protected Task<string?> PickPathAsync(bool folder, params string[] extensions)
     {
         return TopLevel.GetTopLevel(this) is OverlayWindow window
-            ? window.PickLocalPathAsync(folder, extensions)
+            ? window.Surfaces.PickLocalPathAsync(folder, extensions)
             : Task.FromResult<string?>(null);
     }
 

@@ -20,32 +20,32 @@ internal static class OverlayInput
             () => window.DefaultFocusTarget,
             focused =>
             {
-                if (window.IsPowerMenuOpen)
+                if (window.Surfaces.IsPowerMenuOpen)
                 {
-                    window.CloseActiveSurface();
+                    window.Surfaces.CloseActive();
                 }
-                else if (!window.HasActiveSurface)
+                else if (!window.Surfaces.HasActive)
                 {
                     window.RequestSecondaryAction(focused);
                 }
             },
             () =>
             {
-                if (!window.NavigateSurfaceTab(false))
+                if (!window.Surfaces.NavigateTab(false))
                 {
                     window.SelectPreviousTab();
                 }
             },
             () =>
             {
-                if (!window.NavigateSurfaceTab(true))
+                if (!window.Surfaces.NavigateTab(true))
                 {
                     window.SelectNextTab();
                 }
             },
             _ =>
             {
-                if (!window.HasActiveSurface)
+                if (!window.Surfaces.HasActive)
                 {
                     if (!window.EmulatorManagerHost.CheckForUpdates())
                     {
@@ -53,9 +53,9 @@ internal static class OverlayInput
                     }
                 }
             },
-            direction => window.HasActiveSurface
-                ? window.NavigateSurfaceDirection(direction)
+            direction => window.Surfaces.HasActive
+                ? window.Surfaces.NavigateDirection(direction)
                 : window.NavigateWorkspace(direction),
-            true, () => window.ActiveSurfaceNavigationRoot);
+            true, () => window.Surfaces.NavigationRoot);
     }
 }

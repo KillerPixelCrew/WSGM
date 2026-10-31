@@ -270,7 +270,7 @@ public sealed class BrowserView : OverlaySubView
             return;
         }
 
-        if (TopLevel.GetTopLevel(this) is OverlayWindow { HasActiveSurface: false } window)
+        if (TopLevel.GetTopLevel(this) is OverlayWindow { Surfaces.HasActive: false } window)
         {
             var field = _session.TextField;
             _session.ReturnToChrome();
@@ -288,7 +288,7 @@ public sealed class BrowserView : OverlaySubView
                 }
             };
             keyboard.AttachedToVisualTree += (_, _) => keyboard.SelectText(field.SelectionStart, field.SelectionEnd);
-            window.ShowKeyboardSurface(keyboard);
+            window.Surfaces.ShowKeyboard(keyboard);
         }
     }
 
@@ -344,7 +344,7 @@ public sealed class BrowserView : OverlaySubView
         var game = withGame ? session.CurrentGame : null;
         var prompt = game is not null ? "Search " + game.Title : "Search or enter an address";
         var generation = NavigationGeneration;
-        window.RequestText(prompt, initial, BrowserNavigation.MaximumAddressLength,
+        window.Surfaces.RequestText(prompt, initial, BrowserNavigation.MaximumAddressLength,
             text =>
             {
                 if (_entered && generation == NavigationGeneration && ReferenceEquals(_session, session))
@@ -363,7 +363,7 @@ public sealed class BrowserView : OverlaySubView
 
     private void FocusChrome()
     {
-        if (!_entered || TopLevel.GetTopLevel(this) is not OverlayWindow { IsVisible: true, HasActiveSurface: false } window
+        if (!_entered || TopLevel.GetTopLevel(this) is not OverlayWindow { IsVisible: true, Surfaces.HasActive: false } window
             || _memory.IsDropDownOpen)
         {
             return;

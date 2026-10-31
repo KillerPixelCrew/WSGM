@@ -51,11 +51,11 @@ public sealed class ControllerNavigationTests
         Assert.Equal("Process name", UiFixture.Named<TextBlock>(processKeyboard, "PromptText").Text);
         Assert.Same(window, TopLevel.GetTopLevel(processKeyboard));
         var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        window.SurfaceClosed += () => closed.TrySetResult();
+        window.Surfaces.Closed += () => closed.TrySetResult();
         buttons.Press(GamepadButtons.B);
         await closed.Task.WaitAsync(TimeSpan.FromSeconds(2));
         // Closing the keyboard returns to the profile editor's containing utility surface.
-        Assert.True(window.HasActiveSurface);
+        Assert.True(window.Surfaces.HasActive);
         Assert.Null(TopLevel.GetTopLevel(processKeyboard));
         Assert.Same(window, TopLevel.GetTopLevel(editor));
         Assert.Same(add, window.FocusManager.GetFocusedElement());
@@ -109,7 +109,7 @@ public sealed class ControllerNavigationTests
         var vm = Assert.IsType<OverlayViewModel>(window.DataContext);
         vm.PowerTimeoutValues = new Dictionary<PowerTimeoutKind, int?> { [PowerTimeoutKind.DisplayDc] = 60 };
         List<(PowerTimeoutKind Kind, int Seconds)> requested = [];
-        window.PowerTimeoutSelected += (kind, seconds) => requested.Add((kind, seconds));
+        window.PowerEditors.PowerTimeoutSelected += (kind, seconds) => requested.Add((kind, seconds));
         UiFixture.Click(window, UiFixture.Tab(window, 3));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerTimeouts));
         var editor = UiFixture.Named<StackPanel>(window, "PowerTimeoutEditors")
@@ -224,9 +224,9 @@ public sealed class ControllerNavigationTests
         var window = fixture.Overlay();
         FakeButtonSource buttons = new();
         using var navigation = OverlayInput.Create(window, buttons, () => window.TryCancelSubView());
-        window.ShowBrightnessSurface();
+        window.Surfaces.ShowBrightness();
         Dispatcher.UIThread.RunJobs();
-        var close = Assert.IsType<Button>(window.ActiveSurfaceFocusTarget);
+        var close = Assert.IsType<Button>(window.Surfaces.FocusTarget);
 
         buttons.Press(GamepadButtons.DPadLeft);
         buttons.Press(GamepadButtons.DPadRight);
@@ -236,7 +236,7 @@ public sealed class ControllerNavigationTests
         Assert.Same(close, window.FocusManager.GetFocusedElement());
         Assert.True(UiFixture.Named<Button>(window, "CloseButton").Focus());
         buttons.Press(GamepadButtons.A);
-        Assert.True(window.HasActiveSurface);
+        Assert.True(window.Surfaces.HasActive);
         buttons.Press(GamepadButtons.DPadDown);
         Assert.Same(close, window.FocusManager.GetFocusedElement());
     }

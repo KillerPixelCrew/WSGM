@@ -125,8 +125,8 @@ public partial class OverlayWindow
     internal void AttachBrightness(NativeQamBrightnessService service,
         DisplayModeAccess displayModes, Func<string?>? display = null)
     {
-        display ??= DisplaySourceName;
-        AttachBrightnessSurface(service);
+        display ??= Placement.DisplaySourceName;
+        Surfaces.AttachBrightness(service);
         DisplayBrightnessHost.Tag = "section.display";
         // A shown page already owns a fold whose body contains this host. Replacing that fold would
         // detach the entire Display page instead of changing its heading.
@@ -223,18 +223,6 @@ public partial class OverlayWindow
 
     /// <summary>Raised after the user confirms closing the home application.</summary>
     public event Action? CloseLauncherRequested;
-
-    /// <summary>
-    ///     Gives the overlay the shared removable-storage format manager so
-    ///     its Steam storage page can drive it. Called by the controller right after
-    ///     construction (the manager outlives the window).
-    /// </summary>
-    /// <param name="format">The controller-owned format manager.</param>
-    internal void AttachFormatManager(SdFormatManager format)
-    {
-        _format = format;
-        PanelFormat.DataContext = format;
-    }
 
     /// <summary>Attaches the semantic coordinator projection used by the optional Device tab.</summary>
     /// <param name="source">Borrowed current plugin projection; null detaches the prior source and clears its presentation.</param>
@@ -391,7 +379,7 @@ public partial class OverlayWindow
 
         // Released against the outgoing bridge, before the field moves. Doing it after would leave
         // the old bridge holding a subscription and an observer count nothing can reach any more.
-        UpdateGlyphInputObservation(false);
+        ObserveGlyphInput(false);
         if (_deviceBridge is not null)
         {
             _deviceBridge.Changed -= OnDeviceChanged;
@@ -405,7 +393,7 @@ public partial class OverlayWindow
 
         var snapshot = DeviceSnapshotOrOff();
         ConfigureTabs(snapshot.Visible);
-        UpdateGlyphInputObservation(
+        ObserveGlyphInput(
             DeviceOverlaySectionPages.SectionFor(_navigation.Page)
                 is DeviceOverlaySection.ControllerAndMotion);
         RefreshNavigationHints();
@@ -455,6 +443,7 @@ public partial class OverlayWindow
             }
         }
 
+        _profileScope.Attach(_performanceSource);
         RefreshPerformancePanel();
         RenderPins();
     }

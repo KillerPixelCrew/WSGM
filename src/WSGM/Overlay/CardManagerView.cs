@@ -11,7 +11,7 @@ namespace WSGM.Overlay;
 
 /// <summary>
 ///     The gamepad-driven SD-card library manager, hosted as a Tools sub-view of
-///     the overlay (the <c>PanelFormat</c> idiom): rename, hide, enable, inspect, and
+///     the overlay (the <c>StorageFormatView</c> idiom): rename, hide, enable, inspect, and
 ///     forget tracked card libraries. Split out of <see cref="LibraryTabsView" /> — cards
 ///     are their own thing, not a tab-builder level. The view is one projection of
 ///     <see cref="LibraryManagerService" />, which Steam's SD Card Manager page projects too:

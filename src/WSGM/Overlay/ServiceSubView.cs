@@ -43,14 +43,14 @@ public abstract class ServiceSubView : OverlaySubView
             _owner = TopLevel.GetTopLevel(this) as OverlayWindow;
             if (_owner is not null)
             {
-                _owner.SurfaceClosed += OnSurfaceClosed;
+                _owner.Surfaces.Closed += OnSurfaceClosed;
             }
         };
         DetachedFromVisualTree += (_, _) =>
         {
             if (_owner is not null)
             {
-                _owner.SurfaceClosed -= OnSurfaceClosed;
+                _owner.Surfaces.Closed -= OnSurfaceClosed;
             }
 
             _owner = null;
@@ -543,7 +543,7 @@ public abstract class ServiceSubView : OverlaySubView
                     return;
                 }
 
-                if (_owner?.HasActiveSurface == true)
+                if (_owner?.Surfaces.HasActive == true)
                 {
                     _renderDeferred = true;
                 }

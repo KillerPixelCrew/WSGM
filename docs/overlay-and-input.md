@@ -223,11 +223,12 @@ backend and no duplicate common-action renderer.
 
 Text entry in the panel is a press-to-edit row, never a bare `TextBox`. Every editable name is a row
 whose current value stays visible and whose click opens the in-window keyboard through
-`OverlayWindow.RequestText`. A `TextBox` in a panel looks editable but is unusable on a controller:
-`GamepadNavigation` skips TextBoxes so the Windows touch keyboard cannot pop, so focus never lands
-on one and nothing types. When `OverlayWindow.RequestText` returns false there is no way to type at
-all; report the unavailable keyboard and log it rather than leaving a row that silently does nothing
-when pressed. `OverlaySubView.EditText` supplies this behavior for service pages.
+`OverlaySurfaceStack.RequestText`. A `TextBox` in a panel looks editable but is unusable on a
+controller: `GamepadNavigation` skips TextBoxes so the Windows touch keyboard cannot pop, so focus
+never lands on one and nothing types. When `OverlaySurfaceStack.RequestText` returns false there is
+no way to type at all; report the unavailable keyboard and log it rather than leaving a row that
+silently does nothing when pressed. `OverlaySubView.EditText` supplies this behavior for service
+pages.
 
 ## The on-screen keyboard
 
@@ -254,12 +255,12 @@ native windows and acquire no navigation, input capture or lease of their own.
 
 ### Keyboard and credentials
 
-`OverlayWindow.RequestText` opens `KeyboardPanel` for an internal text field. The keyboard stretches
-across the bottom of the overlay, with four 44-DIP key rows, one-DIP gaps and a single entry bar.
-The letter layout keeps typing, Shift, Ctrl, Backspace, Enter and cursor movement nearby. **&123**
-opens symbols; **More** holds function/navigation keys and the number pad. Secondary layouts retain
-the same height. The normal keyboard fits within 240 DIPs, including its editor, and long prompts
-keep their full accessible name and tooltip.
+`OverlaySurfaceStack.RequestText` opens `KeyboardPanel` for an internal text field. The keyboard
+stretches across the bottom of the overlay, with four 44-DIP key rows, one-DIP gaps and a single
+entry bar. The letter layout keeps typing, Shift, Ctrl, Backspace, Enter and cursor movement nearby.
+**&123** opens symbols; **More** holds function/navigation keys and the number pad. Secondary
+layouts retain the same height. The normal keyboard fits within 240 DIPs, including its editor, and
+long prompts keep their full accessible name and tooltip.
 
 Done returns the text once; cancel leaves the original value unchanged. Its multiline variant
 inserts a line on Enter and commits with Done; an optional change callback retains drafts. Notes
@@ -301,7 +302,7 @@ hardware-button work.
 
 ### Closure and validation
 
-All temporary controls live in `OverlayWindow.Surfaces.cs`. Surface closure disables its controls at
+All temporary controls live in `OverlaySurfaceStack.cs`. Surface closure disables its controls at
 once and keeps the 150 ms touch promotion grace, and the containing window keeps its
 synthesized-mouse filter. Overlay closure releases all surface contents before disposing their
 managers. There is no raw-pointer outside-window hit test and no separate-window activation handoff.

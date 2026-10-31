@@ -24,7 +24,7 @@ public sealed class VisualTests
         var window = fixture.Overlay(width, height, uiScale);
         if (keyboard)
         {
-            window.ShowKeyboardSurface(new KeyboardPanel("Enter text", "Full keyboard", 256));
+            window.Surfaces.ShowKeyboard(new KeyboardPanel("Enter text", "Full keyboard", 256));
         }
         else
         {

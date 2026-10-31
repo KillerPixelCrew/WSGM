@@ -24,18 +24,18 @@ public sealed class OverlaySurfaceTests
         window.ShowPowerMenu();
         Dispatcher.UIThread.RunJobs();
 
-        var keepPlaying = Assert.IsType<Button>(window.ActiveSurfaceFocusTarget);
+        var keepPlaying = Assert.IsType<Button>(window.Surfaces.FocusTarget);
         Assert.Equal("Keep playing", keepPlaying.Content);
         Assert.Same(keepPlaying, window.FocusManager?.GetFocusedElement());
         Assert.True(UiFixture.Named<Grid>(window, "DeckContent").IsEnabled);
         Assert.False(UiFixture.Named<Grid>(window, "DeckContent").IsHitTestVisible);
-        Assert.True(window.IsPowerMenuOpen);
+        Assert.True(window.Surfaces.IsPowerMenuOpen);
         var closed = new TaskCompletionSource();
-        window.SurfaceClosed += () => closed.TrySetResult();
+        window.Surfaces.Closed += () => closed.TrySetResult();
         UiFixture.Click(window, keepPlaying);
         await closed.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
-        Assert.False(window.HasActiveSurface);
+        Assert.False(window.Surfaces.HasActive);
         Assert.True(UiFixture.Named<Grid>(window, "DeckContent").IsEnabled);
         Assert.True(UiFixture.Named<Grid>(window, "DeckContent").IsHitTestVisible);
         Assert.Same(invoker, window.FocusManager?.GetFocusedElement());
@@ -50,17 +50,17 @@ public sealed class OverlaySurfaceTests
         var window = fixture.Overlay();
         window.ShowPowerMenu();
         Dispatcher.UIThread.RunJobs();
-        var invoker = window.ActiveSurfaceFocusTarget;
+        var invoker = window.Surfaces.FocusTarget;
         var keyboard = new KeyboardPanel("Name", "sample", 32);
         var accepted = new List<string>();
         keyboard.Accepted += accepted.Add;
-        window.ShowKeyboardSurface(keyboard);
+        window.Surfaces.ShowKeyboard(keyboard);
         Dispatcher.UIThread.RunJobs();
-        Assert.False(window.IsPowerMenuOpen);
+        Assert.False(window.Surfaces.IsPowerMenuOpen);
         Assert.Same(window, TopLevel.GetTopLevel(keyboard));
         Assert.True(keyboard.Bounds.Width > window.Bounds.Width * 0.8);
         var closed = new TaskCompletionSource();
-        window.SurfaceClosed += () => closed.TrySetResult();
+        window.Surfaces.Closed += () => closed.TrySetResult();
         var accept = UiFixture.Named<Button>(keyboard, "AcceptButton");
         UiFixture.Click(window, accept);
         Assert.False(accept.IsEffectivelyEnabled);
@@ -68,7 +68,7 @@ public sealed class OverlaySurfaceTests
         await closed.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
         Assert.Equal(["sample"], accepted);
-        Assert.True(window.IsPowerMenuOpen);
+        Assert.True(window.Surfaces.IsPowerMenuOpen);
         Assert.Same(invoker, window.FocusManager?.GetFocusedElement());
         Assert.True(UiFixture.Named<Grid>(window, "DeckContent").IsEnabled);
         Assert.False(UiFixture.Named<Grid>(window, "DeckContent").IsHitTestVisible);
@@ -83,14 +83,14 @@ public sealed class OverlaySurfaceTests
         invoker.Focus(NavigationMethod.Directional);
         var first = new KeyboardPanel("First", "old", 32);
         var second = new KeyboardPanel("Second", "new", 32);
-        window.ShowKeyboardSurface(first);
-        window.ShowKeyboardSurface(second);
+        window.Surfaces.ShowKeyboard(first);
+        window.Surfaces.ShowKeyboard(second);
         Dispatcher.UIThread.RunJobs();
 
         Assert.Null(TopLevel.GetTopLevel(first));
         Assert.Same(window, TopLevel.GetTopLevel(second));
-        window.CloseAllSurfaces();
-        Assert.False(window.HasActiveSurface);
+        window.Surfaces.CloseAll();
+        Assert.False(window.Surfaces.HasActive);
         Assert.Same(invoker, window.FocusManager?.GetFocusedElement());
     }
 
@@ -106,7 +106,7 @@ public sealed class OverlaySurfaceTests
         UiFixture.Click(window, restart);
         Assert.Equal("Really?", ((ActionButton)restart.Tag!).Title);
         Assert.Contains(restart.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Really?");
-        window.CloseAllSurfaces();
+        window.Surfaces.CloseAll();
         window.ShowPowerMenu();
         Dispatcher.UIThread.RunJobs();
 
@@ -114,7 +114,7 @@ public sealed class OverlaySurfaceTests
         Assert.DoesNotContain(window.GetVisualDescendants().OfType<Button>()
             .Where(button => button.IsEffectivelyVisible && button.Tag is ActionButton)
             .SelectMany(button => button.GetVisualDescendants().OfType<TextBlock>()), text => text.Text == "Really?");
-        Assert.Equal("Keep playing", Assert.IsType<Button>(window.ActiveSurfaceFocusTarget).Content);
+        Assert.Equal("Keep playing", Assert.IsType<Button>(window.Surfaces.FocusTarget).Content);
     }
 
     [AvaloniaFact]
@@ -151,7 +151,7 @@ public sealed class OverlaySurfaceTests
 
         Assert.Equal(2,
             menuActions.Select(button => button.TranslatePoint(default, window)!.Value.X).Distinct().Count());
-        var keepPlaying = Assert.IsType<Button>(window.ActiveSurfaceFocusTarget);
+        var keepPlaying = Assert.IsType<Button>(window.Surfaces.FocusTarget);
         Assert.Equal("Keep playing", keepPlaying.Content);
         Assert.Same(keepPlaying, window.FocusManager?.GetFocusedElement());
         var desktopInvocations = 0;
@@ -166,7 +166,7 @@ public sealed class OverlaySurfaceTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         var keyboard = new KeyboardPanel("Network password", "secret", 63, true);
-        window.ShowKeyboardSurface(keyboard);
+        window.Surfaces.ShowKeyboard(keyboard);
         Dispatcher.UIThread.RunJobs();
 
         var input = UiFixture.Named<TextBox>(keyboard, "Input");
@@ -174,7 +174,7 @@ public sealed class OverlaySurfaceTests
         Assert.Equal("secret", input.Text);
         Assert.Same(window, TopLevel.GetTopLevel(input));
         Assert.IsNotType<TextBox>(window.FocusManager?.GetFocusedElement());
-        window.CloseAllSurfaces();
-        Assert.False(window.HasActiveSurface);
+        window.Surfaces.CloseAll();
+        Assert.False(window.Surfaces.HasActive);
     }
 }

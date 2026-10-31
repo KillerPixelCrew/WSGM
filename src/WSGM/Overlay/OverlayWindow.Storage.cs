@@ -1,100 +1,25 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using WSGM.Core;
-using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
 public partial class OverlayWindow
 {
-    // The library name the confirm step will format with. Held here rather than in a
-    // TextBox: the row is press-to-edit (see the XAML), matching the tab editor and
-    // card rename, and the in-window keyboard owns the typing.
-    private string _formatName = "";
-
-    /// <summary>
-    ///     Shows the name on its row so the value is visible without focusing
-    ///     anything, the way every other name row in the panel reads.
-    /// </summary>
-    private void SetFormatName(string value)
-    {
-        _formatName = value;
-        FormatNameButton.Description = _formatName.Length > 0 ? _formatName : "(required)";
-    }
-
-    // The library name uses this window's keyboard surface.
-    private void OnFormatEditName(object? sender, RoutedEventArgs e)
-    {
-        if (!RequestText("Name (volume and Steam library)",
-                _formatName, SdFormatManager.MaximumLabelLength, SetFormatName))
-        {
-            // No keyboard surface means no way to type on a controller; say so instead
-            // of leaving a row that silently does nothing when pressed.
-            Log.Warn("Format: no on-screen keyboard available for the library name.");
-        }
-    }
-
     private void OnFormatSdCard(object? sender, RoutedEventArgs e)
     {
-        if (_format is null)
+        if (!StorageFormatHost.Available)
         {
             return;
         }
 
-        FormatHeading.Text = "Format SD Card";
-        ShowFormatState(true, false, false);
+        StorageFormatHost.ShowTargets();
         OpenStorageFormat();
-        _format.Refresh();
-    }
-
-    private void OnFormatRefresh(object? sender, RoutedEventArgs e)
-    {
-        _format?.Refresh();
-    }
-
-    private void OnFormatTargetChosen(object? sender, RoutedEventArgs e)
-    {
-        if (_format is null || _format.Progress.Busy
-                            || (sender as Control)?.DataContext is not FormatTargetEntry entry)
-        {
-            return;
-        }
-
-        _pendingTarget = entry;
-        FormatConfirmTarget.Text = $"Erase {entry.Name}?";
-        FormatConfirmDetail.Text = entry.Detail;
-        SetFormatName(SdFormatManager.DefaultLabel);
-        ShowFormatState(false, true, false);
-        FocusFirstControl(FormatConfirmView);
-    }
-
-    private void OnFormatConfirmed(object? sender, RoutedEventArgs e)
-    {
-        Log.Observe(FormatConfirmedAsync(), "SD-card format");
-    }
-
-    private async Task FormatConfirmedAsync()
-    {
-        if (_format is null || _pendingTarget is null)
-        {
-            return;
-        }
-
-        var target = _pendingTarget;
-        var name = _formatName;
-        ShowFormatState(false, false, true);
-        ScrollFormatToTop();
-        await _format.FormatAsync(target, name);
-    }
-
-    private void OnFormatCancel(object? sender, RoutedEventArgs e)
-    {
-        LeaveSubView(OverlayPage.SteamStorageFormat);
+        StorageFormatHost.RefreshTargets();
     }
 
     private void OpenStorageFormat()
@@ -110,7 +35,7 @@ public partial class OverlayWindow
 
     private async Task AddLibraryAsync()
     {
-        if (_format is null)
+        if (!StorageFormatHost.Available)
         {
             return;
         }
@@ -148,17 +73,9 @@ public partial class OverlayWindow
             return;
         }
 
-        FormatHeading.Text = "Add Steam Library";
-        ShowFormatState(false, false, true);
+        StorageFormatHost.ShowAddLibrary();
         OpenStorageFormat();
-        await _format.Libraries.AddLibraryAsync(path);
-    }
-
-    private void ShowFormatState(bool pick, bool confirm, bool progress)
-    {
-        FormatPickView.IsVisible = pick;
-        FormatConfirmView.IsVisible = confirm;
-        FormatProgressView.IsVisible = progress;
+        await StorageFormatHost.AddLibraryAsync(path);
     }
 
     /// <summary>
@@ -183,15 +100,5 @@ public partial class OverlayWindow
             _navigation.Destination,
             semanticKey,
             ContentScroller.Offset.Y);
-    }
-
-    /// <summary>
-    ///     Returns the format flow to its heading when its state changes.
-    ///     The confirmation keyboard can leave the scroller at its bottom, where the
-    ///     terminal format message would otherwise be invisible.
-    /// </summary>
-    private void ScrollFormatToTop()
-    {
-        ContentScroller.Offset = new Vector(0, 0);
     }
 }

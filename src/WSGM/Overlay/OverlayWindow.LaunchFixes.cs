@@ -77,7 +77,7 @@ public partial class OverlayWindow
         {
             // Keep the game identity from before opening the file picker.
             var game = await ResolveCurrentGameAsync(CustomLaunchButton);
-            var path = await PickLocalPathAsync(false, ".exe", ".cmd", ".bat", ".ps1");
+            var path = await Surfaces.PickLocalPathAsync(false, ".exe", ".cmd", ".bat", ".ps1");
             if (_closed || path is null)
             {
                 return;

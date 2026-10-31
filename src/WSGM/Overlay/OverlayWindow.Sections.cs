@@ -32,14 +32,7 @@ public partial class OverlayWindow
     private SectionPinHeader CreateSectionHeader(string id, string title, bool pinnedSurface = false)
     {
         var header = new SectionPinHeader(id, title, key => PinToggleRequested?.Invoke(key), pinnedSurface);
-        header.Refresh(_pins.Contains(id));
-        // Pin indicator updates visit only the headers in the tree, not every control in the window.
-        header.AttachedToLogicalTree += (_, _) =>
-        {
-            _pinHeaders.Add(header);
-            header.Refresh(_pins.Contains(header.SectionId));
-        };
-        header.DetachedFromLogicalTree += (_, _) => _pinHeaders.Remove(header);
+        _pins.Track(header);
         return header;
     }
 

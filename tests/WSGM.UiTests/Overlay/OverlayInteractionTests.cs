@@ -27,12 +27,11 @@ public sealed class OverlayInteractionTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         List<ManualWakeMode> requested = [];
-        var vm = Assert.IsType<OverlayViewModel>(window.DataContext);
-        window.KeepAwakeSelected += mode =>
+        window.PowerEditors.KeepAwakeSelected += mode =>
         {
             requested.Add(mode);
             // A refused write leaves the old view-model value unchanged.
-            window.RefreshPowerEditors(vm);
+            window.PowerEditors.Refresh();
         };
         UiFixture.Click(window, UiFixture.Tab(window, 3));
         var editor = UiFixture.Named<StackPanel>(window, "KeepAwakeHost")
@@ -52,7 +51,7 @@ public sealed class OverlayInteractionTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         List<(PowerTimeoutKind Kind, int Seconds)> requested = [];
-        window.PowerTimeoutSelected += (kind, seconds) => requested.Add((kind, seconds));
+        window.PowerEditors.PowerTimeoutSelected += (kind, seconds) => requested.Add((kind, seconds));
         var vm = Assert.IsType<OverlayViewModel>(window.DataContext);
         vm.PowerTimeoutValues = new Dictionary<PowerTimeoutKind, int?> { [PowerTimeoutKind.DisplayDc] = 60 };
         UiFixture.Click(window, UiFixture.Tab(window, 3));
@@ -82,7 +81,7 @@ public sealed class OverlayInteractionTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         List<ManualWakeMode> requested = [];
-        window.KeepAwakeSelected += requested.Add;
+        window.PowerEditors.KeepAwakeSelected += requested.Add;
         UiFixture.Click(window, UiFixture.Tab(window, 3));
         var editor = UiFixture.Named<StackPanel>(window, "KeepAwakeHost")
             .GetVisualDescendants().OfType<ComboBox>().Single();
@@ -101,7 +100,7 @@ public sealed class OverlayInteractionTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         List<ManualWakeMode> requested = [];
-        window.KeepAwakeSelected += requested.Add;
+        window.PowerEditors.KeepAwakeSelected += requested.Add;
         var vm = Assert.IsType<OverlayViewModel>(window.DataContext);
         vm.KeepAwakeManualMode = ManualWakeMode.Standby;
         UiFixture.Click(window, UiFixture.Tab(window, 3));
@@ -124,7 +123,7 @@ public sealed class OverlayInteractionTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         List<(PowerTimeoutKind Kind, int Seconds)> requested = [];
-        window.PowerTimeoutSelected += (kind, seconds) => requested.Add((kind, seconds));
+        window.PowerEditors.PowerTimeoutSelected += (kind, seconds) => requested.Add((kind, seconds));
         var vm = Assert.IsType<OverlayViewModel>(window.DataContext);
         vm.PowerTimeoutValues = new Dictionary<PowerTimeoutKind, int?> { [PowerTimeoutKind.DisplayDc] = 60 };
         UiFixture.Click(window, UiFixture.Tab(window, 3));
@@ -609,7 +608,8 @@ public sealed class OverlayInteractionTests
         window.SetPins(["home.steam"]);
         UiFixture.OpenSections(window);
         Assert.True(UiFixture.Named<Control>(window, "PinToast").IsVisible);
-        var timer = Assert.IsType<DispatcherTimer>(PrivateField<DispatcherTimer>(window, "_pinToastTimer"));
+        var pins = Assert.IsType<QuickAccessPins>(PrivateField<QuickAccessPins>(window, "_pins"));
+        var timer = Assert.IsType<DispatcherTimer>(PrivateField<DispatcherTimer>(pins, "_toastTimer"));
         Assert.True(timer.IsEnabled);
         window.Close();
 

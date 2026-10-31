@@ -290,7 +290,7 @@ public sealed partial class OverlayController : IDisposable
                                                  "The session must supply its format manager.");
 
     /// <summary>Whether the power menu currently consumes short power-button requests.</summary>
-    public bool PowerMenuOpen => _overlay?.IsPowerMenuOpen == true;
+    public bool PowerMenuOpen => _overlay?.Surfaces.IsPowerMenuOpen == true;
 
     /// <summary>Completes after the pin changes submitted so far have finished saving.</summary>
     internal Task PinWrites { get; private set; } = Task.CompletedTask;
@@ -308,7 +308,7 @@ public sealed partial class OverlayController : IDisposable
         _windowReturnCancellation?.Cancel();
         _overlay?.ReleaseProgramsPresentation();
         DisposeNotes();
-        _overlay?.CloseAllSurfaces();
+        _overlay?.Surfaces.CloseAll();
         // Deliberately NOT retracting the injected Steam UI (tabs, badge, Wi-Fi AP)
         // here: both the Settings preview and session shutdown call this Dispose, and
         // retracting from the preview would tear the LIVE session's tabs out of Big
@@ -426,7 +426,7 @@ public sealed partial class OverlayController : IDisposable
             _pins = [.. config.QuickAccessPins];
         }
 
-        _overlay?.SetBlurRadius(config.OverlayBlurRadius);
+        _overlay?.Placement.SetBlurRadius(config.OverlayBlurRadius);
         _sources.CommonPlugins?.ApplyPins(config.PluginWidgetPins);
         // The master CEF switch is owned by ShellSession, which retracts injected UI
         // before closing it — setting it here as well would cut that retraction off.
@@ -597,9 +597,9 @@ public sealed partial class OverlayController : IDisposable
         _systemStatus.Start();
         var setupDone = Stopwatch.GetTimestamp();
         _overlay = new OverlayWindow(_store, vm, switcher, _systemStatus, _windowSession,
-            static window => window.DockToTopEdge(), UiScale(explorerRunning),
+            static window => window.Placement.Dock(), UiScale(explorerRunning),
             WindowCenter(_restoreFocusTo), SteamClient);
-        _overlay.SetBlurRadius(_config.OverlayBlurRadius);
+        _overlay.Placement.SetBlurRadius(_config.OverlayBlurRadius);
         if (_sources.Brightness is { } brightness)
         {
             _overlay.AttachBrightness(brightness,
@@ -657,11 +657,11 @@ public sealed partial class OverlayController : IDisposable
             }
         };
 
-        _overlay.AttachFormatManager(FormatManager);
+        _overlay.StorageFormatHost.Attach(FormatManager);
         _overlay.PowerMenuRequested += TogglePowerMenu;
-        _overlay.SurfaceClosed += () =>
+        _overlay.Surfaces.Closed += () =>
         {
-            if (_powerMenuOnly && _overlay is { HasActiveSurface: false })
+            if (_powerMenuOnly && _overlay is { Surfaces.HasActive: false })
             {
                 CloseOverlay();
             }
@@ -801,15 +801,15 @@ public sealed partial class OverlayController : IDisposable
 
             request(action);
         };
-        overlay.KeepAwakeSelected += mode =>
+        overlay.PowerEditors.KeepAwakeSelected += mode =>
         {
             _keepAwake?.SetManualMode(mode);
             // Also reconcile a refused request whose actual mode did not change:
             // the view model then emits no property notification of its own.
             vm.KeepAwakeManualMode = _keepAwake?.ManualMode ?? ManualWakeMode.Off;
-            overlay.RefreshPowerEditors(vm);
+            overlay.PowerEditors.Refresh();
         };
-        overlay.PowerTimeoutSelected += async (kind, seconds) =>
+        overlay.PowerEditors.PowerTimeoutSelected += async (kind, seconds) =>
         {
             if (_previewOnly)
             {
@@ -843,7 +843,7 @@ public sealed partial class OverlayController : IDisposable
         };
         // Off the UI thread: the elevated one-shot blocks for as long as its consent prompt is
         // on screen, and a frozen sheet holding the Steam Input lease reads as a hang.
-        overlay.UacPromptsRequested += async disable =>
+        overlay.WindowsPolicies.UacPromptsRequested += async disable =>
         {
             try
             {
@@ -856,7 +856,7 @@ public sealed partial class OverlayController : IDisposable
 
             RefreshWindowsPolicies(overlay);
         };
-        overlay.LockOnWakeRequested += async disable =>
+        overlay.WindowsPolicies.LockOnWakeRequested += async disable =>
         {
             try
             {
@@ -948,7 +948,7 @@ public sealed partial class OverlayController : IDisposable
         _pendingClose?.Dispose();
         _pendingClose = null;
         // Detach surfaces before disposing the live managers they observe.
-        _overlay?.CloseAllSurfaces();
+        _overlay?.Surfaces.CloseAll();
         StopSwitcherRefresh();
         _switcherViewModel = null;
         _systemStatus?.Dispose();
@@ -1096,7 +1096,7 @@ public sealed partial class OverlayController : IDisposable
                 new AppSwitcherViewModel(),
                 status,
                 _windowSession,
-                static window => window.DockToTopEdge(),
+                static window => window.Placement.Dock(),
                 UiScale(ExplorerControl.IsDesktopShellRunning()))
             {
                 WarmingUp = true,
@@ -1157,14 +1157,14 @@ public sealed partial class OverlayController : IDisposable
 
         ShowOverlay();
         ShowRadioPanel(true);
-        return _overlay?.HasActiveSurface == true;
+        return _overlay?.Surfaces.HasActive == true;
     }
 
     private void ShowRadioPanel(bool bluetooth)
     {
         if (_systemStatus is not null)
         {
-            _overlay?.ShowRadioSurface(new RadioPanel(_systemStatus.Radios, bluetooth));
+            _overlay?.Surfaces.ShowRadio(new RadioPanel(_systemStatus.Radios, bluetooth));
         }
     }
 
@@ -1172,7 +1172,7 @@ public sealed partial class OverlayController : IDisposable
     {
         if (_systemStatus is not null)
         {
-            _overlay?.ShowAudioSurface(new AudioPanel(_systemStatus.Audio, _audioProfiles));
+            _overlay?.Surfaces.ShowAudio(new AudioPanel(_systemStatus.Audio, _audioProfiles));
         }
     }
 
@@ -1180,7 +1180,7 @@ public sealed partial class OverlayController : IDisposable
     {
         if (_systemStatus is not null)
         {
-            _overlay?.ShowEjectSurface(new EjectPanel(_systemStatus.Drives));
+            _overlay?.Surfaces.ShowEject(new EjectPanel(_systemStatus.Drives));
         }
     }
 

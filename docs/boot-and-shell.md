@@ -537,7 +537,7 @@ lesser failure, so prefer a throttled one-shot warning over a narrower catch.
 
 The former bottom taskbar lives inside the quick access sheet. Switchable windows
 (`WindowFinder.ListSwitchableWindows`) form a horizontally scrolling chip strip along the sheet's
-bottom. Tray icons share that bottom rail, and `OverlayWindow.ComputeTrayMaxWidth` limits their
+bottom. Tray icons share that bottom rail, and `OverlayPlacement.ComputeTrayMaxWidth` limits their
 share to keep the app strip usable. Wi-Fi, Bluetooth, audio, brightness, keyboard and eject
 utilities, plus battery and clock from `Shell\Session\SystemStatus`, remain in the fixed header.
 Utility targets keep their size while secondary status labels collapse at narrow logical widths.

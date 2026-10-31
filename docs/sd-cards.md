@@ -199,12 +199,12 @@ slipped into a reader whose volume already exists raises no notification.
 ## Storage routes and the formatting transaction
 
 `OverlayWindow.Navigation.cs` registers `SteamStorageFormat` under `SystemStorage` in the Tools
-destination. `OverlayWindow.Storage.cs` opens that route from Format SD Card and Add Steam Library;
-the Steam Library page also offers Add Steam Library, which selects Tools > Storage before opening
-it. Back and Cancel return to Storage, and leaving clears the pending target. Card Manager is a
-separate `SteamCardManager` route under Steam Library and has no format command. `ShowSdCard` and
-`ShowCardManager` are independently derived from `Cef.Enabled` and their own feature switches, so
-formatting does not depend on Card Manager being enabled.
+destination. `OverlayWindow.Storage.cs` opens that route, drawn by `StorageFormatView`, from Format
+SD Card and Add Steam Library; the Steam Library page also offers Add Steam Library, which selects
+Tools > Storage before opening it. Back and Cancel return to Storage, and leaving clears the pending
+target. Card Manager is a separate `SteamCardManager` route under Steam Library and has no format
+command. `ShowSdCard` and `ShowCardManager` are independently derived from `Cef.Enabled` and their
+own feature switches, so formatting does not depend on Card Manager being enabled.
 
 The file/folder picker for Add Steam Library is still the native Avalonia storage dialog and needs a
 pointer. It is separate from the in-window picker used by Library Importer and content tools. The
@@ -244,7 +244,7 @@ destructive operation.
 | Library identity and tabs | `Shell/Library/SdCardLibraryCatalog.cs`, `LibraryTabManager.cs`, `LibraryManagerService.cs`, `Shell/Storage/SteamLibraryMarker.cs`, `Core/Library/SteamLibraryFolders.cs`, `SteamLibraryVdf.cs`, `SteamLibraryTabs.cs` | Follow medium-owned labels and content IDs, edit guarded VDF structures and materialize custom tabs; the manager owns every sync's lifetime. |
 | Formatting                | `Shell/Storage/SdFormatManager.cs`, `Diskpart.cs`, `SteamLibraryProvisioner.cs`, `StorageRunProgress.cs`, `SdFormatOperations.cs`, `FormatTarget.cs`, `FormatTargetEntry.cs`                                           | Own target validation, serialized destructive stages, library creation and failure reporting.                                                |
 | Steam projection          | `Shell/Storage/SteamStorageBridge.cs`                                                                                                                                                                                  | Expose the session's storage owners through the toolkit's Steam storage surface.                                                             |
-| Overlay projection        | `Overlay/OverlayWindow.Storage.cs`, `CardManagerView.cs`, `LibraryTabsView.cs`, `EjectPanel.axaml.cs`                                                                                                                  | Present intent and progress using the shared managers, without a second storage policy.                                                      |
+| Overlay projection        | `Overlay/StorageFormatView.axaml.cs`, `CardManagerView.cs`, `LibraryTabsView.cs`, `EjectPanel.axaml.cs`                                                                                                                | Present intent and progress using the shared managers, without a second storage policy.                                                      |
 
 Storage, marker, VDF and policy regression cases live under `tests/WSGM.Tests/Shell/Storage`,
 `Shell/Library` and `Core/Library`; UI route checks live under `tests/WSGM.UiTests`. They use

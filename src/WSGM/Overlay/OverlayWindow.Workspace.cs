@@ -153,7 +153,7 @@ public partial class OverlayWindow
 
         if (ActiveSubView is { Available: { } availability } && !availability())
         {
-            CloseAllSurfaces();
+            Surfaces.CloseAll();
             LeaveAllNestedPages();
         }
 
@@ -163,7 +163,7 @@ public partial class OverlayWindow
         {
             // The descriptor owner retracted the open page. Retire its text-entry callback
             // before replacing the route, then land on the surviving overview rail.
-            CloseAllSurfaces();
+            Surfaces.CloseAll();
             SelectWorkspaceSection(fallback, true);
             return;
         }
@@ -219,7 +219,7 @@ public partial class OverlayWindow
 
     private void SelectWorkspaceSection(WorkspaceSection section, bool focusRail)
     {
-        if (HasActiveSurface)
+        if (Surfaces.HasActive)
         {
             return;
         }
@@ -283,7 +283,7 @@ public partial class OverlayWindow
 
     internal bool NavigateWorkspace(NavigationDirection direction)
     {
-        if (!HasActiveSurface && FocusManager?.GetFocusedElement() is Control sectionFocus
+        if (!Surfaces.HasActive && FocusManager?.GetFocusedElement() is Control sectionFocus
                               && sectionFocus.GetVisualAncestors().OfType<CollapsibleSection>().FirstOrDefault() is
                               { } fold
                               && ReferenceEquals(sectionFocus, fold.Heading)
@@ -293,7 +293,7 @@ public partial class OverlayWindow
             return true;
         }
 
-        if (HasActiveSurface || FocusManager?.GetFocusedElement() is not Control focused
+        if (Surfaces.HasActive || FocusManager?.GetFocusedElement() is not Control focused
                              || !focused.GetVisualAncestors().Contains(SectionRail))
         {
             return false;
@@ -316,7 +316,7 @@ public partial class OverlayWindow
 
     private void OnHeaderBrightness(object? sender, RoutedEventArgs e)
     {
-        ShowBrightnessSurface();
+        Surfaces.ShowBrightness();
     }
 
     private sealed record WorkspaceSection(

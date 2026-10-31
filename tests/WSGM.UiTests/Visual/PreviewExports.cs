@@ -136,7 +136,7 @@ public static class PreviewExports
 
             if (page == "keyboard")
             {
-                window.ShowKeyboardSurface(new KeyboardPanel("Profile name", "Balanced", 100));
+                window.Surfaces.ShowKeyboard(new KeyboardPanel("Profile name", "Balanced", 100));
             }
 
             Dispatcher.UIThread.RunJobs();

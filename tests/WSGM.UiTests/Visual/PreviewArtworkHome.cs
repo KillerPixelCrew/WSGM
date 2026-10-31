@@ -138,7 +138,7 @@ public static class PreviewArtworkHome
 
         // The keyboard leaves after the overlay's close grace, which runs on a dispatcher timer.
         using var closed = new CancellationTokenSource(AsyncConditions.TimeLimit);
-        window.SurfaceClosed += Stop;
+        window.Surfaces.Closed += Stop;
         try
         {
             UiFixture.Click(window, KeyButton(keyboard, Key.Enter));
@@ -146,10 +146,10 @@ public static class PreviewArtworkHome
         }
         finally
         {
-            window.SurfaceClosed -= Stop;
+            window.Surfaces.Closed -= Stop;
         }
 
-        if (window.HasActiveSurface)
+        if (window.Surfaces.HasActive)
         {
             throw new TimeoutException("The search keyboard did not close.");
         }

@@ -24,7 +24,7 @@ public partial class OverlayWindow
             return;
         }
 
-        RefreshHeaderProfile();
+        _profileScope.Refresh();
 
         // The first render runs when the window opens.
         if (!_opened)
