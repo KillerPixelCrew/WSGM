@@ -34,30 +34,30 @@ on the existing shared transport. Pack compatibility, licensing and restoration 
 [Steam UI sound packs](steam-sounds.md).
 
 ```text
- Core\Steam.cs                registry discovery, Big Picture launch, shortcuts, update stop
- Shell\SteamMonitor.cs        5 s alive/dead poll → SteamStarted / SteamExited
- Shell\SteamUiReadiness.cs    "may the transport be open?", its ready edge, RunWhenReady
+ Core\Steam\Steam.cs                registry discovery, Big Picture launch, shortcuts, update stop
+ Shell\Steam\SteamMonitor.cs        5 s alive/dead poll → SteamStarted / SteamExited
+ Shell\Steam\SteamUiReadiness.cs    "may the transport be open?", its ready edge, RunWhenReady
  ShellSession                 the transport gate loop, retract-before-Big-Picture, master switch
    └─ PersistentSteamUiTransport (toolkit)   one CDP connection per role, with one SteamClient over it
-      └─ Shell\SteamUiSessionHost.cs         the one patch/bridge/module owner
+      └─ Shell\Steam\SteamUiSessionHost.cs         the one patch/bridge/module owner
            ├─ SteamUiBridgeHost + NativeQamBootstrap.js (Core\SteamUiAssets, composed from the toolkit)
            ├─ SteamUiPatchManager: bridge, toolkit surfaces/rows, WSGM pages, download sort, glyph style
            ├─ SteamUiModuleRuntime: publications down, commands up
            └─ NativeQam*Service (Shell\)     the backends: TDP, AutoTDP, frame limit, VRR, controller
                                              target, device controls, audio, network, Bluetooth,
                                              brightness, resolution; each feeds one toolkit surface
- Core\SteamLibraryTabs.cs                       legacy resident script: library tabs
- Shell\LibraryBadges.cs, HomeCarousel.cs        card readings behind the library badge and Home carousel
+ Core\Library\SteamLibraryTabs.cs                       legacy resident script: library tabs
+ Shell\Library\LibraryBadges.cs, HomeCarousel.cs        card readings behind the library badge and Home carousel
  toolkit Client\                                one-shot client calls through the session transport:
                                                 app details and launch writes, artwork, install
                                                 folders, downloads, library data, current game page,
                                                 running apps
- Core\SteamLibraryFolders.cs, SteamLaunchConfig.cs     WSGM's policy over generic calls
+ Core\Library\SteamLibraryFolders.cs, SteamLaunchConfig.cs     WSGM's policy over generic calls
  Core\Artwork\                                  the artwork feature and its providers
  Core\Library\, Shell\GameLibrary*             the Game Library: sources, planning, choices,
- Shell\SteamLibraryImportSurface.cs             shortcut writing; its Steam page
- Core\Themes\, Shell\ThemeService.cs            the Steam themes: CSSLoader-compatible loader,
- Shell\SteamThemesSurface.cs                    DeckThemes client, installer; its Steam page
+ Shell\Library\SteamLibraryImportSurface.cs             shortcut writing; its Steam page
+ Core\Themes\, Shell\Themes\ThemeService.cs            the Steam themes: CSSLoader-compatible loader,
+ Shell\Themes\SteamThemesSurface.cs                    DeckThemes client, installer; its Steam page
  tools\WsgmLibTest\                             live helpers and the QAM harness
 ```
 
@@ -77,8 +77,8 @@ the plugin frontend boundary below.
 
 ## 2. Finding and driving Steam
 
-`Core\Steam.cs` is static; WSGM is Steam-exclusive and there is no path setting. The executable is
-resolved from `HKCU\Software\Valve\Steam\SteamExe`, then
+`Core\Steam\Steam.cs` is static; WSGM is Steam-exclusive and there is no path setting. The
+executable is resolved from `HKCU\Software\Valve\Steam\SteamExe`, then
 `HKLM\SOFTWARE\WOW6432Node\Valve\Steam\InstallPath` plus `steam.exe`, re-validated on every read.
 `InstallDirectory` is the one accessor for everything WSGM writes beside Steam: the CEF flag and the
 Steam Input proxy.
@@ -298,8 +298,8 @@ within the same deadline.
 
 ## 4. The session host
 
-`Shell\SteamUiSessionHost.cs` owns one `SteamUiBridgeHost` over the embedded bootstrap asset, one
-`SteamUiPatchManager`, one `SteamUiModuleSet` and one `SteamUiModuleRuntime`. It registers the
+`Shell\Steam\SteamUiSessionHost.cs` owns one `SteamUiBridgeHost` over the embedded bootstrap asset,
+one `SteamUiPatchManager`, one `SteamUiModuleSet` and one `SteamUiModuleRuntime`. It registers the
 bootstrap patch first and every module's patches after it, starts with everything disabled, and
 follows the transport's generation events and every service's change event, hearing the device
 coordinator's capability and configuration changes once for all the device rows. The session builds
@@ -414,20 +414,21 @@ Steam's Big Picture screensaver runs natively on Windows on its own idle timeout
 request while it does. WSGM leaves it Steam's and adds two rows, "Turn display off after (on
 battery)" and "(plugged in)", to the Screensaver section of Steam's Customization settings through
 the toolkit's `SteamScreensaverSurface`. They edit the same active-scheme display timeouts as the
-overlay's Power page, through the one session owner `Shell\DisplayTimeouts.cs`. Nothing caches the
-values; both surfaces read Windows each time.
+overlay's Power page, through the one session owner `Shell\Display\DisplayTimeouts.cs`. Nothing
+caches the values; both surfaces read Windows each time.
 
 The gate reports Steam's `system_idle_screensaver_ac_sec` and `system_idle_screensaver_battery_sec`
 and whether Steam believes the machine has a battery, when it first reads them, when they change on
-the page and whenever the page opens. `Core\DisplayTimeoutPolicy.cs` bounds each display timeout by
-the screensaver timeout Steam pairs with it: plugged-in by plugged-in, battery by battery, and both
-by the plugged-in one on a machine Steam believes has none, because that is the only timeout it
-shows there. A report finding a display timeout below its bound raises it once to the shortest
-preset at or above it (`Display timeout … raised from … to …`); a refused write is logged, not
-retried. Steam's rows offer only allowed choices and the backend refuses anything else with the
-reason; the overlay's cycle skips forbidden presets and names the bound in the row description. Zero
-means never for the display and disabled for the screensaver, so it satisfies every bound and
-imposes none. The rows follow the CEF master switch and are not declared in overlay-test.
+the page and whenever the page opens. `Core\Power\DisplayTimeoutPolicy.cs` bounds each display
+timeout by the screensaver timeout Steam pairs with it: plugged-in by plugged-in, battery by
+battery, and both by the plugged-in one on a machine Steam believes has none, because that is the
+only timeout it shows there. A report finding a display timeout below its bound raises it once to
+the shortest preset at or above it (`Display timeout … raised from … to …`); a refused write is
+logged, not retried. Steam's rows offer only allowed choices and the backend refuses anything else
+with the reason; the overlay's cycle skips forbidden presets and names the bound in the row
+description. Zero means never for the display and disabled for the screensaver, so it satisfies
+every bound and imposes none. The rows follow the CEF master switch and are not declared in
+overlay-test.
 
 The host's existing two-second publication also samples `Interop\LastInput` (`GetLastInputInfo`)
 through `Shell\ScreensaverInputActivity`, including keyboard, mouse and touch outside Steam's
@@ -472,9 +473,9 @@ same list. Fragments are discovered by directory: adding a gate is a new file in
 `gates\` plus its `Steam*Surface` class, and nothing else. Every fragment after `bridge.ts` opens
 with a `// @fragment <label>` marker. The program is type-checked with TypeScript 7, type-stripped,
 cut at `// @steam-ui-bundle-start`, formatted with Prettier, and written as
-`Core\SteamUiAssets\NativeQamBootstrap.js`. At runtime `Core\SteamUiAssetCatalog.cs` hashes the
-embedded bytes and hands that SHA-256 to the bridge as the asset's identity; the drift check is what
-keeps a hand edit from shipping.
+`Core\SteamUiAssets\NativeQamBootstrap.js`. At runtime `Core\Steam\SteamUiAssetCatalog.cs` hashes
+the embedded bytes and hands that SHA-256 to the bridge as the asset's identity; the drift check is
+what keeps a hand edit from shipping.
 
 | Check                         | Fails on                                                                                  |
 | ----------------------------- | ----------------------------------------------------------------------------------------- |
@@ -523,8 +524,8 @@ through `#QuickAccess_Tab_Perf_Common_Settings`, `#QuickAccess_Tab_Perf_BatteryT
 
 The wrappers draw WSGM's rows in the toolkit UI kit's groups after Valve's Performance tree: blocks
 with a fill and border under a heading that carries the section's glyph. WSGM supplies the sections,
-their titles, glyphs and folds and which rows each holds, as `Shell\NativeQamLayout.cs` published
-through the toolkit's layout surface; the section ids are the titles, so the folds kept in
+their titles, glyphs and folds and which rows each holds, as `Shell\Steam\NativeQamLayout.cs`
+published through the toolkit's layout surface; the section ids are the titles, so the folds kept in
 `quick-access-folds.json` carry over. Quick Settings places Display before the native controls, then
 Charging and RGB lighting after them, and wraps Valve's own sections so they get the same block
 look. Performance groups profile scope, power profiles, display/frame rate, power limits, controller
@@ -625,10 +626,10 @@ five structural ones, applies `install(kind)`, verifies
 command payload is read by the surface's module with `SteamUiPayload` before WSGM's backend sees a
 typed value.
 
-`Core\SteamInputGlyphStylePatch.cs` targets the main window with the default 8 s phase timeout,
-probes the parsed stylesheets for the two build-coupled classes rather than the DOM, installs one
-`<style id="wsgm-handheld-glyphs" class="wsgm-glyph-style">`, and removes only nodes with that
-class. The reasoning is in [steam-cef.md](steam-cef.md).
+`Core\Steam\SteamInputGlyphStylePatch.cs` targets the main window with the default 8 s phase
+timeout, probes the parsed stylesheets for the two build-coupled classes rather than the DOM,
+installs one `<style id="wsgm-handheld-glyphs" class="wsgm-glyph-style">`, and removes only nodes
+with that class. The reasoning is in [steam-cef.md](steam-cef.md).
 
 ## 7. The native Quick Access Menu
 
@@ -739,9 +740,9 @@ The toolkit's `SteamPerformanceState` mirrors Valve's `CMsgSystemPerfState`: `li
 `settings.global`, `settings.per_app`, `current_game_id`, `active_profile_game_id`. Every field is
 nullable and omitted when null, which is how a Valve control is hidden without CSS. Display fields
 carry an `_external` twin because the Claw's built-in panel reports itself as external.
-`Core\NativeQamPerfProjection.cs` is WSGM's policy about what to put in it. It never publishes an
-fps limit of zero: `fps_limit` is the desired cap or the lowest option and `is_fps_limit_enabled`
-says whether it applies.
+`Core\Performance\NativeQamPerfProjection.cs` is WSGM's policy about what to put in it. It never
+publishes an fps limit of zero: `fps_limit` is the desired cap or the lowest option and
+`is_fps_limit_enabled` says whether it applies.
 
 | Topic         | Rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -773,16 +774,16 @@ The findings behind each of these are in [steam-cef.md](steam-cef.md).
 
 | Feature              | Files                                                                                                                          | Mechanism                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Switch                                                        |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| Library tabs         | `Core\SteamLibraryTabs.cs`, `Shell\LibraryTabManager.cs`                                                                       | legacy resident in SharedJSContext; wraps `useMemo` through React's dispatcher slot to append fake in-memory collections; inputs `window.__wsgm.tabs`, `tabOrder`, `hiddenTabs`; kill switches `suspendTabs`, `disableTabs`; `PushOrderAsync` debounced 600 ms                                                                                                                                                                                                                                                                                                                                | `Cef.LibraryTabs`                                             |
-| Library badge        | `Shell\LibraryBadges.cs`, toolkit `SteamLibraryBadgeSurface`                                                                   | patch lifecycle; claims the library tile memo and draws the library name beside Valve's Steam Input badge, green installed and grey not; WSGM names every library, cards and Steam's other registrations; reports Big Art Mode as `steam.home.layout`                                                                                                                                                                                                                                                                                                                                         | `Cef.CardManager`                                             |
-| Home carousel        | `Shell\HomeCarousel.cs`, toolkit `SteamHomeCarouselSurface`                                                                    | patch lifecycle; claims Home's memo and adopts a Home already on screen, replaces the carousel's `games` array with the attached libraries' games and clears its whole-list overscan; excludes games on disconnected cards; reports its counts as `steam.home.carousel`                                                                                                                                                                                                                                                                                                                       | `Cef.ConnectedLibraryCarousel`, `Cef.CarouselShowUninstalled` |
+| Library tabs         | `Core\Library\SteamLibraryTabs.cs`, `Shell\Library\LibraryTabManager.cs`                                                       | legacy resident in SharedJSContext; wraps `useMemo` through React's dispatcher slot to append fake in-memory collections; inputs `window.__wsgm.tabs`, `tabOrder`, `hiddenTabs`; kill switches `suspendTabs`, `disableTabs`; `PushOrderAsync` debounced 600 ms                                                                                                                                                                                                                                                                                                                                | `Cef.LibraryTabs`                                             |
+| Library badge        | `Shell\Library\LibraryBadges.cs`, toolkit `SteamLibraryBadgeSurface`                                                           | patch lifecycle; claims the library tile memo and draws the library name beside Valve's Steam Input badge, green installed and grey not; WSGM names every library, cards and Steam's other registrations; reports Big Art Mode as `steam.home.layout`                                                                                                                                                                                                                                                                                                                                         | `Cef.CardManager`                                             |
+| Home carousel        | `Shell\Library\HomeCarousel.cs`, toolkit `SteamHomeCarouselSurface`                                                            | patch lifecycle; claims Home's memo and adopts a Home already on screen, replaces the carousel's `games` array with the attached libraries' games and clears its whole-list overscan; excludes games on disconnected cards; reports its counts as `steam.home.carousel`                                                                                                                                                                                                                                                                                                                       | `Cef.ConnectedLibraryCarousel`, `Cef.CarouselShowUninstalled` |
 | Current game         | toolkit `SteamCurrentPage`                                                                                                     | one-shot read in the visible window: signal `focus`, else `hero image`, else the library route                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | —                                                             |
-| Library data         | toolkit `SteamLibraryData`, `Core\LibraryFilter.cs`                                                                            | read-only: lists collections, games and store tags; WSGM's compiled filter predicates are batched into one evaluation by `LibraryFilter.EvaluateAsync`                                                                                                                                                                                                                                                                                                                                                                                                                                        | —                                                             |
-| Downloads            | toolkit `SteamDownloadActivity`, `Core\SteamDownloadSort.cs`                                                                   | overview is a one-shot `RegisterForDownloadOverview` with immediate unregister (keep-awake, screen-off mute); the sort gate transforms the header on the JSX claim, builds buttons from Valve's `Focusable`, renumbers through `SetQueueIndex` every 120 ms                                                                                                                                                                                                                                                                                                                                   | `Cef.DownloadQueueSort`                                       |
-| Launch configuration | `Core\SteamLaunchConfig.cs`, `Core\SteamCustomLaunchCommand.cs`, toolkit `SteamApps`                                           | reads through `RegisterForAppDetails` (3 s timeout, unregister); writes `SetAppLaunchOptions` for titles, `SetShortcutExe` + `SetShortcutLaunchOptions` for shortcuts, verbatim, 400 ms settle; clipboard fallback with CEF off                                                                                                                                                                                                                                                                                                                                                               | —                                                             |
+| Library data         | toolkit `SteamLibraryData`, `Core\Library\LibraryFilter.cs`                                                                    | read-only: lists collections, games and store tags; WSGM's compiled filter predicates are batched into one evaluation by `LibraryFilter.EvaluateAsync`                                                                                                                                                                                                                                                                                                                                                                                                                                        | —                                                             |
+| Downloads            | toolkit `SteamDownloadActivity`, `Core\Steam\SteamDownloadSort.cs`                                                             | overview is a one-shot `RegisterForDownloadOverview` with immediate unregister (keep-awake, screen-off mute); the sort gate transforms the header on the JSX claim, builds buttons from Valve's `Focusable`, renumbers through `SetQueueIndex` every 120 ms                                                                                                                                                                                                                                                                                                                                   | `Cef.DownloadQueueSort`                                       |
+| Launch configuration | `Core\Steam\SteamLaunchConfig.cs`, `Core\Steam\SteamCustomLaunchCommand.cs`, toolkit `SteamApps`                               | reads through `RegisterForAppDetails` (3 s timeout, unregister); writes `SetAppLaunchOptions` for titles, `SetShortcutExe` + `SetShortcutLaunchOptions` for shortcuts, verbatim, 400 ms settle; clipboard fallback with CEF off                                                                                                                                                                                                                                                                                                                                                               | —                                                             |
 | Artwork              | `Core\Artwork\`, `Shell\SteamArtworkBrowser*`, toolkit `SteamApps`, `SteamPageSurface`                                         | the page searches providers in parallel, the Game Library's automatic match asks them in order; SteamGridDB and Screenscraper.fr over HTTPS, each behind its own gate, bounded downloads, format from the image's bytes; native tabbed Steam route; clear/apply through the running client                                                                                                                                                                                                                                                                                                    | `Cef.Enabled`                                                 |
 | Game Library         | `Core\Library\`, `Shell\GameLibrary*`, toolkit `SteamApps`, `SteamLibraryData`, `SteamFilePickerSurface`, `library-capsule.ts` | ten sources, each detected on its own and read together; Xbox packages classified by runtime with one Store catalog lookup per package family, remembered for the session; launcher titles as exact command routes; artwork candidates gathered in the background and picked before saving; the library read in one call per scan or run; shortcuts written through the running client one at a time with a settle, a new id confirmed in the toolkit by a before/after library diff which is the authority and its fields read back, an unconfirmed write stops the run and is never retried | `Cef.Enabled`                                                 |
-| Libraries            | `Core\SteamLibraryFolders.cs`, `Core\SteamLibraryVdf.cs`, toolkit `SteamInstallFolders`                                        | `AddInstallFolder` on the running client after purging same-path registrations; removal iterates one snapshot; WSGM resolves a card's content id to one path first and refuses an ambiguous one; `libraryfolders.vdf` splice with Steam closed                                                                                                                                                                                                                                                                                                                                                | `Cef.SdFormat`                                                |
+| Libraries            | `Core\Library\SteamLibraryFolders.cs`, `Core\Library\SteamLibraryVdf.cs`, toolkit `SteamInstallFolders`                        | `AddInstallFolder` on the running client after purging same-path registrations; removal iterates one snapshot; WSGM resolves a card's content id to one path first and refuses an ambiguous one; `libraryfolders.vdf` splice with Steam closed                                                                                                                                                                                                                                                                                                                                                | `Cef.SdFormat`                                                |
 
 ### Host-owned surfaces
 
@@ -1289,15 +1290,15 @@ output uses the existing Verbose logging setting. Available stacks and bounded r
 properties are included, so a plain `{ result: 2, message: "CVRPathHelpers not found" }` does not
 disappear behind `#<Object>`. Repeated identical messages use the normal change-aware suppression.
 
-| Area                               | Keys and lines                                                                                                                                                                                                                                                                            |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Gate and lifecycle                 | `steam-ui-transport-gate`, `Steam CEF remote-debugging enabled`, `Steam launch integrity`, `Steam exited.`, `Steam started.`, `Starting Steam Big Picture.`, `Steam UI retraction for the Big Picture request ran out of time`, `Steam CEF integration disabled — injected UI retracted.` |
-| Toolkit (`Core\WsgmSteamUiLog.cs`) | `steam.ui.discovery`, `steam.ui.patch.<id>`, `steam.ui.bridge.rejected`, `steam.ui.request.<patch>.<command>`, `steam.ui.response.<patch>.<command>`, `steam.ui.publication.<patch>`                                                                                                      |
-| Host                               | `steam.ui.glyphs`, `steam.ui.append.<id>`, `steam.ui.append.error.<id>`, `Steam UI patch synchronization failed`                                                                                                                                                                          |
-| QAM                                | `native-qam-echo-<Kind>`, `Native QAM performance delta refused`, `Native QAM power limit released to the device ceiling`, `Native QAM audio: …`, `Bluetooth: …`, `Native QAM resolution refused`, `display.backlight`                                                                    |
-| Library                            | `Library tabs injected`, `Library tabs (boot)`, `steam.home.layout`, `steam.home.carousel`, `Library badge: initial reading failed`, `Steam current app <id> (<signal>)`, `Steam library added to the live client.`                                                                       |
-| Themes                             | `Themes: … themes read from …`, `Themes: <link status>`, `themes.translations`, `theme.inject.<id>`, `Themes: unpacking …`, `Themes: the update check could not reach the store`                                                                                                          |
-| Animations                         | `Animations: … in the library, boot …, override written`, `animations.repository`, `Animations: Downloaded …`                                                                                                                                                                             |
+| Area                                     | Keys and lines                                                                                                                                                                                                                                                                            |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Gate and lifecycle                       | `steam-ui-transport-gate`, `Steam CEF remote-debugging enabled`, `Steam launch integrity`, `Steam exited.`, `Steam started.`, `Starting Steam Big Picture.`, `Steam UI retraction for the Big Picture request ran out of time`, `Steam CEF integration disabled — injected UI retracted.` |
+| Toolkit (`Core\Steam\WsgmSteamUiLog.cs`) | `steam.ui.discovery`, `steam.ui.patch.<id>`, `steam.ui.bridge.rejected`, `steam.ui.request.<patch>.<command>`, `steam.ui.response.<patch>.<command>`, `steam.ui.publication.<patch>`                                                                                                      |
+| Host                                     | `steam.ui.glyphs`, `steam.ui.append.<id>`, `steam.ui.append.error.<id>`, `Steam UI patch synchronization failed`                                                                                                                                                                          |
+| QAM                                      | `native-qam-echo-<Kind>`, `Native QAM performance delta refused`, `Native QAM power limit released to the device ceiling`, `Native QAM audio: …`, `Bluetooth: …`, `Native QAM resolution refused`, `display.backlight`                                                                    |
+| Library                                  | `Library tabs injected`, `Library tabs (boot)`, `steam.home.layout`, `steam.home.carousel`, `Library badge: initial reading failed`, `Steam current app <id> (<signal>)`, `Steam library added to the live client.`                                                                       |
+| Themes                                   | `Themes: … themes read from …`, `Themes: <link status>`, `themes.translations`, `theme.inject.<id>`, `Themes: unpacking …`, `Themes: the update check could not reach the store`                                                                                                          |
+| Animations                               | `Animations: … in the library, boot …, override written`, `animations.repository`, `Animations: Downloaded …`                                                                                                                                                                             |
 
 The Screensaver settings rows log `steam.screensaver` once per change of Steam's reported timeouts,
 and each raise or refused raise of a display timeout on its own line.

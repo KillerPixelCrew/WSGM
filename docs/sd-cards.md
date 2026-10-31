@@ -101,12 +101,12 @@ geometry record
 An unavailable privileged read handle does not remove a Format candidate. Formatting still uses the
 existing confirmation, elevation and fresh target-validation path.
 
-One reader, `Shell\StorageInventory.cs`, walks the mounted volumes and the disk interfaces and
-classifies each disk once, so every storage surface agrees on which card is which by disk number.
-The eject list, the format targets and Steam's storage pages project from the eject list's latest
-read: a change to that list refreshes the format targets from the same read instead of walking the
-disks again. The card monitor and the library tabs take a fresh read when they need the answer. The
-identity checks around an eject or a format still open their own fresh handles.
+One reader, `Shell\Storage\StorageInventory.cs`, walks the mounted volumes and the disk interfaces
+and classifies each disk once, so every storage surface agrees on which card is which by disk
+number. The eject list, the format targets and Steam's storage pages project from the eject list's
+latest read: a change to that list refreshes the format targets from the same read instead of
+walking the disks again. The card monitor and the library tabs take a fresh read when they need the
+answer. The identity checks around an eject or a format still open their own fresh handles.
 
 System/application disks and internal fixed storage remain excluded. Eject refreshes on volume
 arrival and removal notifications after the card settle delay, and keeps a 10-second full snapshot
@@ -232,15 +232,15 @@ destructive operation.
 
 ## Code ownership and verification
 
-| Area                      | Source under `src/WSGM`                                                                                                           | Responsibility                                                                                                             |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Inventory                 | `Shell/StorageInventory.cs`, `Interop/NativeStorage.cs`                                                                           | Detached mounted-volume and physical-interface inventory; Windows disk, volume and ejection calls.                         |
-| Eject                     | `Shell/RemovableDriveManager.cs`, `RemovableDriveEntries.cs`                                                                      | Reconcile eject rows, revalidate targets and invoke the library observer before media leaves.                              |
-| Registration policy       | `Shell/LibraryPolicy.cs`, `CardVolumeMonitor.cs`, `CardAcfWatcher.cs`                                                             | Decide registration and retained eject intent, detect volume/manifest changes, and recheck scanned identity before acting. |
-| Library identity and tabs | `Shell/LibraryTabManager.cs`, `SteamLibraryMarker.cs`, `Core/SteamLibraryFolders.cs`, `SteamLibraryVdf.cs`, `SteamLibraryTabs.cs` | Follow medium-owned labels and content IDs, edit guarded VDF structures and materialize custom tabs.                       |
-| Formatting                | `Shell/SdFormatManager.cs`, `SdFormatEntries.cs`                                                                                  | Own target validation, serialized destructive stages, library creation and failure reporting.                              |
-| Steam projection          | `Shell/SteamStorageBridge.cs`                                                                                                     | Expose the session's storage owners through the toolkit's Steam storage surface.                                           |
-| Overlay projection        | `Overlay/OverlayWindow.Storage.cs`, `CardManagerView.cs`, `LibraryTabsView.cs`, `EjectPanel.axaml.cs`                             | Present intent and progress using the shared managers, without a second storage policy.                                    |
+| Area                      | Source under `src/WSGM`                                                                                                                           | Responsibility                                                                                                             |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Inventory                 | `Shell/Storage/StorageInventory.cs`, `Interop/NativeStorage.cs`                                                                                   | Detached mounted-volume and physical-interface inventory; Windows disk, volume and ejection calls.                         |
+| Eject                     | `Shell/Storage/RemovableDriveManager.cs`, `RemovableDriveEntries.cs`                                                                              | Reconcile eject rows, revalidate targets and invoke the library observer before media leaves.                              |
+| Registration policy       | `Shell/Library/LibraryPolicy.cs`, `CardVolumeMonitor.cs`, `CardAcfWatcher.cs`                                                                     | Decide registration and retained eject intent, detect volume/manifest changes, and recheck scanned identity before acting. |
+| Library identity and tabs | `Shell/Library/LibraryTabManager.cs`, `SteamLibraryMarker.cs`, `Core/Library/SteamLibraryFolders.cs`, `SteamLibraryVdf.cs`, `SteamLibraryTabs.cs` | Follow medium-owned labels and content IDs, edit guarded VDF structures and materialize custom tabs.                       |
+| Formatting                | `Shell/Storage/SdFormatManager.cs`, `SdFormatEntries.cs`                                                                                          | Own target validation, serialized destructive stages, library creation and failure reporting.                              |
+| Steam projection          | `Shell/Storage/SteamStorageBridge.cs`                                                                                                             | Expose the session's storage owners through the toolkit's Steam storage surface.                                           |
+| Overlay projection        | `Overlay/OverlayWindow.Storage.cs`, `CardManagerView.cs`, `LibraryTabsView.cs`, `EjectPanel.axaml.cs`                                             | Present intent and progress using the shared managers, without a second storage policy.                                    |
 
 Storage, marker, VDF and policy regression cases live under `tests/WSGM.Tests/Shell` and
 `tests/WSGM.Tests/Core`; UI route checks live under `tests/WSGM.UiTests`. They use temporary paths,

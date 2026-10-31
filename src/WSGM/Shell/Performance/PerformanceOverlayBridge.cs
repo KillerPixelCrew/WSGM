@@ -20,7 +20,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
 
     /// <summary>The five overlay notches, named as WSGM renders them.</summary>
     /// <remarks>
-    ///     These are WSGM's own OSD levels from <c>Core\RtssOsdContent.cs</c>, not Valve's wire enum — the
+    ///     These are WSGM's own OSD levels from <c>Core\Performance\RtssOsdContent.cs</c>, not Valve's wire enum — the
     ///     renderer behind them is ours, and the wire translation happens at the QAM boundary. The row
     ///     showed "On" for every one of 1 to 4 before this, which made four different overlays
     ///     indistinguishable from each other in the one place they are chosen.

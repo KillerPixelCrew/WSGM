@@ -429,11 +429,11 @@ instance, a declared action, its primitive arguments and a 1–120 second deadli
 origin `SessionAutomation`, and the step's generation is resolved at the moment it runs, so a plugin
 that restarted between two steps is never addressed with a stale one.
 
-`Shell\PluginActionSequence.cs` runs them. Entry stops at the first step that did not succeed;
-sending the rest after the TV failed to come on only makes the failure harder to read. The other
-three run every step and report what failed, because each one is independently worth attempting and
-there is nothing to abort. **Nothing is ever retried**, in either mode: a `Dispatched` or
-`Unconfirmed` outcome means the command may already be on the wire.
+`Shell\Plugins\PluginActionSequence.cs` runs them. Entry stops at the first step that did not
+succeed; sending the rest after the TV failed to come on only makes the failure harder to read. The
+other three run every step and report what failed, because each one is independently worth
+attempting and there is nothing to abort. **Nothing is ever retried**, in either mode: a
+`Dispatched` or `Unconfirmed` outcome means the command may already be on the wire.
 
 Settings > Display authors the four lists: add a step from a running plugin's declared actions,
 remove it, move it earlier or later, and edit its arguments and deadline. Order is the point, not a
@@ -450,17 +450,17 @@ plugin is not running keeps its values, is shown but not editable, and is still 
 a step you no longer want must not require starting a plugin. Its argument schema is captured by the
 host before the plugin starts, so for one that is not there, there is nothing truthful to render.
 
-Desktop startup and wake are coalesced by `Shell\DesktopActionAdmission.cs`: one run at a time, a
-five-second cooldown, and never while Game Mode is active or a transition is in flight. The four
-notifications around a sleep overlap, and an action list must not fire twice for one wake.
+Desktop startup and wake are coalesced by `Shell\Desktop\DesktopActionAdmission.cs`: one run at a
+time, a five-second cooldown, and never while Game Mode is active or a transition is in flight. The
+four notifications around a sleep overlap, and an action list must not fire twice for one wake.
 
 ### Game Mode entry
 
-`Shell\GameModeEntryTransaction.cs` owns the order and the compensation; the backend owns the
-effects. Everything before Explorer leaves is undoable, so the splash offers Cancel and a failure
-puts the desktop back exactly as it was. Once Explorer is gone there is no cheap desktop to return
-to, so that exit is the boundary: after it the splash button becomes "Switch to desktop" and later
-failures compensate forwards.
+`Shell\Desktop\GameModeEntryTransaction.cs` owns the order and the compensation; the backend owns
+the effects. Everything before Explorer leaves is undoable, so the splash offers Cancel and a
+failure puts the desktop back exactly as it was. Once Explorer is gone there is no cheap desktop to
+return to, so that exit is the boundary: after it the splash button becomes "Switch to desktop" and
+later failures compensate forwards.
 
 The order is: record what to return to, run the entry actions, wait for every required display,
 persist the pending return layout, prepare the Explorer anchor, re-check the displays, exit
@@ -478,10 +478,10 @@ switch the user never asked to move.
 
 The display wait has **no deadline**, only cancellation. The reference setup puts a TV behind an
 HDMI switch, so how long the display takes is up to a person and a piece of consumer hardware; a
-timeout would only ever fire on the honest case. `Shell\DisplayArrivalWaiter.cs` requires two
-identical observations a settle apart before it believes a display has arrived, because a monitor
-coming up behind a switch enumerates, disappears and re-enumerates while the sink negotiates.
-`Interop\DisplayChangeWindow.cs` supplies the hint: a hidden top-level window, because
+timeout would only ever fire on the honest case. `Shell\Display\DisplayArrivalWaiter.cs` requires
+two identical observations a settle apart before it believes a display has arrived, because a
+monitor coming up behind a switch enumerates, disappears and re-enumerates while the sink
+negotiates. `Interop\DisplayChangeWindow.cs` supplies the hint: a hidden top-level window, because
 `WM_DISPLAYCHANGE` is broadcast to top-level windows only and the message-only window never hears
 it. The hint only shortens a wait; a five-second backstop poll is what makes the wait correct when
 no broadcast arrives.

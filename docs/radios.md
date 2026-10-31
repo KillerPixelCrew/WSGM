@@ -16,9 +16,9 @@ Related:
 
 ## What WSGM owns
 
-`Shell\RadioManager.cs` is the single owner of radio state for the game-mode UI: the observable
-collections, the refresh timer, the scan and pairing lifecycles, and the wording. The library
-returns outcomes; the wording that reaches the user is WSGM's.
+`Shell\Network\RadioManager.cs` is the single owner of radio state for the game-mode UI: the
+observable collections, the refresh timer, the scan and pairing lifecycles, and the wording. The
+library returns outcomes; the wording that reaches the user is WSGM's.
 
 `BluetoothDeviceCatalog` keeps Windows watcher endpoint records and merges them by normalized,
 non-empty container GUID into the logical collection shared by Overlay and Steam. Missing container
@@ -49,12 +49,12 @@ or automatic write retry is used. Steam transport replies preserve backend failu
 These wording rules are covered by `tests\WSGM.Tests\Shell\RadioManagerTests.cs`; the library
 contracts they sit on are tested in the library's own repository.
 
-`Shell\AudioManager.cs` owns the session's default render and capture endpoint state. The library's
-direction-aware `CoreAudio.GetVolume`/`SetVolume` calls are the only Windows edge; WSGM polls the
-two directions independently and coalesces each slider's writes separately. The Steam QAM projection
-does not copy speaker volume into the microphone field: a missing capture endpoint publishes a null
-input volume so Steam leaves that direction unavailable, while a present one receives its own 0-100
-value and routes writes back with `AudioDirection.Capture`.
+`Shell\Audio\AudioManager.cs` owns the session's default render and capture endpoint state. The
+library's direction-aware `CoreAudio.GetVolume`/`SetVolume` calls are the only Windows edge; WSGM
+polls the two directions independently and coalesces each slider's writes separately. The Steam QAM
+projection does not copy speaker volume into the microphone field: a missing capture endpoint
+publishes a null input volume so Steam leaves that direction unavailable, while a present one
+receives its own 0-100 value and routes writes back with `AudioDirection.Capture`.
 
 ## Touch keyboard boundary
 

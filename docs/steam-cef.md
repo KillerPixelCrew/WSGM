@@ -295,25 +295,26 @@ copies its mechanism. Nothing patches Steam's data model; every override is a st
   Steam Deck composite target always brings trackpads and touch-sensing sticks; the configurator's
   quick settings ("right trackpad behavior", its sensitivity and inversion) are plain labelled
   fields the stylesheet cannot reach (Claw, 2026-09-26). The `wsgm.controller-caps` hook
-  (`Shell\SteamControllerCapsSurface.cs`, fragment `controller-caps.ts`) wraps the one generated RPC
-  every store reads the list through, `SteamInputManager.GetControllerList`, and clears
-  `ATTRIBCAP_TRACKPAD` when the profile marks both pads absent and `ATTRIBCAP_CAPJOYSTICK` when it
-  marks both stick touches absent, on the controller with Valve's vendor and product id only. The
-  list query cache is invalidated and the two stores that hold the list are asked to query it again
-  after the hook changes. The grip bits stay untouched until a device confirms which of Steam's two
-  names L5/R5. Nothing native and no layout file changes; the stylesheet rules stay as a second line
-  for builds that read a cached list.
+  (`Shell\Controller\SteamControllerCapsSurface.cs`, fragment `controller-caps.ts`) wraps the one
+  generated RPC every store reads the list through, `SteamInputManager.GetControllerList`, and
+  clears `ATTRIBCAP_TRACKPAD` when the profile marks both pads absent and `ATTRIBCAP_CAPJOYSTICK`
+  when it marks both stick touches absent, on the controller with Valve's vendor and product id
+  only. The list query cache is invalidated and the two stores that hold the list are asked to query
+  it again after the hook changes. The grip bits stay untouched until a device confirms which of
+  Steam's two names L5/R5. Nothing native and no layout file changes; the stylesheet rules stay as a
+  second line for builds that read a cached list.
 
 The device-specific half of the theme is custom properties only (`--controller-image`,
 `--button-guide-image`, `--button-l4-image` and so on); every selector lives in the shared sheet.
 
 ### WSGM owns the selectors, the plugin owns the artwork
 
-`Core\SteamGlyphCss.cs` emits the stylesheet and `Core\SteamInputGlyphStylePatch.cs` installs it as
-one owned `<style>` element. WSGM owns the Valve resource names, the selectors, the stylesheet shape
-and the injection; the device plugin owns the glyphs. Every image in the sheet comes from the active
-plugin's imported profile as a hash-checked data URI. A plugin never supplies a selector, a URL,
-stylesheet text or a script, and WSGM ships no handheld artwork and no per-device stylesheet.
+`Core\Steam\SteamGlyphCss.cs` emits the stylesheet and `Core\Steam\SteamInputGlyphStylePatch.cs`
+installs it as one owned `<style>` element. WSGM owns the Valve resource names, the selectors, the
+stylesheet shape and the injection; the device plugin owns the glyphs. Every image in the sheet
+comes from the active plugin's imported profile as a hash-checked data URI. A plugin never supplies
+a selector, a URL, stylesheet text or a script, and WSGM ships no handheld artwork and no per-device
+stylesheet.
 
 Injection follows CSSLoader exactly, because that is what makes coexistence work: append a `<style>`
 to `document.head` with WSGM's own marker class `wsgm-glyph-style`, remove only nodes with that
@@ -403,8 +404,8 @@ Two more measured facts. When a registration at the path is mounted, a second ad
 means "already registered" here. A registration stays `bIsMounted:true` with `nCapacity:0` when its
 folder is deleted while the volume is present, so mounted does not prove a registration is current.
 
-The rules in the toolkit's `SteamInstallFolders`, driven by `Core\SteamLibraryFolders.cs`, follow
-from this:
+The rules in the toolkit's `SteamInstallFolders`, driven by `Core\Library\SteamLibraryFolders.cs`,
+follow from this:
 
 - The add expression purges same-path registrations before adding. `replaceExisting: true` from the
   format flow purges even a mounted one, because a just-formatted card makes every prior
@@ -431,25 +432,25 @@ against index shift. There is no shift.
 
 ### Card swaps are reconciled on the volume notification, not by polling
 
-`Shell\RemovableDriveManager.cs` is the one owner that subscribes with `RegisterDeviceNotification`
-to `GUID_DEVINTERFACE_VOLUME` on the process message-only window. Two alternatives are wrong: the
-broadcast `DBT_DEVTYP_VOLUME` message goes only to top-level windows, so a `HWND_MESSAGE` window
-never receives it; WMI (`Win32_DiskDrive` plus a model string) matches one reader only and gives no
-volume-arrival identity.
+`Shell\Storage\RemovableDriveManager.cs` is the one owner that subscribes with
+`RegisterDeviceNotification` to `GUID_DEVINTERFACE_VOLUME` on the process message-only window. Two
+alternatives are wrong: the broadcast `DBT_DEVTYP_VOLUME` message goes only to top-level windows, so
+a `HWND_MESSAGE` window never receives it; WMI (`Win32_DiskDrive` plus a model string) matches one
+reader only and gives no volume-arrival identity.
 
 The notification arrives before the volume is mounted and lettered, so the drive manager settles 3 s
 and reads all storage once rather than resolving the reported device path. When that read changes
-the volumes or disks it raises `TopologyChanged`; `Shell\CardVolumeMonitor.cs`, the manifest watcher
-and the format list all react to it and scan that same read. The decision compares the card's own
-`contentid` (the identity that travels with the card) against the ids registered for that path in
-`libraryfolders.vdf`; Steam's live folder API exposes no content id, so the file is the source.
-Reconciliation is gated on the CEF master switch and off in `--overlay-test`, and on nothing else.
-It used to be a game-mode service as well, which left Big Picture on the desktop showing a library
-whose card had been pulled (Claw, 2026-09-11): Steam's storage pages are revived whenever the bridge
-is on, in either mode, so the card in the reader has to be the library Steam has in either mode too.
-The monitor still waits for the Big Picture window before changing anything, so the wider gate
-changes when it watches, not when it may act. Manifest watching stays with game mode; it serves the
-library tabs.
+the volumes or disks it raises `TopologyChanged`; `Shell\Storage\CardVolumeMonitor.cs`, the manifest
+watcher and the format list all react to it and scan that same read. The decision compares the
+card's own `contentid` (the identity that travels with the card) against the ids registered for that
+path in `libraryfolders.vdf`; Steam's live folder API exposes no content id, so the file is the
+source. Reconciliation is gated on the CEF master switch and off in `--overlay-test`, and on nothing
+else. It used to be a game-mode service as well, which left Big Picture on the desktop showing a
+library whose card had been pulled (Claw, 2026-09-11): Steam's storage pages are revived whenever
+the bridge is on, in either mode, so the card in the reader has to be the library Steam has in
+either mode too. The monitor still waits for the Big Picture window before changing anything, so the
+wider gate changes when it watches, not when it may act. Manifest watching stays with game mode; it
+serves the library tabs.
 
 The monitor must start on every path that can leave it absent: desktop-mode startup, the initial
 game-mode boot, and a later desktop-to-game transition. Initial boot does not raise
@@ -471,7 +472,7 @@ Collections render under the "Collections" tab and never as top-strip tabs; that
 is removed. Reading the library is the toolkit's `SteamLibraryData`, and WSGM's compiled filters are
 evaluated by `LibraryFilter.EvaluateAsync`. New tabs never create collections.
 
-`Core\SteamLibraryTabs.cs` injects a resident script into `SharedJSContext` that replicates
+`Core\Library\SteamLibraryTabs.cs` injects a resident script into `SharedJSContext` that replicates
 TabMaster without Decky. It pushes a chunk to `window.webpackChunksteamui` to capture the toolkit's
 module resolver, finds React through a unique factory-source fingerprint, then installs a getter on
 React's current dispatcher slot
@@ -490,8 +491,9 @@ tab keys, native ids like `AllGames` mixed with `wsgm-…` ids; unlisted tabs ke
 the listed ones) and `hiddenTabs` (native ids to omit; hiding is omission from the returned array,
 and the tab reappears untouched when unhidden). `patchTabs` records `W.nativeTabs`, persisted as
 `AppConfig.KnownNativeTabs` so the order UI shows real localized titles. App ids come from
-`Core\LibraryFilter.cs`, a persisted `FilterNode` tree compiled to a pure JavaScript predicate over
-`appStore`; keep it Steam-free and unit-tested. Card and genre tabs use the same injection.
+`Core\Library\LibraryFilter.cs`, a persisted `FilterNode` tree compiled to a pure JavaScript
+predicate over `appStore`; keep it Steam-free and unit-tested. Card and genre tabs use the same
+injection.
 
 Sync is reactive: `LibraryTabManager.SyncAllAsync` re-injects after every builder change, and
 reordering uses the cheap `PushOrderAsync` (order and hidden set only). Order saves commit in press
@@ -519,11 +521,11 @@ unknown exports.
 The badge lives on every library tile, immediately left of Valve's own Steam Input badge in the
 tile's icon row, and shows exactly when Valve shows that row: on the focused tile in Home's carousel
 and in the library grid. It is `SteamLibraryBadgeSurface` in steam-ui-toolkit; WSGM feeds it.
-`Shell\LibraryBadges.cs` builds the reading from the card model, every tracked card with games,
-hidden or absent, with its content id's presence as `connected`. Every library-tab sync replaces
-that reading, which already runs on every card change and on boot. `SteamUiSessionHost` publishes it
-on change and claims the surface on its own switch, the card manager toggle, independent of native
-Quick Access.
+`Shell\Library\LibraryBadges.cs` builds the reading from the card model, every tracked card with
+games, hidden or absent, with its content id's presence as `connected`. Every library-tab sync
+replaces that reading, which already runs on every card change and on boot. `SteamUiSessionHost`
+publishes it on change and claims the surface on its own switch, the card manager toggle,
+independent of native Quick Access.
 
 The September 2026 beta is what moved it here. The old in-page script anchored under the hero art of
 a game page by pixel measurement in the visible window; the beta's tile is one exported `React.memo`
@@ -563,10 +565,10 @@ app-details module is identical; not yet seen on screen.
 
 Big Picture Home's carousel shows the games on the libraries attached right now instead of Steam's
 own mix. It is `SteamHomeCarouselSurface` in steam-ui-toolkit; WSGM feeds it.
-`Shell\HomeCarousel.cs` builds the instruction from the same card reading as the badge: the app ids
-on a card that is not in the reader, minus any an attached card also holds, and whether uninstalled
-games are wanted. The two switches are `Cef.ConnectedLibraryCarousel`, on by default, and
-`Cef.CarouselShowUninstalled`, off.
+`Shell\Library\HomeCarousel.cs` builds the instruction from the same card reading as the badge: the
+app ids on a card that is not in the reader, minus any an attached card also holds, and whether
+uninstalled games are wanted. The two switches are `Cef.ConnectedLibraryCarousel`, on by default,
+and `Cef.CarouselShowUninstalled`, off.
 
 Steam builds its list in a module-local hook from four collections and caps it at 20. The list is
 one array of app ids that Home hands to both the carousel and its background, so that array is where
@@ -651,9 +653,9 @@ never clears `document.head`, and never disables the debug flag or port.
 
 ### Launch options are written through Steam's own API, verbatim
 
-The Steam tab's Per-game launch fixes (`Core\SteamLaunchConfig.cs` over the toolkit's `SteamApps`)
-configure the running client over `SharedJSContext` instead of handing the user a command to paste;
-with `Cef.Enabled` off they fall back to the clipboard. A real title takes
+The Steam tab's Per-game launch fixes (`Core\Steam\SteamLaunchConfig.cs` over the toolkit's
+`SteamApps`) configure the running client over `SharedJSContext` instead of handing the user a
+command to paste; with `Cef.Enabled` off they fall back to the clipboard. A real title takes
 `SteamClient.Apps.SetAppLaunchOptions(appid, str)`; a non-Steam shortcut takes `SetShortcutExe` plus
 `SetShortcutLaunchOptions`, because a shortcut ignores an exe-replacement launch option (see
 [elevation](elevation.md)).
@@ -703,7 +705,7 @@ edits so Restore returns every field verbatim.
 
 Name/Size/Type buttons injected into the header of Big Picture's "Up Next" download section reorder
 the queue through `SteamClient.Downloads.SetQueueIndex(appid, index, remoteClientId)`
-(`Core\SteamDownloadSort.cs`, live Steam client, 2026-08-12). Three findings were each a real
+(`Core\Steam\SteamDownloadSort.cs`, live Steam client, 2026-08-12). Three findings were each a real
 failure first.
 
 ### The buttons must be built from Steam's own Focusable component
@@ -785,8 +787,8 @@ the session, and one `SteamClient` over it that every one-shot caller is handed,
 and a settings reload share the same choke point (`PersistentSteamUiTransport.SetEnabled`). A client
 write reports whether it was never sent, sent but unanswered (`Unknown`), refused or applied; an
 `Unknown` write is reported once and never retried. `SteamCef` keeps only the remote-debugging
-opt-in and pure endpoint/JavaScript validation. `Shell\SteamUiSessionHost.cs` is the one owner of
-state publication and command dispatch: its projections are a publication table and its
+opt-in and pure endpoint/JavaScript validation. `Shell\Steam\SteamUiSessionHost.cs` is the one owner
+of state publication and command dispatch: its projections are a publication table and its
 `(patchId, command)` dispatch is a handler table, which keeps every refusal on one diagnostic path.
 `SteamUiPatchManager` is the only patch scheduler; one incompatible patch does not disable another,
 and a `SharedJSContext` generation change cancels commands authorized against the replaced document.

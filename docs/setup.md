@@ -81,7 +81,7 @@ take over Steam's autostart. Customize is a separate following step in installs,
 repairs, with a description for each integration switch. A fresh install starts with Full when a
 native handheld integration is selected and Minimal without it, until the user explicitly chooses a
 level or edits a switch. Setup passes the choices as setup answers (`--setup --answers=<file>`,
-`Core\SetupAnswers.cs`). An update or repair starts from the values WSGM exports
+`Core\Setup\SetupAnswers.cs`). An update or repair starts from the values WSGM exports
 (`--export-setup-answers`), so it never silently undoes Settings. A quiet fresh install never takes
 over Steam's autostart; a quiet update keeps an accepted takeover. Quick Setup is retired, and WSGM
 Settings changes the choices afterwards.
@@ -312,9 +312,9 @@ Windows would neither delete nor schedule fails the step and is named in its not
 
 A newer setup must still release an older running build. The event names, their access grant (user
 SID plus Administrators `EVENT_MODIFY_STATE | SYNCHRONIZE`, `0x00100002`), the medium mandatory
-label and the startup reset therefore stay compatible (`Core\UpdateExitWatcher.cs`). The unelevated
-Settings instance needs the same grant to wait and reset, so narrowing it breaks ordinary update
-shutdown.
+label and the startup reset therefore stay compatible (`Core\Setup\UpdateExitWatcher.cs`). The
+unelevated Settings instance needs the same grant to wait and reset, so narrowing it breaks ordinary
+update shutdown.
 
 Session end is a separate path. The resident shell holds a shared `WTSRegisterSessionNotification`
 lease, and `WTS_SESSION_LOGOFF` requests the five-second session-end shutdown before Avalonia exits.
@@ -414,7 +414,7 @@ step without undoing the successful application transaction. A quiet `/update` f
 | [`Engine/RtssInstaller.cs`](../src/WSGM.Setup/Engine/RtssInstaller.cs), [`Engine/WebViewRuntimeInstaller.cs`](../src/WSGM.Setup/Engine/WebViewRuntimeInstaller.cs), [`Install-UsbipDriver.ps1`](../src/WSGM.Setup/Install-UsbipDriver.ps1) | Component-specific presence/version checks, pinned payload validation and installer execution                               |
 | [`WSGM.Install`](../src/WSGM.Install)                                                                                                                                                                                                      | Shared bundle schema, machine/display inventory, ranked offers, component roles, account identity and update-failure record |
 | [`Shared/Install/InstallLayout.cs`](../src/Shared/Install/InstallLayout.cs)                                                                                                                                                                | Product roots and pending-transaction admission shared with the logon service                                               |
-| [`Core/SetupAnswers.cs`](../src/WSGM/Core/SetupAnswers.cs), [`Core/Installer.cs`](../src/WSGM/Core/Installer.cs) and [`Program.cs`](../src/WSGM/Program.cs)                                                                                | Export/apply user choices and runtime-owned restoration one-shots                                                           |
+| [`Core/Setup/SetupAnswers.cs`](../src/WSGM/Core/SetupAnswers.cs), [`Core/Setup/Installer.cs`](../src/WSGM/Core/Installer.cs) and [`Program.cs`](../src/WSGM/Program.cs)                                                                    | Export/apply user choices and runtime-owned restoration one-shots                                                           |
 | [`build.ps1`](../build.ps1) and [`eng/build-bundle.ps1`](../eng/build-bundle.ps1)                                                                                                                                                          | Explicit payload allowlist, source-built native components, curated packages and final setup executable                     |
 
 See [development](development.md) for building the payload and [logging](logging.md) for the

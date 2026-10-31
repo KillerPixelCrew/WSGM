@@ -191,11 +191,11 @@ absent or broken.
 
 ### Desktop integrations leave before Explorer
 
-`Core\DesktopAppLifecycle.cs` holds the hardcoded integration list. Each rule names exact primary
-processes, an exit command or hidden event-window class, restart arguments and console/editor
-policy. `DesktopAppProcessBackend` supplies the Windows operations; `ExplorerDesktopHost` owns the
-captured instances under its transition gate. Add future Explorer-hooking applications to this list
-rather than adding another boot or mode-switch branch.
+`Core\Desktop\DesktopAppLifecycle.cs` holds the hardcoded integration list. Each rule names exact
+primary processes, an exit command or hidden event-window class, restart arguments and
+console/editor policy. `DesktopAppProcessBackend` supplies the Windows operations;
+`ExplorerDesktopHost` owns the captured instances under its transition gate. Add future
+Explorer-hooking applications to this list rather than adding another boot or mode-switch branch.
 
 Immediately before Explorer's exit, WSGM captures the listed processes in its own Windows session,
 with their executable paths, PIDs, start times and elevation. Nothing is launched merely because it
@@ -281,8 +281,8 @@ able to supply a jobless child. Capturing this launch parent needs no idle UI th
 stability wait, because display changes and desktop hooks can briefly delay Explorer messages;
 responsive windows and stable ownership are still required when the restored desktop is verified.
 WSGM keeps that process as the `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS` and starts one fixed-purpose
-medium, jobless anchor under it before the old shell exits (`Core\ExplorerShellAnchor.cs`, installed
-as the same payload under the image name `WSGM.ShellAnchor.exe`).
+medium, jobless anchor under it before the old shell exits (`Core\Desktop\ExplorerShellAnchor.cs`,
+installed as the same payload under the image name `WSGM.ShellAnchor.exe`).
 
 The anchor accepts one authenticated per-session `start` command for the fixed Explorer path. WSGM
 owns the child handle, bounds every pipe operation, stops only that owned process on failed setup,
@@ -309,10 +309,10 @@ unsettled taskbar is a failure. Once an anchor request was dispatched, or may ha
 WSGM never dispatches the scheduled task as a second creator and never recreates `TrayHost` while
 that late shell may still publish `Shell_TrayWnd`.
 
-The scheduled-task route (`Core\UnelevatedLauncher.cs`) also supplies desktop recovery when launch
-parent capture or anchor preparation fails; that failure no longer vetoes Game Mode entry. Its
-result is reported as degraded even when the Explorer it produced is jobless; its deadline rules are
-in [elevation](elevation.md). For a canonical, ready, current-session medium Explorer that is
+The scheduled-task route (`Core\Desktop\UnelevatedLauncher.cs`) also supplies desktop recovery when
+launch parent capture or anchor preparation fails; that failure no longer vetoes Game Mode entry.
+Its result is reported as degraded even when the Explorer it produced is jobless; its deadline rules
+are in [elevation](elevation.md). For a canonical, ready, current-session medium Explorer that is
 already in a job, WSGM duplicates that shell's primary token and creates the fixed anchor through
 `CreateProcessWithTokenW`, without using the job-bound shell as the process parent. The anchor must
 still pass the image, session and medium-integrity checks before Explorer receives an exit request.
@@ -428,18 +428,18 @@ Session plugin actions log their start and completion outcome without dumping th
 IR plugin opens and identifies a fresh Wi-Fi connection for each explicit action, because the
 endpoint closes idle clients after two minutes. An uncertain transmission is never retried.
 
-Game mode from the desktop is one cancellable transaction, `Shell\GameModeEntryTransaction.cs`. The
-splash offers Cancel before Explorer exit and Switch to desktop afterwards. A desktop request is
-retained while an exit or layout operation settles, never discarded, because entry owns the
-transition gate. The layout, splash arming and UI commit are awaited, so a UI exception enters
-recovery rather than escaping from a posted callback.
+Game mode from the desktop is one cancellable transaction,
+`Shell\Desktop\GameModeEntryTransaction.cs`. The splash offers Cancel before Explorer exit and
+Switch to desktop afterwards. A desktop request is retained while an exit or layout operation
+settles, never discarded, because entry owns the transition gate. The layout, splash arming and UI
+commit are awaited, so a UI exception enters recovery rather than escaping from a posted callback.
 
-Normal return and every failed entry use `Shell\DesktopReturnSequence.cs`: leave Big Picture,
-restore the desktop layout, retire the game tray, restore and verify Explorer, clear a successfully
-restored layout record, then run optional leave actions. Each phase catches its own failure, and a
-failed layout remains recorded. A failed desktop return never redirects the user back into Game
-Mode. The splash closes when the desktop is ready, before slow IR actions finish, and repeated
-completed returns do not replay the leave list.
+Normal return and every failed entry use `Shell\Desktop\DesktopReturnSequence.cs`: leave Big
+Picture, restore the desktop layout, retire the game tray, restore and verify Explorer, clear a
+successfully restored layout record, then run optional leave actions. Each phase catches its own
+failure, and a failed layout remains recorded. A failed desktop return never redirects the user back
+into Game Mode. The splash closes when the desktop is ready, before slow IR actions finish, and
+repeated completed returns do not replay the leave list.
 
 Leaving Big Picture is verified, not fired and forgotten. The phase retracts the injected Steam UI
 and closes the transport first

@@ -86,13 +86,13 @@ depend on a signed-in user's profile.
 | `%ProgramData%\WSGM\setup.log`            | Setup detection, per-step result, rollback and component operations | Appended without size rotation in the current implementation    |
 | `%ProgramData%\WSGM\update-failed.txt`    | Latest failed quiet update, read by WSGM at startup and in Settings | One failure record; cleared after a successful update           |
 
-[`Core/Log.cs`](../src/WSGM/Core/Log.cs) is process-wide. It formats local timestamps with
-milliseconds and a padded five-character level (`[info ]`, `[warn ]`, `[error]`, `[debug]`). Its
-process-local lock keeps repeat suppression and appending ordered. Each actual append encodes UTF-8
-and opens a `FileStream` with `FileMode.Append` and `FileShare.ReadWrite | FileShare.Delete`; up to
-three short retries follow an `IOException`, and a failed write is dropped. Suppressed `Debug` calls
-perform no append, although callers still construct their strings. High-rate telemetry and input
-paths must therefore avoid logging calls altogether.
+[`Core/Infrastructure/Log.cs`](../src/WSGM/Core/Log.cs) is process-wide. It formats local timestamps
+with milliseconds and a padded five-character level (`[info ]`, `[warn ]`, `[error]`, `[debug]`).
+Its process-local lock keeps repeat suppression and appending ordered. Each actual append encodes
+UTF-8 and opens a `FileStream` with `FileMode.Append` and `FileShare.ReadWrite | FileShare.Delete`;
+up to three short retries follow an `IOException`, and a failed write is dropped. Suppressed `Debug`
+calls perform no append, although callers still construct their strings. High-rate telemetry and
+input paths must therefore avoid logging calls altogether.
 
 `Local\WSGM.LogRotate` serializes rotation attempts across shell, Settings and one-shots, not every
 append. Acquiring it never waits. Rotation checks run at initialization and after approximately 256

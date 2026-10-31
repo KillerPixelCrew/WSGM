@@ -19,8 +19,8 @@ captures active paths in Windows priority order, identifies monitors by EDID man
 and serial when available, and skips a display whose name cannot be read rather than failing the
 rest. Friendly names and GDI `DISPLAY1` numbering are presentation metadata; adapter LUID and target
 ID are current route coordinates and are refreshed after hotplug. Enumeration is read-only. The
-library has no wait of its own: WSGM's `Shell\DisplayArrivalWaiter.cs` is the one display wait,
-settling on two equal `DisplayLayouts.Observe` fingerprints. That fingerprint covers target
+library has no wait of its own: WSGM's `Shell\Display\DisplayArrivalWaiter.cs` is the one display
+wait, settling on two equal `DisplayLayouts.Observe` fingerprints. That fingerprint covers target
 identity, availability, active status, placement, dimensions and refresh rate; it does not establish
 that rotation, HDR or scaling has settled. `DisplayTopology` captures topology for observation and
 diagnostics; its public API does not replay a captured native path array. `DisplayLayouts` holds the
@@ -31,10 +31,10 @@ acceptance as the result without reading it back; a refused application gets one
 snapshot, scaling and colour included. A failed rollback reports its own status, never a claim that
 the prior desktop was restored. `AlreadyActive` skips the topology write but still applies requested
 HDR and scaling. Every display write (layout, mode, scaling, HDR) shares one gate in the library,
-and its results are codes and native statuses; `Core\DisplayText.cs` words them for Settings, the
-overlay and the log. A layout output with rotation 0 keeps the display's current rotation. The
-design uses DisplayMagician as behavioral reference while the MIT library implementation comes from
-documented Windows CCD contracts rather than copied GPL source.
+and its results are codes and native statuses; `Core\Display\DisplayText.cs` words them for
+Settings, the overlay and the log. A layout output with rotation 0 keeps the display's current
+rotation. The design uses DisplayMagician as behavioral reference while the MIT library
+implementation comes from documented Windows CCD contracts rather than copied GPL source.
 
 ## Windows power schemes
 
@@ -313,10 +313,10 @@ Custom values:
 `AppConfig.GameModeLaunch` says what entering and leaving Game Mode do to displays. It has two
 kinds, not four modes:
 
-- **Default** is the scaling posture in `Core\DisplayScale.cs`: capture every display's scaling,
-  drop them all to 100% so DPI-unaware games render 1:1, and restore on the way back. Nothing else
-  about the desktop changes. This is what the four retired modes collapse into, including the old
-  Off, which left a handheld running desktop scaling inside Big Picture.
+- **Default** is the scaling posture in `Core\Display\DisplayScale.cs`: capture every display's
+  scaling, drop them all to 100% so DPI-unaware games render 1:1, and restore on the way back.
+  Nothing else about the desktop changes. This is what the four retired modes collapse into,
+  including the old Off, which left a handheld running desktop scaling inside Big Picture.
 - **Custom** applies a saved `DisplayLayout`: which displays are on, which is primary, where each
   sits, its resolution, refresh rate, scaling and advanced-colour state. Settings edits these values
   directly. Copy current desktop is an optional starting point, not a prerequisite.
@@ -397,7 +397,7 @@ and spatial sound format. An endpoint is stored by its Core Audio ID with the fr
 had, so a profile keeps naming a device that is currently off or unplugged. Saving a profile never
 changes Windows audio.
 
-`Shell\AudioProfileService.cs` performs every Core Audio read and write off the dispatcher and
+`Shell\Audio\AudioProfileService.cs` performs every Core Audio read and write off the dispatcher and
 serializes them behind one gate, so the overlay, Steam Quick Access and a mode transition cannot
 interleave writes. Apply order is render endpoint, capture endpoint, volume and mute, device format,
 then spatial format; the format and spatial writes target the endpoint the profile selected, after
@@ -439,8 +439,8 @@ an observed refresh.
 ## Mute during screen-off downloads
 
 Keep-awake (below) lets the display time out while downloads continue, and Steam then plays a sound
-for every finished download into a dark room. `Shell\DisplayOffMuteService.cs` mutes for exactly
-that case. Config `MuteWhileDisplayOff`, default off, Settings → System → Power.
+for every finished download into a dark room. `Shell\Display\DisplayOffMuteService.cs` mutes for
+exactly that case. Config `MuteWhileDisplayOff`, default off, Settings → System → Power.
 
 The condition is the conjunction of three facts: the setting is enabled, this session's display is
 off, and Steam is actively downloading. Screen-off alone never mutes. A download that starts while
@@ -542,11 +542,11 @@ Readback preserves an open draft and reconciles the resulting held state after t
 including partial or refused native changes. Acquisitions precede releases, and failed requests are
 not retried automatically.
 
-The automatic download hold (`Shell\KeepAwakeService.cs`, toolkit `SteamDownloadActivity`) polls
-`SteamClient.Downloads.RegisterForDownloadOverview` over the CEF bridge every 30 s as a one-shot
-subscribe/unsubscribe; it fires immediately with a snapshot (live Steam client). Active means
-`update_state != "None" && !paused`; the Windows client's active string is `Downloading`, not the
-`Updating` decky documents for Linux. Release is debounced by two consecutive inactive polls
+The automatic download hold (`Shell\Power\KeepAwakeService.cs`, toolkit `SteamDownloadActivity`)
+polls `SteamClient.Downloads.RegisterForDownloadOverview` over the CEF bridge every 30 s as a
+one-shot subscribe/unsubscribe; it fires immediately with a snapshot (live Steam client). Active
+means `update_state != "None" && !paused`; the Windows client's active string is `Downloading`, not
+the `Updating` decky documents for Linux. Release is debounced by two consecutive inactive polls
 (`KeepAwakeService.NextDownloadHold`) so queue gaps do not flap the hold, and an unreachable poll
 counts as inactive so a dead Steam cannot pin the device awake. The activity answer consumed by
 muting is stricter: an unreachable client preserves the prior answer, and only a usable idle
@@ -562,8 +562,8 @@ to the stale sample, or the hold sticks for the session.
 
 The Power tab row shows an indicator computed from the system-wide power-request list: green free,
 yellow standby-blocked, red display-pinned, grey unknown, WakeWatch's colour vocabulary on purpose.
-`Core\WakeLockStatus.cs` maps the list to a state plus a collapsed holder summary; WSGM's own pid
-colours the state but is excluded from the summary.
+`Core\Power\WakeLockStatus.cs` maps the list to a state plus a collapsed holder summary; WSGM's own
+pid colours the state but is excluded from the summary.
 
 A "What's keeping this awake" row opens `Overlay\WakeLockHoldersView.cs`, a Power-tab sub-view
 listing every requester, deduplicated on (label, detail, reason) so thirty identical Steam requests
@@ -583,9 +583,9 @@ panel is open.
 ### Idle-timeout rows
 
 The two screen-off rows never turn the display off before Steam's Big Picture screensaver may start.
-They select values through `Shell\DisplayTimeouts.cs`, the owner Steam's Screensaver settings rows
-share, which excludes presets below Steam's reported screensaver timeout and names that bound in the
-row's description. The bound and how it is enforced are in
+They select values through `Shell\Display\DisplayTimeouts.cs`, the owner Steam's Screensaver
+settings rows share, which excludes presets below Steam's reported screensaver timeout and names
+that bound in the row's description. The bound and how it is enforced are in
 [the Steam CEF system](steam-cef-system.md#screensaver-settings).
 
 Six selectors (screen-off, standby and hibernate, each for battery and plugged-in) offer 1, 3, 5,
@@ -596,15 +596,15 @@ hibernate; the hibernate rows are hidden while it cannot (hibernation off, or a 
 file), because the value would do nothing. On Modern Standby the hibernate timeout counts time spent
 in standby, not idle time, so it starts after the standby timeout. A popup stages browsing until it
 closes; confirmed choices enter an ordered background queue and re-read the active scheme before one
-write through `Core\PowerTimeouts.cs`, using Windows Device Control's policy-value API. Parsing
-`powercfg /q` was rejected: its output is localized, the same trap as netstat. The rows are a
-convenience over the active scheme, deliberately not snapshotted or restored.
+write through `Core\Power\PowerTimeouts.cs`, using Windows Device Control's policy-value API.
+Parsing `powercfg /q` was rejected: its output is localized, the same trap as netstat. The rows are
+a convenience over the active scheme, deliberately not snapshotted or restored.
 
 Every machine-wide power change, from scheme selection and these timeouts to processor boost, core
-placement and the power mode, takes the lock of the session's one `Core\PowerSchemes.cs` instance.
-`Core\WindowsPowerPolicy.cs` builds that instance and the owners that share it, and the session
-hands them to the overlay, Steam's Quick Access and the device presets, so a scheme switch cannot
-land between another owner's read of the active scheme and its write.
+placement and the power mode, takes the lock of the session's one `Core\Power\PowerSchemes.cs`
+instance. `Core\Power\WindowsPowerPolicy.cs` builds that instance and the owners that share it, and
+the session hands them to the overlay, Steam's Quick Access and the device presets, so a scheme
+switch cannot land between another owner's read of the active scheme and its write.
 
 ### Log lines
 
@@ -642,8 +642,8 @@ Both writes were dynamic before, with the menu restoring the mode found before i
 WSGM exited. An Ally X with 1120x630 saved came back at 1120x630 on every boot, and WSGM's exit put
 1120x630 back over the 1920x1080 the user had just picked (2026-10-20).
 
-Consequences encoded in `Core\FrameLimitPairing.cs`, `Core\PrimaryDisplayModes.cs` and
-`Core\RefreshRatePairingService.cs`:
+Consequences encoded in `Core\Display\FrameLimitPairing.cs`, `Core\Display\PrimaryDisplayModes.cs`
+and `Core\Display\RefreshRatePairingService.cs`:
 
 - Enumeration alone cannot tell an advertised mode from a synthesized one, so the native-modes
   strategy needs the EDID. Without it that strategy would silently equal full frame doubling.

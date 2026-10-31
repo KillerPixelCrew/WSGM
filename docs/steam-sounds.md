@@ -96,14 +96,14 @@ manual pass under the contributor guide's manual-first policy.
 
 ## Code path
 
-| Layer                         | Source and contract                                                                                                                                                                                           |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Pack discovery and validation | `Core/Sounds/`: manifest/resource models, local library and ZIP installation. Current Steam filenames are the resource vocabulary; unsupported or missing mappings remain explicit.                           |
-| Session policy                | `Shell/SoundPackService.cs`: serialized actions, selection persistence, detached data URLs, publication revision and decoder-status reconciliation.                                                           |
-| Overlay and preview           | `Overlay/SoundsView.cs` projects the service; `SoundPackService` owns a WindowsDeviceControl `AudioFilePreview` for Media Foundation playback and invalidates outgoing preview requests.                      |
-| Steam page                    | `Shell/SteamSoundsSurface.cs` projects the service (state revision, listings with installed versions) and maps the page's commands onto it; `Core/SteamUiAssets/Source/sounds.ts` draws Installed and Browse. |
-| Host composition              | `Shell/SteamUiSessionHost.cs` registers `SteamSoundOverrideSurface.Module` with CEF host-surface enablement, the current revision and `ReportPlaybackStatus`. Custom QAM rows need not be enabled.            |
-| Steam playback                | Toolkit `Surfaces/SteamSoundOverrideSurface.cs` and `SteamUiAssets/Source/gates/sound-overrides.ts` validate status, decode replacement variants and restore the claimed audio-manager member.                |
+| Layer                         | Source and contract                                                                                                                                                                                                  |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pack discovery and validation | `Core/Sounds/`: manifest/resource models, local library and ZIP installation. Current Steam filenames are the resource vocabulary; unsupported or missing mappings remain explicit.                                  |
+| Session policy                | `Shell/Sounds/SoundPackService.cs`: serialized actions, selection persistence, detached data URLs, publication revision and decoder-status reconciliation.                                                           |
+| Overlay and preview           | `Overlay/SoundsView.cs` projects the service; `SoundPackService` owns a WindowsDeviceControl `AudioFilePreview` for Media Foundation playback and invalidates outgoing preview requests.                             |
+| Steam page                    | `Shell/Sounds/SteamSoundsSurface.cs` projects the service (state revision, listings with installed versions) and maps the page's commands onto it; `Core/SteamUiAssets/Source/sounds.ts` draws Installed and Browse. |
+| Host composition              | `Shell/Steam/SteamUiSessionHost.cs` registers `SteamSoundOverrideSurface.Module` with CEF host-surface enablement, the current revision and `ReportPlaybackStatus`. Custom QAM rows need not be enabled.             |
+| Steam playback                | Toolkit `Surfaces/SteamSoundOverrideSurface.cs` and `SteamUiAssets/Source/gates/sound-overrides.ts` validate status, decode replacement variants and restore the claimed audio-manager member.                       |
 
 The [toolkit sound contract](../external/steam-ui-toolkit/docs/sound-overrides.md) defines the wire
 state and status report. The bridge sends large host publications in 262,144-character parts; that

@@ -63,18 +63,19 @@ session.
 
 ## Existing components to reuse
 
-- Configuration: `Core/ConfigStore.cs` owns strict reads, the cross-process lock and atomic writes.
-  Use the page's owned-field save path and `Core/WsgmSharedSettings.cs` when Settings and Steam edit
-  the same field. External work happens after the config lock is released.
-- Bounded network reads: `Core/BoundedHttp.cs` checks body size and read-stall timeouts. Reuse it
-  for an HTTP body; carry caller cancellation and an explicit size limit rather than introducing an
-  unbounded stream copy or retry loop.
-- Launching: use `Core/AppLauncher.cs` for configured application/protocol activation and
-  `Core/UnelevatedLauncher.cs` for the existing scheduled-task route. `src/Shared/Process` contains
-  command-line, scheduled-task XML, parent-start, session-name and log primitives compiled by their
-  declared consumers. Check the project includes before changing a shared source file. Game-tree
-  containment stays with `WSGM.Launch` or `WSGM.PackagedLaunch`; Explorer recovery stays with
-  `ExplorerDesktopHost` and its anchor rather than a generic process-start helper.
+- Configuration: `Core/Config/ConfigStore.cs` owns strict reads, the cross-process lock and atomic
+  writes. Use the page's owned-field save path and `Core/Config/WsgmSharedSettings.cs` when Settings
+  and Steam edit the same field. External work happens after the config lock is released.
+- Bounded network reads: `Core/Infrastructure/BoundedHttp.cs` checks body size and read-stall
+  timeouts. Reuse it for an HTTP body; carry caller cancellation and an explicit size limit rather
+  than introducing an unbounded stream copy or retry loop.
+- Launching: use `Core/Applications/AppLauncher.cs` for configured application/protocol activation
+  and `Core/Desktop/UnelevatedLauncher.cs` for the existing scheduled-task route.
+  `src/Shared/Process` contains command-line, scheduled-task XML, parent-start, session-name and log
+  primitives compiled by their declared consumers. Check the project includes before changing a
+  shared source file. Game-tree containment stays with `WSGM.Launch` or `WSGM.PackagedLaunch`;
+  Explorer recovery stays with `ExplorerDesktopHost` and its anchor rather than a generic
+  process-start helper.
 - Lifetime: compose the feature in its existing session manager, close admission through the
   session's cancellation path and join it through `ShellSession.Shutdown.cs` and
   `Core/ApplicationShutdown.cs`. Reuse that one shutdown request/task and its deadline; do not add

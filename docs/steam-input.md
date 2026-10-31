@@ -68,7 +68,7 @@ detected the controller again.
 
 For the ordinary WSGM.exe UI lease, the gate is a proxy DLL that Steam loads itself; the host never
 injects. The managed client's `AllowInjection` defaults to false and `SteamInputPipeLease.Connector`
-sets it explicitly, so this is a property of the code. `Core\SteamInputShim.cs` copies
+sets it explicitly, so this is a property of the code. `Core\Steam\SteamInputShim.cs` copies
 `steam_input_gate.dll` into Steam's install directory as `XInput1_4.dll` (ValvePlug proves that
 vector loads), or as `dinput8.dll` when that name is taken. Steam maps it on its next cold start.
 

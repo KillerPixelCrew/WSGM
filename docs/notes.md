@@ -109,7 +109,7 @@ open.
 
 ## Steam
 
-`Shell/NotesSteamSurface.cs` registers the page with the toolkit's `SteamPagePatch`, a typed
+`Shell/Notes/NotesSteamSurface.cs` registers the page with the toolkit's `SteamPagePatch`, a typed
 publication and a closed command vocabulary; `Core/SteamUiAssets/Source/notes.ts` draws it with
 Steam's own components and the toolkit UI kit. The page:
 
@@ -145,7 +145,7 @@ Notes, it captures the display the Overlay was on. The Overlay and countdown clo
 capture, and the same page reopens with the image. This works without a running game; application
 captures still keep their original process and foreground checks.
 
-`Shell/NotesCaptureTransaction.cs` runs **Armed → Countdown → Capturing → Restoring → Idle**:
+`Shell/Notes/NotesCaptureTransaction.cs` runs **Armed → Countdown → Capturing → Restoring → Idle**:
 
 1. The page and its exact location are already saved. The player chooses 5 to 10 seconds; the choice
    is remembered.
@@ -156,7 +156,7 @@ captures still keep their original process and foreground checks.
 3. A small top-center, non-activating, click-through countdown shows the seconds over the game
    (`Overlay/NotesCountdownWindow.cs`). Over a confirmed exclusive-fullscreen game it is not shown.
 4. At expiry the application's foreground window or the selected desktop display is captured
-   (`Shell/NotesGameCapture.cs`).
+   (`Shell/Notes/NotesGameCapture.cs`).
 5. The image is stored as an asset and inserted below the page's content, selected and ready for
    ink.
 6. The same Notes surface reopens on the same page: the Overlay's Notes section, or Steam's

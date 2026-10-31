@@ -146,7 +146,7 @@ Picture and borderless fullscreen report it.
 cancel surface, so an entry that has anything to wait for must show it. Its Big Picture timeout
 starts when Steam is actually asked, not when the cover goes up: the reference machine waits for a
 TV behind an HDMI switch, and a timeout measured from the cover would fire in the middle of exactly
-the wait the cover exists for. `Shell\SplashPolicy.cs` is that rule.
+the wait the cover exists for. `Shell\Boot\SplashPolicy.cs` is that rule.
 
 **Desktop recovery is a single transition (2026-09-13).** Normal return and failed Game Mode entry
 share ordered, independently guarded cleanup. They restore a responsive Explorer before optional IR
@@ -213,9 +213,9 @@ Performance section and Steam's Performance tab and needs no device plugin.
 
 **AutoTDP has its own target frame rate (2026-10-29).** AutoTDP used to take its deadline from the
 active RTSS frame limit, so it could not run without one, and its Quick Access switch vanished
-whenever no limit was active. It now aims for its own per-game target, a slider under the switch
-on the Overlay, in Quick Access and on Steam's Power page. A lower active frame limit wins, because
-a capped game cannot reach a higher target. Details are in
+whenever no limit was active. It now aims for its own per-game target, a slider under the switch on
+the Overlay, in Quick Access and on Steam's Power page. A lower active frame limit wins, because a
+capped game cannot reach a higher target. Details are in
 [AutoTDP](autotdp-controller.md#the-service).
 
 **Four display modes became two, and the old Off became Default.** Off, DPI-only and automatic
