@@ -143,8 +143,7 @@ public sealed class ControllerNavigationTests
         device.SampleSource = source;
         device.State = state;
         using UiFixture fixture = new();
-        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower()),
-            _ => throw new InvalidOperationException("Unexpected power write")));
+        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower())));
         await schemes.RefreshAsync();
         var window = fixture.Overlay();
         DeviceGlyphSelection? requested = null;

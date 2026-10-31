@@ -124,8 +124,7 @@ public sealed class PluginHostTests
         // Device packages run on the dedicated device runtime, never in a host slot.
         FakePlugin device = new("test.device", true);
         Assert.Throws<ArgumentException>(() => host.Admit(device, new PluginInstanceIdentity(device.Id, "device"),
-            PluginCategories.Device,
-            PluginCategoryPolicy.Device, true, 1, "fixture-state"));
+            PluginCategories.Device, "fixture-state"));
         Assert.Equal(2, host.Snapshot().Length);
         await host.SetModeAsync(PluginSessionMode.Game, Deadline, CancellationToken.None);
         Assert.Equal(PluginSessionMode.Game, first.Mode);
@@ -266,13 +265,12 @@ public sealed class PluginHostTests
             [CapabilityRole.GenericToggle], plugin);
 
         Assert.Throws<ArgumentException>(() => host.Admit(plugin, instance, PluginCategories.Gpu,
-            PluginCategoryPolicy.Multiple, false, 1, Path.GetTempPath()));
+            Path.GetTempPath()));
         Assert.Throws<ArgumentException>(() => host.Admit(plugin, instance, "example.status",
-            PluginCategoryPolicy.Multiple, false, 1, Path.GetTempPath(), channel));
+            Path.GetTempPath(), channel));
         Assert.Throws<ArgumentException>(() => host.Admit(plugin, instance, PluginCategories.Gpu,
-            PluginCategoryPolicy.Multiple, false, 1, Path.GetTempPath(), other));
-        var registration = host.Admit(plugin, instance, PluginCategories.Gpu, PluginCategoryPolicy.Multiple, false,
-            1, Path.GetTempPath(), channel);
+            Path.GetTempPath(), other));
+        var registration = host.Admit(plugin, instance, PluginCategories.Gpu, Path.GetTempPath(), channel);
 
         Assert.Same(channel, registration.Capabilities);
     }

@@ -46,7 +46,6 @@ internal static class AppConfigRules
 
         diagnostics.AddRange(DeviceConfigurationRules.Normalize(config.DeviceIntegration));
         config.Performance ??= new PerformanceConfig();
-        config.Profiles ??= new ProfileConfig();
         diagnostics.AddRange(ProfileConfigRules.Normalize(config.Profiles, config.DeviceIntegration));
         config.Artwork ??= new ArtworkConfig();
         diagnostics.AddRange(ArtworkRules.Normalize(config.Artwork));
@@ -168,7 +167,7 @@ internal static class AppConfigRules
             ? Math.Clamp(config.OverlayBlurRadius, 0, LiveBackdrop.MaximumBlurRadius)
             : Defaults.OverlayBlurRadius;
         config.Splash ??= new SplashConfig();
-        diagnostics.AddRange(SplashRules.Repair(config.Splash).Diagnostics);
+        SplashRules.Repair(config.Splash);
         return new ConfigRuleResult<AppConfig>(config, diagnostics);
     }
 

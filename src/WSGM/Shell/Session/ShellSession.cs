@@ -117,19 +117,7 @@ public sealed class ShellSession
         _state = new SessionState(config, store, overlayTestOnly);
         _steamInput = steamInput ?? throw new ArgumentNullException(nameof(steamInput));
         _displayTimeouts = new DisplayTimeouts(_power.Timeouts);
-        _powerProfiles = new NativeQamPowerProfileService(_power.Schemes, id =>
-        {
-            if (overlayTestOnly)
-            {
-                throw new InvalidOperationException("Overlay-test cannot persist a power-profile selection.");
-            }
-
-            store.Update(current =>
-            {
-                current.LastSelectedPowerSchemeId = id;
-                return true;
-            });
-        });
+        _powerProfiles = new NativeQamPowerProfileService(_power.Schemes);
         _verboseLogging = verboseLogging;
         _integrations = new IntegrationServices(_state);
         // Overlay-test keeps profile edits in memory: it is a safe UI mode and must never rewrite the

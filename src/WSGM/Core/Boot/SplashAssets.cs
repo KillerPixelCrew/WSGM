@@ -274,16 +274,10 @@ public static class SplashAssets
                 continue;
             }
 
-            try
-            {
-                File.Delete(file);
-            }
-            catch
-            {
-                // Locked by something else entirely: leaving it costs one stale file
-                // until the next Prepare, and warning about it would put a routine
-                // condition on the remote-diagnosis log.
-            }
+            // Locked by something else entirely: leaving it costs one stale file
+            // until the next Prepare, and warning about it would put a routine
+            // condition on the remote-diagnosis log.
+            FileCleanup.TryDelete(file);
         }
     }
 

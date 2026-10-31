@@ -255,11 +255,7 @@ internal sealed class SessionBoot(
     private static async Task WaitForInputDesktopAsync(CancellationToken cancellationToken)
     {
         var watch = Stopwatch.StartNew();
-        int session;
-        using (var self = Process.GetCurrentProcess())
-        {
-            session = self.SessionId;
-        }
+        var session = ProcessLookup.CurrentSessionId;
 
         var lockReported = false;
         while (true)

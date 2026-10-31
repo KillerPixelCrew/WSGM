@@ -55,13 +55,10 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
         return owner.InvokeActionAsync(expectedGeneration, actionId, arguments, origin, deadline, cancellationToken);
     }
 
-    /// <summary>Reserves an instance identity and category slot without starting plugin code.</summary>
+    /// <summary>Reserves an instance identity without starting plugin code.</summary>
     /// <param name="plugin">The plugin retained by the returned registration until ordered stop and disposal.</param>
     /// <param name="identity">Its instance identity.</param>
     /// <param name="category">Its manifest category.</param>
-    /// <param name="policy">The category's multiplicity policy.</param>
-    /// <param name="selected">Whether the instance was explicitly selected.</param>
-    /// <param name="generation">The first lifecycle generation.</param>
     /// <param name="stateDirectory">The instance's state directory.</param>
     /// <param name="capabilities">
     ///     The capability channel of a <c>wsgm.gpu</c> instance, which the plugin reaches through
@@ -69,16 +66,12 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
     /// </param>
     /// <returns>An unstarted registration. Its slot remains reserved until stop confirms release and disposal succeeds.</returns>
     /// <exception cref="ArgumentException">
-    ///     Identity, generation, category, state path, or GPU channel is invalid; device
-    ///     packages use their own runtime.
+    ///     Identity, category, state path, or GPU channel is invalid; device packages use their own
+    ///     runtime.
     /// </exception>
-    /// <exception cref="InvalidOperationException">
-    ///     Selection/multiplicity policy or an existing reservation prevents
-    ///     admission.
-    /// </exception>
+    /// <exception cref="InvalidOperationException">The identity is already reserved.</exception>
     internal PluginRegistration Admit(IPlugin plugin, PluginInstanceIdentity identity, string category,
-        PluginCategoryPolicy policy, bool selected, long generation, string stateDirectory,
-        PluginCapabilityChannel? capabilities = null)
+        string stateDirectory, PluginCapabilityChannel? capabilities = null)
     {
         ArgumentNullException.ThrowIfNull(plugin);
         if (category == PluginCategories.Gpu != capabilities is not null
@@ -89,8 +82,8 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
         }
 
         if (plugin.Id != identity.PluginId || string.IsNullOrWhiteSpace(identity.InstanceId)
-                                           || string.IsNullOrWhiteSpace(category) || generation <= 0 ||
-                                           string.IsNullOrWhiteSpace(stateDirectory))
+                                           || string.IsNullOrWhiteSpace(category)
+                                           || string.IsNullOrWhiteSpace(stateDirectory))
         {
             throw new ArgumentException("Plugin admission identity or context is invalid.");
         }
@@ -100,24 +93,15 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
             throw new ArgumentException("Device packages use the dedicated device runtime.");
         }
 
-        if (policy.MinimumActive < 0 || policy.MaximumActive < policy.MinimumActive
-                                     || policy.MaximumActive == 0 || (policy.RequiresSelection && !selected))
-        {
-            throw new InvalidOperationException("Plugin category policy does not admit this instance.");
-        }
-
         lock (_gate)
         {
-            var categoryInstances = _instances.Values.Where(instance => instance.Category == category).ToArray();
-            if (_instances.ContainsKey(identity) || categoryInstances.Any(instance => instance.Policy != policy)
-                                                 || (policy.MaximumActive is { } maximum &&
-                                                     categoryInstances.Length >= maximum))
+            if (_instances.ContainsKey(identity))
             {
-                throw new InvalidOperationException("Plugin identity or category slot is already reserved.");
+                throw new InvalidOperationException("Plugin identity is already reserved.");
             }
 
-            var registration = new PluginRegistration(this, plugin, identity, category, policy,
-                new PluginContext(identity, generation, _mode, Deadline.Never, stateDirectory), capabilities);
+            var registration = new PluginRegistration(this, plugin, identity,
+                new PluginContext(identity, Generation: 1, _mode, Deadline.Never, stateDirectory), capabilities);
             _instances.Add(identity, registration);
             return registration;
         }
@@ -158,9 +142,7 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
                 || publication.Generation != owner.Context.Generation || publication.Sequence <= 0
                 || !publication.Value.IsValid || !Enum.IsDefined(publication.Origin) ||
                 publication.ConfigurationRevision < 0
-                || string.IsNullOrEmpty(publication.Key)
-                || publication.Key.Any(character =>
-                    character is not (>= 'a' and <= 'z' or >= '0' and <= '9' or '.' or '-' or '_')))
+                || !PluginConfigurationRules.ValidKey(publication.Key))
             {
                 return;
             }

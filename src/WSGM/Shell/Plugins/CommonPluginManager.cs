@@ -26,7 +26,7 @@ internal sealed class CommonPluginManager
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly PluginHost _host;
     private readonly string _installedRoot;
-    private readonly Func<CommonInstalledPlugin, CancellationToken, Task<LoadedPluginPackage<IPlugin>>> _load;
+    private readonly Func<CommonInstalledPlugin, CancellationToken, Task<LoadedPluginPackage>> _load;
     private readonly Lock _stateGate = new();
     private readonly string _stateRoot;
     private readonly ConfigStore? _store;
@@ -53,7 +53,7 @@ internal sealed class CommonPluginManager
     /// <param name="adapters">Reads the present display adapters; defaults to a fresh read at each reconcile.</param>
     /// <param name="store">Persists frontend failures so packages never reload automatically after an error.</param>
     internal CommonPluginManager(PluginHost host, string installedRoot, string stateRoot,
-        Func<CommonInstalledPlugin, CancellationToken, Task<LoadedPluginPackage<IPlugin>>>? load = null,
+        Func<CommonInstalledPlugin, CancellationToken, Task<LoadedPluginPackage>>? load = null,
         GpuCoordinator? capabilityChannels = null,
         Func<IReadOnlyList<DisplayAdapterIdentity>>? adapters = null, ConfigStore? store = null)
     {
@@ -328,7 +328,7 @@ internal sealed class CommonPluginManager
             // Hash host instance identities so configuration cannot introduce filesystem aliases or traversal.
             var instanceDirectory =
                 Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(entry.Identity.InstanceId)));
-            var state = ConstrainStatePath(Path.Combine(entry.Identity.PluginId, instanceDirectory));
+            var state = Path.Combine(_stateRoot, entry.Identity.PluginId, instanceDirectory);
             Directory.CreateDirectory(state);
             PluginCapabilityChannel? channel = null;
             if (entry.Package.Manifest.Category == PluginCategories.Gpu)
@@ -344,8 +344,8 @@ internal sealed class CommonPluginManager
                     .Open(entry.Identity, entry.Package.Manifest, capabilityPlugin);
             }
 
-            entry.Registration = _host.Admit(plugin, entry.Identity, entry.Package.Manifest.Category,
-                PluginCategoryPolicy.Multiple, false, 1, state, channel);
+            entry.Registration = _host.Admit(plugin, entry.Identity, entry.Package.Manifest.Category, state,
+                channel);
             await entry.Registration.StartAsync(deadline, entry.Cancellation.Token).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -368,17 +368,17 @@ internal sealed class CommonPluginManager
             var entry = _entries.Values.Single(candidate => ReferenceEquals(candidate.Registration, owner));
             var package = entry.Loaded?.Package ?? throw new InvalidDataException("Frontend package is unavailable.");
             var utf8 = new UTF8Encoding(false, true);
-            if (!package.TryRead(module.Script, 16 * 1024 * 1024, out var script))
+            if (!package.TryRead(module.Script, out var script))
             {
-                throw new InvalidDataException("Frontend script is missing or exceeds the package limit.");
+                throw new InvalidDataException("Frontend script is missing or empty.");
             }
 
             string? style = null;
             if (module.Style is { } path)
             {
-                if (!package.TryRead(path, 16 * 1024 * 1024, out var bytes))
+                if (!package.TryRead(path, out var bytes))
                 {
-                    throw new InvalidDataException("Frontend stylesheet is missing or exceeds the package limit.");
+                    throw new InvalidDataException("Frontend stylesheet is missing or empty.");
                 }
 
                 style = utf8.GetString(bytes);
@@ -746,21 +746,6 @@ internal sealed class CommonPluginManager
         }
     }
 
-    /// <summary>Resolves a path below the state root, refusing an escape.</summary>
-    private string ConstrainStatePath(string relativePath)
-    {
-        if (string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath))
-        {
-            throw new InvalidDataException("Package paths must be non-empty and relative.");
-        }
-
-        var rootPrefix = _stateRoot.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-        var candidate = Path.GetFullPath(Path.Combine(_stateRoot, relativePath));
-        return candidate.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)
-            ? candidate
-            : throw new InvalidDataException("A package path escaped the package directory.");
-    }
-
     private static TimeSpan Remaining(Deadline deadline)
     {
         var remaining = deadline.Remaining;
@@ -797,7 +782,7 @@ internal sealed class CommonPluginManager
         internal PluginCapabilityChannel? Channel;
         internal volatile string? Error;
         internal bool LoadCleanupUnconfirmed;
-        internal volatile LoadedPluginPackage<IPlugin>? Loaded;
+        internal volatile LoadedPluginPackage? Loaded;
         internal volatile PluginRegistration? Registration;
         internal volatile bool Retiring;
         internal bool Suspended;

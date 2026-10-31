@@ -139,7 +139,7 @@ public sealed class CommonPluginManagerTests
             {
                 entered.SetResult();
                 await release.Task;
-                return new LoadedPluginPackage<IPlugin>(plugin);
+                return new LoadedPluginPackage(plugin);
             });
         using CancellationTokenSource cancellation = new();
         var start = manager.ReconcileAsync([new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true }],
@@ -174,12 +174,12 @@ public sealed class CommonPluginManagerTests
             created.Add(plugin);
             if (created.Count != 1)
             {
-                return new LoadedPluginPackage<IPlugin>(plugin);
+                return new LoadedPluginPackage(plugin);
             }
 
             entered.SetResult();
             await release.Task;
-            return new LoadedPluginPackage<IPlugin>(plugin);
+            return new LoadedPluginPackage(plugin);
         });
         var configuration = new CommonPluginInstanceConfig { PluginId = "test.plugin", Enabled = true };
         var initial = manager.ReconcileAsync([configuration], CancellationToken.None);
@@ -235,7 +235,7 @@ public sealed class CommonPluginManagerTests
                 loads++;
                 entered.TrySetResult();
                 await release.Task;
-                return new LoadedPluginPackage<IPlugin>(plugin);
+                return new LoadedPluginPackage(plugin);
             });
         CommonPluginInstanceConfig configuration = new() { PluginId = plugin.Id, Enabled = true };
         var starting = manager.ReconcileAsync([configuration], CancellationToken.None);

@@ -121,7 +121,7 @@ internal sealed class TouchSwipeMonitor : IDisposable
         // Reset the one-shot so every arm cycle proves whether raw reports
         // still flow — swipes reportedly die when specific apps take focus.
         RawTouchInput.LogNextArrival();
-        Log.Info($"Touch edge swipes armed (foreground {RawTouchInput.DescribeForeground()}).");
+        Log.Info($"Touch edge swipes armed (foreground {WindowFinder.DescribeForeground()}).");
     }
 
     /// <summary>Suspend gesture detection (overlay open).</summary>

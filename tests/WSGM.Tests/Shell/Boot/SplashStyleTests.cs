@@ -38,7 +38,6 @@ public class SplashStyleTests
     {
         var layout = Map(new SplashElementPlacement { Mode = SplashPlacementMode.Anchor, Anchor = anchor });
 
-        Assert.False(layout.IsAbsolute);
         Assert.Equal(expectedH, layout.HorizontalAlignment);
         Assert.Equal(expectedV, layout.VerticalAlignment);
     }
@@ -174,7 +173,6 @@ public class SplashStyleTests
             Y = 400
         });
 
-        Assert.True(layout.IsAbsolute);
         Assert.Equal(300, layout.CanvasX);
         Assert.Equal(400, layout.CanvasY);
     }
@@ -233,7 +231,6 @@ public class SplashStyleTests
             Y = 20
         });
 
-        Assert.True(layout.IsAbsolute);
         Assert.Equal(10, layout.CanvasX);
         Assert.Equal(20, layout.CanvasY);
         Assert.Equal(new Thickness(0), layout.Margin);
@@ -341,8 +338,7 @@ public class SplashStyleTests
     /// <summary>The pixels the production decode decision produces for a logo source.</summary>
     private static long DecodedLogoPixels(int maxSizeDips, int sourceWidth, int sourceHeight)
     {
-        return SplashDecode.DecodedPixels(
-            SplashDecode.LogoWidth(maxSizeDips, sourceWidth, sourceHeight), sourceWidth, sourceHeight);
+        return Decoded(SplashDecode.LogoWidth(maxSizeDips, sourceWidth, sourceHeight), sourceWidth, sourceHeight);
     }
 
     [Theory]
@@ -417,8 +413,18 @@ public class SplashStyleTests
     /// <summary>The pixels the production decode decision produces for a background source.</summary>
     private static long DecodedPixels(int sourceWidth, int sourceHeight)
     {
-        return SplashDecode.DecodedPixels(
-            SplashDecode.BackgroundWidth(sourceWidth, sourceHeight), sourceWidth, sourceHeight);
+        return Decoded(SplashDecode.BackgroundWidth(sourceWidth, sourceHeight), sourceWidth, sourceHeight);
+    }
+
+    /// <summary>The pixels a decode produces under <see cref="SplashDecode.ScaledWidth" />, rounding height up.</summary>
+    private static long Decoded(int bound, int sourceWidth, int sourceHeight)
+    {
+        if (SplashDecode.ScaledWidth(bound, sourceWidth) is not { } width)
+        {
+            return (long)sourceWidth * sourceHeight;
+        }
+
+        return width * (long)Math.Ceiling((double)width * sourceHeight / sourceWidth);
     }
 
     [Theory]

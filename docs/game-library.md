@@ -143,7 +143,7 @@ work. `ReadState` supplies the compact review and its revision, while `ReadDetai
 requests supply detail on demand.
 
 Both command adapters call that same service: `SteamLibraryImportSurface` connects the CEF page to
-it, and `IGameLibraryOverlaySource` in `Shell/Session/IGameLibraryOverlaySource.cs` supplies the
+it, and `IGameLibraryOverlaySource` in `Shell/Library/IGameLibraryOverlaySource.cs` supplies the
 Overlay. `GameLibraryView.cs` and `.Tools.cs` own local navigation/filter state; `ServiceSubView`
 marshals publications to the dispatcher and reconciles keyed controls. The Overlay initially shows
 48 review entries and reveals another 48 on Load more; source, tab and text filters determine the

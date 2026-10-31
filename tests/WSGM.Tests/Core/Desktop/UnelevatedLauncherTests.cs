@@ -71,7 +71,7 @@ public sealed class UnelevatedLauncherTests
     [Fact]
     public void DeElevationTaskEscapesExecutableAndArgumentsInXml()
     {
-        var xml = UnelevatedLauncher.BuildTaskXml(@"C:\A&B\WSGM.exe", "--open-<wifi>-settings", @"C:\A&B");
+        var xml = ScheduledTaskXml.Build(@"C:\A&B\WSGM.exe", "--open-<wifi>-settings", @"C:\A&B");
 
         Assert.Contains(@"<Command>C:\A&amp;B\WSGM.exe</Command>", xml);
         Assert.Contains("<Arguments>--open-&lt;wifi&gt;-settings</Arguments>", xml);
@@ -86,7 +86,7 @@ public sealed class UnelevatedLauncherTests
         // HighestAvailable would hand Explorer and the ms-settings one-shot back their
         // elevation), and schtasks rejects anything but the UTF-16 declaration with
         // "cannot switch encoding".
-        var xml = UnelevatedLauncher.BuildTaskXml(@"C:\WSGM\WSGM.exe");
+        var xml = ScheduledTaskXml.Build(@"C:\WSGM\WSGM.exe");
 
         Assert.StartsWith("<?xml version=\"1.0\" encoding=\"UTF-16\"?>", xml);
         Assert.Contains("<LogonType>InteractiveToken</LogonType>", xml);

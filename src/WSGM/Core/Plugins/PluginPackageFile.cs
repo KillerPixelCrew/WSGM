@@ -4,8 +4,6 @@ using System.IO;
 using System.Security.Cryptography;
 using WSGM.Device.Sdk.Packaging;
 using WSGM.Plugin.Sdk;
-using CommonManifest = WSGM.Plugin.Sdk.PluginManifest;
-using CommonManifestReader = WSGM.Plugin.Sdk.PluginManifestReader;
 
 namespace WSGM.Core;
 
@@ -33,7 +31,7 @@ internal sealed class PluginPackageFile : IDisposable
         string path,
         FileStream handle,
         Dictionary<string, byte[]> entries,
-        CommonManifest common)
+        PluginManifest common)
     {
         Path = path;
         _handle = handle;
@@ -45,16 +43,13 @@ internal sealed class PluginPackageFile : IDisposable
     internal string Path { get; }
 
     /// <summary>The validated independent plugin manifest.</summary>
-    internal CommonManifest CommonManifest { get; }
+    internal PluginManifest CommonManifest { get; }
 
-    /// <summary>Gets the validated package identity from its device or common manifest.</summary>
+    /// <summary>Gets the validated package identity from its manifest.</summary>
     internal string Id => CommonManifest.Id;
 
     /// <summary>Gets the manifest version string used by catalog selection.</summary>
     internal string Version => CommonManifest.Version;
-
-    /// <summary>Gets the package-root managed entry assembly name.</summary>
-    internal string EntryAssembly => CommonManifest.EntryAssembly;
 
     /// <summary>The WSGM version the package was built for, or null when packing did not stamp one.</summary>
     internal string? WsgmVersion => CommonManifest.WsgmVersion;
@@ -80,20 +75,21 @@ internal sealed class PluginPackageFile : IDisposable
         _handle.Dispose();
     }
 
-    /// <summary>Reads a bounded package resource for a common plugin's admitted Steam module.</summary>
-    internal bool TryRead(string relativePath, int maximumBytes, out byte[] bytes)
+    /// <summary>Reads a package resource for a common plugin's admitted Steam module.</summary>
+    /// <param name="relativePath">The resource's path inside the package.</param>
+    /// <param name="bytes">The stored bytes, shared with the package and not to be modified, or empty.</param>
+    /// <returns>Whether the resource exists and is not empty.</returns>
+    internal bool TryRead(string relativePath, out byte[] bytes)
     {
         bytes = [];
-        if (maximumBytes <= 0
-            || !PluginPackageLayout.TryNormalizeEntryName(relativePath, out var name)
+        if (!PluginPackageLayout.TryNormalizeEntryName(relativePath, out var name)
             || !_entries.TryGetValue(name, out var stored)
-            || stored.Length == 0
-            || stored.Length > maximumBytes)
+            || stored.Length == 0)
         {
             return false;
         }
 
-        bytes = [.. stored];
+        bytes = stored;
         return true;
     }
 
@@ -196,9 +192,9 @@ internal sealed class PluginPackageFile : IDisposable
     }
 
     /// <summary>Reads the independent plugin contract; native hardware libraries have no packages.</summary>
-    private static CommonManifest ReadManifest(byte[] bytes)
+    private static PluginManifest ReadManifest(byte[] bytes)
     {
-        if (!CommonManifestReader.TryRead(bytes, out var common, out var errors))
+        if (!PluginManifestReader.TryRead(bytes, out var common, out var errors))
         {
             throw new InvalidDataException(string.Join(" ", errors));
         }

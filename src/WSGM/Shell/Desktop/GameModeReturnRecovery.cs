@@ -14,16 +14,18 @@ internal static class GameModeReturnRecovery
 {
     private static readonly SemaphoreSlim Gate = new(1, 1);
 
-    /// <summary>Panic recovery: restores the record through the caller's audio service and clears what it restored.</summary>
+    /// <summary>
+    ///     Restore-shell and panic recovery: restores the record within a bounded budget and clears what it
+    ///     restored.
+    /// </summary>
     /// <param name="store">The configuration holding the record.</param>
-    /// <param name="audio">The audio service the panic path built for this restore.</param>
-    internal static void RestoreBestEffort(ConfigStore store, AudioProfileService audio)
+    internal static void RestoreBestEffort(ConfigStore store)
     {
         try
         {
             using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             var fingerprint = PendingFingerprint(store);
-            if (RestorePendingAsync(store, budget.Token, audio).GetAwaiter().GetResult()
+            if (RestorePendingAsync(store, budget.Token).GetAwaiter().GetResult()
                 && ExplorerControl.IsDesktopShellRunning())
             {
                 ClearRestored(store, fingerprint);
@@ -96,9 +98,11 @@ internal static class GameModeReturnRecovery
     /// <summary>Serializes recovery attempts and applies recorded display and audio state.</summary>
     /// <param name="store">Configuration store containing pending recovery.</param>
     /// <param name="cancellationToken">Cancels the caller’s wait and cooperative stages; admitted native work may continue.</param>
-    /// <param name="audio">Borrowed audio service used after display restoration.</param>
+    /// <param name="audio">
+    ///     Borrowed audio service used after display restoration, or null to build one for this restore
+    ///     while no session owns one.
+    /// </param>
     /// <param name="report">Failure reporter, or null to log warnings.</param>
-    /// <param name="applyLayout">Optional layout writer; null uses Windows display control on a worker.</param>
     /// <param name="applyGraphics">Existing session graphics owner, or null to retain driver recovery for a later session.</param>
     /// <param name="requireAudio">
     ///     False only for entry preflight, where unavailable output controls and HDMI audio must not
@@ -106,21 +110,30 @@ internal static class GameModeReturnRecovery
     /// </param>
     /// <returns>True when no recovery is owed or all requested restores succeeded. The record is not cleared here.</returns>
     internal static async Task<bool> RestorePendingAsync(ConfigStore store, CancellationToken cancellationToken,
-        AudioProfileService audio, Action<string>? report = null,
-        Func<DisplayLayout, CancellationToken, Task<bool>>? applyLayout = null,
+        AudioProfileService? audio = null, Action<string>? report = null,
         Func<IReadOnlyList<DisplayGpuPreference>, CancellationToken, Task<bool>>? applyGraphics = null,
         bool requireAudio = true)
     {
-        ArgumentNullException.ThrowIfNull(audio);
-        var work = RestoreUnderGateAsync(store, cancellationToken, audio, report ?? Log.Warn, applyLayout,
-            applyGraphics, requireAudio);
-        work.ObserveFaults();
-        return await work.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var service = audio ?? new AudioProfileService(new CoreAudioProfileOperations());
+        try
+        {
+            var work = RestoreUnderGateAsync(store, cancellationToken, service, report ?? Log.Warn, applyGraphics,
+                requireAudio);
+            work.ObserveFaults();
+            return await work.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (audio is null)
+            {
+                // Disposal waits for a restore the budget abandoned; that wait is not this caller's.
+                service.DisposeAsync().AsTask().ObserveFaults();
+            }
+        }
     }
 
     private static async Task<bool> RestoreUnderGateAsync(ConfigStore store, CancellationToken cancellationToken,
         AudioProfileService audio, Action<string> report,
-        Func<DisplayLayout, CancellationToken, Task<bool>>? applyLayout,
         Func<IReadOnlyList<DisplayGpuPreference>, CancellationToken, Task<bool>>? applyGraphics,
         bool requireAudio)
     {
@@ -138,9 +151,9 @@ internal static class GameModeReturnRecovery
             var complete = true;
             if (pending.PendingReturnLayout is { } layout)
             {
-                complete &= await AttemptAsync("display layout", () => applyLayout is not null
-                    ? applyLayout(layout, cancellationToken)
-                    : Task.Run(() => DisplayLayouts.Apply(layout).Applied, cancellationToken)).ConfigureAwait(false);
+                complete &= await AttemptAsync("display layout",
+                        () => Task.Run(() => DisplayLayouts.Apply(layout).Applied, cancellationToken))
+                    .ConfigureAwait(false);
             }
 
             if (pending.PendingReturnDisplayGpu is { Count: > 0 }

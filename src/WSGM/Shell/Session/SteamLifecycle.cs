@@ -434,7 +434,7 @@ internal sealed class SteamLifecycle
             return;
         }
 
-        if (!_steamCloseWork.IsCompleted || Volatile.Read(ref _steamCefRecoveryInProgress) != 0)
+        if (!_steamCloseWork.IsCompleted)
         {
             return;
         }

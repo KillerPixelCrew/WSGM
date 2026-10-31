@@ -33,38 +33,28 @@ internal static class PluginPackageManager
         List<PluginPackageRowState> rows = [];
         var pending = removals.TryRead(out var entries) ? entries : [];
 
-        void AddInstalled(string path, string sha256, string id, string name, string version,
-            bool isGpu, IReadOnlyList<SetupComponent> needs, string? refusal)
+        foreach (var common in catalog.Common)
         {
-            var bundled = sha256.Length == 0 ? null : bundle?.ByHash(sha256);
+            var path = common.PackagePath;
+            var id = common.Manifest.Id;
+            var isGpu = common.Manifest.Category == BundledPlugin.GpuCategory;
+            var bundled = common.Sha256.Length == 0 ? null : bundle?.ByHash(common.Sha256);
             var removal = pending.Contains(path, StringComparer.OrdinalIgnoreCase);
-            var status = refusal is not null
-                ? new PluginBadge("Refused", PluginBadgeTone.Bad)
-                : removal
-                    ? new PluginBadge("Removing", PluginBadgeTone.Warn)
-                    : new PluginBadge("Installed", PluginBadgeTone.Good);
+            var status = removal
+                ? new PluginBadge("Removing", PluginBadgeTone.Warn)
+                : new PluginBadge("Installed", PluginBadgeTone.Good);
             var idle = isGpu && offers?.GpuNotForThisHardware.Any(plugin => plugin.Id == id) == true;
-            var notice = refusal
-                         ?? (removal
-                             ? "Removed at the next start."
-                             : idle
-                                 ? "This PC has none of the graphics it is for, so it does not run."
-                                 : needs.Count == 0
-                                     ? ""
-                                     : "Needs " + string.Join(", ", needs.Select(SetupComponents.DisplayName))
-                                                + ". Run Repair if it is missing.");
+            var notice = removal
+                ? "Removed at the next start."
+                : idle
+                    ? "This PC has none of the graphics it is for, so it does not run."
+                    : "";
             IReadOnlyList<PluginBadge> origin = bundled is null
                 ? [new PluginBadge("Local build", PluginBadgeTone.Neutral)]
                 : Provenance(bundled);
-            rows.Add(new PluginPackageRowState(id, name, PluginPackageSection.Installed,
-                [status, .. Facts(version, isGpu), .. origin], notice,
+            rows.Add(new PluginPackageRowState(id, common.Manifest.Name, PluginPackageSection.Installed,
+                [status, .. Facts(common.Manifest.Version, isGpu), .. origin], notice,
                 removal ? PluginPackageAction.None : PluginPackageAction.Remove, path));
-        }
-
-        foreach (var common in catalog.Common)
-        {
-            AddInstalled(common.PackagePath, common.Sha256, common.Manifest.Id, common.Manifest.Name,
-                common.Manifest.Version, common.Manifest.Category == BundledPlugin.GpuCategory, [], null);
         }
 
         rows.AddRange(catalog.Superseded.Select(superseded => new PluginPackageRowState(superseded.Id,

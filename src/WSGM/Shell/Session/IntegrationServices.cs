@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Threading;
 using WSGM.Core;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Install;
@@ -29,7 +30,8 @@ internal sealed class IntegrationServices
     internal IntegrationServices(SessionState state)
     {
         _state = state;
-        PluginHost = new PluginHost(UiThread.Post, new ApplicationPluginConfigurationStore(state.Store));
+        PluginHost = new PluginHost(action => Dispatcher.UIThread.Post(action),
+            new ApplicationPluginConfigurationStore(state.Store));
     }
 
     /// <summary>The one plugin host of the session.</summary>
@@ -93,8 +95,8 @@ internal sealed class IntegrationServices
         // channel of every graphics package the manager starts has a router waiting for it.
         // Variable refresh set on a graphics package's control is saved as the device's is.
         ShellSession.TryStart("graphics capability router", () =>
-            Gpu = new GpuCoordinator(UiThread.Post, profiles, PluginHost, PowerSource.ReadOnAc,
-                persistManualVariableRefresh));
+            Gpu = new GpuCoordinator(action => Dispatcher.UIThread.Post(action), profiles, PluginHost,
+                PowerSource.ReadOnAc, persistManualVariableRefresh));
         if (Gpu is { } graphics)
         {
             BuiltinGpu = new BuiltinGpuService(_state.Store, graphics);
@@ -228,11 +230,11 @@ internal sealed class IntegrationServices
         }
 
         return new DevicePrerequisiteState(
-            device is not null,
-            config.DeviceIntegration.Enabled,
+            HandheldSupported: true,
+            IntegrationEnabled: true,
             DevicePrerequisiteSource.ControllerLibraryInstalled(AppContext.BaseDirectory),
             DevicePrerequisiteSource.HidHideInstalled(),
-            device is null ? [] : SetupComponents.Required(device),
+            SetupComponents.Required(device),
             DevicePrerequisiteSource.HardwareDriverInstalled("PawnIO"),
             DevicePrerequisiteSource.HardwareDriverInstalled("inpoutx64"));
     }

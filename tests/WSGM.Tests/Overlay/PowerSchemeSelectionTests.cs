@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Text.Json;
 using WSGM.Core;
 using WSGM.Interop;
 using WSGM.Overlay;
@@ -14,11 +13,10 @@ public sealed class PowerSchemeSelectionTests
     private static readonly Guid Second = Guid.NewGuid();
 
     [Fact]
-    public async Task OverlayAndQamShareSelectionAndPersistenceWithoutAReadBetweenWrites()
+    public async Task OverlayAndQamShareSelectionWithoutAReadBetweenWrites()
     {
         FakeApi api = new();
-        List<Guid> saved = [];
-        var profiles = new NativeQamPowerProfileService(new PowerSchemes(api), saved.Add);
+        var profiles = new NativeQamPowerProfileService(new PowerSchemes(api));
         using var model = new PowerSchemeSelection(profiles);
         await model.RefreshAsync();
         var reads = api.ActiveReads;
@@ -29,7 +27,6 @@ public sealed class PowerSchemeSelectionTests
         Assert.Equal(Second, model.ActiveId);
         Assert.True(model.CanSelect);
         Assert.True((await profiles.SetPowerProfileAsync(First.ToString("D"), CancellationToken.None)).Succeeded);
-        Assert.Equal([Second, First], saved);
         Assert.Equal(2, api.Writes);
         Assert.Equal(reads, api.ActiveReads);
         Assert.Equal(enumerations, api.Enumerations);
@@ -38,42 +35,10 @@ public sealed class PowerSchemeSelectionTests
     }
 
     [Fact]
-    public async Task BothSurfacesReportTheSameSaveFailureAndKeepTheWrittenSelection()
-    {
-        FakeApi api = new();
-        var saves = 0;
-        var profiles = new NativeQamPowerProfileService(new PowerSchemes(api), _ =>
-        {
-            saves++;
-            throw new IOException("Disk full");
-        });
-        using var model = new PowerSchemeSelection(profiles);
-        await model.RefreshAsync();
-        var reads = api.ActiveReads;
-        api.ReadFailure = true;
-
-        await model.ApplyAsync(Second);
-        const string detail = "Windows applied the profile, but WSGM could not save the reference: Disk full";
-        Assert.Equal(detail, model.Status);
-        Assert.Equal(Second, model.ActiveId);
-        Assert.True(model.CanSelect);
-        var result = await profiles.SetPowerProfileAsync(First.ToString("D"), CancellationToken.None);
-        Assert.False(result.Succeeded);
-        Assert.Equal(detail, result.Error);
-        var state = await profiles.ReadAsync();
-        Assert.Equal(First.ToString("D"), state!.Current);
-        Assert.Equal(detail, state.StatusText);
-        Assert.Equal(2, saves);
-        Assert.Equal(2, api.Writes);
-        Assert.Equal(reads, api.ActiveReads);
-    }
-
-    [Fact]
     public async Task ClosingOneOverlayDoesNotRetireTheSharedPowerProfileService()
     {
         FakeApi api = new();
-        List<Guid> saved = [];
-        var profiles = new NativeQamPowerProfileService(new PowerSchemes(api), saved.Add);
+        var profiles = new NativeQamPowerProfileService(new PowerSchemes(api));
         var firstSheet = new PowerSchemeSelection(profiles);
         await firstSheet.RefreshAsync();
         firstSheet.Dispose();
@@ -83,14 +48,15 @@ public sealed class PowerSchemeSelectionTests
         await nextSheet.RefreshAsync();
         Assert.Equal(Second, nextSheet.ActiveId);
         await nextSheet.ApplyAsync(First);
-        Assert.Equal([Second, First], saved);
+        Assert.Equal(First, nextSheet.ActiveId);
+        Assert.Equal(2, api.Writes);
     }
 
     [Fact]
     public async Task AcceptedSelectionPublishesWithoutReadingWindowsAgain()
     {
         FakeApi api = new();
-        var qam = new NativeQamPowerProfileService(new PowerSchemes(api), _ => { });
+        var qam = new NativeQamPowerProfileService(new PowerSchemes(api));
         await qam.ReadAsync();
         var reads = api.ActiveReads;
         api.ReadFailure = true;
@@ -104,7 +70,7 @@ public sealed class PowerSchemeSelectionTests
     public async Task QamKeepsKnownChoicesWhenTheActiveGuidCannotBeRead()
     {
         FakeApi api = new() { ReadFailure = true };
-        var profiles = new NativeQamPowerProfileService(new PowerSchemes(api), _ => { });
+        var profiles = new NativeQamPowerProfileService(new PowerSchemes(api));
         var state = await profiles.ReadAsync();
         Assert.True(state!.Available);
         Assert.Equal(2, state.Options.Count);
@@ -132,8 +98,7 @@ public sealed class PowerSchemeSelectionTests
     public async Task SteamDropdownUsesTheSameVerifiedGuidBackend()
     {
         FakeApi api = new();
-        Guid? saved = null;
-        var qam = new NativeQamPowerProfileService(new PowerSchemes(api), id => saved = id);
+        var qam = new NativeQamPowerProfileService(new PowerSchemes(api));
         var state = await qam.ReadAsync();
         Assert.True(state!.Available);
         Assert.Equal(First.ToString("D"), state.Current);
@@ -143,13 +108,11 @@ public sealed class PowerSchemeSelectionTests
         await qam.SetPowerProfileAsync(Guid.NewGuid().ToString("D"), CancellationToken.None);
         Assert.Equal(0, api.Writes);
         await qam.SetPowerProfileAsync(Second.ToString("D"), CancellationToken.None);
-        Assert.Equal(Second, saved);
         Assert.Equal(Second.ToString("D"), (await qam.ReadAsync())!.Current);
         api.Reject = true;
         await qam.SetPowerProfileAsync(First.ToString("D"), CancellationToken.None);
         await qam.SetPowerProfileAsync(First.ToString("D"), CancellationToken.None);
         Assert.Equal(3, api.Writes);
-        Assert.Equal(Second, saved);
         Assert.Contains("failed", (await qam.ReadAsync())!.StatusText, StringComparison.Ordinal);
     }
 
@@ -158,7 +121,7 @@ public sealed class PowerSchemeSelectionTests
     {
         FakeApi api = new();
         ManualTimeProvider time = new(DateTimeOffset.UnixEpoch);
-        var qam = new NativeQamPowerProfileService(new PowerSchemes(api), _ => { }, time);
+        var qam = new NativeQamPowerProfileService(new PowerSchemes(api), time);
 
         await qam.ReadAsync();
         await qam.ReadAsync();
@@ -179,11 +142,10 @@ public sealed class PowerSchemeSelectionTests
     }
 
     [Fact]
-    public async Task RefreshReadsWindowsWithoutReapplyingTheSavedReference()
+    public async Task RefreshReadsWindowsWithoutReapplyingASelection()
     {
         FakeApi api = new();
-        using var model = new PowerSchemeSelection(new NativeQamPowerProfileService(new PowerSchemes(api),
-            _ => throw new Exception("Unexpected save")));
+        using var model = new PowerSchemeSelection(new NativeQamPowerProfileService(new PowerSchemes(api)));
         await model.RefreshAsync();
         Assert.True(model.CanSelect);
         Assert.Equal(First, model.ActiveId);
@@ -194,28 +156,10 @@ public sealed class PowerSchemeSelectionTests
     }
 
     [Fact]
-    public async Task VerifiedApplyPersistsOnlyTheGuid()
-    {
-        FakeApi api = new();
-        AppConfig config = new();
-        using var model = new PowerSchemeSelection(new NativeQamPowerProfileService(new PowerSchemes(api),
-            id => config.LastSelectedPowerSchemeId = id));
-        await model.RefreshAsync();
-        await model.ApplyAsync(Second);
-        Assert.Equal(Second, model.ActiveId);
-        Assert.Equal(1, api.Writes);
-        var json = JsonSerializer.Serialize(config, ConfigJsonContext.Default.AppConfig);
-        Assert.Equal(Second,
-            JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig)!.LastSelectedPowerSchemeId);
-        Assert.DoesNotContain("Duplicate localized name", json, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public async Task FailedWriteAllowsAnotherExplicitSelectionWithoutAutomaticRetry()
     {
         FakeApi api = new();
-        using var model = new PowerSchemeSelection(new NativeQamPowerProfileService(new PowerSchemes(api),
-            _ => throw new Exception("Unexpected save")));
+        using var model = new PowerSchemeSelection(new NativeQamPowerProfileService(new PowerSchemes(api)));
         await model.RefreshAsync();
         api.Reject = true;
         await model.ApplyAsync(Second);
@@ -229,28 +173,15 @@ public sealed class PowerSchemeSelectionTests
     }
 
     [Fact]
-    public async Task SaveFailureReportsAppliedStateWithoutUndoingWindows()
-    {
-        FakeApi api = new();
-        using var model = new PowerSchemeSelection(new NativeQamPowerProfileService(new PowerSchemes(api),
-            _ => throw new IOException("Disk full")));
-        await model.RefreshAsync();
-        await model.ApplyAsync(Second);
-        Assert.Equal(Second, model.ActiveId);
-        Assert.Contains("could not save", model.Status, StringComparison.Ordinal);
-        Assert.Equal(1, api.Writes);
-    }
-
-    [Fact]
     public async Task PreviewAndUnknownIdsCannotWrite()
     {
         FakeApi api = new();
-        using var preview = new PowerSchemeSelection(new NativeQamPowerProfileService(new PowerSchemes(api), _ => { }),
+        using var preview = new PowerSchemeSelection(new NativeQamPowerProfileService(new PowerSchemes(api)),
             true);
         await preview.RefreshAsync();
         await preview.ApplyAsync(Second);
         Assert.False(preview.CanSelect);
-        using var model = new PowerSchemeSelection(new NativeQamPowerProfileService(new PowerSchemes(api), _ => { }));
+        using var model = new PowerSchemeSelection(new NativeQamPowerProfileService(new PowerSchemes(api)));
         await model.RefreshAsync();
         await model.ApplyAsync(Guid.NewGuid());
         Assert.Equal(0, api.Writes);
@@ -260,7 +191,7 @@ public sealed class PowerSchemeSelectionTests
     public async Task OnePowerProfileIsNothingToChooseInEitherPicker()
     {
         FakeApi api = new() { Single = true };
-        using var model = new PowerSchemeSelection(new NativeQamPowerProfileService(new PowerSchemes(api), _ => { }));
+        using var model = new PowerSchemeSelection(new NativeQamPowerProfileService(new PowerSchemes(api)));
         Assert.False(model.Offered);
         await model.RefreshAsync();
         Assert.True(model.CanSelect);
@@ -269,7 +200,7 @@ public sealed class PowerSchemeSelectionTests
         await model.RefreshAsync();
         Assert.True(model.Offered);
 
-        var qam = new NativeQamPowerProfileService(new PowerSchemes(new FakeApi { Single = true }), _ => { });
+        var qam = new NativeQamPowerProfileService(new PowerSchemes(new FakeApi { Single = true }));
         var state = await qam.ReadAsync();
         Assert.False(state!.Available);
         Assert.Empty(state.Options);
@@ -281,7 +212,7 @@ public sealed class PowerSchemeSelectionTests
     public async Task EmptyEnumerationDisablesSelectionButAnUnreadableActiveGuidDoesNotGateWrites()
     {
         FakeApi api = new() { Empty = true };
-        using var model = new PowerSchemeSelection(new NativeQamPowerProfileService(new PowerSchemes(api), _ => { }));
+        using var model = new PowerSchemeSelection(new NativeQamPowerProfileService(new PowerSchemes(api)));
         await model.RefreshAsync();
         Assert.False(model.CanSelect);
         api.Empty = false;
@@ -307,7 +238,7 @@ public sealed class PowerSchemeSelectionTests
             entered.TrySetResult();
             release.Wait(TimeSpan.FromSeconds(10));
         };
-        var model = new PowerSchemeSelection(new NativeQamPowerProfileService(new PowerSchemes(api), _ => { }));
+        var model = new PowerSchemeSelection(new NativeQamPowerProfileService(new PowerSchemes(api)));
         var notifications = 0;
         model.Changed += () => notifications++;
         var pending = model.RefreshAsync();

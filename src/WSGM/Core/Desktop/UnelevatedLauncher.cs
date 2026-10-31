@@ -72,7 +72,7 @@ internal static class UnelevatedLauncher
             }
 
             Directory.CreateDirectory(context.Root);
-            var taskXml = BuildTaskXml(exePath, arguments, workingDirectory);
+            var taskXml = ScheduledTaskXml.Build(exePath, arguments, workingDirectory);
             using (var writeCancellation = CreateBudgetCancellation(deadline, cancellationToken))
             {
                 await File.WriteAllTextAsync(
@@ -115,14 +115,7 @@ internal static class UnelevatedLauncher
             // Local deletion does not consume the Task Scheduler budget. Always remove the input
             // document even when dispatch was cancelled or timed out; otherwise every bounded
             // recovery failure leaves another XML file in the durable log directory.
-            try
-            {
-                File.Delete(xmlPath);
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Scheduled-task XML cleanup failed: {ex.Message}");
-            }
+            FileCleanup.TryDelete(xmlPath, ex => Log.Warn($"Scheduled-task XML cleanup failed: {ex.Message}"));
         }
     }
 
@@ -258,16 +251,6 @@ internal static class UnelevatedLauncher
                 }
             }
         }
-    }
-
-    /// <summary>Builds an escaped XML definition for an interactive least-privilege task.</summary>
-    /// <param name="exePath">Executable path for the task action.</param>
-    /// <param name="arguments">Arguments supplied separately from the executable path.</param>
-    /// <param name="workingDirectory">Optional working directory passed to the shared XML builder.</param>
-    /// <returns>The task XML; no file or scheduler mutation is performed.</returns>
-    internal static string BuildTaskXml(string exePath, string arguments = "", string? workingDirectory = null)
-    {
-        return ScheduledTaskXml.Build(exePath, arguments, workingDirectory);
     }
 
     private static async Task<ConsoleToolRunOutcome> RunSchtasksUntilAsync(

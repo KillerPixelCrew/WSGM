@@ -32,57 +32,29 @@ internal static class ApplicationShutdownCoordinator
         };
     }
 
-    /// <summary>Runs cleanup within the reason-specific outer deadline using the system UTC clock.</summary>
-    /// <param name="shutdownAsync">Starts cleanup once and receives its absolute UTC deadline.</param>
-    /// <param name="reason">Determines the default budget and diagnostic context.</param>
-    /// <param name="budgetOverride">Positive replacement budget, or null for the reason-specific default.</param>
-    /// <returns>The completion classification; timing out does not cancel the cleanup task.</returns>
-    /// <exception cref="ArgumentNullException">The cleanup delegate is null.</exception>
-    /// <exception cref="ArgumentOutOfRangeException">The selected budget is not positive.</exception>
-    internal static Task<ApplicationShutdownOutcome> ShutdownAsync(
-        Func<DateTimeOffset, ValueTask> shutdownAsync,
-        ApplicationShutdownReason reason,
-        TimeSpan? budgetOverride = null)
-    {
-        return ShutdownAsync(
-            shutdownAsync,
-            reason,
-            budgetOverride,
-            static () => DateTimeOffset.UtcNow,
-            static timeout => Task.Delay(timeout));
-    }
-
     /// <summary>
-    ///     Runs cleanup against caller-supplied timing and an optional deadline that can tighten
-    ///     while cleanup is running. Late work is observed but is not canceled by this coordinator.
+    ///     Runs cleanup against caller-supplied timing and a deadline that can tighten while cleanup is
+    ///     running. Late work is observed but is not canceled by this coordinator.
     /// </summary>
     /// <param name="shutdownAsync">Starts cleanup once and receives its absolute UTC deadline.</param>
-    /// <param name="reason">Determines the default budget and diagnostic context.</param>
-    /// <param name="budgetOverride">Positive replacement budget, or null for the reason-specific default.</param>
+    /// <param name="reason">Names the budget in diagnostics.</param>
     /// <param name="utcNow">Clock used to compare the absolute deadline.</param>
     /// <param name="delayAsync">Creates the outer deadline task; completion or cancellation means the budget elapsed.</param>
-    /// <param name="currentDeadline">Optional source of a deadline that another exit request may shorten.</param>
+    /// <param name="currentDeadline">Source of the deadline, which another exit request may shorten.</param>
     /// <returns>Clean, unverified, failed-to-start, or timed-out completion; late cleanup faults remain observed.</returns>
-    /// <exception cref="ArgumentNullException">A required delegate is null.</exception>
-    /// <exception cref="ArgumentOutOfRangeException">The selected budget is not positive.</exception>
+    /// <exception cref="ArgumentNullException">A delegate is null.</exception>
     internal static async Task<ApplicationShutdownOutcome> ShutdownAsync(
         Func<DateTimeOffset, ValueTask> shutdownAsync,
         ApplicationShutdownReason reason,
-        TimeSpan? budgetOverride,
         Func<DateTimeOffset> utcNow,
         Func<TimeSpan, Task> delayAsync,
-        Func<DateTimeOffset>? currentDeadline = null)
+        Func<DateTimeOffset> currentDeadline)
     {
         ArgumentNullException.ThrowIfNull(shutdownAsync);
         ArgumentNullException.ThrowIfNull(utcNow);
         ArgumentNullException.ThrowIfNull(delayAsync);
-        var budget = budgetOverride ?? BudgetFor(reason);
-        if (budget <= TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(nameof(budgetOverride));
-        }
-
-        var deadline = currentDeadline?.Invoke() ?? utcNow().Add(budget);
+        ArgumentNullException.ThrowIfNull(currentDeadline);
+        var deadline = currentDeadline();
         Task cleanup;
         try
         {
@@ -96,7 +68,7 @@ internal static class ApplicationShutdownCoordinator
 
         try
         {
-            var remaining = (currentDeadline?.Invoke() ?? deadline) - utcNow();
+            var remaining = currentDeadline() - utcNow();
             if (cleanup.IsCompleted)
             {
                 // Observe a completed cleanup before classifying the outer deadline. A subsystem
@@ -108,14 +80,14 @@ internal static class ApplicationShutdownCoordinator
                     return ApplicationShutdownOutcome.Clean;
                 }
 
-                ReportTimeout(reason, budget);
+                ReportTimeout(reason);
                 return ApplicationShutdownOutcome.TimedOut;
             }
 
             if (remaining <= TimeSpan.Zero)
             {
                 ObserveLateCleanup(cleanup, reason);
-                ReportTimeout(reason, budget);
+                ReportTimeout(reason);
                 return ApplicationShutdownOutcome.TimedOut;
             }
 
@@ -124,7 +96,7 @@ internal static class ApplicationShutdownCoordinator
             if (!ReferenceEquals(completed, cleanup))
             {
                 ObserveLateCleanup(cleanup, reason);
-                ReportTimeout(reason, budget);
+                ReportTimeout(reason);
                 return ApplicationShutdownOutcome.TimedOut;
             }
 
@@ -132,9 +104,9 @@ internal static class ApplicationShutdownCoordinator
             // faults with TimeoutException is an unverified subsystem result, not proof that this
             // process owner's outer timer elapsed.
             await cleanup.ConfigureAwait(false);
-            if (currentDeadline is not null && currentDeadline() <= utcNow())
+            if (currentDeadline() <= utcNow())
             {
-                ReportTimeout(reason, budget);
+                ReportTimeout(reason);
                 return ApplicationShutdownOutcome.TimedOut;
             }
 
@@ -147,10 +119,10 @@ internal static class ApplicationShutdownCoordinator
         }
     }
 
-    private static void ReportTimeout(ApplicationShutdownReason reason, TimeSpan budget)
+    private static void ReportTimeout(ApplicationShutdownReason reason)
     {
         Log.Warn(
-            $"Application shutdown exceeded the {budget.TotalSeconds:0.#} s {reason} budget; "
+            $"Application shutdown exceeded the {BudgetFor(reason).TotalSeconds:0.#} s {reason} budget; "
             + "process exit will release process-owned resources and recovery will reconcile next start.");
     }
 

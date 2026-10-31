@@ -2,16 +2,16 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
+using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
 
 /// <summary>A loaded plugin instance with the package file and load context its code runs from.</summary>
-/// <typeparam name="TEntry">The contract the entry type implements.</typeparam>
 /// <remarks>
 ///     The plugin is disposed exactly once, by whoever owns it at that moment, and its code is unloaded only
 ///     after that disposal completed. A disposal that failed or never finished leaves the code loaded.
 /// </remarks>
-internal sealed class LoadedPluginPackage<TEntry> where TEntry : class, IAsyncDisposable
+internal sealed class LoadedPluginPackage
 {
     private readonly PluginLoadContext? _context;
     private int _unloaded;
@@ -20,7 +20,7 @@ internal sealed class LoadedPluginPackage<TEntry> where TEntry : class, IAsyncDi
     /// <param name="plugin">The plugin instance.</param>
     /// <param name="package">The open package its code came from, or null for a plugin built into the process.</param>
     /// <param name="context">The load context holding its code, or null for a plugin built into the process.</param>
-    internal LoadedPluginPackage(TEntry plugin, PluginPackageFile? package = null,
+    internal LoadedPluginPackage(IPlugin plugin, PluginPackageFile? package = null,
         PluginLoadContext? context = null)
     {
         Plugin = plugin ?? throw new ArgumentNullException(nameof(plugin));
@@ -29,9 +29,9 @@ internal sealed class LoadedPluginPackage<TEntry> where TEntry : class, IAsyncDi
     }
 
     /// <summary>The plugin instance.</summary>
-    internal TEntry Plugin { get; }
+    internal IPlugin Plugin { get; }
 
-    /// <summary>The open package, which also serves a device plugin's glyph files.</summary>
+    /// <summary>The open package the plugin's code and files are served from.</summary>
     internal PluginPackageFile? Package { get; }
 
     /// <summary>Unloads the code and closes the package. Call only after the plugin's disposal completed.</summary>

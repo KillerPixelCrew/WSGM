@@ -271,7 +271,7 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
             [
                 .. _manager.Snapshot()
                     .Where(instance => !_cefPluginsOff && instance.Manifest.SteamCef && instance.SteamCefEnabled
-                                       && instance.Registration is { } owner && CanInvoke(owner) &&
+                                       && instance.Registration is { } owner && owner.CanInvoke &&
                                        owner.Actions is not null)
                     .SelectMany(instance => instance.Registration!.Actions!.SteamPages)
                     .Where(Admissible)
@@ -298,7 +298,7 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
     {
         lock (_gate)
         {
-            return _moduleOwners.TryGetValue(moduleId, out var owner) && CanInvoke(owner);
+            return _moduleOwners.TryGetValue(moduleId, out var owner) && owner.CanInvoke;
         }
     }
 
@@ -390,7 +390,7 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
         foreach (var pair in _settingsOwners.ToArray())
         {
             if (!instances.Any(instance => ReferenceEquals(instance.Registration, pair.Value)
-                                           && CanInvoke(pair.Value)))
+                                           && pair.Value.CanInvoke))
             {
                 _settingsOwners.Remove(pair.Key);
             }
@@ -398,7 +398,7 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
 
         foreach (var owner in _subscriptions.ToArray())
         {
-            if (!instances.Any(instance => ReferenceEquals(instance.Registration, owner) && CanInvoke(owner)))
+            if (!instances.Any(instance => ReferenceEquals(instance.Registration, owner) && owner.CanInvoke))
             {
                 owner.Actions?.UnsubscribeSteamUiChanged(OnChanged);
                 _subscriptions.Remove(owner);
@@ -408,7 +408,7 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
         foreach (var pair in _commands.ToArray())
         {
             if (!instances.Any(instance => ReferenceEquals(instance.Registration, pair.Value.Owner)
-                                           && CanInvoke(pair.Value.Owner)
+                                           && pair.Value.Owner.CanInvoke
                                            && pair.Value.Generation == pair.Value.Owner.Context.Generation))
             {
                 _commands.Remove(pair.Key);
@@ -417,7 +417,7 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
 
         foreach (var instance in instances)
         {
-            if (instance.Registration is not { } owner || !CanInvoke(owner) || owner.Actions is null)
+            if (instance.Registration is not { } owner || !owner.CanInvoke || owner.Actions is null)
             {
                 continue;
             }
@@ -449,7 +449,7 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
         var eligible = instances.Where(instance => !_cefPluginsOff && instance.SteamCefEnabled
                                                                    && instance.Manifest.SteamCef &&
                                                                    instance.Registration is { } owner &&
-                                                                   CanInvoke(owner)).ToArray();
+                                                                   owner.CanInvoke).ToArray();
         foreach (var owner in _frontends.Keys
                      .Where(owner => !eligible.Any(instance => ReferenceEquals(instance.Registration, owner)))
                      .ToArray())
@@ -481,7 +481,7 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
                         }
 
                         loaded.Add(SteamPluginFrontendSurface.Module(identity + "." + frontend.Id, identity,
-                            frontend.Id, bundle.Script, bundle.Style, () => CanInvoke(owner),
+                            frontend.Id, bundle.Script, bundle.Style, () => owner.CanInvoke,
                             bundle.Backend is null
                                 ? null
                                 : (method, payload, token) =>
@@ -499,7 +499,7 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
                 _frontends[owner] = frontendModules = loaded;
             }
 
-            if (!CanInvoke(owner))
+            if (!owner.CanInvoke)
             {
                 continue;
             }
@@ -526,11 +526,6 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
 
         _modules = modules;
         return true;
-    }
-
-    private static bool CanInvoke(PluginRegistration owner)
-    {
-        return !owner.IsStopping && !owner.Quarantined && owner.Health.Health == PluginHealth.Ready;
     }
 
     private static SteamExtensionsTabSetting ProjectSetting(PluginSetting setting, PluginValue value)

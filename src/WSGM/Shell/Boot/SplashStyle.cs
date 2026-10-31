@@ -70,7 +70,7 @@ internal static class SplashStyle
             // than the screen pins to the top/left edge instead of going negative.
             var x = Math.Max(0, Math.Min(placement.X, screenSize.Width - elementHint.Width));
             var y = Math.Max(0, Math.Min(placement.Y, screenSize.Height - elementHint.Height));
-            return new SplashElementLayout { IsAbsolute = true, CanvasX = x, CanvasY = y };
+            return new SplashElementLayout { CanvasX = x, CanvasY = y };
         }
 
         // Negative padding would push the element off screen — treat as zero.
@@ -101,7 +101,6 @@ internal static class SplashStyle
 
         return new SplashElementLayout
         {
-            IsAbsolute = false,
             HorizontalAlignment = horizontal,
             VerticalAlignment = vertical,
             Margin = new Thickness(left, top, right, bottom)

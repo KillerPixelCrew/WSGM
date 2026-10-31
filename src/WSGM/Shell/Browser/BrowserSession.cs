@@ -511,7 +511,7 @@ internal sealed class BrowserSession : IDisposable
         {
             case "state":
                 _ready = true;
-                Status = packet.Text.Length <= 2048 ? packet.Text : "Browser status unavailable";
+                Status = packet.Text;
                 Loading = packet.Loading;
                 CanGoBack = packet.CanGoBack;
                 CanGoForward = packet.CanGoForward;

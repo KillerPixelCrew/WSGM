@@ -85,9 +85,10 @@ internal sealed class PowerSchemeSelection(NativeQamPowerProfileService profiles
             string? detail;
             if (requested is { } id)
             {
-                detail = await profiles.SelectAsync(id, token);
+                await profiles.SelectAsync(id, token);
                 items = Schemes;
                 active = id;
+                detail = null;
             }
             else
             {

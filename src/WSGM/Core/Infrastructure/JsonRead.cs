@@ -27,16 +27,6 @@ internal static class JsonRead
         return json.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.True;
     }
 
-    /// <summary>A string property a manifest must carry.</summary>
-    /// <param name="json">The object.</param>
-    /// <param name="property">The property's name.</param>
-    /// <returns>The string.</returns>
-    /// <exception cref="ThemeManifestException">The property is absent or not a string.</exception>
-    internal static string RequiredString(JsonElement json, string property)
-    {
-        return OptionalString(json, property) ?? throw new ThemeManifestException($"'{property}'");
-    }
-
     /// <summary>A non-negative count, or zero when absent or not an integer.</summary>
     /// <param name="json">The object.</param>
     /// <param name="property">The property's name.</param>

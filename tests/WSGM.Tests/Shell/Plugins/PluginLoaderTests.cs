@@ -26,7 +26,7 @@ public sealed class PluginLoaderTests
         var irState = temporary.GetPath("ir-state");
         Directory.CreateDirectory(irState);
         var ir = host.Admit(package.Plugin, new PluginInstanceIdentity(package.Plugin.Id, "one"), manifest.Category,
-            PluginCategoryPolicy.Multiple, false, 1, irState);
+            irState);
         var deadline = Deadline.After(TimeSpan.FromSeconds(10));
         await ir.StartAsync(deadline, CancellationToken.None);
         Assert.Single(host.Snapshot());
@@ -58,7 +58,7 @@ public sealed class PluginLoaderTests
         var state = temporary.GetPath("state");
         Directory.CreateDirectory(state);
         var registration = host.Admit(package.Plugin, new PluginInstanceIdentity(package.Plugin.Id, "one"),
-            manifest.Category, PluginCategoryPolicy.Multiple, false, 1, state);
+            manifest.Category, state);
         var deadline = Deadline.After(TimeSpan.FromSeconds(5));
         await registration.StartAsync(deadline, CancellationToken.None);
         Assert.True(host.StateSnapshot(registration.Identity).Single(value => value.Key == "collectible").Value

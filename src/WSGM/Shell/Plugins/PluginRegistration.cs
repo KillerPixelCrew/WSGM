@@ -14,16 +14,12 @@ namespace WSGM.Shell;
 /// <param name="host">Admission and publication owner; retained until this registration retires.</param>
 /// <param name="plugin">Plugin whose lifecycle and actions are serialized on this registration's lane.</param>
 /// <param name="identity">Stable plugin/instance identity for this reservation.</param>
-/// <param name="category">Manifest category already accepted by the host.</param>
-/// <param name="policy">Multiplicity and selection policy under which the slot was reserved.</param>
 /// <param name="context">Initial identity, generation, mode, and instance state directory.</param>
 /// <param name="capabilities">Owned GPU publication/command channel, or null for other categories.</param>
 internal sealed class PluginRegistration(
     PluginHost host,
     IPlugin plugin,
     PluginInstanceIdentity identity,
-    string category,
-    PluginCategoryPolicy policy,
     PluginContext context,
     PluginCapabilityChannel? capabilities = null) : IPluginHost
 {
@@ -43,12 +39,6 @@ internal sealed class PluginRegistration(
     /// <summary>Stable identity of the reserved instance.</summary>
     internal PluginInstanceIdentity Identity { get; } = identity;
 
-    /// <summary>Admitted manifest category used for multiplicity accounting.</summary>
-    internal string Category { get; } = category;
-
-    /// <summary>Category policy that must match every other reservation in this category.</summary>
-    internal PluginCategoryPolicy Policy { get; } = policy;
-
     /// <summary>Current context, updated on the serial lane before each lifecycle operation.</summary>
     internal PluginContext Context { get; private set; } = context;
 
@@ -61,6 +51,12 @@ internal sealed class PluginRegistration(
     /// <summary>The last accepted health; written only by the host under its lock.</summary>
     internal PluginHealthPublication Health { get; set; } =
         new(identity, context.Generation, PluginHealth.Unavailable, null);
+
+    /// <summary>
+    ///     Whether the Overlay and Steam may offer this instance's actions, settings and frontend: it is
+    ///     running, not stopping, not quarantined and reports itself ready.
+    /// </summary>
+    internal bool CanInvoke => !IsStopping && !Quarantined && Health.Health == PluginHealth.Ready;
 
     /// <summary>Latest accepted state by key; mutable only while holding the host lock.</summary>
     internal Dictionary<string, PluginStatePublication> State { get; } = new(StringComparer.Ordinal);

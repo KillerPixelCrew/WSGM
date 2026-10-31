@@ -112,7 +112,7 @@ internal sealed class StorageServices(
         ShellSession.TryStart("library badge watcher", () => _badgeWatcher = LibraryBadgeWatcher.StartNew(state.Store));
     }
 
-    /// <summary>Starts or stops the game-mode card services from one shared policy.</summary>
+    /// <summary>Starts or stops the game-mode card services.</summary>
     /// <remarks>
     ///     Initial direct boot and a later desktop-to-game transition are separate entry
     ///     paths: only the latter raises <c>GameModeEntered</c>. Keeping their activation
@@ -121,10 +121,12 @@ internal sealed class StorageServices(
     /// <param name="gameModeActive">Whether the destination/current mode is game mode.</param>
     internal void ApplyCardServices(bool gameModeActive)
     {
-        var decision = GameModeCardServicePolicy.Decide(
-            gameModeActive, state.OverlayTestOnly, steamUi.MasterEnabled);
-
-        if (decision.WatchAppManifests && Drives is { } watchDrives && steamUi.Client is not null
+        // Manifest watches hold directory handles and belong to Game Mode. Library reconciliation
+        // follows the CEF master switch in either mode; its own readiness gate controls when it acts.
+        // The overlay preview runs neither.
+        var watchManifests = gameModeActive && !state.OverlayTestOnly;
+        var reconcileLibraries = !state.OverlayTestOnly && steamUi.MasterEnabled;
+        if (watchManifests && Drives is { } watchDrives && steamUi.Client is not null
             && libraryManager() is { } manager)
         {
             _cardAcfWatcher ??= CardAcfWatcher.StartNew(watchDrives, manager, steamUi.Readiness);
@@ -147,7 +149,7 @@ internal sealed class StorageServices(
             Formats.CardWatcher = _cardAcfWatcher;
         }
 
-        if (decision.ReconcileSteamLibraries && Drives is { } volumeDrives)
+        if (reconcileLibraries && Drives is { } volumeDrives)
         {
             // Card swaps are reconciled against Steam's install-folder list on the drive
             // manager's settled storage read. The callback refreshes both consumers of

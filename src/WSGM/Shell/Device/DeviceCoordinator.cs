@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Threading;
 using LibHandheld;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
@@ -37,7 +38,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     private readonly Func<DeviceIdentitySnapshot> _collectIdentity;
     private readonly Func<DeviceIdentitySnapshot, CancellationToken, Task<HandheldDefinition?>> _detectDevice;
     private readonly IAsyncDisposable? _diagnostics;
-    private readonly PluginHapticSink _hapticSink;
+    private readonly DeviceHapticSink _hapticSink;
     private readonly CancellationTokenSource _lifetime = new();
 
     private readonly Func<HandheldDefinition, DeviceIdentitySnapshot, CancellationToken, string,
@@ -181,7 +182,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             () => DeviceIdentityKey, manualVariableRefresh, () => _disposed, _lifetime.Token);
         Capabilities.Changed += Lighting.OnCapabilitiesChanged;
         Capabilities.Changed += Power.OnControlsChanged;
-        _hapticSink = new PluginHapticSink(ApplyHapticOutputAsync);
+        _hapticSink = new DeviceHapticSink(ApplyHapticOutputAsync);
         Controllers = createControllers(_hapticSink);
         Controllers.Forwarding.FilterOemButtons = _oemActions.FilterControllerButtons;
         Controllers.Rumble.ApplyCalibration(config.RumbleCalibration);
@@ -453,7 +454,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
                 config, store,
                 sessionId,
                 owner,
-                UiThread.Post, profiles,
+                action => Dispatcher.UIThread.Post(action), profiles,
                 autoTdpTargetFrametimeMs,
                 autoTdpMetrics,
                 manualVariableRefresh,

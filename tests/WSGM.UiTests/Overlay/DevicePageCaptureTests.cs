@@ -98,8 +98,7 @@ public sealed class DevicePageCaptureTests
             (_, _, _) => throw new InvalidOperationException("Unexpected assignment save"));
         using DevicePowerPresetSelection selection = new(presets, false, assignments);
         await selection.RefreshAsync();
-        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower()),
-            _ => throw new InvalidOperationException("Unexpected power plan write")));
+        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower())));
         await schemes.RefreshAsync();
         var window = fixture.Overlay(width, height);
         window.AttachDeviceBridge(device);

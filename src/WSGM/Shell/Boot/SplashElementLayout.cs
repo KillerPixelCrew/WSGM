@@ -6,18 +6,12 @@ namespace WSGM.Shell;
 /// <summary>
 ///     Resolved position of one boot-splash element, produced by
 ///     <see cref="SplashStyle.MapPlacement" />. Exactly one positioning scheme is
-///     meaningful per instance: alignment + margin when <see cref="IsAbsolute" /> is
-///     false (host the element in an alignment container), Canvas coordinates when
-///     it is true (host the element on a Canvas).
+///     meaningful per instance, chosen by the placement's mode: alignment + margin in
+///     anchor mode (host the element in an alignment container), Canvas coordinates in
+///     absolute mode (host the element on a Canvas).
 /// </summary>
 internal readonly struct SplashElementLayout
 {
-    /// <summary>
-    ///     True = position via <see cref="CanvasX" />/<see cref="CanvasY" />;
-    ///     false = position via alignment + margin.
-    /// </summary>
-    public bool IsAbsolute { get; init; }
-
     /// <summary>Horizontal alignment inside the splash panel (anchor mode).</summary>
     public HorizontalAlignment HorizontalAlignment { get; init; }
 

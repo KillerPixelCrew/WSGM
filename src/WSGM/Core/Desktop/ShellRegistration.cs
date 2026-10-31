@@ -63,8 +63,7 @@ public static class ShellRegistration
     ///     captured flag) and then writes 0.
     /// </summary>
     /// <param name="store">Strict persistence that captures the first original policy before writing HKCU.</param>
-    /// <param name="config">Session snapshot receiving the persisted recovery fields.</param>
-    public static void ApplyGamingHomeGuard(ConfigStore store, AppConfig config)
+    public static void ApplyGamingHomeGuard(ConfigStore store)
     {
         try
         {
@@ -72,13 +71,11 @@ public static class ShellRegistration
             using (var gamingSnapshot = Registry.CurrentUser.OpenSubKey(GamingConfigKey))
             {
                 var current = GamingHomeSnapshot.ReadCurrent(gamingSnapshot);
-                // The capture is persisted through Mutate rather than saving the caller's
-                // instance: Mutate reloads strictly under the lock, so an unreadable
-                // config.json aborts here instead of writing defaults over the recovery
-                // snapshots — whichever way the caller obtained its own AppConfig. The
-                // captured check lives inside the scope so disk, not the caller's
-                // possibly stale copy, decides (upgrades keep the original snapshot).
-                var persisted = store.Update(c =>
+                // The capture is persisted through Update, which reloads strictly under the
+                // lock, so an unreadable config.json aborts here instead of writing defaults
+                // over the recovery snapshots. The captured check lives inside the scope so
+                // disk, not a possibly stale copy, decides (upgrades keep the original snapshot).
+                store.Update(c =>
                 {
                     if (!GamingHomeSnapshot.IsCaptured(c))
                     {
@@ -87,11 +84,6 @@ public static class ShellRegistration
 
                     return true;
                 });
-                config.PreviousStartupToGamingHomeValue = persisted.PreviousStartupToGamingHomeValue;
-                config.PreviousStartupToGamingHomeSnapshotCaptured =
-                    persisted.PreviousStartupToGamingHomeSnapshotCaptured;
-                config.PreviousStartupToGamingHomeValueExists = persisted.PreviousStartupToGamingHomeValueExists;
-                config.PreviousStartupToGamingHomeValueKind = persisted.PreviousStartupToGamingHomeValueKind;
             }
 
             using var gaming = Registry.CurrentUser.CreateSubKey(GamingConfigKey);

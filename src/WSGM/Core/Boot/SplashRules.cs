@@ -14,11 +14,10 @@ internal static class SplashRules
     ///     archives.
     /// </summary>
     /// <param name="splash">Non-null, exclusive caller-owned splash section to mutate.</param>
-    /// <returns>The same repaired instance and an empty diagnostic list.</returns>
-    internal static ConfigRuleResult<SplashConfig> Normalize(SplashConfig splash)
+    internal static void Normalize(SplashConfig splash)
     {
         ConfigRepair.NormalizeEnums(splash);
-        return Repair(splash);
+        Repair(splash);
     }
 
     /// <summary>
@@ -26,8 +25,7 @@ internal static class SplashRules
     ///     <see cref="AppConfigRules" /> has already repaired with the rest of the document.
     /// </summary>
     /// <param name="splash">Non-null, exclusive caller-owned splash section to mutate.</param>
-    /// <returns>The same repaired instance and an empty diagnostic list.</returns>
-    internal static ConfigRuleResult<SplashConfig> Repair(SplashConfig splash)
+    internal static void Repair(SplashConfig splash)
     {
         splash.Text ??= SplashFieldDefaults.Text;
         splash.TextColor ??= SplashFieldDefaults.TextColor;
@@ -52,7 +50,6 @@ internal static class SplashRules
         NormalizePlacement(splash.TextPlacement);
         NormalizePlacement(splash.SpinnerPlacement);
         NormalizePlacement(splash.LogoPlacement);
-        return new ConfigRuleResult<SplashConfig>(splash, []);
     }
 
     /// <summary>

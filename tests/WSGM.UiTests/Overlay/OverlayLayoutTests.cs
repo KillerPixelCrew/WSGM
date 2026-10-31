@@ -242,8 +242,7 @@ public sealed class OverlayLayoutTests
     [AvaloniaFact]
     public async Task WindowsPowerPickerPinsWithoutDeviceIntegrationAndDetachesOnRemoval()
     {
-        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower()),
-            _ => throw new InvalidOperationException("Pinning must not apply a power plan")));
+        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower())));
         await schemes.RefreshAsync();
         using FakeDevice device = new();
         device.State = device.State with { Visible = false };

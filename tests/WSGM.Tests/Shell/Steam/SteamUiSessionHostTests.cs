@@ -36,7 +36,7 @@ public sealed class SteamUiSessionHostTests : IDisposable
             Brightness = new NativeQamBrightnessService(() => false, () => null, _ => false,
                 Timeout.InfiniteTimeSpan),
             Folds = new QuickAccessFolds(_config.Store.Context),
-            PowerProfiles = new NativeQamPowerProfileService(new PowerSchemes(power), _ => { }),
+            PowerProfiles = new NativeQamPowerProfileService(new PowerSchemes(power)),
             HybridCores = new NativeQamHybridCoreService(power.Owner())
         };
     }

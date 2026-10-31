@@ -155,8 +155,9 @@ public sealed partial class SettingsViewModel
     /// <param name="splash">Saved or imported splash settings to copy into the UI draft.</param>
     internal void LoadSplash(SplashConfig splash)
     {
-        Splash = SplashRules.Normalize(
-            ConfigJson.Clone(splash, ConfigJsonContext.Tolerant.SplashConfig)).Value;
+        var copy = ConfigJson.Clone(splash, ConfigJsonContext.Tolerant.SplashConfig);
+        SplashRules.Normalize(copy);
+        Splash = copy;
         TextPlacement.Load(Splash.TextPlacement);
         SpinnerPlacement.Load(Splash.SpinnerPlacement);
         LogoPlacement.Load(Splash.LogoPlacement);

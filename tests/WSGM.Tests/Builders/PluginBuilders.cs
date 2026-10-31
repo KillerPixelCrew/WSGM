@@ -17,14 +17,13 @@ internal static class PluginBuilders
         string? category = null)
     {
         return host.Admit(plugin, new PluginInstanceIdentity(plugin.Id, instance),
-            category ?? PluginCategories.Infrared,
-            PluginCategoryPolicy.Multiple, false, 1, "fixture-state");
+            category ?? PluginCategories.Infrared, "fixture-state");
     }
 
     /// <summary>A plugin built into the test process, as a common plugin manager's loader returns it.</summary>
-    internal static Task<LoadedPluginPackage<IPlugin>> Loaded(IPlugin plugin)
+    internal static Task<LoadedPluginPackage> Loaded(IPlugin plugin)
     {
-        return Task.FromResult(new LoadedPluginPackage<IPlugin>(plugin));
+        return Task.FromResult(new LoadedPluginPackage(plugin));
     }
 
     internal static async Task Close(PluginRegistration registration)

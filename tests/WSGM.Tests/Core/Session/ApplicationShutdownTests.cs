@@ -29,7 +29,7 @@ public sealed class ApplicationShutdownTests : IDisposable
     [Fact]
     public async Task CompletedCleanupReturnsClean()
     {
-        var outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
+        var outcome = await Shutdown(
             static _ => ValueTask.CompletedTask,
             ApplicationShutdownReason.Normal,
             TimeSpan.FromSeconds(1));
@@ -40,7 +40,7 @@ public sealed class ApplicationShutdownTests : IDisposable
     [Fact]
     public async Task CleanupThatStartedButFaultedReturnsUnverified()
     {
-        var outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
+        var outcome = await Shutdown(
             static _ => ValueTask.FromException(new InvalidOperationException("fault")),
             ApplicationShutdownReason.Update,
             TimeSpan.FromSeconds(1));
@@ -51,7 +51,7 @@ public sealed class ApplicationShutdownTests : IDisposable
     [Fact]
     public async Task CleanupTimeoutExceptionIsNotMistakenForTheOuterDeadline()
     {
-        var outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
+        var outcome = await Shutdown(
             static _ => ValueTask.FromException(new TimeoutException("subsystem timeout")),
             ApplicationShutdownReason.Update,
             TimeSpan.FromSeconds(1));
@@ -62,7 +62,7 @@ public sealed class ApplicationShutdownTests : IDisposable
     [Fact]
     public async Task CleanupThatCouldNotStartReturnsFailed()
     {
-        var outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
+        var outcome = await Shutdown(
             static _ => throw new InvalidOperationException("could not start"),
             ApplicationShutdownReason.Update,
             TimeSpan.FromSeconds(1));
@@ -76,7 +76,7 @@ public sealed class ApplicationShutdownTests : IDisposable
         var neverCompletes = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
+        var outcome = await Shutdown(
             _ => new ValueTask(neverCompletes.Task),
             ApplicationShutdownReason.SessionEnd,
             TimeSpan.FromMilliseconds(20));
@@ -306,7 +306,7 @@ public sealed class ApplicationShutdownTests : IDisposable
         var before = DateTimeOffset.UtcNow;
         DateTimeOffset received = default;
 
-        var outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
+        var outcome = await Shutdown(
             deadline =>
             {
                 received = deadline;
@@ -323,11 +323,6 @@ public sealed class ApplicationShutdownTests : IDisposable
     public async Task SynchronousShutdownStartupConsumesTheSameOuterBudget()
     {
         DateTimeOffset started = new(2026, 8, 29, 12, 0, 0, TimeSpan.Zero);
-        Queue<DateTimeOffset> clock = new(
-        [
-            started,
-            started.AddSeconds(2)
-        ]);
         var neverCompletes = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var timerStarted = false;
@@ -335,13 +330,13 @@ public sealed class ApplicationShutdownTests : IDisposable
         var outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
             _ => new ValueTask(neverCompletes.Task),
             ApplicationShutdownReason.Update,
-            TimeSpan.FromSeconds(1),
-            clock.Dequeue,
+            () => started.AddSeconds(2),
             _ =>
             {
                 timerStarted = true;
                 return Task.CompletedTask;
-            });
+            },
+            () => started.AddSeconds(1));
 
         Assert.Equal(ApplicationShutdownOutcome.TimedOut, outcome);
         Assert.False(timerStarted);
@@ -351,19 +346,14 @@ public sealed class ApplicationShutdownTests : IDisposable
     public async Task SynchronouslyCompletedCleanupCannotOutrunTheOuterBudget()
     {
         DateTimeOffset started = new(2026, 8, 29, 12, 0, 0, TimeSpan.Zero);
-        Queue<DateTimeOffset> clock = new(
-        [
-            started,
-            started.AddSeconds(2)
-        ]);
 
         var outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
             static _ => ValueTask.CompletedTask,
             ApplicationShutdownReason.Update,
-            TimeSpan.FromSeconds(1),
-            clock.Dequeue,
+            () => started.AddSeconds(2),
             static _ => throw new InvalidOperationException(
-                "A timer is unnecessary after the deadline."));
+                "A timer is unnecessary after the deadline."),
+            () => started.AddSeconds(1));
 
         Assert.Equal(ApplicationShutdownOutcome.TimedOut, outcome);
     }
@@ -375,7 +365,7 @@ public sealed class ApplicationShutdownTests : IDisposable
         // retained failures as one exception; the coordinator must record that as Unverified.
         var cleanupRan = false;
 
-        var outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
+        var outcome = await Shutdown(
             async _ =>
             {
                 cleanupRan = true;
@@ -454,5 +444,14 @@ public sealed class ApplicationShutdownTests : IDisposable
         Assert.Equal(0, steamStops);
         Assert.Equal(ApplicationShutdownReason.Uninstall, requested);
         Assert.True(lifetimeStopped);
+    }
+
+    /// <summary>Runs the coordinator on the system clock with a fixed budget from now.</summary>
+    private static Task<ApplicationShutdownOutcome> Shutdown(Func<DateTimeOffset, ValueTask> shutdownAsync,
+        ApplicationShutdownReason reason, TimeSpan budget)
+    {
+        var deadline = DateTimeOffset.UtcNow + budget;
+        return ApplicationShutdownCoordinator.ShutdownAsync(shutdownAsync, reason, static () => DateTimeOffset.UtcNow,
+            static timeout => Task.Delay(timeout), () => deadline);
     }
 }

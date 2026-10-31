@@ -195,6 +195,13 @@ public static class ThemeManifest
         return new ThemePatchManifest(name, type, defaultValue, options, components);
     }
 
+    /// <summary>A string property a manifest must carry.</summary>
+    /// <exception cref="ThemeManifestException">The property is absent or not a string.</exception>
+    private static string RequiredString(JsonElement json, string property)
+    {
+        return JsonRead.OptionalString(json, property) ?? throw new ThemeManifestException($"'{property}'");
+    }
+
     private static ThemeComponentManifest ParseComponent(JsonElement json)
     {
         // Intentionally strict, as CSS Loader is: a component missing a field is a broken theme.
@@ -203,16 +210,16 @@ public static class ThemeManifest
             throw new ThemeManifestException("A component is not an object");
         }
 
-        var name = JsonRead.RequiredString(json, "name");
-        var type = JsonRead.RequiredString(json, "type");
+        var name = RequiredString(json, "name");
+        var type = RequiredString(json, "type");
         if (type is not ("color-picker" or "image-picker"))
         {
             throw new ThemeManifestException($"Unknown component type '{type}'");
         }
 
-        var defaultValue = JsonRead.RequiredString(json, "default");
-        var on = JsonRead.RequiredString(json, "on");
-        var variable = JsonRead.RequiredString(json, "css_variable");
+        var defaultValue = RequiredString(json, "default");
+        var on = RequiredString(json, "on");
+        var variable = RequiredString(json, "css_variable");
         if (!variable.StartsWith("--", StringComparison.Ordinal))
         {
             variable = "--" + variable;

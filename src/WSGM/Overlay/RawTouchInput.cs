@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using Avalonia.Threading;
@@ -68,27 +67,6 @@ internal static unsafe class RawTouchInput
         _loggedFirstReport = false;
     }
 
-    /// <summary>Describes the foreground window for the touch diagnostics.</summary>
-    /// <returns>The window handle and its process name, or <c>none</c>.</returns>
-    internal static string DescribeForeground()
-    {
-        var hwnd = NativeMethods.GetForegroundWindow();
-        if (hwnd == 0)
-        {
-            return "none";
-        }
-
-        NativeMethods.GetWindowThreadProcessId(hwnd, out var pid);
-        try
-        {
-            return $"0x{hwnd:X} ({Process.GetProcessById((int)pid).ProcessName})";
-        }
-        catch
-        {
-            return $"0x{hwnd:X}";
-        }
-    }
-
     private static void Unsubscribe(Subscription subscription)
     {
         var index = Array.IndexOf(_subscribers, subscription);
@@ -130,7 +108,7 @@ internal static unsafe class RawTouchInput
         }
         else
         {
-            Log.Info($"Raw touch input registered (HID digitizer sink, foreground {DescribeForeground()}).");
+            Log.Info($"Raw touch input registered (HID digitizer sink, foreground {WindowFinder.DescribeForeground()}).");
         }
     }
 
@@ -280,7 +258,7 @@ internal static unsafe class RawTouchInput
         if (!_loggedFirstReport)
         {
             _loggedFirstReport = true;
-            Log.Info($"Raw touch reports arriving (foreground {DescribeForeground()}).");
+            Log.Info($"Raw touch reports arriving (foreground {WindowFinder.DescribeForeground()}).");
         }
 
         var digitizer = GetDigitizer(header.hDevice);

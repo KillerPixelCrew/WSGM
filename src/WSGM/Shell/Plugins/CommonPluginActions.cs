@@ -49,9 +49,10 @@ internal sealed class CommonPluginActions
         }
 
         Actions = captured.AsReadOnly();
-        var contributions = plugin is IPluginUi ui
-            ? ui.Contributions ?? throw new ArgumentException("Plugin UI declaration is absent.")
-            : [];
+        var ui = plugin as IPluginUi;
+        var contributions = ui is null
+            ? []
+            : ui.Contributions ?? throw new ArgumentException("Plugin UI declaration is absent.");
         ids.Clear();
         // ReSharper disable ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
         if (contributions.Any(contribution =>
@@ -65,15 +66,11 @@ internal sealed class CommonPluginActions
         }
 
         Contributions = Array.AsReadOnly([.. contributions]);
-        Widgets = CaptureWidgets(plugin is IPluginUi widgetSource ? widgetSource.Widgets : [], Contributions);
-        SteamUiContributions = CaptureSteamUiContributions(
-            plugin is IPluginSteamUi steamUi ? steamUi.SteamUiContributions : []);
-        SteamUiModules = CaptureSteamUiModules(plugin is IPluginSteamUi steamModuleSource
-            ? steamModuleSource.SteamUiModules
-            : []);
-        SteamPages = CaptureSteamPages(plugin is IPluginSteamUi steamPageSource
-            ? steamPageSource.SteamPages
-            : []);
+        // A declared interface that returns null reaches the Capture helpers, which refuse it.
+        Widgets = CaptureWidgets(ui is null ? [] : ui.Widgets, Contributions);
+        SteamUiContributions = CaptureSteamUiContributions(_steamUi is null ? [] : _steamUi.SteamUiContributions);
+        SteamUiModules = CaptureSteamUiModules(_steamUi is null ? [] : _steamUi.SteamUiModules);
+        SteamPages = CaptureSteamPages(_steamUi is null ? [] : _steamUi.SteamPages);
     }
 
     /// <summary>Read-only action declarations with copied argument schemas and choice lists.</summary>
@@ -262,18 +259,14 @@ internal sealed class CommonPluginActions
                     "The plugin returned an invalid action confirmation.");
             }
 
-            var route = result.SteamRoute;
-            if (route is not null &&
+            if (result.SteamRoute is { } route &&
                 (!route.StartsWith("/wsgm/", StringComparison.Ordinal) || route.Any(char.IsControl)))
             {
                 return new PluginActionResult(operationId, PluginActionOutcome.Unconfirmed,
                     "The plugin returned an invalid Steam route.");
             }
 
-            return result with
-            {
-                SteamRoute = route
-            };
+            return result;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

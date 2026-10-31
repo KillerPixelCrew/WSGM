@@ -201,8 +201,7 @@ public sealed partial class OverlayController : IDisposable
         _sources = sources ?? new OverlaySources(DisplayModes: DisplayModeAccess.Unavailable);
         // A preview writes nothing, so a set of its own never needs the session's lock.
         _power = power ?? WindowsPowerPolicy.OverWindows();
-        _powerProfiles = _sources.PowerProfiles ?? new NativeQamPowerProfileService(_power.Schemes,
-            _ => throw new InvalidOperationException("A preview cannot persist a power-profile selection."));
+        _powerProfiles = _sources.PowerProfiles ?? new NativeQamPowerProfileService(_power.Schemes);
         _store = store;
         _steamInput = steamInput ?? throw new ArgumentNullException(nameof(steamInput));
         _displayTimeouts = displayTimeouts;

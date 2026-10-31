@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using CommonManifest = WSGM.Plugin.Sdk.PluginManifest;
 
 namespace WSGM.Core;
 
@@ -41,7 +40,7 @@ internal sealed record PluginPackageCatalog
             return Empty with { Errors = ["The Plugins folder could not be read: " + exception.Message] };
         }
 
-        List<Candidate> candidates = [];
+        List<CommonInstalledPlugin> candidates = [];
         foreach (var file in files.Order(StringComparer.OrdinalIgnoreCase))
         {
             try
@@ -59,7 +58,8 @@ internal sealed record PluginPackageCatalog
                     continue;
                 }
 
-                candidates.Add(new Candidate(package.Path, package.CommonManifest, package.HashFile()));
+                candidates.Add(new CommonInstalledPlugin(package.Path, package.CommonManifest)
+                    { Sha256 = package.HashFile() });
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
                                                   or InvalidDataException or ArgumentException)
@@ -76,12 +76,12 @@ internal sealed record PluginPackageCatalog
                     out var version)
                     ? version
                     : new Version(0, 0))
-                .ThenBy(candidate => candidate.Path, StringComparer.OrdinalIgnoreCase).ToArray();
+                .ThenBy(candidate => candidate.PackagePath, StringComparer.OrdinalIgnoreCase).ToArray();
             var winner = ordered[0];
-            selected.Add(new CommonInstalledPlugin(winner.Path, winner.Manifest) { Sha256 = winner.Sha256 });
-            superseded.AddRange(ordered.Skip(1).Select(loser => new PluginPackageNotice(loser.Path,
+            selected.Add(winner);
+            superseded.AddRange(ordered.Skip(1).Select(loser => new PluginPackageNotice(loser.PackagePath,
                 loser.Manifest.Id,
-                $"Superseded by version {winner.Manifest.Version} in {Path.GetFileName(winner.Path)}.")));
+                $"Superseded by version {winner.Manifest.Version} in {Path.GetFileName(winner.PackagePath)}.")));
         }
 
         return new PluginPackageCatalog
@@ -90,6 +90,4 @@ internal sealed record PluginPackageCatalog
             Superseded = superseded.AsReadOnly(), Errors = errors.AsReadOnly()
         };
     }
-
-    private sealed record Candidate(string Path, CommonManifest Manifest, string Sha256);
 }

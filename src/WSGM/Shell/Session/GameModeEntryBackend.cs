@@ -47,27 +47,10 @@ internal sealed class GameModeEntryBackend(
     /// <param name="cancellationToken">Stops waiting for the restore.</param>
     /// <param name="requireAudio">Whether unavailable audio holds recovery pending; entry preflight may proceed without it.</param>
     /// <returns>Whether everything recorded was restored.</returns>
-    internal async Task<bool> RestorePendingDesktopAsync(CancellationToken cancellationToken, bool requireAudio = true)
+    internal Task<bool> RestorePendingDesktopAsync(CancellationToken cancellationToken, bool requireAudio = true)
     {
-        if (system.AudioProfiles is { } live)
-        {
-            return await GameModeReturnRecovery.RestorePendingAsync(state.Store, cancellationToken, live,
-                    applyGraphics: integrations.RestorePendingDisplayGpuAsync, requireAudio: requireAudio)
-                .ConfigureAwait(false);
-        }
-
-        var recoveryAudio = new AudioProfileService(new CoreAudioProfileOperations());
-        try
-        {
-            return await GameModeReturnRecovery.RestorePendingAsync(state.Store, cancellationToken, recoveryAudio,
-                    applyGraphics: integrations.RestorePendingDisplayGpuAsync, requireAudio: requireAudio)
-                .ConfigureAwait(false);
-        }
-        finally
-        {
-            // Disposal waits for a restore the budget abandoned; that wait is not this caller's.
-            recoveryAudio.DisposeAsync().AsTask().ObserveFaults();
-        }
+        return GameModeReturnRecovery.RestorePendingAsync(state.Store, cancellationToken, system.AudioProfiles,
+            applyGraphics: integrations.RestorePendingDisplayGpuAsync, requireAudio: requireAudio);
     }
 
     private DisplayArrivalWaiter CreateArrivalWaiter()

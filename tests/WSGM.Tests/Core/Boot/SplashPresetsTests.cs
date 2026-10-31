@@ -64,10 +64,10 @@ public class SplashPresetsTests
         classic.Text = null!;
         classic.SpinnerStyle = (SplashSpinnerStyle)999;
 
-        var repaired = SplashRules.Normalize(classic).Value;
+        SplashRules.Normalize(classic);
 
-        Assert.Equal("Please wait", repaired.Text);
-        Assert.Equal(SplashSpinnerStyle.Ring, repaired.SpinnerStyle);
+        Assert.Equal("Please wait", classic.Text);
+        Assert.Equal(SplashSpinnerStyle.Ring, classic.SpinnerStyle);
     }
 
     [Fact]

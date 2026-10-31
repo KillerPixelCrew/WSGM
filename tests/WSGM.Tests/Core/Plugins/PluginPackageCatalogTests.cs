@@ -192,7 +192,7 @@ public sealed class PluginPackageCatalogTests
     }
 
     [Fact]
-    public void OpenPackage_ServesBoundedModuleBytesAndBlocksReplacementUntilDisposed()
+    public void OpenPackage_ServesModuleBytesAndBlocksReplacementUntilDisposed()
     {
         using TemporaryDirectory temporary = new();
         var path = WritePackage(temporary.Root, "glyphs.wsgmpkg", CommonManifestJson("test.glyphs", "example.glyphs"),
@@ -202,10 +202,10 @@ public sealed class PluginPackageCatalogTests
 
         using (var package = PluginPackageFile.Open(path))
         {
-            Assert.True(package.TryRead("glyphs/assets/a.svg", 1024, out var bytes));
+            Assert.True(package.TryRead("glyphs/assets/a.svg", out var bytes));
             Assert.Equal("<svg/>", Encoding.UTF8.GetString(bytes));
-            Assert.False(package.TryRead("glyphs/assets/a.svg", 2, out _));
-            Assert.False(package.TryRead("../plugin.wsgm.json", 1024, out _));
+            Assert.False(package.TryRead("glyphs/assets/missing.svg", out _));
+            Assert.False(package.TryRead("../plugin.wsgm.json", out _));
             Assert.ThrowsAny<IOException>(() => File.Delete(path));
         }
 

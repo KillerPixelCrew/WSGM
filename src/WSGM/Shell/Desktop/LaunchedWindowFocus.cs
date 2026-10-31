@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Interop;
@@ -35,7 +34,6 @@ internal sealed class LaunchedWindowFocus : IDisposable
     private readonly MessageWindow _window;
     private bool _active;
     private bool _disposed;
-    private int _generation;
     private nint _lastAttempt;
 
     /// <summary>Creates the inactive handler on the Avalonia UI thread.</summary>
@@ -57,7 +55,6 @@ internal sealed class LaunchedWindowFocus : IDisposable
         }
 
         _disposed = true;
-        Interlocked.Increment(ref _generation);
         _window.ShellHookReceived -= OnShellHook;
     }
 
@@ -72,7 +69,6 @@ internal sealed class LaunchedWindowFocus : IDisposable
 
         _active = active;
         _lastAttempt = 0;
-        Interlocked.Increment(ref _generation);
     }
 
     /// <summary>The foreground condition under which a launched window may be raised.</summary>
@@ -105,17 +101,17 @@ internal sealed class LaunchedWindowFocus : IDisposable
             return;
         }
 
-        _ = RaiseAfterSettleAsync(data, Volatile.Read(ref _generation));
+        _ = RaiseAfterSettleAsync(data);
     }
 
-    private async Task RaiseAfterSettleAsync(nint window, int generation)
+    private async Task RaiseAfterSettleAsync(nint window)
     {
         try
         {
             // The continuation returns to the UI thread, whose message queue the input
             // attachment in ForceForeground needs.
             await Task.Delay(SettleDelay);
-            if (_disposed || generation != Volatile.Read(ref _generation) || window == _lastAttempt)
+            if (_disposed || !_active || window == _lastAttempt)
             {
                 return;
             }

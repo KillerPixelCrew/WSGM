@@ -330,8 +330,9 @@ registration, configuration revision and generation before dispatch. Secret sett
 in Steam and are never published back. This declarative path does not supply React/webpack or raw
 evaluation handles; its page presentation is a compiled package-owned fragment using the toolkit's
 generic renderer registration and typed bridge. The current projection exposes only Ready,
-non-stopping, non-quarantined registrations. IDs belong to the captured registration and generation,
-so a replacement with the same plugin identity cannot receive an old menu action. `SteamUiChanged`
+non-stopping, non-quarantined registrations, the same `PluginRegistration.CanInvoke` rule that
+enables the Overlay's plugin controls. IDs belong to the captured registration and generation, so a
+replacement with the same plugin identity cannot receive an old menu action. `SteamUiChanged`
 invalidates plugin module state without coupling the session host to a particular plugin. A
 package's Steam UI modules are registered when it becomes ready and removed when it stops, without
 rebuilding the session host; a module whose patch, state or command collides with one already

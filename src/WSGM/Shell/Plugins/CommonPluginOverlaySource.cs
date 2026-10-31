@@ -62,7 +62,7 @@ internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
                         ? null
                         : new PluginOverlayControls(actions.Actions, actions.Contributions, actions.Widgets),
                     owner is null ? "Starting" : $"{owner.Health.Health}: {owner.Health.Detail}",
-                    owner is { IsStopping: false, Quarantined: false }, instance.Error)
+                    owner?.CanInvoke == true, instance.Error)
                 {
                     Category = instance.Manifest.Category
                 };

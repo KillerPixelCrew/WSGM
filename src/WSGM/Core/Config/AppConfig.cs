@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using Microsoft.Win32;
 
@@ -331,12 +330,6 @@ public sealed class AppConfig
 
     /// <summary>Common plugin widget pins in display order; unavailable identities are retained.</summary>
     public List<PluginWidgetPin> PluginWidgetPins { get; set; } = [];
-
-    /// <summary>
-    ///     Last Windows power scheme explicitly selected and verified through the overlay.
-    ///     This is a reference only; startup and config reload must not reapply it.
-    /// </summary>
-    public Guid? LastSelectedPowerSchemeId { get; set; }
 
     /// <summary>Controller glyph family displayed by the UI.</summary>
     public GlyphStyle GlyphStyle { get; set; } = GlyphStyle.Xbox;

@@ -100,19 +100,4 @@ internal static class SplashDecode
         var width = Math.Max(1, bound);
         return sourceWidth <= width ? null : width;
     }
-
-    /// <summary>The pixels a decode produces under <see cref="ScaledWidth" />, rounding height up.</summary>
-    /// <param name="bound">The element's decode width bound.</param>
-    /// <param name="sourceWidth">The width the source's header declares.</param>
-    /// <param name="sourceHeight">The height the source's header declares.</param>
-    /// <returns>The decoded pixel count.</returns>
-    internal static long DecodedPixels(int bound, int sourceWidth, int sourceHeight)
-    {
-        if (ScaledWidth(bound, sourceWidth) is not { } width)
-        {
-            return (long)sourceWidth * sourceHeight;
-        }
-
-        return width * (long)Math.Ceiling((double)width * sourceHeight / sourceWidth);
-    }
 }

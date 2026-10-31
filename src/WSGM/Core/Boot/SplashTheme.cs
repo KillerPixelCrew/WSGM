@@ -453,15 +453,6 @@ internal static class SplashTheme
 
             Directory.CreateDirectory(targetDirectory);
             var destination = Path.Combine(targetDirectory, Path.GetFileName(entry.FullName).ToLowerInvariant());
-            // Belt and braces behind the name whitelist: never write outside the
-            // staging directory, whatever the archive claims an entry is called.
-            if (!Path.GetFullPath(destination).StartsWith(
-                    Path.GetFullPath(targetDirectory) + Path.DirectorySeparatorChar,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidDataException($"entry '{entry.FullName}' escapes the staging directory");
-            }
-
             extractedFiles.Add(destination);
             using var source = entry.Open();
             using var target = File.Create(destination);
@@ -516,17 +507,6 @@ internal static class SplashTheme
         {
             if (!Directory.Exists(stagingRoot))
             {
-                return;
-            }
-
-            // A reparse point where our staging root should be is an attack surface:
-            // a same-user process can repoint %TEMP%\WSGM.splash-import at any
-            // directory before an elevated sweep, which would then enumerate and
-            // recursively delete the junction target's children. The root is always a
-            // plain directory WSGM created; never follow a junction through it.
-            if (IsReparsePoint(stagingRoot))
-            {
-                Log.Warn($"Splash staging root '{stagingRoot}' is a reparse point; skipping cleanup.");
                 return;
             }
 
@@ -587,24 +567,6 @@ internal static class SplashTheme
             return false;
         }
         catch (Win32Exception)
-        {
-            return true;
-        }
-    }
-
-    /// <summary>
-    ///     True when the path is a reparse point (junction/symlink), so the
-    ///     cleanup sweep never follows a repointed staging root. An unreadable attribute
-    ///     set counts as a reparse point: the safe answer for a best-effort sweep is to
-    ///     skip rather than risk following a link.
-    /// </summary>
-    private static bool IsReparsePoint(string path)
-    {
-        try
-        {
-            return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
-        }
-        catch
         {
             return true;
         }

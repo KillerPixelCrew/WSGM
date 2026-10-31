@@ -154,20 +154,18 @@ unselected; an empty or failed read disables Apply. A failed write keeps the pub
 available for another explicit attempt. QAM validates against its published option list and has no
 refresh-required write latch. Its first publication after an accepted write uses that value; later
 independent refreshes read Windows. Explicit display-timeout selections also write without a prior
-read and publish the accepted value. Preview mode allows reads only. Native calls and persistence
-run off the UI thread, and closing the overlay discards late UI updates. Idle-timeout selectors
-refresh after the active scheme is read.
+read and publish the accepted value. Preview mode allows reads only. Native calls run off the UI
+thread, and closing the overlay discards late UI updates. Idle-timeout selectors refresh after the
+active scheme is read.
 
-The last accepted manual selection is saved as `LastSelectedPowerSchemeId`, a GUID in Core config.
-It is a reference, not an instruction to reapply at startup, config reload or a session transition.
-A failed save reports that Windows applied the scheme but WSGM could not save the reference; it does
-not undo or repeat the write. Timeout edits and scheme selection share one mutation gate so an
-idle-timeout edit cannot reactivate a stale scheme during selection.
+WSGM saves no copy of the selection: Windows keeps the active scheme, and WSGM never reapplies one
+at startup, config reload or a session transition. Timeout edits and scheme selection share one
+mutation gate so an idle-timeout edit cannot reactivate a stale scheme during selection.
 
-Synthetic tests cover the backend, selection workflow, persistence and Core-only Device navigation.
-No live power settings were changed for validation. No session-mode or per-application scheme policy
-is installed, and the selector has no device-plugin dependency. WSGM Settings configures WSGM
-itself; this Windows control belongs in the overlay and Steam QAM.
+Synthetic tests cover the backend, selection workflow and Core-only Device navigation. No live power
+settings were changed for validation. No session-mode or per-application scheme policy is installed,
+and the selector has no device-plugin dependency. WSGM Settings configures WSGM itself; this Windows
+control belongs in the overlay and Steam QAM.
 
 Steam QAM → Performance offers a Windows power profile dropdown, built on Valve's dropdown field,
 when Windows enumerates more than one plan; with one plan the row publishes no options and is not

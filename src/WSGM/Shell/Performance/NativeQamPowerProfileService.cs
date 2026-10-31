@@ -15,7 +15,6 @@ namespace WSGM.Shell;
 internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
 {
     private static readonly TimeSpan SchemeRefreshInterval = TimeSpan.FromMinutes(1);
-    private readonly Action<Guid> _persist;
     private readonly PowerSchemes _schemes;
     private readonly Lock _sync = new();
     private readonly TimeProvider _timeProvider;
@@ -28,15 +27,12 @@ internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
 
     /// <summary>Creates the shared selection workflow; the first list read establishes which profiles may be selected.</summary>
     /// <param name="schemes">Borrowed Windows scheme owner and mutation gate.</param>
-    /// <param name="persist">Synchronous callback storing an accepted choice; runs on a worker while the scheme gate is held.</param>
     /// <param name="timeProvider">Clock for the one-minute option cache, or null for the system clock.</param>
     internal NativeQamPowerProfileService(
         PowerSchemes schemes,
-        Action<Guid> persist,
         TimeProvider? timeProvider = null)
     {
         _schemes = schemes;
-        _persist = persist;
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
@@ -51,8 +47,8 @@ internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
 
         try
         {
-            var saveError = await SelectAsync(id, cancellationToken);
-            return new SteamUiCommandResult(saveError is null, saveError);
+            await SelectAsync(id, cancellationToken);
+            return new SteamUiCommandResult(true, null);
         }
         catch (OperationCanceledException)
         {
@@ -64,15 +60,15 @@ internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
         }
     }
 
-    /// <summary>Selects once, persists once and returns a save failure after an accepted native write.</summary>
+    /// <summary>Selects once; Windows keeps the active scheme, so nothing is saved.</summary>
     /// <param name="id">Nonempty scheme GUID present in the latest offered list.</param>
     /// <param name="cancellationToken">Cancels admission and scheme selection; it cannot undo an accepted native write.</param>
-    /// <returns>Null after selection and persistence succeed, or a save-error message after Windows accepted the selection.</returns>
+    /// <returns>Completion once Windows accepted the selection.</returns>
     /// <exception cref="InvalidOperationException">The GUID is not offered or Windows selection failed.</exception>
     /// <exception cref="OperationCanceledException">Cancellation was observed before the write.</exception>
-    internal Task<string?> SelectAsync(Guid id, CancellationToken cancellationToken)
+    internal Task SelectAsync(Guid id, CancellationToken cancellationToken)
     {
-        return Task.Run<string?>(() =>
+        return Task.Run(() =>
         {
             lock (_sync)
             {
@@ -89,20 +85,9 @@ internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
                         _schemes.Select(id, cancellationToken);
                         _refreshRequested = true;
                         _writtenActive = id;
-                        try
-                        {
-                            _persist(id);
-                        }
-                        catch (Exception ex)
-                        {
-                            _status =
-                                $"Windows applied the profile, but WSGM could not save the reference: {ex.Message}";
-                            return _status;
-                        }
                     }
 
                     _status = string.Empty;
-                    return null;
                 }
                 catch (OperationCanceledException)
                 {

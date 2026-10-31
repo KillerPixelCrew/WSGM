@@ -225,8 +225,7 @@ public sealed class OverlayInteractionTests
     [AvaloniaFact]
     public void LosingIntegrationKeepsWindowsPlansOnTheOpenPowerPage()
     {
-        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower()),
-            _ => throw new InvalidOperationException("Unexpected power scheme write")));
+        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower())));
         using FakeDevice device = new();
         device.State = device.State with
         {
@@ -557,8 +556,7 @@ public sealed class OverlayInteractionTests
     {
         using FakeDevice device = new();
         using UiFixture fixture = new();
-        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower()),
-            _ => throw new InvalidOperationException("Unexpected power scheme write")));
+        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower())));
         DevicePowerPresets service = new(() => [],
             (_, _, _, _) => throw new InvalidOperationException("Unexpected preset write"),
             new WindowsPowerModes(new PowerSchemes(new FakePower()), new UnusedPowerModeApi()));
@@ -625,7 +623,7 @@ public sealed class OverlayInteractionTests
     {
         using UiFixture fixture = new();
         FakePower api = new();
-        using PowerSchemeSelection selection = new(new NativeQamPowerProfileService(new PowerSchemes(api), _ => { }));
+        using PowerSchemeSelection selection = new(new NativeQamPowerProfileService(new PowerSchemes(api)));
         await selection.RefreshAsync();
         var window = fixture.Overlay();
         window.AttachPowerSchemes(selection);

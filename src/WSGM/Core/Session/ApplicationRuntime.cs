@@ -125,7 +125,7 @@ internal sealed class ApplicationRuntime(
             {
                 var reason = ApplicationShutdownRequest.Effective;
                 outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
-                    deadline => sessionShutdown(reason, deadline), reason, null, _utcNow,
+                    deadline => sessionShutdown(reason, deadline), reason, _utcNow,
                     _ => Task.Delay(Timeout.InfiniteTimeSpan, _timeout.Token), () => Deadline);
             }
         }

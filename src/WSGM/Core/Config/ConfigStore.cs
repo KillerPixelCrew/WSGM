@@ -217,36 +217,16 @@ public sealed class ConfigStore
     {
         var hash = Convert.ToHexString(SHA256.HashData(bytes));
         var backup = Path.Combine(Context.Root, $"config.bad.{hash}.json");
-        var created = false;
-        try
+        if (TryWriteNewCopy(backup, bytes, out var error))
         {
-            using var output = new FileStream(backup, FileMode.CreateNew, FileAccess.Write, FileShare.None,
-                4096, FileOptions.WriteThrough);
-            created = true;
-            output.Write(bytes);
-            output.Flush(true);
             Log.Warn($"Corrupt configuration preserved at {backup}; the original remains for repair.");
         }
-        catch (IOException) when (!created && File.Exists(backup))
+        else if (error is not null)
         {
-            // The same content was already preserved. Never prune distinct recovery evidence.
+            Log.Warn($"Corrupt configuration could not be preserved: {error.Message}");
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            if (created)
-            {
-                try
-                {
-                    File.Delete(backup);
-                }
-                catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException)
-                {
-                    Log.Warn($"Incomplete corrupt backup cleanup failed: {cleanup.Message}");
-                }
-            }
 
-            Log.Warn($"Corrupt configuration could not be preserved: {ex.Message}");
-        }
+        // No error: the same content was already preserved. Never prune distinct recovery evidence.
     }
 
     /// <summary>
@@ -257,36 +237,54 @@ public sealed class ConfigStore
     internal void PreserveOlderSchema(byte[] bytes, int version)
     {
         var copy = Path.Combine(Context.Root, $"config.v{version}.json");
+        if (TryWriteNewCopy(copy, bytes, out var error))
+        {
+            Log.Info($"Configuration schema {version} migrates to {AppConfig.CurrentSchemaVersion}; "
+                     + $"the old file is kept at {copy}.");
+        }
+        else if (error is not null)
+        {
+            throw new ConfigUnavailableException("The old configuration could not be kept before migrating it.",
+                error);
+        }
+
+        // No error: the first older file is already kept.
+    }
+
+    /// <summary>
+    ///     Writes a durable copy to a path that must not exist yet, removing a partly written copy on failure.
+    /// </summary>
+    /// <param name="path">The copy to create.</param>
+    /// <param name="bytes">Its content.</param>
+    /// <param name="error">The failure, or null when the copy was written or already existed.</param>
+    /// <returns>True when this call wrote the copy.</returns>
+    private static bool TryWriteNewCopy(string path, byte[] bytes, out Exception? error)
+    {
+        error = null;
         var created = false;
         try
         {
-            using var output = new FileStream(copy, FileMode.CreateNew, FileAccess.Write, FileShare.None,
+            using var output = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None,
                 4096, FileOptions.WriteThrough);
             created = true;
             output.Write(bytes);
             output.Flush(true);
-            Log.Info($"Configuration schema {version} migrates to {AppConfig.CurrentSchemaVersion}; "
-                     + $"the old file is kept at {copy}.");
+            return true;
         }
-        catch (IOException) when (!created && File.Exists(copy))
+        catch (IOException) when (!created && File.Exists(path))
         {
-            // The first older file is already kept.
+            return false;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             if (created)
             {
-                try
-                {
-                    File.Delete(copy);
-                }
-                catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException)
-                {
-                    Log.Warn($"Incomplete old configuration copy cleanup failed: {cleanup.Message}");
-                }
+                FileCleanup.TryDelete(path,
+                    cleanup => Log.Warn($"Incomplete copy {path} could not be removed: {cleanup.Message}"));
             }
 
-            throw new ConfigUnavailableException("The old configuration could not be kept before migrating it.", ex);
+            error = ex;
+            return false;
         }
     }
 

@@ -31,8 +31,6 @@ internal sealed class ExplorerShellExit : IDisposable
         _sessionId = sessionId;
     }
 
-    private static string ExplorerPath => ExplorerControl.ExplorerPath;
-
     /// <summary>Releases the retired owner's handle without ending it.</summary>
     public void Dispose()
     {
@@ -73,8 +71,8 @@ internal sealed class ExplorerShellExit : IDisposable
 
             // Keep the handle, not merely the PID, so its exit is observed on the right process.
             _ = original.Handle;
-            if (!string.Equals(NativeShellProcess.TryGetImagePath(checked((uint)original.Id)), ExplorerPath,
-                    StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(NativeShellProcess.TryGetImagePath(checked((uint)original.Id)),
+                    ExplorerControl.ExplorerPath, StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
@@ -171,8 +169,8 @@ internal sealed class ExplorerShellExit : IDisposable
         }
 
         if (process.SessionId != _sessionId
-            || !string.Equals(NativeShellProcess.TryGetImagePath(checked((uint)process.Id)), ExplorerPath,
-                StringComparison.OrdinalIgnoreCase))
+            || !string.Equals(NativeShellProcess.TryGetImagePath(checked((uint)process.Id)),
+                ExplorerControl.ExplorerPath, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException("The blocking Explorer owner could not be identified.");
         }
