@@ -116,10 +116,18 @@ public sealed class NotesView : ServiceSubView
     protected override string LogScope => "Notes";
 
     /// <summary>Follows the session's Notes owner, or none with null.</summary>
-    /// <param name="service">The owner, or null when the overlay closes or the session has none.</param>
+    /// <param name="service">
+    ///     The owner, or null when the overlay closes or the session has none, which also drops the screenshot
+    ///     starter the controller set.
+    /// </param>
     internal void Attach(NotesService? service)
     {
         _service = service;
+        if (service is null)
+        {
+            StartCapture = null;
+        }
+
         AttachSource(IsEffectivelyVisible ? service : null);
     }
 

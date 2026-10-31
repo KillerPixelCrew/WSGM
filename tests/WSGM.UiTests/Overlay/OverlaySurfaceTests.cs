@@ -110,7 +110,7 @@ public sealed class OverlaySurfaceTests
         window.ShowPowerMenu();
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal("Restart", UiFixture.Named<ActionButton>(window, "RestartButton").Title);
+        Assert.Equal("Restart", window.PanelPowerActions.RestartButton.Title);
         Assert.DoesNotContain(window.GetVisualDescendants().OfType<Button>()
             .Where(button => button.IsEffectivelyVisible && button.Tag is ActionButton)
             .SelectMany(button => button.GetVisualDescendants().OfType<TextBlock>()), text => text.Text == "Really?");
@@ -128,7 +128,7 @@ public sealed class OverlaySurfaceTests
             .Where(button => button.IsEffectivelyVisible && button.Tag is ActionButton).ToArray();
         var sources = UiFixture.Named<StackPanel>(window, "PanelPowerActions").Children.OfType<ActionButton>()
             .Where(button => button.IsVisible).ToList();
-        var desktop = UiFixture.Named<ActionButton>(window, "DesktopButton");
+        var desktop = window.PanelPowerSession.DesktopButton;
         if (desktop.IsVisible)
         {
             sources.Add(desktop);
@@ -155,7 +155,7 @@ public sealed class OverlaySurfaceTests
         Assert.Equal("Keep playing", keepPlaying.Content);
         Assert.Same(keepPlaying, window.FocusManager?.GetFocusedElement());
         var desktopInvocations = 0;
-        window.DesktopRequested += () => desktopInvocations++;
+        window.PanelPowerSession.DesktopRequested += () => desktopInvocations++;
         UiFixture.Click(window, Assert.Single(menuActions, button => ReferenceEquals(button.Tag, desktop)));
         Assert.Equal(1, desktopInvocations);
     }

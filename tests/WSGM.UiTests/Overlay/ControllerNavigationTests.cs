@@ -111,7 +111,7 @@ public sealed class ControllerNavigationTests
         window.PowerEditors.PowerTimeoutSelected += (kind, seconds) => requested.Add((kind, seconds));
         UiFixture.Click(window, UiFixture.Tab(window, 3));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerTimeouts));
-        var editor = UiFixture.Named<StackPanel>(window, "PowerTimeoutEditors")
+        var editor = window.PanelPowerTimeouts.PowerTimeoutEditors
             .GetVisualDescendants().OfType<ComboBox>().Single(choice => choice.IsEnabled);
         Assert.True(editor.Focus());
         UiFixture.Key(window, Key.Enter);

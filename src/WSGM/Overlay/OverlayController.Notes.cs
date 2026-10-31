@@ -22,7 +22,7 @@ public sealed partial class OverlayController
     private void AttachNotes(OverlayWindow overlay)
     {
         var notes = _sources.Notes;
-        overlay.AttachNotes(notes);
+        overlay.NotesHost.Attach(notes);
         if (notes is null)
         {
             return;

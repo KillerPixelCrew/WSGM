@@ -80,7 +80,7 @@ public sealed class CommonPluginPanelTests
     {
         using UiFixture fixture = new();
         var window = fixture.Overlay();
-        var host = UiFixture.Named<StackPanel>(window, "CommonPluginRows");
+        var host = window.PanelSystemPlugins.CommonPluginRows;
         List<PluginWidgetPin> pins = [];
         PluginWidgetPreferences preferences = new(() => Task.FromResult(pins.ToArray()),
             (pin, pinned) =>
@@ -91,9 +91,7 @@ public sealed class CommonPluginPanelTests
             () => Task.CompletedTask);
         var source = new MutableProvider();
         var panel = new CommonPluginPanel(source, preferences: preferences);
-        host.Children.Add(panel);
-        var tile = UiFixture.Named<ActionButton>(window, "SystemPluginsTile");
-        tile.IsVisible = true;
+        window.PanelSystemPlugins.Show(panel);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SystemPlugins));
         var pinControl = Assert.Single(host.GetLogicalDescendants().OfType<PluginWidgetPinControls>());

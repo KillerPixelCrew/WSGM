@@ -76,6 +76,9 @@ public partial class OverlayWindow : Window
     private bool _opened;
     private int _pendingLiveRefreshes;
 
+    // The second-press confirmations shared by the Session and Power pages, the power menu and Back.
+    private readonly PowerActionConfirms _powerConfirms;
+
     private PerformanceOverlayBridge? _performanceSource;
     private CommonPluginOverlaySource? _pluginSource;
     private DevicePowerPresetSelection? _powerPresetSelection;
@@ -123,11 +126,13 @@ public partial class OverlayWindow : Window
         viewModel.PropertyChanged += OnWorkspacePolicyChanged;
         SurfaceRoot.SizeChanged += OnWorkspaceSizeChanged;
         Placement = new OverlayPlacement(this, RootScale, GlassCanvas, TrayScroller, uiScale, preferredScreenPoint);
-        _powerConfirms = new PowerActionConfirms(viewModel, RestartButton, ShutdownButton, SignOutButton);
+        _powerConfirms = new PowerActionConfirms(viewModel, PanelPowerActions.RestartButton,
+            PanelPowerActions.ShutdownButton, PanelPowerActions.SignOutButton);
         Surfaces = new OverlaySurfaceStack(this, SurfaceRoot, DeckContent, () => DefaultFocusTarget, CoverMedia,
             _powerConfirms.Reset);
-        PowerEditors = new OverlayPowerEditors(viewModel, KeepAwakeHost, KeepAwakeDetail, PowerTimeoutEditors);
-        WindowsPolicies = new WindowsPolicyRows(UacPolicyHost, LockOnWakePolicyHost);
+        PowerEditors = new OverlayPowerEditors(viewModel, PanelPowerWake.KeepAwakeHost,
+            PanelPowerWake.KeepAwakeDetail, PanelPowerTimeouts.PowerTimeoutEditors);
+        WindowsPolicies = new WindowsPolicyRows(PanelSystemTools.UacPolicyHost, PanelPowerWake.LockOnWakePolicyHost);
         _profileScope = new HeaderProfileScope(HeaderProfile, ProfileContext, ManageProfiles, _deviceLifetime.Token);
         // Two subtrees bind different objects than the window (compiled bindings:
         // x:DataType on the TrayScroller / AppsStrip and StatusZone subtrees).
@@ -138,8 +143,10 @@ public partial class OverlayWindow : Window
         _deviceRenderer = new DeviceGroupRenderer(CreateDeviceRow,
             (id, title, pinned) => CreateSectionHeader(id, title, pinned), session.ExpandedSections);
         DevicePage.Configure(_deviceRenderer, session.ExpandedSections);
+        PanelSystemPerformance.Configure(_deviceRenderer);
         StorageFormatHost.CloseRequested += () => LeaveSubView(OverlayPage.SteamStorageFormat);
         StorageFormatHost.ScrollToTopRequested += () => ContentScroller.Offset = default;
+        ConfigurePages(steam);
 
         // Controller navigation moves focus with InputElement.Focus(Directional),
         // which does NOT raise RequestBringIntoView on its own — a chip scrolled
@@ -183,9 +190,6 @@ public partial class OverlayWindow : Window
 
         GameLibraryHost.ArtworkRequested += OpenImportedArtwork;
         GameLibraryHost.EmulatorsRequested += OpenEmulators;
-        LaunchWrapperHost.Picked += OnLaunchFixGamePicked;
-        LaunchWrapperHost.CustomPicked += OnCustomLaunchGamePicked;
-        InitializeLaunchFixLabels(viewModel);
 
         KeyDown += OnKeyDown;
         Opened += OnOpened;
@@ -215,27 +219,57 @@ public partial class OverlayWindow : Window
     /// </summary>
     internal bool WarmingUp { get; init; }
 
+    /// <summary>The Wake and Idle timeouts editors, with the Keep Awake indicator.</summary>
+    internal OverlayPowerEditors PowerEditors { get; }
+
+    /// <summary>The UAC prompt and sign-in-after-standby switches on the System and Wake pages.</summary>
+    internal WindowsPolicyRows WindowsPolicies { get; }
+
     /// <summary>Raised when a nested page is torn down so its auxiliary surface closes too.</summary>
     public event Action? SubViewClosed;
 
-    /// <summary>Raised when the user requests Task Manager.</summary>
-    public event Action? TaskManagerRequested;
-
+    /// <summary>Raised when the user asks for the on-screen keyboard, from the header or Tools > Keyboard.</summary>
     internal event Action? OnScreenKeyboardRequested;
+
+    /// <summary>Connects the destination pages to the navigation, surfaces and confirmations the sheet owns.</summary>
+    /// <param name="steam">The session's Steam client, or null on a surface without one.</param>
+    private void ConfigurePages(SteamClient? steam)
+    {
+        PanelSteamLibrary.Configure(StorageFormatHost);
+        PanelSteamLibrary.PageRequested += page => EnterSubView(page);
+        PanelSteamLibrary.FormatPageRequested += OpenStorageFormat;
+        PanelSteamLibrary.SystemDialogActive += active => SystemDialogActive?.Invoke(active);
+        PanelSteamLaunch.Steam = steam;
+        PanelSteamLaunch.Configure(LaunchWrapperHost, Surfaces);
+        PanelSteamLaunch.ConfigurationRequested += () => EnterSubView(OverlayPage.SteamLaunchConfiguration);
+        PanelSteamLaunch.ConfigurationClosed += () => LeaveSubView(OverlayPage.SteamLaunchConfiguration);
+        PanelSteamLaunch.DismissRequested += () => Dismissed?.Invoke();
+        PanelSteamLaunch.RefreshLabels();
+        PanelSystemStorage.Configure(StorageFormatHost);
+        PanelSystemStorage.EjectRequested += () => EjectPanelRequested?.Invoke();
+        PanelSystemStorage.FormatPageRequested += OpenStorageFormat;
+        PanelSystemController.KeyboardRequested += () => OnScreenKeyboardRequested?.Invoke();
+        PanelPowerSession.Configure(_powerConfirms);
+        PanelPowerWake.WakeLocksRequested += () => EnterSubView(OverlayPage.PowerWakeLocks);
+        PanelPowerActions.Configure(_powerConfirms);
+        PanelPowerActions.DismissRequested += () => Dismissed?.Invoke();
+        PanelPowerActions.PowerMenuRequested += () => PowerMenuRequested?.Invoke();
+        PanelSystemPlugins.OfferedChanged += () =>
+        {
+            if (!PanelSystemPlugins.Offered && _navigation.Page == OverlayPage.SystemPlugins)
+            {
+                SelectDestination(OverlayDestination.System);
+            }
+            else
+            {
+                RefreshWorkspace();
+            }
+        };
+    }
 
     private void OnScreenKeyboard(object? sender, RoutedEventArgs e)
     {
         OnScreenKeyboardRequested?.Invoke();
-    }
-
-    private void OnSettings(object? sender, RoutedEventArgs e)
-    {
-        SettingsRequested?.Invoke();
-    }
-
-    private void OnTaskManager(object? sender, RoutedEventArgs e)
-    {
-        TaskManagerRequested?.Invoke();
     }
 
     /// <summary>Raised when the overlay is dismissed without another action.</summary>
@@ -284,7 +318,7 @@ public partial class OverlayWindow : Window
     {
         // Before the warm-up return: rendering is part of what the warm pass exercises.
         _opened = true;
-        FoldDisplaySection();
+        PanelSystemDisplay.Fold(_session.ExpandedSections);
         var performance = _performanceSource?.Snapshot();
         var device = DeviceSnapshotOrOff();
         RefreshNavigationHints();
@@ -326,6 +360,8 @@ public partial class OverlayWindow : Window
         // Released against the bridge that granted the lease, before anything else lets go of it.
         ObserveGlyphInput(false);
         _closed = true;
+        PanelSteamLibrary.Detach();
+        PanelSteamLaunch.Detach();
         _profileScope.Detach();
         ViewModel.PropertyChanged -= OnWorkspacePolicyChanged;
         _pins.Detach();
@@ -333,7 +369,7 @@ public partial class OverlayWindow : Window
         LibraryTabsHost.Attach(null);
         CardManagerHost.Attach(null);
         DetachPrograms();
-        AttachNotes(null);
+        NotesHost.Attach(null);
         ScreensaversHost.Attach(null);
         EmulatorManagerHost.Attach(null);
         ThemesHost.Attach(null);

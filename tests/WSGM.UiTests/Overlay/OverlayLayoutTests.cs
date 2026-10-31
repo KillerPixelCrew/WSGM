@@ -396,7 +396,7 @@ public sealed class OverlayLayoutTests
             _ => throw new InvalidOperationException("Unexpected write"), Timeout.InfiniteTimeSpan);
         await brightness.ReadAsync();
         var window = fixture.Overlay();
-        var host = UiFixture.Named<StackPanel>(window, "DisplayBrightnessHost");
+        var host = window.PanelSystemDisplay.DisplayBrightnessHost;
         DisplayTargetIdentity target = new("fixture", null, null, "Internal display", 1, 0, 1);
         DisplayModeSnapshot modes = new(new ActiveDisplayPath(target, "fixture", 0, 120, 1),
             new DisplayMode(1920, 1200, 120),

@@ -1,0 +1,34 @@
+<!-- Session: the former root tab, now a Power category. The four rows keep
+     their names, tags and handlers so pins and focus keys are unchanged. -->
+<StackPanel xmlns="https://github.com/avaloniaui"
+            xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+            xmlns:ov="using:WSGM.Overlay"
+            xmlns:c="using:WSGM.Controls"
+            x:Class="WSGM.Overlay.PowerSessionPage"
+            x:DataType="ov:OverlayViewModel"
+            Spacing="10">
+  <TextBlock Text="SESSION" Classes="eyebrow" Margin="2,0,2,2" />
+  <c:ActionButton x:Name="HomeAppButton" Classes="primary" Click="OnHomeApp"
+                  Tag="home.steam"
+                  IconGeometry="{x:Static c:Icons.Play}"
+                  Title="{Binding HomeAppButtonText}"
+                  Description="Open Steam Big Picture"
+                  TrailingText="A" />
+  <c:ActionButton x:Name="DesktopButton" Click="OnDesktop"
+                  Tag="home.desktop"
+                  IconGeometry="{x:Static c:Icons.Monitor}"
+                  Title="{Binding DesktopButtonText}"
+                  Description="Show or hide the Windows desktop"
+                  IsVisible="{Binding ModeSwitchAvailable}" />
+  <c:ActionButton Click="OnExitBigPicture"
+                  Tag="home.exit-big-picture"
+                  IconGeometry="{x:Static c:Icons.ExitFullscreen}"
+                  Title="Exit Big Picture"
+                  Description="Switch Steam to its desktop window" />
+  <c:ActionButton Click="OnCloseLauncher"
+                  Tag="home.close-steam"
+                  IsVisible="{Binding HomeAppAlive}"
+                  IconGeometry="{x:Static c:Icons.Close}"
+                  Title="{Binding CloseLauncherText}"
+                  Description="Quit Steam completely" />
+</StackPanel>

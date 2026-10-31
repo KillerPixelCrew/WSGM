@@ -34,7 +34,7 @@ public sealed class OverlayInteractionTests
             window.PowerEditors.Refresh();
         };
         UiFixture.Click(window, UiFixture.Tab(window, 3));
-        var editor = UiFixture.Named<StackPanel>(window, "KeepAwakeHost")
+        var editor = window.PanelPowerWake.KeepAwakeHost
             .GetVisualDescendants().OfType<ComboBox>().Single();
         UiFixture.Click(window, editor);
         UiFixture.Key(window, Key.Down);
@@ -57,7 +57,7 @@ public sealed class OverlayInteractionTests
         UiFixture.Click(window, UiFixture.Tab(window, 3));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerTimeouts));
         UiFixture.OpenSections(window);
-        var editor = UiFixture.Named<StackPanel>(window, "PowerTimeoutEditors")
+        var editor = window.PanelPowerTimeouts.PowerTimeoutEditors
             .GetVisualDescendants().OfType<ComboBox>().Single(choice => choice.IsEnabled);
         UiFixture.Click(window, editor);
         Assert.True(editor.IsDropDownOpen);
@@ -83,7 +83,7 @@ public sealed class OverlayInteractionTests
         List<ManualWakeMode> requested = [];
         window.PowerEditors.KeepAwakeSelected += requested.Add;
         UiFixture.Click(window, UiFixture.Tab(window, 3));
-        var editor = UiFixture.Named<StackPanel>(window, "KeepAwakeHost")
+        var editor = window.PanelPowerWake.KeepAwakeHost
             .GetVisualDescendants().OfType<ComboBox>().Single();
         UiFixture.Click(window, editor);
         Assert.True(editor.IsDropDownOpen);
@@ -104,7 +104,7 @@ public sealed class OverlayInteractionTests
         var vm = Assert.IsType<OverlayViewModel>(window.DataContext);
         vm.KeepAwakeManualMode = ManualWakeMode.Standby;
         UiFixture.Click(window, UiFixture.Tab(window, 3));
-        var editor = UiFixture.Named<StackPanel>(window, "KeepAwakeHost")
+        var editor = window.PanelPowerWake.KeepAwakeHost
             .GetVisualDescendants().OfType<ComboBox>().Single();
         Assert.Equal(1, editor.SelectedIndex);
         Assert.Empty(requested);
@@ -129,7 +129,7 @@ public sealed class OverlayInteractionTests
         UiFixture.Click(window, UiFixture.Tab(window, 3));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerTimeouts));
         UiFixture.OpenSections(window);
-        var editors = UiFixture.Named<StackPanel>(window, "PowerTimeoutEditors")
+        var editors = window.PanelPowerTimeouts.PowerTimeoutEditors
             .GetVisualDescendants().OfType<ComboBox>().ToArray();
         Assert.Equal(4, editors.Length);
         var editor = Assert.Single(editors, choice => choice.IsEnabled);
@@ -365,8 +365,8 @@ public sealed class OverlayInteractionTests
         UiFixture.Click(window, UiFixture.Tab(window, 1));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SteamLaunchFixes));
         UiFixture.OpenSections(window);
-        var last = UiFixture.Named<ActionButton>(window, "RemoveFixesButton");
-        UiFixture.Named<ActionButton>(window, "DeelevateFixButton").Focus();
+        var last = window.PanelSteamLaunch.RemoveFixesButton;
+        window.PanelSteamLaunch.DeelevateFixButton.Focus();
         for (var step = 0; step < 12 && !last.IsFocused; step++)
         {
             UiFixture.Key(window, Key.Tab);
@@ -389,7 +389,7 @@ public sealed class OverlayInteractionTests
         List<string> pins = [];
         var home = 0;
         window.PinToggleRequested += pins.Add;
-        window.HomeAppRequested += () => home++;
+        window.PanelPowerSession.HomeAppRequested += () => home++;
         var grid = UiFixture.Named<Panel>(window, "PinnedGrid");
         var card = Assert.IsType<ActionButton>(grid.Children[0]);
         UiFixture.Click(window, card);
@@ -403,7 +403,7 @@ public sealed class OverlayInteractionTests
         UiFixture.Click(window, UiFixture.Tab(window, 3));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerSession));
         UiFixture.OpenSections(window);
-        var source = UiFixture.Named<ActionButton>(window, "HomeAppButton");
+        var source = window.PanelPowerSession.HomeAppButton;
         source.Focus();
         UiFixture.Key(window, Key.Enter);
         Assert.Equal(2, home);
@@ -549,7 +549,7 @@ public sealed class OverlayInteractionTests
             UiFixture.Click(window, UiFixture.Tab(window, 4));
             UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerSession));
             UiFixture.OpenSections(window);
-            UiFixture.Named<ActionButton>(window, "DesktopButton").Focus(NavigationMethod.Directional);
+            window.PanelPowerSession.DesktopButton.Focus(NavigationMethod.Directional);
             window.Close();
             Assert.Equal(0, device.Subscribers);
             device.Notify();

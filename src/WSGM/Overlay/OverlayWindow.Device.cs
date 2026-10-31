@@ -117,7 +117,7 @@ public partial class OverlayWindow
     {
         // FaceSouth rather than "A": the glyph vocabulary is positional, so a device whose bottom
         // face button is printed with something else gets the button it actually has.
-        HomeAppButton.TrailingGlyph = _deviceBridge?.NavigationHint(GlyphControlId.FaceSouth);
+        PanelPowerSession.ShowHomeHint(_deviceBridge?.NavigationHint(GlyphControlId.FaceSouth));
     }
 
     private void OnPerformanceChanged()

@@ -1,0 +1,32 @@
+<StackPanel xmlns="https://github.com/avaloniaui"
+            xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+            xmlns:ov="using:WSGM.Overlay"
+            xmlns:c="using:WSGM.Controls"
+            x:Class="WSGM.Overlay.SteamLibraryPage"
+            x:DataType="ov:OverlayViewModel"
+            Spacing="10">
+  <TextBlock Text="STEAM LIBRARY" Classes="eyebrow" Margin="2,0,2,2" />
+  <TextBlock Text="Steam integration is turned off in Settings."
+             Classes="caption"
+             IsVisible="{Binding !ShowSteamLibrarySection}" />
+  <c:ActionButton Click="OnOpenPage"
+                  CommandParameter="{x:Static ov:OverlayPage.SteamLibraryTabs}"
+                  Tag="steam.library-tabs"
+                  IsVisible="{Binding ShowLibraryTabs}"
+                  IconGeometry="{x:Static c:Icons.SteamLike}"
+                  Title="Library Tabs"
+                  Description="Custom filter tabs and genres" />
+  <c:ActionButton Click="OnOpenPage"
+                  CommandParameter="{x:Static ov:OverlayPage.SteamCardManager}"
+                  Tag="steam.card-manager"
+                  IsVisible="{Binding ShowCardManager}"
+                  IconGeometry="{x:Static c:Icons.SdCard}"
+                  Title="Card Manager"
+                  Description="Rename, hide, and view SD-card libraries" />
+  <c:ActionButton Click="OnAddLibrary"
+                  Tag="steam.add-library"
+                  IsVisible="{Binding ShowSdCard}"
+                  IconGeometry="{x:Static c:Icons.FolderPlus}"
+                  Title="Add Steam Library"
+                  Description="Register a folder, drive, or network share" />
+</StackPanel>

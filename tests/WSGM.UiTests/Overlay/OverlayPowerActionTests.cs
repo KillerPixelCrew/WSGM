@@ -24,7 +24,7 @@ public sealed class OverlayPowerActionTests
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerActions));
         List<string> calls = [];
         window.Dismissed += () => calls.Add("dismiss");
-        window.PowerActionRequested += requested => calls.Add(requested.ToString());
+        window.PanelPowerActions.PowerActionRequested += requested => calls.Add(requested.ToString());
         var button = window.GetVisualDescendants().OfType<ActionButton>()
             .Single(row => row.IsEffectivelyVisible && row.Title == title);
         UiFixture.Click(window, button);

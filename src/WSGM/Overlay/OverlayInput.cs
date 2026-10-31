@@ -15,7 +15,11 @@ internal static class OverlayInput
     internal static GamepadNavigation Create(OverlayWindow window, IUiButtonSource buttons, Action back,
         Func<bool>? isNintendoLayout = null)
     {
-        return new GamepadNavigation(window.BrowserInput(buttons, isNintendoLayout), window, back,
+        // The browser page's native viewport takes the presses it owns before the sheet sees them.
+        BrowserButtons filtered = new(buttons,
+            pressed => window.BrowserHost.ConsumeButtons(pressed, isNintendoLayout?.Invoke() == true));
+        window.Closed += (_, _) => filtered.Dispose();
+        return new GamepadNavigation(filtered, window, back,
             isNintendoLayout,
             () => window.DefaultFocusTarget,
             focused =>

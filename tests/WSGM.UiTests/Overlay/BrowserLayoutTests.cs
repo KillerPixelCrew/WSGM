@@ -28,7 +28,7 @@ public sealed class BrowserLayoutTests
         {
             Destination = OverlayDestination.System
         });
-        window.AttachBrowserSession(session);
+        window.BrowserHost.Attach(session, window);
         Assert.Null(session.HelperProcessId);
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SystemBrowser));
         Dispatcher.UIThread.RunJobs();

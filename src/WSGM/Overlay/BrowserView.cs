@@ -2,6 +2,7 @@ using System;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -29,6 +30,7 @@ public sealed class BrowserView : OverlaySubView
     private readonly TextBlock _zoom = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly OverlayChoice<BrowserMemoryBehavior> _memory;
     private BrowserSession? _session;
+    private OverlayWindow? _window;
     private ScrollViewer? _scroller;
     private readonly StackPanel _stack;
     private bool _entered;
@@ -120,22 +122,148 @@ public sealed class BrowserView : OverlaySubView
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
-        if (_session is not null && change.Property == IsVisibleProperty)
+        if (change.Property == IsVisibleProperty)
         {
-            if (IsVisible && TopLevel.GetTopLevel(this) is Window { IsVisible: true })
-            {
-                Enter();
-            }
-            else
-            {
-                Leave();
-            }
+            RefreshLifetime();
         }
     }
 
     internal bool ViewportOwnsInput => _session?.ViewportFocused == true;
 
-    internal void Attach(BrowserSession session)
+    /// <summary>Connects the inert page to the one session-owned browser and the sheet that hosts it.</summary>
+    /// <param name="session">The session's browser.</param>
+    /// <param name="window">The sheet, whose keys and text reach the page while its viewport owns input.</param>
+    internal void Attach(BrowserSession session, OverlayWindow window)
+    {
+        if (_window is null)
+        {
+            _window = window;
+            window.PropertyChanged += OnWindowPropertyChanged;
+            window.Closed += OnWindowClosed;
+            window.AddHandler(KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel);
+            window.AddHandler(TextInputEvent, OnWindowTextInput, RoutingStrategies.Tunnel);
+        }
+
+        Attach(session);
+    }
+
+    /// <summary>
+    ///     Consumes the controller presses the native viewport owns: Back returns to the chrome, Y opens the
+    ///     page keyboard and the rest drive the page.
+    /// </summary>
+    /// <param name="buttons">The pressed buttons.</param>
+    /// <param name="nintendoLayout">Whether the face buttons use the Nintendo layout.</param>
+    /// <returns>True when the page consumed the press; false while it does not own input or a surface is up.</returns>
+    internal bool ConsumeButtons(GamepadButtons buttons, bool nintendoLayout)
+    {
+        if (!ViewportOwnsInput || TopLevel.GetTopLevel(this) is not OverlayWindow { Surfaces.HasActive: false })
+        {
+            return false;
+        }
+
+        var back = nintendoLayout ? GamepadButtons.A : GamepadButtons.B;
+        if (buttons.HasFlag(back))
+        {
+            TryReturnToChrome();
+        }
+        else if (buttons.HasFlag(GamepadButtons.Y))
+        {
+            PageKeyboard();
+        }
+        else
+        {
+            HandleViewportButtons(buttons, nintendoLayout);
+        }
+
+        return true;
+    }
+
+    /// <summary>Enters the page while it and its sheet show, under any open surface; leaves it otherwise.</summary>
+    private void RefreshLifetime()
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        if (IsVisible && TopLevel.GetTopLevel(this) is Window { IsVisible: true } window)
+        {
+            Enter();
+            Cover(window is OverlayWindow { Surfaces.HasActive: true });
+        }
+        else
+        {
+            Leave();
+        }
+    }
+
+    private void OnWindowPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property == Visual.IsVisibleProperty)
+        {
+            RefreshLifetime();
+        }
+    }
+
+    private void OnWindowClosed(object? sender, EventArgs e)
+    {
+        Detach();
+        if (_window is { } window)
+        {
+            window.PropertyChanged -= OnWindowPropertyChanged;
+            window.Closed -= OnWindowClosed;
+            window.RemoveHandler(KeyDownEvent, OnWindowKeyDown);
+            window.RemoveHandler(TextInputEvent, OnWindowTextInput);
+            _window = null;
+        }
+    }
+
+    private void OnWindowKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (_window is not { Surfaces.HasActive: false } || !ViewportOwnsInput)
+        {
+            return;
+        }
+
+        if (e.Key == Key.Space)
+        {
+            // TextInput supplies the character; do not also activate the last Avalonia button.
+            e.Handled = true;
+            return;
+        }
+
+        var key = e.Key switch
+        {
+            Key.Enter => "Enter",
+            Key.Tab => e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? "ShiftTab" : "Tab",
+            Key.Up => "ArrowUp",
+            Key.Down => "ArrowDown",
+            Key.Left => "ArrowLeft",
+            Key.Right => "ArrowRight",
+            Key.PageUp => "PageUp",
+            Key.PageDown => "PageDown",
+            Key.Back => "Backspace",
+            Key.Delete => "Delete",
+            Key.Home => "Home",
+            Key.End => "End",
+            _ => null
+        };
+        if (key is not null && PageKey(key))
+        {
+            e.Handled = true;
+        }
+    }
+
+    private void OnWindowTextInput(object? sender, TextInputEventArgs e)
+    {
+        if (_window is { Surfaces.HasActive: false } && ViewportOwnsInput && !string.IsNullOrEmpty(e.Text))
+        {
+            PageText(e.Text);
+            e.Handled = true;
+        }
+    }
+
+    private void Attach(BrowserSession session)
     {
         if (ReferenceEquals(_session, session))
         {
@@ -212,8 +340,16 @@ public sealed class BrowserView : OverlaySubView
         _session = null;
     }
 
+    /// <summary>Hides the native page under a surface the sheet opened, and shows it again once that closes.</summary>
+    /// <param name="covered">Whether a surface covers the page.</param>
     internal void Cover(bool covered)
     {
+        // A page with no browser has no native viewport to hide.
+        if (_session is null)
+        {
+            return;
+        }
+
         _covered = covered;
         UpdateViewportVisibility();
     }

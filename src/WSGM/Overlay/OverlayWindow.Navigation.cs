@@ -47,13 +47,13 @@ public partial class OverlayWindow
         new SubView(OverlayPage.DeviceGpu, DevicePage, DevicePage, OverlayDestination.Device, LeaveDevicePage,
             OnEnter: RefreshDevicePanel),
         new SubView(OverlayPage.SystemPerformance, PanelSystemPerformance, PanelSystem, OverlayDestination.System,
-            Title: "Performance", Icon: Icons.Monitor, Available: () => SystemPerformanceTile.IsVisible),
+            Title: "Performance", Icon: Icons.Monitor, Available: () => PanelSystemPerformance.Offered),
         new SubView(OverlayPage.SystemStorage, PanelSystemStorage, PanelSystem, OverlayDestination.System,
             Title: "Storage", Icon: Icons.SdCard),
         new SubView(OverlayPage.SystemDisplay, PanelSystemDisplay, PanelSystem, OverlayDestination.System,
             Title: "Display", Icon: Icons.Monitor),
         new SubView(OverlayPage.SystemPlugins, PanelSystemPlugins, PanelSystem, OverlayDestination.System,
-            Title: "Plugins", Icon: Icons.Wrench, Available: () => SystemPluginsTile.IsVisible),
+            Title: "Plugins", Icon: Icons.Wrench, Available: () => PanelSystemPlugins.Offered),
         new SubView(OverlayPage.SystemThemes, ThemesHost, PanelSystem, OverlayDestination.System,
             Title: "CSS Loader", Icon: Icons.Palette, Available: () => ViewModel.ShowThemes),
         new SubView(OverlayPage.SystemAnimations, AnimationsHost, PanelSystem, OverlayDestination.System,
@@ -93,17 +93,7 @@ public partial class OverlayWindow
         new SubView(OverlayPage.SteamCardManager, CardManagerHost, PanelSteamLibrary, OverlayDestination.Steam),
 
         new SubView(OverlayPage.SteamLaunchConfiguration, LaunchWrapperHost, PanelSteamLaunch,
-            OverlayDestination.Steam,
-            () =>
-            {
-                _pendingLaunchFix = null;
-                // Clears the "Asking Steam…" title left on whichever button opened the picker.
-                // A pick re-writes it moments later with the real outcome.
-                if (DataContext is OverlayViewModel viewModel)
-                {
-                    InitializeLaunchFixLabels(viewModel);
-                }
-            }),
+            OverlayDestination.Steam, PanelSteamLaunch.ForgetPendingFix),
         new SubView(OverlayPage.PowerWakeLocks, WakeLockHost, PanelPowerWake, OverlayDestination.Power),
         new SubView(OverlayPage.DeviceColor, DeviceColorHost, DevicePage, OverlayDestination.Device)
     ];
@@ -188,7 +178,6 @@ public partial class OverlayWindow
 
         view.Parent.IsVisible = false;
         view.Host.IsVisible = true;
-        RefreshBrowserPageLifetime();
         ContentScroller.Offset = default;
         view.OnEnter?.Invoke();
         SyncBackAffordance();
@@ -460,7 +449,7 @@ public partial class OverlayWindow
     /// <returns>True when the current nested editor or route consumes Back; false when rail/home handling should continue.</returns>
     internal bool TryCancelSubView()
     {
-        if (TryReturnBrowserToChrome())
+        if (BrowserHost.TryReturnToChrome())
         {
             return true;
         }
@@ -735,6 +724,55 @@ public partial class OverlayWindow
 
         SelectWorkspaceSection(section, false);
         return true;
+    }
+
+    /// <summary>Shows Tools > Notes, which opens on the page the overlay last showed.</summary>
+    /// <returns>Whether the Notes section exists in this window.</returns>
+    internal bool OpenNotes()
+    {
+        if (_navigation.Page == OverlayPage.Notes)
+        {
+            // Already showing: start over from the remembered place rather than keep a stale level.
+            NotesHost.OpenLastLocation();
+        }
+        else if (!OpenToolsSection(OverlayPage.Notes))
+        {
+            return false;
+        }
+
+        FocusFirstControl(NotesHost);
+        return true;
+    }
+
+    /// <summary>Shows the storage format flow over Tools > Storage, from wherever it was started.</summary>
+    private void OpenStorageFormat()
+    {
+        OpenToolsSection(OverlayPage.SystemStorage);
+        EnterSubView(OverlayPage.SteamStorageFormat);
+    }
+
+    /// <summary>
+    ///     Brings a controller-focused control into the overlay viewport and remembers a root row's
+    ///     semantic key. Directional focus navigation does not raise this request on its own, so
+    ///     without it the lower keyboard rows could be focused off-screen.
+    /// </summary>
+    private void OnContentGotFocus(object? sender, FocusChangedEventArgs e)
+    {
+        if (e.Source is not Control control || control is ScrollViewer)
+        {
+            return;
+        }
+
+        control.BringIntoView();
+        if (AnySubView || control.Tag is not string semanticKey)
+        {
+            return;
+        }
+
+        _session.Focus.Remember(
+            _navigation.Destination,
+            semanticKey,
+            ContentScroller.Offset.Y);
     }
 
     /// <summary>

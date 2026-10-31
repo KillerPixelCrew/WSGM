@@ -456,7 +456,7 @@ public sealed partial class OverlayController : IDisposable
             // next reopen: pressing one would drive an integration that is already
             // disabled and answer with an unreachable-Steam warning.
             ApplyCefVisibility(_overlayViewModel, config);
-            _overlay?.RefreshLaunchFixLabels();
+            _overlay?.PanelSteamLaunch.RefreshLabels();
             _overlay?.SetPins(_pins);
         }
 
@@ -740,13 +740,13 @@ public sealed partial class OverlayController : IDisposable
     /// <param name="vm">Its view model, which some requests update.</param>
     private void WireOverlayRequests(OverlayWindow overlay, OverlayViewModel vm)
     {
-        overlay.HomeAppRequested += () =>
+        overlay.PanelPowerSession.HomeAppRequested += () =>
         {
             _suppressFocusRestore = true;
             CloseOverlay();
             _modes.SteamLifecycle.StartOrFocus();
         };
-        overlay.DesktopRequested += () =>
+        overlay.PanelPowerSession.DesktopRequested += () =>
         {
             // Belt and braces with the hidden row: a preview surface must never run a
             // real transition, and this process has no recovery layer if it did.
@@ -777,18 +777,18 @@ public sealed partial class OverlayController : IDisposable
                 _modes.EnterDesktopMode();
             }
         };
-        overlay.ExitBigPictureRequested += () =>
+        overlay.PanelPowerSession.ExitBigPictureRequested += () =>
         {
             _suppressFocusRestore = true;
             CloseOverlay();
             SteamLifecycle.ExitBigPicture();
         };
-        overlay.CloseLauncherRequested += () =>
+        overlay.PanelPowerSession.CloseLauncherRequested += () =>
         {
             _modes.SteamLifecycle.Close();
             vm.HomeAppAlive = false;
         };
-        overlay.PowerActionRequested += action =>
+        overlay.PanelPowerActions.PowerActionRequested += action =>
         {
             // The sheet already dismissed itself. A preview (Settings' Test sheet or
             // --overlay-test) demonstrates the row and never acts on the machine, and
@@ -869,13 +869,13 @@ public sealed partial class OverlayController : IDisposable
 
             RefreshWindowsPolicies(overlay);
         };
-        overlay.TaskManagerRequested += () =>
+        overlay.PanelSystemTools.TaskManagerRequested += () =>
         {
             _suppressFocusRestore = true;
             CloseOverlay();
             StartTaskManager();
         };
-        overlay.SettingsRequested += () =>
+        overlay.PanelSystemTools.SettingsRequested += () =>
         {
             // A preview sheet hides the row; this is the belt to that brace.
             if (OpenSettings is not { } openSettings)

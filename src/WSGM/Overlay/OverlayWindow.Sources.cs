@@ -2,7 +2,6 @@ using System;
 using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Threading;
-using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Shell;
 
@@ -26,13 +25,13 @@ public partial class OverlayWindow
         EmulatorManagerHost.Attach(sources.Emulators);
         ViewModel.ShowEmulators = sources.Emulators is not null;
         AttachPrograms(sources.Programs);
-        AttachLaunchActions(sources.LaunchActions);
+        PanelSteamLaunch.AttachLaunchActions(sources.LaunchActions);
         LibraryTabsHost.Attach(sources.LibraryManager);
         CardManagerHost.Attach(sources.LibraryManager);
         ScreensaversHost.Attach(sources.Screensavers);
         if (sources.Browser is { } browser)
         {
-            AttachBrowserSession(browser);
+            BrowserHost.Attach(browser, this);
         }
 
         ThemesHost.Attach(sources.Themes);
@@ -92,55 +91,15 @@ public partial class OverlayWindow
     {
         display ??= Placement.DisplaySourceName;
         Surfaces.AttachBrightness(service);
-        DisplayBrightnessHost.Tag = "section.display";
-        // A shown page already owns a fold whose body contains this host. Replacing that fold would
-        // detach the entire Display page instead of changing its heading.
-        if (PanelSystemDisplay.Children.FirstOrDefault() is not CollapsibleSection)
-        {
-            PanelSystemDisplay.Children[0] = CreateSectionHeader("section.display", "Display");
-        }
-
-        DisplayBrightnessHost.Children.Clear();
-        DisplayBrightnessHost.Children.Add(new DisplayBrightnessView(service));
-        DisplayBrightnessHost.Children.Add(new DisplayModeView(displayModes.Read, displayModes.Apply, display,
-            displayModes.Changes));
+        PanelSystemDisplay.Attach(service, displayModes, display,
+            () => CreateSectionHeader(DevicePages.DisplayId, DevicePages.ViewTitles[DevicePages.DisplayId]));
         if (_opened)
         {
-            FoldDisplaySection();
+            PanelSystemDisplay.Fold(_session.ExpandedSections);
         }
 
-        _controlPinFactories[DevicePages.DisplayId] = () => new StackPanel
-        {
-            Spacing = 4,
-            Children =
-            {
-                new DisplayBrightnessView(service),
-                new DisplayModeView(displayModes.Read, displayModes.Apply, display, displayModes.Changes)
-            }
-        };
+        _controlPinFactories[DevicePages.DisplayId] = PanelSystemDisplay.CreateCopy;
         RenderPins();
-    }
-
-    /// <summary>Folds the Display page under its pinnable heading, once its heading is in place.</summary>
-    private void FoldDisplaySection()
-    {
-        if (PanelSystemDisplay.Children.FirstOrDefault() is not SectionPinHeader header)
-        {
-            return;
-        }
-
-        var body = new StackPanel { Spacing = PanelSystemDisplay.Spacing, Tag = DevicePages.DisplayId };
-        foreach (var child in PanelSystemDisplay.Children.Skip(1).ToArray())
-        {
-            PanelSystemDisplay.Children.Remove(child);
-            body.Children.Add(child);
-        }
-
-        PanelSystemDisplay.Children.Clear();
-        // The fold's heading carries the title; the header keeps only its pin action there.
-        header.ShowPinOnly();
-        PanelSystemDisplay.Children.Add(CollapsibleSection.Persisted(header.Title, body, _session.ExpandedSections,
-            DevicePages.DisplayId, DevicePages.DisplayId + ".expand", header));
     }
 
     internal void AttachPowerSchemes(ChoiceRowSelection selection)
@@ -171,9 +130,6 @@ public partial class OverlayWindow
         RefreshDevicePanel();
     }
 
-    /// <summary>Raised when the user requests to start or focus the home application.</summary>
-    public event Action? HomeAppRequested;
-
     private void OpenEmulators()
     {
         if (ViewModel.ShowEmulators)
@@ -193,28 +149,14 @@ public partial class OverlayWindow
         _ = ArtworkHost.OpenGameAsync(appId, title, true);
     }
 
-
-    /// <summary>Raised when the user requests a desktop/game-mode transition.</summary>
-    public event Action? DesktopRequested;
-
-    /// <summary>Raised when the user requests the Settings window.</summary>
-    public event Action? SettingsRequested;
-
-    /// <summary>Raised when the user requests to leave Steam Big Picture mode.</summary>
-    public event Action? ExitBigPictureRequested;
-
-    /// <summary>Raised after the user confirms closing the home application.</summary>
-    public event Action? CloseLauncherRequested;
-
     /// <summary>Attaches the semantic coordinator projection used by the optional Device tab.</summary>
     /// <param name="source">Borrowed current plugin projection; null detaches the prior source and clears its presentation.</param>
     internal void AttachCommonPlugins(CommonPluginOverlaySource? source)
     {
         DetachCommonPlugins();
-        CommonPluginRows.Children.Clear();
         DevicePage.WidgetPins.Children.Clear();
         PinnedPluginWidgetsHost.Children.Clear();
-        SystemPluginsTile.IsVisible = source is not null;
+        PanelSystemPlugins.Attach(source, _session.ExpandedSections);
         if (source is null)
         {
             return;
@@ -224,25 +166,6 @@ public partial class OverlayWindow
         source.Changed += OnPluginsChanged;
         DevicePage.PinsExpanded += RefreshDeviceWidgetPins;
         var preferences = source.WidgetPreferences;
-        CommonPluginPanel panel = new(source, preferences: preferences, folds: _session.ExpandedSections,
-            independent: source.IndependentSnapshot);
-        CommonPluginRows.Children.Add(panel);
-        SystemPluginsTile.IsVisible = panel.IsVisible;
-        panel.PropertyChanged += (_, change) =>
-        {
-            if (change.Property == IsVisibleProperty)
-            {
-                SystemPluginsTile.IsVisible = panel.IsVisible;
-                if (!panel.IsVisible && _navigation.Page == OverlayPage.SystemPlugins)
-                {
-                    SelectDestination(OverlayDestination.System);
-                }
-                else
-                {
-                    RefreshWorkspace();
-                }
-            }
-        };
         if (source.Device is { } device)
         {
             DevicePage.WidgetPins.Children.Add(new CommonPluginPanel(device, pinsOnly: true,
@@ -270,7 +193,7 @@ public partial class OverlayWindow
             // Plugins category too: selecting the destination alone now lands on the tiles.
             SelectDestination(OverlayDestination.System);
             EnterSubView(OverlayPage.SystemPlugins);
-            Dispatcher.UIThread.Post(() => panel.FocusCategory(pin, category));
+            Dispatcher.UIThread.Post(() => PanelSystemPlugins.FocusCategory(pin, category));
         }, preferences));
     }
 
@@ -302,10 +225,7 @@ public partial class OverlayWindow
     {
         if (plugins)
         {
-            foreach (var panel in CommonPluginRows.Children.OfType<CommonPluginPanel>())
-            {
-                panel.Refresh();
-            }
+            PanelSystemPlugins.Refresh();
         }
 
         if (device)

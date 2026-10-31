@@ -35,7 +35,7 @@ public sealed class DisplayPageViewsTests
         Assert.Same(fold, Assert.Single(panel.Children));
         Assert.Same(body, fold.Body);
         Assert.True(fold.IsExpanded);
-        Assert.Equal(2, UiFixture.Named<StackPanel>(window, "DisplayBrightnessHost").Children.Count);
+        Assert.Equal(2, window.PanelSystemDisplay.DisplayBrightnessHost.Children.Count);
         Assert.Equal(2, panel.GetLogicalDescendants().OfType<ComboBox>().Count());
     }
 
@@ -161,7 +161,7 @@ public sealed class DisplayPageViewsTests
         UiFixture.Click(window, UiFixture.Tab(window, toolsIndex));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SystemDisplay));
         UiFixture.OpenSections(window, UiFixture.Named<StackPanel>(window, "PanelSystemDisplay"));
-        var view = UiFixture.Named<StackPanel>(window, "DisplayBrightnessHost").Children.OfType<DisplayModeView>()
+        var view = window.PanelSystemDisplay.DisplayBrightnessHost.Children.OfType<DisplayModeView>()
             .Single();
         var refresh = view.GetLogicalDescendants().OfType<ComboBox>().Last();
         Assert.Equal(120, refresh.SelectedItem);

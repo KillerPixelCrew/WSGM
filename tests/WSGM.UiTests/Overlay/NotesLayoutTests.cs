@@ -242,7 +242,7 @@ public sealed class NotesLayoutTests
         {
             Destination = OverlayDestination.System
         });
-        window.AttachNotes(service);
+        window.NotesHost.Attach(service);
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.Notes));
         Dispatcher.UIThread.RunJobs();
         Assert.True(UiFixture.Named<NotesView>(window, "NotesHost").IsEffectivelyVisible);

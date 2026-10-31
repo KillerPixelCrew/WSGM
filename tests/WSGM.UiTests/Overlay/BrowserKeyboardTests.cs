@@ -105,7 +105,7 @@ public sealed class BrowserKeyboardTests
     private static OverlayWindow Open(UiFixture fixture, BrowserSession session)
     {
         var window = fixture.Overlay(980, 640, session: new OverlayWindow.SessionState { Destination = OverlayDestination.System });
-        window.AttachBrowserSession(session);
+        window.BrowserHost.Attach(session, window);
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SystemBrowser));
         Receive(session, new BrowserPacket { Kind = "state" });
         Receive(session, new BrowserPacket { Kind = "address", Text = "https://example.test/" });

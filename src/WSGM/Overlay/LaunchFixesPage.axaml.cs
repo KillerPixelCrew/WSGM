@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
+using Avalonia.Controls;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using SteamUiToolkit;
@@ -13,39 +14,89 @@ using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
-public partial class OverlayWindow
+/// <summary>
+///     Steam > Per-game launch fixes: de-elevation, the Steam Input lease, both, a custom launch action and
+///     the restore, applied to the game on Steam's page or to one the user picks.
+/// </summary>
+/// <remarks>
+///     With Steam UI integration on, a fix configures the game in the running Steam client through the
+///     launch configuration page; with it off, the same rows copy the command for the user to paste. Each
+///     row reports its outcome in its own title, which pinned copies follow.
+/// </remarks>
+public sealed partial class LaunchFixesPage : StackPanel
 {
+    private bool _closed;
+    private LaunchActionService? _launchActions;
+    private LaunchWrapperView? _launchWrapper;
+
     /// <summary>
     ///     The launch fix waiting on the user to pick a game, and the button
     ///     whose title reports the outcome.
     /// </summary>
     private (LaunchWrapperMode Mode, ActionButton Button)? _pendingLaunchFix;
-    private LaunchActionService? _launchActions;
 
-    /// <summary>Attaches the single session launch-action owner used by Steam and Overlay.</summary>
-    internal void AttachLaunchActions(LaunchActionService? service)
+    private OverlaySurfaceStack? _surfaces;
+
+    /// <summary>Builds the rows; the window supplies the launch configuration page with <see cref="Configure" />.</summary>
+    public LaunchFixesPage()
     {
-        _launchActions = service;
-        LaunchWrapperHost.AttachLaunchActions(service);
+        InitializeComponent();
     }
 
     /// <summary>
-    ///     Re-labels the launch-fix rows for the current CEF state. Called when
-    ///     a config reload flips live configuration on or off under an open panel.
+    ///     The session's Steam client, or null on a surface without one, whose rows then report Steam as
+    ///     unreachable.
     /// </summary>
-    internal void RefreshLaunchFixLabels()
+    internal SteamClient? Steam { get; set; }
+
+    /// <summary>Raised to open the launch configuration page.</summary>
+    internal event Action? ConfigurationRequested;
+
+    /// <summary>Raised to close the launch configuration page.</summary>
+    internal event Action? ConfigurationClosed;
+
+    /// <summary>Raised when a copied command sends the user to Steam, which closes the sheet.</summary>
+    internal event Action? DismissRequested;
+
+    /// <summary>Connects the page to the launch configuration page and the sheet's file picker.</summary>
+    /// <param name="launchWrapper">The launch configuration page.</param>
+    /// <param name="surfaces">The sheet's surfaces, which host the file picker.</param>
+    internal void Configure(LaunchWrapperView launchWrapper, OverlaySurfaceStack surfaces)
     {
-        if (DataContext is OverlayViewModel viewModel)
-        {
-            InitializeLaunchFixLabels(viewModel);
-        }
+        _launchWrapper = launchWrapper;
+        _surfaces = surfaces;
+        launchWrapper.Picked += OnLaunchFixGamePicked;
+        launchWrapper.CustomPicked += OnCustomLaunchGamePicked;
     }
 
-    // Set from the view model, because the same buttons do two different things:
-    // with CEF on they configure the game in the running Steam client, with CEF off
-    // they fall back to copying the command for the user to paste.
-    private void InitializeLaunchFixLabels(OverlayViewModel viewModel)
+    /// <summary>Attaches the single session launch-action owner used by Steam and Overlay.</summary>
+    /// <param name="service">The owner, or null without one.</param>
+    internal void AttachLaunchActions(LaunchActionService? service)
     {
+        _launchActions = service;
+        _launchWrapper?.AttachLaunchActions(service);
+    }
+
+    /// <summary>Drops the results of work still running as the window closes.</summary>
+    internal void Detach()
+    {
+        _closed = true;
+    }
+
+    /// <summary>
+    ///     Re-labels the launch-fix rows for the current CEF state. Called as the sheet is built and when
+    ///     a config reload flips live configuration on or off under an open panel.
+    /// </summary>
+    internal void RefreshLabels()
+    {
+        // Set from the view model, because the same buttons do two different things:
+        // with CEF on they configure the game in the running Steam client, with CEF off
+        // they fall back to copying the command for the user to paste.
+        if (DataContext is not OverlayViewModel viewModel)
+        {
+            return;
+        }
+
         var live = viewModel.ConfigureLaunchOptionsLive;
         DeelevateFixButton.Title = live ? "Fix: run without admin" : "Copy de-elevation command";
         DeelevateFixButton.Description = live
@@ -57,6 +108,15 @@ public partial class OverlayWindow
         BothFixesButton.Description = "No admin, and the game owns the controller";
         RemoveFixesButton.Title = "Restore original launch action";
         RemoveFixesButton.Description = "Remove WSGM changes and restore the original";
+    }
+
+    /// <summary>Forgets the fix waiting on a game pick as its configuration page closes.</summary>
+    internal void ForgetPendingFix()
+    {
+        _pendingLaunchFix = null;
+        // Clears the "Asking Steam…" title left on whichever button opened the picker.
+        // A pick re-writes it moments later with the real outcome.
+        RefreshLabels();
     }
 
     /// <summary>
@@ -77,7 +137,9 @@ public partial class OverlayWindow
         {
             // Keep the game identity from before opening the file picker.
             var game = await ResolveCurrentGameAsync(CustomLaunchButton);
-            var path = await Surfaces.PickLocalPathAsync(false, ".exe", ".cmd", ".bat", ".ps1");
+            var path = _surfaces is null
+                ? null
+                : await _surfaces.PickLocalPathAsync(false, ".exe", ".cmd", ".bat", ".ps1");
             if (_closed || path is null)
             {
                 return;
@@ -89,13 +151,13 @@ public partial class OverlayWindow
                 return;
             }
 
-            LaunchWrapperHost.OpenCustom(path, game);
+            _launchWrapper?.OpenCustom(path, game);
             if (_closed)
             {
                 return;
             }
 
-            EnterSubView(OverlayPage.SteamLaunchConfiguration);
+            ConfigurationRequested?.Invoke();
         }
         catch (Exception ex)
         {
@@ -118,7 +180,7 @@ public partial class OverlayWindow
     {
         var title = button.Title;
         button.Title = "Asking Steam…";
-        var appId = await SteamCurrentGame.AppIdAsync(_steam);
+        var appId = await SteamCurrentGame.AppIdAsync(Steam);
         if (_closed)
         {
             return null;
@@ -138,7 +200,7 @@ public partial class OverlayWindow
     /// </summary>
     private async Task<SteamLibraryApp> LookupGameAsync(uint appId)
     {
-        var result = await OverlayLibraryLookup.ReadAsync(_steam);
+        var result = await OverlayLibraryLookup.ReadAsync(Steam);
         if (!result.Succeeded)
         {
             Log.Warn($"Could not list Steam's games for {appId}; using the page's id: {result.Error}");
@@ -152,19 +214,13 @@ public partial class OverlayWindow
     private void OnCustomLaunchGamePicked(
         string path, string arguments, SteamLibraryApp game)
     {
-        ApplyCustomLaunchTo(path, arguments, game, CustomLaunchButton);
-    }
-
-    private void ApplyCustomLaunchTo(
-        string path, string arguments, SteamLibraryApp game, ActionButton button)
-    {
         if (_launchActions is null)
         {
-            button.Title = "Launch actions unavailable";
+            CustomLaunchButton.Title = "Launch actions unavailable";
             return;
         }
 
-        LaunchWrapperHost.OpenActions(game, LaunchWrapperMode.None, path, arguments);
+        _launchWrapper?.OpenActions(game, LaunchWrapperMode.None, path, arguments);
     }
 
     private void StartLaunchFix(LaunchWrapperMode mode, ActionButton button)
@@ -187,7 +243,7 @@ public partial class OverlayWindow
     private async Task CopyLaunchCommandAsync(
         LaunchWrapperMode mode, ActionButton button)
     {
-        var clipboard = GetTopLevel(this)?.Clipboard;
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (clipboard is null)
         {
             button.Title = "Clipboard unavailable";
@@ -218,14 +274,9 @@ public partial class OverlayWindow
     // A copied command means the user is heading to Steam to paste it: show the
     // "Copied" confirmation briefly, then dismiss the panel (which restores Steam
     // to the foreground). Same rule as the actions that open a window.
-    private static async Task FeedbackDelay()
-    {
-        await Task.Delay(TimeSpan.FromMilliseconds(700));
-    }
-
     private async Task DismissAfterCopyFeedback()
     {
-        await FeedbackDelay();
+        await Task.Delay(TimeSpan.FromMilliseconds(700));
         if (_closed)
         {
             // The panel was dismissed and re-opened while the confirmation showed:
@@ -235,7 +286,7 @@ public partial class OverlayWindow
             return;
         }
 
-        Dismissed?.Invoke();
+        DismissRequested?.Invoke();
     }
 
     private async Task ApplyLaunchFixAsync(
@@ -245,7 +296,7 @@ public partial class OverlayWindow
         try
         {
             button.Title = "Asking Steam…";
-            var appId = await SteamCurrentGame.AppIdAsync(_steam);
+            var appId = await SteamCurrentGame.AppIdAsync(Steam);
             if (_closed)
             {
                 return;
@@ -257,10 +308,10 @@ public partial class OverlayWindow
                 // did not answer): ask which one instead of guessing.
                 button.Title = title;
                 _pendingLaunchFix = (mode, button);
-                LaunchWrapperHost.Open(mode == LaunchWrapperMode.None
+                _launchWrapper?.Open(mode == LaunchWrapperMode.None
                     ? "Remove launch fixes"
                     : "Apply launch fix");
-                EnterSubView(OverlayPage.SteamLaunchConfiguration);
+                ConfigurationRequested?.Invoke();
                 return;
             }
 
@@ -283,19 +334,17 @@ public partial class OverlayWindow
             return;
         }
 
-        LaunchWrapperHost.OpenActions(new SteamLibraryApp(SteamApps.NormalizeAppId(appId), name, isShortcut), mode);
-        EnterSubView(OverlayPage.SteamLaunchConfiguration);
+        _launchWrapper?.OpenActions(new SteamLibraryApp(SteamApps.NormalizeAppId(appId), name, isShortcut), mode);
+        ConfigurationRequested?.Invoke();
     }
 
     private void OnLaunchFixGamePicked(SteamLibraryApp game)
     {
-        if (_pendingLaunchFix is not { } pending)
+        var pending = _pendingLaunchFix;
+        ConfigurationClosed?.Invoke();
+        if (pending is { } fix)
         {
-            LeaveSubView(OverlayPage.SteamLaunchConfiguration);
-            return;
+            ApplyLaunchFixTo(fix.Mode, fix.Button, game.AppId, game.Name, game.Shortcut);
         }
-
-        LeaveSubView(OverlayPage.SteamLaunchConfiguration);
-        ApplyLaunchFixTo(pending.Mode, pending.Button, game.AppId, game.Name, game.Shortcut);
     }
 }
