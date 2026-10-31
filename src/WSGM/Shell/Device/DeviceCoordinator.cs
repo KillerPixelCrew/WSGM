@@ -164,7 +164,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         // The desired-state gate: desired-value passes, lighting profile selection and processor resets.
         var reconcileGate = new SemaphoreSlim(1, 1);
         FanCurves = new DeviceFanCurves(Capabilities, Profiles, autoTdpMetrics,
-            () => Volatile.Read(ref _client), () => DeviceDefinition, () => IntegrationEnabled, () => State,
+            () => Volatile.Read(ref _client), () => FanPresets, () => IntegrationEnabled, () => State,
             ActiveProfileScope, () => _disposed, _lifetime.Token, ExecuteInternalAsync);
         Lighting = new DeviceLightingProfiles(Capabilities, Profiles, () => DeviceIdentityKey, readOnAcPower,
             () => DeviceDefinition, ActiveProfileScope, () => Volatile.Read(ref _client), () => IntegrationEnabled,
@@ -225,6 +225,13 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
     /// <summary>Whether a native implementation matches this machine.</summary>
     internal bool HasDevice => DeviceDefinition is not null;
+
+    /// <summary>The fan curve preset shapes of <see cref="DeviceDefinition" />, resolved once with it.</summary>
+    /// <remarks>
+    ///     Every surface and the software curve read this one value: the model's measured table when its
+    ///     definition carries one, otherwise the default shapes, including before detection.
+    /// </remarks>
+    internal FanCurvePresetTable FanPresets { get; private set; } = FanCurvePresetTable.HandheldCompanion;
 
     /// <summary>The device definition matched by the active native cycle.</summary>
     private string? ActiveDeviceDefinitionId { get; set; }
@@ -1136,6 +1143,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             _identity = _collectIdentity();
             DeviceDefinition = await _detectDevice(_identity, cancellationToken)
                 .ConfigureAwait(false);
+            FanPresets = HandheldUiProjection.FanPresets(DeviceDefinition);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

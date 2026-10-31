@@ -75,9 +75,11 @@ control, and uncertain writes are not automatically replayed.
 Unreadable numeric controls display **Unknown** until a value is supplied by an observation, saved
 preference or explicit edit. Opening or refreshing a slider does not write its minimum. **Reset
 processor tuning**, available on both surfaces, clears that device's processor overrides from Global
-and every game, including disabled games, before requesting native restoration. Lighting, fan and
-power preferences are preserved. Selecting **Automatic GPU clock** also clears saved fixed clocks.
-The library restores documented automatic clock modes, neutral curve/undervolt offsets and captured
+and every game, including disabled games, before requesting native restoration. The row's caption is
+the action's `CapabilityDisplay.Description` as the library publishes it; every action row shows its
+published description while no failure or unavailable reason needs saying. Lighting, fan and power
+preferences are preserved. Selecting **Automatic GPU clock** also clears saved fixed clocks. The
+library restores documented automatic clock modes, neutral curve/undervolt offsets and captured
 thermal originals. Where firmware provides no documented live restore and no original was readable,
 the reset reports the affected controls and asks for a Windows restart; it never invents thermal
 defaults or reports a minimum clock as automatic. Live device and game performance still require

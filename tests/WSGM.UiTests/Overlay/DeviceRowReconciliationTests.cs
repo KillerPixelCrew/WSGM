@@ -7,6 +7,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Controls;
+using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Overlay;
 using WSGM.Shell;
@@ -52,7 +53,8 @@ public sealed class DeviceRowReconciliationTests
         using var fixture = new UiFixture();
         var writes = 0;
         CurvePoint[] points = [new(40, 20), new(90, 100)];
-        var row = new DeviceCurveRow("fan", "Fan curve", "", points, null, false, _ => writes++);
+        var row = new DeviceCurveRow("fan", "Fan curve", "", points, null, false, _ => writes++,
+            FanCurvePresetTable.HandheldCompanion);
         var window = new Window { Content = row, Width = 600, Height = 400, Classes = { "command-deck" } };
         try
         {
@@ -92,7 +94,7 @@ public sealed class DeviceRowReconciliationTests
         var writes = 0;
         Control row = curve
             ? new DeviceCurveRow("edit", "Fan curve", "", [new CurvePoint(40, 20), new CurvePoint(90, 100)],
-                null, true, _ => writes++)
+                null, true, _ => writes++, FanCurvePresetTable.HandheldCompanion)
             : new DeviceSliderRow("edit", "Power", "", 8, 37, 1, CapabilityUnit.Watt, 15, true, _ => writes++);
         var window = new Window { Content = row, Width = 800, Height = 600 };
         try

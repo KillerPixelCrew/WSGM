@@ -46,7 +46,7 @@ internal sealed class DeviceCurveRow : Border
     /// <param name="markerInput">The live input to mark, or null when none is published.</param>
     /// <param name="enabled">Whether the editor accepts input.</param>
     /// <param name="onCommit">Invoked with the settled curve to write.</param>
-    /// <param name="presets">The device's preset shapes; HandheldCompanion's when the host named none.</param>
+    /// <param name="presets">The device's preset shapes, or null for a curve that is not a fan curve, which gets the default shapes.</param>
     internal DeviceCurveRow(
         string key,
         string title,
@@ -55,7 +55,7 @@ internal sealed class DeviceCurveRow : Border
         int? markerInput,
         bool enabled,
         Action<IReadOnlyList<CurvePoint>> onCommit,
-        FanCurvePresetTable? presets = null)
+        FanCurvePresetTable? presets)
     {
         ArgumentNullException.ThrowIfNull(points);
         ArgumentNullException.ThrowIfNull(onCommit);

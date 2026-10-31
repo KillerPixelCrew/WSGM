@@ -156,7 +156,8 @@ internal sealed class GraphicsOverlayBridge : IGraphicsOverlaySource
     {
         var view = capability.View;
         var projection = view.Projection;
-        var row = CapabilityRowProjection.ToOverlayCapability(view, declared);
+        // Graphics packages are not a handheld, so no model's fan presets apply to their rows.
+        var row = CapabilityRowProjection.ToOverlayCapability(view, declared, FanCurvePresetTable.HandheldCompanion);
         // A native per-application value is saved for the running game rather than written, and its driver
         // applies it when the game starts, so the row shows the game's value rather than the Global one the
         // driver reports.

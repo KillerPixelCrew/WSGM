@@ -81,17 +81,17 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             DeviceSectionLayout.IncludePredefined(declaredSections).Select(section => section.SectionId),
             StringComparer.Ordinal);
         var deviceViews = _coordinator.PresentedCapabilities();
-        var presets = FanCurvePresets.For(device?.Id);
+        var presets = _coordinator.FanPresets;
         var capabilities = deviceViews
-            .Select(view => CapabilityRowProjection.ToOverlayCapability(view, declaredSectionIds,
-                _coordinator.Profiles.Current.Layers, presets))
+            .Select(view => CapabilityRowProjection.ToOverlayCapability(view, declaredSectionIds, presets,
+                _coordinator.Profiles.Current.Layers))
             .ToList();
         // Variable refresh moved to the graphics packages; the Power and thermals row stays where users
         // look for it, backed by whichever package publishes the capability.
         if (deviceViews.All(view => view.Descriptor.Role is not CapabilityRole.VariableRefreshRate)
             && VariableRefreshCapabilities.Find(null, _gpu, false) is { GpuPluginId: { } vrrPlugin } vrr)
         {
-            capabilities.Add(CapabilityRowProjection.ToOverlayCapability(vrr.View, declaredSectionIds,
+            capabilities.Add(CapabilityRowProjection.ToOverlayCapability(vrr.View, declaredSectionIds, presets,
                     _coordinator.Profiles.Current.Layers)
                 with
                 {

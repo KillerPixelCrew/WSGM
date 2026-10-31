@@ -3,8 +3,8 @@ using System.Linq;
 namespace WSGM.Device.Sdk.Capabilities;
 
 /// <summary>
-///     The one rule for plugin-supplied plain text, shared by a capability's custom label and a
-///     <see cref="CapabilityValueKind.Text" /> value.
+///     The one rule for plugin-supplied plain text, shared by a capability's custom label, its description
+///     and a <see cref="CapabilityValueKind.Text" /> value.
 /// </summary>
 /// <remarks>
 ///     The rule keeps labels and values non-empty and single-line so logs and controls present the same

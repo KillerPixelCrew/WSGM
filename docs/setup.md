@@ -133,13 +133,15 @@ operation finishes.
 ## The other handheld managers
 
 Full mode also turns off the other handheld managers, so WSGM is the only one driving the device:
-Handheld Companion, found by the logon task that runs it, and the maker's apps from Handheld
-Companion's own OEM lists, which are MSI Center M, Armoury Crate, Legion Space and the Zotac
-launcher (`Core\OtherManagers`). Their services are set to disabled and stopped, their tasks
-disabled, and a running window is asked to close but never ended. Each change is recorded in
-`config.json` before it is made, and `--uninstall-restore` puts back the exact start types and
-tasks. The profile page names what was found, Customize has the switch, Minimal leaves them alone,
-and a quiet fresh install never turns them off.
+Handheld Companion, found by the logon task that runs it, and the makers' own apps, which are MSI
+Center M, Armoury Crate, Legion Space and the Zotac launcher. WSGM's policy lives in
+`Core\Applications\OtherManagers`; each maker's app and its process, service, task, package and
+keyboard identities come from its LibHandheld family through the static `HandheldDevice.ManagerApps`
+catalog, so setup and Settings list them whether or not a device is detected. Their services are set
+to disabled and stopped, their tasks disabled, and a running window is asked to close but never
+ended. Each change is recorded in `config.json` before it is made, and `--uninstall-restore` puts
+back the exact start types and tasks. The profile page names what was found, Customize has the
+switch, Minimal leaves them alone, and a quiet fresh install never turns them off.
 
 On the exact Predator Atlas 8 PA08-I51 definition, takeover also handles Predator Sense for
 Handheld: the ten measured Acer services, three tasks, desktop/widget package activation and only

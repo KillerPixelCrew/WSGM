@@ -60,7 +60,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDe
                     _keys.Remove(descriptor);
                 }
 
-                var state = Project(views, view =>
+                var state = Project(views, _coordinator?.FanPresets ?? FanCurvePresetTable.HandheldCompanion, view =>
                 {
                     if (!_keys.TryGetValue(view.Descriptor, out var key))
                     {
@@ -70,7 +70,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDe
                     }
 
                     return key;
-                }, FanCurvePresets.For(_coordinator?.DeviceDefinition?.Id));
+                });
                 var content = SteamDeviceControlsRow.Serialize(state).GetRawText();
                 if (!string.Equals(content, _published, StringComparison.Ordinal))
                 {
@@ -92,7 +92,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDe
         var row = view is null
             ? null
             : CapabilityRowProjection.ToOverlayCapability(view, NoSections,
-                presets: FanCurvePresets.For(_coordinator?.DeviceDefinition?.Id));
+                _coordinator?.FanPresets ?? FanCurvePresetTable.HandheldCompanion);
         if (view is null || row is not { CanInvoke: true })
         {
             return new SteamUiCommandResult(false, "That device control changed or is unavailable. Reopen the panel.");
@@ -208,15 +208,15 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDe
 
     /// <summary>Projects device descriptors alongside semantic charge, brightness and lighting-zone controls.</summary>
     /// <param name="views">Current device capability views; ambiguous role/instance matches are not writable.</param>
+    /// <param name="presets">The matched model's fan curve preset shapes, as the device coordinator resolved them.</param>
     /// <param name="controlKey">Optional descriptor identity allocator; the live service supplies generation-scoped keys.</param>
-    /// <param name="presets">The device's fan curve preset shapes; HandheldCompanion's when omitted.</param>
     /// <returns>Native range/zone state and settings descriptors sharing the Overlay's values, status and profile overrides.</returns>
     internal static SteamDeviceControlsState Project(
         IReadOnlyList<DeviceCapabilityView> views,
-        Func<DeviceCapabilityView, string>? controlKey = null,
-        FanCurvePresetTable? presets = null)
+        FanCurvePresetTable presets,
+        Func<DeviceCapabilityView, string>? controlKey = null)
     {
-        var table = presets ?? FanCurvePresetTable.HandheldCompanion;
+        ArgumentNullException.ThrowIfNull(presets);
         var chargeRange = IntegerRangeProjection.Percent(views, CapabilityRole.ChargeLimit);
         var brightnessRange = IntegerRangeProjection.Percent(views, CapabilityRole.LightingBrightness);
         var charge = RangeState(views, CapabilityRole.ChargeLimit, chargeRange);
@@ -246,7 +246,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDe
                         compatible,
                         ValidColor(view.Projection.DesiredValue),
                         // The overlay row's value; white until something was read or written, as its editor starts.
-                        ValidColor(CapabilityRowProjection.ToOverlayCapability(view, NoSections, presets: table)
+                        ValidColor(CapabilityRowProjection.ToOverlayCapability(view, NoSections, presets)
                             .CurrentValue) ?? 0xFFFFFF,
                         NativeQamUi.ProgressText(view.Projection.Progress),
                         StatusText(view, compatible),
@@ -265,7 +265,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDe
                          && zones.Any(zone => zone.Id == descriptor.InstanceId);
             if (!legacy)
             {
-                controls.Add(ProjectControl(view, key, table));
+                controls.Add(ProjectControl(view, key, presets));
             }
         }
 
@@ -277,7 +277,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDe
     private static SteamSettingsRow ProjectControl(DeviceCapabilityView view, string key, FanCurvePresetTable presets)
     {
         var row = SteamCapabilityRows.Row(
-            CapabilityRowProjection.ToOverlayCapability(view, NoSections, presets: presets), key);
+            CapabilityRowProjection.ToOverlayCapability(view, NoSections, presets), key);
         return row with
         {
             Label = row.Label + (view.Descriptor.InstanceId is { } instance ? $" ({instance})" : string.Empty),

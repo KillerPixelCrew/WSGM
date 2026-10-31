@@ -61,11 +61,14 @@ restore never replays a saved duty or curve for a fan in another mode. The curve
 of the device's own temperature and RTSS's readings, averaged over the latest three seconds. It
 recomputes its target only after a 2 °C change, except beyond its end points, and steps the duty by
 at most 10 points up or 3 points down per second, so one spiky reading and sensor jitter do not move
-the fans and a load spike spins up briskly and down slowly. A device's fan table may carry its own
-smoothing: the Atlas 8's package temperature swings ten or twenty degrees within a second or two at
-idle, so there the curve reads a ten-second average, waits for 3 °C and ramps 5 points up or 2 down
-per second. The Quiet, Default and Aggressive presets are HandheldCompanion's shapes on devices it
-also supports and a measured table on the Atlas 8.
+the fans and a load spike spins up briskly and down slowly. The Quiet, Default and Aggressive
+presets are HandheldCompanion's shapes (`FanCurvePresetTable.HandheldCompanion`) unless the matched
+LibHandheld definition carries measured duties in `HandheldDefinition.FanCurvePresets`, together
+with its own smoothing. `DeviceCoordinator.FanPresets` resolves that table once when the definition
+is detected, through `HandheldUiProjection.FanPresets`, and the software curve, Overlay, Steam
+settings and Quick Access all read that one value. Today only the Atlas 8 carries its own: its
+package temperature swings ten or twenty degrees within a second or two at idle, so there the curve
+reads a ten-second average, waits for 3 °C and ramps 5 points up or 2 down per second.
 
 ## Controllers and OEM buttons
 

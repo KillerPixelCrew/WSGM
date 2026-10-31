@@ -122,7 +122,7 @@ public sealed partial class NativeQamSemanticServicesTests
                     45),
                 ColorDeviceView("vendor.color", "right-ring", "Right ring", 0xFF8000),
                 ColorDeviceView("vendor.color", "buttons", "Buttons", 0x0080FF)
-            ]);
+            ], FanCurvePresetTable.HandheldCompanion);
 
         Assert.True(state.ChargeLimit?.Available);
         Assert.Equal(60, state.ChargeLimit?.Minimum);
@@ -146,7 +146,8 @@ public sealed partial class NativeQamSemanticServicesTests
             State = view.Projection.State with { ObservedValue = null, Quality = HardwareStateQuality.Unknown },
             DesiredValue = null
         } };
-        var state = DeviceCoordinatorNativeQamDeviceControlsService.Project([view]);
+        var state = DeviceCoordinatorNativeQamDeviceControlsService.Project([view],
+            FanCurvePresetTable.HandheldCompanion);
         var row = Assert.Single(Assert.Single(state.Sections!).Rows);
         Assert.Null(row.Number);
         Assert.False(row.Disabled);
@@ -173,7 +174,8 @@ public sealed partial class NativeQamSemanticServicesTests
             80);
 
         var state =
-            DeviceCoordinatorNativeQamDeviceControlsService.Project([first, second]);
+            DeviceCoordinatorNativeQamDeviceControlsService.Project([first, second],
+                FanCurvePresetTable.HandheldCompanion);
 
         Assert.False(state.ChargeLimit?.Available);
         Assert.Contains(
@@ -208,7 +210,7 @@ public sealed partial class NativeQamSemanticServicesTests
         var state = DeviceCoordinatorNativeQamDeviceControlsService.Project([
             fan, DeviceView(protection, CapabilityValue.Choice("balanced"), CapabilityValue.Choice("full")),
             DeviceView(curveDescriptor, curve, curve)
-        ]);
+        ], FanCurvePresetTable.HandheldCompanion);
         var rows = Assert.Single(state.Sections!).Rows;
         var fanRow = Assert.Single(rows, row => row.Kind == SteamSettingsRowKind.Range);
         Assert.Contains("right", fanRow.Label, StringComparison.Ordinal);
@@ -233,7 +235,7 @@ public sealed partial class NativeQamSemanticServicesTests
     public void DescriptorValueParsingUsesCurrentBoundsAndRejectsDifferentWireKinds(string payload, bool expected)
     {
         var row = CapabilityRowProjection.ToOverlayCapability(IntegerDeviceView("fan", CapabilityRole.FanDuty,
-            DisplayKey.FanSpeed, 15, 100, 40, 35), new HashSet<string>());
+            DisplayKey.FanSpeed, 15, 100, 40, 35), new HashSet<string>(), FanCurvePresetTable.HandheldCompanion);
         using var document = JsonDocument.Parse(payload);
         Assert.Equal(expected, SteamCapabilityRows.TryValue(row, document.RootElement, out _));
     }
@@ -255,7 +257,7 @@ public sealed partial class NativeQamSemanticServicesTests
                 ColorDeviceView("first", "ring", "First ring", 0xFF0000),
                 ColorDeviceView("second", "ring", "Second ring", 0x0000FF),
                 ColorDeviceView("buttons", "button zone", "Buttons", 0x00FF00)
-            ]);
+            ], FanCurvePresetTable.HandheldCompanion);
 
         Assert.True(state.ChargeLimit?.Available);
         var zone = Assert.Single(state.LightingZones);

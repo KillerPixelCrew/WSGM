@@ -62,7 +62,8 @@ public sealed class DevicePageCaptureTests
             Detail = "Device integration active",
             Capabilities =
             [
-                .. views.Select(view => CapabilityRowProjection.ToOverlayCapability(view, ids)),
+                .. views.Select(view => CapabilityRowProjection.ToOverlayCapability(view, ids,
+                    FanCurvePresetTable.HandheldCompanion)),
                 graphics.VariableRefreshRow(ids)
             ],
             PluginSections = CapabilityRowProjection.ProjectSections(sections),

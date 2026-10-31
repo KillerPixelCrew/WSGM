@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Lifecycle;
-using HandheldDefinition = LibHandheld.Contracts.HandheldDefinition;
 
 namespace WSGM.Shell;
 
@@ -21,8 +20,8 @@ internal sealed class DeviceFanCurves
     private readonly Func<DeviceProfileScope?> _activeProfileScope;
     private readonly DeviceCapabilityRouter _capabilities;
     private readonly Func<bool> _closed;
-    private readonly Func<HandheldDefinition?> _definition;
     private readonly Func<bool> _integrationEnabled;
+    private readonly Func<FanCurvePresetTable> _presets;
     private readonly CancellationToken _lifetime;
     private readonly ProfileService _profiles;
     private readonly Func<HandheldDeviceRuntime?> _runtime;
@@ -33,7 +32,7 @@ internal sealed class DeviceFanCurves
     /// <param name="profiles">The profile owner the fan profile selection is saved to.</param>
     /// <param name="metrics">Samples RTSS sensors, one of the curve's temperature sources.</param>
     /// <param name="runtime">Reads the active handheld runtime, or null without a cycle.</param>
-    /// <param name="definition">Reads the matched device definition, or null before detection.</param>
+    /// <param name="presets">Reads the matched model's fan curve presets, resolved once with its definition.</param>
     /// <param name="integrationEnabled">Whether device integration is switched on.</param>
     /// <param name="state">Reads the device cycle state.</param>
     /// <param name="activeProfileScope">Reads the authored profiles of the exact matched model.</param>
@@ -45,7 +44,7 @@ internal sealed class DeviceFanCurves
         ProfileService profiles,
         Func<RtssOsdMetrics> metrics,
         Func<HandheldDeviceRuntime?> runtime,
-        Func<HandheldDefinition?> definition,
+        Func<FanCurvePresetTable> presets,
         Func<bool> integrationEnabled,
         Func<DeviceCycleState> state,
         Func<DeviceProfileScope?> activeProfileScope,
@@ -57,7 +56,7 @@ internal sealed class DeviceFanCurves
         _capabilities = capabilities;
         _profiles = profiles;
         _runtime = runtime;
-        _definition = definition;
+        _presets = presets;
         _integrationEnabled = integrationEnabled;
         _state = state;
         _activeProfileScope = activeProfileScope;
@@ -190,7 +189,7 @@ internal sealed class DeviceFanCurves
             .Select(view => new DeviceFanCurveFan(view.Descriptor.InstanceId ?? string.Empty,
                 view.Descriptor.Minimum ?? 0, view.Descriptor.Maximum ?? 100))
             .Where(fan => !stopAll && InSoftwareMode(views, fan.InstanceId, change)).ToArray();
-        var table = FanCurvePresets.For(_definition()?.Id);
+        var table = _presets();
         // The editor's Default preset for this device on the software curve's inputs, until the user saves one.
         var effective = curve is { Count: > 0 }
             ? curve

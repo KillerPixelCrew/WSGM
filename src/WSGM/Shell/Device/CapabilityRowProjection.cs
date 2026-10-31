@@ -28,16 +28,25 @@ internal static class CapabilityRowProjection
             };
     }
 
+    /// <summary>Projects one capability view into its row.</summary>
+    /// <param name="view">The capability and its current projection.</param>
+    /// <param name="declaredSections">Sections the publisher declared, so a row keeps only a section that exists.</param>
+    /// <param name="presets">
+    ///     The matched model's fan curve presets, as the device coordinator resolved them; a source without a
+    ///     handheld passes the default table.
+    /// </param>
+    /// <param name="layers">Current profile layers for game-override sources, or null when unavailable.</param>
+    /// <returns>The row every surface draws.</returns>
     internal static DeviceOverlayCapability ToOverlayCapability(
         DeviceCapabilityView view,
         IReadOnlySet<string> declaredSections,
-        ProfileLayers? layers = null,
-        FanCurvePresetTable? presets = null)
+        FanCurvePresetTable presets,
+        ProfileLayers? layers = null)
     {
+        ArgumentNullException.ThrowIfNull(presets);
         var descriptor = view.Descriptor;
         var projection = view.Projection;
         var state = projection.State;
-        var table = presets ?? FanCurvePresetTable.HandheldCompanion;
         var displayed = projection.PendingValue
                         ?? state.ObservedValue
                         ?? projection.DesiredValue;
@@ -46,7 +55,7 @@ internal static class CapabilityRowProjection
             && displayed?.CurveValue is not { Count: > 0 })
         {
             // An editor draft is not an observed firmware setting. Use the device's Default preset until Apply.
-            displayed = CapabilityValue.Curve(FanCurvePresets.DefaultCurve(table, descriptor.CurveInputs,
+            displayed = CapabilityValue.Curve(FanCurvePresets.DefaultCurve(presets, descriptor.CurveInputs,
                 descriptor.Minimum ?? 0, descriptor.Maximum ?? 100));
         }
         var actionOnlyReady = state is { Available: true, Reason: null, Quality: HardwareStateQuality.Unknown }
@@ -68,8 +77,9 @@ internal static class CapabilityRowProjection
             _ when projection.DesiredValueOutOfRange =>
                 "Saved value is outside the current firmware range",
             _ when state.Reason is not null => state.Reason.Detail,
-            _ when descriptor.CapabilityId == CapabilityIds.ProcessorReset =>
-                "Clears processor tuning for this device in Global and every game. Restores supported values; a Windows restart may be needed for firmware defaults.",
+            // What the action does, as its publisher explains it, while nothing more urgent needs saying.
+            _ when descriptor is { SupportsAction: true, Display.Description: { Length: > 0 } explanation } =>
+                explanation,
             _ when actionOnlyReady => "Ready",
             // A healthy value has nothing to explain; the row shows it without a caption.
             _ when state.Quality is HardwareStateQuality.Verified or HardwareStateQuality.Observed => string.Empty,
@@ -110,7 +120,7 @@ internal static class CapabilityRowProjection
             Choices = descriptor.Choices,
             CurveInputs = descriptor.CurveInputs,
             MaximumLength = descriptor.MaximumLength,
-            Presets = descriptor.Role == CapabilityRole.FanCurve ? table : null
+            Presets = descriptor.Role == CapabilityRole.FanCurve ? presets : null
         };
     }
 

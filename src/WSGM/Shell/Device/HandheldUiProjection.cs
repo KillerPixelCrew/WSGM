@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
 using P = LibHandheld.Contracts;
@@ -111,7 +112,25 @@ internal static class HandheldUiProjection
     {
         return new CapabilityDisplay
         {
-            Key = (DisplayKey)display.Key, CustomLabel = display.CustomText
+            Key = (DisplayKey)display.Key, CustomLabel = display.CustomText, Description = display.Description
+        };
+    }
+
+    /// <summary>The fan curve preset shapes for one matched model.</summary>
+    /// <param name="definition">The matched definition, or null before or without one.</param>
+    /// <returns>The model's measured table when its definition carries one, otherwise the default table.</returns>
+    internal static FanCurvePresetTable FanPresets(P.HandheldDefinition? definition)
+    {
+        if (definition?.FanCurvePresets is not { } presets)
+        {
+            return FanCurvePresetTable.HandheldCompanion;
+        }
+
+        return new FanCurvePresetTable(definition.Name, [.. presets.Quiet], [.. presets.Default],
+            [.. presets.Aggressive])
+        {
+            Smoothing = new DeviceFanCurveSmoothing(presets.HysteresisCelsius, presets.MaximumRisePerTick,
+                presets.MaximumFallPerTick, presets.AverageSamples)
         };
     }
 

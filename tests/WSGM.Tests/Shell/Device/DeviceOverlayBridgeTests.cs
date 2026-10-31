@@ -30,14 +30,15 @@ public sealed class DeviceOverlayBridgeTests
             Quality = HardwareStateQuality.Unknown
         };
         var capability = new DeviceCapabilityView(descriptor, new CapabilityProjection { State = state }, null);
-        var row = CapabilityRowProjection.ToOverlayCapability(capability, new HashSet<string>());
+        var row = CapabilityRowProjection.ToOverlayCapability(capability, new HashSet<string>(), FanCurvePresetTable.HandheldCompanion);
         Assert.True(row.CanInvoke);
         Assert.Equal(instance, row.InstanceId);
         Assert.Equal(descriptor.CurveInputs, row.CurrentValue!.CurveValue.Select(point => point.Input));
         Assert.True(CapabilityValueValidation.ValueMatches(row.CurrentValue, descriptor, out _));
         Assert.Null(capability.Projection.State.ObservedValue);
         Assert.Null(capability.Projection.DesiredValue);
-        var steam = DeviceCoordinatorNativeQamDeviceControlsService.Project([capability]);
+        var steam = DeviceCoordinatorNativeQamDeviceControlsService.Project([capability],
+            FanCurvePresetTable.HandheldCompanion);
         var steamRow = Assert.Single(Assert.Single(steam.Sections!).Rows);
         Assert.False(steamRow.Disabled);
         Assert.Equal(descriptor.CurveInputs, steamRow.Curve!.Select(point => point.Input));
@@ -46,7 +47,7 @@ public sealed class DeviceOverlayBridgeTests
         var known = CapabilityRowProjection.ToOverlayCapability(capability with
         {
             Projection = capability.Projection with { State = state with { ObservedValue = observed } }
-        }, new HashSet<string>());
+        }, new HashSet<string>(), FanCurvePresetTable.HandheldCompanion);
         Assert.Same(observed, known.CurrentValue);
     }
 
@@ -88,7 +89,7 @@ public sealed class DeviceOverlayBridgeTests
         };
         var view = CapabilityRowProjection.ToOverlayCapability(
             new DeviceCapabilityView(descriptor, new CapabilityProjection { State = state }, null),
-            new HashSet<string>());
+            new HashSet<string>(), FanCurvePresetTable.HandheldCompanion);
         Assert.Equal(available, view.CanInvoke);
         Assert.Null(view.NextValue);
     }
@@ -133,7 +134,7 @@ public sealed class DeviceOverlayBridgeTests
 
         var capability = CapabilityRowProjection.ToOverlayCapability(
             new DeviceCapabilityView(descriptor, projection, null),
-            new HashSet<string>(StringComparer.Ordinal));
+            new HashSet<string>(StringComparer.Ordinal), FanCurvePresetTable.HandheldCompanion);
 
         Assert.Equal(displayedWatts, capability.CurrentValue?.IntegerValue);
         Assert.Equal($"{displayedWatts} W", capability.TrailingText);
@@ -186,12 +187,47 @@ public sealed class DeviceOverlayBridgeTests
                 descriptor,
                 new CapabilityProjection { State = state },
                 null),
-            new HashSet<string>(StringComparer.Ordinal));
+            new HashSet<string>(StringComparer.Ordinal), FanCurvePresetTable.HandheldCompanion);
 
         Assert.Equal(DescriptorStatus.Available, capability.Status);
         Assert.True(capability.CanInvoke);
         Assert.Equal("RUN", capability.TrailingText);
         Assert.Equal("Ready", capability.Description);
+    }
+
+    /// An action's published description is its caption while nothing more urgent needs saying.
+    [Fact]
+    public void AnActionsPublishedDescriptionIsItsCaptionUntilAReasonReplacesIt()
+    {
+        var descriptor = new CapabilityDescriptor
+        {
+            CapabilityId = "vendor.reset", Role = CapabilityRole.GenericAction,
+            ValueKind = CapabilityValueKind.None, SupportsAction = true,
+            Display = new CapabilityDisplay
+            {
+                Key = DisplayKey.Custom, CustomLabel = "Reset tuning", Description = "Clears every tuning value."
+            },
+            Persistence = CapabilityPersistence.Volatile
+        };
+        CapabilityState state = new()
+        {
+            CapabilityId = descriptor.CapabilityId, Available = true, Quality = HardwareStateQuality.Unknown
+        };
+        var row = CapabilityRowProjection.ToOverlayCapability(
+            new DeviceCapabilityView(descriptor, new CapabilityProjection { State = state }, null),
+            new HashSet<string>(), FanCurvePresetTable.HandheldCompanion);
+        Assert.Equal("Clears every tuning value.", row.Description);
+
+        var blocked = CapabilityRowProjection.ToOverlayCapability(
+            new DeviceCapabilityView(descriptor, new CapabilityProjection
+            {
+                State = state with
+                {
+                    Reason = new CapabilityReason(CapabilityReasonCode.Unsupported, "Restart Windows first.")
+                }
+            }, null),
+            new HashSet<string>(), FanCurvePresetTable.HandheldCompanion);
+        Assert.Equal("Restart Windows first.", blocked.Description);
     }
 
     [Fact]

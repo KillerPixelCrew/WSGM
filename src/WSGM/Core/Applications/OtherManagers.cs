@@ -6,16 +6,18 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using LibHandheld;
 using WSGM.Shared;
 
 namespace WSGM.Core;
 
 /// <summary>
 ///     Finds Handheld Companion and the handheld makers' own apps, and turns off how they start, so WSGM's
-///     Full mode is the one manager of the device. Modelled on Handheld Companion's OEM app management
-///     (its per-device service, task and process lists): services are set to disabled and stopped, tasks
-///     are disabled, and a running window is asked to close but never ended. Everything is recorded first
-///     and put back by the uninstaller.
+///     Full mode is the one manager of the device. Modelled on Handheld Companion's OEM app management:
+///     services are set to disabled and stopped, tasks are disabled, and a running window is asked to close
+///     but never ended. Everything is recorded first and put back by the uninstaller. Which apps exist and
+///     what they run as comes from <see cref="HandheldDevice.ManagerApps" />; when and how to turn them off
+///     stays here.
 /// </summary>
 public static class OtherManagers
 {
@@ -27,33 +29,16 @@ public static class OtherManagers
     internal const string PackageKind = "package";
     internal const string DeviceKind = "device";
 
-    /// <summary>The managers WSGM knows, from Handheld Companion's own OEM lists plus Handheld Companion itself.</summary>
+    /// <summary>The managers WSGM knows: Handheld Companion, then each handheld family's own app.</summary>
+    /// <remarks>
+    ///     The makers' apps and their process, service, task, package and keyboard identities are device
+    ///     knowledge from LibHandheld's static catalog, so Settings and setup list them with or without a
+    ///     detected device. An entry bound to one definition is still considered only on that model.
+    /// </remarks>
     public static IReadOnlyList<OtherManager> Known { get; } =
     [
         new("handheld-companion", "Handheld Companion", ["HandheldCompanion"], [], ["HandheldCompanion"]),
-        new("msi-center-m", "MSI Center M",
-            ["MSI_Center_M_Server", "MSI Center M", "MCMOSDInfo", "MSI Center OSD Info"],
-            ["MSI Foundation Service"], ["MSI_Center_M_Server", "MSI_Center_M_Updater"]),
-        // ArmouryCrateKeyControl is the helper the ArmouryCrateControlInterface service starts in the user
-        // session; without Armoury Crate installed it answers the Armoury Crate button with a dialog that
-        // asks to install it (seen on an Ally after Handheld Companion's uninstall put the service back).
-        new("armoury-crate", "Armoury Crate",
-            ["ArmouryCrate", "ArmourySocketServer", "ArmouryCrateUserSessionHelper", "ArmouryCrateKeyControl"],
-            ["ArmouryCrateSEService", "AsusAppService", "ArmouryCrateControlInterface"], []),
-        new("legion-space", "Legion Space", ["LegionGoQuickSettings", "LegionSpace", "LSDaemon"], ["DAService"], []),
-        new("zotac-launcher", "Zotac Gaming Zone", ["ZotacHandheldQuickSetting"],
-            ["ZotacHandheldDatabaseService", "ZotacHandheldService"], []),
-        new("acer-predator-handheld", "Predator Sense for Handheld",
-            ["Handheld.Desktop", "Handheld.Widget"],
-            ["AASHHSvc", "AcerCCAgentSvis", "AcerDeviceEnablingServiceV2", "AcerHandheld.Service",
-                "AcerLightingServiceHH", "AcerORDService", "AcerServiceSvc", "AFZsvc", "ALSSvc", "UEIPSvc"],
-            ["PredatorHandheldLauncher", "UEIPInvitation", "UbtFrameworkService"])
-        {
-            PackageFamilies = ["ULICTekInc.PredatorSenseforHandHeld_nt9dgb7efx6bt",
-                "ULICTekInc.PredatorSenseforHandHeldWidget_nt9dgb7efx6bt"],
-            DedicatedKeyboardDeviceId = @"HID\VID_0502&PID_F901&MI_02&COL01",
-            DeviceDefinitionId = "acer-predator-atlas-8-pa08-i51"
-        }
+        .. HandheldDevice.ManagerApps.Select(OtherManager.From)
     ];
 
     /// <summary>Finds the known managers that would start or run on this machine.</summary>
