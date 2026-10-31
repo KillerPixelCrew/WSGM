@@ -196,7 +196,7 @@ public sealed partial class ShellSession
     private async Task<bool> CyclePerformanceProfileAsync(CancellationToken cancellationToken)
     {
         if (_deviceCoordinator is not { } coordinator
-            || !await coordinator.PowerAssignments.CycleAsync(cancellationToken).ConfigureAwait(false))
+            || !await coordinator.Power.PowerAssignments.CycleAsync(cancellationToken).ConfigureAwait(false))
         {
             Log.Info("OEM performance-profile cycle skipped: the device offers no power presets right now.");
             return false;

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
-using System.Threading.Channels;
 using System.Threading.Tasks;
 using LibHandheld;
 using WSGM.Core;
@@ -22,41 +21,8 @@ using PhysicalDeviceIdentity = LibHandheld.Contracts.PhysicalDeviceIdentity;
 
 namespace WSGM.Shell;
 
-/// <summary>Who asked for a capability command.</summary>
-/// <remarks>
-///     The origin decides whether a command may persist the user's preference. A limit the user moved
-///     is an instruction; the one
-///     AutoTDP wrote itself is the controller's own output, and treating it as a manual override would
-///     pause the feature on its first tick.
-/// </remarks>
-internal enum CapabilityCommandOrigin
-{
-    /// <summary>A person moved this control on a WSGM surface.</summary>
-    User,
-
-    /// <summary>An automatic controller inside WSGM wrote it.</summary>
-    AutomaticControl,
-
-    /// <summary>AutoTDP's power-lane writes, including its final original-limit restore.</summary>
-    AutoTdp,
-
-    /// <summary>
-    ///     WSGM is re-applying a stored per-application or global preference on an application change.
-    /// </summary>
-    /// <remarks>
-    ///     Not <see cref="User" />: the value is already the user's saved preference, so persisting it
-    ///     again is redundant and â€” on a release-to-ceiling or a fall back to the global layer â€” would
-    ///     write the wrong value into the layer the funnel resolves. The transition path pauses or
-    ///     resumes AutoTDP itself, so this origin deliberately skips the funnel.
-    /// </remarks>
-    ProfileRestore,
-
-    /// <summary>Replays device desired state without saving it; restored power still pauses AutoTDP.</summary>
-    DesiredStateRestore
-}
-
 /// <summary>Authoritative process-long owner of the machine-wide hardware cycle.</summary>
-internal sealed partial class DeviceCoordinator : IAsyncDisposable
+internal sealed class DeviceCoordinator : IAsyncDisposable
 {
     /// <summary>Machine-wide named marker preventing simultaneous production device owners.</summary>
     internal const string ProductionOwnerName = SessionProtocolNames.DeviceOwner;
@@ -65,45 +31,22 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
     private static readonly TimeSpan[] AutomaticRestartBackoffs = [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(4)];
 
     private static readonly TimeSpan CanceledStartCleanupBudget = TimeSpan.FromSeconds(5);
-    private readonly RtssFrametimeReader _autoTdpFrametimes = new();
-    private readonly AutoTdpTraceRecorder _autoTdpTrace;
     private readonly Lock _backgroundGate = new();
     private readonly HashSet<Task> _backgroundTasks = [];
+    private readonly DeviceChargeLimitController _chargeLimits;
     private readonly Func<DeviceIdentitySnapshot> _collectIdentity;
     private readonly Func<DeviceIdentitySnapshot, CancellationToken, Task<HandheldDefinition?>> _detectDevice;
     private readonly IAsyncDisposable? _diagnostics;
     private readonly PluginHapticSink _hapticSink;
     private readonly CancellationTokenSource _lifetime = new();
-    private readonly DeviceLightingRestore _lightingRestore = new();
 
     private readonly Func<HandheldDefinition, DeviceIdentitySnapshot, CancellationToken, string,
             Task<HandheldDeviceRuntime>>
         _loadRuntime;
 
-    private readonly Action<bool> _manualVariableRefresh;
     private readonly DeviceOemActionRouter _oemActions = new();
     private readonly IDisposable _ownerMutex;
 
-    /// <summary>
-    ///     Wakes the power-assignment reconcile. One pending signal stands for any number of changes,
-    ///     because the reconcile reads everything it needs afresh.
-    /// </summary>
-    private readonly Channel<bool> _powerAssignmentChanges = Channel.CreateBounded<bool>(
-        new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite, SingleReader = true });
-
-    /// <summary>
-    ///     The one lane every sustained, boost, scenario and preset write runs in: user writes, presets,
-    ///     per-application restores and AutoTDP.
-    /// </summary>
-    /// <remarks>
-    ///     Nothing that holds this lane waits for the transition gate, so a transition may wait for the
-    ///     lane: AutoTDP's restore before a device stop does exactly that.
-    /// </remarks>
-    private readonly SemaphoreSlim _powerLane = new(1, 1);
-
-    private readonly SemaphoreSlim _profileReconcileGate = new(1, 1);
-    private readonly Func<bool?> _readOnAcPower;
-    private readonly Func<Action, IDisposable?> _registerPowerModeNotification;
     private readonly Func<TimeSpan, CancellationToken, Task> _restartDelay;
     private readonly uint _sessionId;
     private readonly ConfigStore _store;
@@ -127,29 +70,6 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
     /// <summary>The lifecycle handler of the attached client, which carries that client.</summary>
     private Action<HandheldRuntimeState>? _lifecycleHandler;
 
-    private int _lightingRestoreScheduled;
-
-    /// <summary>Started with the first device cycle, so integration off runs no power loop.</summary>
-    /// <remarks>Assigned and read under <see cref="_backgroundGate" />.</remarks>
-    private Task _powerAssignmentTask = Task.CompletedTask;
-
-    /// <summary>The power controls' last reading, so only a change to them wakes the assignment reconcile.</summary>
-    /// <remarks>Read and written on the UI thread, where the router raises its change event.</remarks>
-    private (PowerControlReading Sustained, PowerControlReading Slow, PowerControlReading Fast,
-        PowerControlReading Scenario) _powerControls;
-
-    private bool _powerLoopsStarted;
-
-    private IDisposable? _powerModeNotification;
-
-    /// <summary>Whether WSGM imposed the power limit in force for the running application.</summary>
-    /// <remarks>Read and written only inside <see cref="_powerLane" />.</remarks>
-    private bool _profilePowerImposed;
-
-    /// <summary>Whether the imposed limit moved the sustained/boost pair together.</summary>
-    /// <remarks>Read and written only inside <see cref="_powerLane" />.</remarks>
-    private bool _profilePowerPaired;
-
     private Task _resumeRestore = Task.CompletedTask;
     private string? _runningApplicationId;
     private string? _runningExecutable;
@@ -157,9 +77,8 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
     private Task? _shutdownTask;
 
     private volatile DeviceCycleState _state = DeviceCycleState.Disabled;
-    private int _userCapabilityCommands;
 
-    /// <summary>Composes device ownership, controller routing, profiles, and one serialized power lane.</summary>
+    /// <summary>Composes device ownership, controller routing, profiles, the power policy and the command route.</summary>
     /// <param name="config">Initial normalized saved configuration.</param>
     /// <param name="store">Borrowed process configuration store.</param>
     /// <param name="sessionId">Windows session served by this coordinator and its diagnostics endpoint.</param>
@@ -213,46 +132,55 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         _collectIdentity = collectIdentity;
         _detectDevice = detectDevice;
         _loadRuntime = loadRuntime;
-        _registerPowerModeNotification = registerPowerModeNotification;
-        _readOnAcPower = readOnAcPower;
         _restartDelay = restartDelay;
-        _manualVariableRefresh = manualVariableRefresh;
-        InitializeFanCurves(autoTdpMetrics);
         Capabilities = new DeviceCapabilityRouter(postToUi);
-        Capabilities.Changed += OnLightingStateChanged;
-        Capabilities.Changed += OnPowerControlsChanged;
-        // AutoTDP writes through the same power lane as every other power write, and this owner
-        // restores its original limit before the device stops.
-        _autoTdpTrace = new AutoTdpTraceRecorder(
-            AutoTdpTraceRecorder.DefaultDirectory(_store.Context),
-            () => DeviceDefinition is { } definition
-                ? (definition.FamilyId, HandheldDeviceRuntime.SourceVersion)
-                : (null, null),
-            new AutoTdpTraceSystemContext());
-        AutoTdp = new AutoTdpService(
-            _autoTdpFrametimes,
-            Capabilities.Snapshot,
-            (power, value, pair, token) => ExecuteCapabilityAsync(
-                power.Descriptor.CapabilityId,
-                power.Descriptor.InstanceId,
-                value,
-                TimeSpan.FromSeconds(5),
-                CapabilityCommandOrigin.AutoTdp,
-                pair, token),
-            autoTdpTargetFrametimeMs,
-            _autoTdpTrace,
-            autoTdpMetrics);
-        // Scenario targets are one-shot preset steps. Persist only the watt controls through the
-        // manual funnel; saving an AC scenario as desired state would replay it on battery later.
-        PowerPresets = new DevicePowerPresets(() => IntegrationEnabled ? Capabilities.Snapshot() : [],
-            ExecutePresetCapabilityAsync, powerModes, _readOnAcPower, _powerLane,
-            () => AutoTdp.OwnsPower);
-        PowerAssignments = new DevicePowerAssignments(PowerPresets,
-            () => new DevicePowerAssignmentContext(Profiles.Current,
-                DeviceDefinition?.FamilyId,
-                IntegrationEnabled, _readOnAcPower()),
-            SavePowerAssignmentAsync,
-            () => Volatile.Read(ref _resumeRestore));
+        _chargeLimits = new DeviceChargeLimitController(() =>
+            {
+                var sample = autoTdpMetrics();
+                return _client?.Device.Controls.Controls.Any(control =>
+                    control.Role == LibHandheld.Contracts.CapabilityRole.ChargeBypass
+                    && control.State?.Available == true) == true
+                    ? sample
+                    : sample with { BatteryPercent = null };
+            },
+            async (bypass, token) =>
+            {
+                var client = _client;
+                if (client is not { IsActive: true } || !IntegrationEnabled)
+                {
+                    return false;
+                }
+
+                var result = await client.Device.SetChargeBypassAsync(bypass,
+                    LibHandheld.Contracts.Deadline.After(TimeSpan.FromSeconds(5)), token).ConfigureAwait(false);
+                if (!result.Applied)
+                {
+                    Log.Warn(
+                        $"Charge ceiling bypass write stopped: {result.Reason?.Detail ?? result.Outcome.ToString()}.");
+                }
+
+                return result.Applied;
+            });
+        // The desired-state gate: desired-value passes, lighting profile selection and processor resets.
+        var reconcileGate = new SemaphoreSlim(1, 1);
+        FanCurves = new DeviceFanCurves(Capabilities, Profiles, autoTdpMetrics,
+            () => Volatile.Read(ref _client), () => DeviceDefinition, () => IntegrationEnabled, () => State,
+            ActiveProfileScope, () => _disposed, _lifetime.Token, ExecuteInternalAsync);
+        Lighting = new DeviceLightingProfiles(Capabilities, Profiles, () => DeviceIdentityKey, readOnAcPower,
+            () => DeviceDefinition, ActiveProfileScope, () => Volatile.Read(ref _client), () => IntegrationEnabled,
+            () => State, () => _disposed, _lifetime.Token, reconcileGate,
+            UserCommandsInFlight, ExecuteInternalAsync, ReconcileDesiredValuesAsync,
+            Observe, () => ConfigurationChanged?.Invoke());
+        Power = new DevicePowerPolicy(Capabilities, Profiles, () => _config, () => DeviceDefinition,
+            () => _disposed, _lifetime.Token, EnterTransitionAsync, PersistConfigurationAsync,
+            AutoTdpTraceRecorder.DefaultDirectory(_store.Context), autoTdpTargetFrametimeMs, autoTdpMetrics,
+            manualVariableRefresh, powerModes, readOnAcPower, registerPowerModeNotification,
+            () => Volatile.Read(ref _resumeRestore), Observe, ExecuteInternalAsync, ExecuteInLaneAsync);
+        Commands = new DeviceCapabilityCommands(Capabilities, Profiles, Power, FanCurves, Lighting, _chargeLimits,
+            ReconcileChargeLimitAsync, reconcileGate, () => Volatile.Read(ref _client), () => _identity is not null,
+            () => DeviceIdentityKey, manualVariableRefresh, () => _disposed, _lifetime.Token);
+        Capabilities.Changed += Lighting.OnCapabilitiesChanged;
+        Capabilities.Changed += Power.OnControlsChanged;
         _hapticSink = new PluginHapticSink(ApplyHapticOutputAsync);
         Controllers = createControllers(_hapticSink);
         Controllers.FilterOemButtons = _oemActions.FilterControllerButtons;
@@ -262,8 +190,21 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         _diagnostics = createDiagnostics(sessionId, DiagnosticsSnapshot);
     }
 
-    /// <summary>The one AutoTDP service; it writes only through this owner's power lane.</summary>
-    internal AutoTdpService AutoTdp { get; }
+    /// <summary>The power lane, manual TDP, presets, assignments, per-application limits and AutoTDP.</summary>
+    internal DevicePowerPolicy Power { get; }
+
+    /// <summary>The one command route: every capability write from a surface, controller or restore.</summary>
+    /// <remarks>
+    ///     <see cref="Capabilities" /> serves reads and events; writes go through here, which is the one
+    ///     path that lets a manual power change pause AutoTDP.
+    /// </remarks>
+    internal DeviceCapabilityCommands Commands { get; }
+
+    /// <summary>The software fan curve and the active model's authored fan profiles.</summary>
+    internal DeviceFanCurves FanCurves { get; }
+
+    /// <summary>The active model's lighting profiles and the lighting restore.</summary>
+    internal DeviceLightingProfiles Lighting { get; }
 
     /// <summary>The stable key device values are stored under, or null before the machine is identified.</summary>
     internal string? DeviceIdentityKey => _identity is null || DeviceDefinition is null
@@ -290,8 +231,8 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
 
     /// <summary>The capability router, for snapshots and change subscriptions.</summary>
     /// <remarks>
-    ///     Reads and events only. Writes go through <see cref="ExecuteCapabilityAsync" />, which is the
-    ///     one path that lets a manual power change pause AutoTDP.
+    ///     Reads and events only. Writes go through <see cref="Commands" />, which is the one path that
+    ///     lets a manual power change pause AutoTDP.
     /// </remarks>
     internal DeviceCapabilityRouter Capabilities { get; }
 
@@ -300,31 +241,6 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
     {
         return ManualFanVisibility.Filter(Capabilities.Snapshot());
     }
-
-    /// <summary>One-shot preset owner shared by device surfaces and the serialized power lane.</summary>
-    internal DevicePowerPresets PowerPresets { get; }
-
-    /// <summary>Owner of saved AC/battery preset assignments and their change-triggered reconciliation.</summary>
-    internal DevicePowerAssignments PowerAssignments { get; }
-
-    /// <summary>Whether the declared power pair permits manual control and whether the active profile couples its limits.</summary>
-    internal (bool Available, bool Unified) ManualTdpMode =>
-        (IntegrationEnabled && Capabilities.HasDescriptor(static descriptor =>
-                descriptor is { Role: CapabilityRole.PowerSustainedLimit, PairedPowerLimitId: not null }),
-            ManualTdpUnified);
-
-    /// <summary>
-    ///     Whether manual TDP is unified for the running application. Unlike
-    ///     <see cref="ManualTdpMode" />, this builds no capability snapshot.
-    /// </summary>
-    internal bool ManualTdpUnified
-    {
-        get { return Profiles.Current.Layers.Value(values => values.TdpUnified).Value == true; }
-    }
-
-    /// <summary>The game profile overriding the manual power mode, or null when it comes from Global.</summary>
-    internal string? ManualTdpOverrideId =>
-        CapabilityProjection.OverrideId(Profiles.Current.Layers, new ProfileSettingKey(ProfileField.TdpUnified));
 
     /// <summary>The controller manager, for status/sample subscriptions and reads.</summary>
     /// <remarks>
@@ -336,9 +252,6 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
     /// <summary>Current persisted physical-glyph presentation mode.</summary>
     internal DeviceGlyphSelection PhysicalGlyphSelection =>
         _config.DeviceIntegration.GlyphSelection;
-
-    /// <summary>Whether AutoTDP is switched on in the persisted configuration.</summary>
-    internal bool AutoTdpEnabled => _config.DeviceIntegration.AutoTdpEnabled;
 
     /// <summary>Whether controller management may run in this configuration.</summary>
     internal bool ControllerManagementEnabled =>
@@ -449,14 +362,6 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         Controllers.ApplyRumbleCalibration(saved.RumbleCalibration);
     }
 
-    /// <summary>Returns the manual power mode of the running application to the Global value.</summary>
-    /// <returns>Completion of clearing the game's manual-mode override through the profile owner.</returns>
-    internal Task UseGlobalManualTdpAsync()
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        return Profiles.ClearGameOverrideAsync(new ProfileSettingKey(ProfileField.TdpUnified), null, _lifetime.Token);
-    }
-
     private Task ApplyHapticOutputAsync(HapticOutputFrame frame, CancellationToken cancellationToken)
     {
         var client = _client;
@@ -479,74 +384,6 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
 
     private Action<LibHandheld.Contracts.OemControlEvent>? _glyphOemHandler;
 
-    /// <summary>Saves the active profile's manual sustained/boost coupling mode.</summary>
-    /// <param name="unified">True to couple the limits; false to retain independent sustained and boost values.</param>
-    /// <returns>Completion of the saved profile edit; shutdown cancels admission.</returns>
-    /// <exception cref="InvalidOperationException">The current device does not expose an available power pair.</exception>
-    internal async Task SetManualTdpModeAsync(bool unified)
-    {
-        using var transition = await EnterTransitionAsync(_lifetime.Token).ConfigureAwait(false);
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        if (!ManualTdpMode.Available)
-        {
-            throw new InvalidOperationException("Paired TDP is unavailable.");
-        }
-
-        await Profiles.SetAsync(values => values.TdpUnified = unified, $"TdpUnified={unified}",
-            cancellationToken: _lifetime.Token).ConfigureAwait(false);
-    }
-
-    private async Task<CapabilityCommandResult> ExecutePresetCapabilityAsync(
-        string id, CapabilityValue value, bool persist, CancellationToken token)
-    {
-        if (_disposed)
-        {
-            return ClosedCapabilityAdmission();
-        }
-
-        var result = await ExecuteCapabilityCoreAsync(id, null, value, TimeSpan.FromSeconds(5),
-            persist && value.Kind == CapabilityValueKind.Integer
-                ? CapabilityCommandOrigin.User
-                : CapabilityCommandOrigin.AutomaticControl,
-            false, token).ConfigureAwait(false);
-        if (!persist && value.IntegerValue is { } watts && result.Outcome.IsApplied()
-            && FindDescriptor(id, null)?.Role == CapabilityRole.PowerSustainedLimit)
-        {
-            // An applied assignment pauses AutoTDP without saving its wattage as the user's limit.
-            AutoTdp.NoteManualChange(watts);
-        }
-
-        return result;
-    }
-
-    private async Task SavePowerAssignmentAsync(DevicePowerAssignmentContext selection, bool ac,
-        DevicePowerPresetReference? reference)
-    {
-        using var transition = await EnterTransitionAsync(_lifetime.Token).ConfigureAwait(false);
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        if (Profiles.Current.Generation != selection.Profiles.Generation
-            || DeviceDefinition?.FamilyId != selection.PluginId
-            || IntegrationEnabled != selection.Enabled
-            || selection.OnAc != _readOnAcPower())
-        {
-            throw new InvalidOperationException(
-                "The running application, device or configuration changed before saving the assignment.");
-        }
-
-        await Profiles.SetAsync(values =>
-            {
-                if (ac)
-                {
-                    values.AcPowerPreset = reference;
-                }
-                else
-                {
-                    values.BatteryPowerPreset = reference;
-                }
-            }, $"{(ac ? "AC" : "battery")} power preset {reference?.PresetId ?? "(none)"}",
-            cancellationToken: _lifetime.Token).ConfigureAwait(false);
-    }
-
     /// <summary>Re-reads the power source after Windows reported a switch between AC and battery.</summary>
     /// <remarks>
     ///     Capability availability per source and the source's preset assignment both follow it. The
@@ -559,85 +396,9 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
             return;
         }
 
-        UpdateCapabilityDesiredContext();
-        RequestPowerAssignmentReconcile();
-        ReplayLightingAfterTransition("power source changed");
-    }
-
-    private void RequestPowerAssignmentReconcile()
-    {
-        _powerAssignmentChanges.Writer.TryWrite(true);
-    }
-
-    /// <summary>Wakes the assignment reconcile when a power control's reading or availability moves.</summary>
-    /// <remarks>
-    ///     This is how presets that become available are applied and how a watt limit changed outside a
-    ///     preset is adopted as Custom. The router raises this for every state publication, telemetry
-    ///     included, so it compares three readings and allocates nothing.
-    /// </remarks>
-    private void OnPowerControlsChanged(IReadOnlyList<DeviceCapabilityView> views)
-    {
-        PowerControlReading sustained = default, slow = default, fast = default, scenario = default;
-        for (var index = 0; index < views.Count; index++)
-        {
-            var view = views[index];
-            switch (view.Descriptor.Role)
-            {
-                case CapabilityRole.PowerSustainedLimit:
-                    sustained = PowerControlReading.Of(view);
-                    break;
-                case CapabilityRole.PowerSlowLimit:
-                    slow = PowerControlReading.Of(view);
-                    break;
-                case CapabilityRole.PowerFastLimit:
-                    fast = PowerControlReading.Of(view);
-                    break;
-                case CapabilityRole.ScenarioMode:
-                    scenario = PowerControlReading.Of(view);
-                    break;
-            }
-        }
-
-        var reading = (sustained, slow, fast, scenario);
-        if (reading == _powerControls)
-        {
-            return;
-        }
-
-        _powerControls = reading;
-        RequestPowerAssignmentReconcile();
-    }
-
-    /// <summary>
-    ///     Applies the power-source assignment whenever something it depends on changed: the power source,
-    ///     the Windows power mode, the profile or running application, the device cycle and its restore, or
-    ///     the power controls themselves.
-    /// </summary>
-    private async Task ObservePowerAssignmentsAsync()
-    {
-        var changes = _powerAssignmentChanges.Reader;
-        try
-        {
-            while (await changes.WaitToReadAsync(_lifetime.Token).ConfigureAwait(false))
-            {
-                changes.TryRead(out _);
-                try
-                {
-                    await PowerAssignments.ReconcileAsync(_lifetime.Token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
-                {
-                    break;
-                }
-                catch (Exception ex) when (ex is not OutOfMemoryException)
-                {
-                    Log.Change("power.assignment.failure", $"Power assignment failed: {ex.Message}", LogLevel.Warn);
-                }
-            }
-        }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
-        {
-        }
+        Lighting.UpdateDesiredContext();
+        Power.RequestAssignmentReconcile();
+        Lighting.ReplayAfterTransition("power source changed");
     }
 
     /// <summary>
@@ -800,7 +561,7 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
 
         // Stored settings live in the configuration, so a reload can change what the handheld
         // should be running with even though the handheld itself never changed.
-        UpdateCapabilityDesiredContext();
+        Lighting.UpdateDesiredContext();
         UpdateOemConfiguration();
         await Controllers.ApplySelectionAsync(
             CurrentControllerSelection(),
@@ -811,7 +572,7 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         {
             case false when config.DeviceIntegration.Enabled:
                 _automaticRestartAttempts = 0;
-                await RearmLightingProfilesAsync(cancellationToken).ConfigureAwait(false);
+                await Lighting.RearmAsync(cancellationToken).ConfigureAwait(false);
                 try
                 {
                     await StartCycleUnderGateAsync(cancellationToken).ConfigureAwait(false);
@@ -830,7 +591,7 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
             case true when !config.DeviceIntegration.Enabled:
             {
                 // AutoTDP hands its original limit back while the power limit is still writable.
-                await RestoreAutoTdpBeforeStopAsync(cancellationToken).ConfigureAwait(false);
+                await Power.RestoreAutoTdpBeforeStopAsync(NormalShutdownDeadline(), cancellationToken).ConfigureAwait(false);
                 var teardown = await StopCycleUnderGateAsync(
                     HandheldStopReason.IntegrationDisabled,
                     NormalShutdownDeadline(),
@@ -860,7 +621,7 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         try
         {
             ConfigurationChanged?.Invoke();
-            UpdateCapabilityDesiredContext();
+            Lighting.UpdateDesiredContext();
             UpdateOemConfiguration();
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -905,7 +666,7 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
             Log.Info("Controller forwarding paused for suspend; the virtual controller is kept.");
         }
 
-        await _fanCurves.SuspendAsync().ConfigureAwait(false);
+        await FanCurves.Controller.SuspendAsync().ConfigureAwait(false);
         await _chargeLimits.StopAsync().ConfigureAwait(false);
         var state = await client.SuspendAsync(deadline, cancellationToken).ConfigureAwait(false);
         _oemActions.Reset();
@@ -962,7 +723,7 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         }
         finally
         {
-            UpdateCapabilityDesiredContext();
+            Lighting.UpdateDesiredContext();
             _oemActions.Reset();
         }
 
@@ -980,9 +741,9 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         }
 
         SetState(client!.LifecycleState);
-        await _fanCurves.ResumeAsync().ConfigureAwait(false);
+        await FanCurves.Controller.ResumeAsync().ConfigureAwait(false);
         await ReconcileChargeLimitAsync().ConfigureAwait(false);
-        ReplayLightingAfterTransition(afterSystemSleep ? "system wake" : "session unlock");
+        Lighting.ReplayAfterTransition(afterSystemSleep ? "system wake" : "session unlock");
         await Controllers.ResumeForwardingAsync(afterSystemSleep ? "system wake" : "session unlock",
             cancellationToken).ConfigureAwait(false);
     }
@@ -1078,7 +839,7 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         }
 
         _automaticRestartAttempts = 0;
-        await RearmLightingProfilesAsync(cancellationToken).ConfigureAwait(false);
+        await Lighting.RearmAsync(cancellationToken).ConfigureAwait(false);
         await StartCycleUnderGateAsync(cancellationToken).ConfigureAwait(false);
         return true;
     }
@@ -1150,61 +911,10 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         }
     }
 
-    /// <summary>Disables AutoTDP and waits for its restore before the device cycle stops.</summary>
-    /// <param name="cancellationToken">The caller's token; only its cancellation propagates.</param>
-    /// <remarks>
-    ///     Bounded like a device stop. A restore still running at the bound keeps running and is never
-    ///     issued a second time; the stop goes ahead and the log says the restore is unconfirmed.
-    /// </remarks>
-    private async Task RestoreAutoTdpBeforeStopAsync(CancellationToken cancellationToken)
-    {
-        using var bounded = NormalShutdownDeadline().CreateCancellationSource(cancellationToken);
-        try
-        {
-            await AutoTdp.DisableAsync().WaitAsync(bounded.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            Log.Warn("AutoTDP restoration is still running; the device stops without waiting for it.");
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
-        {
-            Log.Warn($"AutoTDP restoration was unverified before the device stop: {ex.Message}");
-        }
-    }
-
-    /// <summary>Starts the power-assignment loop and the Windows power mode notification once.</summary>
-    /// <remarks>
-    ///     Only a device cycle needs them, so a session with integration off runs neither. Once started
-    ///     they stay until shutdown; with integration switched off again the reconcile does nothing.
-    /// </remarks>
-    private void EnsurePowerLoops()
-    {
-        lock (_backgroundGate)
-        {
-            if (_disposed || _powerLoopsStarted)
-            {
-                return;
-            }
-
-            _powerLoopsStarted = true;
-            _powerAssignmentTask = ObservePowerAssignmentsAsync();
-            try
-            {
-                // A Windows power mode picked outside WSGM is adopted like an out-of-band watt change.
-                _powerModeNotification = _registerPowerModeNotification(RequestPowerAssignmentReconcile);
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                Log.Warn($"Windows power mode notifications are unavailable: {ex.Message}");
-            }
-        }
-    }
-
     private async Task ShutdownCoreAsync(HandheldStopReason reason, Deadline deadline)
     {
         using var bounded = deadline.CreateCancellationSource();
-        await _fanCurves.StopAsync().ConfigureAwait(false);
+        await FanCurves.Controller.StopAsync().ConfigureAwait(false);
         await _chargeLimits.StopAsync().ConfigureAwait(false);
         // First, while the power limit is still writable: AutoTDP hands back the limit it took over
         // from. Exiting with its last automatic wattage latched leaves the handheld on a value the
@@ -1212,8 +922,8 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         var autoTdpStopped = false;
         try
         {
-            await AutoTdp.StopAsync(deadline).ConfigureAwait(false);
-            autoTdpStopped = AutoTdp.Completion.IsCompletedSuccessfully;
+            await Power.AutoTdp.StopAsync(deadline).ConfigureAwait(false);
+            autoTdpStopped = Power.AutoTdp.Completion.IsCompletedSuccessfully;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -1250,7 +960,7 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         lock (_backgroundGate)
         {
             background =
-                [.. _backgroundTasks, _powerAssignmentTask, _oemActions.Completion];
+                [.. _backgroundTasks, Power.AssignmentLoop, _oemActions.Completion];
         }
 
         var backgroundStopped =
@@ -1258,8 +968,8 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         if (autoTdpStopped)
         {
             // AutoTDP no longer reads frames or writes trace rows; its owner releases both.
-            await FinishStepAsync("AutoTDP trace", _autoTdpTrace.DisposeAsync().AsTask()).ConfigureAwait(false);
-            CleanupProvider("AutoTDP frame times", _autoTdpFrametimes.Dispose);
+            await FinishStepAsync("AutoTDP trace", Power.DisposeAutoTdpTraceAsync().AsTask()).ConfigureAwait(false);
+            CleanupProvider("AutoTDP frame times", Power.DisposeAutoTdpFrametimes);
         }
 
         if (!autoTdpStopped || !cycleStopped || !controllersStopped || !backgroundStopped
@@ -1269,10 +979,10 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
             return;
         }
 
-        CleanupProvider("power notifications", () => _powerModeNotification?.Dispose());
+        CleanupProvider("power notifications", Power.DisposePowerModeNotification);
         var diagnosticsStopped = await FinishStepAsync("diagnostics",
             _diagnostics?.DisposeAsync().AsTask() ?? Task.CompletedTask).ConfigureAwait(false);
-        await FinishStepAsync("software fan curves", _fanCurves.DisposeAsync().AsTask()).ConfigureAwait(false);
+        await FinishStepAsync("software fan curves", FanCurves.Controller.DisposeAsync().AsTask()).ConfigureAwait(false);
         await FinishStepAsync("software charge limits", _chargeLimits.DisposeAsync().AsTask()).ConfigureAwait(false);
         var capabilitiesStopped = await FinishStepAsync("capabilities", Capabilities.DisposeAsync().AsTask())
             .ConfigureAwait(false);
@@ -1348,7 +1058,7 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
     }
 
     /// <summary>One held entry of the transition gate.</summary>
-    private readonly struct TransitionLease(SemaphoreSlim gate) : IDisposable
+    internal readonly struct TransitionLease(SemaphoreSlim gate) : IDisposable
     {
         public void Dispose()
         {
@@ -1375,7 +1085,7 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
             return;
         }
 
-        EnsurePowerLoops();
+        Power.EnsureLoops();
         var retryState = State;
         using var startLifetime = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken,
@@ -1488,13 +1198,13 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         }
 
         _client = client;
-        client.ApplySoftwareFanCurveAsync = (curve, _) => ConfigureFanCurveAsync(curve, true);
+        client.ApplySoftwareFanCurveAsync = (curve, _) => FanCurves.ConfigureAsync(curve, true);
         client.ApplySoftwareChargeLimitAsync = (percent, _) => ConfigureChargeLimitAsync(percent, true);
         try
         {
             Attach(client);
             Capabilities.Attach(client);
-            UpdateCapabilityDesiredContext();
+            Lighting.UpdateDesiredContext();
             _oemActions.Attach(client);
             UpdateOemConfiguration();
             var controllerManagement = OwnsPhysicalController(
@@ -1671,7 +1381,6 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
                          + $"{cleanup.ToException().Message}");
             }
 
-
             if (_intentionalStop
                 || _disposed
                 || !_config.DeviceIntegration.Enabled
@@ -1781,7 +1490,7 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         _intentionalStop = true;
-        await _fanCurves.StopAsync().ConfigureAwait(false);
+        await FanCurves.Controller.StopAsync().ConfigureAwait(false);
         await _chargeLimits.StopAsync().ConfigureAwait(false);
         var client = _client;
         _client = null;
@@ -2004,7 +1713,6 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
             cancellationToken).ConfigureAwait(false);
         Log.Info("Controller management enabled.");
     }
-
 
     /// <summary>Has the handheld let go after its virtual target was lost, and shows the physical pad.</summary>
     /// <param name="detail">Why the target was lost.</param>
@@ -2248,15 +1956,15 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
 
         using var admission = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
         cancellationToken = admission.Token;
-        UpdateCapabilityDesiredContext();
-        RequestPowerAssignmentReconcile();
+        Lighting.UpdateDesiredContext();
+        Power.RequestAssignmentReconcile();
         UpdateOemConfiguration();
         if (!IntegrationEnabled)
         {
             return;
         }
 
-        await ReconcileDesiredValuesAsync(
+        await Commands.ReconcileDesiredValuesAsync(
             $"profile generation {snapshot.Generation}",
             cancellationToken).ConfigureAwait(false);
 
@@ -2379,73 +2087,6 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         Log.Info($"Physical glyph presentation changed: {selection}.");
     }
 
-    /// <summary>Turns AutoTDP on or off and persists the choice.</summary>
-    /// <param name="cancellationToken">Cancels the change.</param>
-    /// <returns>A task completing once the new setting is persisted.</returns>
-    /// <remarks>
-    ///     Persisted rather than session-only, and applied by the ordinary configuration reload, so the
-    ///     overlay switch and the Settings checkbox are the same setting reached two ways.
-    /// </remarks>
-    internal Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default)
-    {
-        return SetAutoTdpEnabledAsync(null, cancellationToken);
-    }
-
-    /// <summary>Sets AutoTDP to an explicit state, or flips it, and persists the choice.</summary>
-    /// <param name="requested">The state the caller asked for, or null to flip the persisted state.</param>
-    /// <param name="cancellationToken">Cancels the change.</param>
-    /// <returns>A task completing once the setting is persisted.</returns>
-    /// <remarks>
-    ///     The current state is read inside the transition gate, so concurrent surfaces cannot invert a
-    ///     newer persisted choice and two quick toggles are both applied.
-    /// </remarks>
-    internal async Task SetAutoTdpEnabledAsync(
-        bool? requested,
-        CancellationToken cancellationToken = default)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        using var transition = await EnterTransitionAsync(cancellationToken).ConfigureAwait(false);
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        var enabled = requested ?? !_config.DeviceIntegration.AutoTdpEnabled;
-        if (enabled && AutoTdp.Availability is { Available: false } availability)
-        {
-            throw new InvalidOperationException(availability.Detail);
-        }
-
-        if (_config.DeviceIntegration.AutoTdpEnabled == enabled)
-        {
-            Log.Info($"AutoTDP is already {(enabled ? "on" : "off")}; nothing to persist.");
-            return;
-        }
-
-        await PersistConfigurationAsync(
-            config => config.DeviceIntegration.AutoTdpEnabled = enabled,
-            cancellationToken).ConfigureAwait(false);
-        Log.Info($"AutoTDP switched {(enabled ? "on" : "off")} from the Device surface.");
-    }
-
-    /// <summary>Stores AutoTDP's frame-rate target in the layer in force.</summary>
-    /// <param name="fps">The target, within <see cref="AutoTdpTarget" />'s range.</param>
-    /// <param name="cancellationToken">Cancels the save.</param>
-    /// <returns>A task completing once the target is saved and announced.</returns>
-    /// <exception cref="ArgumentOutOfRangeException">The target lies outside the offered range.</exception>
-    /// <remarks>
-    ///     A profile value like the frame limit: it lands in the running game's profile while that is on
-    ///     and in Global otherwise. Control reads it on its next window, so nothing restarts.
-    /// </remarks>
-    internal async Task SetAutoTdpTargetAsync(int fps, CancellationToken cancellationToken = default)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        if (!AutoTdpTarget.IsValid(fps))
-        {
-            throw new ArgumentOutOfRangeException(nameof(fps), fps,
-                $"The AutoTDP target must be between {AutoTdpTarget.MinimumFps} and {AutoTdpTarget.MaximumFps} FPS.");
-        }
-
-        await Profiles.SetAsync(ProfileField.AutoTdpTarget, fps, cancellationToken).ConfigureAwait(false);
-        AutoTdp.RefreshPrerequisites();
-    }
-
     /// <summary>Claims managed controller input for one visible WSGM surface.</summary>
     /// <param name="surfaceId">Nonblank identifier retained until this surface releases its claim.</param>
     /// <param name="cancellationToken">Cancels admission or target neutralization; coordinator shutdown also cancels it.</param>
@@ -2526,547 +2167,6 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         return persisted;
     }
 
-    /// <summary>Routes one semantic capability command through current validation and serialization.</summary>
-    /// <param name="capabilityId">The capability being commanded.</param>
-    /// <param name="instanceId">Its instance, or null for a single-instance capability.</param>
-    /// <param name="value">The requested value, or null for an action.</param>
-    /// <param name="timeout">How long the command may take.</param>
-    /// <param name="origin">Who asked for it, which decides whether AutoTDP steps aside.</param>
-    /// <param name="applyPowerPair">Whether both limits of the declared sustained/boost pair move to this target.</param>
-    /// <param name="cancellationToken">Cancels the command.</param>
-    /// <returns>The command result reported by the handheld.</returns>
-    internal async Task<CapabilityCommandResult> ExecuteCapabilityAsync(
-        string capabilityId,
-        string? instanceId,
-        CapabilityValue? value,
-        TimeSpan timeout,
-        CapabilityCommandOrigin origin = CapabilityCommandOrigin.User,
-        bool applyPowerPair = false,
-        CancellationToken cancellationToken = default)
-    {
-        if (_disposed && origin is not CapabilityCommandOrigin.AutoTdp)
-        {
-            return ClosedCapabilityAdmission();
-        }
-
-        using var admission = origin is CapabilityCommandOrigin.AutoTdp
-            ? null
-            : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
-        cancellationToken = admission?.Token ?? cancellationToken;
-        var power = FindDescriptor(capabilityId, instanceId)?.Role is
-            CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit or CapabilityRole.PowerFastLimit
-                or CapabilityRole.PowerPeakLimit or CapabilityRole.ScenarioMode;
-        if (origin == CapabilityCommandOrigin.User
-            && FindDescriptor(capabilityId, instanceId)?.Role == CapabilityRole.PowerSustainedLimit)
-        {
-            applyPowerPair |= Profiles.Current.Layers.ManualTdp()?.Unified == true;
-        }
-
-        if (power)
-        {
-            await _powerLane.WaitAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        try
-        {
-            return await ExecuteCapabilityCoreAsync(capabilityId, instanceId, value, timeout, origin,
-                    applyPowerPair, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        finally
-        {
-            if (power)
-            {
-                _powerLane.Release();
-            }
-        }
-    }
-
-    /// <summary>
-    ///     Restores the power limit the running application prefers, and takes back the one the outgoing
-    ///     application imposed.
-    /// </summary>
-    /// <param name="manualProfile">The power limit the layers resolve to, or null when none is preferred.</param>
-    /// <param name="applicationId">The running application, or null for the desktop.</param>
-    /// <param name="cancellationToken">Cancels the device writes.</param>
-    /// <returns>A task completing once the decision was carried out.</returns>
-    /// <remarks>
-    ///     Runs whole inside the power lane, so the imposed flags it decides from are the ones the manual
-    ///     funnel last wrote, and no preset, AutoTDP or user write lands between the decision and its
-    ///     writes. A power-source preset assignment in force owns the limits instead. The decision is
-    ///     pure and tested (<see cref="PerApplicationPowerPolicy" />).
-    /// </remarks>
-    internal async Task ReconcileApplicationPowerAsync(
-        ManualTdpProfile? manualProfile,
-        string? applicationId,
-        CancellationToken cancellationToken)
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        await _powerLane.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            var power = Capabilities.Snapshot().FirstOrDefault(view => view.Descriptor is
-            {
-                Role: CapabilityRole.PowerSustainedLimit,
-                SupportsWrite: true,
-                ValueKind: CapabilityValueKind.Integer
-            });
-            if (power is null || PowerAssignments.HasCurrentAssignment)
-            {
-                return;
-            }
-
-            var (effective, paired) = manualProfile is null
-                ? (null, false)
-                : manualProfile.Unified
-                    ? (manualProfile.UnifiedWatts, true)
-                    : (manualProfile.SustainedWatts, false);
-            var ceiling = power.Descriptor.Maximum ?? 0;
-            var autoTdpEnabled = AutoTdpEnabled;
-            var decision = PerApplicationPowerPolicy.DecideOnTargetChange(
-                effective,
-                _profilePowerImposed,
-                autoTdpEnabled,
-                ceiling);
-            var target = applicationId ?? "the global profile";
-            switch (decision.Action)
-            {
-                case PerAppPowerAction.Apply:
-                    var boost = manualProfile is { Unified: false }
-                                && power.Descriptor.PairedPowerLimitId is { } peerId
-                        ? Capabilities.TryGetView(new DeviceCapabilityKey(peerId, null))?.Projection.DesiredValue
-                            ?.IntegerValue
-                        : null;
-                    // A value the user just set by hand is already on the device; writing it again would
-                    // only pause AutoTDP a second time.
-                    var applied = boost is { } boostWatts
-                        ? await RestoreSplitPowerAsync(power, decision.Watts, boostWatts, cancellationToken)
-                            .ConfigureAwait(false)
-                        : power.Projection.State.ObservedValue?.IntegerValue == decision.Watts
-                          || await ApplyProfilePowerLimitAsync(power, decision.Watts, paired, cancellationToken)
-                              .ConfigureAwait(false);
-                    if (applied)
-                    {
-                        // An explicit limit overrides automatic control exactly as moving the slider
-                        // does; pausing while it is applied keeps AutoTDP from writing over it next tick.
-                        if (autoTdpEnabled)
-                        {
-                            AutoTdp.NoteManualChange(decision.Watts);
-                        }
-
-                        _profilePowerImposed = true;
-                        _profilePowerPaired = paired || boost is not null;
-                        Log.Info($"Per-application power limit applied: {decision.Watts} W for {target}.");
-                    }
-
-                    break;
-                case PerAppPowerAction.ResumeAutomatic:
-                    AutoTdp.ResumeAutomaticControl();
-                    _profilePowerImposed = false;
-                    _profilePowerPaired = false;
-                    Log.Info($"Per-application power limit released; automatic control resumes for {target}.");
-                    break;
-                case PerAppPowerAction.ReleaseToCeiling:
-                    if (ceiling > 0
-                        && await ApplyProfilePowerLimitAsync(power, ceiling, _profilePowerPaired, cancellationToken)
-                            .ConfigureAwait(false))
-                    {
-                        _profilePowerImposed = false;
-                        _profilePowerPaired = false;
-                        Log.Info(
-                            $"Per-application power limit released to the device ceiling {ceiling} W for {target}.");
-                    }
-
-                    break;
-                case PerAppPowerAction.Leave:
-                    break;
-                default:
-                    Log.Warn($"Per-application power decision {decision.Action} is unknown; the limit is left as is.");
-                    break;
-            }
-        }
-        finally
-        {
-            _powerLane.Release();
-        }
-    }
-
-    /// <summary>Writes a stored per-application limit; called inside the power lane.</summary>
-    /// <returns>Whether the write was dispatched; a readback is never required.</returns>
-    private async Task<bool> ApplyProfilePowerLimitAsync(
-        DeviceCapabilityView power,
-        int watts,
-        bool paired,
-        CancellationToken cancellationToken)
-    {
-        var state = power.Projection.State;
-        // Not a user action: the value is already the saved preference, so it must not re-enter the
-        // manual funnel and be persisted again or re-resolved into the wrong layer.
-        var result = await ExecuteCapabilityCoreAsync(power.Descriptor.CapabilityId, power.Descriptor.InstanceId,
-            new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = watts },
-            TimeSpan.FromSeconds(5), CapabilityCommandOrigin.ProfileRestore,
-            paired, cancellationToken).ConfigureAwait(false);
-        var applied = result.Outcome.IsApplied();
-        if (!applied)
-        {
-            Log.Warn($"Per-application power limit {watts} W was not applied: "
-                     + (result.Reason?.Detail ?? result.Outcome.ToString()));
-        }
-
-        return applied;
-    }
-
-    /// <summary>Restores a split sustained/boost preference; called inside the power lane.</summary>
-    /// <returns>Whether both writes were dispatched.</returns>
-    private async Task<bool> RestoreSplitPowerAsync(DeviceCapabilityView primary, int sustained, int boost,
-        CancellationToken cancellationToken)
-    {
-        var peerId = primary.Descriptor.PairedPowerLimitId;
-        var peer = peerId is null ? null : FindCapability(peerId, null);
-        if (peer is null || !ManualTdpPolicy.Accepts(peer.Descriptor.Minimum, peer.Descriptor.Maximum,
-                peer.Descriptor.Step, boost))
-        {
-            return false;
-        }
-
-        var state = primary.Projection.State;
-        // The unified write moves both limits to the sustained target before the independent boost
-        // preference is restored, so the boost write never finds the sustained limit above it.
-        var pair = await ExecuteCapabilityCoreAsync(primary.Descriptor.CapabilityId, primary.Descriptor.InstanceId,
-            new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = sustained },
-            TimeSpan.FromSeconds(5), CapabilityCommandOrigin.ProfileRestore,
-            true, cancellationToken).ConfigureAwait(false);
-        if (!pair.Outcome.IsApplied())
-        {
-            return false;
-        }
-
-        AutoTdp.NoteManualChange(sustained);
-        var result = await ExecuteCapabilityCoreAsync(peerId!, null,
-            new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = boost },
-            TimeSpan.FromSeconds(5), CapabilityCommandOrigin.ProfileRestore,
-            false, cancellationToken).ConfigureAwait(false);
-        return result.Outcome.IsApplied();
-    }
-
-    /// <summary>Persists a hand-set power limit to whichever profile layer is in force.</summary>
-    /// <param name="watts">The limit the user just set, already applied to the device.</param>
-    /// <remarks>
-    ///     Runs from the manual funnel inside the power lane, so the value has already reached the device
-    ///     and paused AutoTDP. This only records it in the layer in force, the game profile while it is on
-    ///     and Global otherwise, so the next launch restores it instead of the value leaking onto whatever
-    ///     runs next.
-    /// </remarks>
-    private void PersistManualPowerLimit(int watts)
-    {
-        var layers = Profiles.Current.Layers;
-        var manual = layers.ManualTdp();
-        var key = layers.PowerTargetKey;
-        var current = manual is null ? null : manual.Unified ? manual.UnifiedWatts : manual.SustainedWatts;
-
-        // A drag that ends on the stored value writes no config.
-        _profilePowerImposed = true;
-        _profilePowerPaired = manual?.Unified == true;
-        if (current == watts)
-        {
-            return;
-        }
-
-        Observe(Profiles.SetAsync(key.Field, watts), $"save of the {watts} W power limit");
-    }
-
-    private async Task<CapabilityCommandResult> ExecuteCapabilityCoreAsync(
-        string capabilityId, string? instanceId, CapabilityValue? value, TimeSpan timeout,
-        CapabilityCommandOrigin origin, bool applyPowerPair,
-        CancellationToken cancellationToken)
-    {
-        if (_disposed && origin is not CapabilityCommandOrigin.AutoTdp)
-        {
-            return ClosedCapabilityAdmission();
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
-        var user = origin is CapabilityCommandOrigin.User;
-        if (user)
-        {
-            Interlocked.Increment(ref _userCapabilityCommands);
-        }
-
-        var processorResetLane = false;
-        try
-        {
-            if (user && capabilityId is "processor.reset" or "processor.gpu-clock-automatic" && value is null
-                && DeviceIdentityKey is { } processorDevice && FindCapability(capabilityId, instanceId) is not null)
-            {
-                // Join any in-flight profile pass before clearing intent and restoring hardware.
-                // Otherwise an already-admitted old clock could be written after the reset.
-                await _profileReconcileGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-                processorResetLane = true;
-                // Remove every saved layer first so a wake or a dormant game cannot reimpose tuning.
-                // A persistence failure must leave hardware untouched.
-                await Profiles.ClearProcessorTuningAsync(processorDevice, cancellationToken,
-                    capabilityId == "processor.reset" ? null : "processor.gpu-clock").ConfigureAwait(false);
-                UpdateCapabilityDesiredContext();
-            }
-
-            if (user && FindDescriptor(capabilityId, instanceId) is { } manualDescriptor)
-            {
-                if (manualDescriptor.Role == CapabilityRole.ChargeBypass && _client?.UsesSoftwareChargeLimit == true)
-                {
-                    await _chargeLimits.SuspendAsync().ConfigureAwait(false);
-                    _client.ReportSoftwareChargeSuspended();
-                }
-
-                if (manualDescriptor.Role is CapabilityRole.FanDuty or CapabilityRole.FanMode)
-                {
-                    // The chosen mode decides who drives this fan: Software starts the curve on it, and
-                    // anything else, a manual duty included, hands it back before the write.
-                    await ConfigureFanCurveAsync(SavedSoftwareCurve(), explicitSelection: true,
-                        (instanceId ?? string.Empty,
-                            manualDescriptor.Role == CapabilityRole.FanMode
-                            && value?.ChoiceValue == FanControlModes.Software)).ConfigureAwait(false);
-                }
-                else if (manualDescriptor.Role == CapabilityRole.FanCurve && instanceId is not null)
-                {
-                    await ConfigureFanCurveAsync(null, explicitSelection: true, stopAll: true).ConfigureAwait(false);
-                }
-            }
-
-            if (user && value is not null && _identity is not null
-                && FindCapability(capabilityId, instanceId) is { } view)
-            {
-                var handled = await CapabilityUserWrites.HandleUserWriteAsync(Profiles,
-                    DeviceIdentityKey!, view, value, async () =>
-                    {
-                        var written = await Capabilities.ExecuteAsync(capabilityId, instanceId, value, timeout,
-                            applyPowerPair,
-                            cancellationToken).ConfigureAwait(false);
-                        NotifyManualPowerChange(capabilityId, instanceId, value, written);
-                        if (written.Outcome.IsApplied() && view.Descriptor.Role == CapabilityRole.LightingZoneColor)
-                        {
-                            await ManualLightingOverrideAsync(cancellationToken).ConfigureAwait(false);
-                        }
-
-                        return written;
-                    }, _manualVariableRefresh, cancellationToken).ConfigureAwait(false);
-                UpdateCapabilityDesiredContext();
-                return handled;
-            }
-
-            var result = await Capabilities.ExecuteAsync(
-                capabilityId,
-                instanceId,
-                value,
-                timeout,
-                applyPowerPair, cancellationToken).ConfigureAwait(false);
-            // ReSharper disable once SwitchStatementMissingSomeEnumCasesNoDefault
-            switch (origin)
-            {
-                case CapabilityCommandOrigin.User:
-                    NotifyManualPowerChange(capabilityId, instanceId, value, result);
-                    NotifyManualVariableRefreshChange(capabilityId, instanceId, value, result);
-                    await PersistUserCapabilityValueAsync(
-                        capabilityId,
-                        instanceId,
-                        value,
-                        result,
-                        cancellationToken).ConfigureAwait(false);
-                    break;
-                case CapabilityCommandOrigin.DesiredStateRestore
-                    when result.Outcome.IsApplied()
-                         && FindDescriptor(capabilityId, instanceId)?.Role is CapabilityRole.PowerSustainedLimit
-                         && value?.IntegerValue is { } watts:
-                    AutoTdp.NoteManualChange(watts);
-                    break;
-            }
-
-            return result;
-        }
-        finally
-        {
-            if (processorResetLane)
-            {
-                _profileReconcileGate.Release();
-            }
-
-            if (user)
-            {
-                Interlocked.Decrement(ref _userCapabilityCommands);
-            }
-        }
-    }
-
-    private static CapabilityCommandResult ClosedCapabilityAdmission()
-    {
-        return new CapabilityCommandResult
-        {
-            CommandId = Guid.NewGuid(),
-            Outcome = CommandOutcome.Rejected,
-            Reason = new CapabilityReason(CapabilityReasonCode.HostUnavailable,
-                "The device session is stopping."),
-            CompletedAt = DateTimeOffset.UtcNow
-        };
-    }
-
-    private void NotifyManualPowerChange(
-        string capabilityId,
-        string? instanceId,
-        CapabilityValue? value,
-        CapabilityCommandResult result)
-    {
-        if (!result.Outcome.IsApplied())
-        {
-            return;
-        }
-
-        if (value?.Kind == CapabilityValueKind.Choice
-            && FindDescriptor(capabilityId, instanceId)?.Role == CapabilityRole.ScenarioMode)
-        {
-            // AutoTDP's next limit write would leave the chosen firmware profile again (the Atlas
-            // selects Manual for any PL1 write), so a hand-picked profile pauses it like a slider move.
-            Log.Info($"AutoTDP paused: the {value.ChoiceValue} performance profile was chosen by hand.");
-            AutoTdp.NoteManualChange(null);
-            return;
-        }
-
-        if (value?.IntegerValue is not { } watts)
-        {
-            return;
-        }
-
-        var views = Capabilities.Snapshot();
-        var primaryPowerLimit = views.Any(view =>
-            view.Descriptor.Role is CapabilityRole.PowerSustainedLimit
-            && string.Equals(view.Descriptor.CapabilityId, capabilityId, StringComparison.Ordinal)
-            && string.Equals(view.Descriptor.InstanceId, instanceId, StringComparison.Ordinal));
-        if (!primaryPowerLimit)
-        {
-            var primary = views.FirstOrDefault(view =>
-                (view.Descriptor.PairedPowerLimitId == capabilityId
-                 || (FindDescriptor(capabilityId, instanceId)?.Role is CapabilityRole.PowerFastLimit
-                     or CapabilityRole.PowerPeakLimit
-                     && view.Descriptor.Role == CapabilityRole.PowerSustainedLimit)) && instanceId is null);
-            if (primary?.Projection.State.ObservedValue?.IntegerValue is { } sustained)
-            {
-                // A companion edit hands the runtime pair back without persisting observed
-                // sustained wattage as a new primary preference.
-                AutoTdp.NoteManualChange(sustained);
-            }
-
-            return;
-        }
-
-        // Permanent until the user resumes control, by specification: quietly taking the limit back
-        // a few seconds after they set it by hand would make the manual control look broken.
-        Log.Info($"AutoTDP paused: the sustained power limit was set to {watts} W by hand.");
-        AutoTdp.NoteManualChange(watts);
-        PersistManualPowerLimit(watts);
-    }
-
-    /// <summary>Hands a hand-set variable-refresh state to the performance profile that owns it.</summary>
-    /// <remarks>
-    ///     The Device row and Steam's own control are two ways to press the same switch, and only the
-    ///     second used to reach the profile. Routing both through here keeps one stored answer for the
-    ///     feature instead of giving the overlay a second one under device integration.
-    /// </remarks>
-    private void NotifyManualVariableRefreshChange(
-        string capabilityId,
-        string? instanceId,
-        CapabilityValue? value,
-        CapabilityCommandResult result)
-    {
-        if (value?.BooleanValue is not { } enabled
-            || !result.Outcome.IsApplied()
-            || FindDescriptor(capabilityId, instanceId)?.Role
-                is not CapabilityRole.VariableRefreshRate)
-        {
-            return;
-        }
-
-        _manualVariableRefresh(enabled);
-    }
-
-    /// <summary>Records a value the user just set as the desired state of the layer in force.</summary>
-    /// <param name="capabilityId">The capability that was commanded.</param>
-    /// <param name="instanceId">Its instance, or null for a single-instance capability.</param>
-    /// <param name="value">The requested value, or null for an action.</param>
-    /// <param name="result">What the handheld reported.</param>
-    /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns>A task completing once the value is stored, or immediately when it is not.</returns>
-    /// <remarks>
-    ///     Without this the Device surface commanded hardware and remembered nothing: every row went
-    ///     back to whatever the firmware held on the next cycle or the next boot. The descriptor's profile
-    ///     scope and the profile store decide the layer (<see cref="CapabilityUserWrites" />).
-    ///     <para>
-    ///         Applied after the device took the value, not before: recording a preference the hardware
-    ///         refused would restore a value on the next launch that the device never accepted. An
-    ///         unverified write still counts, because the desired state is what the user asked for and the
-    ///         handheld reports that it wrote it.
-    ///     </para>
-    /// </remarks>
-    private async Task PersistUserCapabilityValueAsync(
-        string capabilityId,
-        string? instanceId,
-        CapabilityValue? value,
-        CapabilityCommandResult result,
-        CancellationToken cancellationToken)
-    {
-        if (value is null
-            || !result.Outcome.IsApplied())
-        {
-            return;
-        }
-
-        var view = FindCapability(capabilityId, instanceId);
-        if (view is null
-            || !view.Descriptor.SupportsWrite
-            || CapabilityUserWrites.PerformanceProfileOwnsRole(view.Descriptor.Role))
-        {
-            return;
-        }
-
-        if (_identity is null)
-        {
-            Log.Warn(
-                $"Device value for {capabilityId}{Instance(instanceId)} was applied but not saved: "
-                + "this machine has no resolved device identity to store it under.");
-            return;
-        }
-
-        // Restores never reach persistence. A user control landing back on the desired value
-        // also needs no configuration write.
-        if (view.Descriptor.Role == CapabilityRole.LightingZoneColor)
-        {
-            await ManualLightingOverrideAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        if (await CapabilityUserWrites.PersistAsync(Profiles, DeviceIdentityKey!, view,
-                value, cancellationToken).ConfigureAwait(false))
-        {
-            UpdateCapabilityDesiredContext();
-        }
-    }
-
-    /// <summary>The published view of one capability instance, or null when none is published.</summary>
-    private DeviceCapabilityView? FindCapability(string capabilityId, string? instanceId)
-    {
-        return Capabilities.TryGetView(new DeviceCapabilityKey(capabilityId, instanceId));
-    }
-
-    private CapabilityDescriptor? FindDescriptor(string capabilityId, string? instanceId)
-    {
-        return FindCapability(capabilityId, instanceId)?.Descriptor;
-    }
-
     /// <summary>Attaches WSGM-owned UI and system actions after the shell surfaces exist.</summary>
     /// <param name="actions">Borrowed callbacks owned by the shell; these supply UI/system policy rather than device firmware.</param>
     internal void ConfigureOemActions(DeviceOemActionServices actions)
@@ -3075,137 +2175,57 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         _oemActions.ConfigureActions(actions);
     }
 
-    /// <summary>Writes every persistent desired value the hardware does not already hold.</summary>
-    /// <param name="reason">What asked for the reconciliation, for the log.</param>
-    /// <param name="cancellationToken">Cancels the remaining commands.</param>
-    /// <param name="lightingOnly">Limits readiness-triggered restoration to lighting.</param>
-    /// <returns>A task completing once every affected capability has been attempted.</returns>
-    /// <remarks>
-    ///     Per-capability and independent: one refusal must not stop the rest, because a profile that
-    ///     applied its fan curve but not its power limit is still better than one that applied nothing.
-    ///     A value the device already reports is skipped, so reselecting the active profile is free.
-    /// </remarks>
-    private async Task ReconcileDesiredValuesAsync(
-        string reason, CancellationToken cancellationToken, bool lightingOnly = false)
-    {
-        await _profileReconcileGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            await ReconcileLightingProfileAsync(Profiles.Current, cancellationToken).ConfigureAwait(false);
-            await CapabilityDesiredReconciler.RunAsync(
-                new CapabilityReconcilePass(
-                    "Device",
-                    Capabilities.Snapshot,
-                    (view, desired, token) => RestoreDesiredValueAsync(view, desired, reason, token))
-                {
-                    ReadCurrent = Capabilities.TryGetView,
-                    Priority = ReconciliationPriority,
-                    Include = view => !OwnsLightingProfile(view)
-                                      && (!lightingOnly || DeviceLightingRestore.IsLighting(view.Descriptor.Role))
-                                      && !(view.Descriptor.Role is CapabilityRole.FanDuty or CapabilityRole.FanTargetRpm
-                                               or CapabilityRole.FanCurve
-                                           && ManualFanVisibility.Hides(Capabilities.Snapshot(), view))
-                                      && !(view.Descriptor.Role is CapabilityRole.PowerSlowLimit
-                                               or CapabilityRole.PowerFastLimit or CapabilityRole.PowerPeakLimit
-                                           && (ManualTdpUnified || PowerAssignments.HasCurrentAssignment)),
-                    Abandon = () => lightingOnly && Volatile.Read(ref _userCapabilityCommands) != 0
-                },
-                reason,
-                cancellationToken).ConfigureAwait(false);
-            if (!lightingOnly)
-            {
-                await ApplyAuthoredProfilesAsync(Profiles.Current, cancellationToken).ConfigureAwait(false);
-                await ReconcileChargeLimitAsync().ConfigureAwait(false);
-            }
-        }
-        finally
-        {
-            _profileReconcileGate.Release();
-        }
-    }
-
-    /// <summary>Writes one admitted desired value, with the lighting attempt budget around it.</summary>
-    /// <returns>The result, or null when a lighting zone has no attempt left.</returns>
-    private async Task<CapabilityCommandResult?> RestoreDesiredValueAsync(
-        DeviceCapabilityView view,
-        CapabilityValue desired,
-        string reason,
+    /// <summary>The command route the coordinator's parts write through, with the five-second command budget.</summary>
+    private Task<CapabilityCommandResult> ExecuteInternalAsync(string capabilityId, string? instanceId,
+        CapabilityValue? value, CapabilityCommandOrigin origin, bool applyPowerPair,
         CancellationToken cancellationToken)
     {
-        var lighting = DeviceLightingRestore.IsLighting(view.Descriptor.Role);
-        var attempt = lighting ? _lightingRestore.TryBegin(view) : 0;
-        if (lighting && attempt == 0)
-        {
-            return null;
-        }
-
-        var outcome = CommandOutcome.Indeterminate;
-        try
-        {
-            // The pass is cancelled between writes, never inside one: a write cancelled in flight
-            // ends Indeterminate, and a device without readback can never settle it. A profile
-            // change 700 ms after a game started left the Ally's scenario that way for the rest of
-            // the session (2026-09-29). The command's own deadline still bounds the wait.
-            var result = await ExecuteCapabilityAsync(
-                view.Descriptor.CapabilityId,
-                view.Descriptor.InstanceId,
-                desired,
-                TimeSpan.FromSeconds(5),
-                CapabilityCommandOrigin.DesiredStateRestore,
-                cancellationToken: _lifetime.Token).ConfigureAwait(false);
-            outcome = result.Outcome;
-            return result;
-        }
-        finally
-        {
-            if (lighting)
-            {
-                _lightingRestore.Complete(view, outcome);
-                Log.Change(
-                    $"device-restore/{view.Descriptor.CapabilityId}{Instance(view.Descriptor.InstanceId)}",
-                    $"Device restore {view.Descriptor.CapabilityId}{Instance(view.Descriptor.InstanceId)} "
-                    + $"from {view.Projection.DesiredSource} ({reason}): outcome={outcome}, "
-                    + $"attempt {attempt} of {DeviceLightingRestore.MaxAttempts}.",
-                    outcome.IsApplied() ? LogLevel.Info : LogLevel.Warn);
-            }
-        }
+        return Commands.ExecuteAsync(capabilityId, instanceId, value, TimeSpan.FromSeconds(5), origin,
+            applyPowerPair, cancellationToken);
     }
 
-    /// <summary>Orders coupled power writes so their transient pair remains valid.</summary>
-    /// <param name="view">Capability and its observed and desired values.</param>
-    /// <returns>Lower values are written first.</returns>
-    private static int ReconciliationPriority(DeviceCapabilityView view)
+    /// <summary>The in-lane command route the power policy writes through, with the five-second command budget.</summary>
+    private Task<CapabilityCommandResult> ExecuteInLaneAsync(string capabilityId, string? instanceId,
+        CapabilityValue? value, CapabilityCommandOrigin origin, bool applyPowerPair,
+        CancellationToken cancellationToken)
     {
-        var observed = view.Projection.State.ObservedValue?.IntegerValue;
-        var desired = view.Projection.DesiredValue?.IntegerValue;
-        return view.Descriptor.Role switch
-        {
-            // Lower PL1 before lowering PL2, otherwise the new PL2 can fall below the old PL1.
-            CapabilityRole.PowerSustainedLimit when desired < observed => 0,
-            // Raise PL2 before raising PL1, otherwise the new PL1 can exceed the old PL2.
-            CapabilityRole.PowerSlowLimit or CapabilityRole.PowerFastLimit or CapabilityRole.PowerPeakLimit
-                when desired > observed => 0,
-            CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit or CapabilityRole.PowerFastLimit
-                or CapabilityRole.PowerPeakLimit => 1,
-            _ => 2
-        };
+        return Commands.ExecuteCoreAsync(capabilityId, instanceId, value, TimeSpan.FromSeconds(5), origin,
+            applyPowerPair, cancellationToken);
     }
 
-    private static string Instance(string? instanceId)
+    // The lighting owner is composed before the command route it reads these from.
+    private bool UserCommandsInFlight()
     {
-        return instanceId is { Length: > 0 } ? $"/{instanceId}" : string.Empty;
+        return Commands.UserCommandsInFlight;
     }
 
-    private void UpdateCapabilityDesiredContext()
+    private Task ReconcileDesiredValuesAsync(string reason, CancellationToken cancellationToken, bool lightingOnly)
     {
-        // Unknown power reads as AC here: only a confirmed battery state selects battery values.
-        Capabilities.UpdateDesiredContext(DeviceIdentityKey, LightingProfileDesiredLayers(Profiles.Current.Layers),
-            _readOnAcPower() ?? true);
+        return Commands.ReconcileDesiredValuesAsync(reason, cancellationToken, lightingOnly);
+    }
+
+    private Task ConfigureChargeLimitAsync(int? percent, bool explicitSelection)
+    {
+        return _chargeLimits.ConfigureAsync(percent,
+            _client is { UsesSoftwareChargeLimit: true, IsActive: true } && IntegrationEnabled, explicitSelection);
+    }
+
+    private Task ReconcileChargeLimitAsync()
+    {
+        return _client is { UsesSoftwareChargeLimit: true }
+            ? ConfigureChargeLimitAsync(Capabilities
+                .TryGetView(new DeviceCapabilityKey(CapabilityIds.ChargeLimit, null))
+                ?.Projection.DesiredValue?.IntegerValue, false)
+            : _chargeLimits.StopAsync();
+    }
+
+    /// <summary>The authored profiles of the exact matched model, or null before detection.</summary>
+    private DeviceProfileScope? ActiveProfileScope()
+    {
+        return DeviceDefinition is { } definition
+            ? _config.DeviceIntegration.DeviceProfiles.FirstOrDefault(scope => scope.DeviceDefinitionId == definition.Id
+                                                                               && scope.FamilyId == definition.FamilyId)
+            : null;
     }
 
     private void UpdateOemConfiguration()
@@ -3334,60 +2354,20 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
             {
                 try
                 {
-                    await ReconcileDesiredValuesAsync($"device {state}", _lifetime.Token).ConfigureAwait(false);
+                    await Commands.ReconcileDesiredValuesAsync($"device {state}", _lifetime.Token).ConfigureAwait(false);
                 }
                 finally
                 {
-                    RequestPowerAssignmentReconcile();
+                    Power.RequestAssignmentReconcile();
                 }
             });
             Volatile.Write(ref _resumeRestore, restore);
             Observe(restore, "cycle restore");
         }
 
-        RequestPowerAssignmentReconcile();
+        Power.RequestAssignmentReconcile();
 
-        OnLightingStateChanged(Capabilities.Snapshot());
-    }
-
-    private void OnLightingStateChanged(IReadOnlyList<DeviceCapabilityView> views)
-    {
-        if (_disposed || !IntegrationEnabled || State is not (DeviceCycleState.Active or DeviceCycleState.Degraded)
-            || Volatile.Read(ref _userCapabilityCommands) != 0
-            || !HasRestorableLighting(views)
-            || Interlocked.CompareExchange(ref _lightingRestoreScheduled, 1, 0) != 0)
-        {
-            return;
-        }
-
-        Observe(Task.Run(async () =>
-        {
-            try
-            {
-                await ReconcileDesiredValuesAsync("lighting ready", _lifetime.Token, true)
-                    .ConfigureAwait(false);
-            }
-            finally
-            {
-                Interlocked.Exchange(ref _lightingRestoreScheduled, 0);
-            }
-        }), "lighting restore");
-    }
-
-    // Runs on every state publication, telemetry included, so it avoids LINQ and skips non-lighting views
-    // before the restore gate is taken.
-    private bool HasRestorableLighting(IReadOnlyList<DeviceCapabilityView> views)
-    {
-        for (var index = 0; index < views.Count; index++)
-        {
-            var view = views[index];
-            if (DeviceLightingRestore.IsLighting(view.Descriptor.Role) && _lightingRestore.CanApply(view))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        Lighting.OnCapabilitiesChanged(Capabilities.Snapshot());
     }
 
     private void Observe(Task task, string operation)
@@ -3469,38 +2449,5 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
 
         /// <summary>Stop whatever is there and start a fresh cycle.</summary>
         Restart
-    }
-
-    /// <summary>What the power-preset projection reads from one power control.</summary>
-    /// <param name="Commandable">Whether it takes commands, which decides preset availability.</param>
-    /// <param name="Observed">Its observed value.</param>
-    private readonly record struct PowerControlReading(
-        bool Commandable,
-        CapabilityValue? Observed)
-    {
-        internal static PowerControlReading Of(DeviceCapabilityView view)
-        {
-            var state = view.Projection.State;
-            return new PowerControlReading(
-                DeviceCapabilityRouter.CanCommand(state), state.ObservedValue);
-        }
-    }
-}
-
-/// <summary>Complete retained outcome of controller handoff, handheld stop, detach, and disposal.</summary>
-/// <param name="Failures">All retained cleanup failures; an empty list means no stage reported an unverified outcome.</param>
-internal sealed record DeviceClientTeardownResult(IReadOnlyList<Exception> Failures)
-{
-    /// <summary>Shared result for cleanup with no reported failures.</summary>
-    internal static DeviceClientTeardownResult Clean { get; } = new([]);
-
-    /// <summary>Whether no cleanup stage reported failure; this does not add independent hardware evidence.</summary>
-    internal bool Verified => Failures.Count == 0;
-
-    /// <summary>Combines retained cleanup failures for reporting without rerunning their operations.</summary>
-    /// <returns>The sole failure, or a combined exception describing multiple failures.</returns>
-    internal Exception ToException()
-    {
-        return Failures.Combine("Multiple device teardown steps were unverified.");
     }
 }

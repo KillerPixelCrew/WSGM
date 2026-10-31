@@ -226,11 +226,11 @@ internal sealed partial class SteamNativeSettingsService(
             return;
         }
 
-        if (coordinator.LightingProfileSelection() is { } lightingSelection)
+        if (coordinator.Lighting.Selection() is { } lightingSelection)
         {
             var descriptor = DeviceHostRows.LightingProfileView(lightingSelection.Profiles,
                 lightingSelection.Selected,
-                coordinator.LightingProfileDetail, coordinator.LightingProfileStatus);
+                coordinator.Lighting.Detail, coordinator.Lighting.Status);
             var choices = DeviceHostRows.ProfileChoices(lightingSelection.Profiles,
                     DeviceHostRows.LightingProfileEmptyLabel(profile.EditsGame))
                 .Select(choice => new SteamSettingsChoice(choice.Value,
@@ -244,10 +244,10 @@ internal sealed partial class SteamNativeSettingsService(
             Section(controller, "Lighting", "device/lighting-profile", [row]);
             offered.Add(key, new Offered(row, async (value, token) =>
             {
-                await coordinator.SelectLightingProfileAsync(EmptyToNull(value.GetString()), token)
+                await coordinator.Lighting.SelectAsync(EmptyToNull(value.GetString()), token)
                     .ConfigureAwait(false);
-                return coordinator.LightingProfileStatus == DescriptorStatus.Warning
-                    ? new SteamUiCommandResult(false, coordinator.LightingProfileDetail)
+                return coordinator.Lighting.Status == DescriptorStatus.Warning
+                    ? new SteamUiCommandResult(false, coordinator.Lighting.Detail)
                     : SteamUiCommandResult.Applied;
             }, profile.Active, profile.EditsGame));
         }
@@ -335,7 +335,7 @@ internal sealed partial class SteamNativeSettingsService(
             return new SteamUiCommandResult(false, "The device setting value is invalid.");
         }
 
-        var result = await coordinator.ExecuteCapabilityAsync(seen.CapabilityId, seen.InstanceId, candidate,
+        var result = await coordinator.Commands.ExecuteAsync(seen.CapabilityId, seen.InstanceId, candidate,
             NativeQamUi.CommandTimeout,
             cancellationToken: cancellationToken).ConfigureAwait(false);
         return NativeQamUi.CommandResult(result, "The device refused the setting.");

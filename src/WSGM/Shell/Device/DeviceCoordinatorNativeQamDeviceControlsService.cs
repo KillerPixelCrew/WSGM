@@ -103,7 +103,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDe
             return new SteamUiCommandResult(false, "The value is outside the device's current descriptor.");
         }
 
-        var result = await _coordinator!.ExecuteCapabilityAsync(view.Descriptor.CapabilityId,
+        var result = await _coordinator!.Commands.ExecuteAsync(view.Descriptor.CapabilityId,
             view.Descriptor.InstanceId, requested, NativeQamUi.CommandTimeout,
             cancellationToken: cancellationToken).ConfigureAwait(false);
         return NativeQamUi.CommandResult(result, $"The device command ended as {result.Outcome}.");
@@ -197,7 +197,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDe
         CapabilityValue value,
         CancellationToken cancellationToken)
     {
-        var result = await _coordinator!.ExecuteCapabilityAsync(
+        var result = await _coordinator!.Commands.ExecuteAsync(
             capabilityId,
             instanceId,
             value,
@@ -329,7 +329,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDe
                    ValueKind: CapabilityValueKind.Color,
                    SupportsWrite: true
                }
-               && DeviceCapabilityRouter.CanCommand(state);
+               && CapabilityFreshness.CanCommand(state);
     }
 
     private static int? ValidColor(CapabilityValue? value)

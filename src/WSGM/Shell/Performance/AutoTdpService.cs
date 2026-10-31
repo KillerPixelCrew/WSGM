@@ -1205,7 +1205,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     /// </remarks>
     private static bool CanWrite(DeviceCapabilityView? view)
     {
-        return view is not null && DeviceCapabilityRouter.CanCommand(view.Projection.State);
+        return view is not null && CapabilityFreshness.CanCommand(view.Projection.State);
     }
 
     /// <summary>The limit as last read or written, else the value the profile asks for.</summary>

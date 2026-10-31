@@ -23,19 +23,18 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     private readonly Dictionary<DeviceCapabilityKey, bool> _availability = [];
 
     private readonly Dictionary<DeviceCapabilityKey, SemaphoreSlim> _commandGates = [];
+
+    /// <summary>What each capability's latest command left behind; read and written under <c>_gate</c>.</summary>
+    private readonly CapabilityCommandLedger _commands = new();
+
     private readonly Dictionary<DeviceCapabilityKey, CapabilityDescriptor> _descriptors = [];
     private readonly Lock _gate = new();
 
     /// <summary>The name log lines carry: "Device", or the graphics publisher's profile key.</summary>
     private readonly string _label;
 
-    private readonly Dictionary<DeviceCapabilityKey, CapabilityValue> _lastCommandValues = [];
-    private readonly Dictionary<DeviceCapabilityKey, CapabilityCommandResult> _lastResults = [];
-
     /// <summary>Observers of late command completions, joined by <see cref="DisposeAsync" />.</summary>
     private readonly HashSet<Task> _lateObservers = [];
-
-    private readonly Dictionary<DeviceCapabilityKey, Guid> _latestCommands = [];
 
     /// <summary>Stops waiting for late completions once the router is disposed.</summary>
     /// <remarks>
@@ -43,8 +42,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     ///     no timer, so leaving it to the collector releases nothing late.
     /// </remarks>
     private readonly CancellationTokenSource _lifetime = new();
-
-    private readonly Dictionary<DeviceCapabilityKey, CapabilityValue> _pendingValues = [];
 
     private readonly Action<Action> _postToUi;
 
@@ -68,11 +65,9 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     private bool _connected;
     private bool _disposed;
 
-    // The stored profile values per capability instance, one index per layer, rebuilt when the profiles or
-    // the running application change rather than on every snapshot a state delta builds. Kept apart so
-    // each descriptor's profile scope decides which layers it resolves from.
-    private Dictionary<DeviceCapabilityKey, CapabilityValue> _gameDesired = [];
-    private Dictionary<DeviceCapabilityKey, CapabilityValue> _globalDesired = [];
+    /// <summary>The stored profile values desired state resolves from, replaced with each desired context.</summary>
+    private CapabilityDesiredLayers _desired = CapabilityDesiredLayers.Empty;
+
     private bool _onAcPower = true;
 
     // The same descriptors in snapshot order, sorted once per descriptor set rather than on every
@@ -175,10 +170,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             _descriptors.Clear();
             _orderedDescriptors = [];
             _states.Clear();
-            _lastResults.Clear();
-            _lastCommandValues.Clear();
-            _pendingValues.Clear();
-            _latestCommands.Clear();
+            _commands.Clear();
             _availability.Clear();
             _commandGates.Clear();
             _sections = [];
@@ -231,12 +223,10 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     /// <param name="onAcPower">Current power source, for descriptors that differ by source.</param>
     internal void UpdateDesiredContext(string? deviceIdentityKey, ProfileLayers layers, bool onAcPower)
     {
-        var global = Index(deviceIdentityKey, layers.Global);
-        var game = Index(deviceIdentityKey, layers.Game);
+        var desired = CapabilityDesiredLayers.From(deviceIdentityKey, layers);
         lock (_gate)
         {
-            _globalDesired = global;
-            _gameDesired = game;
+            _desired = desired;
             _onAcPower = onAcPower;
         }
 
@@ -353,8 +343,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         lock (_gate)
         {
             DetachUnderGate();
-            _pendingValues.Clear();
-            _latestCommands.Clear();
+            _commands.ForgetInFlight();
             _sections = [];
         }
 
@@ -381,7 +370,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 RequestedValue = value,
                 Deadline = Deadline.After(timeout > TimeSpan.Zero ? timeout : TimeSpan.FromSeconds(5))
             };
-            _latestCommands[key] = commandId;
+            _commands.Begin(key, commandId);
 
             if (!_connected || _client is not { IsActive: true })
             {
@@ -410,7 +399,8 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                                                      is { } peerDescriptor)
             {
                 if (!_states.TryGetValue(Key(peerDescriptor), out var peer)
-                    || !CanCommand(EvaluateFreshness(peer.State, FreshnessFor(peerDescriptor.Role), now)))
+                    || !CapabilityFreshness.CanCommand(CapabilityFreshness.Evaluate(peer.State,
+                        peerDescriptor.Role, now)))
                 {
                     return Reject(command, CapabilityReasonCode.ObservationExpired,
                         "The paired power limit is not available.");
@@ -430,11 +420,11 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                     "No current capability state has been observed.", true);
             }
 
-            var state = EvaluateFreshness(
+            var state = CapabilityFreshness.Evaluate(
                 rawState.State,
-                FreshnessFor(descriptor.Role),
+                descriptor.Role,
                 now);
-            if (!CanCommand(state))
+            if (!CapabilityFreshness.CanCommand(state))
             {
                 return Reject(
                     command,
@@ -479,16 +469,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                     refusal.Retryable);
             }
 
-            if (value is not null)
-            {
-                _pendingValues[key] = value;
-                _lastCommandValues[key] = value;
-            }
-            else
-            {
-                _lastCommandValues.Remove(key);
-            }
-
+            _commands.Admit(key, value);
             return null;
         }
     }
@@ -550,10 +531,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         });
 
         _states.Clear();
-        _pendingValues.Clear();
-        _latestCommands.Clear();
-        _lastResults.Clear();
-        _lastCommandValues.Clear();
+        _commands.Clear();
         _availability.Clear();
 
         return true;
@@ -726,17 +704,10 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     {
         lock (_gate)
         {
-            if (!_latestCommands.TryGetValue(key, out var latest) || latest != result.CommandId)
+            if (!_commands.Complete(key, result, terminal))
             {
                 return;
             }
-
-            if (terminal)
-            {
-                _pendingValues.Remove(key);
-            }
-
-            _lastResults[key] = result;
         }
 
         // Keyed on the capability so a run of identical outcomes collapses: the interesting event
@@ -815,22 +786,20 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         }
         else
         {
-            state = EvaluateFreshness(
+            state = CapabilityFreshness.Evaluate(
                 state,
-                FreshnessFor(descriptor.Role),
+                descriptor.Role,
                 now);
         }
 
-        var desired = ResolveDesired(key, descriptor.ProfileScope);
-        var global = _globalDesired.GetValueOrDefault(key);
+        var desired = _desired.Resolve(key, descriptor.ProfileScope);
+        var global = _desired.Global(key);
         var outOfRange = (desired.Value is not null
                           && !CapabilityValueValidation.ValueMatches(desired.Value, descriptor, out _))
                          || (global is not null
                              && descriptor.ProfileScope is not CapabilityProfileScope.Switched
                              && !CapabilityValueValidation.ValueMatches(global, descriptor, out _));
-        _pendingValues.TryGetValue(key, out var pending);
-        _lastResults.TryGetValue(key, out var result);
-        _lastCommandValues.TryGetValue(key, out var commanded);
+        var (pending, result, commanded) = _commands.Read(key);
         return new DeviceCapabilityView(
             descriptor,
             new CapabilityProjection
@@ -842,52 +811,11 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 ProfileScope = descriptor.ProfileScope,
                 ApplyTiming = descriptor.ApplyTiming,
                 PendingValue = pending,
-                Progress = Progress(pending, result),
+                Progress = CapabilityCommandLedger.Progress(pending, result),
                 DesiredValueOutOfRange = outOfRange
             },
             result,
             commanded) { Publisher = _publisher };
-    }
-
-    /// <summary>The value a capability shows as wanted, by its profile scope.</summary>
-    /// <remarks>
-    ///     A switched or native per-application value resolves the game over Global. The native one is
-    ///     shown that way because its driver applies the game's value itself; WSGM still commands only the
-    ///     Global value, read from <see cref="CapabilityProjection.GlobalDesiredValue" />. A global-only
-    ///     value never reads the game layer, so it is never marked as the game's.
-    /// </remarks>
-    private Resolved<CapabilityValue?> ResolveDesired(DeviceCapabilityKey key, CapabilityProfileScope scope)
-    {
-        if (scope is not CapabilityProfileScope.GlobalOnly && _gameDesired.TryGetValue(key, out var game))
-        {
-            return new Resolved<CapabilityValue?>(game, ProfileSource.Game);
-        }
-
-        return _globalDesired.TryGetValue(key, out var global)
-            ? new Resolved<CapabilityValue?>(global, ProfileSource.Global)
-            : new Resolved<CapabilityValue?>(null, ProfileSource.None);
-    }
-
-    private static Dictionary<DeviceCapabilityKey, CapabilityValue> Index(
-        string? deviceIdentityKey,
-        ProfileValues? values)
-    {
-        Dictionary<DeviceCapabilityKey, CapabilityValue> index = [];
-        if (deviceIdentityKey is null)
-        {
-            return index;
-        }
-
-        foreach (var entry in values?.Device ?? [])
-        {
-            if (entry.Value is not null
-                && string.Equals(entry.DeviceIdentityKey, deviceIdentityKey, StringComparison.Ordinal))
-            {
-                index[new DeviceCapabilityKey(entry.CapabilityId, entry.InstanceId)] = entry.Value;
-            }
-        }
-
-        return index;
     }
 
     private CapabilityState UnknownState(DeviceCapabilityKey key)
@@ -980,61 +908,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         };
     }
 
-    private static CommandProgress Progress(
-        CapabilityValue? pending,
-        CapabilityCommandResult? result)
-    {
-        if (pending is not null)
-        {
-            return CommandProgress.Pending;
-        }
-
-        return result?.Outcome switch
-        {
-            CommandOutcome.Applied or CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified =>
-                CommandProgress.Completed,
-            CommandOutcome.TimedOut or CommandOutcome.Indeterminate => CommandProgress.Uncertain,
-            CommandOutcome.Rejected => CommandProgress.Failed,
-            _ => CommandProgress.Idle
-        };
-    }
-
-    /// <summary>How long a live reading stays current, or null for a value that never expires.</summary>
-    /// <remarks>
-    ///     Only a live measurement such as a fan RPM or a temperature ages out. A setting is whatever was
-    ///     last written or read, however long ago, as HC treats it: expiring it made every write and
-    ///     control wait for a fresh readback, which a device like the Ally never delivers.
-    /// </remarks>
-    private static TimeSpan? FreshnessFor(CapabilityRole role)
-    {
-        return role is CapabilityRole.Telemetry or CapabilityRole.FanMeasuredRpm ? TimeSpan.FromSeconds(5) : null;
-    }
-
-    /// <summary>
-    ///     Returns the state as it should be presented now, downgrading it to
-    ///     <see cref="HardwareStateQuality.Stale" /> when it can no longer be trusted.
-    /// </summary>
-    private static CapabilityState EvaluateFreshness(
-        CapabilityState state,
-        TimeSpan? maxAge,
-        DateTimeOffset now)
-    {
-        // A faulted capability is already saying something stronger than "old". Downgrading it to
-        // stale would lose the fault.
-        if (state.Quality is HardwareStateQuality.Faulted or HardwareStateQuality.Unknown)
-        {
-            return state;
-        }
-
-        if (maxAge is { } limit && (state.ObservedAt is not { } observedAt || now - observedAt > limit))
-        {
-            return Stale(state, CapabilityReasonCode.ObservationExpired,
-                $"Observation is older than {maxAge}.");
-        }
-
-        return state;
-    }
-
     /// <summary>The wattage the other limit of a declared power pair takes when one of them is written.</summary>
     /// <remarks>
     ///     Pair policy is the host's, where Handheld Companion keeps it too (its performance page couples
@@ -1067,36 +940,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         return paired is { Minimum: { } minimum, Maximum: { } maximum }
             ? Math.Clamp(target, minimum, maximum)
             : target;
-    }
-
-    /// <summary>Whether a command may be issued against this state.</summary>
-    /// <remarks>
-    ///     Readback is not a precondition: many firmwares cannot report what they were set to, and a
-    ///     capability that was never read (<see cref="HardwareStateQuality.Unknown" />) is still
-    ///     writable while the plugin reports it available. An expired or faulted observation is not.
-    /// </remarks>
-    /// <param name="state">Published availability and evidence quality after freshness projection.</param>
-    /// <returns>True when available and neither stale nor faulted; unknown readback alone does not disable writes.</returns>
-    internal static bool CanCommand(CapabilityState state)
-    {
-        return state is
-        {
-            Available: true,
-            Quality: not (HardwareStateQuality.Stale or HardwareStateQuality.Faulted)
-        };
-    }
-
-    private static CapabilityState Stale(
-        CapabilityState state,
-        CapabilityReasonCode code,
-        string detail)
-    {
-        return state with
-        {
-            Quality = HardwareStateQuality.Stale,
-            Available = false,
-            Reason = new CapabilityReason(code, detail, true)
-        };
     }
 
     private static DeviceCapabilityKey Key(CapabilityDescriptor descriptor)

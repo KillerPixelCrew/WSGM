@@ -368,6 +368,6 @@ internal sealed class DevicePowerPresets(
     /// </remarks>
     private static bool Current(DeviceCapabilityView? view)
     {
-        return view is not null && DeviceCapabilityRouter.CanCommand(view.Projection.State);
+        return view is not null && CapabilityFreshness.CanCommand(view.Projection.State);
     }
 }

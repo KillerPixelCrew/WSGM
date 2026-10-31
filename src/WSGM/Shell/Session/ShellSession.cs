@@ -718,7 +718,7 @@ public sealed partial class ShellSession
             // The coordinator owns AutoTDP: its writes share the coordinator's power lane, a hand-set
             // limit pauses it and is saved from the coordinator's manual funnel, and its original limit
             // is restored before the device stops.
-            _autoTdp = deviceCoordinator.AutoTdp;
+            _autoTdp = deviceCoordinator.Power.AutoTdp;
             _autoTdp.SetTraceEnabled(_config.AutoTdpTraceEnabled);
             _deviceOverlay = new DeviceOverlayBridge(deviceCoordinator, _autoTdp, _gpu);
         }
@@ -1247,8 +1247,8 @@ public sealed partial class ShellSession
             _audio,
             _audioProfiles,
             _radios,
-            _deviceCoordinator?.PowerPresets,
-            _deviceCoordinator?.PowerAssignments,
+            _deviceCoordinator?.Power.PowerPresets,
+            _deviceCoordinator?.Power.PowerAssignments,
             _drives,
             _formats,
             _displayTimeouts,

@@ -258,7 +258,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _resolution = backends.Resolution is { } resolution ? new NativeQamResolutionService(resolution) : null;
         _tdp = new DeviceCoordinatorNativeQamTdpService(deviceCoordinator);
         _powerPresets =
-            new NativeQamPowerPresetService(deviceCoordinator?.PowerPresets, deviceCoordinator?.PowerAssignments);
+            new NativeQamPowerPresetService(deviceCoordinator?.Power.PowerPresets,
+                deviceCoordinator?.Power.PowerAssignments);
         _deviceControls = new DeviceCoordinatorNativeQamDeviceControlsService(deviceCoordinator);
         _performanceService = backends.Performance;
         _profiles = backends.Profiles;

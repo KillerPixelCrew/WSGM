@@ -72,8 +72,9 @@ public partial class OverlayWindow
 
         Control Create()
         {
-            return new ManualTdpModeView(() => coordinator.ManualTdpMode, coordinator.SetManualTdpModeAsync,
-                () => coordinator.ManualTdpOverrideId, _ => coordinator.UseGlobalManualTdpAsync());
+            return new ManualTdpModeView(() => coordinator.Power.ManualTdpMode,
+                coordinator.Power.SetManualTdpModeAsync,
+                () => coordinator.Power.ManualTdpOverrideId, _ => coordinator.Power.UseGlobalManualTdpAsync());
         }
     }
 

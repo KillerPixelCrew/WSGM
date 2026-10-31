@@ -388,7 +388,7 @@ active limit is the readback, or the value WSGM wrote until the next poll reads 
 in `Core\Performance\AutoTdp.cs` holds the range and the rule; the context key carries the deadline,
 so a target or limit change starts over like a context change. The target is edited from the slider
 under the AutoTDP switch in the Overlay's Power page, in Quick Access and on Steam's Power settings
-page, all through `DeviceCoordinator.SetAutoTdpTargetAsync`; each shows the slider only while
+page, all through `DevicePowerPolicy.SetAutoTdpTargetAsync`; each shows the slider only while
 AutoTDP is on, says when a frame limit holds the target lower, and marks a game override.
 
 The service's shared availability result drives both QAM and Overlay and guards the coordinator's
@@ -405,10 +405,10 @@ original values are captured before the first write; release restores the sustai
 the original boost value, including unequal manual limits, whatever device cycle is current then. No
 automatic target is persisted into profile configuration.
 
-The device coordinator owns AutoTDP. Its writes share the coordinator's one power lane with manual,
-preset and per-application power writes, and the coordinator restores AutoTDP's original limit
-before it stops the device: at exit, update, uninstall, session end and when Device Integration is
-switched off.
+The device coordinator's power policy, `DevicePowerPolicy`, owns AutoTDP. Its writes share the
+policy's one power lane with manual, preset and per-application power writes, and the coordinator
+restores AutoTDP's original limit before it stops the device: at exit, update, uninstall, session
+end and when Device Integration is switched off.
 
 The service also supplies runtime ownership to the shared power-preset projection. Both QAM and
 Overlay show Custom while AutoTDP owns power, even if a momentary readback matches a named preset,
@@ -485,6 +485,7 @@ application, observed limiter and device capability, serializes writes and keeps
 obligation. [AutoTdpTrace](../src/WSGM/Core/AutoTdpTrace.cs) defines trace data and
 [AutoTdpTraceRecorder](../src/WSGM/Shell/AutoTdpTraceRecorder.cs) writes it away from the control
 thread. [RtssFrametimeReader](../src/WSGM/Core/RtssFrametimeReader.cs) supplies raw windows; it does
-not classify them. [DeviceCoordinator](../src/WSGM/Shell/DeviceCoordinator.cs) owns shutdown order
-and the common power lane. Change the state machine for policy, the service for orchestration, and
-the plugin for firmware sequencing.
+not classify them. [DeviceCoordinator](../src/WSGM/Shell/Device/DeviceCoordinator.cs) owns shutdown
+order and [DevicePowerPolicy](../src/WSGM/Shell/Device/DevicePowerPolicy.cs) the common power lane.
+Change the state machine for policy, the service for orchestration, and the plugin for firmware
+sequencing.

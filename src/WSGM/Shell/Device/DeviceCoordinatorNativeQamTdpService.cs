@@ -50,8 +50,8 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
                                  is { } boost
                              && CapabilityProjection.DeviceOverrideId(boost) is not null
                 },
-                Unified = _coordinator?.ManualTdpUnified == true,
-                CanSelectMode = _coordinator?.ManualTdpMode.Available == true,
+                Unified = _coordinator?.Power.ManualTdpUnified == true,
+                CanSelectMode = _coordinator?.Power.ManualTdpMode.Available == true,
                 ModeAccent =
                 CapabilityProjection.OverrideId(layers, new ProfileSettingKey(ProfileField.TdpUnified)) is not null
             };
@@ -73,7 +73,7 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
 
         try
         {
-            await _coordinator.SetManualTdpModeAsync(unified).ConfigureAwait(false);
+            await _coordinator.Power.SetManualTdpModeAsync(unified).ConfigureAwait(false);
         }
         catch (InvalidOperationException ex)
         {
@@ -143,7 +143,7 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
                 "The requested power limit is unavailable or outside its current descriptor.");
         }
 
-        var result = await _coordinator.ExecuteCapabilityAsync(
+        var result = await _coordinator.Commands.ExecuteAsync(
             capabilityId,
             limit.InstanceId,
             CapabilityValue.Integer(watts),

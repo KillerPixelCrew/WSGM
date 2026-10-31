@@ -5,7 +5,7 @@ using WSGM.Shell;
 
 namespace WSGM.Tests.Shell;
 
-public sealed class DeviceLightingProfileTests
+public sealed class DeviceLightingProfilesTests
 {
     private const string Identity = "fixture:machine";
     private static readonly CapabilityDescriptor[] Zones = [Zone("left"), Zone("right")];
@@ -16,7 +16,7 @@ public sealed class DeviceLightingProfileTests
         var global = new ProfileValues { LightingProfileId = "blue" };
         var game = new ProfileValues();
         game.SetDevice(Identity, "native.color", "right", CapabilityValue.Color(0xFF0000));
-        var projected = DeviceCoordinator.LightingProfileDesiredLayers(new ProfileLayers(global, game),
+        var projected = DeviceLightingProfiles.DesiredLayers(new ProfileLayers(global, game),
             [Color("blue", 0x0000FF)], Zones, Identity);
 
         Assert.Equal(0x0000FF, projected.Device(Identity, "native.color", "left").Value?.ColorValue);
@@ -34,11 +34,11 @@ public sealed class DeviceLightingProfileTests
         var game = new ProfileValues { LightingProfileId = "green" };
         DeviceAuthoredProfile[] profiles = [Color("blue", 0x0000FF), Color("green", 0x00FF00)];
         var projected =
-            DeviceCoordinator.LightingProfileDesiredLayers(new ProfileLayers(global, game), profiles, Zones, Identity);
+            DeviceLightingProfiles.DesiredLayers(new ProfileLayers(global, game), profiles, Zones, Identity);
         Assert.All(Zones, zone => Assert.Equal(0x00FF00,
             projected.Device(Identity, zone.CapabilityId, zone.InstanceId).Value?.ColorValue));
         Assert.True(game.Clear(new ProfileSettingKey(ProfileField.LightingProfile)));
-        projected = DeviceCoordinator.LightingProfileDesiredLayers(new ProfileLayers(global, game), profiles, Zones,
+        projected = DeviceLightingProfiles.DesiredLayers(new ProfileLayers(global, game), profiles, Zones,
             Identity);
         Assert.All(Zones, zone => Assert.Equal(0x0000FF,
             projected.Device(Identity, zone.CapabilityId, zone.InstanceId).Value?.ColorValue));
@@ -50,7 +50,7 @@ public sealed class DeviceLightingProfileTests
     {
         var global = new ProfileValues { LightingProfileId = "missing-color" };
         global.SetDevice(Identity, "native.color", "left", CapabilityValue.Color(0x123456));
-        var projected = DeviceCoordinator.LightingProfileDesiredLayers(new ProfileLayers(global, null),
+        var projected = DeviceLightingProfiles.DesiredLayers(new ProfileLayers(global, null),
             [Color("missing-color", null)], Zones, Identity);
         Assert.Equal(0x123456, projected.Device(Identity, "native.color", "left").Value?.ColorValue);
         Assert.Null(projected.Device(Identity, "native.color", "right").Value);

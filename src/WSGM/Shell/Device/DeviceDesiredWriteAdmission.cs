@@ -82,7 +82,7 @@ internal readonly record struct DeviceDesiredWriteAdmission(
         }
 
         // A value that was never read back is still restored; only an expired or faulted state is not.
-        if (!DeviceCapabilityRouter.CanCommand(projection.State))
+        if (!CapabilityFreshness.CanCommand(projection.State))
         {
             return Skipped(DeviceDesiredWriteSkipReason.UntrustedState);
         }

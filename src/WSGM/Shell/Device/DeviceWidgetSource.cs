@@ -38,7 +38,7 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
             return [];
         }
 
-        var scope = $"{plugin}:{coordinator.ManualTdpUnified}";
+        var scope = $"{plugin}:{coordinator.Power.ManualTdpUnified}";
         var sameLayout = _rows.Count == snapshot.Capabilities.Count;
         for (var i = 0; sameLayout && i < _rows.Count; i++)
         {
@@ -175,7 +175,7 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
             return new PluginActionResult(operation, PluginActionOutcome.Rejected, "Invalid Device widget value.");
         }
 
-        var result = await coordinator.ExecuteCapabilityAsync(view.Descriptor.CapabilityId, view.Descriptor.InstanceId,
+        var result = await coordinator.Commands.ExecuteAsync(view.Descriptor.CapabilityId, view.Descriptor.InstanceId,
             requested, TimeSpan.FromSeconds(5), cancellationToken: cancellationToken).ConfigureAwait(false);
         return new PluginActionResult(operation, result.Outcome switch
         {

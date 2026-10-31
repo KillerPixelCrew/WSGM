@@ -97,7 +97,7 @@ internal static class VariableRefreshCapabilities
 
         return device is null
             ? Task.FromResult(Unavailable())
-            : device.ExecuteCapabilityAsync(descriptor.CapabilityId, descriptor.InstanceId, value,
+            : device.Commands.ExecuteAsync(descriptor.CapabilityId, descriptor.InstanceId, value,
                 TimeSpan.FromSeconds(5), origin, cancellationToken: cancellationToken);
     }
 

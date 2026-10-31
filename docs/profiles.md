@@ -32,7 +32,7 @@ Global wattage. A game that sets only its button colour keeps the Global ring co
 | `CpuBoost`                            | `ApplicationPerformanceReconciler` (Windows processor boost mode)                |
 | `AutoTdpTargetFps`                    | `AutoTdpService`, read each control window through the session's deadline        |
 | `AcPowerPreset`, `BatteryPowerPreset` | `DevicePowerAssignments`                                                         |
-| `FanCurveProfileId`                   | `DeviceCoordinator.ApplyAuthoredProfilesAsync`                                   |
+| `FanCurveProfileId`                   | `DeviceFanCurves.ApplyAuthoredProfilesAsync`                                     |
 | `ControllerTarget`                    | `ControllerTargetSelection` (default `SteamDeckComposite`)                       |
 | `Device[]` (capability, instance)     | `DeviceCapabilityRouter` desired state, keyed by the machine's identity key      |
 | `Device[]` of a graphics publisher    | that publisher's router in `GpuCoordinator`, keyed `gpu:<plugin id>`             |

@@ -91,7 +91,7 @@ internal sealed class ApplicationPerformanceReconciler(
 
         if (due.Power && coordinator is not null)
         {
-            await coordinator.ReconcileApplicationPowerAsync(manual, applicationId, cancellationToken)
+            await coordinator.Power.ReconcileApplicationPowerAsync(manual, applicationId, cancellationToken)
                 .ConfigureAwait(false);
         }
 

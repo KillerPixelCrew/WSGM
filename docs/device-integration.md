@@ -47,8 +47,9 @@ re-acquires the service but repeats neither the settle nor the decision. Busy (1
 stays visible as "Unknown".
 
 [Profiles](profiles.md) resolves Global and per-application preferences. Power presets and AC/DC
-assignments use the coordinator's serialized power lane. Native firmware controls and WSGM's
-software fan/charge controllers have explicit ownership, so they do not fight each other.
+assignments use the serialized power lane of the coordinator's `DevicePowerPolicy`. Native firmware
+controls and WSGM's software fan/charge controllers have explicit ownership, so they do not fight
+each other.
 
 Each fan's mode says who drives it: Firmware (the firmware's own automatic mode), Software (WSGM's
 fan curve) or Manual (the duty slider); other firmware modes such as full speed stay beside them.

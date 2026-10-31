@@ -64,7 +64,7 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
 
             var availability = _autoTdp?.Availability;
             return Project(
-                _coordinator.AutoTdpEnabled,
+                _coordinator.Power.AutoTdpEnabled,
                 _autoTdp?.Status,
                 IntegerRangeProjection.PowerLimit(_coordinator.Capabilities.Snapshot()).Available,
                 availability,
@@ -108,7 +108,7 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
                 $"Choose a target between {AutoTdpTarget.MinimumFps} and {AutoTdpTarget.MaximumFps} FPS.")));
         }
 
-        await _coordinator.SetAutoTdpTargetAsync(fps, cancellationToken).ConfigureAwait(false);
+        await _coordinator.Power.SetAutoTdpTargetAsync(fps, cancellationToken).ConfigureAwait(false);
         return new SteamUiCommandResult(true, null);
     }
 
@@ -147,7 +147,7 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
         // that resolves. The coordinator compares and sets under its own transition gate, so the
         // requested value is what lands even when another surface changed it in between — a toggle
         // decided from the snapshot above would invert that newer value instead.
-        await _coordinator.SetAutoTdpEnabledAsync(enabled, cancellationToken).ConfigureAwait(false);
+        await _coordinator.Power.SetAutoTdpEnabledAsync(enabled, cancellationToken).ConfigureAwait(false);
         return new SteamUiCommandResult(true, null);
     }
 

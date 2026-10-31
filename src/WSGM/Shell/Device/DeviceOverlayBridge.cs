@@ -67,7 +67,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     /// <inheritdoc />
     public Task CycleAuthoredProfileAsync(CancellationToken cancellationToken = default)
     {
-        return _coordinator.CycleAuthoredProfileAsync(cancellationToken);
+        return _coordinator.FanCurves.CycleAuthoredProfileAsync(cancellationToken);
     }
 
     /// <inheritdoc />
@@ -101,7 +101,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 });
         }
 
-        if (_coordinator.ManualTdpUnified)
+        if (_coordinator.Power.ManualTdpUnified)
         {
             for (var index = 0; index < capabilities.Count; index++)
             {
@@ -115,7 +115,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             glyphSelectionState);
         var autoTdpAvailability = _autoTdp?.Availability;
         var autoTdp = DeviceHostRows.AutoTdpView(
-            _coordinator.AutoTdpEnabled,
+            _coordinator.Power.AutoTdpEnabled,
             _autoTdp?.Status,
             autoTdpAvailability);
         var recovery = DeviceHostRows.RecoveryView(state);
@@ -129,8 +129,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                     : null
             }
             : null;
-        var authored = _coordinator.AuthoredProfileSelection();
-        var lighting = _coordinator.LightingProfileSelection();
+        var authored = _coordinator.FanCurves.AuthoredProfileSelection();
+        var lighting = _coordinator.Lighting.Selection();
         var glyphPreview = DeviceHostRows.GlyphPreview(
             glyphSelectionState,
             _glyphs,
@@ -169,7 +169,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         {
             HostSelections = new Dictionary<string, DeviceHostSelection>
             {
-                [DeviceHostRowIds.AutoTdp] = new(_coordinator.AutoTdpEnabled ? "on" : "off",
+                [DeviceHostRowIds.AutoTdp] = new(_coordinator.Power.AutoTdpEnabled ? "on" : "off",
                     [DeviceHostRows.HostChoice("off", "Off"), DeviceHostRows.HostChoice("on", "On")]),
                 [DeviceHostRowIds.ControllerTarget] = new(
                     (controllerStatus.Target ?? _coordinator.ChosenControllerTarget()).ToString(),
@@ -185,12 +185,12 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             },
             LightingProfile = lighting is { } colors
                 ? DeviceHostRows.LightingProfileView(colors.Profiles, colors.Selected,
-                    _coordinator.LightingProfileDetail, _coordinator.LightingProfileStatus)
+                    _coordinator.Lighting.Detail, _coordinator.Lighting.Status)
                 : null,
             GlyphMode = _coordinator.PhysicalGlyphSelection,
             PluginSections = CapabilityRowProjection.ProjectSections(declaredSections),
             AutoTdpTarget = DeviceHostRows.AutoTdpTargetRow(
-                _coordinator.AutoTdpEnabled,
+                _coordinator.Power.AutoTdpEnabled,
                 AutoTdpTargetView.Resolve(_coordinator.Profiles.Current.Layers, autoTdpAvailability))
         };
     }
@@ -222,7 +222,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             return;
         }
 
-        await _coordinator.ExecuteCapabilityAsync(
+        await _coordinator.Commands.ExecuteAsync(
             capability.CapabilityId,
             capability.InstanceId,
             capability.NextValue,
@@ -235,14 +235,14 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     {
         return rowId switch
         {
-            DeviceHostRowIds.AutoTdp when value is "on" or "off" => _coordinator.SetAutoTdpEnabledAsync(value == "on",
-                cancellationToken),
+            DeviceHostRowIds.AutoTdp when value is "on" or "off" =>
+                _coordinator.Power.SetAutoTdpEnabledAsync(value == "on", cancellationToken),
             DeviceHostRowIds.ControllerTarget when Enum.TryParse<ManagedControllerTarget>(value, out var target)
                                                    && _coordinator.Controllers.SupportedTargets.Contains(target) =>
                 _coordinator.SetControllerTargetAsync(target, cancellationToken),
-            DeviceHostRowIds.AuthoredProfile => _coordinator.SelectAuthoredProfileAsync(
+            DeviceHostRowIds.AuthoredProfile => _coordinator.FanCurves.SelectAuthoredProfileAsync(
                 string.IsNullOrEmpty(value) ? null : value, cancellationToken),
-            DeviceHostRowIds.LightingProfile => _coordinator.SelectLightingProfileAsync(
+            DeviceHostRowIds.LightingProfile => _coordinator.Lighting.SelectAsync(
                 string.IsNullOrEmpty(value) ? null : value, cancellationToken),
             _ => Task.CompletedTask
         };
@@ -258,13 +258,13 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     /// <inheritdoc />
     public Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default)
     {
-        return _coordinator.ToggleAutoTdpAsync(cancellationToken);
+        return _coordinator.Power.ToggleAutoTdpAsync(cancellationToken);
     }
 
     /// <inheritdoc />
     public Task SetAutoTdpTargetAsync(int fps, CancellationToken cancellationToken = default)
     {
-        return _coordinator.SetAutoTdpTargetAsync(fps, cancellationToken);
+        return _coordinator.Power.SetAutoTdpTargetAsync(fps, cancellationToken);
     }
 
     /// <inheritdoc />

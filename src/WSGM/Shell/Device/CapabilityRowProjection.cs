@@ -51,7 +51,7 @@ internal static class CapabilityRowProjection
         }
         var actionOnlyReady = state is { Available: true, Reason: null, Quality: HardwareStateQuality.Unknown }
                               && descriptor is { SupportsAction: true, SupportsRead: false };
-        var current = DeviceCapabilityRouter.CanCommand(state);
+        var current = CapabilityFreshness.CanCommand(state);
         var next = NextValue(descriptor, displayed);
         // A color that was never read back still opens its editor, starting from white.
         var colorWrite = descriptor.ValueKind is CapabilityValueKind.Color;
@@ -68,7 +68,7 @@ internal static class CapabilityRowProjection
             _ when projection.DesiredValueOutOfRange =>
                 "Saved value is outside the current firmware range",
             _ when state.Reason is not null => state.Reason.Detail,
-            _ when descriptor.CapabilityId == "processor.reset" =>
+            _ when descriptor.CapabilityId == CapabilityIds.ProcessorReset =>
                 "Clears processor tuning for this device in Global and every game. Restores supported values; a Windows restart may be needed for firmware defaults.",
             _ when actionOnlyReady => "Ready",
             // A healthy value has nothing to explain; the row shows it without a caption.

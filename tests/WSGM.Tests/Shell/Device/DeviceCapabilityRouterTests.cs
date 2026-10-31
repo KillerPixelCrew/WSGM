@@ -439,7 +439,7 @@ public sealed class DeviceCapabilityRouterTests
             duplicated with { Descriptors = [descriptor] }, out _));
     }
 
-    // A curve can be written straight through ExecuteCapabilityAsync without passing an authored
+    // A curve can be written straight through DeviceCapabilityCommands.ExecuteAsync without passing an authored
     // profile, so the declared output bounds have to be enforced on this path too — every other
     // numeric kind here is, and the refusal message promises "shape or bounds" for all of them.
     [Fact]

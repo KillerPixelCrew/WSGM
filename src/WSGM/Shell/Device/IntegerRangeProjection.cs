@@ -112,7 +112,7 @@ internal sealed record IntegerRangeProjection(
         }
 
         // Readback is not required: firmware that cannot report its value is still commanded.
-        var available = DeviceCapabilityRouter.CanCommand(state);
+        var available = CapabilityFreshness.CanCommand(state);
         return new IntegerRangeProjection(
             available,
             minimum,

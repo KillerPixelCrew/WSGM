@@ -358,7 +358,7 @@ public sealed class DeviceCoordinatorTests
         try
         {
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            setting = harness.Coordinator.SetAutoTdpEnabledAsync(true);
+            setting = harness.Coordinator.Power.SetAutoTdpEnabledAsync(true);
             reload = harness.Coordinator.ApplyConfigAsync(new AppConfig
             {
                 DeviceIntegration = new DeviceIntegrationConfig { Enabled = false }
@@ -393,7 +393,7 @@ public sealed class DeviceCoordinatorTests
             }
         }
 
-        Assert.False(harness.Coordinator.AutoTdpEnabled);
+        Assert.False(harness.Coordinator.Power.AutoTdpEnabled);
         Assert.True(harness.Coordinator.IntegrationEnabled);
         await harness.Coordinator.ShutdownAsync(HandheldStopReason.WsgmExiting,
             Deadline.After(TimeSpan.FromSeconds(5)));
@@ -435,12 +435,12 @@ public sealed class DeviceCoordinatorTests
                      CapabilityCommandOrigin.ProfileRestore, CapabilityCommandOrigin.DesiredStateRestore
                  })
         {
-            var refused = await harness.Coordinator.ExecuteCapabilityAsync(descriptor.CapabilityId, null,
+            var refused = await harness.Coordinator.Commands.ExecuteAsync(descriptor.CapabilityId, null,
                 CapabilityValue.Integer(15), TimeSpan.FromSeconds(1), origin);
             Assert.Equal(CommandOutcome.Rejected, refused.Outcome);
         }
 
-        var restored = await harness.Coordinator.ExecuteCapabilityAsync(descriptor.CapabilityId, null,
+        var restored = await harness.Coordinator.Commands.ExecuteAsync(descriptor.CapabilityId, null,
             CapabilityValue.Integer(20), TimeSpan.FromSeconds(1), CapabilityCommandOrigin.AutoTdp);
 
         Assert.Equal(CommandOutcome.AppliedVerified, restored.Outcome);
@@ -448,7 +448,7 @@ public sealed class DeviceCoordinatorTests
         await harness.Coordinator.ShutdownAsync(HandheldStopReason.WsgmExiting,
             Deadline.After(TimeSpan.FromSeconds(5)));
         await harness.Coordinator.Completion;
-        await Assert.ThrowsAsync<ObjectDisposedException>(() => harness.Coordinator.ExecuteCapabilityAsync(
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => harness.Coordinator.Commands.ExecuteAsync(
             descriptor.CapabilityId, null, CapabilityValue.Integer(20), TimeSpan.FromSeconds(1),
             CapabilityCommandOrigin.AutoTdp));
         Assert.Single(publisher.Commands);
