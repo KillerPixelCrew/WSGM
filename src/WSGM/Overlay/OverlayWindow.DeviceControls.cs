@@ -82,7 +82,7 @@ public partial class OverlayWindow
             case DeviceRow.GlyphPreview preview:
                 return _glyphPreview.Show(preview.Value);
             case DeviceRow.View view:
-                var control = _controlPinFactories[view.Id]();
+                var control = _devicePins.Views[view.Id]();
                 control.Tag = key;
                 return control;
             default:

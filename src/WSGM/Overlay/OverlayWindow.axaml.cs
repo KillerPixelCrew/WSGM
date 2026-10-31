@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using Avalonia;
 using Avalonia.Controls;
@@ -25,8 +26,6 @@ public partial class OverlayWindow : Window
     private const int ProgramsLiveRefresh = 8;
     private const int PluginsLiveRefresh = 16;
 
-    // The composite WSGM views by pin id: each call makes a new view for a page or a pinned copy.
-    private readonly Dictionary<string, Func<Control>> _controlPinFactories = [];
     private readonly CancellationTokenSource _deviceLifetime = new();
 
     // Draws every Device, GPU, performance and pinned group description.
@@ -142,6 +141,15 @@ public partial class OverlayWindow : Window
         _pins = new QuickAccessPins(this, PinnedGrid, PinToast, PinToastText, PinToastHint);
         _deviceRenderer = new DeviceGroupRenderer(CreateDeviceRow,
             (id, title, pinned) => CreateSectionHeader(id, title, pinned), session.ExpandedSections);
+        _devicePins = new DevicePins(_deviceRenderer, () => _deviceBridge?.Snapshot(),
+            () => _performanceSource?.Snapshot(), () => _graphicsSource?.Snapshot());
+        foreach (var view in SubViews.Where(view => view.PinId is not null))
+        {
+            var page = view.Page;
+            _pins.AddSection(view.PinId!, view.Title!, view.Description ?? string.Empty, view.Icon,
+                () => view.Available?.Invoke() ?? true, () => OpenSection(page));
+        }
+
         DevicePage.Configure(_deviceRenderer, session.ExpandedSections);
         PanelSystemPerformance.Configure(_deviceRenderer);
         StorageFormatHost.CloseRequested += () => LeaveSubView(OverlayPage.SteamStorageFormat);
@@ -236,12 +244,12 @@ public partial class OverlayWindow : Window
     private void ConfigurePages(SteamClient? steam)
     {
         PanelSteamLibrary.Configure(StorageFormatHost);
-        PanelSteamLibrary.PageRequested += page => EnterSubView(page);
+        PanelSteamLibrary.PageRequested += OpenPage;
         PanelSteamLibrary.FormatPageRequested += OpenStorageFormat;
         PanelSteamLibrary.SystemDialogActive += active => SystemDialogActive?.Invoke(active);
         PanelSteamLaunch.Steam = steam;
         PanelSteamLaunch.Configure(LaunchWrapperHost, Surfaces);
-        PanelSteamLaunch.ConfigurationRequested += () => EnterSubView(OverlayPage.SteamLaunchConfiguration);
+        PanelSteamLaunch.ConfigurationRequested += () => OpenPage(OverlayPage.SteamLaunchConfiguration);
         PanelSteamLaunch.ConfigurationClosed += () => LeaveSubView(OverlayPage.SteamLaunchConfiguration);
         PanelSteamLaunch.DismissRequested += () => Dismissed?.Invoke();
         PanelSteamLaunch.RefreshLabels();
@@ -250,10 +258,29 @@ public partial class OverlayWindow : Window
         PanelSystemStorage.FormatPageRequested += OpenStorageFormat;
         PanelSystemController.KeyboardRequested += () => OnScreenKeyboardRequested?.Invoke();
         PanelPowerSession.Configure(_powerConfirms);
-        PanelPowerWake.WakeLocksRequested += () => EnterSubView(OverlayPage.PowerWakeLocks);
+        PanelPowerWake.WakeLocksRequested += () => OpenPage(OverlayPage.PowerWakeLocks);
         PanelPowerActions.Configure(_powerConfirms);
         PanelPowerActions.DismissRequested += () => Dismissed?.Invoke();
         PanelPowerActions.PowerMenuRequested += () => PowerMenuRequested?.Invoke();
+        ProgramsHost.ProgramsChanged += () => QueueLiveRefresh(ProgramsLiveRefresh);
+        ProgramsHost.EditorRequested += id =>
+        {
+            if (OpenSection(OverlayPage.Programs))
+            {
+                ProgramsHost.OpenEditor(id);
+                FocusFirstControl(ProgramsHost);
+            }
+        };
+        ProgramsHost.PinRequested += id => PinToggleRequested?.Invoke(ProgramsService.PinPrefix + id);
+        ProgramsHost.UnpinRequested += id =>
+        {
+            var pin = ProgramsService.PinPrefix + id;
+            if (_pins.Contains(pin))
+            {
+                // Queue the final removal after any older home-pin writes already admitted by the controller.
+                PinToggleRequested?.Invoke(pin);
+            }
+        };
         PanelSystemPlugins.OfferedChanged += () =>
         {
             if (!PanelSystemPlugins.Offered && _navigation.Page == OverlayPage.SystemPlugins)
@@ -368,7 +395,7 @@ public partial class OverlayWindow : Window
         GameLibraryHost.Attach(null);
         LibraryTabsHost.Attach(null);
         CardManagerHost.Attach(null);
-        DetachPrograms();
+        ProgramsHost.Attach(null);
         NotesHost.Attach(null);
         ScreensaversHost.Attach(null);
         EmulatorManagerHost.Attach(null);

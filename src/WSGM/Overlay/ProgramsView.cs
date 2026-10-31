@@ -14,16 +14,96 @@ namespace WSGM.Overlay;
 public sealed class ProgramsView : ServiceSubView
 {
     private IProgramsSource? _service;
+
+    /// <summary>Raised with a program to launch or whose window to focus.</summary>
     internal event Action<string>? ActivateRequested;
+
+    /// <summary>Raised with a program that can neither launch nor is running, whose editor says why.</summary>
+    internal event Action<string>? EditorRequested;
+
+    /// <summary>Raised with a program to pin to Quick access.</summary>
     internal event Action<string>? PinRequested;
+
+    /// <summary>Raised with a program to unpin from Quick access.</summary>
     internal event Action<string>? UnpinRequested;
+
+    /// <summary>Raised on the service's thread when the programs change, so their pinned rows follow.</summary>
+    internal event Action? ProgramsChanged;
+
     /// <inheritdoc />
     protected override string LogScope => "Programs";
 
+    /// <summary>Follows the session's Programs owner, or none with null.</summary>
+    /// <param name="service">The owner, or null when the overlay closes or the session has none.</param>
     internal void Attach(IProgramsSource? service)
     {
+        if (_service is not null)
+        {
+            _service.Changed -= OnProgramsChanged;
+        }
+
         _service = service;
+        if (service is not null)
+        {
+            service.Changed += OnProgramsChanged;
+        }
+
         AttachSource(IsEffectivelyVisible ? service : null);
+    }
+
+    /// <summary>Launches or focuses a program, or opens its editor when it can do neither.</summary>
+    /// <param name="id">The program.</param>
+    internal void Activate(string id)
+    {
+        var state = _service?.ReadState().FirstOrDefault(item => item.Definition.Id == id);
+        if (state is { CanLaunch: false, Running: false })
+        {
+            EditorRequested?.Invoke(id);
+            return;
+        }
+
+        ActivateRequested?.Invoke(id);
+    }
+
+    /// <summary>Resolves a pin id that names a program.</summary>
+    /// <param name="pin">The pin id.</param>
+    /// <returns>The program's Quick access row, or null for an id this source does not own.</returns>
+    internal QuickAccessPin? ResolvePin(string pin)
+    {
+        if (!pin.StartsWith(ProgramsService.PinPrefix, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var id = pin[ProgramsService.PinPrefix.Length..];
+        var tag = QuickAccessPins.TagPrefix + pin;
+        var state = _service?.ReadState().FirstOrDefault(item => item.Definition.Id == id);
+        if (state is null)
+        {
+            return new QuickAccessPin("Program unavailable", false, false, _ => new ActionButton
+            {
+                Tag = tag,
+                Title = "Program unavailable",
+                Description = "X, touch hold or right-click to unpin",
+                IconGeometry = Icons.Rocket
+            });
+        }
+
+        return new QuickAccessPin(state.Definition.Name, true, false, drawn =>
+        {
+            if (drawn is ProgramActionRow existing)
+            {
+                existing.Apply(state);
+                return existing;
+            }
+
+            return new ProgramActionRow(state, () => Activate(id)) { Tag = tag };
+        });
+    }
+
+    private void OnProgramsChanged()
+    {
+        ProgramsChanged?.Invoke();
     }
 
     internal void OpenEditor(string id)
@@ -65,7 +145,7 @@ public sealed class ProgramsView : ServiceSubView
         {
             var id = state.Definition.Id;
             var group = new StackPanel { Spacing = 6, Tag = "program.group:" + id };
-            var action = new ProgramActionRow(state, () => ActivateRequested?.Invoke(id))
+            var action = new ProgramActionRow(state, () => Activate(id))
             {
                 Tag = ProgramsService.PinPrefix + id,
                 IsPinned = service.IsPinned(id)
@@ -113,7 +193,7 @@ public sealed class ProgramsView : ServiceSubView
         var entry = state.Definition;
         var body = NewStack(entry.Name);
         body.Children.Add(Tagged(Caption(state.Status), "program.status"));
-        body.Children.Add(new ProgramActionRow(state, () => ActivateRequested?.Invoke(id))
+        body.Children.Add(new ProgramActionRow(state, () => Activate(id))
             { Tag = ProgramsService.PinPrefix + id, IsPinned = service.IsPinned(id) });
         body.Children.Add(Tagged(Row("Display name", entry.Name, Icons.ListLines,
             () => EditText("Display name", entry.Name, 160, value => Save(entry with { Name = value }))), "program.name"));

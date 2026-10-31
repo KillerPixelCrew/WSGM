@@ -199,10 +199,7 @@ internal static class DevicePages
     /// <param name="performance">The performance snapshot, or null without one.</param>
     /// <param name="graphics">The graphics snapshot, or null without one.</param>
     /// <param name="views">Whether a composite view of that id is registered.</param>
-    /// <returns>
-    ///     The group; an unavailable one for a <c>section.</c> id nothing publishes now; null for an id this
-    ///     build cannot draw at all.
-    /// </returns>
+    /// <returns>The group, or null when nothing publishes the id now (see <see cref="Unavailable" />).</returns>
     internal static DeviceGroup? Pinned(string id, DeviceOverlaySnapshot? device,
         PerformanceOverlaySnapshot? performance, GraphicsOverlaySnapshot? graphics, Func<string, bool> views)
     {
@@ -227,6 +224,14 @@ internal static class DevicePages
             return FromShell(device, section, DeviceFold.Folded, true);
         }
 
+        return null;
+    }
+
+    /// <summary>The Quick Access copy of a pinned group that nothing publishes now.</summary>
+    /// <param name="id">The pin id.</param>
+    /// <returns>A group that says its controls will return for a <c>section.</c> id; null for any other id.</returns>
+    internal static DeviceGroup? Unavailable(string id)
+    {
         return id.StartsWith("section.", StringComparison.Ordinal)
             ? new DeviceGroup(id, "Section unavailable", "Section unavailable", DeviceFold.Folded,
                 [new DeviceRow.Text(id + ".unavailable", "Its controls will return when the provider is available.")])

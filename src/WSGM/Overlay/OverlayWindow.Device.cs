@@ -161,7 +161,6 @@ public partial class OverlayWindow
         var page = _navigation.Page;
         var sectionId = _navigation.SectionId;
         DevicePage.AddHandler(RequestBringIntoViewEvent, KeepViewport);
-        PanelSystem.AddHandler(RequestBringIntoViewEvent, KeepViewport);
         try
         {
             // Each source is projected once for the pass and handed to every panel that draws it.
@@ -212,7 +211,6 @@ public partial class OverlayWindow
         finally
         {
             DevicePage.RemoveHandler(RequestBringIntoViewEvent, KeepViewport);
-            PanelSystem.RemoveHandler(RequestBringIntoViewEvent, KeepViewport);
         }
 
         if (Volatile.Read(ref _pendingLiveRefreshes) != 0)

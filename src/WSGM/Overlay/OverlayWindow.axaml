@@ -2,7 +2,6 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ov="using:WSGM.Overlay"
         xmlns:c="using:WSGM.Controls"
-        xmlns:core="using:WSGM.Core"
         xmlns:sh="using:WSGM.Shell"
         xmlns:fa="using:FluentAvalonia.UI.Controls"
         xmlns:labs="using:Avalonia.Labs.Panels"
@@ -181,24 +180,6 @@
               <StackPanel x:Name="PinnedPluginWidgetsHost" Spacing="8" />
             </StackPanel>
 
-            <!-- Steam: a menu of categories, like the Device root. The controls
-                         themselves live on the category pages below. -->
-            <UniformGrid x:Name="PanelSteam" Columns="2" IsVisible="False">
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.SteamLibrary}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.SteamLike}"
-                            Title="Steam library"
-                            Description="Tabs, artwork, card manager and library folders" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.SteamLaunchFixes}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Rocket}"
-                            Title="Per-game launch fixes"
-                            Description="De-elevation, the Steam Input lease and custom launch actions" />
-
-            </UniformGrid>
-
             <ov:SteamLibraryPage x:Name="PanelSteamLibrary" IsVisible="False" HorizontalAlignment="Stretch" />
 
             <ov:LaunchFixesPage x:Name="PanelSteamLaunch" IsVisible="False" HorizontalAlignment="Stretch" />
@@ -236,106 +217,6 @@
                          packages cannot provide markup, styles, URLs, or arbitrary commands here. -->
             <ov:DevicePageView x:Name="DevicePage" IsVisible="False" />
 
-            <!-- Tools (the System destination): what is left once Steam, Device
-                         and Power have their own destinations, as a menu of categories.
-                         Performance and Plugins appear only when they have something in
-                         them, which is resolved in code alongside their content. -->
-            <UniformGrid x:Name="PanelSystem" Columns="2" IsVisible="False">
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.SystemTools}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Gear}"
-                            Title="System"
-                            Description="WSGM Settings, Task Manager and UAC prompts" />
-              <c:ActionButton x:Name="SystemPerformanceTile" Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.SystemPerformance}"
-                            Margin="0,0,10,10"
-                            IsVisible="False"
-                            IconGeometry="{x:Static c:Icons.Grid4}"
-                            Title="Performance"
-                            Description="Frame limit, overlay and per-application profiles" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.SystemStorage}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.SdCard}"
-                            Title="Storage"
-                            Description="Eject an SD card or USB drive" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.SystemDisplay}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Monitor}"
-                            Title="Display"
-                            Description="Panel brightness and display routes" />
-              <c:ActionButton x:Name="SystemPluginsTile" Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.SystemPlugins}"
-                            Margin="0,0,10,10"
-                            IsVisible="False"
-                            IconGeometry="{x:Static c:Icons.Wrench}"
-                            Title="Plugins"
-                            Description="Controls published by the enabled common plugins" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            Tag="system.game-library"
-                            CommandParameter="{x:Static ov:OverlayPage.SteamGameLibrary}"
-                            IsVisible="{Binding ShowGameLibrary}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Grid4}"
-                            Title="Library Importer"
-                            Description="Bring games from other launchers into Steam, with their artwork" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.Programs}"
-                            IconGeometry="{x:Static c:Icons.Rocket}" Title="Programs"
-                            Description="Launch or focus your tools; pin them to Quick access" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory" Tag="system.notes"
-                            CommandParameter="{x:Static ov:OverlayPage.Notes}"
-                            IconGeometry="{x:Static c:Icons.ListLines}" Title="Notes"
-                            Description="Game notes with text, drawings and screenshots" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory" Tag="system.screensavers"
-                            CommandParameter="{x:Static ov:OverlayPage.Screensavers}"
-                            IconGeometry="{x:Static c:Icons.Monitor}" Title="Screensavers"
-                            Description="Local image folders and scene packs" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.EmulatorManager}"
-                            Tag="system.emulator-manager"
-                            IsVisible="{Binding ShowEmulators}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Grid4}"
-                            Title="Emulators"
-                            Description="Install, update and configure emulators" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.SystemArtwork}" IsVisible="{Binding ShowArtwork}"
-                            IconGeometry="{x:Static c:Icons.Palette}" Title="Steam Artwork Changer" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory" CommandParameter="{x:Static ov:OverlayPage.SystemThemes}"
-                            Tag="system.themes"
-                            IsVisible="{Binding ShowThemes}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Palette}"
-                            Title="CSS Loader"
-                            Description="Restyle Big Picture with CSS Loader themes from DeckThemes" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory" CommandParameter="{x:Static ov:OverlayPage.SystemAnimations}"
-                            Tag="system.animations"
-                            IsVisible="{Binding ShowAnimations}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Play}"
-                            Title="Video Switcher"
-                            Description="The boot movie, from SteamDeckRepo or your own" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory" CommandParameter="{x:Static ov:OverlayPage.SystemSounds}"
-                            Tag="system.sounds" IsVisible="{Binding ShowSounds}" Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Play}" Title="Sounds"
-                            Description="Install, preview and select Steam UI sound packs" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.SystemController}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Keyboard}"
-                            Title="Keyboard"
-                            Description="The on-screen keyboard for the current mode" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.SystemAbout}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Info}"
-                            Title="About"
-                            Description="Version, licence and thanks" />
-            </UniformGrid>
-
             <ov:SystemToolsPage x:Name="PanelSystemTools" IsVisible="False" HorizontalAlignment="Stretch" />
 
             <!-- The shared performance rows live here while there is no Device destination to hold them. -->
@@ -353,38 +234,6 @@
             <ov:SoundsView x:Name="SoundsHost" IsVisible="False" />
 
             <ov:KeyboardPage x:Name="PanelSystemController" IsVisible="False" HorizontalAlignment="Stretch" />
-
-            <!-- Power: wake, idle timeouts, and the session-ending actions as
-                         three categories. Each timeout row cycles its preset; the trailing
-                         badge is the current value read live from the active power
-                         scheme. The two-step confirms rewrite Title ("Really?") from
-                         code-behind, same auto-revert as before. -->
-            <UniformGrid x:Name="PanelPower" Columns="2" IsVisible="False">
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.PowerWake}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Mug}"
-                            Title="Wake"
-                            Description="Keep Awake, wake locks and the sign-in after standby" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.PowerTimeouts}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Moon}"
-                            Title="Idle timeouts"
-                            Description="Screen off and standby, on battery and plugged in" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.PowerActions}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Power}"
-                            Title="Power"
-                            Description="Standby, hibernate, restart and shut down" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.PowerSession}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Play}"
-                            Title="Session"
-                            Description="Big Picture, the desktop, and quitting Steam" />
-            </UniformGrid>
 
             <ov:PowerSessionPage x:Name="PanelPowerSession" IsVisible="False" HorizontalAlignment="Stretch" />
 

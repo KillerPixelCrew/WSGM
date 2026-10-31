@@ -24,7 +24,8 @@ public partial class OverlayWindow
         GameLibraryHost.Attach(sources.GameLibrary);
         EmulatorManagerHost.Attach(sources.Emulators);
         ViewModel.ShowEmulators = sources.Emulators is not null;
-        AttachPrograms(sources.Programs);
+        ProgramsHost.Attach(sources.Programs);
+        RenderPins();
         PanelSteamLaunch.AttachLaunchActions(sources.LaunchActions);
         LibraryTabsHost.Attach(sources.LibraryManager);
         CardManagerHost.Attach(sources.LibraryManager);
@@ -51,7 +52,7 @@ public partial class OverlayWindow
         Closed += (_, _) => selection.Dispose();
         // The assignments are shown only once a preset has been read to choose from.
         selection.Changed += RefreshDevicePanel;
-        _controlPinFactories[DevicePages.PowerPresetsId] =
+        _devicePins.Views[DevicePages.PowerPresetsId] =
             AttachedPin<DevicePowerPresetView, DevicePowerPresetSelection>(selection,
                 (view, model) => view.Attach(model));
         RefreshDevicePanel();
@@ -79,7 +80,7 @@ public partial class OverlayWindow
         // The mode, its availability and its game override all arrive with the device's change event, which
         // redraws the page and refreshes every selector in place.
         _manualTdpMode = () => coordinator.Power.ManualTdpMode;
-        _controlPinFactories[DevicePages.ManualTdpId] = () => new ManualTdpModeView(
+        _devicePins.Views[DevicePages.ManualTdpId] = () => new ManualTdpModeView(
             () => coordinator.Power.ManualTdpMode, coordinator.Power.SetManualTdpModeAsync,
             () => coordinator.Power.ManualTdpOverrideId, _ => coordinator.Power.UseGlobalManualTdpAsync());
         RefreshDevicePanel();
@@ -98,7 +99,7 @@ public partial class OverlayWindow
             PanelSystemDisplay.Fold(_session.ExpandedSections);
         }
 
-        _controlPinFactories[DevicePages.DisplayId] = PanelSystemDisplay.CreateCopy;
+        _devicePins.Views[DevicePages.DisplayId] = PanelSystemDisplay.CreateCopy;
         RenderPins();
     }
 
@@ -110,7 +111,7 @@ public partial class OverlayWindow
         Closed += (_, _) => selection.Dispose();
         // The section is shown only once Windows has been read and offers a choice.
         selection.Changed += RefreshDevicePanel;
-        _controlPinFactories[DevicePages.PowerProfileId] =
+        _devicePins.Views[DevicePages.PowerProfileId] =
             AttachedPin<ChoiceRowView, ChoiceRowSelection>(selection, (view, model) => view.Attach(model));
         RefreshDevicePanel();
     }
@@ -125,7 +126,7 @@ public partial class OverlayWindow
         // Only on a hybrid CPU whose active scheme exposes the policy. Everywhere else the section would
         // open on a control that has nothing to offer.
         selection.Changed += RefreshDevicePanel;
-        _controlPinFactories[DevicePages.ProcessorCoresId] =
+        _devicePins.Views[DevicePages.ProcessorCoresId] =
             AttachedPin<ChoiceRowView, ChoiceRowSelection>(selection, (view, model) => view.Attach(model));
         RefreshDevicePanel();
     }
@@ -134,7 +135,7 @@ public partial class OverlayWindow
     {
         if (ViewModel.ShowEmulators)
         {
-            OpenToolsSection(OverlayPage.EmulatorManager);
+            OpenSection(OverlayPage.EmulatorManager);
         }
     }
 

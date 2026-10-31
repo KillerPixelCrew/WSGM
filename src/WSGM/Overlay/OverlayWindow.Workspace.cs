@@ -47,6 +47,8 @@ public partial class OverlayWindow
 
     private void RefreshWorkspace()
     {
+        // The pinned section cards follow the same availability as the rail entries they open.
+        _pins.RefreshSections();
         WorkspaceTitle.Text = DestinationLabel(_navigation.Destination);
         WorkspaceDescription.Text = _navigation.Destination switch
         {
@@ -293,7 +295,10 @@ public partial class OverlayWindow
             if (section is not null)
             {
                 SelectWorkspaceSection(section, false);
-                FocusFirstControl(ActiveSubView?.Host ?? DestinationPanel());
+                if ((ActiveSubView?.Host ?? DestinationPanel()) is { } shown)
+                {
+                    FocusFirstControl(shown);
+                }
             }
 
             return true;

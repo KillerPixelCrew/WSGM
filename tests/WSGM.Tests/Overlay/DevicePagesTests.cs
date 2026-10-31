@@ -197,12 +197,15 @@ public sealed class DevicePagesTests
     [Fact]
     public void APinnedIdNothingPublishesDrawsAsUnavailable()
     {
-        var group = DevicePages.Pinned("section.device.plugin.gone.main", Snapshot(), null, null, _ => false);
+        const string id = "section.device.plugin.gone.main";
+        Assert.Null(DevicePages.Pinned(id, Snapshot(), null, null, _ => false));
+        var group = DevicePages.Unavailable(id);
 
         Assert.NotNull(group);
         Assert.Equal("Section unavailable", group.Title);
         Assert.Equal(DeviceFold.Folded, group.Fold);
         Assert.Null(DevicePages.Pinned("program:x", Snapshot(), null, null, _ => false));
+        Assert.Null(DevicePages.Unavailable("program:x"));
     }
 
     [Fact]

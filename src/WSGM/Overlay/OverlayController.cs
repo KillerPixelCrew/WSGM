@@ -638,7 +638,7 @@ public sealed partial class OverlayController : IDisposable
         var constructDone = Stopwatch.GetTimestamp();
         _overlay.AttachSources(_sources);
         AttachNotes(_overlay);
-        _overlay.ProgramActivateRequested += ActivateProgram;
+        _overlay.ProgramsHost.ActivateRequested += ActivateProgram;
         _overlay.SetPins(_pins);
         _overlay.PinToggleRequested += OnPinToggleRequested;
         _overlay.WindowPicked += PickWindow;

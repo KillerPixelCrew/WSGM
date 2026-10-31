@@ -50,7 +50,7 @@ public static class PreviewTools
         UiFixture.Named<ArtworkView>(window, "ArtworkHost").AttachSession(new FakeArtworkSource());
         UiFixture.Named<GameLibraryView>(window, "GameLibraryHost").Attach(library ?? new FakeLibrarySource());
         UiFixture.Named<EmulatorManagerView>(window, "EmulatorManagerHost").Attach(PreviewEmulators.Create());
-        window.AttachPrograms(new ProgramsOverlaySource());
+        window.ProgramsHost.Attach(new ProgramsOverlaySource());
         var model = (OverlayViewModel)window.DataContext!;
         model.ShowThemes = model.ShowAnimations = model.ShowArtwork = model.ShowGameLibrary = true;
         model.ShowEmulators = true;

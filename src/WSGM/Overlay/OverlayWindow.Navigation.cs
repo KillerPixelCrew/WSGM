@@ -29,16 +29,17 @@ public partial class OverlayWindow
     /// </summary>
     private SubView[] SubViews => _subViews ??=
     [
-        // The category pages: each destination root is a menu, and its groups of controls are
-        // pages one level down. Nesting is what the stack is for, so a page opened from inside a
-        // category names that category as its parent rather than the destination root.
-        new SubView(OverlayPage.SteamLibrary, PanelSteamLibrary, PanelSteam, OverlayDestination.Steam,
+        // The sections each destination's rail offers. Steam, Tools and Power have no page of their own: a
+        // section is a page one level down from the root, and its parent is null. A page opened from inside
+        // a section names that section as its parent, so Back returns to it. A section with a pin id can be
+        // pinned to Quick access as a card that opens it.
+        new SubView(OverlayPage.SteamLibrary, PanelSteamLibrary, null, OverlayDestination.Steam,
             Title: "Steam library", Icon: Icons.SteamLike),
-        new SubView(OverlayPage.SteamLaunchFixes, PanelSteamLaunch, PanelSteam, OverlayDestination.Steam,
+        new SubView(OverlayPage.SteamLaunchFixes, PanelSteamLaunch, null, OverlayDestination.Steam,
             Title: "Per-game launch fixes", Icon: Icons.Rocket),
-        new SubView(OverlayPage.SteamGameTools, GameToolsHost, PanelSteam, OverlayDestination.Steam,
+        new SubView(OverlayPage.SteamGameTools, GameToolsHost, null, OverlayDestination.Steam,
             Title: "Game Tools", Icon: Icons.Wrench, Available: () => ViewModel.ShowGameTools),
-        new SubView(OverlayPage.SystemTools, PanelSystemTools, PanelSystem, OverlayDestination.System, Title: "System",
+        new SubView(OverlayPage.SystemTools, PanelSystemTools, null, OverlayDestination.System, Title: "System",
             Icon: Icons.Gear),
         // The Device pages are one view, which draws whichever page the stack names: entering or leaving one
         // redraws it, and the Controller page holds the glyph input lease while it shows.
@@ -46,45 +47,53 @@ public partial class OverlayWindow
             LeaveDevicePage, OnEnter: RefreshDevicePanel),
         new SubView(OverlayPage.DeviceGpu, DevicePage, DevicePage, OverlayDestination.Device, LeaveDevicePage,
             OnEnter: RefreshDevicePanel),
-        new SubView(OverlayPage.SystemPerformance, PanelSystemPerformance, PanelSystem, OverlayDestination.System,
+        new SubView(OverlayPage.SystemPerformance, PanelSystemPerformance, null, OverlayDestination.System,
             Title: "Performance", Icon: Icons.Monitor, Available: () => PanelSystemPerformance.Offered),
-        new SubView(OverlayPage.SystemStorage, PanelSystemStorage, PanelSystem, OverlayDestination.System,
+        new SubView(OverlayPage.SystemStorage, PanelSystemStorage, null, OverlayDestination.System,
             Title: "Storage", Icon: Icons.SdCard),
-        new SubView(OverlayPage.SystemDisplay, PanelSystemDisplay, PanelSystem, OverlayDestination.System,
+        new SubView(OverlayPage.SystemDisplay, PanelSystemDisplay, null, OverlayDestination.System,
             Title: "Display", Icon: Icons.Monitor),
-        new SubView(OverlayPage.SystemPlugins, PanelSystemPlugins, PanelSystem, OverlayDestination.System,
+        new SubView(OverlayPage.SystemPlugins, PanelSystemPlugins, null, OverlayDestination.System,
             Title: "Plugins", Icon: Icons.Wrench, Available: () => PanelSystemPlugins.Offered),
-        new SubView(OverlayPage.SystemThemes, ThemesHost, PanelSystem, OverlayDestination.System,
-            Title: "CSS Loader", Icon: Icons.Palette, Available: () => ViewModel.ShowThemes),
-        new SubView(OverlayPage.SystemAnimations, AnimationsHost, PanelSystem, OverlayDestination.System,
-            Title: "Video Switcher", Icon: Icons.Play, Available: () => ViewModel.ShowAnimations),
-        new SubView(OverlayPage.SystemSounds, SoundsHost, PanelSystem, OverlayDestination.System,
-            SoundsHost.StopPreview, "Sounds", Icons.Play, () => ViewModel.ShowSounds),
-        new SubView(OverlayPage.SystemArtwork, ArtworkHost, PanelSystem, OverlayDestination.System,
+        new SubView(OverlayPage.SystemThemes, ThemesHost, null, OverlayDestination.System,
+            Title: "CSS Loader", Icon: Icons.Palette, Available: () => ViewModel.ShowThemes,
+            PinId: "system.themes", Description: "Restyle Big Picture with CSS Loader themes from DeckThemes"),
+        new SubView(OverlayPage.SystemAnimations, AnimationsHost, null, OverlayDestination.System,
+            Title: "Video Switcher", Icon: Icons.Play, Available: () => ViewModel.ShowAnimations,
+            PinId: "system.animations", Description: "The boot movie, from SteamDeckRepo or your own"),
+        new SubView(OverlayPage.SystemSounds, SoundsHost, null, OverlayDestination.System,
+            SoundsHost.StopPreview, "Sounds", Icons.Play, () => ViewModel.ShowSounds,
+            PinId: "system.sounds", Description: "Install, preview and select Steam UI sound packs"),
+        new SubView(OverlayPage.SystemArtwork, ArtworkHost, null, OverlayDestination.System,
             Title: "Steam Artwork Changer", Icon: Icons.Palette, Available: () => ViewModel.ShowArtwork),
-        new SubView(OverlayPage.SteamGameLibrary, GameLibraryHost, PanelSystem, OverlayDestination.System,
-            Title: "Library Importer", Icon: Icons.Grid4, Available: () => ViewModel.ShowGameLibrary),
-        new SubView(OverlayPage.EmulatorManager, EmulatorManagerHost, PanelSystem, OverlayDestination.System,
-            Title: "Emulators", Icon: Icons.Grid4, Available: () => ViewModel.ShowEmulators),
-        new SubView(OverlayPage.Programs, ProgramsHost, PanelSystem, OverlayDestination.System,
+        new SubView(OverlayPage.SteamGameLibrary, GameLibraryHost, null, OverlayDestination.System,
+            Title: "Library Importer", Icon: Icons.Grid4, Available: () => ViewModel.ShowGameLibrary,
+            PinId: "system.game-library",
+            Description: "Bring games from other launchers into Steam, with their artwork"),
+        new SubView(OverlayPage.EmulatorManager, EmulatorManagerHost, null, OverlayDestination.System,
+            Title: "Emulators", Icon: Icons.Grid4, Available: () => ViewModel.ShowEmulators,
+            PinId: "system.emulator-manager", Description: "Install, update and configure emulators"),
+        new SubView(OverlayPage.Programs, ProgramsHost, null, OverlayDestination.System,
             Title: "Programs", Icon: Icons.Rocket),
-        new SubView(OverlayPage.Notes, NotesHost, PanelSystem, OverlayDestination.System,
-            Title: "Notes", Icon: Icons.ListLines),
-        new SubView(OverlayPage.SystemBrowser, BrowserHost, PanelSystem, OverlayDestination.System,
+        new SubView(OverlayPage.Notes, NotesHost, null, OverlayDestination.System,
+            Title: "Notes", Icon: Icons.ListLines, PinId: "system.notes",
+            Description: "Game notes with text, drawings and screenshots"),
+        new SubView(OverlayPage.SystemBrowser, BrowserHost, null, OverlayDestination.System,
             Title: "Browser", Icon: Icons.Monitor),
-        new SubView(OverlayPage.Screensavers, ScreensaversHost, PanelSystem, OverlayDestination.System,
-            Title: "Screensavers", Icon: Icons.Monitor),
-        new SubView(OverlayPage.SystemController, PanelSystemController, PanelSystem,
+        new SubView(OverlayPage.Screensavers, ScreensaversHost, null, OverlayDestination.System,
+            Title: "Screensavers", Icon: Icons.Monitor, PinId: "system.screensavers",
+            Description: "Local image folders and scene packs"),
+        new SubView(OverlayPage.SystemController, PanelSystemController, null,
             OverlayDestination.System, Title: "Keyboard", Icon: Icons.Keyboard),
-        new SubView(OverlayPage.SystemAbout, PanelSystemAbout, PanelSystem, OverlayDestination.System, Title: "About",
+        new SubView(OverlayPage.SystemAbout, PanelSystemAbout, null, OverlayDestination.System, Title: "About",
             Icon: Icons.Info),
-        new SubView(OverlayPage.PowerWake, PanelPowerWake, PanelPower, OverlayDestination.Power, Title: "Wake",
+        new SubView(OverlayPage.PowerWake, PanelPowerWake, null, OverlayDestination.Power, Title: "Wake",
             Icon: Icons.Mug),
-        new SubView(OverlayPage.PowerTimeouts, PanelPowerTimeouts, PanelPower, OverlayDestination.Power,
+        new SubView(OverlayPage.PowerTimeouts, PanelPowerTimeouts, null, OverlayDestination.Power,
             Title: "Idle timeouts", Icon: Icons.Moon),
-        new SubView(OverlayPage.PowerActions, PanelPowerActions, PanelPower, OverlayDestination.Power, Title: "Power",
+        new SubView(OverlayPage.PowerActions, PanelPowerActions, null, OverlayDestination.Power, Title: "Power",
             Icon: Icons.Power),
-        new SubView(OverlayPage.PowerSession, PanelPowerSession, PanelPower, OverlayDestination.Power, Title: "Session",
+        new SubView(OverlayPage.PowerSession, PanelPowerSession, null, OverlayDestination.Power, Title: "Session",
             Icon: Icons.Play),
 
         new SubView(OverlayPage.SteamStorageFormat, StorageFormatHost, PanelSystemStorage, OverlayDestination.System,
@@ -135,7 +144,7 @@ public partial class OverlayWindow
                 return nestedButton;
             }
 
-            if (FocusSearch.First<Button>(DestinationPanel(), IsFocusableButton) is { } button)
+            if (DestinationPanel() is { } root && FocusSearch.First<Button>(root, IsFocusableButton) is { } button)
             {
                 return button;
             }
@@ -176,7 +185,7 @@ public partial class OverlayWindow
             }
         }
 
-        view.Parent.IsVisible = false;
+        view.Parent?.IsVisible = false;
         view.Host.IsVisible = true;
         ContentScroller.Offset = default;
         view.OnEnter?.Invoke();
@@ -210,13 +219,13 @@ public partial class OverlayWindow
         // sub-view and keep writing back to a now-hidden field.
         SubViewClosed?.Invoke();
         view.Host.IsVisible = false;
-        view.Parent.IsVisible = _navigation.Destination == view.Destination;
+        view.Parent?.IsVisible = _navigation.Destination == view.Destination;
         if (ActiveSubView is { } caller)
         {
             caller.Host.IsVisible = true;
-            if (!ReferenceEquals(view.Parent, caller.Host))
+            if (view.Parent is { } parent && !ReferenceEquals(parent, caller.Host))
             {
-                view.Parent.IsVisible = false;
+                parent.IsVisible = false;
             }
 
             FocusByKey(caller.Host, returnFocusKey);
@@ -230,11 +239,12 @@ public partial class OverlayWindow
         }
 
         SyncBackAffordance();
-        if (view.Parent.IsVisible && ActiveSubView is null)
+        // A section without a parent leaves its destination at the root, where the rail takes focus.
+        if (ActiveSubView is null && view.Parent?.IsVisible != false)
         {
-            if (!ReferenceEquals(view.Parent, DestinationPanel()))
+            if (view.Parent is { } parent && !ReferenceEquals(parent, DestinationPanel()))
             {
-                FocusByKey(view.Parent, returnFocusKey);
+                FocusByKey(parent, returnFocusKey);
             }
             else
             {
@@ -563,11 +573,8 @@ public partial class OverlayWindow
         // resolved here as well as on the enter/leave paths.
         SyncBackAffordance();
         PanelQuickAccess.IsVisible = destination == OverlayDestination.QuickAccess;
-        PanelSteam.IsVisible = destination == OverlayDestination.Steam;
         DevicePage.IsVisible = destination == OverlayDestination.Device
                                && _navigation.IsVisible(OverlayDestination.Device);
-        PanelSystem.IsVisible = destination == OverlayDestination.System;
-        PanelPower.IsVisible = destination == OverlayDestination.Power;
 
         // The Device rows are built once per render into a panel that survives destination changes,
         // and until this call arriving here they were rebuilt only on attach and on a device-state
@@ -594,15 +601,14 @@ public partial class OverlayWindow
         }
     }
 
-    private Control DestinationPanel()
+    /// <summary>The page a destination shows at its root, or null for one whose rail is all it offers there.</summary>
+    private Control? DestinationPanel()
     {
         return _navigation.Destination switch
         {
-            OverlayDestination.Steam => PanelSteam,
+            OverlayDestination.QuickAccess => PanelQuickAccess,
             OverlayDestination.Device => DevicePage,
-            OverlayDestination.System => PanelSystem,
-            OverlayDestination.Power => PanelPower,
-            _ => PanelQuickAccess
+            _ => null
         };
     }
 
@@ -653,7 +659,10 @@ public partial class OverlayWindow
                 return;
             }
 
-            FocusByKey(DestinationPanel(), state.SemanticKey);
+            if (DestinationPanel() is { } root)
+            {
+                FocusByKey(root, state.SemanticKey);
+            }
         });
     }
 
@@ -693,27 +702,34 @@ public partial class OverlayWindow
         }
     }
 
-    // The category menus. Each destination root offers its groups as large tiles and the controls
-    // themselves live one level down, so a handheld's few visible rows are a choice rather than the
-    // top of a list the controller has to scroll through. Back and B leave a category the same way
-    // they leave any other page, through the sub-view stack.
-    /// <summary>Opens the category page a tile names in its CommandParameter.</summary>
-    private void OnEnterCategory(object? sender, RoutedEventArgs e)
+    /// <summary>
+    ///     Opens a nested page from the section it belongs to. A pinned copy on Quick access asks from another
+    ///     destination, so the page's section is selected first, as choosing it on the rail does.
+    /// </summary>
+    /// <param name="page">The nested page.</param>
+    private void OpenPage(OverlayPage page)
     {
-        if (sender is Button { CommandParameter: OverlayPage page })
+        var view = SubViews.First(candidate => candidate.Page == page);
+        if (_navigation.Destination != view.Destination
+            && SubViews.FirstOrDefault(section => section.Title is not null
+                                                  && ReferenceEquals(section.Host, view.Parent)) is { } owner
+            && !OpenSection(owner.Page))
         {
-            EnterSubView(page);
+            return;
         }
+
+        EnterSubView(page);
     }
 
-    /// <summary>Selects a Tools section the way choosing it on the rail does.</summary>
+    /// <summary>Selects a section the way choosing it on its destination's rail does.</summary>
     /// <param name="page">The section's page.</param>
     /// <returns>Whether the section is offered in this window.</returns>
-    private bool OpenToolsSection(OverlayPage page)
+    private bool OpenSection(OverlayPage page)
     {
-        if (_navigation.Destination != OverlayDestination.System)
+        var destination = SubViews.First(view => view.Page == page).Destination;
+        if (_navigation.Destination != destination)
         {
-            SelectDestination(OverlayDestination.System);
+            SelectDestination(destination);
         }
 
         var section = _workspaceSections.FirstOrDefault(item => item.Page == page);
@@ -735,7 +751,7 @@ public partial class OverlayWindow
             // Already showing: start over from the remembered place rather than keep a stale level.
             NotesHost.OpenLastLocation();
         }
-        else if (!OpenToolsSection(OverlayPage.Notes))
+        else if (!OpenSection(OverlayPage.Notes))
         {
             return false;
         }
@@ -747,7 +763,7 @@ public partial class OverlayWindow
     /// <summary>Shows the storage format flow over Tools > Storage, from wherever it was started.</summary>
     private void OpenStorageFormat()
     {
-        OpenToolsSection(OverlayPage.SystemStorage);
+        OpenSection(OverlayPage.SystemStorage);
         EnterSubView(OverlayPage.SteamStorageFormat);
     }
 
@@ -781,7 +797,7 @@ public partial class OverlayWindow
     /// </summary>
     /// <param name="Page">The navigation page; also the identity of the open sub-view.</param>
     /// <param name="Host">The control revealed while the page is open.</param>
-    /// <param name="Parent">The destination panel hidden behind it.</param>
+    /// <param name="Parent">The page hidden behind it, or null for a section at its destination's root.</param>
     /// <param name="Destination">The destination that panel belongs to.</param>
     /// <param name="OnLeave">
     ///     State the page owns, released before the keyboard surface is told
@@ -791,14 +807,18 @@ public partial class OverlayWindow
     /// <param name="Icon">The section icon.</param>
     /// <param name="Available">Whether the section is currently offered.</param>
     /// <param name="OnEnter">Draws the page once it is on the stack and shown.</param>
+    /// <param name="PinId">The id the section pins to Quick access under, as a card that opens it, or null.</param>
+    /// <param name="Description">The pinned card's description.</param>
     private sealed record SubView(
         OverlayPage Page,
         Control Host,
-        Control Parent,
+        Control? Parent,
         OverlayDestination Destination,
         Action? OnLeave = null,
         string? Title = null,
         Geometry? Icon = null,
         Func<bool>? Available = null,
-        Action? OnEnter = null);
+        Action? OnEnter = null,
+        string? PinId = null,
+        string? Description = null);
 }

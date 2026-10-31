@@ -381,6 +381,44 @@ public sealed class OverlayInteractionTests
     }
 
     [AvaloniaFact]
+    public void APinnedToolsSectionCardOpensItsSection()
+    {
+        using UiFixture fixture = new();
+        var window = fixture.Overlay();
+        window.SetPins(["system.notes"]);
+        Dispatcher.UIThread.RunJobs();
+        var card = Assert.Single(UiFixture.Named<Panel>(window, "PinnedGrid").Children.OfType<ActionButton>(),
+            button => button.IsEnabled);
+        Assert.Equal("Notes", card.Title);
+        Assert.Equal("Game notes with text, drawings and screenshots", card.Description);
+
+        UiFixture.Click(window, card);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(UiFixture.Named<Control>(window, "NotesHost").IsVisible);
+        Assert.Contains("selected", UiFixture.Rail(window, OverlayPage.Notes).Classes);
+    }
+
+    [AvaloniaFact]
+    public void APinnedRowThatOpensANestedPageOpensItFromQuickAccess()
+    {
+        using UiFixture fixture = new();
+        var window = fixture.Overlay();
+        window.SetPins(["system.wake-locks"]);
+        Dispatcher.UIThread.RunJobs();
+        var card = Assert.Single(UiFixture.Named<Panel>(window, "PinnedGrid").Children.OfType<ActionButton>(),
+            button => button.IsEnabled);
+
+        UiFixture.Click(window, card);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(UiFixture.Named<Control>(window, "WakeLockHost").IsVisible);
+        Assert.Contains("selected", UiFixture.Rail(window, OverlayPage.PowerWake).Classes);
+        UiFixture.Key(window, Key.Escape);
+        Assert.True(UiFixture.Named<Control>(window, "PanelPowerWake").IsVisible);
+    }
+
+    [AvaloniaFact]
     public void QuickAccessPinsReportIntentThroughPointerAndKeyboard()
     {
         using UiFixture fixture = new();
@@ -436,12 +474,12 @@ public sealed class OverlayInteractionTests
     }
 
     [AvaloniaTheory]
-    [InlineData(1, "PanelSteam", "SteamLibrary", "PanelSteamLibrary")]
-    [InlineData(2, "PanelSystem", "SystemDisplay", "PanelSystemDisplay")]
-    [InlineData(3, "PanelPower", "PowerTimeouts", "PanelPowerTimeouts")]
-    [InlineData(3, "PanelPower", "PowerSession", "PanelPowerSession")]
+    [InlineData(1, "SteamLibrary", "PanelSteamLibrary")]
+    [InlineData(2, "SystemDisplay", "PanelSystemDisplay")]
+    [InlineData(3, "PowerTimeouts", "PanelPowerTimeouts")]
+    [InlineData(3, "PowerSession", "PanelPowerSession")]
     public void ASectionRailKeepsTheSelectedPageVisibleWhileFocusMoves(
-        int tab, string root, string section, string page)
+        int tab, string section, string page)
     {
         using UiFixture fixture = new();
         var window = fixture.Overlay();
@@ -449,7 +487,6 @@ public sealed class OverlayInteractionTests
         Dispatcher.UIThread.RunJobs();
         var selected = UiFixture.Rail(window, section);
         UiFixture.Click(window, selected);
-        Assert.False(UiFixture.Named<Control>(window, root).IsVisible);
         Assert.True(UiFixture.Named<Control>(window, page).IsVisible);
         Assert.Contains("selected", selected.Classes);
         var peer = UiFixture.Named<StackPanel>(window, "SectionRail").Children.OfType<Button>()
@@ -484,7 +521,6 @@ public sealed class OverlayInteractionTests
         Assert.False(UiFixture.Named<Control>(window, "WakeLockHost").IsVisible);
         Assert.Null(UiFixture.Named<WakeLockHoldersView>(window, "WakeLockHost").Content);
         Assert.True(UiFixture.Named<Control>(window, "PanelPowerWake").IsVisible);
-        Assert.False(UiFixture.Named<Control>(window, "PanelPower").IsVisible);
         UiFixture.Key(window, Key.Escape);
         Assert.True(UiFixture.Rail(window, OverlayPage.PowerWake).IsFocused);
         Assert.True(UiFixture.Named<Control>(window, "PanelPowerWake").IsVisible);
@@ -505,7 +541,6 @@ public sealed class OverlayInteractionTests
         Dispatcher.UIThread.RunJobs();
         Assert.False(UiFixture.Named<Control>(window, "WakeLockHost").IsVisible);
         Assert.False(UiFixture.Named<Control>(window, "PanelPowerWake").IsVisible);
-        Assert.False(UiFixture.Named<Control>(window, "PanelPower").IsVisible);
         Assert.True(UiFixture.Named<Control>(window, "PanelSteamLibrary").IsVisible);
         Assert.Contains("selected", UiFixture.Rail(window, OverlayPage.SteamLibrary).Classes);
     }

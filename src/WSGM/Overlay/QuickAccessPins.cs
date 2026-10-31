@@ -5,6 +5,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.LogicalTree;
+using Avalonia.Media;
 using Avalonia.Threading;
 using WSGM.Controls;
 
@@ -44,6 +45,9 @@ internal sealed class QuickAccessPins
         };
     }
 
+    // The pinnable Tools sections, by pin id, with whether each is offered now.
+    private readonly Dictionary<string, Func<bool>> _sections = new(StringComparer.Ordinal);
+
     // Every section heading currently in the window's tree; each adds itself on attach and leaves on detach.
     private readonly HashSet<SectionPinHeader> _headers = [];
     private readonly Panel _mirrorGrid;
@@ -57,8 +61,8 @@ internal sealed class QuickAccessPins
         [];
 
     /// <summary>
-    ///     Every pinnable XAML row, by its stable id (the ActionButton's Tag).
-    ///     Device rows are not here: they are rebuilt from the snapshot on every render.
+    ///     Every pinnable action row, by its stable id: the pages' tagged ActionButtons, and one card per
+    ///     pinnable Tools section. Device rows are not here: they are rebuilt from the snapshot on every render.
     /// </summary>
     private readonly Dictionary<string, ActionButton> _rows = new(StringComparer.Ordinal);
 
@@ -109,12 +113,40 @@ internal sealed class QuickAccessPins
         return Ids.Contains(id);
     }
 
-    /// <summary>Whether an id names a pinnable action row of the window, which pins as a mirror.</summary>
+    /// <summary>Resolves a pin id that names an action row or a Tools section, which pins as a tile.</summary>
     /// <param name="id">A pin id.</param>
-    /// <returns>True for an indexed row.</returns>
-    internal bool IsRow(string id)
+    /// <returns>The pin, drawn as the row's mirror, or null for an id this source does not own.</returns>
+    internal QuickAccessPin? Resolve(string id)
     {
-        return _rows.ContainsKey(id);
+        return _rows.TryGetValue(id, out var source)
+            ? new QuickAccessPin(source.Title ?? id, source.IsVisible, true, _ => Mirror(id)!)
+            : null;
+    }
+
+    /// <summary>Offers a Tools section as a pinnable card, under the pin id its registry entry declares.</summary>
+    /// <param name="id">The pin id.</param>
+    /// <param name="title">The card's title, the section's rail label.</param>
+    /// <param name="description">The card's description.</param>
+    /// <param name="icon">The section icon.</param>
+    /// <param name="available">Whether the section is offered now; the card shows only then.</param>
+    /// <param name="open">Opens the section, as choosing it on the rail does.</param>
+    internal void AddSection(string id, string title, string description, Geometry? icon, Func<bool> available,
+        Action open)
+    {
+        ActionButton source = new() { Title = title, Description = description, IconGeometry = icon };
+        source.Click += (_, _) => open();
+        _rows[id] = source;
+        _sections[id] = available;
+        source.IsVisible = available();
+    }
+
+    /// <summary>Shows each section card only while its section is offered.</summary>
+    internal void RefreshSections()
+    {
+        foreach (var (id, available) in _sections)
+        {
+            _rows[id].IsVisible = available();
+        }
     }
 
     /// <summary>
