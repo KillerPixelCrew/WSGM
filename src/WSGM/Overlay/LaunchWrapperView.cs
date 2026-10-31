@@ -59,6 +59,9 @@ public sealed class LaunchWrapperView : ServiceSubView
         CurrentLevel = null;
         AttachSource(_actions);
         Navigate(RenderActions);
+        _ = RefreshActionsAsync();
+        // Steam announces no change to launch fields edited in Steam itself, so they are read again
+        // while the page shows. A draw only shows the state already read.
         _refresh ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _refresh.Tick -= OnRefresh;
         _refresh.Tick += OnRefresh;
@@ -112,7 +115,6 @@ public sealed class LaunchWrapperView : ServiceSubView
 
     private void RenderActions()
     {
-        _ = RefreshActionsAsync();
         var body = NewStack(_actionGame?.Name ?? "Launch Actions");
         if (_state is not { } state)
         {
@@ -212,7 +214,11 @@ public sealed class LaunchWrapperView : ServiceSubView
                 finally
                 {
                     _busy = false;
-                    Dispatcher.UIThread.Post(() => CurrentLevel?.Invoke());
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        CurrentLevel?.Invoke();
+                        _ = RefreshActionsAsync();
+                    });
                 }
             });
     }

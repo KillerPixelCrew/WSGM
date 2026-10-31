@@ -68,19 +68,42 @@ public sealed partial class OverlayController
 
     private async Task<bool> ReturnToGameForNotesAsync(NotesCaptureTarget target, CancellationToken cancellationToken)
     {
-        await Dispatcher.UIThread.InvokeAsync(() =>
+        TaskCompletionSource closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var window = await Dispatcher.UIThread.InvokeAsync(() =>
         {
             // The sheet's own close releases its capture claim and Steam Input lease, returning input to the
             // game; in Game Mode it also brings back the window that was in front before it opened.
             _suppressFocusRestore = false;
+            var open = _overlay;
+            if (open is null)
+            {
+                closed.TrySetResult();
+            }
+            else
+            {
+                open.Closed += OnClosed;
+            }
+
             CloseOverlay();
+            return open;
         });
-        var deadline = DateTime.UtcNow + NotesCloseWait;
-        while (await Dispatcher.UIThread.InvokeAsync(() => _overlay is not null) && DateTime.UtcNow < deadline)
+        try
         {
-            await Task.Delay(50, cancellationToken).ConfigureAwait(false);
+            await closed.Task.WaitAsync(NotesCloseWait, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            return false;
+        }
+        finally
+        {
+            if (window is not null)
+            {
+                window.Closed -= OnClosed;
+            }
         }
 
+        // A sheet summoned again after this one closed keeps the player in WSGM.
         if (await Dispatcher.UIThread.InvokeAsync(() => _overlay is not null))
         {
             return false;
@@ -96,6 +119,11 @@ public sealed partial class OverlayController
         }
 
         return true;
+
+        void OnClosed(object? sender, EventArgs args)
+        {
+            closed.TrySetResult();
+        }
     }
 
     private Task<bool> ReopenNotesAsync()

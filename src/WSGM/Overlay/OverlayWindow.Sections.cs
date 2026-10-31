@@ -17,9 +17,6 @@ public partial class OverlayWindow
     private Panel? _deviceCapabilityParent;
     private int _deviceCapabilityIndex;
     private bool _unifiedPowerDetails;
-    // Several steps of one render or pin lookup read the same device snapshot; its pin sections are
-    // derived once per snapshot instance rather than once per step.
-    private (DeviceOverlaySnapshot Snapshot, DevicePinSection[] Sections)? _pinSections;
 
     private void RestoreSectionHeaderFocus(string? key)
     {
@@ -139,14 +136,16 @@ public partial class OverlayWindow
         }
     }
 
-    private void PlaceUnifiedPowerControls(DeviceOverlaySnapshot snapshot)
+    private void PlaceUnifiedPowerControls(DeviceOverlaySnapshot snapshot,
+        IReadOnlyList<DeviceOverlaySectionEntry> sectionPages)
     {
         _unifiedPowerDetails = _navigation.Page == OverlayPage.DevicePowerAndThermals
                                || _navigation.Page == OverlayPage.DevicePluginSection
                                && DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot,
                                    _navigation.SectionId ?? string.Empty)
                                == DeviceOverlaySection.PowerAndThermals
-                               || _navigation.Page == OverlayPage.Device && OverviewPowerEntry(snapshot) is not null;
+                               || _navigation.Page == OverlayPage.Device
+                               && OverviewPowerEntry(snapshot, sectionPages) is not null;
         if (_unifiedPowerDetails && !ReferenceEquals(DeviceCapabilityList.Parent, UnifiedDevicePowerBody))
         {
             ((Panel)DeviceCapabilityList.Parent!).Children.Remove(DeviceCapabilityList);
@@ -160,27 +159,26 @@ public partial class OverlayWindow
     }
 
     /// <summary>The Power page the Overview repeats, or null while integration publishes no power controls.</summary>
-    private static DeviceOverlaySectionEntry? OverviewPowerEntry(DeviceOverlaySnapshot snapshot)
+    private static DeviceOverlaySectionEntry? OverviewPowerEntry(DeviceOverlaySnapshot snapshot,
+        IReadOnlyList<DeviceOverlaySectionEntry> sectionPages)
     {
         return snapshot.Visible
-            ? DeviceOverlaySectionPages.Build(snapshot)
-                .FirstOrDefault(entry => entry.Section == DeviceOverlaySection.PowerAndThermals)
+            ? sectionPages.FirstOrDefault(entry => entry.Section == DeviceOverlaySection.PowerAndThermals)
             : null;
     }
 
-    private DevicePinSection[] DevicePinSections(DeviceOverlaySnapshot snapshot)
+    /// <summary>Every pinnable Device group the snapshot publishes, derived once per render or pin pass.</summary>
+    /// <param name="snapshot">The Device snapshot.</param>
+    /// <param name="sectionPages">The section menu already built from it, or null to build it here.</param>
+    /// <returns>The groups in presentation order.</returns>
+    private static DevicePinSection[] DevicePinSections(DeviceOverlaySnapshot snapshot,
+        IReadOnlyList<DeviceOverlaySectionEntry>? sectionPages = null)
     {
-        if (_pinSections is { } cached && ReferenceEquals(cached.Snapshot, snapshot))
-        {
-            return cached.Sections;
-        }
-
-        DevicePinSection[] sections = [.. BuildDevicePinSections(snapshot)];
-        _pinSections = (snapshot, sections);
-        return sections;
+        return [.. BuildDevicePinSections(snapshot, sectionPages ?? DeviceOverlaySectionPages.Build(snapshot))];
     }
 
-    private static IEnumerable<DevicePinSection> BuildDevicePinSections(DeviceOverlaySnapshot snapshot)
+    private static IEnumerable<DevicePinSection> BuildDevicePinSections(DeviceOverlaySnapshot snapshot,
+        IReadOnlyList<DeviceOverlaySectionEntry> sectionPages)
     {
         foreach (var section in snapshot.PluginSections)
         {
@@ -242,7 +240,7 @@ public partial class OverlayWindow
             }
         }
 
-        foreach (var section in DeviceOverlaySectionPages.Build(snapshot).Where(section =>
+        foreach (var section in sectionPages.Where(section =>
                      section.PluginSectionId is null
                      && (snapshot.Visible || section.Section == DeviceOverlaySection.ControllerAndMotion)))
         {
@@ -279,10 +277,11 @@ public partial class OverlayWindow
             }
         }
 
+        var temperature = DeviceTemperature(snapshot);
         foreach (var capability in OrderDeviceCapabilities(section.Capabilities))
         {
             var key = (pinned ? PinTagPrefix : "") + DeviceRowKey(capability);
-            var row = CreateDeviceCapabilityRow(CapabilityRowRenderer.Present(capability), key);
+            var row = CreateDeviceCapabilityRow(CapabilityRowRenderer.Present(capability), key, temperature);
             ToolTip.SetTip(row, capability.Description);
             CapabilityRowRenderer.AddRow(target, row,
                 !capability.Writable && capability.ValueKind != CapabilityValueKind.None
@@ -320,7 +319,15 @@ public partial class OverlayWindow
         }
     }
 
-    private Control? CreatePinnedSection(string id)
+    /// <summary>Draws one pinned group, or keeps and refreshes the one already drawn.</summary>
+    /// <param name="id">The pin id.</param>
+    /// <param name="device">The Device snapshot and its groups, or null without a device source.</param>
+    /// <param name="performance">The performance snapshot, or null without one.</param>
+    /// <param name="graphics">The graphics snapshot, or null without one.</param>
+    /// <returns>The group, or null when the id names nothing this build can draw.</returns>
+    private Control? CreatePinnedSection(string id,
+        (DeviceOverlaySnapshot Snapshot, DevicePinSection[] Sections)? device,
+        PerformanceOverlaySnapshot? performance, GraphicsOverlaySnapshot? graphics)
     {
         if (id.StartsWith(ProgramsService.PinPrefix, StringComparison.Ordinal))
         {
@@ -339,7 +346,7 @@ public partial class OverlayWindow
             return WrapDeviceSection(panel);
         }
 
-        if (id == "section.performance" && _performanceSource?.Snapshot() is { Visible: true } performance)
+        if (id == "section.performance" && performance is { Visible: true })
         {
             var group = PinnedSectionsGrid.Children.OfType<Border>()
                             .FirstOrDefault(row => Equals(row.Tag, PinTagPrefix + id))
@@ -352,20 +359,21 @@ public partial class OverlayWindow
         }
 
         if (id.StartsWith(GraphicsSectionPins.Prefix, StringComparison.Ordinal)
-            && CreatePinnedGraphicsSection(id) is { } graphics)
+            && CreatePinnedGraphicsSection(id, graphics) is { } pinnedGraphics)
         {
-            return graphics;
+            return pinnedGraphics;
         }
 
-        if (_deviceBridge?.Snapshot() is { } snapshot &&
-            DevicePinSections(snapshot).FirstOrDefault(candidate => candidate.Id == id) is { } section)
+        if (device is { } pinnedDevice
+            && pinnedDevice.Sections.FirstOrDefault(candidate => candidate.Id == id) is { } section)
         {
+            var snapshot = pinnedDevice.Snapshot;
             if (_pinnedLayouts.TryGetValue(id, out var previous) && SameDeviceLayout(previous, snapshot)
                                                                  && PinnedSectionsGrid.Children.FirstOrDefault(row =>
                                                                          Equals(row.Tag, PinTagPrefix + id)) is
                                                                      { } existing)
             {
-                RefreshDeviceValues(existing, snapshot);
+                RefreshDeviceValues(existing, snapshot, performance);
                 return existing;
             }
 

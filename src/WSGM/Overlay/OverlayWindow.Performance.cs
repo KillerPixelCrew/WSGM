@@ -10,6 +10,15 @@ public partial class OverlayWindow
 {
     private void RefreshPerformancePanel()
     {
+        RefreshPerformancePanel(_performanceSource?.Snapshot());
+    }
+
+    /// <summary>Draws the shared performance rows from a snapshot the caller read once for the pass.</summary>
+    /// <param name="snapshot">The performance snapshot, or null without a performance source.</param>
+    /// <param name="device">The Device snapshot of the same pass, or null to read it when the page needs it.</param>
+    /// <remarks>Quick access draws its pinned copy in the same pass, not here.</remarks>
+    private void RefreshPerformancePanel(PerformanceOverlaySnapshot? snapshot, DeviceOverlaySnapshot? device = null)
+    {
         if (_closed)
         {
             return;
@@ -24,8 +33,7 @@ public partial class OverlayWindow
         }
 
         PlacePerformanceSection(_navigation.IsVisible(OverlayDestination.Device));
-        var snapshot = _performanceSource?.Snapshot();
-        PerformanceSection.IsVisible = snapshot?.Visible is true && PerformanceBelongsOnCurrentPage();
+        PerformanceSection.IsVisible = snapshot?.Visible is true && PerformanceBelongsOnCurrentPage(device);
         DevicePerformanceCard.IsVisible =
             PerformanceSection.IsVisible && _navigation.IsVisible(OverlayDestination.Device);
         // The Tools root offers Performance only while the rows live there: with Device visible they
@@ -49,7 +57,6 @@ public partial class OverlayWindow
                 .Concat(snapshot.Rows)
             : snapshot.ProfileRows.Concat(snapshot.Rows);
         ReconcilePerformanceRows(PerformanceRows, descriptors, false);
-        RenderPins();
     }
 
     private void ReconcilePerformanceRows(Panel target, IEnumerable<DescriptorRow> descriptors, bool pinned)
@@ -121,7 +128,7 @@ public partial class OverlayWindow
     ///     Device shows performance on its overview and the shared or plugin-declared Power
     ///     page. Unrelated Device pages do not retain these controls.
     /// </remarks>
-    private bool PerformanceBelongsOnCurrentPage()
+    private bool PerformanceBelongsOnCurrentPage(DeviceOverlaySnapshot? device)
     {
         if (!_navigation.IsVisible(OverlayDestination.Device))
         {
@@ -136,7 +143,7 @@ public partial class OverlayWindow
 
         return _navigation.Page is OverlayPage.DevicePluginSection
                && _navigation.SectionId is { } sectionId
-               && DeviceOverlaySectionPages.SectionAbsorbedInto(DeviceSnapshotOrOff(), sectionId)
+               && DeviceOverlaySectionPages.SectionAbsorbedInto(device ?? DeviceSnapshotOrOff(), sectionId)
                    is DeviceOverlaySection.PowerAndThermals;
     }
 }

@@ -26,6 +26,7 @@ public partial class OverlayWindow : Window
     private const int PerformanceLiveRefresh = 2;
     private const int GraphicsLiveRefresh = 4;
     private const int ProgramsLiveRefresh = 8;
+    private const int PluginsLiveRefresh = 16;
 
     private readonly Dictionary<string, (string Title, Func<Control> Create)> _controlPinFactories = [];
     private readonly CancellationTokenSource _deviceLifetime = new();
@@ -65,7 +66,12 @@ public partial class OverlayWindow : Window
 
     private DispatcherTimer? _confirmResetTimer;
     private IDeviceOverlaySource? _deviceBridge;
+    // Set while the Device panel is hidden and a refresh was asked for; it renders when shown again.
+    private bool _devicePanelStale;
     private DevicePrerequisiteSource? _devicePrerequisites;
+
+    // The integration switch and device the banner was last read for; nothing else changes its answer.
+    private (bool Enabled, string Device)? _devicePrerequisitesFor;
     private bool _devicePrerequisitesReading;
     private bool _devicePrerequisitesStale;
 
@@ -84,6 +90,7 @@ public partial class OverlayWindow : Window
     private FormatTargetEntry? _pendingTarget;
 
     private PerformanceOverlayBridge? _performanceSource;
+    private CommonPluginOverlaySource? _pluginSource;
     private PowerSchemeSelection? _powerSchemeSelection;
     private OverlayPage? _renderedDevicePage;
     private string? _renderedDeviceSection;
@@ -305,10 +312,15 @@ public partial class OverlayWindow : Window
         // Before the warm-up return: rendering is part of what the warm pass exercises.
         _opened = true;
         FoldStaticSections();
-        RefreshPerformancePanel();
-        RefreshDevicePanel();
+        var performance = _performanceSource?.Snapshot();
+        var device = DeviceSnapshotOrOff();
+        RefreshNavigationHints();
+        RefreshPerformancePanel(performance, device);
+        // Drawn even while the panel is hidden: the warm pass exercises it, and the first Device
+        // visit then only refreshes values.
+        RefreshDevicePanel(device, performance);
         RefreshGraphicsPanel();
-        RenderPins();
+        RenderPins(device, performance);
         if (WarmingUp)
         {
             return;
@@ -379,6 +391,7 @@ public partial class OverlayWindow : Window
         }
 
         DetachGraphicsSource();
+        DetachCommonPlugins();
         if (_performanceSource is not null)
         {
             _performanceSource.Changed -= OnPerformanceChanged;

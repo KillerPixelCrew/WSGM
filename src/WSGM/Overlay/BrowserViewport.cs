@@ -16,8 +16,10 @@ internal sealed class BrowserViewport : OverlayNativeWebViewHost
     internal BrowserViewport()
     {
         Focusable = false;
+        // Only this control's own size or its position in the window can change the native
+        // rectangle; a tree-wide layout pass reports neither more often nor more accurately.
         SizeChanged += (_, _) => Resize();
-        LayoutUpdated += OnLayoutUpdated;
+        EffectiveViewportChanged += (_, _) => Resize();
     }
 
     protected override bool AcceptsInput => true;
@@ -49,6 +51,18 @@ internal sealed class BrowserViewport : OverlayNativeWebViewHost
     }
 
     protected override void OnNativeDestroying(nint handle) => _session?.DetachViewport(handle);
+
+    /// <inheritdoc />
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        // A viewport shown again after a surface need not move or resize, so neither event
+        // reports the first frame after modal resume; sample it here.
+        if (change.Property == IsVisibleProperty && IsVisible)
+        {
+            Resize();
+        }
+    }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
@@ -93,8 +107,6 @@ internal sealed class BrowserViewport : OverlayNativeWebViewHost
         Resize();
         _session?.NotifyParentPositionChanged();
     }
-
-    private void OnLayoutUpdated(object? sender, EventArgs e) => Resize();
 
     private void Resize()
     {

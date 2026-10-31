@@ -107,8 +107,7 @@ public partial class OverlayWindow
                 }
             }),
         new SubView(OverlayPage.PowerWakeLocks, WakeLockHost, PanelPowerWake, OverlayDestination.Power),
-        new SubView(OverlayPage.DeviceColor, DeviceColorHost, PanelDevice, OverlayDestination.Device,
-            RefreshDevicePanel)
+        new SubView(OverlayPage.DeviceColor, DeviceColorHost, PanelDevice, OverlayDestination.Device)
     ];
 
     /// <summary>The nested page currently owning the surface, or null at a destination root.</summary>
@@ -236,6 +235,12 @@ public partial class OverlayWindow
 
             FocusByKey(caller.Host, returnFocusKey);
             ContentScroller.Offset = new Vector(0, _nestedScroll.GetValueOrDefault(caller.Page));
+        }
+
+        // The Device panel skips refreshes while a page covers it, so it draws what it missed now.
+        if (_devicePanelStale && PanelDevice.IsVisible)
+        {
+            RefreshDevicePanel();
         }
 
         SyncBackAffordance();
@@ -594,10 +599,13 @@ public partial class OverlayWindow
         // "DEVICE CONTROLS" this way while all 16 capabilities were live.
         if (PanelDevice.IsVisible)
         {
-            RefreshDevicePanel();
-            RefreshPerformancePanel();
+            RefreshDevicePage();
         }
 
+        // Quick access and the Device page's widget toggles are not kept current while hidden, so
+        // they are drawn each time they show.
+        RenderPins();
+        RefreshPluginWidgets(device: true, plugins: false);
         RestoreDestinationState(restoreFocus);
         RefreshWorkspace();
         SelectRememberedSection(restoreFocus);

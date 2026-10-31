@@ -500,11 +500,12 @@ stays in place during updates, disables when readback is unavailable, and works 
 The same page shows resolution and refresh for the display the overlay sheet is on. Pickers hold
 driver-validated modes, and changing resolution updates the offered refresh rates. A committed
 dropdown selection applies the mode and saves it, as Windows Settings does; browsing an open popup
-does not. Fresh observations every five seconds while open replace stale choices after a reconnect,
-resume or profile change. Windows Device Control rechecks target identity and driver validation
-before applying and writes once. A write Windows accepts is the result and is not read back; a
-refused one gets one write-back of the original mode, never a retry. Ambiguous clone sources are
-unavailable. None of this establishes physical visibility.
+does not. A fresh observation on every display change Windows announces replaces stale choices after
+a reconnect, resume or profile change; a change while a popup is open is read once it closes.
+Windows Device Control rechecks target identity and driver validation before applying and writes
+once. A write Windows accepts is the result and is not read back; a refused one gets one write-back
+of the original mode, never a retry. Ambiguous clone sources are unavailable. None of this
+establishes physical visibility.
 
 Device provides a manual TDP mode selector when a paired capability is available. Selecting Unified
 saves the active global or per-game preference without writing hardware, and later sustained-slider
@@ -571,12 +572,13 @@ directories. WebM import, local artwork, shortcut folders and sound-pack ZIP imp
 frontends borrow the toolkit's file-listing rules; reads run off the UI thread and canceled/stale
 results are discarded.
 
-Preview images load near the visible viewport, reuse a bounded byte cache, validate dimensions and
-decode at a bounded size. Movie and animated-image details use one explicit WebView2 viewport; all
-controls stay Avalonia. Playback starts only on Play and stops when the page leaves. Native content
-is hidden and paused behind modal surfaces. A failed decode has a visible error. Setup carries the
-pinned, Microsoft-signed Evergreen offline runtime and installs it only when missing; no feature
-view installs software and uninstall leaves the shared runtime alone.
+Preview images load near the visible viewport, decode straight from the file or bounded download,
+validate dimensions and decode at a bounded size; nothing is cached. Movie and animated-image
+details use one explicit WebView2 viewport; all controls stay Avalonia. Playback starts only on Play
+and stops when the page leaves. Native content is hidden and paused behind modal surfaces. A failed
+decode has a visible error. Setup carries the pinned, Microsoft-signed Evergreen offline runtime and
+installs it only when missing; no feature view installs software and uninstall leaves the shared
+runtime alone.
 
 Service publications reconcile keyed commands and editors in place. Dropdowns, color drafts, sliders
 and focus survive updates. Nested tool levels consume Back before section-rail/home rules; config

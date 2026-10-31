@@ -21,7 +21,7 @@ namespace WSGM.Shell;
 ///     configuration, and a finished sync hands over the scan it already made. Every operation
 ///     validates once here, so neither surface carries its own copy of the rules.
 /// </remarks>
-internal sealed class LibraryManagerService : IDisposable
+internal sealed class LibraryManagerService : IDisposable, IChangeSource
 {
     /// <summary>The Extensions-tab item and page namespace of the card manager.</summary>
     internal const string CardsId = "wsgm.cards";

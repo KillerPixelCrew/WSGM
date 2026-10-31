@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -19,15 +18,18 @@ namespace WSGM.Overlay;
 internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
 {
     private static readonly SemaphoreSlim Downloads = new(4);
-    private static readonly object CacheGate = new();
-    private static readonly Dictionary<string, byte[]> Cache = [];
-    private static int _cachedBytes;
     private readonly string? _source;
     private readonly Func<CancellationToken, Task<byte[]>>? _read;
     private readonly Stretch _stretch;
-    private readonly List<Visual> _visibilityOwners = [];
     private Bitmap? _bitmap;
     private CancellationTokenSource? _load;
+
+    static OverlayPreviewImage()
+    {
+        // One class handler instead of a PropertyChanged subscription on every ancestor of every
+        // preview: only a visibility change can reveal a preview without changing its viewport.
+        IsVisibleProperty.Changed.AddClassHandler<Visual>(OnAnyVisibilityChanged);
+    }
 
     /// <summary>Creates a lazy thumbnail whose load and bitmap lifetime follow mounting and visibility.</summary>
     /// <param name="source">Local path, HTTPS URL or supported data URI; null/empty renders No preview.</param>
@@ -45,24 +47,10 @@ internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
         };
         // The effective viewport changes when a scroll, a layout or a shown page brings the image
         // into view, and only for this control, unlike a tree-wide layout pass.
-        AttachedToVisualTree += (_, _) =>
-        {
-            EffectiveViewportChanged += LoadWhenVisible;
-            foreach (var owner in this.GetVisualAncestors().Prepend(this))
-            {
-                owner.PropertyChanged += OnVisibilityChanged;
-                _visibilityOwners.Add(owner);
-            }
-        };
+        AttachedToVisualTree += (_, _) => EffectiveViewportChanged += LoadWhenVisible;
         DetachedFromVisualTree += (_, _) =>
         {
             EffectiveViewportChanged -= LoadWhenVisible;
-            foreach (var owner in _visibilityOwners)
-            {
-                owner.PropertyChanged -= OnVisibilityChanged;
-            }
-
-            _visibilityOwners.Clear();
             _load?.Cancel();
             _load?.Dispose();
             _load = null;
@@ -89,13 +77,67 @@ internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
         Height = replacement.Height;
     }
 
-    private void OnVisibilityChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    /// <summary>Opens a preview source for decoding without retaining its bytes.</summary>
+    /// <param name="source">Local path or file URI, HTTPS URL or image data URI.</param>
+    /// <param name="token">Cancels the open or the download.</param>
+    /// <returns>A caller-owned readable, seekable stream positioned at the start.</returns>
+    /// <exception cref="InvalidDataException">The source is larger than 16 MB.</exception>
+    internal static async Task<Stream> OpenAsync(string source, CancellationToken token)
     {
-        if (e.Property != IsVisibleProperty)
+        token.ThrowIfCancellationRequested();
+        if (source.StartsWith("data:image/", StringComparison.Ordinal) &&
+            source.Length <= ArtworkDownload.MaximumBytes * 2)
+        {
+            var bytes = Convert.FromBase64String(source[(source.IndexOf(',') + 1)..]);
+            if (bytes.Length > ArtworkDownload.MaximumBytes)
+            {
+                throw new InvalidDataException("The preview is larger than 16 MB.");
+            }
+
+            return new MemoryStream(bytes, false);
+        }
+
+        if (Uri.TryCreate(source, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps)
+        {
+            // Bounds concurrent network fetches; the download itself enforces the 16 MB cap.
+            await Downloads.WaitAsync(token);
+            try
+            {
+                return new MemoryStream(await ArtworkDownload.GetAsync(source, token), false);
+            }
+            finally
+            {
+                Downloads.Release();
+            }
+        }
+
+        var path = uri is { IsFile: true } ? uri.LocalPath : source;
+        var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 4096,
+            FileOptions.SequentialScan);
+        if (file.Length > ArtworkDownload.MaximumBytes)
+        {
+            await file.DisposeAsync();
+            throw new InvalidDataException("The preview file is larger than 16 MB.");
+        }
+
+        return file;
+    }
+
+    private static void OnAnyVisibilityChanged(Visual visual, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (TopLevel.GetTopLevel(visual) is null)
         {
             return;
         }
 
+        foreach (var preview in visual.GetSelfAndVisualDescendants().OfType<OverlayPreviewImage>())
+        {
+            preview.OnVisibilityChanged();
+        }
+    }
+
+    private void OnVisibilityChanged()
+    {
         // Visibility alone need not change the viewport rectangle. Re-register so the next
         // layout reports it again after a previously hidden page has its actual bounds.
         EffectiveViewportChanged -= LoadWhenVisible;
@@ -127,23 +169,15 @@ internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
     {
         try
         {
-            var bytes = _read is null ? await ReadAsync(_source!, token) : await _read(token);
-            var bitmap = await Task.Run(() =>
+            var stream = _read is null
+                ? await OpenAsync(_source!, token)
+                : new MemoryStream(await _read(token), false);
+            Bitmap bitmap;
+            await using (stream)
             {
-                using var stream = new MemoryStream(bytes, false);
-                using var codec = SKCodec.Create(stream) ??
-                                  throw new InvalidDataException("Unsupported preview format.");
-                var info = codec.Info;
-                if (info.Width <= 0 || info.Height <= 0 || (long)info.Width * info.Height > 64 * 1024 * 1024)
-                {
-                    throw new InvalidDataException("The preview dimensions are too large.");
-                }
+                bitmap = await Task.Run(() => Decode(stream), token);
+            }
 
-                stream.Position = 0;
-                return info.Width >= info.Height
-                    ? Bitmap.DecodeToWidth(stream, Math.Min(info.Width, 640))
-                    : Bitmap.DecodeToHeight(stream, Math.Min(info.Height, 640));
-            }, token);
             if (token.IsCancellationRequested)
             {
                 bitmap.Dispose();
@@ -166,79 +200,19 @@ internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
         }
     }
 
-    internal static async Task<byte[]> ReadAsync(string source, CancellationToken token)
+    /// <summary>Decodes a bounded thumbnail straight from the source stream.</summary>
+    private static Bitmap Decode(Stream stream)
     {
-        token.ThrowIfCancellationRequested();
-        lock (CacheGate)
+        using var codec = SKCodec.Create(stream) ?? throw new InvalidDataException("Unsupported preview format.");
+        var info = codec.Info;
+        if (info.Width <= 0 || info.Height <= 0 || (long)info.Width * info.Height > 64 * 1024 * 1024)
         {
-            if (Cache.TryGetValue(source, out var cached))
-            {
-                return cached;
-            }
+            throw new InvalidDataException("The preview dimensions are too large.");
         }
 
-        await Downloads.WaitAsync(token);
-        try
-        {
-            lock (CacheGate)
-            {
-                if (Cache.TryGetValue(source, out var cached))
-                {
-                    return cached;
-                }
-            }
-
-            byte[] bytes;
-            if (source.StartsWith("data:image/", StringComparison.Ordinal) &&
-                source.Length <= ArtworkDownload.MaximumBytes * 2)
-            {
-                bytes = Convert.FromBase64String(source[(source.IndexOf(',') + 1)..]);
-            }
-            else if (Uri.TryCreate(source, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps)
-            {
-                bytes = await ArtworkDownload.GetAsync(source, token);
-            }
-            else
-            {
-                var path = Uri.TryCreate(source, UriKind.Absolute, out uri) && uri.IsFile ? uri.LocalPath : source;
-                await using var file = new FileStream(path, FileMode.Open, FileAccess.Read,
-                    FileShare.Read | FileShare.Delete, 4096,
-                    FileOptions.Asynchronous | FileOptions.SequentialScan);
-                if (file.Length > ArtworkDownload.MaximumBytes)
-                {
-                    throw new InvalidDataException("The preview file is larger than 16 MB.");
-                }
-
-                bytes = new byte[(int)file.Length];
-                await file.ReadExactlyAsync(bytes.AsMemory(), token);
-            }
-
-            if (bytes.Length > ArtworkDownload.MaximumBytes)
-            {
-                throw new InvalidDataException("The preview is larger than 16 MB.");
-            }
-
-            lock (CacheGate)
-            {
-                if (!Cache.ContainsKey(source))
-                {
-                    while (_cachedBytes + bytes.Length > 64 * 1024 * 1024)
-                    {
-                        var first = Cache.First();
-                        _cachedBytes -= first.Value.Length;
-                        Cache.Remove(first.Key);
-                    }
-
-                    Cache[source] = bytes;
-                    _cachedBytes += bytes.Length;
-                }
-            }
-
-            return bytes;
-        }
-        finally
-        {
-            Downloads.Release();
-        }
+        stream.Position = 0;
+        return info.Width >= info.Height
+            ? Bitmap.DecodeToWidth(stream, Math.Min(info.Width, 640))
+            : Bitmap.DecodeToHeight(stream, Math.Min(info.Height, 640));
     }
 }

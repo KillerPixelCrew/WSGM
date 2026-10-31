@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -132,12 +133,21 @@ public abstract class ServiceSubView : OverlaySubView
                 stack.Spacing = nextStack.Spacing;
             }
 
+            var keyed = new Dictionary<string, Control>(StringComparer.Ordinal);
+            foreach (var child in target.Children)
+            {
+                if (Key(child) is string childKey)
+                {
+                    keyed.TryAdd(childKey, child);
+                }
+            }
+
             var desired = next.Children.ToArray();
             for (var index = 0; index < desired.Length; index++)
             {
                 var fresh = desired[index];
                 var existing = Key(fresh) is string key
-                    ? target.Children.FirstOrDefault(child => Equals(Key(child), key))
+                    ? keyed.GetValueOrDefault(key)
                     : index < target.Children.Count
                         ? target.Children[index]
                         : null;

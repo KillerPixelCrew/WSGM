@@ -86,19 +86,36 @@ internal static class CapabilityRowRenderer
         Dictionary<(string?, string, string?), DeviceOverlayCapability>? byRow = null;
         foreach (var view in root.GetLogicalDescendants().OfType<DeviceCapabilityControl>())
         {
-            if (byRow is null)
-            {
-                byRow = [];
-                foreach (var capability in published)
-                {
-                    byRow.TryAdd((capability.GpuPluginId, capability.CapabilityId, capability.InstanceId), capability);
-                }
-            }
+            byRow ??= Index(published);
+            Refresh(view, byRow, marker);
+        }
+    }
 
-            if (byRow.TryGetValue((view.GpuPluginId, view.CapabilityId, view.InstanceId), out var current))
-            {
-                view.Refresh(Present(current), marker);
-            }
+    /// <summary>The published rows by the identity a drawn row carries; the first of duplicates wins.</summary>
+    /// <param name="published">The rows as currently published.</param>
+    /// <returns>A lookup for one refresh walk.</returns>
+    internal static Dictionary<(string?, string, string?), DeviceOverlayCapability> Index(
+        IEnumerable<DeviceOverlayCapability> published)
+    {
+        Dictionary<(string?, string, string?), DeviceOverlayCapability> byRow = [];
+        foreach (var capability in published)
+        {
+            byRow.TryAdd((capability.GpuPluginId, capability.CapabilityId, capability.InstanceId), capability);
+        }
+
+        return byRow;
+    }
+
+    /// <summary>Refreshes one drawn row from its published row, when it is still published.</summary>
+    /// <param name="view">The drawn row.</param>
+    /// <param name="published">The lookup from <see cref="Index" />.</param>
+    /// <param name="marker">The temperature marker for curve rows, if any.</param>
+    internal static void Refresh(DeviceCapabilityControl view,
+        Dictionary<(string?, string, string?), DeviceOverlayCapability> published, int? marker)
+    {
+        if (published.TryGetValue((view.GpuPluginId, view.CapabilityId, view.InstanceId), out var current))
+        {
+            view.Refresh(Present(current), marker);
         }
     }
 }

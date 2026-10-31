@@ -60,42 +60,60 @@ public partial class OverlayWindow
         return true;
     }
 
-    private void RefreshDeviceValues(Control root, DeviceOverlaySnapshot snapshot)
+    /// <summary>Refreshes every Device row under <paramref name="root" /> in place, in one walk of the tree.</summary>
+    /// <param name="root">The host or pinned group holding the rows.</param>
+    /// <param name="snapshot">The Device snapshot.</param>
+    /// <param name="performance">The performance snapshot the application profile switch follows, if any.</param>
+    private static void RefreshDeviceValues(Control root, DeviceOverlaySnapshot snapshot,
+        PerformanceOverlaySnapshot? performance)
     {
-        var performance = _performanceSource?.Snapshot();
-        CapabilityRowRenderer.RefreshValues(root, snapshot.Capabilities, DeviceTemperature(snapshot));
-
-        foreach (var row in root.GetLogicalDescendants().OfType<DeviceSettingRow>())
+        var temperature = DeviceTemperature(snapshot);
+        Dictionary<(string?, string, string?), DeviceOverlayCapability>? published = null;
+        // Materialized because a refresh may replace an editor inside the row it refreshes.
+        foreach (var control in root.GetLogicalDescendants().ToArray())
         {
-            var key = UnpinnedKey(row.Tag);
-            if (key == DeviceHostRowIds.GlyphSelection && snapshot.GlyphSelection is { } glyphs)
+            switch (control)
             {
-                row.Refresh(
-                    new CapabilityValue
-                        { Kind = CapabilityValueKind.Choice, ChoiceValue = ((int)snapshot.GlyphMode).ToString() },
-                    glyphs.CanInvoke, glyphs.Description);
-            }
+                case DeviceCapabilityControl capability:
+                    published ??= CapabilityRowRenderer.Index(snapshot.Capabilities);
+                    CapabilityRowRenderer.Refresh(capability, published, temperature);
+                    break;
+                case DeviceSettingRow row:
+                    RefreshHostSetting(row, snapshot);
+                    break;
+                case DescriptorControlView view:
+                    var key = UnpinnedKey(view.Tag);
+                    var descriptor = key == ApplicationProfileFocusKey
+                        ? performance?.ProfileRows.FirstOrDefault(candidate =>
+                            candidate.Id == DeviceOverlaySectionPages.ApplicationProfileRowId)
+                        : HostDescriptor(snapshot, key);
+                    if (descriptor is not null)
+                    {
+                        view.Refresh(descriptor);
+                    }
 
-            if (snapshot.HostSelections.TryGetValue(key, out var selection))
-            {
-                var descriptor = HostDescriptor(snapshot, key);
-                row.Refresh(new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = selection.Value },
-                    descriptor?.CanInvoke ?? false, descriptor?.Description ?? string.Empty);
-                (row.Parent as ProfileOverrideMarker)?.Refresh(descriptor?.OverrideId);
+                    break;
             }
         }
+    }
 
-        foreach (var view in root.GetLogicalDescendants().OfType<DescriptorControlView>())
+    private static void RefreshHostSetting(DeviceSettingRow row, DeviceOverlaySnapshot snapshot)
+    {
+        var key = UnpinnedKey(row.Tag);
+        if (key == DeviceHostRowIds.GlyphSelection && snapshot.GlyphSelection is { } glyphs)
         {
-            var key = UnpinnedKey(view.Tag);
-            var descriptor = key == ApplicationProfileFocusKey
-                ? performance?.ProfileRows.FirstOrDefault(row =>
-                    row.Id == DeviceOverlaySectionPages.ApplicationProfileRowId)
-                : HostDescriptor(snapshot, key);
-            if (descriptor is not null)
-            {
-                view.Refresh(descriptor);
-            }
+            row.Refresh(
+                new CapabilityValue
+                    { Kind = CapabilityValueKind.Choice, ChoiceValue = ((int)snapshot.GlyphMode).ToString() },
+                glyphs.CanInvoke, glyphs.Description);
+        }
+
+        if (snapshot.HostSelections.TryGetValue(key, out var selection))
+        {
+            var descriptor = HostDescriptor(snapshot, key);
+            row.Refresh(new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = selection.Value },
+                descriptor?.CanInvoke ?? false, descriptor?.Description ?? string.Empty);
+            (row.Parent as ProfileOverrideMarker)?.Refresh(descriptor?.OverrideId);
         }
     }
 

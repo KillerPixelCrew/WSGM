@@ -35,7 +35,22 @@ internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
         _pins = pins.ToArray();
         WidgetPreferences = new PluginWidgetPreferences(ReadPinsAsync, SetPinnedAsync, MovePinAsync,
             pin => SetPinnedAsync(pin, false), ResetPinOrderAsync);
+        // The instances, their health and their accepted state each change with an owner's own event.
+        if (manager is not null)
+        {
+            manager.Changed += OnChanged;
+        }
+
+        host.HealthChanged += _ => OnChanged();
+        host.StateChanged += _ => OnChanged();
     }
+
+    /// <summary>
+    ///     Raised on any thread after the host's instances, their health or their accepted state may have
+    ///     changed.
+    /// </summary>
+    /// <remarks>The device's widgets follow the device overlay source's own change event instead.</remarks>
+    internal event Action? Changed;
 
     /// <summary>Borrowed device widget source, or null when no device projection was supplied.</summary>
     internal ICommonPluginOverlaySource? Device { get; }
@@ -50,6 +65,13 @@ internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
         // never rebuild the device projection just to answer which owner an identity belongs to.
         var device = Device?.Snapshot() ?? [];
         _deviceIdentities = [.. device.Select(instance => instance.Identity)];
+        return [.. IndependentSnapshot(), .. device];
+    }
+
+    /// <summary>Reads the instances the common host runs, without projecting the device.</summary>
+    /// <returns>A new instance array, as <see cref="Snapshot" /> returns them before the device's.</returns>
+    internal PluginOverlayInstance[] IndependentSnapshot()
+    {
         return
         [
             .. (_manager?.Snapshot() ?? []).Select(instance =>
@@ -66,8 +88,7 @@ internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
                 {
                     Category = instance.Manifest.Category
                 };
-            }),
-            .. device
+            })
         ];
     }
 
@@ -97,6 +118,11 @@ internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
         {
             _pins = pins.ToArray();
         }
+    }
+
+    private void OnChanged()
+    {
+        Changed?.Invoke();
     }
 
     private Task<PluginWidgetPin[]> ReadPinsAsync()

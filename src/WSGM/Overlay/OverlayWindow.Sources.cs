@@ -1,6 +1,8 @@
 using System;
 using System.Linq;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using WSGM.Controls;
 using WSGM.Core;
@@ -45,25 +47,9 @@ public partial class OverlayWindow
 
     internal void AttachPowerPresets(DevicePowerPresetSelection selection)
     {
-        DispatcherTimer refresh = new() { Interval = TimeSpan.FromSeconds(1) };
-        // Polled only while its rows can be seen: on their Device page, or pinned to Quick access.
-        refresh.Tick += async (_, _) =>
-        {
-            if (DevicePowerPresetContainer.IsEffectivelyVisible || PinShowing("section.device.power-presets"))
-            {
-                await selection.RefreshAsync();
-            }
-        };
-        Opened += async (_, _) =>
-        {
-            refresh.Start();
-            await selection.RefreshAsync();
-        };
-        Closed += (_, _) =>
-        {
-            refresh.Stop();
-            selection.Dispose();
-        };
+        // Read once on open; after that the selection follows the assignment owner's changes.
+        Opened += async (_, _) => await selection.RefreshAsync();
+        Closed += (_, _) => selection.Dispose();
         DevicePowerPresetHost.Attach(selection);
         DevicePowerPresetContainer.Tag = "section.device.power-presets";
         DevicePowerPresetContainer.Children.Insert(0,
@@ -116,6 +102,25 @@ public partial class OverlayWindow
         }
     }
 
+    /// <summary>Follows a device change in the manual power mode selectors, on their page and pinned.</summary>
+    /// <remarks>The mode, its availability and its game override all arrive with the device's change event.</remarks>
+    private void RefreshManualTdp()
+    {
+        foreach (var view in ManualTdpHost.Children.OfType<ManualTdpModeView>())
+        {
+            view.Refresh();
+        }
+
+        const string pinTag = PinTagPrefix + "section.device.manual-tdp";
+        if (PinnedSectionsGrid.Children.FirstOrDefault(row => Equals(row.Tag, pinTag)) is { } pinned)
+        {
+            foreach (var view in pinned.GetLogicalDescendants().OfType<ManualTdpModeView>())
+            {
+                view.Refresh();
+            }
+        }
+    }
+
     internal void AttachBrightness(NativeQamBrightnessService service,
         DisplayModeAccess displayModes, Func<string?>? display = null)
     {
@@ -131,7 +136,8 @@ public partial class OverlayWindow
 
         DisplayBrightnessHost.Children.Clear();
         DisplayBrightnessHost.Children.Add(new DisplayBrightnessView(service));
-        DisplayBrightnessHost.Children.Add(new DisplayModeView(displayModes.Read, displayModes.Apply, display));
+        DisplayBrightnessHost.Children.Add(new DisplayModeView(displayModes.Read, displayModes.Apply, display,
+            displayModes.Changes));
         if (_opened)
         {
             FoldStaticSections();
@@ -142,16 +148,11 @@ public partial class OverlayWindow
             Spacing = 4,
             Children =
             {
-                new DisplayBrightnessView(service), new DisplayModeView(displayModes.Read, displayModes.Apply, display)
+                new DisplayBrightnessView(service),
+                new DisplayModeView(displayModes.Read, displayModes.Apply, display, displayModes.Changes)
             }
         });
         RenderPins();
-    }
-
-    /// <summary>Whether a pinned row is on screen: its id is pinned and the Quick access root shows.</summary>
-    private bool PinShowing(string id)
-    {
-        return PanelQuickAccess.IsEffectivelyVisible && _pins.Contains(id);
     }
 
     internal void AttachPowerSchemes(PowerSchemeSelection selection)
@@ -238,6 +239,7 @@ public partial class OverlayWindow
     /// <param name="source">Borrowed current plugin projection; null detaches the prior source and clears its presentation.</param>
     internal void AttachCommonPlugins(CommonPluginOverlaySource? source)
     {
+        DetachCommonPlugins();
         CommonPluginRows.Children.Clear();
         DeviceWidgetPinsHost.Children.Clear();
         PinnedPluginWidgetsHost.Children.Clear();
@@ -247,9 +249,12 @@ public partial class OverlayWindow
             return;
         }
 
+        _pluginSource = source;
+        source.Changed += OnPluginsChanged;
+        DeviceWidgetsExpander.PropertyChanged += OnDeviceWidgetsExpanded;
         var preferences = source.WidgetPreferences;
         CommonPluginPanel panel = new(source, preferences: preferences, folds: _session.ExpandedSections,
-            independentOnly: true);
+            independent: source.IndependentSnapshot);
         CommonPluginRows.Children.Add(panel);
         SystemPluginsTile.IsVisible = panel.IsVisible;
         panel.PropertyChanged += (_, change) =>
@@ -298,6 +303,76 @@ public partial class OverlayWindow
         }, preferences));
     }
 
+    private void DetachCommonPlugins()
+    {
+        if (_pluginSource is not null)
+        {
+            _pluginSource.Changed -= OnPluginsChanged;
+            _pluginSource = null;
+        }
+
+        DeviceWidgetsExpander.PropertyChanged -= OnDeviceWidgetsExpanded;
+    }
+
+    // Raised on whatever thread the plugin host or manager finished its work on.
+    private void OnPluginsChanged()
+    {
+        QueueLiveRefresh(PluginsLiveRefresh);
+    }
+
+    private void OnDeviceWidgetsExpanded(object? sender, AvaloniaPropertyChangedEventArgs change)
+    {
+        if (change.Property == Expander.IsExpandedProperty && DeviceWidgetsExpander.IsExpanded)
+        {
+            RefreshDeviceWidgetPins();
+        }
+    }
+
+    /// <summary>Follows a device or plugin-host change in the plugin panels that are showing.</summary>
+    /// <param name="device">Whether the device changed.</param>
+    /// <param name="plugins">Whether the plugin host changed.</param>
+    /// <remarks>
+    ///     A hidden panel is refreshed as it is shown instead. The System Plugins panel reads no device, and
+    ///     its tile follows whether any plugin runs, so it follows every host change.
+    /// </remarks>
+    private void RefreshPluginWidgets(bool device, bool plugins)
+    {
+        if (plugins)
+        {
+            foreach (var panel in CommonPluginRows.Children.OfType<CommonPluginPanel>())
+            {
+                panel.Refresh();
+            }
+        }
+
+        if (device)
+        {
+            RefreshDeviceWidgetPins();
+        }
+
+        if (PanelQuickAccess.IsVisible)
+        {
+            foreach (var widgets in PinnedPluginWidgetsHost.Children.OfType<PinnedPluginWidgets>())
+            {
+                widgets.Refresh();
+            }
+        }
+    }
+
+    /// <summary>Refreshes the Device page's widget pin toggles while they show.</summary>
+    private void RefreshDeviceWidgetPins()
+    {
+        if (!DeviceWidgetPinsHost.IsEffectivelyVisible)
+        {
+            return;
+        }
+
+        foreach (var panel in DeviceWidgetPinsHost.Children.OfType<CommonPluginPanel>())
+        {
+            panel.Refresh();
+        }
+    }
+
     /// <summary>Supplies the reader behind the Device page's missing-prerequisites banner.</summary>
     /// <param name="prerequisites">The reader, or null in a preview with no session behind it.</param>
     internal void AttachDevicePrerequisites(DevicePrerequisiteSource? prerequisites)
@@ -327,11 +402,19 @@ public partial class OverlayWindow
             _deviceBridge.Changed += OnDeviceChanged;
         }
 
-        ConfigureTabs(DeviceSnapshotOrOff().Visible);
+        var snapshot = DeviceSnapshotOrOff();
+        ConfigureTabs(snapshot.Visible);
         UpdateGlyphInputObservation(
             DeviceOverlaySectionPages.SectionFor(_navigation.Page)
                 is DeviceOverlaySection.ControllerAndMotion);
-        RefreshDevicePanel();
+        RefreshNavigationHints();
+        RefreshDevicePrerequisites(snapshot);
+        if (DevicePanelShowing())
+        {
+            RefreshDevicePanel(snapshot, _performanceSource?.Snapshot());
+        }
+
+        RenderPins(snapshot);
     }
 
     /// <summary>Attaches the shared performance projection without transferring its lifetime.</summary>
@@ -372,5 +455,6 @@ public partial class OverlayWindow
         }
 
         RefreshPerformancePanel();
+        RenderPins();
     }
 }

@@ -53,8 +53,12 @@ public partial class OverlayWindow
 
         _graphicsLayout = null;
         _pinnedGraphicsLayouts.Clear();
-        ConfigureGpuDestination(_graphicsSource?.Snapshot().Visible == true);
-        RefreshGraphicsPanel();
+        var snapshot = _graphicsSource?.Snapshot() ?? GraphicsOverlaySnapshot.Empty;
+        ConfigureGpuDestination(snapshot.Visible);
+        RefreshGraphicsPanel(snapshot);
+        // Graphics groups are offered on the Device page and drawn on Quick access.
+        RefreshDevicePanel();
+        RenderPins(graphics: snapshot);
     }
 
     private void DetachGraphicsSource()
@@ -72,20 +76,21 @@ public partial class OverlayWindow
 
     private void RefreshGraphicsPanel()
     {
-        if (_closed)
-        {
-            return;
-        }
+        RefreshGraphicsPanel(_graphicsSource?.Snapshot() ?? GraphicsOverlaySnapshot.Empty);
+    }
 
+    /// <summary>Draws the GPU page from a snapshot the caller read once for the pass.</summary>
+    /// <param name="snapshot">The graphics snapshot.</param>
+    /// <remarks>The Device page's pin list and Quick access follow the same pass, not this page.</remarks>
+    private void RefreshGraphicsPanel(GraphicsOverlaySnapshot snapshot)
+    {
         // The first render runs when the window opens.
-        if (!_opened)
+        if (_closed || !_opened)
         {
             return;
         }
 
-        var snapshot = _graphicsSource?.Snapshot() ?? GraphicsOverlaySnapshot.Empty;
         GpuUnavailable.IsVisible = !snapshot.Visible;
-        RefreshGraphicsPins();
         if (_navigation.Page != OverlayPage.DeviceGpu)
         {
             return;
@@ -138,23 +143,13 @@ public partial class OverlayWindow
         RestoreSectionHeaderFocus(focusedKey);
     }
 
-    /// <summary>Follows a Graphics change in the pin list and on Quick Access, whichever destination shows.</summary>
-    private void RefreshGraphicsPins()
-    {
-        RefreshDeviceSectionPins(DeviceSnapshotOrOff());
-        if (_pins.Any(id => id.StartsWith(GraphicsSectionPins.Prefix, StringComparison.Ordinal)))
-        {
-            RenderPins();
-        }
-    }
-
     /// <summary>
     ///     A pinned Graphics group on Quick Access, drawn live from the Graphics source with the Graphics
     ///     page's rows, or null when its publisher, section or category is absent now.
     /// </summary>
-    private Control? CreatePinnedGraphicsSection(string id)
+    private Control? CreatePinnedGraphicsSection(string id, GraphicsOverlaySnapshot? snapshot)
     {
-        if (GraphicsSectionPins.Resolve(_graphicsSource?.Snapshot(), id) is not { } pin)
+        if (GraphicsSectionPins.Resolve(snapshot, id) is not { } pin)
         {
             return null;
         }

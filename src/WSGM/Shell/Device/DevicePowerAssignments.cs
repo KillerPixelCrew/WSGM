@@ -25,6 +25,13 @@ internal sealed class DevicePowerAssignments(
     private (string? Application, bool Ac, DevicePowerPresetReference? Assignment)? _attempted;
     private string _status = string.Empty;
 
+    /// <summary>
+    ///     Raised on the working thread after an assignment was saved or a reconcile pass ran, so after
+    ///     every input the assignments follow: the power source, the Windows power mode, the profile,
+    ///     the device cycle and the power controls' own readings.
+    /// </summary>
+    internal event Action? Changed;
+
     /// <summary>Whether integration is enabled and the known power source resolves an assignment for this package.</summary>
     internal bool HasCurrentAssignment
     {
@@ -104,6 +111,7 @@ internal sealed class DevicePowerAssignments(
         finally
         {
             _gate.Release();
+            Changed?.Invoke();
         }
     }
 
@@ -148,6 +156,7 @@ internal sealed class DevicePowerAssignments(
         finally
         {
             _gate.Release();
+            Changed?.Invoke();
         }
     }
 

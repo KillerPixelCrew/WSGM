@@ -7,6 +7,7 @@ using Avalonia.Controls.Templates;
 using Avalonia.Layout;
 using WindowsDeviceControl;
 using WSGM.Core;
+using WSGM.Interop;
 
 namespace WSGM.Overlay;
 
@@ -24,6 +25,7 @@ internal sealed class DisplayModeView : StackPanel
     private readonly TextBlock _status = new();
     private int _attachmentGeneration;
     private bool _busy;
+    private bool _changedWhileOpen;
     private bool _closed;
     private bool _readPending;
     private DisplayModeSnapshot? _snapshot;
@@ -36,9 +38,12 @@ internal sealed class DisplayModeView : StackPanel
     /// </param>
     /// <param name="apply">Applies a mode to the display a snapshot was read from.</param>
     /// <param name="display">The sheet's current GDI display name, resolved again on every read.</param>
+    /// <param name="changes">
+    ///     Raises when the displays or their modes may have changed; null reads only on attach.
+    /// </param>
     internal DisplayModeView(Func<string?, Task<DisplayModeSnapshot?>> read,
         Func<DisplayModeSnapshot, DisplayMode, Task<DisplayModeResult>> apply,
-        Func<string?> display)
+        Func<string?> display, DisplayChangeWindow? changes = null)
     {
         _display = display;
         _read = read;
@@ -68,26 +73,51 @@ internal sealed class DisplayModeView : StackPanel
                 await ApplyAsync();
             }
         };
-        _resolution.DropDownClosed += async (_, _) => await ApplyAsync();
-        _refresh.DropDownClosed += async (_, _) => await ApplyAsync();
+        _resolution.DropDownClosed += async (_, _) => await OnDropDownClosedAsync();
+        _refresh.DropDownClosed += async (_, _) => await OnDropDownClosedAsync();
         AttachedToVisualTree += (_, _) =>
         {
             _closed = false;
             _attachmentGeneration++;
-        };
-        // An open selector is mid-choice; a re-read would replace the list under it.
-        VisiblePoll.Attach(this, TimeSpan.FromSeconds(5), async () =>
-        {
-            if (!_resolution.IsDropDownOpen && !_refresh.IsDropDownOpen)
+            if (changes is not null)
             {
-                await ReadAsync();
+                changes.DisplaysChanged += OnDisplaysChanged;
             }
-        });
+
+            _ = ReadAsync();
+        };
         DetachedFromVisualTree += (_, _) =>
         {
             _closed = true;
             _attachmentGeneration++;
+            if (changes is not null)
+            {
+                changes.DisplaysChanged -= OnDisplaysChanged;
+            }
         };
+    }
+
+    // Raised on the UI thread for a mode change, a display arriving or leaving, and device churn.
+    private void OnDisplaysChanged()
+    {
+        // An open selector is mid-choice; a re-read would replace the list under it, so it waits.
+        if (_resolution.IsDropDownOpen || _refresh.IsDropDownOpen)
+        {
+            _changedWhileOpen = true;
+            return;
+        }
+
+        _ = ReadAsync();
+    }
+
+    private async Task OnDropDownClosedAsync()
+    {
+        await ApplyAsync();
+        if (_changedWhileOpen && !_resolution.IsDropDownOpen && !_refresh.IsDropDownOpen)
+        {
+            _changedWhileOpen = false;
+            await ReadAsync();
+        }
     }
 
     private static Border Selector(string label, ComboBox selector)

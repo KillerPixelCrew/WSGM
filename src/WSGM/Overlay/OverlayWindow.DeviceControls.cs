@@ -62,7 +62,8 @@ public partial class OverlayWindow
             (source, token) => source.InvokeAsync(current with { NextValue = value }, token));
     }
 
-    private DeviceCapabilityControl CreateDeviceCapabilityRow(DeviceOverlayCapability capability, string key)
+    private DeviceCapabilityControl CreateDeviceCapabilityRow(DeviceOverlayCapability capability, string key,
+        int? temperature)
     {
         return new DeviceCapabilityControl(capability, key, WriteDeviceValue, async seen =>
         {
@@ -81,7 +82,7 @@ public partial class OverlayWindow
 
             await RunCommandAsync(bridge, "Device capability action",
                 (source, token) => source.InvokeAsync(current, token));
-        }, DeviceTemperature(DeviceSnapshotOrOff()), UseGlobalOnDevice);
+        }, temperature, UseGlobalOnDevice);
     }
 
     /// <summary>The device's first Celsius reading, which places the fan curve's marker.</summary>

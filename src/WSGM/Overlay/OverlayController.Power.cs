@@ -147,7 +147,7 @@ public sealed partial class OverlayController
 
     /// <summary>
     ///     Polls the system-wide power-request list into the Keep Awake row's
-    ///     WakeWatch-style dot while the panel is open (~65 µs syscall, WakeWatch runs
+    ///     WakeWatch-style dot while the Wake page shows (~65 µs syscall, WakeWatch runs
     ///     it at 1 Hz permanently). Started per ShowOverlay, stopped with the panel.
     /// </summary>
     private void StartWakeLockRefresh()
@@ -165,7 +165,14 @@ public sealed partial class OverlayController
             {
                 Interval = TimeSpan.FromMilliseconds(1500)
             };
-            _wakeLockRefresh.Tick += (_, _) => RefreshWakeLockIndicator();
+            // Only the Wake page shows the indicator, so a tick while it is hidden reads nothing.
+            _wakeLockRefresh.Tick += (_, _) =>
+            {
+                if (_overlay?.KeepAwakeShowing == true)
+                {
+                    RefreshWakeLockIndicator();
+                }
+            };
         }
 
         _wakeLockRefresh.Start();

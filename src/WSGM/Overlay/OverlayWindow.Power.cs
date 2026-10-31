@@ -73,6 +73,9 @@ public partial class OverlayWindow
         }) as IBrush;
     }
 
+    /// <summary>Whether the Keep Awake detail, the indicator's one consumer, is on screen.</summary>
+    internal bool KeepAwakeShowing => KeepAwakeDetail.IsEffectivelyVisible;
+
     /// <summary>Restart, shut down and sign out, named by the row's CommandParameter; each needs a second press.</summary>
     private void OnConfirmedPowerAction(object? sender, RoutedEventArgs e)
     {

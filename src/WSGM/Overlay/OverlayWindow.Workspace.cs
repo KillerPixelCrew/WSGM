@@ -13,7 +13,6 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using FluentAvalonia.UI.Controls;
 using WSGM.Controls;
-using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
@@ -58,7 +57,8 @@ public partial class OverlayWindow
         };
         if (_navigation.Destination == OverlayDestination.Device)
         {
-            RefreshDeviceSectionRail(DeviceSnapshotOrOff(), _performanceSource?.Snapshot());
+            RefreshDeviceSectionRail(
+                DeviceOverlaySectionPages.Build(DeviceSnapshotOrOff(), _performanceSource?.Snapshot()));
             return;
         }
 
@@ -82,7 +82,7 @@ public partial class OverlayWindow
         ReconcileSectionRail(sections);
     }
 
-    private void RefreshDeviceSectionRail(DeviceOverlaySnapshot snapshot, PerformanceOverlaySnapshot? performance)
+    private void RefreshDeviceSectionRail(IReadOnlyList<DeviceOverlaySectionEntry> sections)
     {
         if (_navigation.Destination != OverlayDestination.Device)
         {
@@ -93,7 +93,6 @@ public partial class OverlayWindow
         {
             new("device.overview", "Overview", Icons.Gear, OverlayPage.Device, null)
         };
-        var sections = DeviceOverlaySectionPages.Build(snapshot, performance);
         entries.AddRange(sections.Select(entry =>
             new WorkspaceSection(DeviceOverlaySectionPages.FocusKey(entry), entry.Title,
                 SectionIconFor(entry.Icon) ?? Icons.ListLines, entry.Page, entry.PluginSectionId)));
@@ -231,8 +230,7 @@ public partial class OverlayWindow
         else if (section.Page == OverlayPage.Device)
         {
             PanelDevice.IsVisible = true;
-            RefreshDevicePanel();
-            RefreshPerformancePanel();
+            RefreshDevicePage();
         }
         else if (section.Page != OverlayPage.QuickAccess)
         {
