@@ -229,7 +229,10 @@ public sealed class UbisoftLibrarySource : ILibrarySource
     private static IReadOnlyList<UbisoftInstall> ReadInstalls()
     {
         return UninstallEntries.SubKeys(
-            [(RegistryHive.LocalMachine, RegistryView.Registry32), (RegistryHive.LocalMachine, RegistryView.Registry64)],
+            [
+                (RegistryHive.LocalMachine, RegistryView.Registry32),
+                (RegistryHive.LocalMachine, RegistryView.Registry64)
+            ],
             @"SOFTWARE\ubisoft\Launcher\Installs",
             (game, name) => game.GetValue("InstallDir") is string { Length: > 0 } directory
                 ? new UbisoftInstall(name, directory)

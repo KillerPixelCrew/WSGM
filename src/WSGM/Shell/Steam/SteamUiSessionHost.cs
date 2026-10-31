@@ -299,6 +299,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             await _backends.Screensavers.StopForSteamAsync().ConfigureAwait(false);
         }
+
         // The session's services outlive this host: only the handlers attached to them go here.
         Unsubscribe();
         if (_modules.Bluetooth is not null)
@@ -386,7 +387,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _backends.DisplayTimeouts?.ForgetSteam();
             if (_backends.Screensavers is not null)
             {
-                Log.Observe(_backends.Screensavers.StopForSteamAsync(), "Stopping custom screensaver after disabling its surface");
+                Log.Observe(_backends.Screensavers.StopForSteamAsync(),
+                    "Stopping custom screensaver after disabling its surface");
             }
         }
 
@@ -489,7 +491,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <summary>Turns every feature switch off and cancels in-flight requests, without touching CEF.</summary>
     private void ClearSwitches()
     {
-        Log.Observe(_modules.NativeSettings.StopRumblePreviewAsync(), "Stopping rumble preview when Steam integration stops");
+        Log.Observe(_modules.NativeSettings.StopRumblePreviewAsync(),
+            "Stopping rumble preview when Steam integration stops");
         lock (_switchGate)
         {
             _switches = SteamUiSurfaceSwitches.Off;
@@ -555,7 +558,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _backends.DisplayTimeouts?.ForgetSteam();
             if (_backends.Screensavers is not null)
             {
-                Log.Observe(_backends.Screensavers.StopForSteamAsync(), "Stopping custom screensaver after Steam reload");
+                Log.Observe(_backends.Screensavers.StopForSteamAsync(),
+                    "Stopping custom screensaver after Steam reload");
             }
         }
 
@@ -647,7 +651,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _backends.DisplayTimeouts.ForgetSteam();
             if (_backends.Screensavers is not null)
             {
-                Log.Observe(_backends.Screensavers.StopForSteamAsync(), "Stopping custom screensaver after its Steam surface retired");
+                Log.Observe(_backends.Screensavers.StopForSteamAsync(),
+                    "Stopping custom screensaver after its Steam surface retired");
             }
         }
     }

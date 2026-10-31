@@ -36,8 +36,11 @@ internal sealed class GameLibraryCardStorage(
     /// <summary>Whether an exception is one a card, a store file or its contents can raise.</summary>
     /// <param name="exception">The exception.</param>
     /// <returns>True for an I/O, access, format or import-state failure.</returns>
-    internal static bool IsStorageFailure(Exception exception) => exception is IOException or InvalidDataException
-        or UnauthorizedAccessException or JsonException or ArgumentException or ImportStateException;
+    internal static bool IsStorageFailure(Exception exception)
+    {
+        return exception is IOException or InvalidDataException
+            or UnauthorizedAccessException or JsonException or ArgumentException or ImportStateException;
+    }
 
     /// <summary>Asks the tracker to check every shortcut again.</summary>
     internal void RequestCheck()
@@ -82,7 +85,8 @@ internal sealed class GameLibraryCardStorage(
             return game;
         }
 
-        var card = Tracked.Cards.Values.FirstOrDefault(item => SameId(item.Volume.VolumeId, content.BackingPath.VolumeId));
+        var card = Tracked.Cards.Values.FirstOrDefault(item =>
+            SameId(item.Volume.VolumeId, content.BackingPath.VolumeId));
         if (card is null)
         {
             return game;
@@ -107,14 +111,16 @@ internal sealed class GameLibraryCardStorage(
         copy.LibraryId = card.Manifest.Id;
         copy.Location = card.Volume.Name;
         var record = known.GetValueOrDefault(copy.Id);
-        var source = record?.Source ?? (match is null ? game.SourceId : "manifest:" + card.Manifest.Id.ToLowerInvariant());
+        var source = record?.Source ??
+                     (match is null ? game.SourceId : "manifest:" + card.Manifest.Id.ToLowerInvariant());
         var key = record?.Key ?? (match is null ? game.Key : copy.Id);
         copy.SourceId = source;
         copy.SourceKey = key;
         return game with
         {
             SourceId = source, Key = key, Content = copy,
-            Routes = game.CommandRoutes.Select(route => route.IsManaged ? route with { ManagedId = copy.Id } : route).ToArray()
+            Routes = game.CommandRoutes.Select(route => route.IsManaged ? route with { ManagedId = copy.Id } : route)
+                .ToArray()
         };
     }
 
@@ -243,7 +249,8 @@ internal sealed class GameLibraryCardStorage(
         }
         catch (Exception ex) when (IsStorageFailure(ex) && ex is not ImportStateException)
         {
-            return $"{content.Name} was removed from Steam, but its card's game list could not be updated: {ex.Message}";
+            return
+                $"{content.Name} was removed from Steam, but its card's game list could not be updated: {ex.Message}";
         }
         finally
         {
@@ -293,7 +300,8 @@ internal sealed class GameLibraryCardStorage(
                 Entries =
                 [
                     .. store.InventoryEntries().Select(entry => entry.Content).OfType<ManagedContentRecord>()
-                        .Where(content => SameId(content.LibraryId, id) && SameId(content.BackingPath.VolumeId, known.VolumeId))
+                        .Where(content =>
+                            SameId(content.LibraryId, id) && SameId(content.BackingPath.VolumeId, known.VolumeId))
                         .DistinctBy(content => content.Id)
                         .Select(content => StorageLibraryStorage.FromManaged(content, known.VolumeId, content.Location))
                 ]
@@ -330,7 +338,7 @@ internal sealed class GameLibraryCardStorage(
             var recipes = manifest.Entries.ToDictionary(item => item.Id, StringComparer.Ordinal);
             List<ImportedEntry> rebound = [];
             foreach (var entry in store.InventoryEntries().Where(entry => entry.Content is { } content
-                         && SameId(content.LibraryId, id)))
+                                                                          && SameId(content.LibraryId, id)))
             {
                 var local = entry.Content!.Copy();
                 RebindVolume(local, candidate.VolumeId);
@@ -436,9 +444,11 @@ internal sealed class GameLibraryCardStorage(
         }
 
         var directory = direct.StartDirectory.Length > 0
-            ? direct.StartDirectory : Path.GetDirectoryName(direct.Target) ?? "";
+            ? direct.StartDirectory
+            : Path.GetDirectoryName(direct.Target) ?? "";
         var managed = ManagedContentStorage.CreateRecord(game.SourceId, game.Key, game.Name,
-            LibrarySourceKind.Folder, storage.Name, direct.Target, binding: ManagedContentStorage.BindPath(root, direct.Target));
+            LibrarySourceKind.Folder, storage.Name, direct.Target,
+            binding: ManagedContentStorage.BindPath(root, direct.Target));
         managed.SourceRoot = root;
         managed.Program = managed.BackingPath.Copy();
         managed.WorkingDirectory = ManagedContentStorage.BindPath(root, directory, true);
@@ -450,14 +460,17 @@ internal sealed class GameLibraryCardStorage(
                 ? route with
                 {
                     Id = "managed", ManagedId = managed.Id,
-                    Evidence = route.Evidence + " WSGM checks its storage first, so it follows the card across drive letters."
+                    Evidence = route.Evidence +
+                               " WSGM checks its storage first, so it follows the card across drive letters."
                 }
                 : route).ToArray()
         };
     }
 
-    private static bool SameId(string first, string second) =>
-        string.Equals(first, second, StringComparison.OrdinalIgnoreCase);
+    private static bool SameId(string first, string second)
+    {
+        return string.Equals(first, second, StringComparison.OrdinalIgnoreCase);
+    }
 
     private static void RebindVolume(ManagedContentRecord content, string volumeId)
     {
@@ -468,6 +481,7 @@ internal sealed class GameLibraryCardStorage(
             {
                 continue;
             }
+
             path.RelativePath = ManagedContentStorage.NormalizeLocalRelativePath(path.RelativePath);
             path.VolumeId = volumeId;
             path.AbsolutePath = ManagedContentStorage.ResolveLibraryPath(volumeId, path.RelativePath);

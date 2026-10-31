@@ -1,6 +1,7 @@
 using System;
 using Avalonia;
 using Avalonia.Controls;
+using WSGM.Interop;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -8,10 +9,10 @@ namespace WSGM.Overlay;
 /// <summary>Avalonia owns clipping and placement; the session owns the child process and its page.</summary>
 internal sealed class BrowserViewport : OverlayNativeWebViewHost
 {
+    private int _lastHeight;
+    private int _lastWidth;
     private BrowserSession? _session;
     private TopLevel? _topLevel;
-    private int _lastWidth;
-    private int _lastHeight;
 
     internal BrowserViewport()
     {
@@ -50,7 +51,10 @@ internal sealed class BrowserViewport : OverlayNativeWebViewHost
         Resize();
     }
 
-    protected override void OnNativeDestroying(nint handle) => _session?.DetachViewport(handle);
+    protected override void OnNativeDestroying(nint handle)
+    {
+        _session?.DetachViewport(handle);
+    }
 
     /// <inheritdoc />
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -116,7 +120,7 @@ internal sealed class BrowserViewport : OverlayNativeWebViewHost
         // The native anchor already has the final physical size, including the Overlay's
         // content transform. Reading it avoids multiplying only by monitor DPI and missing
         // RootScale at the 980x640 layout floor.
-        if (NativeHandle != 0 && Interop.BrowserNative.GetClientRect(NativeHandle, out var rect))
+        if (NativeHandle != 0 && BrowserNative.GetClientRect(NativeHandle, out var rect))
         {
             var width = Math.Max(1, rect.Right - rect.Left);
             var height = Math.Max(1, rect.Bottom - rect.Top);

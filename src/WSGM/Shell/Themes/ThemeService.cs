@@ -48,15 +48,15 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     // readers see and a slow themes folder never holds up a publication read. Taken before _sync and
     // never while _sync is held.
     private readonly Lock _loaderWork = new();
-    private readonly Func<ThemesConfig> _readConfig;
-    private readonly CancellationTokenSource _shutdown = new();
-    private readonly Func<string?> _steamDirectory;
-    private readonly Lock _sync = new();
 
     // The store operation and every background task this service started and has not seen finish:
     // browse sessions' store reads, installs, the junction, the translations loop and update checks. The
     // session joins them.
     private readonly ServiceOperation _operation;
+    private readonly Func<ThemesConfig> _readConfig;
+    private readonly CancellationTokenSource _shutdown = new();
+    private readonly Func<string?> _steamDirectory;
+    private readonly Lock _sync = new();
     private readonly ThemeTranslations _translations;
     private readonly ThemeUpdateCheck _updates;
     private readonly Action<Action<ThemesConfig>> _writeConfig;
@@ -188,11 +188,11 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     public Task<SteamUiCommandResult> DeleteAsync(string name, CancellationToken cancellationToken)
     {
         return LoaderCommand(() =>
-        {
-            var error = _loader.DeleteTheme(name);
-            _updates.Forget(name);
-            return error;
-        }, $"Deleted {name}.");
+            {
+                var error = _loader.DeleteTheme(name);
+                _updates.Forget(name);
+                return error;
+            }, $"Deleted {name}.");
     }
 
     /// <inheritdoc />

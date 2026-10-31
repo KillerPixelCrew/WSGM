@@ -53,7 +53,8 @@ internal static class DeviceControlRows
                 onChanged(toggle.IsChecked ?? false);
             }
         };
-        row = new DeviceSettingRow(key, title, description, toggle, value => toggle.IsChecked = value?.BooleanValue ?? false);
+        row = new DeviceSettingRow(key, title, description, toggle,
+            value => toggle.IsChecked = value?.BooleanValue ?? false);
         return row;
     }
 

@@ -45,13 +45,6 @@ internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
         host.StateChanged += _ => OnChanged();
     }
 
-    /// <summary>
-    ///     Raised on any thread after the host's instances, their health or their accepted state may have
-    ///     changed.
-    /// </summary>
-    /// <remarks>The device's widgets follow the device overlay source's own change event instead.</remarks>
-    internal event Action? Changed;
-
     /// <summary>Borrowed device widget source, or null when no device projection was supplied.</summary>
     internal ICommonPluginOverlaySource? Device { get; }
 
@@ -67,6 +60,31 @@ internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
         _deviceIdentities = [.. device.Select(instance => instance.Identity)];
         return [.. IndependentSnapshot(), .. device];
     }
+
+    /// <inheritdoc />
+    public PluginStatePublication[] State(PluginInstanceIdentity identity)
+    {
+        return Device is not null && _deviceIdentities.Contains(identity)
+            ? Device.State(identity)
+            : _host.StateSnapshot(identity);
+    }
+
+    /// <inheritdoc />
+    public Task<PluginActionResult> InvokeAsync(PluginInstanceIdentity identity, long generation,
+        string action, IReadOnlyDictionary<string, PluginValue> arguments, CancellationToken cancellationToken)
+    {
+        return Device is not null && _deviceIdentities.Contains(identity)
+            ? Device.InvokeAsync(identity, generation, action, arguments, cancellationToken)
+            : _host.InvokeActionAsync(identity, generation, action, arguments, PluginActionOrigin.User,
+                Deadline.After(TimeSpan.FromSeconds(10)), cancellationToken);
+    }
+
+    /// <summary>
+    ///     Raised on any thread after the host's instances, their health or their accepted state may have
+    ///     changed.
+    /// </summary>
+    /// <remarks>The device's widgets follow the device overlay source's own change event instead.</remarks>
+    internal event Action? Changed;
 
     /// <summary>Reads the instances the common host runs, without projecting the device.</summary>
     /// <returns>A new instance array, as <see cref="Snapshot" /> returns them before the device's.</returns>
@@ -90,24 +108,6 @@ internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
                 };
             })
         ];
-    }
-
-    /// <inheritdoc />
-    public PluginStatePublication[] State(PluginInstanceIdentity identity)
-    {
-        return Device is not null && _deviceIdentities.Contains(identity)
-            ? Device.State(identity)
-            : _host.StateSnapshot(identity);
-    }
-
-    /// <inheritdoc />
-    public Task<PluginActionResult> InvokeAsync(PluginInstanceIdentity identity, long generation,
-        string action, IReadOnlyDictionary<string, PluginValue> arguments, CancellationToken cancellationToken)
-    {
-        return Device is not null && _deviceIdentities.Contains(identity)
-            ? Device.InvokeAsync(identity, generation, action, arguments, cancellationToken)
-            : _host.InvokeActionAsync(identity, generation, action, arguments, PluginActionOrigin.User,
-                Deadline.After(TimeSpan.FromSeconds(10)), cancellationToken);
     }
 
     /// <summary>Replaces the local pin snapshot after configuration reload or a saved edit.</summary>

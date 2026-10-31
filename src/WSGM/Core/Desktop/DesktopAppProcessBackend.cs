@@ -164,7 +164,7 @@ internal sealed class DesktopAppProcessBackend(UserDataContext context) : IDeskt
                          + "terminating its captured process tree for the requested mode switch.");
                 if (!process.HasExited)
                 {
-                    process.Kill(entireProcessTree: true);
+                    process.Kill(true);
                 }
 
                 using var forced = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

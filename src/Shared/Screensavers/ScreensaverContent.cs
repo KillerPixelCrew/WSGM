@@ -60,10 +60,12 @@ internal static class ScreensaverContent
     internal const long MaximumAssetBytes = 16 * 1024 * 1024;
     internal const int MaximumImages = 2048;
     internal const int MaximumAssets = 256;
+
     private static readonly HashSet<string> ImageTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"
     };
+
     private static readonly HashSet<string> SceneTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         ".html", ".htm", ".css", ".js", ".json", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".woff", ".woff2"
@@ -84,7 +86,8 @@ internal static class ScreensaverContent
         try
         {
             if (!Path.IsPathFullyQualified(source.Folder) || source.Folder.StartsWith("\\\\", StringComparison.Ordinal)
-                || new DriveInfo(Path.GetPathRoot(source.Folder)!).DriveType == DriveType.Network)
+                                                          || new DriveInfo(Path.GetPathRoot(source.Folder)!)
+                                                              .DriveType == DriveType.Network)
             {
                 throw new InvalidDataException("Choose an absolute folder on a local or removable drive.");
             }
@@ -118,14 +121,19 @@ internal static class ScreensaverContent
                                    ScreensaverJson.Default.ScreensaverManifest)
                                ?? throw new InvalidDataException("The pack manifest is empty.");
                 if (manifest.SchemaVersion != 1 || string.IsNullOrWhiteSpace(manifest.Id)
-                    || manifest.Id.Length > 64 || manifest.Id.Any(character => !char.IsAsciiLetterOrDigit(character)
-                        && character is not '-' and not '_' and not '.')
-                    || string.IsNullOrWhiteSpace(manifest.Name) || manifest.Name.Length > 128
-                    || string.IsNullOrWhiteSpace(manifest.Author) || manifest.Author.Length > 128
-                    || !Version.TryParse(manifest.Version, out _)
-                    || !Version.TryParse(manifest.MinimumWsgm, out var minimum) || minimum > currentVersion
-                    || manifest.Type is not "images" and not "scene" || manifest.Assets is null
-                    || manifest.Assets.Count > MaximumAssets)
+                                                || manifest.Id.Length > 64 || manifest.Id.Any(character =>
+                                                    !char.IsAsciiLetterOrDigit(character)
+                                                    && character is not '-' and not '_' and not '.')
+                                                || string.IsNullOrWhiteSpace(manifest.Name) ||
+                                                manifest.Name.Length > 128
+                                                || string.IsNullOrWhiteSpace(manifest.Author) ||
+                                                manifest.Author.Length > 128
+                                                || !Version.TryParse(manifest.Version, out _)
+                                                || !Version.TryParse(manifest.MinimumWsgm, out var minimum) ||
+                                                minimum > currentVersion
+                                                || manifest.Type is not "images" and not "scene" ||
+                                                manifest.Assets is null
+                                                || manifest.Assets.Count > MaximumAssets)
                 {
                     throw new InvalidDataException("Unsupported pack manifest or WSGM compatibility version.");
                 }
@@ -146,6 +154,7 @@ internal static class ScreensaverContent
                     {
                         throw new InvalidDataException("The scene exceeds the 256 asset limit.");
                     }
+
                     long total = 0;
                     foreach (var asset in playback.Assets)
                     {
@@ -165,7 +174,7 @@ internal static class ScreensaverContent
                 else
                 {
                     var relativeFolder = manifest.Folder ?? ".";
-                    root = relativeFolder == "." ? root : AssetPath(root, relativeFolder, directory: true);
+                    root = relativeFolder == "." ? root : AssetPath(root, relativeFolder, true);
                     playback.Root = root;
                 }
 
@@ -176,8 +185,8 @@ internal static class ScreensaverContent
                         throw new InvalidDataException("Pack previews must be raster images.");
                     }
 
-                    CheckFile(AssetPath(playback.Type == "scene" ? playback.Root :
-                        Path.GetFullPath(source.Folder), preview));
+                    CheckFile(AssetPath(playback.Type == "scene" ? playback.Root : Path.GetFullPath(source.Folder),
+                        preview));
                     previewPath = AssetPath(Path.GetFullPath(source.Folder), preview);
                 }
             }
@@ -215,16 +224,21 @@ internal static class ScreensaverContent
             playback.Revision = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity)));
             var previewInfo = previewPath is null ? null : new FileInfo(previewPath);
             return new ScreensaverContentResult(playback, playback.Type,
-                playback.Type == "images" ? $"{playback.Images.Count} {(playback.Images.Count == 1 ? "image" : "images")}" :
-                    $"Sandboxed scene; {playback.Assets.Count} packaged assets, {playback.FramesPerSecond} fps limit")
+                playback.Type == "images"
+                    ? $"{playback.Images.Count} {(playback.Images.Count == 1 ? "image" : "images")}"
+                    : $"Sandboxed scene; {playback.Assets.Count} packaged assets, {playback.FramesPerSecond} fps limit")
             {
                 Preview = previewPath,
-                PreviewRevision = previewInfo is null ? "" : Convert.ToHexString(SHA256.HashData(
-                    Encoding.UTF8.GetBytes($"{previewPath}|{previewInfo.Length}|{previewInfo.LastWriteTimeUtc.Ticks}")))
+                PreviewRevision = previewInfo is null
+                    ? ""
+                    : Convert.ToHexString(SHA256.HashData(
+                        Encoding.UTF8.GetBytes(
+                            $"{previewPath}|{previewInfo.Length}|{previewInfo.LastWriteTimeUtc.Ticks}")))
             };
         }
-        catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException
-                                      or JsonException or NotSupportedException)
+        catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException
+                                          or ArgumentException
+                                          or JsonException or NotSupportedException)
         {
             return new ScreensaverContentResult(null, source.Pack ? "pack" : "images", error.Message);
         }
@@ -280,10 +294,12 @@ internal static class ScreensaverContent
             CheckFile(path);
             using var file = File.OpenRead(path);
             Span<byte> header = stackalloc byte[12];
-            return file.Read(header) >= 12 && (header[0] == 0x89 && header[1..8].SequenceEqual("PNG\r\n\x1a\n"u8)
-                || header[0] == 0xff && header[1] == 0xd8
-                || header[..3].SequenceEqual("GIF"u8) || header[..2].SequenceEqual("BM"u8)
-                || header[..4].SequenceEqual("RIFF"u8) && header[8..12].SequenceEqual("WEBP"u8));
+            return file.Read(header) >= 12 && ((header[0] == 0x89 && header[1..8].SequenceEqual("PNG\r\n\x1a\n"u8))
+                                               || (header[0] == 0xff && header[1] == 0xd8)
+                                               || header[..3].SequenceEqual("GIF"u8) ||
+                                               header[..2].SequenceEqual("BM"u8)
+                                               || (header[..4].SequenceEqual("RIFF"u8) &&
+                                                   header[8..12].SequenceEqual("WEBP"u8)));
         }
         catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException)
         {
@@ -293,11 +309,14 @@ internal static class ScreensaverContent
 
     private static void RequireNoLinks(string path)
     {
-        for (var current = Path.GetFullPath(path); !string.IsNullOrEmpty(current); current = Path.GetDirectoryName(current))
+        for (var current = Path.GetFullPath(path);
+             !string.IsNullOrEmpty(current);
+             current = Path.GetDirectoryName(current))
         {
             if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
             {
-                throw new InvalidDataException("Screensaver sources and assets cannot traverse symbolic links or reparse points.");
+                throw new InvalidDataException(
+                    "Screensaver sources and assets cannot traverse symbolic links or reparse points.");
             }
         }
     }

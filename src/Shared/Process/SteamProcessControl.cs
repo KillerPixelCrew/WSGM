@@ -33,7 +33,7 @@ internal static class SteamProcessControl
             () => IsRunning(session),
             () =>
             {
-                if (!IsRunning(session, mainOnly: true))
+                if (!IsRunning(session, true))
                 {
                     // Dispatching a protocol with only orphaned helpers left would start a new
                     // client just to close it. Those helpers can be ended directly instead.
@@ -185,7 +185,7 @@ internal static class SteamProcessControl
                     {
                         log($"Steam child termination reported errors for pid {process.Id}: {ex.Message}; "
                             + "terminating the client itself.");
-                        process.Kill(entireProcessTree: false);
+                        process.Kill(false);
                     }
                 }
                 catch (InvalidOperationException)

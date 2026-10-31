@@ -1,4 +1,5 @@
 using WSGM.Core;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
 using static WSGM.Tests.Builders.PerformanceBuilders;
 
@@ -6,6 +7,8 @@ namespace WSGM.Tests.Shell;
 
 public sealed class ProfileServiceTests
 {
+    private static readonly PerformanceApplicationTarget Game = new("steam:42", 42, "game.exe");
+
     [Fact]
     public async Task ProcessorResetClearsDormantGamesButPreservesOtherDevicesAndLighting()
     {
@@ -13,25 +16,24 @@ public sealed class ProfileServiceTests
         config.Games.Add(new GameProfile { Id = "dormant", Enabled = false });
         foreach (var values in config.Games.Select(game => game.Values).Prepend(config.Global))
         {
-            values.SetDevice("ally", "processor.gpu-clock", null, WSGM.Device.Sdk.Capabilities.CapabilityValue.Integer(100));
-            values.SetDevice("ally", "processor.cpu-curve-all", null, WSGM.Device.Sdk.Capabilities.CapabilityValue.Integer(-24));
-            values.SetDevice("other", "processor.gpu-clock", null, WSGM.Device.Sdk.Capabilities.CapabilityValue.Integer(800));
-            values.SetDevice("ally", "lighting.brightness", null, WSGM.Device.Sdk.Capabilities.CapabilityValue.Integer(50));
+            values.SetDevice("ally", "processor.gpu-clock", null, CapabilityValue.Integer(100));
+            values.SetDevice("ally", "processor.cpu-curve-all", null, CapabilityValue.Integer(-24));
+            values.SetDevice("other", "processor.gpu-clock", null, CapabilityValue.Integer(800));
+            values.SetDevice("ally", "lighting.brightness", null, CapabilityValue.Integer(50));
         }
 
         var profiles = Profiles(config);
         await profiles.ClearProcessorTuningAsync("ally", CancellationToken.None, "processor.gpu-clock");
         Assert.NotNull(profiles.Current.Config.Global.FindDevice("ally", "processor.cpu-curve-all", null));
         await profiles.ClearProcessorTuningAsync("ally", CancellationToken.None);
-        foreach (var values in profiles.Current.Config.Games.Select(game => game.Values).Prepend(profiles.Current.Config.Global))
+        foreach (var values in profiles.Current.Config.Games.Select(game => game.Values)
+                     .Prepend(profiles.Current.Config.Global))
         {
             Assert.Equal(2, values.Device.Count);
             Assert.NotNull(values.FindDevice("other", "processor.gpu-clock", null));
             Assert.NotNull(values.FindDevice("ally", "lighting.brightness", null));
         }
     }
-
-    private static readonly PerformanceApplicationTarget Game = new("steam:42", 42, "game.exe");
 
     [Fact]
     public async Task AnEditMadeWhileAGameProfileIsOnLandsInTheGameOnly()

@@ -183,14 +183,6 @@ public sealed class NoteStore
         }
     }
 
-    private enum PageRead
-    {
-        Read,
-        Newer,
-        Malformed,
-        Unavailable
-    }
-
     private static PageRead ReadPage(string file, out NotePage? page)
     {
         page = null;
@@ -233,7 +225,8 @@ public sealed class NoteStore
         if (!NoteDocumentRules.TryValidate(page, out var error)
             || !string.Equals(Path.GetFileNameWithoutExtension(file), page.Id, StringComparison.Ordinal))
         {
-            Log.Warn($"Notes: {Path.GetFileName(file)} is malformed: {(error.Length > 0 ? error : "its name is not its id")}");
+            Log.Warn(
+                $"Notes: {Path.GetFileName(file)} is malformed: {(error.Length > 0 ? error : "its name is not its id")}");
             page = null;
             return PageRead.Malformed;
         }
@@ -336,5 +329,13 @@ public sealed class NoteStore
         {
             throw new NoteStoreException(failure, ex);
         }
+    }
+
+    private enum PageRead
+    {
+        Read,
+        Newer,
+        Malformed,
+        Unavailable
     }
 }

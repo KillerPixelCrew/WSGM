@@ -36,15 +36,20 @@ public sealed partial class SteamNativeSettingsServiceTests
     [Fact]
     public void RebuildingIdenticalPagesKeepsTheRevisionSoNothingIsResent()
     {
-        static SteamNativeSettingsPage[] Pages(int limit) =>
-        [
-            new SteamNativeSettingsPage("power",
+        static SteamNativeSettingsPage[] Pages(int limit)
+        {
+            return
             [
-                new SteamSettingsSection("Limits",
-                    [new SteamSettingsRow("limit", SteamSettingsRowKind.Range, "Limit", Number: limit, Minimum: 5,
-                        Maximum: 35, Step: 1, Choices: [new SteamSettingsChoice("a", "A")])], "power.limits")
-            ])
-        ];
+                new SteamNativeSettingsPage("power",
+                [
+                    new SteamSettingsSection("Limits",
+                    [
+                        new SteamSettingsRow("limit", SteamSettingsRowKind.Range, "Limit", Number: limit, Minimum: 5,
+                            Maximum: 35, Step: 1, Choices: [new SteamSettingsChoice("a", "A")])
+                    ], "power.limits")
+                ])
+            ];
+        }
 
         string? published = null;
         var revision = SteamNativeSettingsService.NextRevision(Pages(20), ref published, 0);
@@ -57,7 +62,8 @@ public sealed partial class SteamNativeSettingsServiceTests
     [Fact]
     public void RangeReplacementRequiresRebuildingTheMountedEditor()
     {
-        var row = new DeviceOverlayCapability("limit", null, DescriptorStatus.Available, "Limit", "", "", true, CapabilityValue.Integer(10))
+        var row = new DeviceOverlayCapability("limit", null, DescriptorStatus.Available, "Limit", "", "", true,
+            CapabilityValue.Integer(10))
         {
             Role = CapabilityRole.GenericRange, Writable = true, ValueKind = CapabilityValueKind.Integer,
             Minimum = 0, Maximum = 40, Step = 1
@@ -71,7 +77,8 @@ public sealed partial class SteamNativeSettingsServiceTests
     [Fact]
     public void LightingEditorStagesOpaqueColorWithStableLogicalIdentity()
     {
-        var capability = new DeviceOverlayCapability("lighting.color", "left", DescriptorStatus.Available, "Left ring", string.Empty, string.Empty, true,
+        var capability = new DeviceOverlayCapability("lighting.color", "left", DescriptorStatus.Available, "Left ring",
+            string.Empty, string.Empty, true,
             new CapabilityValue { Kind = CapabilityValueKind.Color, ColorValue = 0x123456 })
         {
             Writable = true,
@@ -126,7 +133,10 @@ public sealed partial class SteamNativeSettingsServiceTests
     public void AnUnselectableChoiceIsListedOnlyWhileCurrentAndNeverAccepted()
     {
         ChoiceRowState state = new(true,
-            [new ChoiceRowOption("a", "A"), new ChoiceRowOption("b", "B"), new ChoiceRowOption("custom", "Custom", false)],
+            [
+                new ChoiceRowOption("a", "A"), new ChoiceRowOption("b", "B"),
+                new ChoiceRowOption("custom", "Custom", false)
+            ],
             "custom", "Status", true);
 
         var row = SteamNativeSettingsService.ChoiceRow("key", "Label", "power", state)!;

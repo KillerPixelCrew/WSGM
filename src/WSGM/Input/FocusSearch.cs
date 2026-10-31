@@ -33,10 +33,11 @@ internal static class FocusSearch
         return key is null
             ? null
             : First<Control>(root, control => control is
-                {
-                    Focusable: true, IsEffectivelyEnabled: true, IsEffectivelyVisible: true
-                }
-                && Equals(control.Tag, key));
+                                              {
+                                                  Focusable: true, IsEffectivelyEnabled: true,
+                                                  IsEffectivelyVisible: true
+                                              }
+                                              && Equals(control.Tag, key));
     }
 
     /// <summary>The first descendant of a type that matches.</summary>

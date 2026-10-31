@@ -15,6 +15,9 @@ public sealed class ProgramsView : ServiceSubView
 {
     private IProgramsSource? _service;
 
+    /// <inheritdoc />
+    protected override string LogScope => "Programs";
+
     /// <summary>Raised with a program to launch or whose window to focus.</summary>
     internal event Action<string>? ActivateRequested;
 
@@ -29,9 +32,6 @@ public sealed class ProgramsView : ServiceSubView
 
     /// <summary>Raised on the service's thread when the programs change, so their pinned rows follow.</summary>
     internal event Action? ProgramsChanged;
-
-    /// <inheritdoc />
-    protected override string LogScope => "Programs";
 
     /// <summary>Follows the session's Programs owner, or none with null.</summary>
     /// <param name="service">The owner, or null when the overlay closes or the session has none.</param>
@@ -133,7 +133,8 @@ public sealed class ProgramsView : ServiceSubView
             return;
         }
 
-        body.Children.Add(Caption("Launch a desktop tool or focus its existing window. X, touch hold or right-click pins a program to Quick access."));
+        body.Children.Add(Caption(
+            "Launch a desktop tool or focus its existing window. X, touch hold or right-click pins a program to Quick access."));
         if (service.LastResult.Length > 0)
         {
             body.Children.Add(Tagged(Caption(service.LastResult), "program.result"));
@@ -168,14 +169,14 @@ public sealed class ProgramsView : ServiceSubView
     private async Task AddAsync()
     {
         var generation = NavigationGeneration;
-        var path = await PickPathAsync(folder: false, ".exe");
+        var path = await PickPathAsync(false, ".exe");
         if (path is null || generation != NavigationGeneration || _service is not { } service)
         {
             return;
         }
 
         var definition = new ProgramDefinition { Name = Path.GetFileNameWithoutExtension(path), Executable = path };
-        if (await ApplyAsync(() => service.SaveAsync(definition, approveExecutable: true)))
+        if (await ApplyAsync(() => service.SaveAsync(definition, true)))
         {
             Navigate(() => RenderEditor(definition.Id));
         }
@@ -186,7 +187,8 @@ public sealed class ProgramsView : ServiceSubView
         var state = _service?.ReadState().FirstOrDefault(item => item.Definition.Id == id);
         if (state is null || _service is not { } service)
         {
-            RenderMessage("Program removed", "This entry no longer exists. Removing an entry never closes the application.");
+            RenderMessage("Program removed",
+                "This entry no longer exists. Removing an entry never closes the application.");
             return;
         }
 
@@ -196,14 +198,16 @@ public sealed class ProgramsView : ServiceSubView
         body.Children.Add(new ProgramActionRow(state, () => Activate(id))
             { Tag = ProgramsService.PinPrefix + id, IsPinned = service.IsPinned(id) });
         body.Children.Add(Tagged(Row("Display name", entry.Name, Icons.ListLines,
-            () => EditText("Display name", entry.Name, 160, value => Save(entry with { Name = value }))), "program.name"));
+                () => EditText("Display name", entry.Name, 160, value => Save(entry with { Name = value }))),
+            "program.name"));
         body.Children.Add(Tagged(Row("Executable", entry.Executable, Icons.FolderPlus,
             () => _ = RunSafelyAsync(ChooseExecutableAsync(entry), "choose executable")), "program.executable"));
         body.Children.Add(Tagged(Row("Arguments", entry.Arguments.Length == 0 ? "None" : entry.Arguments,
             Icons.ListLines, () => EditText("Arguments", entry.Arguments, 4096,
                 value => Save(entry with { Arguments = value }))), "program.arguments"));
         body.Children.Add(Tagged(Row("Working directory", entry.WorkingDirectory.Length == 0
-                ? "Executable folder" : entry.WorkingDirectory, Icons.FolderPlus,
+                ? "Executable folder"
+                : entry.WorkingDirectory, Icons.FolderPlus,
             () => _ = RunSafelyAsync(ChooseDirectoryAsync(entry), "working directory")), "program.directory"));
         if (entry.WorkingDirectory.Length > 0)
         {
@@ -213,15 +217,19 @@ public sealed class ProgramsView : ServiceSubView
 
         body.Children.Add(ToggleRow("Request administrator elevation", entry.Elevated,
             value => Save(entry with { Elevated = value })));
-        body.Children.Add(Caption("Off launches as the normal interactive user. On explicitly requests UAC; Windows may refuse focus across integrity levels."));
+        body.Children.Add(Caption(
+            "Off launches as the normal interactive user. On explicitly requests UAC; Windows may refuse focus across integrity levels."));
         body.Children.Add(ToggleRow("Reinvoke when running without a window", entry.ReactivateWithoutWindow,
             value => Save(entry with { ReactivateWithoutWindow = value })));
-        body.Children.Add(Caption("Leave off unless this application's single-instance IPC activation is known to be safe. Otherwise WSGM reports running without a window."));
+        body.Children.Add(Caption(
+            "Leave off unless this application's single-instance IPC activation is known to be safe. Otherwise WSGM reports running without a window."));
         body.Children.Add(Tagged(Row(service.IsPinned(id) ? "Unpin from Quick access" : "Pin to Quick access",
             "Uses the same launch-or-focus action", Icons.Pin,
             () => PinRequested?.Invoke(id)), "program.pin"));
         body.Children.Add(Tagged(Row("Select running UI application",
-            entry.UiExecutable.Length > 0 ? entry.UiExecutable : "For launchers and bootstrap apps: choose the real application's window",
+            entry.UiExecutable.Length > 0
+                ? entry.UiExecutable
+                : "For launchers and bootstrap apps: choose the real application's window",
             Icons.Monitor, () => _ = RunSafelyAsync(SelectUiAsync(id), "select UI")), "program.ui"));
         if (entry.UiExecutable.Length > 0)
         {
@@ -234,42 +242,47 @@ public sealed class ProgramsView : ServiceSubView
             body.Children.Add(Tagged(Row("Approve replacement executable", entry.Executable,
                 Icons.Info, () => ConfirmAsync("Approve replacement executable",
                     "The executable changed since it was selected. Approve only if you trust the new file. This also clears the resolved UI identity.",
-                    () => service.SaveAsync(entry, approveExecutable: true))), "program.approve"));
+                    () => service.SaveAsync(entry, true))), "program.approve"));
         }
 
-        body.Children.Add(Tagged(Row("Clear pending launch", "Only after checking that a previous launch did not start the tool",
+        body.Children.Add(Tagged(Row("Clear pending launch",
+            "Only after checking that a previous launch did not start the tool",
             Icons.Restart, () => ConfirmAsync("Clear pending launch",
                 "A previous launch may still be starting. Clearing its pending state allows another launch and may create a duplicate.",
                 () => service.ClearPendingAsync(id))), "program.pending.clear"));
-        body.Children.Add(Tagged(DangerRow("Remove program", "Remove WSGM configuration and pin; keep the application running",
+        body.Children.Add(Tagged(DangerRow("Remove program",
+            "Remove WSGM configuration and pin; keep the application running",
             Icons.Close, () => ConfirmAsync("Remove program", "The application and its files will remain untouched.",
                 () =>
                 {
                     UnpinRequested?.Invoke(id);
                     return service.RemoveAsync(id);
-                }, returnHome: true)), "program.remove"));
+                }, true)), "program.remove"));
         SetContent(body);
     }
 
-    private void Save(ProgramDefinition entry) => _ = ApplyAsync(() => _service!.SaveAsync(entry, approveExecutable: false));
+    private void Save(ProgramDefinition entry)
+    {
+        _ = ApplyAsync(() => _service!.SaveAsync(entry, false));
+    }
 
     private async Task ChooseExecutableAsync(ProgramDefinition entry)
     {
         var generation = NavigationGeneration;
-        var path = await PickPathAsync(folder: false, ".exe");
+        var path = await PickPathAsync(false, ".exe");
         if (path is not null && generation == NavigationGeneration)
         {
-            await ApplyAsync(() => _service!.SaveAsync(entry with { Executable = path }, approveExecutable: true));
+            await ApplyAsync(() => _service!.SaveAsync(entry with { Executable = path }, true));
         }
     }
 
     private async Task ChooseDirectoryAsync(ProgramDefinition entry)
     {
         var generation = NavigationGeneration;
-        var path = await PickPathAsync(folder: true);
+        var path = await PickPathAsync(true);
         if (path is not null && generation == NavigationGeneration)
         {
-            await ApplyAsync(() => _service!.SaveAsync(entry with { WorkingDirectory = path }, approveExecutable: false));
+            await ApplyAsync(() => _service!.SaveAsync(entry with { WorkingDirectory = path }, false));
         }
     }
 
@@ -285,19 +298,22 @@ public sealed class ProgramsView : ServiceSubView
         Navigate(() =>
         {
             var body = NewStack("Select running UI application");
-            body.Children.Add(Caption("Choose only the window belonging to this program. WSGM remembers its exact executable path and fingerprint for future focus actions."));
+            body.Children.Add(Caption(
+                "Choose only the window belonging to this program. WSGM remembers its exact executable path and fingerprint for future focus actions."));
             foreach (var window in windows)
             {
                 var selected = window;
                 body.Children.Add(Tagged(Row(window.Window.Title, window.Executable, Icons.Monitor,
-                    () => ConfirmAsync("Remember this application?", selected.Window.Title + "\n" + selected.Executable,
-                        () => _service!.RememberWindowAsync(id, selected), returnHome: true)),
+                        () => ConfirmAsync("Remember this application?",
+                            selected.Window.Title + "\n" + selected.Executable,
+                            () => _service!.RememberWindowAsync(id, selected), true)),
                     "program.ui.window:" + window.Window.Hwnd));
             }
 
             if (windows.Length == 0)
             {
-                body.Children.Add(Caption("No eligible current-session application windows found. Open the tool, then try again."));
+                body.Children.Add(
+                    Caption("No eligible current-session application windows found. Open the tool, then try again."));
             }
 
             SetContent(body);

@@ -88,16 +88,19 @@ internal sealed class GameLibraryApplier(
             if (record is { HasUnresolvedLegacyMapping: true })
             {
                 if (record.SteamMappings.Any(mapping => mapping.AccountId is null
-                        && (mapping.AppId == 0 && !entry.Plan.Unconfirmed
-                            || mapping.AppId > 0 && run.Existing.Any(shortcut => shortcut.AppId == mapping.AppId))))
+                                                        && ((mapping.AppId == 0 && !entry.Plan.Unconfirmed)
+                                                            || (mapping.AppId > 0 && run.Existing.Any(shortcut =>
+                                                                shortcut.AppId == mapping.AppId)))))
                 {
-                    run.Problems.Add($"{entry.Plan.Name}: legacy shortcut ownership is unresolved. This title was preserved.");
+                    run.Problems.Add(
+                        $"{entry.Plan.Name}: legacy shortcut ownership is unresolved. This title was preserved.");
                     continue;
                 }
 
                 // A new account receipt may be created, but the unknown receipt remains canonical and untouched.
                 record = null;
             }
+
             // Re-read immediately before the write: the user may have changed the shortcut in Steam
             // since the scan, and acting on stale state is how the wrong entry is changed.
             ExistingShortcut? live = null;
@@ -261,12 +264,13 @@ internal sealed class GameLibraryApplier(
                 RequireAccount(accountId);
                 store.SaveCollection(new ImportedCollection
                 {
-                    AccountId = accountId, Group = group, Id = result.Id ?? string.Empty, Name = name, AppIds = [.. want]
+                    AccountId = accountId, Group = group, Id = result.Id ?? string.Empty, Name = name,
+                    AppIds = [.. want]
                 });
             }
         }
         catch (Exception ex) when (ex is ImportStateException or InvalidOperationException
-                                      or IOException or UnauthorizedAccessException or JsonException)
+                                       or IOException or UnauthorizedAccessException or JsonException)
         {
             problems.Add(ex.Message);
         }
@@ -312,6 +316,7 @@ internal sealed class GameLibraryApplier(
         {
             throw new InvalidOperationException("Steam's account could not be confirmed. Recheck before importing.");
         }
+
         RequireAccount(snapshot.AccountId);
         return snapshot.AccountId;
     }
@@ -463,7 +468,8 @@ internal sealed class GameLibraryApplier(
             }
             catch (Exception ex) when (GameLibraryCardStorage.IsStorageFailure(ex) && ex is not ImportStateException)
             {
-                run.Problems.Add($"{entry.Plan.Name}: its storage inventory could not be saved. Unlock or reconnect the card and retry this title. {ex.Message}");
+                run.Problems.Add(
+                    $"{entry.Plan.Name}: its storage inventory could not be saved. Unlock or reconnect the card and retry this title. {ex.Message}");
                 return null;
             }
         }
@@ -539,7 +545,8 @@ internal sealed class GameLibraryApplier(
                     : string.Empty,
                 ArtworkApplied = record is not null && record.AppId == result.AppId ? record.ArtworkApplied : 0,
                 SettledArtwork = record is null || record.AppId != result.AppId
-                    ? [] : new Dictionary<ArtworkAsset, AppliedArtworkChoice>(record.SettledArtwork),
+                    ? []
+                    : new Dictionary<ArtworkAsset, AppliedArtworkChoice>(record.SettledArtwork),
 
                 // Whether an earlier run created this title's profile. Only such a profile may be
                 // removed when its override is cleared; one the user made, or had before an
@@ -712,9 +719,11 @@ internal sealed class GameLibraryApplier(
         {
             if (results[index].Succeeded && picks.TryGetValue(images[index].Asset, out var pick))
             {
-                receipt.SettledArtwork[images[index].Asset] = new AppliedArtworkChoice(images[index].Url, pick.Revision);
+                receipt.SettledArtwork[images[index].Asset] =
+                    new AppliedArtworkChoice(images[index].Url, pick.Revision);
             }
         }
+
         var failed = results.Where(result => !result.Succeeded).Select(result => result.Detail).Distinct().ToList();
         if (failed.Count > 0)
         {
@@ -768,7 +777,8 @@ internal sealed class GameLibraryApplier(
 
         try
         {
-            await setControllerTarget(ProfileResolver.SteamId(appId), string.Empty, null, ownsProfile, CancellationToken.None)
+            await setControllerTarget(ProfileResolver.SteamId(appId), string.Empty, null, ownsProfile,
+                    CancellationToken.None)
                 .ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)

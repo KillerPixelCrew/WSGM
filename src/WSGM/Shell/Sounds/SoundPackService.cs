@@ -32,8 +32,8 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
     private AudioFilePreview? _preview;
     private long _previewEpoch;
     private long _revision;
-    private long _stateRevision;
     private SoundPackState _state = new([], "", false, null, "Not checked yet.", [], 0, 0);
+    private long _stateRevision;
 
     internal SoundPackService(SoundPackLibrary library, Func<string> readSelected, Action<string> saveSelected,
         Func<string?> steamDirectory, ThemeStoreClient store, Action<string>? report = null)

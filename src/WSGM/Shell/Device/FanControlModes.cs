@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Linq;
 using WSGM.Device.Sdk.Capabilities;
 
@@ -28,7 +27,7 @@ internal static class FanControlModes
     /// <returns>The descriptor offered to both user surfaces.</returns>
     internal static CapabilityDescriptor WithSoftwareChoice(CapabilityDescriptor mode)
     {
-        IEnumerable<CapabilityChoice> choices = mode.Choices.Select(choice => choice.Value switch
+        var choices = mode.Choices.Select(choice => choice.Value switch
         {
             Firmware => choice with { Display = Label("Firmware") },
             Manual => choice with { Display = Label("Manual") },
@@ -36,7 +35,10 @@ internal static class FanControlModes
         });
         return mode with
         {
-            Choices = [.. choices.Where(choice => choice.Value != Software), new CapabilityChoice(Software, Label("Software"))]
+            Choices =
+            [
+                .. choices.Where(choice => choice.Value != Software), new CapabilityChoice(Software, Label("Software"))
+            ]
         };
     }
 

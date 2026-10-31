@@ -127,8 +127,10 @@ internal static class SteamArtwork
                 {
                     results[remaining] = new ArtworkResult("Stopped before the image was written.");
                 }
+
                 break;
             }
+
             if (images[index].Url.Length == 0)
             {
                 results[index] = await ClearAsync(steam, appId, images[index].Asset, CancellationToken.None)
@@ -137,7 +139,8 @@ internal static class SteamArtwork
             }
 
             results[index] = downloads[index] is { Bytes: { } bytes }
-                ? await ApplyAsync(steam, appId, images[index].Asset, bytes, CancellationToken.None).ConfigureAwait(false)
+                ? await ApplyAsync(steam, appId, images[index].Asset, bytes, CancellationToken.None)
+                    .ConfigureAwait(false)
                 : new ArtworkResult(downloads[index].Failure ?? "The image did not download.");
         }
 

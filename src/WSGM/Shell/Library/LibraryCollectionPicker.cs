@@ -8,4 +8,7 @@ namespace WSGM.Shell;
 /// <param name="Loading">Whether a read is in flight.</param>
 /// <param name="Error">Why the last read failed, or null.</param>
 internal sealed record LibraryCollectionPicker(
-    IReadOnlyList<LibraryCollectionChoice> Items, bool Loaded, bool Loading, string? Error);
+    IReadOnlyList<LibraryCollectionChoice> Items,
+    bool Loaded,
+    bool Loading,
+    string? Error);

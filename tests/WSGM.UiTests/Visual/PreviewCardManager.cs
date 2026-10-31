@@ -116,19 +116,19 @@ public static class PreviewCardManager
         LibraryCardView[] cards =
         [
             // Nothing installed yet: an empty bar.
-            Card("card-retro", "Retro card", inserted: true, games: 0, capacity: 59.5, free: 59.5),
+            Card("card-retro", "Retro card", true, 0, 59.5, 59.5),
             // About half.
-            Card("card-travel", "Travel SSD", inserted: true, games: 14, capacity: 476.9, free: 238.4),
+            Card("card-travel", "Travel SSD", true, 14, 476.9, 238.4),
             // Nearly full, and remembered from its last reading while it is out.
-            Card("card-handheld", "Handheld microSD", inserted: false, games: 41, capacity: 931.5, free: 12.2) with
+            Card("card-handheld", "Handheld microSD", false, 41, 931.5, 12.2) with
             {
                 Enabled = false
             },
             // Never mounted with a size reading: no meter.
-            Card("card-new", "New card", inserted: true, games: 0, capacity: 0, free: 0) with { Hidden = true }
+            Card("card-new", "New card", true, 0, 0, 0) with { Hidden = true }
         ];
-        var loaded = new SteamCardManagerState(cards, Loaded: true, Busy: false, Error: null, Notice: null,
-            Games: null, Revision: 1);
+        var loaded = new SteamCardManagerState(cards, true, false, null, null,
+            null, 1);
         return scenario switch
         {
             "card-manager-list" or "card-manager-list-focus" or "card-manager-list-end" or "card-manager-editor" =>
@@ -139,12 +139,12 @@ public static class PreviewCardManager
                 [
                     Card("card-long",
                         "Extremely long removable storage library name for checking wrapping (Example 1 TB card)",
-                        inserted: true, games: 128, capacity: 931.5, free: 401.7),
+                        true, 128, 931.5, 401.7),
                     Card("card-path", @"E:\SteamLibrary\steamapps\common\A very deep library folder on the card",
-                        inserted: false, games: 3, capacity: 238.4, free: 230.1) with
-                    {
-                        Enabled = false, Hidden = true
-                    }
+                            false, 3, 238.4, 230.1) with
+                        {
+                            Enabled = false, Hidden = true
+                        }
                 ]
             },
             "card-manager-empty" => loaded with { Cards = [] },
@@ -157,7 +157,7 @@ public static class PreviewCardManager
     private static LibraryCardView Card(string id, string name, bool inserted, int games, double capacity,
         double free)
     {
-        return new LibraryCardView(id, name, Enabled: true, Hidden: false, inserted, games,
+        return new LibraryCardView(id, name, true, false, inserted, games,
             Enumerable.Range(1, games).Select(index => 1_000_000L + index).ToArray(),
             (long)(capacity * Gigabyte), (long)(free * Gigabyte));
     }
@@ -167,7 +167,8 @@ public static class PreviewCardManager
         var view = UiFixture.Named<CardManagerView>(window, "CardManagerHost");
         var meters = view.GetVisualDescendants().OfType<ProgressBar>()
             .Count(bar => bar.Classes.Contains("overlay-progress") && bar.IsEffectivelyVisible
-                          && bar.FindAncestorOfType<ActionButton>() is not null);
+                                                                   && bar.FindAncestorOfType<ActionButton>() is not
+                                                                       null);
         Require(meters == count, $"The card list shows {meters} capacity meters, not {count}.");
     }
 
@@ -205,13 +206,13 @@ public static class PreviewCardManager
         internal int Refreshes { get; private set; }
 
         /// <inheritdoc />
-        public event Action? Changed;
-
-        /// <inheritdoc />
         public SteamCardManagerState ReadCardState()
         {
             return state;
         }
+
+        /// <inheritdoc />
+        public event Action? Changed;
 
         /// <inheritdoc />
         public Task RefreshAsync(CancellationToken cancellationToken = default)
@@ -258,7 +259,7 @@ public static class PreviewCardManager
         public Task<LibraryCardGames> LoadCardGamesAsync(string contentId,
             CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(new LibraryCardGames(contentId, [], Loading: false, Error: null));
+            return Task.FromResult(new LibraryCardGames(contentId, [], false, null));
         }
 
         /// <summary>Publishes a change, as the service does after one.</summary>

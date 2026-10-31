@@ -36,7 +36,8 @@ public sealed class DevicePowerSectionTests
                 PluginSectionId = "power", CategoryId = "fans", Role = CapabilityRole.FanMode,
                 ValueKind = CapabilityValueKind.Choice, Writable = true, Choices = choices
             },
-            new DeviceOverlayCapability("power.limit", null, DescriptorStatus.Available, "Power limit", "", "15 W", true,
+            new DeviceOverlayCapability("power.limit", null, DescriptorStatus.Available, "Power limit", "", "15 W",
+                true,
                 CapabilityValue.Integer(15))
             {
                 PluginSectionId = "power", Role = CapabilityRole.PowerSustainedLimit,

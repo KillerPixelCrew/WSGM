@@ -154,7 +154,7 @@ internal sealed class RefreshRatePairingService
             }
 
             var accepted = _readAcceptedRates();
-            RefreshOperatingPoint(force: true);
+            RefreshOperatingPoint(true);
             lock (_gate)
             {
                 if (revision == _operatingPointRevision)
@@ -198,7 +198,7 @@ internal sealed class RefreshRatePairingService
             return false;
         }
 
-        RefreshOperatingPoint(force: true);
+        RefreshOperatingPoint(true);
         var revision = OperatingPointRevision;
         var accepted = AcceptedRates();
         if (revision != OperatingPointRevision)
@@ -208,7 +208,7 @@ internal sealed class RefreshRatePairingService
 
         if (accepted.Contains(refreshHz))
         {
-            return ApplyRate(refreshHz, revision, captureOriginal: false);
+            return ApplyRate(refreshHz, revision, false);
         }
 
         Log.Warn(
@@ -265,7 +265,7 @@ internal sealed class RefreshRatePairingService
     /// <returns>The rate applied, or null when the refresh rate was left alone.</returns>
     internal int? ApplyForCap(int capFps)
     {
-        RefreshOperatingPoint(force: true);
+        RefreshOperatingPoint(true);
         var revision = OperatingPointRevision;
         var (strategy, advertised, accepted) =
             Snapshot();
@@ -283,7 +283,7 @@ internal sealed class RefreshRatePairingService
             return null;
         }
 
-        return ApplyRate(rate, revision, captureOriginal: true) ? rate : null;
+        return ApplyRate(rate, revision, true) ? rate : null;
     }
 
     /// <summary>
@@ -389,7 +389,7 @@ internal sealed class RefreshRatePairingService
     /// </remarks>
     private bool ApplyRate(int rate, long expectedRevision, bool captureOriginal)
     {
-        RefreshOperatingPoint(force: true);
+        RefreshOperatingPoint(true);
         DisplayOperatingPoint? point;
         lock (_gate)
         {
@@ -474,8 +474,9 @@ internal sealed class RefreshRatePairingService
             if (advertised is null)
             {
                 advertised = _readAdvertisedRates();
-                RefreshOperatingPoint(force: true);
+                RefreshOperatingPoint(true);
             }
+
             lock (_gate)
             {
                 if (revision == _operatingPointRevision && strategy == _strategy)

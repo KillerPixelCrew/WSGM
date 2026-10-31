@@ -115,7 +115,8 @@ public static class ImportPlan
         HashSet<uint> claimed = [.. records.Values.Where(record => record.AppId > 0).Select(record => record.AppId)];
         Context context = new(byId, existing, claimed, launcherTarget, defaultMode, includeUnroutable);
         var duplicateNames = discovered.Where(game => game.Content?.SourceKind == LibrarySourceKind.Rom)
-            .GroupBy(game => (game.Content!.SystemId.ToUpperInvariant(), RomMetadata.CleanTitle(game.Name).ToUpperInvariant()))
+            .GroupBy(game => (game.Content!.SystemId.ToUpperInvariant(),
+                RomMetadata.CleanTitle(game.Name).ToUpperInvariant()))
             .Where(group => group.Count() > 1)
             .SelectMany(group => group.Select(game => (game.SourceId, game.Key)))
             .ToHashSet(IdentityComparer.Instance);
@@ -131,8 +132,9 @@ public static class ImportPlan
 
             var record = records.GetValueOrDefault((game.SourceId, game.Key));
             var unresolvedHere = record is { HasUnresolvedLegacyMapping: true }
-                && record.SteamMappings.Any(mapping => mapping.AccountId is null
-                    && mapping.AppId > 0 && byId.ContainsKey(mapping.AppId));
+                                 && record.SteamMappings.Any(mapping => mapping.AccountId is null
+                                                                        && mapping.AppId > 0 &&
+                                                                        byId.ContainsKey(mapping.AppId));
             if (record is { AccountUnknown: true } || unresolvedHere)
             {
                 plan.Add(new ImportPlanEntry(game.SourceId, game.Key, game.Name,
@@ -149,6 +151,7 @@ public static class ImportPlan
             {
                 record = null;
             }
+
             if (ContentIdentity(game.Content) is { } contentIdentity)
             {
                 if (contentOwners.TryGetValue(contentIdentity, out var owner)
@@ -182,12 +185,14 @@ public static class ImportPlan
                         Reason = legacy.SteamMappings.Any(mapping => mapping.AccountId is null && mapping.AppId == 0)
                             ? "The earlier shortcut creation was never confirmed. Check Steam, then select this title only if you want to retry it manually."
                             : "This title is not imported in the current account. Select it to add it here; unresolved receipts are preserved.",
-                        Unconfirmed = legacy.SteamMappings.Any(mapping => mapping.AccountId is null && mapping.AppId == 0),
+                        Unconfirmed =
+                        legacy.SteamMappings.Any(mapping => mapping.AccountId is null && mapping.AppId == 0),
                         Preselect = false
                     };
                 }
 
-                if (record is null && entry.Action == ImportAction.Add && duplicateNames.Contains((game.SourceId, game.Key)))
+                if (record is null && entry.Action == ImportAction.Add &&
+                    duplicateNames.Contains((game.SourceId, game.Key)))
                 {
                     entry = entry with
                     {
@@ -219,7 +224,8 @@ public static class ImportPlan
         foreach (var record in records.Values)
         {
             if (seen.Contains((record.Source, record.Key)) || record.AppId == 0
-                || record.AccountUnknown || record.HasUnresolvedLegacyMapping)
+                                                           || record.AccountUnknown ||
+                                                           record.HasUnresolvedLegacyMapping)
             {
                 continue;
             }
@@ -228,8 +234,11 @@ public static class ImportPlan
             if (record.RemovedFromSteam)
             {
                 plan.Add(Removal(record, ImportAction.Skip,
-                    "You removed this shortcut from Steam. Connect its storage and scan again to add it explicitly.",
-                    false) with { AppId = 0 });
+                        "You removed this shortcut from Steam. Connect its storage and scan again to add it explicitly.",
+                        false) with
+                    {
+                        AppId = 0
+                    });
                 continue;
             }
 
@@ -268,10 +277,11 @@ public static class ImportPlan
             // Selectable, but never ticked for the user: deleting somebody's shortcut is a thing they
             // ask for, and an entry they cannot tick is one they can never ask for.
             plan.Add(Removal(record, ImportAction.Remove,
-                tracked == ContentAvailability.FileMissing ? FilesMissing
-                : state is ImportSourceState.Gone
-                    ? "The launcher or folder this title came from is no longer on this machine."
-                    : "This title is no longer installed.",
+                tracked == ContentAvailability.FileMissing
+                    ? FilesMissing
+                    : state is ImportSourceState.Gone
+                        ? "The launcher or folder this title came from is no longer on this machine."
+                        : "This title is no longer installed.",
                 true));
         }
 

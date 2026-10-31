@@ -101,6 +101,115 @@ internal sealed class LibraryManagerService : ICardManagerSource, IDisposable
     /// </summary>
     internal Task Completion => _completion.Task;
 
+    /// <summary>Raised after either state changed; handlers must not block.</summary>
+    public event Action? Changed;
+
+    /// <inheritdoc />
+    public SteamCardManagerState ReadCardState()
+    {
+        var snapshot = Volatile.Read(ref _snapshot);
+        return new SteamCardManagerState(
+            snapshot.Cards, snapshot.Loaded, Busy, snapshot.Error, snapshot.Notice, snapshot.CardGames, Revision);
+    }
+
+    /// <inheritdoc />
+    public Task RefreshAsync(CancellationToken cancellationToken = default)
+    {
+        return QueueRefresh(true).WaitAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> DismissAsync(CancellationToken cancellationToken = default)
+    {
+        Mutate(static snapshot => snapshot with { Error = null, Notice = null });
+        return Task.FromResult(SteamUiCommandResult.Applied);
+    }
+
+    // ---- Cards ----
+
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> RenameCardAsync(string contentId, string name,
+        CancellationToken cancellationToken = default)
+    {
+        return RunAsync(async token =>
+        {
+            var trimmed = name.Trim();
+            var (renamed, note) = await _cards.RenameCardAsync(_steam(), contentId, trimmed, token)
+                .ConfigureAwait(false);
+            if (renamed)
+            {
+                StartQuietSync("card manager");
+            }
+
+            await ReprojectAsync(token).ConfigureAwait(false);
+            if (note is null)
+            {
+                return SteamUiCommandResult.Applied;
+            }
+
+            // The catalog answers a refusal and a partial write with the same kind of note; the stored
+            // name tells them apart, and a refusal is reported as the failure it is.
+            var stored = Volatile.Read(ref _snapshot).Cards.Any(card =>
+                card.ContentId == contentId && string.Equals(card.Name, trimmed, StringComparison.Ordinal));
+            if (!stored)
+            {
+                return new SteamUiCommandResult(false, note);
+            }
+
+            Mutate(snapshot => snapshot with { Notice = note });
+            return SteamUiCommandResult.Applied;
+        }, "rename", cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> SetCardEnabledAsync(string contentId, bool enabled,
+        CancellationToken cancellationToken = default)
+    {
+        return RunAsync(async token =>
+        {
+            await _cards.SetCardEnabledAsync(contentId, enabled, token).ConfigureAwait(false);
+            StartQuietSync("card manager");
+            await ReprojectAsync(token).ConfigureAwait(false);
+            return SteamUiCommandResult.Applied;
+        }, "tab switch", cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> SetCardHiddenAsync(string contentId, bool hidden,
+        CancellationToken cancellationToken = default)
+    {
+        return RunAsync(async token =>
+        {
+            await _cards.SetCardHiddenAsync(contentId, hidden, token).ConfigureAwait(false);
+            StartQuietSync("card manager");
+            await ReprojectAsync(token).ConfigureAwait(false);
+            return SteamUiCommandResult.Applied;
+        }, "hide", cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> ForgetCardAsync(string contentId, CancellationToken cancellationToken = default)
+    {
+        return RunAsync(async token =>
+        {
+            await _cards.ForgetCardAsync(contentId, token).ConfigureAwait(false);
+            StartQuietSync("card manager");
+            // The inspected card's game list dies with the card.
+            Mutate(snapshot => snapshot.CardGames?.ContentId == contentId
+                ? snapshot with { CardGames = null }
+                : snapshot);
+            await ReprojectAsync(token).ConfigureAwait(false);
+            return SteamUiCommandResult.Applied;
+        }, "forget", cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<LibraryCardGames> LoadCardGamesAsync(string contentId,
+        CancellationToken cancellationToken = default)
+    {
+        return WorkAsync(token => LoadCardGamesCoreAsync(contentId, token), cancellationToken);
+    }
+
     /// <summary>Releases the owner after its session has joined Completion.</summary>
     public void Dispose()
     {
@@ -110,9 +219,6 @@ internal sealed class LibraryManagerService : ICardManagerSource, IDisposable
             _stop.Dispose();
         }
     }
-
-    /// <summary>Raised after either state changed; handlers must not block.</summary>
-    public event Action? Changed;
 
     /// <summary>Closes admission and cancels admitted cancellable work, tab syncs included.</summary>
     internal void CloseAdmission()
@@ -140,14 +246,6 @@ internal sealed class LibraryManagerService : ICardManagerSource, IDisposable
         RequestRefresh();
     }
 
-    /// <inheritdoc />
-    public SteamCardManagerState ReadCardState()
-    {
-        var snapshot = Volatile.Read(ref _snapshot);
-        return new SteamCardManagerState(
-            snapshot.Cards, snapshot.Loaded, Busy, snapshot.Error, snapshot.Notice, snapshot.CardGames, Revision);
-    }
-
     /// <summary>The tab manager as it is now.</summary>
     /// <returns>The state; cheap, no I/O.</returns>
     internal SteamLibraryTabsState ReadTabsState()
@@ -157,12 +255,6 @@ internal sealed class LibraryManagerService : ICardManagerSource, IDisposable
             snapshot.Tabs, snapshot.Order, LibraryTabFilterKind.All, snapshot.CardChoices, snapshot.Tags,
             snapshot.Collections, snapshot.Games, snapshot.Loaded, Busy, snapshot.Error, snapshot.Notice,
             Revision);
-    }
-
-    /// <inheritdoc />
-    public Task RefreshAsync(CancellationToken cancellationToken = default)
-    {
-        return QueueRefresh(scan: true).WaitAsync(cancellationToken);
     }
 
     /// <summary>Schedules a refresh without waiting for it; the session's first one takes the first reading.</summary>
@@ -281,98 +373,6 @@ internal sealed class LibraryManagerService : ICardManagerSource, IDisposable
         }
     }
 
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> DismissAsync(CancellationToken cancellationToken = default)
-    {
-        Mutate(static snapshot => snapshot with { Error = null, Notice = null });
-        return Task.FromResult(SteamUiCommandResult.Applied);
-    }
-
-    // ---- Cards ----
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> RenameCardAsync(string contentId, string name,
-        CancellationToken cancellationToken = default)
-    {
-        return RunAsync(async token =>
-        {
-            var trimmed = name.Trim();
-            var (renamed, note) = await _cards.RenameCardAsync(_steam(), contentId, trimmed, token)
-                .ConfigureAwait(false);
-            if (renamed)
-            {
-                StartQuietSync("card manager");
-            }
-
-            await ReprojectAsync(token).ConfigureAwait(false);
-            if (note is null)
-            {
-                return SteamUiCommandResult.Applied;
-            }
-
-            // The catalog answers a refusal and a partial write with the same kind of note; the stored
-            // name tells them apart, and a refusal is reported as the failure it is.
-            var stored = Volatile.Read(ref _snapshot).Cards.Any(card =>
-                card.ContentId == contentId && string.Equals(card.Name, trimmed, StringComparison.Ordinal));
-            if (!stored)
-            {
-                return new SteamUiCommandResult(false, note);
-            }
-
-            Mutate(snapshot => snapshot with { Notice = note });
-            return SteamUiCommandResult.Applied;
-        }, "rename", cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> SetCardEnabledAsync(string contentId, bool enabled,
-        CancellationToken cancellationToken = default)
-    {
-        return RunAsync(async token =>
-        {
-            await _cards.SetCardEnabledAsync(contentId, enabled, token).ConfigureAwait(false);
-            StartQuietSync("card manager");
-            await ReprojectAsync(token).ConfigureAwait(false);
-            return SteamUiCommandResult.Applied;
-        }, "tab switch", cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> SetCardHiddenAsync(string contentId, bool hidden,
-        CancellationToken cancellationToken = default)
-    {
-        return RunAsync(async token =>
-        {
-            await _cards.SetCardHiddenAsync(contentId, hidden, token).ConfigureAwait(false);
-            StartQuietSync("card manager");
-            await ReprojectAsync(token).ConfigureAwait(false);
-            return SteamUiCommandResult.Applied;
-        }, "hide", cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> ForgetCardAsync(string contentId, CancellationToken cancellationToken = default)
-    {
-        return RunAsync(async token =>
-        {
-            await _cards.ForgetCardAsync(contentId, token).ConfigureAwait(false);
-            StartQuietSync("card manager");
-            // The inspected card's game list dies with the card.
-            Mutate(snapshot => snapshot.CardGames?.ContentId == contentId
-                ? snapshot with { CardGames = null }
-                : snapshot);
-            await ReprojectAsync(token).ConfigureAwait(false);
-            return SteamUiCommandResult.Applied;
-        }, "forget", cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<LibraryCardGames> LoadCardGamesAsync(string contentId,
-        CancellationToken cancellationToken = default)
-    {
-        return WorkAsync(token => LoadCardGamesCoreAsync(contentId, token), cancellationToken);
-    }
-
     private async Task<LibraryCardGames> LoadCardGamesCoreAsync(string contentId,
         CancellationToken cancellationToken)
     {
@@ -455,9 +455,13 @@ internal sealed class LibraryManagerService : ICardManagerSource, IDisposable
     /// <summary>Moves a tab one place in the strip; the order is saved and Steam follows, debounced.</summary>
     /// <param name="key">The tab's key.</param>
     /// <param name="delta">-1 for earlier, +1 for later.</param>
-    /// <param name="cancellationToken">Unused; the order is applied at once and the latest one is saved when the presses pause.</param>
+    /// <param name="cancellationToken">
+    ///     Unused; the order is applied at once and the latest one is saved when the presses
+    ///     pause.
+    /// </param>
     /// <returns>Failure when the tab is not in the strip or cannot move that way.</returns>
-    internal Task<SteamUiCommandResult> MoveTabAsync(string key, int delta, CancellationToken cancellationToken = default)
+    internal Task<SteamUiCommandResult> MoveTabAsync(string key, int delta,
+        CancellationToken cancellationToken = default)
     {
         return Task.FromResult(ReorderTabs(order =>
         {
@@ -476,7 +480,10 @@ internal sealed class LibraryManagerService : ICardManagerSource, IDisposable
     /// <summary>Hides one of Steam's own tabs from the strip, or puts it back.</summary>
     /// <param name="key">The native tab's id.</param>
     /// <param name="hidden">Whether to hide it.</param>
-    /// <param name="cancellationToken">Unused; the order is applied at once and the latest one is saved when the presses pause.</param>
+    /// <param name="cancellationToken">
+    ///     Unused; the order is applied at once and the latest one is saved when the presses
+    ///     pause.
+    /// </param>
     /// <returns>Failure for a tab that is not native or not in the strip.</returns>
     internal Task<SteamUiCommandResult> SetNativeTabHiddenAsync(string key, bool hidden,
         CancellationToken cancellationToken = default)

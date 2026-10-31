@@ -261,8 +261,9 @@ public sealed partial class SettingsViewModel
     {
         if (!config.OtherManagersTakeoverAccepted)
         {
-            return "Handheld Companion or the maker's own app (Predator Sense, Armoury Crate, MSI Center M, Legion Space) may still "
-                   + "run beside WSGM and answer the device's buttons. Check and take over.";
+            return
+                "Handheld Companion or the maker's own app (Predator Sense, Armoury Crate, MSI Center M, Legion Space) may still "
+                + "run beside WSGM and answer the device's buttons. Check and take over.";
         }
 
         var recorded = OtherManagers.DescribeRecords(config.OtherManagersDisabled);

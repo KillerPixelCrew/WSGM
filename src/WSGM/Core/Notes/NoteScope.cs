@@ -54,7 +54,7 @@ public static partial class NoteScope
         return scope == Global
                || SteamPattern().IsMatch(scope)
                || (scope.StartsWith("library:", StringComparison.Ordinal) && scope.IndexOf(':', 8) > 8
-                                                                         && !scope.EndsWith(':'))
+                                                                          && !scope.EndsWith(':'))
                || (scope.StartsWith(ProfileResolver.ProcessIdPrefix, StringComparison.Ordinal)
                    && scope.Length > ProfileResolver.ProcessIdPrefix.Length);
     }

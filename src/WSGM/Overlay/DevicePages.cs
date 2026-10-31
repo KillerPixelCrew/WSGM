@@ -81,7 +81,7 @@ internal static class DevicePages
         foreach (var section in device.PluginSections)
         {
             var own = groups.Where(group => group.SectionId == section.SectionId).ToArray();
-            IReadOnlyList<DeviceGroup> pageGroups = section.SectionId == DeviceSections.PowerId
+            var pageGroups = section.SectionId == DeviceSections.PowerId
                 ? PowerGroups(device, own, performance, controls)
                 : [.. own.Select(group => FromShell(device, group, DeviceFold.Folded, false))];
             sections.Add(new DevicePage(RailKey(section.SectionId), section.Title, section.Icon, section.SectionId,
@@ -219,7 +219,7 @@ internal static class DevicePages
         }
 
         if (device is not null && DeviceOverlayGroups.Build(device).FirstOrDefault(group => group.Id == id) is
-            { } section)
+                { } section)
         {
             return FromShell(device, section, DeviceFold.Folded, true);
         }
@@ -265,7 +265,8 @@ internal static class DevicePages
         List<DeviceGroup> page = [];
         if (shared.Count > 0)
         {
-            page.Add(new DeviceGroup(PowerFoldId, "Power", null, DeviceFold.Shared, []) { Groups = shared, Spacing = 12 });
+            page.Add(new DeviceGroup(PowerFoldId, "Power", null, DeviceFold.Shared, [])
+                { Groups = shared, Spacing = 12 });
         }
 
         page.AddRange(groups.Where(group => group.OwnFold)

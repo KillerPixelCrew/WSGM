@@ -685,7 +685,8 @@ public sealed class ControllerManagerTests
         Assert.Equal(ControllerManagementState.Native, status.State);
         Assert.Equal(ManagedControllerTarget.SteamDeckComposite, status.Target);
         Assert.Equal(ControllerManager.NativeDetail, status.Detail);
-        Assert.DoesNotContain(harness.Backend.Operations, operation => operation.StartsWith("create:", StringComparison.Ordinal));
+        Assert.DoesNotContain(harness.Backend.Operations,
+            operation => operation.StartsWith("create:", StringComparison.Ordinal));
         Assert.DoesNotContain(Device().InstancePath, harness.HidHide.Devices);
         Assert.False(manager.Forwarding.UiPad.IsActive);
         Assert.Empty(harness.PriorityWrites);
@@ -715,7 +716,8 @@ public sealed class ControllerManagerTests
 
         Assert.Equal(ControllerManagementState.Idle, status.State);
         Assert.Equal(ManagedControllerTarget.DualShock4, status.Target);
-        Assert.DoesNotContain(harness.Backend.Operations, operation => operation.StartsWith("create:", StringComparison.Ordinal));
+        Assert.DoesNotContain(harness.Backend.Operations,
+            operation => operation.StartsWith("create:", StringComparison.Ordinal));
     }
 
     [Fact]

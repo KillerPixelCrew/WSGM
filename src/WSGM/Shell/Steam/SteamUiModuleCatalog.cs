@@ -27,8 +27,6 @@ internal sealed class SteamUiModuleCatalog
     /// <summary>Whether the host has closed admission; nothing is replaced or indicated after it.</summary>
     private readonly Func<bool> _closed;
 
-    private readonly DeviceCoordinatorLightingZonesService _lightingZones;
-
     /// <summary>The Quick Access plugin tab, which carries WSGM's own tools as well.</summary>
     private readonly SteamExtensionsTabBackend _extensionsTab;
 
@@ -39,6 +37,8 @@ internal sealed class SteamUiModuleCatalog
 
     /// <summary>Hears the library badge's Home layout report.</summary>
     private readonly LibraryBadgeBackend _libraryBadge;
+
+    private readonly DeviceCoordinatorLightingZonesService _lightingZones;
 
     /// <summary>The overlay-activation patch the host registers beside the module set.</summary>
     private readonly string _overlayActivationId;
@@ -123,7 +123,7 @@ internal sealed class SteamUiModuleCatalog
                 ? null
                 : () => string.Join(", ", libraryImport.ReadState().Reading),
             [
-                .. new IExtensionsTabSection?[]
+                .. new[]
                 {
                     libraryManager?.CardsSection, libraryManager?.TabsSection,
                     backends.Themes is { } themes && ThemesPage is { } themesPage
@@ -155,7 +155,7 @@ internal sealed class SteamUiModuleCatalog
         NativeSettings = new SteamNativeSettingsService(backends.Brightness, backends.Resolution, _performance,
             backends.PowerProfiles, backends.CpuBoost, backends.HybridCores, AudioFormat,
             backends.Graphics, deviceCoordinator, backends.Profiles, backends.DisplayTimeouts,
-            scaledResolutions: backends.ScaledResolutions);
+            backends.ScaledResolutions);
         Network = backends.Radios is { } radios
             ? new NativeQamNetworkService(
                 radios,
@@ -211,7 +211,10 @@ internal sealed class SteamUiModuleCatalog
 
     /// <summary>Declares the host's own modules and composes the plugins ready now beside them.</summary>
     /// <returns>The module set the host's bridge and runtime start from.</returns>
-    /// <remarks>Called once, by the host's constructor; later plugin changes go through <see cref="ReplacePluginModulesAsync" />.</remarks>
+    /// <remarks>
+    ///     Called once, by the host's constructor; later plugin changes go through
+    ///     <see cref="ReplacePluginModulesAsync" />.
+    /// </remarks>
     internal SteamUiModuleSet ComposeInitial()
     {
         _hostModules = CreateModules();
@@ -452,7 +455,8 @@ internal sealed class SteamUiModuleCatalog
                 wsgmSettings));
             modules.Add(SteamNavigationPanelSurface.Module(
                 HostSteamUiEnabled,
-                () => new ValueTask<SteamNavigationPanelState?>(WsgmSteamSettingsService.ReadMenu(_wsgmSettingsReady())),
+                () => new ValueTask<SteamNavigationPanelState?>(
+                    WsgmSteamSettingsService.ReadMenu(_wsgmSettingsReady())),
                 wsgmSettings));
         }
 
@@ -669,7 +673,8 @@ internal sealed class SteamUiModuleCatalog
             pages.Add(new SteamPage("notes", NotesSteamSurface.Route, "Notes", Template: NotesSteamSurface.Template));
         }
 
-        pages.Add(new SteamPage("browser", SteamBrowserSurface.Route, "Browser", Template: SteamBrowserSurface.Template));
+        pages.Add(
+            new SteamPage("browser", SteamBrowserSurface.Route, "Browser", Template: SteamBrowserSurface.Template));
 
         if (_backends.Themes is not null)
         {

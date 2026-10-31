@@ -22,14 +22,14 @@ internal sealed class BrowserButtons : IUiButtonSource, IDisposable
         source.ButtonPressed += OnButtons;
     }
 
-    /// <inheritdoc />
-    public event Action<GamepadButtons>? ButtonPressed;
-
     /// <summary>Stops reading the source.</summary>
     public void Dispose()
     {
         _source.ButtonPressed -= OnButtons;
     }
+
+    /// <inheritdoc />
+    public event Action<GamepadButtons>? ButtonPressed;
 
     private void OnButtons(GamepadButtons buttons)
     {

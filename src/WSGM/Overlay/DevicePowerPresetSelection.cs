@@ -17,12 +17,6 @@ internal sealed class DevicePowerPresetSelection : IDisposable
     private bool _refreshing;
     private long _revision;
 
-    /// <summary>The row projection Steam's Device performance rows draw, read through <see cref="PowerPresetRows" />.</summary>
-    internal PowerPresetRowState State { get; private set; } = new(false, [], string.Empty, string.Empty,
-        string.Empty, string.Empty, string.Empty, "Manual selection");
-
-    internal bool Busy { get; private set; }
-
     /// <summary>Projects the shared preset service and follows the assignment owner's changes.</summary>
     /// <param name="service">Borrowed session preset owner.</param>
     /// <param name="readOnly">True for a preview that must not write assignments.</param>
@@ -38,6 +32,12 @@ internal sealed class DevicePowerPresetSelection : IDisposable
             assignments.Changed += OnAssignmentsChanged;
         }
     }
+
+    /// <summary>The row projection Steam's Device performance rows draw, read through <see cref="PowerPresetRows" />.</summary>
+    internal PowerPresetRowState State { get; private set; } = new(false, [], string.Empty, string.Empty,
+        string.Empty, string.Empty, string.Empty, "Manual selection");
+
+    internal bool Busy { get; private set; }
 
     internal bool CanAssign => !_disposed && !_readOnly && !Busy && State is { Available: true, Options.Count: > 0 };
 

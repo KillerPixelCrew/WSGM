@@ -121,7 +121,7 @@ internal sealed class ExplorerShellExit : IDisposable
                 }
 
                 var action = ExplorerExitPolicy.Decide(surfaces, originalExited, absent,
-                    uncleanExit, requested.Elapsed, forcedExit: forced);
+                    uncleanExit, requested.Elapsed, forced);
                 // ReSharper disable once SwitchStatementHandlesSomeKnownEnumValuesWithDefault
                 switch (action)
                 {

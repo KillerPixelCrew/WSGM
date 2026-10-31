@@ -230,7 +230,7 @@ public sealed partial class GameLibraryView
         {
             body.Children.Add(Caption($"Current: {slot.Kind} · {slot.Provider} · {slot.Index}/{slot.Count}"));
             body.Children.Add(new OverlayPreviewImage(slot.Thumb, 220)
-            { Tag = "chosen:" + id + ":" + asset + ":" + slot.Thumb });
+                { Tag = "chosen:" + id + ":" + asset + ":" + slot.Thumb });
         }
 
         body.Children.Add(Tagged(
@@ -384,7 +384,7 @@ public sealed partial class GameLibraryView
             {
                 _shown += 48;
                 RenderAllArtwork();
-            }, title: "Load more titles"));
+            }, "Load more titles"));
         }
 
         body.Children.Add(Tagged(PrimaryRow($"Apply {state.SelectedCount}", "Save selected changes", Icons.Play,

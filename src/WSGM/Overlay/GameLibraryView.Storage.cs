@@ -84,9 +84,9 @@ public sealed partial class GameLibraryView
         var shortcuts = state.Shortcuts ?? [];
         var storages = state.StorageLibraries ?? [];
         stack.Children.Add(Tagged(Row("Recheck", state.StorageChecked
-                ? "Check every shortcut and card again"
-                : "Checking shortcuts for the first time",
-            Icons.Restart, state.Loading ? null : () => Run(token => _service.RecheckAvailabilityAsync(token))),
+                    ? "Check every shortcut and card again"
+                    : "Checking shortcuts for the first time",
+                Icons.Restart, state.Loading ? null : () => Run(token => _service.RecheckAvailabilityAsync(token))),
             "storage.recheck"));
 
         var groups = GameLibraryRows.StorageGroups(shortcuts, storages);
@@ -101,15 +101,18 @@ public sealed partial class GameLibraryView
 
         var entries = state.Entries.Where(entry => entry.AppId > 0).GroupBy(entry => entry.AppId)
             .ToDictionary(group => group.Key, group => group.First().Id);
-        var tags = entries.ToDictionary(pair => pair.Value, pair => "storage.shortcut:" + pair.Key, StringComparer.Ordinal);
-        var order = groups.SelectMany(group => group.Shortcuts).Select(shortcut => entries.GetValueOrDefault(shortcut.AppId))
+        var tags = entries.ToDictionary(pair => pair.Value, pair => "storage.shortcut:" + pair.Key,
+            StringComparer.Ordinal);
+        var order = groups.SelectMany(group => group.Shortcuts)
+            .Select(shortcut => entries.GetValueOrDefault(shortcut.AppId))
             .OfType<string>().ToArray();
         var shown = 0;
         string? more = null;
         foreach (var group in groups)
         {
             var unavailable = group.Shortcuts.Count(shortcut => !shortcut.Available);
-            var heading = SectionLabel(group.Shortcuts.Count == 0 ? group.Name.ToUpperInvariant()
+            var heading = SectionLabel(group.Shortcuts.Count == 0
+                ? group.Name.ToUpperInvariant()
                 : unavailable > 0
                     ? $"{group.Name.ToUpperInvariant()} ({group.Shortcuts.Count}, {unavailable} UNAVAILABLE)"
                     : $"{group.Name.ToUpperInvariant()} ({group.Shortcuts.Count})");
@@ -172,16 +175,16 @@ public sealed partial class GameLibraryView
         if (library.CanRepair)
         {
             stack.Children.Add(Tagged(Row("Repair library",
-                "Rebuild this card's game list from the titles WSGM knows. Your game files stay as they are",
-                Icons.Wrench, busy ? null : () => Run(token => _service!.RepairLibraryAsync(id, token))),
+                    "Rebuild this card's game list from the titles WSGM knows. Your game files stay as they are",
+                    Icons.Wrench, busy ? null : () => Run(token => _service!.RepairLibraryAsync(id, token))),
                 "storage.repair:" + id));
         }
 
         if (library.CanAcceptBinding)
         {
             stack.Children.Add(Tagged(Row("Use this card",
-                "Launch this card's games on this device from where it is connected now",
-                Icons.SdCard, busy ? null : () => Run(token => _service!.UseLibraryAsync(id, token))),
+                    "Launch this card's games on this device from where it is connected now",
+                    Icons.SdCard, busy ? null : () => Run(token => _service!.UseLibraryAsync(id, token))),
                 "storage.use:" + id));
         }
     }

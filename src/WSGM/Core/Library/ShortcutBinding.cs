@@ -12,5 +12,10 @@ namespace WSGM.Core;
 /// <param name="VolumeId">The volume GUID path the file was found on.</param>
 /// <param name="CardId">That card's own identity when it has one, so a new volume GUID for the same card still matches.</param>
 /// <param name="Name">The card's name at the time, shown while it is out.</param>
-public sealed record ShortcutBinding(uint AccountId, uint AppId, string Path, string VolumeId, string CardId,
+public sealed record ShortcutBinding(
+    uint AccountId,
+    uint AppId,
+    string Path,
+    string VolumeId,
+    string CardId,
     string Name);

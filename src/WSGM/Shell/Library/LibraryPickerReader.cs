@@ -119,9 +119,12 @@ internal static class LibraryPickerReader
 
     private static IReadOnlyList<LibraryCardGame> Named(IReadOnlyList<long> ids, Dictionary<long, string>? names)
     {
-        return [.. ids.Select(id => new LibraryCardGame(id,
-            names is not null && names.TryGetValue(id, out var name)
-                ? name
-                : id.ToString(CultureInfo.InvariantCulture)))];
+        return
+        [
+            .. ids.Select(id => new LibraryCardGame(id,
+                names is not null && names.TryGetValue(id, out var name)
+                    ? name
+                    : id.ToString(CultureInfo.InvariantCulture)))
+        ];
     }
 }

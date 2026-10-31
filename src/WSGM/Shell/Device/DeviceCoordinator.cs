@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using LibHandheld;
+using LibHandheld.Contracts;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Glyphs;
@@ -14,10 +15,16 @@ using WSGM.Input;
 using WSGM.Install;
 using WSGM.Interop;
 using WSGM.Shared;
+using CapabilityCommandResult = WSGM.Device.Sdk.Capabilities.CapabilityCommandResult;
+using CapabilityReasonCode = WSGM.Device.Sdk.Capabilities.CapabilityReasonCode;
+using CapabilityRole = LibHandheld.Contracts.CapabilityRole;
+using CapabilityValue = WSGM.Device.Sdk.Capabilities.CapabilityValue;
+using Deadline = WSGM.Device.Sdk.Lifecycle.Deadline;
 using DeviceIdentitySnapshot = LibHandheld.Contracts.DeviceIdentitySnapshot;
 using HandheldDefinition = LibHandheld.Contracts.HandheldDefinition;
 using HapticCapabilities = LibHandheld.Contracts.HapticCapabilities;
 using HapticOutputFrame = LibHandheld.Contracts.HapticOutputFrame;
+using HardwareStateQuality = WSGM.Device.Sdk.Capabilities.HardwareStateQuality;
 using PhysicalDeviceIdentity = LibHandheld.Contracts.PhysicalDeviceIdentity;
 
 namespace WSGM.Shell;
@@ -63,8 +70,11 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     private volatile bool _disposed;
     private bool _faultRecoveryPending;
 
+    private Action<OemControlEvent>? _glyphOemHandler;
+
     /// <summary>Whether the handheld was last told to own the physical controller. Written under the transition gate.</summary>
     private bool _handheldOwnsController;
+
     private DeviceIdentitySnapshot? _identity;
     private bool _intentionalStop;
 
@@ -139,7 +149,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             {
                 var sample = autoTdpMetrics();
                 return _client?.Device.Controls.Controls.Any(control =>
-                    control.Role == LibHandheld.Contracts.CapabilityRole.ChargeBypass
+                    control.Role == CapabilityRole.ChargeBypass
                     && control.State?.Available == true) == true
                     ? sample
                     : sample with { BatteryPercent = null };
@@ -244,12 +254,6 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     /// </remarks>
     internal DeviceCapabilityRouter Capabilities { get; }
 
-    /// <summary>The capability snapshot every user surface presents; see <see cref="ManualFanVisibility" />.</summary>
-    internal IReadOnlyList<DeviceCapabilityView> PresentedCapabilities()
-    {
-        return ManualFanVisibility.Filter(Capabilities.Snapshot());
-    }
-
     /// <summary>The controller manager, for status/sample subscriptions and reads.</summary>
     /// <remarks>
     ///     Reads and events only. Lifecycle, UI capture, and the release ordering stay behind this
@@ -265,32 +269,6 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     internal bool ControllerManagementEnabled =>
         _config.DeviceIntegration is { ControllerManagementEnabled: true, Enabled: true }
         && DeviceDefinition is { HasController: true };
-
-    /// <summary>The target a definition's physical pad already is, if any.</summary>
-    /// <param name="definition">The matched definition.</param>
-    /// <returns>The Steam Deck target for a pad Steam drives natively; otherwise null.</returns>
-    internal static ManagedControllerTarget? NativeTarget(HandheldDefinition? definition)
-    {
-        return definition is { NativeSteamController: true } ? ManagedControllerTarget.SteamDeckComposite : null;
-    }
-
-    /// <summary>Whether the handheld should own its physical controller. Pure, so every case is testable.</summary>
-    /// <param name="managementEnabled">Whether controller management is switched on.</param>
-    /// <param name="definition">The matched definition.</param>
-    /// <param name="resolvedTarget">The target resolved for the running application.</param>
-    /// <returns>
-    ///     False when management is off, the definition has no controller, or the target is the pad itself:
-    ///     a Steam Deck emulating a Steam Deck only takes the pad away from Steam.
-    /// </returns>
-    internal static bool OwnsPhysicalController(
-        bool managementEnabled,
-        HandheldDefinition? definition,
-        ManagedControllerTarget resolvedTarget)
-    {
-        return managementEnabled
-               && definition is { HasController: true }
-               && NativeTarget(definition) != resolvedTarget;
-    }
 
     /// <summary>Current saved rumble calibration; callers edit it through the coordinator rather than mutating this reference.</summary>
     internal RumbleCalibrationConfig RumbleCalibration => _config.RumbleCalibration;
@@ -324,6 +302,38 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         return ShutdownAsync(
             HandheldStopReason.WsgmExiting,
             NormalShutdownDeadline());
+    }
+
+    /// <summary>The capability snapshot every user surface presents; see <see cref="ManualFanVisibility" />.</summary>
+    internal IReadOnlyList<DeviceCapabilityView> PresentedCapabilities()
+    {
+        return ManualFanVisibility.Filter(Capabilities.Snapshot());
+    }
+
+    /// <summary>The target a definition's physical pad already is, if any.</summary>
+    /// <param name="definition">The matched definition.</param>
+    /// <returns>The Steam Deck target for a pad Steam drives natively; otherwise null.</returns>
+    internal static ManagedControllerTarget? NativeTarget(HandheldDefinition? definition)
+    {
+        return definition is { NativeSteamController: true } ? ManagedControllerTarget.SteamDeckComposite : null;
+    }
+
+    /// <summary>Whether the handheld should own its physical controller. Pure, so every case is testable.</summary>
+    /// <param name="managementEnabled">Whether controller management is switched on.</param>
+    /// <param name="definition">The matched definition.</param>
+    /// <param name="resolvedTarget">The target resolved for the running application.</param>
+    /// <returns>
+    ///     False when management is off, the definition has no controller, or the target is the pad itself:
+    ///     a Steam Deck emulating a Steam Deck only takes the pad away from Steam.
+    /// </returns>
+    internal static bool OwnsPhysicalController(
+        bool managementEnabled,
+        HandheldDefinition? definition,
+        ManagedControllerTarget resolvedTarget)
+    {
+        return managementEnabled
+               && definition is { HasController: true }
+               && NativeTarget(definition) != resolvedTarget;
     }
 
     /// <summary>Starts a calibrated physical rumble preview while holding device transition admission.</summary>
@@ -388,9 +398,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     /// </remarks>
     internal event Action? ConfigurationChanged;
 
-    internal event Action<LibHandheld.Contracts.OemControlEvent>? PhysicalOemEventReceived;
-
-    private Action<LibHandheld.Contracts.OemControlEvent>? _glyphOemHandler;
+    internal event Action<OemControlEvent>? PhysicalOemEventReceived;
 
     /// <summary>Re-reads the power source after Windows reported a switch between AC and battery.</summary>
     /// <remarks>
@@ -599,7 +607,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             case true when !config.DeviceIntegration.Enabled:
             {
                 // AutoTDP hands its original limit back while the power limit is still writable.
-                await Power.RestoreAutoTdpBeforeStopAsync(NormalShutdownDeadline(), cancellationToken).ConfigureAwait(false);
+                await Power.RestoreAutoTdpBeforeStopAsync(NormalShutdownDeadline(), cancellationToken)
+                    .ConfigureAwait(false);
                 var teardown = await StopCycleUnderGateAsync(
                     HandheldStopReason.IntegrationDisabled,
                     NormalShutdownDeadline(),
@@ -990,7 +999,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         CleanupProvider("power notifications", Power.DisposePowerModeNotification);
         var diagnosticsStopped = await FinishStepAsync("diagnostics",
             _diagnostics?.DisposeAsync().AsTask() ?? Task.CompletedTask).ConfigureAwait(false);
-        await FinishStepAsync("software fan curves", FanCurves.Controller.DisposeAsync().AsTask()).ConfigureAwait(false);
+        await FinishStepAsync("software fan curves", FanCurves.Controller.DisposeAsync().AsTask())
+            .ConfigureAwait(false);
         await FinishStepAsync("software charge limits", _chargeLimits.DisposeAsync().AsTask()).ConfigureAwait(false);
         var capabilitiesStopped = await FinishStepAsync("capabilities", Capabilities.DisposeAsync().AsTask())
             .ConfigureAwait(false);
@@ -1801,6 +1811,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             client.OemEventReceived -= oemHandler;
             _glyphOemHandler = null;
         }
+
         // The handheld no longer owns the controller: no frame goes to it from here on.
         _hapticSink.Withdraw();
         Capabilities.Detach();
@@ -2352,7 +2363,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             {
                 try
                 {
-                    await Commands.ReconcileDesiredValuesAsync($"device {state}", _lifetime.Token).ConfigureAwait(false);
+                    await Commands.ReconcileDesiredValuesAsync($"device {state}", _lifetime.Token)
+                        .ConfigureAwait(false);
                 }
                 finally
                 {

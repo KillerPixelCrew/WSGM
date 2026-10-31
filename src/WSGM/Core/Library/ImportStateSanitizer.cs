@@ -130,15 +130,18 @@ internal static class ImportStateSanitizer
         List<ShortcutBinding> bindings = [];
         foreach (var binding in state.ShortcutBindings ?? [])
         {
-            if (binding is not { AccountId: > 0, AppId: > 0, Path.Length: > 0, VolumeId.Length: > 0,
-                    CardId: not null, Name: not null })
+            if (binding is not
+                {
+                    AccountId: > 0, AppId: > 0, Path.Length: > 0, VolumeId.Length: > 0,
+                    CardId: not null, Name: not null
+                })
             {
                 Log.Warn("Library import shortcut binding dropped: a missing field.");
                 continue;
             }
 
             bindings.RemoveAll(existing => existing.AccountId == binding.AccountId && existing.AppId == binding.AppId
-                                           && string.Equals(existing.Path, binding.Path, StringComparison.OrdinalIgnoreCase));
+                && string.Equals(existing.Path, binding.Path, StringComparison.OrdinalIgnoreCase));
             bindings.Add(binding);
         }
 
@@ -178,7 +181,8 @@ internal static class ImportStateSanitizer
             if (MappingDefect(mapping) is not null || !accounts.Add(mapping.AccountId))
             {
                 // Losing an account receipt could authorize a duplicate or hide pending deletion.
-                throw new ImportStateException("A stored Steam ownership receipt is invalid; the index was left unchanged.",
+                throw new ImportStateException(
+                    "A stored Steam ownership receipt is invalid; the index was left unchanged.",
                     new InvalidDataException(MappingDefect(mapping) ?? "Duplicate account receipt."));
             }
         }
@@ -195,7 +199,7 @@ internal static class ImportStateSanitizer
                 ImportedUtc: not null, ConfirmedUtc: not null, SettledArtwork: not null
             } || mapping.AccountId == 0
               || mapping.SettledArtwork.Any(pair => !Enum.IsDefined(pair.Key)
-                  || pair.Value is not { Url: not null, Revision: not null }))
+                                                    || pair.Value is not { Url: not null, Revision: not null }))
         {
             return "an incomplete account shortcut receipt";
         }
@@ -207,7 +211,8 @@ internal static class ImportStateSanitizer
         }
 
         return mapping.Mode is nameof(ImportMode.ControllerOnly) or nameof(ImportMode.SteamIntegration)
-            ? null : $"unknown mode '{mapping.Mode}'";
+            ? null
+            : $"unknown mode '{mapping.Mode}'";
     }
 
     /// <summary>Why a loaded choice cannot be kept, or null when it can.</summary>

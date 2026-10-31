@@ -80,6 +80,27 @@ public sealed class CollapsibleSection : Grid
         UpdateExpansion();
     }
 
+    /// <summary>Whether the section is expanded. Changing it preserves focus before hiding children.</summary>
+    public bool IsExpanded
+    {
+        get => GetValue(IsExpandedProperty);
+        set => SetValue(IsExpandedProperty, value);
+    }
+
+    /// <summary>The current heading focus target; replaced by the native toggle when its template is applied.</summary>
+    /// <remarks>A semantic <c>Tag</c> assigned before templating is transferred; do not retain the placeholder button.</remarks>
+    public Button Heading { get; private set; }
+
+    /// <summary>The mounted body, retained for row reconciliation.</summary>
+    public Control Body { get; }
+
+    /// <summary>Optional current-value, status or description text.</summary>
+    public string? Summary
+    {
+        get => GetValue(SummaryProperty);
+        set => SetValue(SummaryProperty, value);
+    }
+
     /// <summary>Creates a section whose expansion is kept in the owner's set of expanded keys.</summary>
     /// <param name="title">The accessible section title.</param>
     /// <param name="body">Mounted controls retained while collapsed.</param>
@@ -105,27 +126,6 @@ public sealed class CollapsibleSection : Grid
             }
         };
         return section;
-    }
-
-    /// <summary>Whether the section is expanded. Changing it preserves focus before hiding children.</summary>
-    public bool IsExpanded
-    {
-        get => GetValue(IsExpandedProperty);
-        set => SetValue(IsExpandedProperty, value);
-    }
-
-    /// <summary>The current heading focus target; replaced by the native toggle when its template is applied.</summary>
-    /// <remarks>A semantic <c>Tag</c> assigned before templating is transferred; do not retain the placeholder button.</remarks>
-    public Button Heading { get; private set; }
-
-    /// <summary>The mounted body, retained for row reconciliation.</summary>
-    public Control Body { get; }
-
-    /// <summary>Optional current-value, status or description text.</summary>
-    public string? Summary
-    {
-        get => GetValue(SummaryProperty);
-        set => SetValue(SummaryProperty, value);
     }
 
     /// <summary>Raised when expansion changes; persistence belongs to the surface owner.</summary>

@@ -466,7 +466,8 @@ public sealed class ExplorerShellPolicyTests
     [InlineData(false, false, 1500, 0)]
     [InlineData(false, false, 3000, 0)]
     [InlineData(false, false, 10000, 0)]
-    public void ShellExitRequiresBothProcessExitAndStableDesktopAbsence(bool present, bool exited, int absentMs, int expected)
+    public void ShellExitRequiresBothProcessExitAndStableDesktopAbsence(bool present, bool exited, int absentMs,
+        int expected)
     {
         Assert.Equal((ExplorerExitAction)expected,
             ExplorerExitPolicy.Decide(present, exited, TimeSpan.FromMilliseconds(absentMs)));
@@ -510,10 +511,10 @@ public sealed class ExplorerShellPolicyTests
         Assert.Equal(ExplorerExitAction.Wait,
             ExplorerExitPolicy.Decide(false, false, absent, requestedFor: TimeSpan.FromSeconds(3), forcedExit: true));
         Assert.Equal(ExplorerExitAction.Wait,
-            ExplorerExitPolicy.Decide(false, true, absent, uncleanExit: true, forcedExit: true));
+            ExplorerExitPolicy.Decide(false, true, absent, true, forcedExit: true));
         Assert.Equal(ExplorerExitAction.Complete,
             ExplorerExitPolicy.Decide(false, true, ExplorerExitPolicy.RespawnGrace,
-                uncleanExit: true, forcedExit: true));
+                true, forcedExit: true));
     }
 
     [Theory]
@@ -526,7 +527,6 @@ public sealed class ExplorerShellPolicyTests
         bool surfaces, bool exited, int absentMs, int expected)
     {
         Assert.Equal((ExplorerExitAction)expected,
-            ExplorerExitPolicy.Decide(surfaces, exited, TimeSpan.FromMilliseconds(absentMs),
-                uncleanExit: false, forcedExit: true));
+            ExplorerExitPolicy.Decide(surfaces, exited, TimeSpan.FromMilliseconds(absentMs), forcedExit: true));
     }
 }

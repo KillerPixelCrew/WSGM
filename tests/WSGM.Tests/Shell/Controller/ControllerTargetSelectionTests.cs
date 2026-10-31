@@ -97,7 +97,7 @@ public sealed class ControllerTargetSelectionTests
         var selection = ControllerSelection.From(
             new DeviceIntegrationConfig { Enabled = true, ControllerManagementEnabled = true },
             new ProfileConfig(),
-            definition: null);
+            null);
 
         Assert.True(selection.Enabled);
 
@@ -114,7 +114,7 @@ public sealed class ControllerTargetSelectionTests
         var selection = ControllerSelection.From(
             new DeviceIntegrationConfig { Enabled = true, ControllerManagementEnabled = false },
             new ProfileConfig(),
-            definition: null);
+            null);
 
         Assert.False(selection.Enabled);
         Assert.Equal("Controller management is off.", selection.DisabledDetail);

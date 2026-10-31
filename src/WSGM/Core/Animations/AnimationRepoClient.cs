@@ -168,7 +168,8 @@ public sealed class AnimationRepoClient
         catch (Exception ex)
         {
             FileCleanup.TryDelete(path,
-                cleanup => Log.Warn($"Animations: the partial download {path} could not be removed: {cleanup.Message}"));
+                cleanup => Log.Warn(
+                    $"Animations: the partial download {path} could not be removed: {cleanup.Message}"));
 
             if (ex is HttpRequestException or IOException or UnauthorizedAccessException or TaskCanceledException
                 && !cancellationToken.IsCancellationRequested)

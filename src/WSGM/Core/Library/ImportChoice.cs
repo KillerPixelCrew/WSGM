@@ -69,10 +69,14 @@ public sealed class ImportChoice
     internal ImportChoice Copy()
     {
         var copy = (ImportChoice)MemberwiseClone();
-        copy.Artwork = [.. Artwork.Select(pick => new ArtworkPick
-        {
-            Asset = pick.Asset, Url = pick.Url, Thumb = pick.Thumb, Provider = pick.Provider, Revision = pick.Revision
-        })];
+        copy.Artwork =
+        [
+            .. Artwork.Select(pick => new ArtworkPick
+            {
+                Asset = pick.Asset, Url = pick.Url, Thumb = pick.Thumb, Provider = pick.Provider,
+                Revision = pick.Revision
+            })
+        ];
         copy.Arguments = [.. Arguments];
         return copy;
     }

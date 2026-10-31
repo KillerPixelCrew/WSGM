@@ -105,6 +105,7 @@ internal sealed class SteamInputLeaseHost : IDisposable
             {
                 client?.Dispose();
             }
+
             if (options.InputLease)
             {
                 LaunchLog.Error(

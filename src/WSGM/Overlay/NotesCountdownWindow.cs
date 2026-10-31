@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
@@ -36,8 +37,10 @@ internal sealed class NotesCountdownWindow : Window
         ShowInTaskbar = false;
         Background = Brushes.Transparent;
         TransparencyLevelHint = [WindowTransparencyLevel.Transparent];
-        _count = new TextBlock { FontSize = 30, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center };
-        _detail = new TextBlock { FontSize = 15, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+        _count = new TextBlock
+            { FontSize = 30, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+        _detail = new TextBlock
+            { FontSize = 15, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
         var row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), ColumnSpacing = 16 };
         row.Children.Add(_count);
         Grid.SetColumn(_detail, 1);
@@ -79,7 +82,7 @@ internal sealed class NotesCountdownWindow : Window
             return;
         }
 
-        _count.Text = remaining.ToString(System.Globalization.CultureInfo.CurrentCulture);
+        _count.Text = remaining.ToString(CultureInfo.CurrentCulture);
         _detail.Text = $"Screenshot of {game}. Open the WSGM overlay to cancel.";
         if (!IsVisible)
         {

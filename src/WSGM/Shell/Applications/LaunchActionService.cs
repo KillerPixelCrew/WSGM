@@ -12,10 +12,10 @@ namespace WSGM.Shell;
 /// <summary>Owns serialized launch writes and their durable restoration records for both interfaces.</summary>
 internal sealed class LaunchActionService : IChangeSource
 {
-    private readonly ConfigStore _store;
-    private readonly Func<SteamClient?> _steam;
-    private readonly Func<bool> _shimManaged;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly Func<bool> _shimManaged;
+    private readonly Func<SteamClient?> _steam;
+    private readonly ConfigStore _store;
     private uint _appId;
     private string? _notice;
     private uint _noticeAppId;
@@ -69,16 +69,17 @@ internal sealed class LaunchActionService : IChangeSource
             var canRestore = snapshot is not null && (!shortcut || !string.IsNullOrWhiteSpace(snapshot.OriginalTarget));
             var mode = details is null ? LaunchWrapperMode.None : LaunchWrapperCommand.ModeFor(shortcut, details);
             var custom = details is not null && snapshot?.Kind == LaunchConfigurationKind.CustomAction
-                && MatchesCustom(shortcut, details, snapshot);
+                                             && MatchesCustom(shortcut, details, snapshot);
             var ownership = details is null ? "Unknown" : custom ? "Custom launch action" : Label(mode);
             var changed = details is not null && snapshot is not null
-                && !MatchesSnapshot(shortcut, details, snapshot);
+                                              && !MatchesSnapshot(shortcut, details, snapshot);
             var route = shim
                 ? "Steam Input Management enabled. Applying a lease selects Steam's resident shim."
                 : "Steam Input Management disabled. Applying a lease selects the existing injecting route.";
             if (mode.HasFlag(LaunchWrapperMode.InputLease))
             {
-                route += " This game is configured for the resident shim; its lease fails open when the shim is unavailable.";
+                route +=
+                    " This game is configured for the resident shim; its lease fails open when the shim is unavailable.";
                 if (!shim)
                 {
                     route += " Apply it again to select the current route.";
@@ -89,16 +90,19 @@ internal sealed class LaunchActionService : IChangeSource
                 route += " This game is configured for the injecting lease route.";
             }
 
-            return new LaunchActionState(appId, details?.Name ?? snapshot?.Name ?? appId.ToString(CultureInfo.InvariantCulture),
+            return new LaunchActionState(appId,
+                details?.Name ?? snapshot?.Name ?? appId.ToString(CultureInfo.InvariantCulture),
                 shortcut, ownership, canRestore, available, shim, changed,
-                details?.ShortcutExe ?? "", details is null ? "" : shortcut ? details.ShortcutLaunchOptions : details.LaunchOptions,
+                details?.ShortcutExe ?? "",
+                details is null ? "" : shortcut ? details.ShortcutLaunchOptions : details.LaunchOptions,
                 route, details is null ? "Steam isn't reachable or did not report this game." : null,
                 appId == _noticeAppId ? _notice : null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Log.Error($"Could not read launch actions for {appId}", ex);
-            return new LaunchActionState(appId, appId.ToString(CultureInfo.InvariantCulture), SteamApps.IsShortcutAppId(appId),
+            return new LaunchActionState(appId, appId.ToString(CultureInfo.InvariantCulture),
+                SteamApps.IsShortcutAppId(appId),
                 "Unknown", false, false, _shimManaged(), false, "", "", "", ex.Message);
         }
         finally
@@ -146,7 +150,8 @@ internal sealed class LaunchActionService : IChangeSource
 
             if (path is not null && (!Path.IsPathFullyQualified(path) || !SteamCustomLaunchCommand.IsSupported(path)))
             {
-                return new LaunchConfigResult(false, "Choose an available executable or script (.exe, .cmd, .bat or .ps1).");
+                return new LaunchConfigResult(false,
+                    "Choose an available executable or script (.exe, .cmd, .bat or .ps1).");
             }
 
             // Validate arguments before persisting a new snapshot.
@@ -193,11 +198,13 @@ internal sealed class LaunchActionService : IChangeSource
                 var snapshot = CaptureSnapshot(appId, shortcut, current, existing);
                 if (snapshot is null)
                 {
-                    return new LaunchConfigResult(false, "Can't read the original program. The launch action was left unchanged.");
+                    return new LaunchConfigResult(false,
+                        "Can't read the original program. The launch action was left unchanged.");
                 }
 
                 // Switching from our custom action must wrap the original game, not the custom action.
-                var baseline = existing?.Kind == LaunchConfigurationKind.CustomAction && MatchesCustom(shortcut, current, existing)
+                var baseline = existing?.Kind == LaunchConfigurationKind.CustomAction &&
+                               MatchesCustom(shortcut, current, existing)
                     ? current with
                     {
                         ShortcutExe = existing.OriginalTarget,
@@ -213,8 +220,10 @@ internal sealed class LaunchActionService : IChangeSource
                 // Persist BEFORE the write; on an uncertain answer this is the only recoverable original.
                 await RememberSnapshotAsync(snapshot).ConfigureAwait(false);
                 result = path is null
-                    ? await SteamLaunchConfig.ApplyAsync(steam, appId, shortcut, mode, baseline, token).ConfigureAwait(false)
-                    : await SteamLaunchConfig.ApplyCustomAsync(steam, appId, shortcut, path, arguments, token).ConfigureAwait(false);
+                    ? await SteamLaunchConfig.ApplyAsync(steam, appId, shortcut, mode, baseline, token)
+                        .ConfigureAwait(false)
+                    : await SteamLaunchConfig.ApplyCustomAsync(steam, appId, shortcut, path, arguments, token)
+                        .ConfigureAwait(false);
                 if (!result.Ok)
                 {
                     if (existing is null)
@@ -256,7 +265,8 @@ internal sealed class LaunchActionService : IChangeSource
         {
             LaunchWrapperMode.Deelevate => "Run without admin",
             LaunchWrapperMode.InputLease or LaunchWrapperMode.InputLeaseInject => "Give the game the controller",
-            LaunchWrapperMode.Both or LaunchWrapperMode.BothInject => "Run without admin + give the game the controller",
+            LaunchWrapperMode.Both or LaunchWrapperMode.BothInject =>
+                "Run without admin + give the game the controller",
             _ => "No WSGM launch action"
         };
     }
@@ -339,7 +349,9 @@ internal sealed class LaunchActionService : IChangeSource
         var helper = LaunchWrapperCommand.HelperPathForCurrentDeployment();
         return shortcut
             ? current.ShortcutExe == LaunchWrapperCommand.ShortcutTarget(helper)
-              && current.ShortcutLaunchOptions == LaunchWrapperCommand.ShortcutArguments(snapshot.Mode, snapshot.OriginalTarget, snapshot.OriginalLaunchOptions)
-            : current.LaunchOptions == LaunchWrapperCommand.SteamLaunchOptions(helper, snapshot.Mode, snapshot.OriginalLaunchOptions);
+              && current.ShortcutLaunchOptions == LaunchWrapperCommand.ShortcutArguments(snapshot.Mode,
+                  snapshot.OriginalTarget, snapshot.OriginalLaunchOptions)
+            : current.LaunchOptions ==
+              LaunchWrapperCommand.SteamLaunchOptions(helper, snapshot.Mode, snapshot.OriginalLaunchOptions);
     }
 }

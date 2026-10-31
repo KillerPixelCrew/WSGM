@@ -28,16 +28,19 @@ public partial class OverlayWindow : Window
 
     private readonly CancellationTokenSource _deviceLifetime = new();
 
-    // Creates each described row with the commands of its source.
-    private readonly DeviceRowFactory _rows;
-
     // Draws every Device, GPU, performance and pinned group description.
     private readonly DeviceGroupRenderer _deviceRenderer;
     private readonly Action<OverlayWindow> _dock;
 
     private readonly OverlayNavigation _navigation = new();
 
+    // The second-press confirmations shared by the Session and Power pages, the power menu and Back.
+    private readonly PowerActionConfirms _powerConfirms;
+
     private readonly HashSet<IPointer> _pressedPointers = [];
+
+    // Creates each described row with the commands of its source.
+    private readonly DeviceRowFactory _rows;
 
     // The creating controller owns navigation state across its window recreations.
     private readonly SessionState _session;
@@ -55,23 +58,21 @@ public partial class OverlayWindow : Window
     private bool _closed;
 
     private IDeviceOverlaySource? _deviceBridge;
-    private IGraphicsOverlaySource? _graphicsSource;
+
     // Set while the Device panel is hidden and a refresh was asked for; it renders when shown again.
     private bool _devicePanelStale;
+    private IGraphicsOverlaySource? _graphicsSource;
 
     private ChoiceRowSelection? _hybridCoreSelection;
+    private int _liveRefreshScheduled;
 
     // Reads whether the device offers a manual power mode; null until the coordinator attaches.
     private Func<(bool Available, bool Unified)>? _manualTdpMode;
-    private int _liveRefreshScheduled;
 
     // Renders wait for the window to open, and OnOpened runs each once. Each source attached while
     // the sheet is being built otherwise rebuilt the Device page or the pins.
     private bool _opened;
     private int _pendingLiveRefreshes;
-
-    // The second-press confirmations shared by the Session and Power pages, the power menu and Back.
-    private readonly PowerActionConfirms _powerConfirms;
 
     private PerformanceOverlayBridge? _performanceSource;
     private CommonPluginOverlaySource? _pluginSource;

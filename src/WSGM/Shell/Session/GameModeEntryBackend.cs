@@ -40,28 +40,6 @@ internal sealed class GameModeEntryBackend(
     private ExplorerDesktopHost DesktopHost =>
         desktopHost() ?? throw new InvalidOperationException("The Explorer host was not created.");
 
-    /// <summary>
-    ///     Restores the recorded desktop state through the live audio service, or through one built for this
-    ///     restore while the session has none (before its services start, after they stop).
-    /// </summary>
-    /// <param name="cancellationToken">Stops waiting for the restore.</param>
-    /// <param name="requireAudio">Whether unavailable audio holds recovery pending; entry preflight may proceed without it.</param>
-    /// <returns>Whether everything recorded was restored.</returns>
-    internal Task<bool> RestorePendingDesktopAsync(CancellationToken cancellationToken, bool requireAudio = true)
-    {
-        return GameModeReturnRecovery.RestorePendingAsync(state.Store, cancellationToken, system.AudioProfiles,
-            applyGraphics: integrations.RestorePendingDisplayGpuAsync, requireAudio: requireAudio);
-    }
-
-    private DisplayArrivalWaiter CreateArrivalWaiter()
-    {
-        var window = displayChangeWindow();
-        return new DisplayArrivalWaiter(
-            DisplayLayouts.Observe,
-            (backstop, token) => ShellDisplayChangeSignal.WaitForChangeAsync(window, backstop, token),
-            Task.Delay);
-    }
-
     /// <inheritdoc />
     public void SetStatus(string line)
     {
@@ -361,5 +339,27 @@ internal sealed class GameModeEntryBackend(
             : "Desktop audio: " + string.Join(" ", result.Operations
                 .Where(static operation => !operation.Succeeded)
                 .Select(static operation => operation.Name + " " + operation.Detail));
+    }
+
+    /// <summary>
+    ///     Restores the recorded desktop state through the live audio service, or through one built for this
+    ///     restore while the session has none (before its services start, after they stop).
+    /// </summary>
+    /// <param name="cancellationToken">Stops waiting for the restore.</param>
+    /// <param name="requireAudio">Whether unavailable audio holds recovery pending; entry preflight may proceed without it.</param>
+    /// <returns>Whether everything recorded was restored.</returns>
+    internal Task<bool> RestorePendingDesktopAsync(CancellationToken cancellationToken, bool requireAudio = true)
+    {
+        return GameModeReturnRecovery.RestorePendingAsync(state.Store, cancellationToken, system.AudioProfiles,
+            applyGraphics: integrations.RestorePendingDisplayGpuAsync, requireAudio: requireAudio);
+    }
+
+    private DisplayArrivalWaiter CreateArrivalWaiter()
+    {
+        var window = displayChangeWindow();
+        return new DisplayArrivalWaiter(
+            DisplayLayouts.Observe,
+            (backstop, token) => ShellDisplayChangeSignal.WaitForChangeAsync(window, backstop, token),
+            Task.Delay);
     }
 }

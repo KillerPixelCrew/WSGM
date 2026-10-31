@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -49,7 +50,7 @@ internal static class GameToolStorage
     /// <returns>The path.</returns>
     internal static string BackupRoot(string userRoot, uint appId, string toolId, string installId)
     {
-        return Path.Combine(DataRoot(userRoot), "backups", appId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        return Path.Combine(DataRoot(userRoot), "backups", appId.ToString(CultureInfo.InvariantCulture),
             toolId, installId);
     }
 

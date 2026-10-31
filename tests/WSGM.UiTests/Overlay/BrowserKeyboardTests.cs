@@ -53,7 +53,8 @@ public sealed class BrowserKeyboardTests
         var connected = server.WaitForConnectionAsync();
         await client.ConnectAsync();
         await connected;
-        typeof(BrowserSession).GetField("_pipe", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(session, server);
+        typeof(BrowserSession).GetField("_pipe", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(session,
+            server);
         Receive(session, new BrowserPacket
         {
             Kind = "keyboard", Visible = true, Sensitive = sensitive, Multiline = multiline,
@@ -90,6 +91,7 @@ public sealed class BrowserKeyboardTests
         {
             packet = await BrowserWire.ReadAsync(client, timeout.Token);
         } while (packet.Kind != "text");
+
         Assert.Equal(input.Text, packet.Text);
         Assert.Equal(!multiline, packet.Submit);
         Assert.True(packet.Replace);
@@ -99,19 +101,22 @@ public sealed class BrowserKeyboardTests
 
     private static BrowserSession Session(UiFixture fixture)
     {
-        return new BrowserSession(fixture.Store.Context, new BrowserOptions(), options => options.Normalize(), () => null);
+        return new BrowserSession(fixture.Store.Context, new BrowserOptions(), options => options.Normalize(),
+            () => null);
     }
 
     private static OverlayWindow Open(UiFixture fixture, BrowserSession session)
     {
-        var window = fixture.Overlay(980, 640, session: new OverlayWindow.SessionState { Destination = OverlayDestination.System });
+        var window = fixture.Overlay(980, 640,
+            session: new OverlayWindow.SessionState { Destination = OverlayDestination.System });
         window.BrowserHost.Attach(session, window);
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SystemBrowser));
         Receive(session, new BrowserPacket { Kind = "state" });
         Receive(session, new BrowserPacket { Kind = "address", Text = "https://example.test/" });
         // Headless fixtures never create native HWNDs. The authenticated packet routing still needs
         // a selected viewport, without constructing a helper or touching the desktop.
-        typeof(BrowserSession).GetField("_viewport", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(session, (nint)1);
+        typeof(BrowserSession).GetField("_viewport", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(session,
+            (nint)1);
         return window;
     }
 

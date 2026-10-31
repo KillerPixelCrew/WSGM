@@ -28,20 +28,20 @@ internal sealed unsafe class ForegroundWindowWatcher : IDisposable
 
     // ReSharper disable once PrivateFieldCanBeConvertedToLocalVariable
     private readonly NativeMethods.WinEventProc _callback;
+    private readonly Func<nint> _foregroundWindow;
 
     private readonly Lock _gate = new();
     private readonly Timer _poll;
-    private readonly Func<nint> _foregroundWindow;
     private readonly Func<nint, (string Name, string? Path, uint ProcessId)> _resolveExecutable;
     private readonly Func<NativeMethods.WinEventProc, nint> _startHook;
     private string _current = string.Empty;
     private uint _currentProcessId;
     private bool _disposed;
-    private bool _started;
     private int _evaluationQueued;
     private nint _hook;
     private nint _lastWindow;
     private nint _pendingWindow;
+    private bool _started;
 
     /// <summary>Creates an idle watcher; subscribe before calling Start.</summary>
     /// <param name="foregroundWindow">Optional isolated foreground-window reader.</param>
@@ -70,28 +70,6 @@ internal sealed unsafe class ForegroundWindowWatcher : IDisposable
         _poll = new Timer(_ => Evaluate(), null, Timeout.InfiniteTimeSpan, PollInterval);
     }
 
-    /// <summary>Begins observation after the owner has subscribed, preserving the initial foreground.</summary>
-    internal void Start()
-    {
-        lock (_gate)
-        {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            if (_started)
-            {
-                return;
-            }
-
-            _started = true;
-            _hook = _startHook(_callback);
-            if (_hook == 0)
-            {
-                Log.Warn("Foreground watcher: WinEvent hook not installed; polling only.");
-            }
-
-            _poll.Change(TimeSpan.Zero, PollInterval);
-        }
-    }
-
     /// <inheritdoc />
     public void Dispose()
     {
@@ -117,6 +95,28 @@ internal sealed unsafe class ForegroundWindowWatcher : IDisposable
         }
 
         _hook = 0;
+    }
+
+    /// <summary>Begins observation after the owner has subscribed, preserving the initial foreground.</summary>
+    internal void Start()
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_started)
+            {
+                return;
+            }
+
+            _started = true;
+            _hook = _startHook(_callback);
+            if (_hook == 0)
+            {
+                Log.Warn("Foreground watcher: WinEvent hook not installed; polling only.");
+            }
+
+            _poll.Change(TimeSpan.Zero, PollInterval);
+        }
     }
 
     /// <summary>

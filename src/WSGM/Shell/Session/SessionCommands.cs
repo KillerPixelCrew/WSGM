@@ -142,10 +142,10 @@ internal sealed class SessionCommands(
         }
 
         return await RunUiActionAsync(() => monitor()?.IsAlive == true && Steam.IsBigPictureVisible
-                                                                      && Steam.TrySendBigPictureShortcut(
-                                                                          quickAccess
-                                                                              ? BigPictureShortcut.QuickAccess
-                                                                              : BigPictureShortcut.SteamMenu),
+                                                                       && Steam.TrySendBigPictureShortcut(
+                                                                           quickAccess
+                                                                               ? BigPictureShortcut.QuickAccess
+                                                                               : BigPictureShortcut.SteamMenu),
             cancellationToken).ConfigureAwait(false);
     }
 

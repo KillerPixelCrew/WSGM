@@ -150,11 +150,14 @@ public sealed partial class SteamNativeSettingsServiceTests
     {
         var view = IntegerDeviceView("processor.cpu-curve-all", CapabilityRole.GenericRange,
             DisplayKey.CpuTemperature, -24, 12, 0, 0);
-        view = view with { Projection = view.Projection with
+        view = view with
         {
-            State = view.Projection.State with { ObservedValue = null, Quality = HardwareStateQuality.Unknown },
-            DesiredValue = null
-        } };
+            Projection = view.Projection with
+            {
+                State = view.Projection.State with { ObservedValue = null, Quality = HardwareStateQuality.Unknown },
+                DesiredValue = null
+            }
+        };
         var (section, row, _) = Assert.Single(SteamNativeSettingsService.DeviceQuickAccessRows([view],
             FanCurvePresetTable.HandheldCompanion));
         Assert.Equal("deviceDescriptors", section);
@@ -207,8 +210,12 @@ public sealed partial class SteamNativeSettingsServiceTests
             CapabilityId = "vendor.protection", Role = CapabilityRole.ChargeProtectionMode,
             Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Charge protection" },
             ValueKind = CapabilityValueKind.Choice, SupportsWrite = true, Persistence = CapabilityPersistence.Volatile,
-            Choices = [new CapabilityChoice("full", new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Full" }),
-                new CapabilityChoice("balanced", new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Balanced" })]
+            Choices =
+            [
+                new CapabilityChoice("full", new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Full" }),
+                new CapabilityChoice("balanced",
+                    new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Balanced" })
+            ]
         };
         var curveDescriptor = fan.Descriptor with
         {

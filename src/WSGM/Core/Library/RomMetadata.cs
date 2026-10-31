@@ -14,8 +14,10 @@ internal static class RomMetadata
     internal static string CleanTitle(string name)
     {
         var cleaned = Regex.Replace(name, @"\s*[\[(]([^\])]+)[\])]", match =>
-            Regex.IsMatch(match.Groups[1].Value, @"^(?:Disc|Disk|CD)\s*\d+\b",
-                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant) ? match.Value : "",
+                Regex.IsMatch(match.Groups[1].Value, @"^(?:Disc|Disk|CD)\s*\d+\b",
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+                    ? match.Value
+                    : "",
             RegexOptions.CultureInvariant).Trim();
         return cleaned.Length > 0 ? cleaned : name;
     }
@@ -35,7 +37,7 @@ internal static class RomMetadata
         // the add-on range. Only interpret an explicit 16-digit Switch title tag.
         var id = Regex.Match(components[^1], @"\[(010[0-9a-fA-F]{13})\]", RegexOptions.CultureInvariant);
         return id.Success && ulong.TryParse(id.Groups[1].Value, NumberStyles.HexNumber,
-                   CultureInfo.InvariantCulture, out var titleId) && (titleId & 0x1fff) != 0;
+            CultureInfo.InvariantCulture, out var titleId) && (titleId & 0x1fff) != 0;
     }
 
     internal static SfoMetadata? ReadSfo(string eboot)
@@ -54,7 +56,11 @@ internal static class RomMetadata
                 return null;
             }
 
-            uint Read(int offset) => BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(offset, 4));
+            uint Read(int offset)
+            {
+                return BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(offset, 4));
+            }
+
             var keyTable = (long)Read(8);
             var dataTable = (long)Read(12);
             var count = Read(16);

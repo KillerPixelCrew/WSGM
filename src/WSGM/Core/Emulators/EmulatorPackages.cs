@@ -15,10 +15,6 @@ namespace WSGM.Core;
 
 internal sealed class EmulatorPackages(DownloadClient client)
 {
-    /// <summary>The package architecture this machine runs natively: <c>arm64</c> or <c>x64</c>.</summary>
-    internal static string HostArchitecture =>
-        RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "arm64" : "x64";
-
     private static readonly Dictionary<string, string[]> SystemAliases = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Nintendo - Nintendo Entertainment System"] = ["nes"],
@@ -70,7 +66,12 @@ internal sealed class EmulatorPackages(DownloadClient client)
     };
 
     /// <summary>The RetroArch asset bundles every install downloads and every repair restores.</summary>
-    private static readonly string[] RetroArchBundles = ["info", "assets", "autoconfig", "database-rdb", "database-cursors"];
+    private static readonly string[] RetroArchBundles =
+        ["info", "assets", "autoconfig", "database-rdb", "database-cursors"];
+
+    /// <summary>The package architecture this machine runs natively: <c>arm64</c> or <c>x64</c>.</summary>
+    internal static string HostArchitecture =>
+        RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "arm64" : "x64";
 
     public string CoreCatalogueRevision { get; private set; } = "";
 

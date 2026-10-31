@@ -10,12 +10,12 @@ public sealed class ForegroundWindowWatcherTests
         var reads = 0;
         var hooks = 0;
         var seen = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var watcher = new ForegroundWindowWatcher(foregroundWindow: () => 1,
-            resolveExecutable: _ =>
+        using var watcher = new ForegroundWindowWatcher(() => 1,
+            _ =>
             {
                 Interlocked.Increment(ref reads);
                 return ("game.exe", @"D:\Games\game.exe", 42u);
-            }, startHook: _ =>
+            }, _ =>
             {
                 hooks++;
                 return 0;
@@ -36,10 +36,10 @@ public sealed class ForegroundWindowWatcherTests
     {
         var reads = 0;
         var seen = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var watcher = new ForegroundWindowWatcher(foregroundWindow: () => 1,
-            resolveExecutable: _ => Interlocked.Increment(ref reads) == 1
+        using var watcher = new ForegroundWindowWatcher(() => 1,
+            _ => Interlocked.Increment(ref reads) == 1
                 ? (string.Empty, null, 0u)
-                : ("game.exe", @"D:\Games\game.exe", 42u), startHook: _ => 0);
+                : ("game.exe", @"D:\Games\game.exe", 42u), _ => 0);
         watcher.ApplicationChanged += (name, _, _) => seen.TrySetResult(name);
 
         watcher.Start();

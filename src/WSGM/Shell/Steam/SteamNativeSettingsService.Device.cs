@@ -63,10 +63,10 @@ internal sealed partial class SteamNativeSettingsService
         foreach (var view in views)
         {
             var descriptor = view.Descriptor;
-            var covered = descriptor.Role is CapabilityRole.ChargeLimit && Covers(charge, descriptor)
-                          || descriptor.Role is CapabilityRole.LightingBrightness && Covers(brightness, descriptor)
-                          || descriptor.Role is CapabilityRole.LightingZoneColor
-                          && zones.Any(zone => zone.Id == descriptor.InstanceId);
+            var covered = (descriptor.Role is CapabilityRole.ChargeLimit && Covers(charge, descriptor))
+                          || (descriptor.Role is CapabilityRole.LightingBrightness && Covers(brightness, descriptor))
+                          || (descriptor.Role is CapabilityRole.LightingZoneColor
+                              && zones.Any(zone => zone.Id == descriptor.InstanceId));
             if (covered)
             {
                 continue;

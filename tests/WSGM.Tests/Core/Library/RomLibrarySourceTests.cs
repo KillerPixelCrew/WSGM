@@ -31,7 +31,8 @@ public sealed class RomLibrarySourceTests
         using TemporaryDirectory temporary = new();
         Write(temporary.Root, "_UPDATES_DLC/Hidden.gb");
         Write(temporary.Root, "Kept.gb");
-        var game = Assert.Single(await Source(temporary.Root, "gb", [pattern]).DiscoverAsync([], CancellationToken.None));
+        var game = Assert.Single(
+            await Source(temporary.Root, "gb", [pattern]).DiscoverAsync([], CancellationToken.None));
         Assert.Equal("Kept", game.Name);
     }
 
@@ -75,7 +76,8 @@ public sealed class RomLibrarySourceTests
     public async Task CleanupKeepsDiscNumbersAndDuplicateVersionsNeedExplicitSelection()
     {
         using TemporaryDirectory temporary = new();
-        foreach (var file in new[] { "Game (USA).zip", "Game (USA).7z", "Other (USA) (Disc 1).zip", "Other (USA) (Disc 2).zip" })
+        foreach (var file in new[]
+                     { "Game (USA).zip", "Game (USA).7z", "Other (USA) (Disc 1).zip", "Other (USA) (Disc 2).zip" })
         {
             Write(temporary.Root, file);
         }
@@ -85,14 +87,15 @@ public sealed class RomLibrarySourceTests
         Assert.Contains(games, game => game.Name == "Other (Disc 2)");
         Assert.Contains(games, game => game.Name == "Game (USA) [ZIP]");
         Assert.Contains(games, game => game.Name == "Game (USA) [7Z]");
-        var plan = ImportPlan.Build(games, [], [], "launcher.exe", ImportMode.SteamIntegration, includeUnroutable: false);
+        var plan = ImportPlan.Build(games, [], [], "launcher.exe", ImportMode.SteamIntegration, false);
         Assert.All(plan.Where(entry => entry.Name.StartsWith("Game", StringComparison.Ordinal)), entry =>
         {
             Assert.False(entry.Preselect);
             Assert.True(entry.Selectable);
             Assert.Contains("Multiple copies", entry.Reason);
         });
-        Assert.All(plan.Where(entry => entry.Name.StartsWith("Other", StringComparison.Ordinal)), entry => Assert.True(entry.Preselect));
+        Assert.All(plan.Where(entry => entry.Name.StartsWith("Other", StringComparison.Ordinal)),
+            entry => Assert.True(entry.Preselect));
     }
 
     [Fact]
@@ -108,12 +111,15 @@ public sealed class RomLibrarySourceTests
         Write(temporary.Root, "portable.ini");
         var launch = EmulatorStorage.Resolve(new EmulatorStore
         {
-            Installations = [new EmulatorInstallation
-            {
-                Id = "pcsx2", DefinitionId = "pcsx2", DataPath = temporary.Root,
-                ExecutablePath = Write(temporary.Root, "pcsx2.exe"), Systems = ["ps2"],
-                LaunchArguments = ["--", "{rom}"]
-            }]
+            Installations =
+            [
+                new EmulatorInstallation
+                {
+                    Id = "pcsx2", DefinitionId = "pcsx2", DataPath = temporary.Root,
+                    ExecutablePath = Write(temporary.Root, "pcsx2.exe"), Systems = ["ps2"],
+                    LaunchArguments = ["--", "{rom}"]
+                }
+            ]
         }, "pcsx2", "ps2", "", game.InstallPath);
         Assert.Equal(["--", first], launch.Arguments);
     }
@@ -138,10 +144,11 @@ public sealed class RomLibrarySourceTests
         using TemporaryDirectory temporary = new();
         Write(temporary.Root, "NPEA00001/USRDIR/EBOOT.BIN");
         Write(temporary.Root, "NPEA00001/PARAM.SFO", "not an SFO");
-        Assert.Equal("NPEA00001", Assert.Single(await Source(temporary.Root, "ps3").DiscoverAsync([], CancellationToken.None)).Name);
+        Assert.Equal("NPEA00001",
+            Assert.Single(await Source(temporary.Root, "ps3").DiscoverAsync([], CancellationToken.None)).Name);
         Write(temporary.Root, "Compressed.nsz");
         var games = await Source(temporary.Root, "switch").DiscoverAsync([], CancellationToken.None);
-        var entry = Assert.Single(ImportPlan.Build(games, [], [], "launcher.exe", ImportMode.SteamIntegration, includeUnroutable: false));
+        var entry = Assert.Single(ImportPlan.Build(games, [], [], "launcher.exe", ImportMode.SteamIntegration, false));
         Assert.False(entry.Selectable);
         Assert.False(entry.Preselect);
         Assert.Contains("Decompress", entry.Reason);

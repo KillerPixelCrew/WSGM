@@ -5,6 +5,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Core;
 using WSGM.Overlay;
+using WSGM.Settings;
 using WSGM.Shell;
 using WSGM.Testing;
 using WSGM.UiTests.Infrastructure;
@@ -79,7 +80,7 @@ public sealed class BrowserLayoutTests
         Dispatcher.UIThread.RunJobs();
         var page = UiFixture.Named<Control>(window, "PageQuickAccess");
         var memory = Assert.Single(page.GetVisualDescendants().OfType<ComboBox>(),
-            choice => Equals(choice.ItemsSource, ((WSGM.Settings.SettingsViewModel)window.DataContext!).BrowserMemoryBehaviors));
+            choice => Equals(choice.ItemsSource, ((SettingsViewModel)window.DataContext!).BrowserMemoryBehaviors));
         memory.BringIntoView();
         Dispatcher.UIThread.RunJobs();
         Assert.True(memory.IsEffectivelyVisible);

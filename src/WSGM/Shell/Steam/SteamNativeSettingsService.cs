@@ -175,7 +175,8 @@ internal sealed partial class SteamNativeSettingsService(
         // The backends are independent, so their reads run together and each page awaits its own.
         // A default read completes with nothing, which omits the rows of an owner that does not exist.
         var lightRead = brightness.ReadAsync();
-        var presetsRead = PowerPresetRows.ReadAsync(coordinator?.Power.PowerPresets, coordinator?.Power.PowerAssignments);
+        var presetsRead =
+            PowerPresetRows.ReadAsync(coordinator?.Power.PowerPresets, coordinator?.Power.PowerAssignments);
         var schemesRead = powerProfiles.ReadAsync();
         var boostRead = cpuBoost is null ? default : ReadCpuBoostAsync(cpuBoost, profiles);
         var coresRead = hybridCores.ReadAsync();
@@ -289,7 +290,7 @@ internal sealed partial class SteamNativeSettingsService(
                 return coordinator.Lighting.Status == DescriptorStatus.Warning
                     ? new SteamUiCommandResult(false, coordinator.Lighting.Detail)
                     : SteamUiCommandResult.Applied;
-            }, profileAware: true);
+            }, true);
             Section(controller, "Lighting", "device/lighting-profile", lightingProfile);
         }
 
@@ -316,7 +317,7 @@ internal sealed partial class SteamNativeSettingsService(
                                        or CapabilityRole.LightingEffectSpeed
                                    || declaration?.Key is SettingSectionKey.Lighting;
                     var devicePower = CapabilityRowProjection.DevicePageFor(capability.Role)
-                                      == WSGM.Device.Sdk.Capabilities.DeviceSections.PowerId
+                                      == Device.Sdk.Capabilities.DeviceSections.PowerId
                                       || declaration?.Key is SettingSectionKey.Power;
                     if (!lighting && !devicePower)
                     {
@@ -325,7 +326,7 @@ internal sealed partial class SteamNativeSettingsService(
 
                     var captured = capability;
                     offer.Add(lighting ? lightingRows : powerRows, DeviceRow(capability),
-                        (value, token) => WriteDeviceAsync(captured, value, token), profileAware: true);
+                        (value, token) => WriteDeviceAsync(captured, value, token), true);
                 }
 
                 var title = declaration?.Title ?? "Device";

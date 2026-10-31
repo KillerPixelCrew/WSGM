@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using WSGM.Interop;
 
 namespace WSGM.Core;
+
 /// <summary>
 ///     The separate --shell-anchor process: it serves the authenticated launch pipe for its WSGM owner and restores
 ///     Explorer when that owner is lost. It runs before logging, configuration and Avalonia initialization.
@@ -29,7 +30,8 @@ internal static class ExplorerShellAnchorProcess
     internal static bool TryRunProcessMode(string[] args, out int exitCode)
     {
         exitCode = 0;
-        if (args.Length == 0 || !string.Equals(args[0], ExplorerShellAnchor.AnchorArgument, StringComparison.OrdinalIgnoreCase))
+        if (args.Length == 0 ||
+            !string.Equals(args[0], ExplorerShellAnchor.AnchorArgument, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }

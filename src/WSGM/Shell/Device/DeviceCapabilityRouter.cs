@@ -20,7 +20,6 @@ namespace WSGM.Shell;
 internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 {
     /// <summary>Last logged availability per capability, so only changes are written.</summary>
-
     private readonly Dictionary<DeviceCapabilityKey, SemaphoreSlim> _commandGates = [];
 
     /// <summary>What each capability's latest command left behind; read and written under <c>_gate</c>.</summary>
@@ -62,10 +61,11 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 
     private ICapabilityPublisher? _client;
     private bool _connected;
-    private bool _disposed;
 
     /// <summary>The stored profile values desired state resolves from, replaced with each desired context.</summary>
     private CapabilityDesiredLayers _desired = CapabilityDesiredLayers.Empty;
+
+    private bool _disposed;
 
     private bool _onAcPower = true;
 

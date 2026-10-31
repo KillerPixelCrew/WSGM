@@ -56,6 +56,15 @@ internal sealed class OverlayProgress : StackPanel, IOverlayRefreshable
         Apply(state);
     }
 
+    /// <summary>The state shown now, or null while hidden.</summary>
+    internal OverlayProgressState? State { get; private set; }
+
+    /// <inheritdoc />
+    public void RefreshFrom(Control replacement)
+    {
+        Apply(((OverlayProgress)replacement).State);
+    }
+
     /// <summary>
     ///     Creates a capacity reading's meter: the same bar as an operation's progress, the Overlay's counterpart of
     ///     Steam's usage meter. The caption beside it states the amounts.
@@ -83,15 +92,6 @@ internal sealed class OverlayProgress : StackPanel, IOverlayRefreshable
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(2, 0, 2, 4)
         };
-    }
-
-    /// <summary>The state shown now, or null while hidden.</summary>
-    internal OverlayProgressState? State { get; private set; }
-
-    /// <inheritdoc />
-    public void RefreshFrom(Control replacement)
-    {
-        Apply(((OverlayProgress)replacement).State);
     }
 
     /// <summary>Shows a new state in place; call on the UI thread.</summary>

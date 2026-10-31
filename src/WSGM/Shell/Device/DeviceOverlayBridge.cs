@@ -3,12 +3,13 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using LibHandheld.Contracts;
 using WSGM.Controls;
 using WSGM.Core;
-using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Lifecycle;
 using CanonicalControllerSample = LibHandheld.Contracts.CanonicalControllerSample;
+using CapabilityRole = WSGM.Device.Sdk.Capabilities.CapabilityRole;
 
 namespace WSGM.Shell;
 
@@ -187,26 +188,6 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             };
     }
 
-    /// <summary>A graphics package's variable refresh capability as the Device page shows it.</summary>
-    /// <param name="view">The graphics capability.</param>
-    /// <param name="gpuPluginId">The graphics plugin that publishes it, which commands route to.</param>
-    /// <param name="declaredSections">The device publisher's sections.</param>
-    /// <param name="presets">The matched model's fan curve presets.</param>
-    /// <param name="layers">Current profile layers for the game-override marker, or null when unavailable.</param>
-    /// <returns>
-    ///     The row on the shared page of its role: the graphics package's own sections mean nothing on the
-    ///     Device page.
-    /// </returns>
-    internal static DeviceOverlayCapability VariableRefreshRow(DeviceCapabilityView view, string gpuPluginId,
-        IReadOnlySet<string> declaredSections, FanCurvePresetTable presets, ProfileLayers? layers = null)
-    {
-        return CapabilityRowProjection.OnDevicePage(
-            CapabilityRowProjection.ToOverlayCapability(view, declaredSections, presets, layers) with
-            {
-                GpuPluginId = gpuPluginId, PluginSectionId = null, CategoryId = null
-            });
-    }
-
     /// <inheritdoc />
     public async Task InvokeAsync(
         DeviceOverlayCapability capability,
@@ -367,6 +348,26 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         PhysicalInputReset?.Invoke();
     }
 
+    /// <summary>A graphics package's variable refresh capability as the Device page shows it.</summary>
+    /// <param name="view">The graphics capability.</param>
+    /// <param name="gpuPluginId">The graphics plugin that publishes it, which commands route to.</param>
+    /// <param name="declaredSections">The device publisher's sections.</param>
+    /// <param name="presets">The matched model's fan curve presets.</param>
+    /// <param name="layers">Current profile layers for the game-override marker, or null when unavailable.</param>
+    /// <returns>
+    ///     The row on the shared page of its role: the graphics package's own sections mean nothing on the
+    ///     Device page.
+    /// </returns>
+    internal static DeviceOverlayCapability VariableRefreshRow(DeviceCapabilityView view, string gpuPluginId,
+        IReadOnlySet<string> declaredSections, FanCurvePresetTable presets, ProfileLayers? layers = null)
+    {
+        return CapabilityRowProjection.OnDevicePage(
+            CapabilityRowProjection.ToOverlayCapability(view, declaredSections, presets, layers) with
+            {
+                GpuPluginId = gpuPluginId, PluginSectionId = null, CategoryId = null
+            });
+    }
+
     private async Task InvokeGpuAsync(string pluginId, DeviceOverlayCapability capability,
         CancellationToken cancellationToken)
     {
@@ -405,12 +406,12 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         PhysicalSampleReceived?.Invoke(sample);
     }
 
-    private void OnPhysicalOemEvent(LibHandheld.Contracts.OemControlEvent input)
+    private void OnPhysicalOemEvent(OemControlEvent input)
     {
         if (PhysicalGlyphPlans.TryGetOemControl(_coordinator.PhysicalGlyphSelectionSnapshot(), input.ControlId,
                 out var control))
         {
-            PhysicalOemControlReceived?.Invoke(control, input.Edge is LibHandheld.Contracts.OemControlEdge.Pressed);
+            PhysicalOemControlReceived?.Invoke(control, input.Edge is OemControlEdge.Pressed);
         }
     }
 

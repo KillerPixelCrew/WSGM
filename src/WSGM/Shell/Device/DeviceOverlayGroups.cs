@@ -33,8 +33,9 @@ internal static class DeviceOverlayGroups
             var prefix = PinPrefix + section.SectionId;
             // The limits are what the Power page is visited for, so they lead even when categorized.
             var lead = capabilities.Where(capability => capability.CategoryId is null
-                                                        || (power && capability.Role is CapabilityRole.PowerSustainedLimit
-                                                            or CapabilityRole.PowerSlowLimit))
+                                                        || (power &&
+                                                            capability.Role is CapabilityRole.PowerSustainedLimit
+                                                                or CapabilityRole.PowerSlowLimit))
                 .OrderBy(capability => power
                     ? capability.Role switch
                     {
@@ -149,8 +150,8 @@ internal static class DeviceOverlayGroups
 
             ordered.Add(capability);
             if (capability.LayoutPair is { } pair && capabilities.FirstOrDefault(candidate =>
-                    candidate.CapabilityId == pair.CapabilityId && candidate.InstanceId == pair.InstanceId) is
-                { } companion && emitted.Add(RowKey(companion)))
+                        candidate.CapabilityId == pair.CapabilityId && candidate.InstanceId == pair.InstanceId) is
+                    { } companion && emitted.Add(RowKey(companion)))
             {
                 ordered.Add(companion);
             }

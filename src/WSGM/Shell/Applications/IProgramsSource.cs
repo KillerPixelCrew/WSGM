@@ -7,9 +7,9 @@ namespace WSGM.Shell;
 /// <summary>Programs projection/actions, also supplied explicitly by inert headless preview fixtures.</summary>
 internal interface IProgramsSource : IChangeSource
 {
+    string LastResult { get; }
     ProgramState[] ReadState();
     bool IsPinned(string id);
-    string LastResult { get; }
     Task SaveAsync(ProgramDefinition definition, bool approveExecutable);
     Task RemoveAsync(string id);
     Task RememberWindowAsync(string id, ProgramUiCandidate candidate);

@@ -43,7 +43,8 @@ public sealed class BrowserWireTests
     {
         using var output = new MemoryStream();
         await Assert.ThrowsAsync<InvalidDataException>(() => BrowserWire.WriteAsync(output,
-            new BrowserPacket { Kind = "text", Text = new string('x', BrowserWire.MaximumPacketBytes) }, CancellationToken.None));
+            new BrowserPacket { Kind = "text", Text = new string('x', BrowserWire.MaximumPacketBytes) },
+            CancellationToken.None));
         Assert.Equal(0, output.Length);
     }
 
@@ -75,7 +76,8 @@ public sealed class BrowserWireTests
     {
         internal int ReadBytes { get; private set; }
 
-        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
         {
             var count = await base.ReadAsync(buffer, cancellationToken);
             ReadBytes += count;

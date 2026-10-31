@@ -53,6 +53,8 @@ public sealed partial class OverlayController : IDisposable
     private readonly OverlayPowerState _powerState;
     private readonly bool _previewOnly;
 
+    private readonly OverlaySheetServices _services;
+
     /// <summary>
     ///     The session's audio manager, shared with the sheet's status pills rather than owned.
     /// </summary>
@@ -72,8 +74,6 @@ public sealed partial class OverlayController : IDisposable
     ///     The session's radio manager, shared with the sheet's status pills rather than owned.
     /// </summary>
     private readonly RadioManager _sessionRadios;
-
-    private readonly OverlaySheetServices _services;
 
     /// <summary>The process's Steam Input lease owner this controller claims through.</summary>
     private readonly SteamInputBlocker _steamInput;

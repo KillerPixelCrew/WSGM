@@ -67,6 +67,9 @@ internal sealed class IntegrationServices
     /// <summary>Whether any owner a device power transition reaches exists.</summary>
     internal bool HasPowerOwners => Device is not null || CommonPlugins is not null || BuiltinGpu is not null;
 
+    /// <summary>The overlay's plugin source, or null.</summary>
+    internal CommonPluginOverlaySource? PluginOverlay { get; private set; }
+
     /// <summary>Applies the Device Integration master switch to AutoTDP at every entry point.</summary>
     /// <param name="config">Current device integration switches.</param>
     /// <returns>True only when both device integration and AutoTDP are enabled.</returns>
@@ -186,9 +189,6 @@ internal sealed class IntegrationServices
                     : null);
     }
 
-    /// <summary>The overlay's plugin source, or null.</summary>
-    internal CommonPluginOverlaySource? PluginOverlay { get; private set; }
-
     /// <summary>
     ///     Every action the running non-device instances declare, for the Settings lists.
     ///     Device instances are excluded: their controls belong to the Device surfaces, and a session
@@ -230,8 +230,8 @@ internal sealed class IntegrationServices
         }
 
         return new DevicePrerequisiteState(
-            HandheldSupported: true,
-            IntegrationEnabled: true,
+            true,
+            true,
             DevicePrerequisiteSource.ControllerLibraryInstalled(AppContext.BaseDirectory),
             DevicePrerequisiteSource.HidHideInstalled(),
             SetupComponents.Required(device),
@@ -437,7 +437,10 @@ internal sealed class IntegrationServices
             .ConfigureAwait(false);
     }
 
-    /// <summary>Stops the common plugins, then the GPU drivers and the graphics router, so no graphics channel is open when it goes.</summary>
+    /// <summary>
+    ///     Stops the common plugins, then the GPU drivers and the graphics router, so no graphics channel is open when it
+    ///     goes.
+    /// </summary>
     /// <param name="steps">The shutdown's step runner.</param>
     /// <returns>Completion of the steps, which never fault.</returns>
     internal async Task StopPluginsAsync(ShutdownSteps steps)

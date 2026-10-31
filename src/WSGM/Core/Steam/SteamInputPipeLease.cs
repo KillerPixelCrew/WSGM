@@ -22,6 +22,12 @@ internal sealed class SteamInputPipeLease : IDisposable
     /// <summary>Gets the gate's status when the lease was granted.</summary>
     public SteamInputStatus InitialStatus => _lease.InitialStatus;
 
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        _lease.Dispose();
+    }
+
     /// <summary>Releases the lease and lets Steam rediscover its controllers.</summary>
     /// <returns>What the release and its controller recovery did.</returns>
     public SteamInputReleaseOutcome Release()
@@ -33,12 +39,6 @@ internal sealed class SteamInputPipeLease : IDisposable
     public void CheckHostRecovery()
     {
         _client.CheckRecovery();
-    }
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        _lease.Dispose();
     }
 
     /// <summary>Creates the acquire function a process's <see cref="SteamInputBlocker" /> uses.</summary>

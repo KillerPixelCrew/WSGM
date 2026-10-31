@@ -501,7 +501,8 @@ public sealed class SteamUiSessionHostTests : IDisposable
 
     private static IReadOnlyList<string> EnabledPatchIds(SteamUiSessionHost host)
     {
-        return [.. host.GetPatchSnapshots().Where(snapshot => snapshot.Enabled).Select(snapshot => snapshot.Id).Order()];
+        return
+            [.. host.GetPatchSnapshots().Where(snapshot => snapshot.Enabled).Select(snapshot => snapshot.Id).Order()];
     }
 
     private sealed class SessionHostTransport : ISteamUiTransport

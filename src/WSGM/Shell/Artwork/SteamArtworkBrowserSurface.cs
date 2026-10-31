@@ -21,16 +21,16 @@ internal static class SteamArtworkBrowserSurface
     /// <summary>The name the page's gate registers under.</summary>
     public const string GateName = "artworkBrowser";
 
+    /// <summary>Every tab the page can show: each artwork slot and the manage tab.</summary>
+    private static readonly string[] Tabs =
+        [.. ArtworkAssetNames.Ordered.Select(slot => slot.Id), ArtworkBrowserTabs.ManageTab];
+
     /// <summary>The exact command vocabulary emitted by the page.</summary>
     public static IReadOnlyList<string> Commands { get; } =
     [
         SteamUiBrowseCommands.SetTab, SteamUiBrowseCommands.More, "apply", "applyOfficial", "clear", "applyLocal",
         "applyInvisible", "setFilter", "searchGames", "selectGame", "saveLogoPosition", "resetLogoPosition"
     ];
-
-    /// <summary>Every tab the page can show: each artwork slot and the manage tab.</summary>
-    private static readonly string[] Tabs =
-        [.. ArtworkAssetNames.Ordered.Select(slot => slot.Id), ArtworkBrowserTabs.ManageTab];
 
     /// <summary>Installs the artwork renderer and its state subscription.</summary>
     public static ISteamUiPatch Patch { get; } = SteamPagePatch.Create(

@@ -95,7 +95,8 @@ internal static unsafe class RawTouchInput
         }
         else
         {
-            Log.Info($"Raw touch input registered (HID digitizer sink, foreground {WindowFinder.DescribeForeground()}).");
+            Log.Info(
+                $"Raw touch input registered (HID digitizer sink, foreground {WindowFinder.DescribeForeground()}).");
         }
     }
 

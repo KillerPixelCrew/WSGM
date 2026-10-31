@@ -42,6 +42,7 @@ internal sealed partial class GameLibraryService
             {
                 return Refuse("Choose a system for a single ROM file.");
             }
+
             if (copy.Root.VolumeId.Length == 0)
             {
                 copy.Root = ManagedContentStorage.CapturePath(copy.Root.AbsolutePath, !single);

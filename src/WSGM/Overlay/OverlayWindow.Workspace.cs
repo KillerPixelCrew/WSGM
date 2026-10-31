@@ -183,7 +183,7 @@ public partial class OverlayWindow
     {
         var face = new Grid { ColumnDefinitions = new ColumnDefinitions("4,24,*,Auto"), ColumnSpacing = 12 };
         face.Children.Add(new Border
-        { Classes = { "selection-rule" }, Height = 24, VerticalAlignment = VerticalAlignment.Center });
+            { Classes = { "selection-rule" }, Height = 24, VerticalAlignment = VerticalAlignment.Center });
         var icon = new Path
         {
             Data = entry.Icon,
@@ -274,17 +274,17 @@ public partial class OverlayWindow
     internal bool NavigateWorkspace(NavigationDirection direction)
     {
         if (!Surfaces.HasActive && FocusManager?.GetFocusedElement() is Control sectionFocus
-                              && sectionFocus.GetVisualAncestors().OfType<CollapsibleSection>().FirstOrDefault() is
-                              { } fold
-                              && ReferenceEquals(sectionFocus, fold.Heading)
-                              && direction is NavigationDirection.Left or NavigationDirection.Right)
+                                && sectionFocus.GetVisualAncestors().OfType<CollapsibleSection>().FirstOrDefault() is
+                                    { } fold
+                                && ReferenceEquals(sectionFocus, fold.Heading)
+                                && direction is NavigationDirection.Left or NavigationDirection.Right)
         {
             fold.IsExpanded = direction == NavigationDirection.Right;
             return true;
         }
 
         if (Surfaces.HasActive || FocusManager?.GetFocusedElement() is not Control focused
-                             || !focused.GetVisualAncestors().Contains(SectionRail))
+                               || !focused.GetVisualAncestors().Contains(SectionRail))
         {
             return false;
         }

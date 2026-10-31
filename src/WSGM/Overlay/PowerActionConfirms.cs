@@ -39,15 +39,6 @@ internal sealed class PowerActionConfirms
         _signOut = signOut;
     }
 
-    /// <summary>The actions that ask for a second press.</summary>
-    internal enum Kind
-    {
-        CloseLauncher,
-        Restart,
-        Shutdown,
-        SignOut
-    }
-
     /// <summary>Whether an action is waiting for its second press.</summary>
     internal bool IsArmed => _armed is not null;
 
@@ -95,5 +86,14 @@ internal sealed class PowerActionConfirms
         _restart.Title = _armed == Kind.Restart ? "Really?" : "Restart";
         _shutdown.Title = _armed == Kind.Shutdown ? "Really?" : "Shut down";
         _signOut.Title = _armed == Kind.SignOut ? "Really?" : "Sign out";
+    }
+
+    /// <summary>The actions that ask for a second press.</summary>
+    internal enum Kind
+    {
+        CloseLauncher,
+        Restart,
+        Shutdown,
+        SignOut
     }
 }

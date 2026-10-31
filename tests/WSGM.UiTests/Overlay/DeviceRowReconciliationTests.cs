@@ -365,7 +365,8 @@ public sealed class DeviceRowReconciliationTests
         var detail = (Control)group.Parent!;
         // Power groups sit unfolded inside the page's single Power section.
         Assert.IsNotType<CollapsibleSection>(group.Child);
-        Assert.Contains(detail, group.GetVisualAncestors().OfType<CollapsibleSection>().Single().GetVisualDescendants());
+        Assert.Contains(detail,
+            group.GetVisualAncestors().OfType<CollapsibleSection>().Single().GetVisualDescendants());
         Assert.True(detail.Bounds.Width > 0);
         Assert.Equal(detail.Bounds.Width, group.Bounds.Width, 3);
         Assert.Single(group.GetVisualDescendants().OfType<Slider>());
@@ -440,8 +441,10 @@ public sealed class DeviceRowReconciliationTests
             AutoTdp = DeviceHostRows.AutoTdpView(false, null),
             HostSelections = new Dictionary<string, DeviceHostSelection>
             {
-                [DeviceHostRowIds.AutoTdp] = new("off", [DeviceHostRows.HostChoice("off", "Off"),
-                    DeviceHostRows.HostChoice("on", "On")])
+                [DeviceHostRowIds.AutoTdp] = new("off", [
+                    DeviceHostRows.HostChoice("off", "Off"),
+                    DeviceHostRows.HostChoice("on", "On")
+                ])
             }
         };
         var window = fixture.Overlay(1280, 720);

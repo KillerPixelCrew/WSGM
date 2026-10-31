@@ -98,13 +98,15 @@ public sealed class DevicePageCaptureTests
             var folds = window.GetVisualDescendants().OfType<CollapsibleSection>()
                 .Where(section => section.IsEffectivelyVisible).ToArray();
             var power = Assert.Single(folds, card => Equals(card.Heading.Tag, "section.device.unified-power.expand"));
-            Assert.Single(folds, card => Equals(card.Heading.Tag, "section.device.plugin.power.category.control.expand"));
+            Assert.Single(folds,
+                card => Equals(card.Heading.Tag, "section.device.plugin.power.category.control.expand"));
             Assert.True(UiFixture.Tagged<DeviceGroupView>(window, "section.device.power-presets").IsEffectivelyVisible);
             Assert.Contains(power.GetVisualDescendants().OfType<Control>(),
                 control => Equals(control.Tag, "power.primary-limit"));
             var toggle = UiFixture.Tagged<DeviceCapabilityControl>(window, "device.application-profile");
             Assert.True(toggle.IsEffectivelyVisible);
-            Assert.True(toggle.TranslatePoint(default, window)!.Value.Y < power.TranslatePoint(default, window)!.Value.Y,
+            Assert.True(
+                toggle.TranslatePoint(default, window)!.Value.Y < power.TranslatePoint(default, window)!.Value.Y,
                 "The per-application switch heads the Overview.");
         }
 
@@ -175,10 +177,12 @@ public sealed class DevicePageCaptureTests
             Assert.True(slider.IsEffectivelyEnabled);
             Assert.Equal(AutoTdpTarget.MinimumFps, slider.Minimum);
             Assert.Equal(AutoTdpTarget.MaximumFps, slider.Maximum);
-            Assert.True(slider.TranslatePoint(default, window)!.Value.Y > toggle.TranslatePoint(default, window)!.Value.Y,
+            Assert.True(
+                slider.TranslatePoint(default, window)!.Value.Y > toggle.TranslatePoint(default, window)!.Value.Y,
                 "The target slider follows the AutoTDP switch.");
             var detail = UiFixture.Named<Control>(window, "DevicePage");
-            Assert.True(slider.TranslatePoint(new Point(slider.Bounds.Width, 0), detail)!.Value.X <= detail.Bounds.Width,
+            Assert.True(
+                slider.TranslatePoint(new Point(slider.Bounds.Width, 0), detail)!.Value.X <= detail.Bounds.Width,
                 "The target slider fits the controls pane.");
             slider.BringIntoView();
             Dispatcher.UIThread.RunJobs();
@@ -311,7 +315,8 @@ public sealed class DevicePageCaptureTests
         var pinned = UiFixture.Named<Panel>(window, "PinnedSectionsGrid");
         UiFixture.OpenSections(window, pinned);
         Assert.Equal(3, pinned.Children.Count);
-        Assert.Contains(pinned.GetVisualDescendants().OfType<Control>(), control => Equals(control.Tag, "pin:fan.curve"));
+        Assert.Contains(pinned.GetVisualDescendants().OfType<Control>(),
+            control => Equals(control.Tag, "pin:fan.curve"));
         Assert.Contains(pinned.GetVisualDescendants().OfType<Control>(),
             control => Equals(control.Tag, "pin:" + DeviceHostRowIds.AutoTdp));
         UiFixture.Named<ScrollViewer>(window, "ContentScroller").Offset = default;
@@ -356,7 +361,8 @@ public sealed class DevicePageCaptureTests
         UiFixture.OpenSections(window);
         var row = window.GetVisualDescendants().OfType<DeviceCapabilityControl>()
             .Single(row => row.IsEffectivelyVisible && Equals(row.Tag, "lighting.zone-color#ring"));
-        UiFixture.Click(window, row.GetVisualDescendants().OfType<Button>().First(button => button.IsEffectivelyVisible));
+        UiFixture.Click(window,
+            row.GetVisualDescendants().OfType<Button>().First(button => button.IsEffectivelyVisible));
         Dispatcher.UIThread.RunJobs();
         Assert.True(UiFixture.Named<DeviceColorView>(window, "DeviceColorHost").IsEffectivelyVisible);
         ScrollToTop(window);
@@ -558,13 +564,13 @@ public sealed class DevicePageCaptureTests
     /// </summary>
     private sealed class ClawOverlay : IAsyncDisposable
     {
+        private readonly UiFixture _fixture;
         private readonly FixtureGraphicsSource? _gpu;
         private readonly FixtureGraphicsSource _graphics;
         private readonly SimulatedDeviceOverlaySource _hostControls;
         private readonly PerformanceService _performance;
         private readonly ChoiceRowSelection _schemes;
         private readonly DevicePowerPresetSelection _selection;
-        private readonly UiFixture _fixture;
 
         private ClawOverlay(SimulatedDeviceOverlaySource hostControls, FixtureGraphicsSource graphics,
             FixtureGraphicsSource? gpu, FakeDevice device, DeviceCapabilityView[] views,

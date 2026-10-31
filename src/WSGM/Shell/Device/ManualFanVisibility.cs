@@ -50,7 +50,8 @@ internal static class ManualFanVisibility
         // The software curve (instance null) serves every fan in Software; a firmware curve keeps its row.
         return view.Descriptor is { Role: CapabilityRole.FanCurve, InstanceId: null }
                && modes.Any(mode => Offers(mode, FanControlModes.Software))
-               && !modes.Any(mode => Offers(mode, FanControlModes.Software) && Current(mode) == FanControlModes.Software);
+               && !modes.Any(mode =>
+                   Offers(mode, FanControlModes.Software) && Current(mode) == FanControlModes.Software);
     }
 
     private static DeviceCapabilityView? Mode(DeviceCapabilityView[] modes, string? instance)

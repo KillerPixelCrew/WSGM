@@ -217,7 +217,7 @@ internal static class EmulatorPortableSetup
                 }
                 else
                 {
-                    CopyData(retainedData, program, token, packagePresent: true);
+                    CopyData(retainedData, program, token, true);
                     installed = installed with { DataPath = program };
                 }
 
@@ -486,7 +486,8 @@ internal static class EmulatorPortableSetup
         var link = Path.Combine(program, name);
         var directory = new DirectoryInfo(link);
         if (directory.LinkTarget is not null && directory.Exists
-                                             && EmulatorPortable.Same(directory.ResolveLinkTarget(true)!.FullName, data))
+                                             && EmulatorPortable.Same(directory.ResolveLinkTarget(true)!.FullName,
+                                                 data))
         {
             return;
         }

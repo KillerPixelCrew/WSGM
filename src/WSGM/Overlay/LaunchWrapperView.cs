@@ -26,21 +26,24 @@ public sealed class LaunchWrapperView : ServiceSubView
     // host, so it is paged the way LibraryTabsView's multi-select is: laying out
     // a 1000+ title account in one pass stalls the overlay's UI thread.
     private const int Chunk = 200;
+    private SteamLibraryApp? _actionGame;
+    private LaunchActionService? _actions;
+    private bool _busy;
     private string _customArguments = "";
     private SteamLibraryApp? _customGame;
 
     private string? _customPath;
+    private string _draftArguments = "";
+    private string? _draftPath;
     private IReadOnlyList<SteamLibraryApp> _games = [];
     private int _gamesShown;
-    private LaunchActionService? _actions;
-    private SteamLibraryApp? _actionGame;
-    private LaunchActionState? _state;
-    private DispatcherTimer? _refresh;
     private bool _reading;
-    private bool _busy;
-    private string? _draftPath;
-    private string _draftArguments = "";
+    private DispatcherTimer? _refresh;
+    private LaunchActionState? _state;
     private LaunchWrapperMode _suggestedMode;
+
+    /// <inheritdoc />
+    protected override string LogScope => "Launch wrappers";
 
     internal void AttachLaunchActions(LaunchActionService? actions)
     {
@@ -119,18 +122,32 @@ public sealed class LaunchWrapperView : ServiceSubView
         var body = NewStack(_actionGame?.Name ?? "Launch Actions");
         if (_state is not { } state)
         {
-            body.Children.Add(Caption(_actions is null ? "Launch actions unavailable" : "Reading launch configuration…"));
+            body.Children.Add(
+                Caption(_actions is null ? "Launch actions unavailable" : "Reading launch configuration…"));
             SetContent(body);
             return;
         }
 
         body.Children.Add(Tagged(Caption($"Current: {state.Ownership}"), "launch.current"));
-        body.Children.Add(Tagged(Caption(state.CanRestore ? "Original launch action recorded. Restore is available." : "No restoration snapshot recorded."), "launch.restore-status"));
+        body.Children.Add(Tagged(
+            Caption(state.CanRestore
+                ? "Original launch action recorded. Restore is available."
+                : "No restoration snapshot recorded."), "launch.restore-status"));
         body.Children.Add(Tagged(Caption(state.InputRoute), "launch.input"));
-        body.Children.Add(Tagged(Caption(state.ExternallyChanged ? "Launch fields differ from WSGM's saved action. The recorded original is retained." : ""), "launch.external"));
-        body.Children.Add(Tagged(Caption(state.WrapperAvailable ? "" : "Launch wrapper missing. Repair the installation before applying wrapper actions."), "launch.wrapper"));
+        body.Children.Add(Tagged(
+            Caption(state.ExternallyChanged
+                ? "Launch fields differ from WSGM's saved action. The recorded original is retained."
+                : ""), "launch.external"));
+        body.Children.Add(Tagged(
+            Caption(state.WrapperAvailable
+                ? ""
+                : "Launch wrapper missing. Repair the installation before applying wrapper actions."),
+            "launch.wrapper"));
         body.Children.Add(Tagged(Caption(state.Error ?? state.Notice ?? ""), "launch.result"));
-        body.Children.Add(Tagged(Caption(state.IsShortcut ? $"Target: {state.Target}\nLaunch arguments: {state.Options}" : $"Launch options: {state.Options}"), "launch.fields"));
+        body.Children.Add(Tagged(
+            Caption(state.IsShortcut
+                ? $"Target: {state.Target}\nLaunch arguments: {state.Options}"
+                : $"Launch options: {state.Options}"), "launch.fields"));
         AddMode(LaunchWrapperMode.Deelevate, "launch.deelevate");
         AddMode(LaunchWrapperMode.InputLease, "launch.lease");
         AddMode(LaunchWrapperMode.Both, "launch.both");
@@ -146,7 +163,8 @@ public sealed class LaunchWrapperView : ServiceSubView
             body.Children.Add(apply);
         }
 
-        var restore = Tagged(Row("Restore original launch action", "Remove WSGM changes and restore the recorded original", Icons.Restart,
+        var restore = Tagged(Row("Restore original launch action",
+            "Remove WSGM changes and restore the recorded original", Icons.Restart,
             () => ConfirmChange(LaunchWrapperMode.None)), "launch.restore");
         restore.IsEnabled = !_busy && state.CanRestore && state.Error is null;
         body.Children.Add(restore);
@@ -194,7 +212,9 @@ public sealed class LaunchWrapperView : ServiceSubView
             return;
         }
 
-        ConfirmCommand(path is not null ? "Replace launch action" : mode == LaunchWrapperMode.None ? "Restore original launch action" : LaunchActionService.Label(mode),
+        ConfirmCommand(
+            path is not null ? "Replace launch action" :
+            mode == LaunchWrapperMode.None ? "Restore original launch action" : LaunchActionService.Label(mode),
             $"Replace the current launch action for {game.Name}? The recorded original is retained until restoration is confirmed.",
             async token =>
             {
@@ -223,9 +243,6 @@ public sealed class LaunchWrapperView : ServiceSubView
                 }
             });
     }
-
-    /// <inheritdoc />
-    protected override string LogScope => "Launch wrappers";
 
     /// <summary>
     ///     Raised when the user chooses a game. The overlay then applies the

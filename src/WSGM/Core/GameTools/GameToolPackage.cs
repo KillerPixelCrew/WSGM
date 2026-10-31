@@ -10,7 +10,11 @@ namespace WSGM.Core;
 /// <param name="Version">The primary file's product version.</param>
 /// <param name="Family">The primary file's version family.</param>
 /// <param name="Architecture">The primary file's PE architecture.</param>
-internal sealed record GameToolPackage(HostedRelease Release, string Root, string Version, string Family,
+internal sealed record GameToolPackage(
+    HostedRelease Release,
+    string Root,
+    string Version,
+    string Family,
     string Architecture)
 {
     /// <summary>File hashes recorded at extraction, by forward-slash path relative to <see cref="Root" />.</summary>

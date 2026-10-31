@@ -11,12 +11,12 @@ namespace WSGM.Shell;
 /// <summary>Standalone Settings' native driver lifetime; resident Settings borrows its session's owners instead.</summary>
 internal sealed class StandaloneScaledResolutionOwner
 {
-    private readonly ConfigStore _store;
-    private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<GpuVendor, GpuDriver> _drivers = [];
+    private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
-    private GpuDriver[] _snapshot = [];
+    private readonly ConfigStore _store;
     private Task? _shutdown;
+    private GpuDriver[] _snapshot = [];
 
     internal StandaloneScaledResolutionOwner(ConfigStore store)
     {
@@ -34,7 +34,8 @@ internal sealed class StandaloneScaledResolutionOwner
             var config = _store.Read().RequireConfig();
             var present = await Task.Run(() => BuiltinGpuDrivers.Detect(), _lifetime.Token).ConfigureAwait(false);
             var desired = present.Where(driver => BuiltinGpuDrivers.Enabled(config, driver.Vendor)).ToArray();
-            foreach (var vendor in _drivers.Keys.Where(vendor => desired.All(driver => driver.Vendor != vendor)).ToArray())
+            foreach (var vendor in _drivers.Keys.Where(vendor => desired.All(driver => driver.Vendor != vendor))
+                         .ToArray())
             {
                 var retiring = _drivers[vendor];
                 _drivers.Remove(vendor);
@@ -46,7 +47,8 @@ internal sealed class StandaloneScaledResolutionOwner
                 _lifetime.Token.ThrowIfCancellationRequested();
                 // The session's state folder: the library's persistent state belongs to the driver,
                 // not to whichever owner started it.
-                var driver = BuiltinGpuDrivers.Create(definition, BuiltinGpuDrivers.StateDirectory(_store.Context, definition));
+                var driver = BuiltinGpuDrivers.Create(definition,
+                    BuiltinGpuDrivers.StateDirectory(_store.Context, definition));
                 _drivers.Add(definition.Vendor, driver);
                 await driver.StartAsync(_lifetime.Token).ConfigureAwait(false);
             }

@@ -33,9 +33,10 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         (4, "Custom")
     ];
 
+    private readonly CpuBoostService? _cpuBoost;
+
     private readonly Func<(int Minimum, int Maximum)?> _panelFrameLimitRange;
     private readonly ProfileService _profiles;
-    private readonly CpuBoostService? _cpuBoost;
     private readonly PerformanceService _service;
     private bool _disposed;
 
@@ -286,8 +287,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
                     ? "Clear every value this game overrides, so it uses Global again."
                     : "Clear the Global frame limit, overlay, power, refresh, processor boost and AutoTDP target values.",
                 "Reset",
-                CanInvoke: true,
-                DescriptorStatus.None)
+                true)
         ];
     }
 
@@ -318,7 +318,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
                 "CPU boost mode",
                 $"{layer} · {view.SourcesText}",
                 effective is { } mode ? CpuBoost.NameFor(mode) : "Not set by WSGM",
-                CanInvoke: true,
+                true,
                 DescriptorStatus.Available) with
             {
                 Options = [.. CpuBoost.Offered.Select(option => new DescriptorOption((int)option.Mode, option.Name))],
@@ -525,7 +525,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             "Detected application",
             description,
             trailing,
-            CanInvoke: false,
+            false,
             state.Target is null ? DescriptorStatus.Stale : DescriptorStatus.Available);
     }
 
@@ -541,7 +541,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             "Active performance profile",
             description,
             state.ApplicationProfileEnabled ? "Application" : "Global",
-            CanInvoke: false,
+            false,
             state.ApplicationProfileEnabled && state.Target?.RtssProfileName is not { Length: > 0 }
                 ? DescriptorStatus.Warning
                 : DescriptorStatus.Available);
@@ -627,8 +627,8 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         var (minimum, maximum, fromPanel) =
             PerformanceProjection.FrameLimitBounds(capabilities, _panelFrameLimitRange());
         return fromPanel
-            ? new DescriptorRange(0, maximum, Step: 1, Unit: "FPS", OffBelow: minimum)
-            : new DescriptorRange(minimum, maximum, Step: 1, Unit: "FPS");
+            ? new DescriptorRange(0, maximum, 1, "FPS", minimum)
+            : new DescriptorRange(minimum, maximum, 1, "FPS");
     }
 
     /// <summary>The named notches this RTSS build accepts, in order.</summary>

@@ -257,7 +257,10 @@ public sealed partial class GameLibraryView
     /// <param name="State">The library state.</param>
     /// <param name="Entry">The title.</param>
     /// <param name="Options">The slot's candidates, or null.</param>
-    private sealed record ArtworkShown(GameLibraryState State, GameLibraryEntry Entry, GameLibraryOptionsAnswer? Options);
+    private sealed record ArtworkShown(
+        GameLibraryState State,
+        GameLibraryEntry Entry,
+        GameLibraryOptionsAnswer? Options);
 
     /// <summary>What the ROM source editor was drawn from besides its draft.</summary>
     /// <param name="State">The library state.</param>

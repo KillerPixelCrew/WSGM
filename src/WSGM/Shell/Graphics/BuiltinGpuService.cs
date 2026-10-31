@@ -66,21 +66,23 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
         }
     }
 
+    public async ValueTask DisposeAsync()
+    {
+        await StopAsync(Deadline.After(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
+    }
+
     /// <summary>Borrowed enabled native owners; no new driver session is opened for a settings editor.</summary>
     internal IReadOnlyList<GpuDriver> ScaledResolutionDrivers()
     {
         lock (_registration)
         {
-            return _closed || _suspended ? [] : _entries.Values
-                .Where(entry => entry.Retirement is null && !entry.StartupFailed)
-                .Select(entry => entry.Publisher).OfType<GpuDriverPublisher>()
-                .Select(publisher => publisher.NativeDriver).ToArray();
+            return _closed || _suspended
+                ? []
+                : _entries.Values
+                    .Where(entry => entry.Retirement is null && !entry.StartupFailed)
+                    .Select(entry => entry.Publisher).OfType<GpuDriverPublisher>()
+                    .Select(publisher => publisher.NativeDriver).ToArray();
         }
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        await StopAsync(Deadline.After(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
     }
 
     internal Task ReconcileAsync(AppConfig config, CancellationToken cancellationToken)

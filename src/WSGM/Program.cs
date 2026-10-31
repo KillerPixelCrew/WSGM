@@ -119,7 +119,8 @@ public static class Program
                 Log.Warn("Uninstall restore: some machine settings were not restored; see the lines above.");
             }
 
-            return !hidHide ? UninstallHidHideUnverifiedExitCode : restartRequired ? SessionProtocolNames.RestartRequired : 0;
+            return !hidHide ? UninstallHidHideUnverifiedExitCode :
+                restartRequired ? SessionProtocolNames.RestartRequired : 0;
         }
 
         if (StartupOptions.ArgumentValue(args, "--export-setup-answers=") is { } exportPath)
@@ -517,6 +518,7 @@ public static class Program
                     {
                         Log.Warn("Setup: other manager takeover incomplete: " + string.Join(", ", result.Failed));
                     }
+
                     if (result.StillRunning.Count > 0)
                     {
                         Log.Warn("Setup: other managers still running: " + string.Join(", ", result.StillRunning));
@@ -544,7 +546,8 @@ public static class Program
         }
 
         ShellRegistration.ApplyGamingHomeGuard(Store);
-        return !BootManifestWriter.WriteCurrent(Store.Read(), Store.Context) ? 1 : managerRestartRequired ? SessionProtocolNames.RestartRequired : 0;
+        return !BootManifestWriter.WriteCurrent(Store.Read(), Store.Context) ? 1 :
+            managerRestartRequired ? SessionProtocolNames.RestartRequired : 0;
     }
 
     /// <summary>Disarms the sign-in start after a crash loop and hands the session back to Explorer.</summary>

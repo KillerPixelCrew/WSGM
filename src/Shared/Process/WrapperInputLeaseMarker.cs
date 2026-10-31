@@ -15,11 +15,13 @@ namespace WSGM.Core;
 internal static partial class WrapperInputLeaseMarker
 {
     private const uint Synchronize = 0x00100000;
+
     private static readonly Lazy<string> CurrentUserSid = new(() =>
     {
         using var identity = WindowsIdentity.GetCurrent();
         return identity.User?.Value ?? throw new InvalidOperationException("No wrapper user identity is available.");
     });
+
     private static string CurrentName => @"Local\WSGM.WrapperInputLease." + CurrentUserSid.Value;
 
     internal static SafeWaitHandle Hold()
@@ -52,12 +54,12 @@ internal static partial class WrapperInputLeaseMarker
             }
         }
 
-        return new SafeWaitHandle(handle, ownsHandle: true);
+        return new SafeWaitHandle(handle, true);
     }
 
     internal static bool IsActive(string name)
     {
-        using var handle = new SafeWaitHandle(OpenMutexW(Synchronize, false, name), ownsHandle: true);
+        using var handle = new SafeWaitHandle(OpenMutexW(Synchronize, false, name), true);
         if (handle.IsInvalid && Marshal.GetLastPInvokeError() is var error && error != 2)
         {
             throw new Win32Exception(error, "Could not query the wrapper input-lease lifetime.");
@@ -91,20 +93,13 @@ internal static partial class WrapperInputLeaseMarker
         }
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct SecurityAttributes
-    {
-        internal uint Length;
-        internal nint Descriptor;
-        internal int Inherit;
-    }
-
     [LibraryImport("kernel32.dll", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     private static partial nint CreateMutexW(ref SecurityAttributes attributes,
         [MarshalAs(UnmanagedType.Bool)] bool owned, string name);
 
     [LibraryImport("kernel32.dll", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
-    private static partial nint OpenMutexW(uint access, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle, string name);
+    private static partial nint OpenMutexW(uint access, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle,
+        string name);
 
     [LibraryImport("advapi32.dll", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -113,4 +108,12 @@ internal static partial class WrapperInputLeaseMarker
 
     [LibraryImport("kernel32.dll")]
     private static partial nint LocalFree(nint memory);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SecurityAttributes
+    {
+        internal uint Length;
+        internal nint Descriptor;
+        internal int Inherit;
+    }
 }

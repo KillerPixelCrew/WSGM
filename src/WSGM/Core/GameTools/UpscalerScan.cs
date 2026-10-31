@@ -64,7 +64,8 @@ internal static class UpscalerScan
                     var text = version is null ? null
                         : version.ProductVersion.Length > 0 ? version.ProductVersion
                         : version.FileVersion.Length > 0 ? version.FileVersion : null;
-                    found.Add(new GameUpscalerFile(known.Technology, known.Family, known.Kind, file.RelativePath, text));
+                    found.Add(new GameUpscalerFile(known.Technology, known.Family, known.Kind, file.RelativePath,
+                        text));
                     break;
                 }
             }

@@ -38,7 +38,7 @@ public static class PreviewArtworkHome
         new(1245620, "ELDEN RING"),
         new(1091500, "Cyberpunk 2077"),
         new(2050650, "Resident Evil 4"),
-        new(3000000001, "RetroArch", Shortcut: true),
+        new(3000000001, "RetroArch", true),
         new(1174180, "Red Dead Redemption 2"),
         new(990080, "Hogwarts Legacy"),
         new(1086940, "Baldur's Gate 3")
@@ -49,7 +49,7 @@ public static class PreviewArtworkHome
         new(2668510,
             "The Legend of Heroes: Trails through Daybreak II, Digital Deluxe Edition with every bonus pack"),
         new(3000000002, "A non-Steam game with a very long name that should wrap or trim cleanly in the list",
-            Shortcut: true),
+            true),
         .. Library
     ];
 
@@ -108,12 +108,12 @@ public static class PreviewArtworkHome
     /// <summary>The library reads one case answers, in order; the last answer repeats.</summary>
     private static Task<SteamLibraryReadResult>[] Reads(string scenario)
     {
-        var library = Task.FromResult(new SteamLibraryReadResult(Library, Error: null));
+        var library = Task.FromResult(new SteamLibraryReadResult(Library, null));
         return scenario switch
         {
             "artwork-home" or "artwork-home-no-match" => [library],
-            "artwork-home-long-name" => [Task.FromResult(new SteamLibraryReadResult(LongNames, Error: null))],
-            "artwork-home-empty" => [Task.FromResult(new SteamLibraryReadResult([], Error: null))],
+            "artwork-home-long-name" => [Task.FromResult(new SteamLibraryReadResult(LongNames, null))],
+            "artwork-home-empty" => [Task.FromResult(new SteamLibraryReadResult([], null))],
             "artwork-home-failed" =>
             [
                 library,
@@ -185,7 +185,7 @@ public static class PreviewArtworkHome
                 .Any(control => Equals(control.Tag, tag) && control.IsEffectivelyVisible))
         {
             throw new InvalidOperationException("The artwork home case did not reach its state: " + tag
-                                                + " is not shown.");
+                + " is not shown.");
         }
     }
 }

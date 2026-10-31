@@ -144,7 +144,7 @@ internal static class GameLibraryRows
     internal static bool StorageNeedsAttention(GameLibraryStorage storage)
     {
         return storage.CanRepair || storage.CanAcceptBinding
-               || !string.Equals(storage.Status, "Connected", StringComparison.OrdinalIgnoreCase);
+                                 || !string.Equals(storage.Status, "Connected", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>The home level's line for the Storage row.</summary>
@@ -214,8 +214,9 @@ internal static class GameLibraryRows
         foreach (var storage in storages)
         {
             var members = shortcuts.Where(shortcut => string.Equals(shortcut.LibraryId, storage.Id,
-                    StringComparison.OrdinalIgnoreCase)
-                || shortcut.LibraryId.Length == 0 && shortcut.Location == storage.Name).ToArray();
+                                                          StringComparison.OrdinalIgnoreCase)
+                                                      || (shortcut.LibraryId.Length == 0 &&
+                                                          shortcut.Location == storage.Name)).ToArray();
             placed.UnionWith(members);
             groups.Add(new StorageGroup(storage.Name, storage, members));
         }

@@ -49,7 +49,8 @@ internal sealed partial class SteamNativeSettingsService
                 if (ChoiceRow(key, label, icon, new ChoiceRowState(true, options, current, playback.StatusText)) is
                     { } row)
                 {
-                    offer.Quick("audioFormat", offer.Add(rows, row, (value, token) => write(value.GetString()!, token)));
+                    offer.Quick("audioFormat",
+                        offer.Add(rows, row, (value, token) => write(value.GetString()!, token)));
                 }
             }
         }

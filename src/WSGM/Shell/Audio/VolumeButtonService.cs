@@ -15,7 +15,9 @@ internal sealed class VolumeButtonService : IDisposable
 {
     private readonly AudioManager _audio;
     private readonly MessageWindow _window;
+
     private Task _commands = Task.CompletedTask;
+
     // Read by queued commands off the UI thread, which drop themselves once handling is off or disposed.
     private volatile bool _disposed;
     private volatile bool _gameModeActive;

@@ -16,29 +16,29 @@ namespace WSGM.Shell;
 internal sealed class BrowserSession : IDisposable
 {
     private readonly UserDataContext _context;
-    private readonly Func<BrowserOptions, BrowserOptions> _persist;
     private readonly Func<BrowserGameContext?> _currentGame;
+    private readonly Func<BrowserOptions, BrowserOptions> _persist;
     private readonly Action? _refreshGame;
     private readonly SemaphoreSlim _writes = new(1, 1);
-    private BrowserOptions _options;
-    private NamedPipeServerStream? _pipe;
-    private CancellationTokenSource? _creation;
-    private Process? _helper;
-    private Process? _unreleasedHelper;
-    private Task _cleanup = Task.CompletedTask;
-    private Task _startup = Task.CompletedTask;
-    private nint _viewport;
-    private nint _child;
-    private int _width = 1;
-    private int _height = 1;
     private bool _active;
+    private nint _child;
     private bool _covered;
+    private CancellationTokenSource? _creation;
     private bool _disposed;
+    private int _height = 1;
+    private Process? _helper;
+    private BrowserOptions _options;
+    private string? _pendingNavigation;
+    private NamedPipeServerStream? _pipe;
     private bool _ready;
     private bool? _sentVisible;
-    private string? _pendingNavigation;
+    private Task _startup = Task.CompletedTask;
+    private Process? _unreleasedHelper;
+    private nint _viewport;
+    private int _width = 1;
 
-    internal BrowserSession(UserDataContext context, BrowserOptions options, Func<BrowserOptions, BrowserOptions> persist,
+    internal BrowserSession(UserDataContext context, BrowserOptions options,
+        Func<BrowserOptions, BrowserOptions> persist,
         Func<BrowserGameContext?> currentGame, Action? refreshGame = null)
     {
         _context = context;
@@ -48,9 +48,6 @@ internal sealed class BrowserSession : IDisposable
         _refreshGame = refreshGame;
     }
 
-    internal event Action? Changed;
-    internal event Action? ChromeFocusRequested;
-    internal event Action? KeyboardRequested;
     internal BrowserLifecycle Lifecycle { get; private set; }
     internal string Address { get; private set; } = BrowserNavigation.Home;
     internal string Status { get; private set; } = "Enter an address or search for a guide.";
@@ -62,7 +59,26 @@ internal sealed class BrowserSession : IDisposable
     internal BrowserOptions Options => _options.Normalize();
     internal BrowserGameContext? CurrentGame => _currentGame();
     internal int? HelperProcessId => _helper?.Id;
-    internal Task ShutdownCompletion => _cleanup;
+    internal Task ShutdownCompletion { get; private set; } = Task.CompletedTask;
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _active = false;
+        Destroy();
+        Changed = null;
+        ChromeFocusRequested = null;
+        KeyboardRequested = null;
+    }
+
+    internal event Action? Changed;
+    internal event Action? ChromeFocusRequested;
+    internal event Action? KeyboardRequested;
 
     internal void ApplyOptions(BrowserOptions options)
     {
@@ -123,7 +139,7 @@ internal sealed class BrowserSession : IDisposable
             Lifecycle = BrowserLifecycle.Creating;
             Status = "Starting browser…";
             Notify();
-            _startup = CreateAsync(_creation.Token, _cleanup);
+            _startup = CreateAsync(_creation.Token, ShutdownCompletion);
         }
     }
 
@@ -210,7 +226,10 @@ internal sealed class BrowserSession : IDisposable
         }
     }
 
-    internal void NotifyParentPositionChanged() => Send(new BrowserPacket { Kind = "position" });
+    internal void NotifyParentPositionChanged()
+    {
+        Send(new BrowserPacket { Kind = "position" });
+    }
 
     internal void Navigate(string input, bool withCurrentGame = false)
     {
@@ -254,10 +273,13 @@ internal sealed class BrowserSession : IDisposable
             return;
         }
 
-        Navigate(input, withCurrentGame: true);
+        Navigate(input, true);
     }
 
-    internal void GameContextChanged() => Notify();
+    internal void GameContextChanged()
+    {
+        Notify();
+    }
 
     internal void Command(string command)
     {
@@ -294,13 +316,16 @@ internal sealed class BrowserSession : IDisposable
     {
         if (text.Length <= 4096)
         {
-            Send(new BrowserPacket { Kind = "text", Text = text, Submit = submit, Replace = replace, NavigationId = navigationId });
+            Send(new BrowserPacket
+                { Kind = "text", Text = text, Submit = submit, Replace = replace, NavigationId = navigationId });
         }
     }
 
     internal void PageKey(string key)
     {
-        if (_active && !_covered && _ready && key is "ArrowUp" or "ArrowDown" or "ArrowLeft" or "ArrowRight" or "Tab" or "ShiftTab" or "Enter" or "PageUp" or "PageDown" or "Backspace" or "Delete" or "Home" or "End" or "Space")
+        if (_active && !_covered && _ready && key is "ArrowUp" or "ArrowDown" or "ArrowLeft" or "ArrowRight" or "Tab"
+                or "ShiftTab" or "Enter" or "PageUp" or "PageDown" or "Backspace" or "Delete" or "Home" or "End"
+                or "Space")
         {
             Send(new BrowserPacket { Kind = "key", Text = key });
         }
@@ -343,6 +368,7 @@ internal sealed class BrowserSession : IDisposable
                 _creation = null;
                 return;
             }
+
             var executable = Path.Combine(AppContext.BaseDirectory, "Browser", "WSGM.BrowserHost.exe");
             if (!File.Exists(executable))
             {
@@ -351,7 +377,8 @@ internal sealed class BrowserSession : IDisposable
 
             var pipeName = "WSGM.Browser." + Guid.NewGuid().ToString("N");
             using var identity = WindowsIdentity.GetCurrent();
-            var sid = identity.User?.Value ?? throw new InvalidOperationException("Current Windows identity is unavailable.");
+            var sid = identity.User?.Value ??
+                      throw new InvalidOperationException("Current Windows identity is unavailable.");
             var security = new PipeSecurity();
             // Same-account medium helper must be able to write to an elevated resident's pipe.
             // A medium mandatory label avoids relying on an elevated token's default object label.
@@ -372,21 +399,25 @@ internal sealed class BrowserSession : IDisposable
                     DateTimeOffset.UtcNow.AddSeconds(20), Path.GetDirectoryName(executable), budget.Token);
                 if (launch == ScheduledTaskLaunchDisposition.NotDispatched)
                 {
-                    throw new InvalidOperationException("Windows could not start the browser without administrator rights.");
+                    throw new InvalidOperationException(
+                        "Windows could not start the browser without administrator rights.");
                 }
             }
             else
             {
                 helper = Process.Start(new ProcessStartInfo(executable, arguments)
                 {
-                    UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetDirectoryName(executable)!
+                    UseShellExecute = false, CreateNoWindow = true,
+                    WorkingDirectory = Path.GetDirectoryName(executable)!
                 }) ?? throw new InvalidOperationException("The browser helper did not start.");
             }
 
             await connection;
             var hello = await BrowserWire.ReadAsync(pipe, budget.Token);
-            if (hello.Kind != "hello" || !BrowserNative.GetNamedPipeClientProcessId(pipe.SafePipeHandle, out var clientId)
-                || hello.ProcessId != clientId || !BrowserNative.IsMediumIntegrity(hello.ProcessId))
+            if (hello.Kind != "hello" || !BrowserNative.GetNamedPipeClientProcessId(pipe.SafePipeHandle,
+                                          out var clientId)
+                                      || hello.ProcessId != clientId ||
+                                      !BrowserNative.IsMediumIntegrity(hello.ProcessId))
             {
                 throw new InvalidDataException("The browser helper identity or integrity could not be verified.");
             }
@@ -430,7 +461,8 @@ internal sealed class BrowserSession : IDisposable
             _child = (nint)hello.Handle;
             BrowserNative.Attach(_child, _viewport, helper.Id);
             Resize(_width, _height);
-            await SendAsync(pipe, new BrowserPacket { Kind = "open", Visible = !_covered, Zoom = _options.ZoomFactor }, token);
+            await SendAsync(pipe, new BrowserPacket { Kind = "open", Visible = !_covered, Zoom = _options.ZoomFactor },
+                token);
             token.ThrowIfCancellationRequested();
             if (!_active || _disposed)
             {
@@ -642,7 +674,7 @@ internal sealed class BrowserSession : IDisposable
         _unreleasedHelper = null;
         if (pipe is null && helper is null && _startup.IsCompleted)
         {
-            if (_cleanup.IsCompleted)
+            if (ShutdownCompletion.IsCompleted)
             {
                 Lifecycle = BrowserLifecycle.NotCreated;
             }
@@ -653,7 +685,7 @@ internal sealed class BrowserSession : IDisposable
 
         Lifecycle = BrowserLifecycle.Destroying;
         Address = BrowserNavigation.Home;
-        _cleanup = ReleaseAsync(pipe, helper, _startup);
+        ShutdownCompletion = ReleaseAsync(pipe, helper, _startup);
         Notify();
     }
 
@@ -755,20 +787,8 @@ internal sealed class BrowserSession : IDisposable
         }
     }
 
-    private void Notify() => Changed?.Invoke();
-
-    public void Dispose()
+    private void Notify()
     {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        _active = false;
-        Destroy();
-        Changed = null;
-        ChromeFocusRequested = null;
-        KeyboardRequested = null;
+        Changed?.Invoke();
     }
 }

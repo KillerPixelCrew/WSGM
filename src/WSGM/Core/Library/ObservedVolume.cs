@@ -19,7 +19,7 @@ public sealed record ObservedVolume(string VolumeId, string Mount, string Name, 
     /// <summary>Whether this volume is the card a binding names, by volume or by the card's own identity.</summary>
     public bool Holds(ShortcutBinding binding)
     {
-        return VolumeId.Length > 0 && string.Equals(VolumeId, binding.VolumeId, StringComparison.OrdinalIgnoreCase)
-               || CardId.Length > 0 && string.Equals(CardId, binding.CardId, StringComparison.OrdinalIgnoreCase);
+        return (VolumeId.Length > 0 && string.Equals(VolumeId, binding.VolumeId, StringComparison.OrdinalIgnoreCase))
+               || (CardId.Length > 0 && string.Equals(CardId, binding.CardId, StringComparison.OrdinalIgnoreCase));
     }
 }

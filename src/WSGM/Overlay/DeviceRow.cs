@@ -12,13 +12,25 @@ namespace WSGM.Overlay;
 /// </remarks>
 internal abstract record DeviceRow(string Key)
 {
+    /// <summary>Whether the row counts on the section rail; captions and previews do not.</summary>
+    internal virtual bool Counts => true;
+
     /// <summary>Whether a control drawn for <paramref name="drawn" /> can show this row by refreshing its value.</summary>
     /// <param name="drawn">The row the control was built from.</param>
     /// <returns>True when kind, key and every layout property match; values never take part.</returns>
     internal abstract bool SameLayoutAs(DeviceRow drawn);
 
-    /// <summary>Whether the row counts on the section rail; captions and previews do not.</summary>
-    internal virtual bool Counts => true;
+    /// <summary>Whether a descriptor control can show <paramref name="next" /> by refreshing its value.</summary>
+    /// <remarks>
+    ///     Whether a row can be invoked decides between an action button and a reading only for a row
+    ///     without an editor; a choice or slider just enables or disables.
+    /// </remarks>
+    private static bool SameDescriptorLayout(DescriptorRow next, DescriptorRow drawn, bool choice)
+    {
+        return next.Id == drawn.Id && next.Title == drawn.Title && next.Range == drawn.Range
+               && next.Options.SequenceEqual(drawn.Options)
+               && (choice || next.Range is not null || next.Options.Count > 0 || next.CanInvoke == drawn.CanInvoke);
+    }
 
     /// <summary>A device or graphics capability.</summary>
     /// <param name="Value">The published row.</param>
@@ -33,7 +45,7 @@ internal abstract record DeviceRow(string Key)
         /// <remarks>Compact readings share a line more tightly; primary ones and anything that writes span the row.</remarks>
         internal double? ReadingWidth =>
             !Value.Writable && !Value.SupportsAction && Value.ValueKind != CapabilityValueKind.None
-                                && Value.Prominence != CapabilityProminence.Primary
+            && Value.Prominence != CapabilityProminence.Primary
                 ? Value.Prominence == CapabilityProminence.Compact ? 112 : 160
                 : null;
 
@@ -55,7 +67,8 @@ internal abstract record DeviceRow(string Key)
         {
             return drawn is Host other && SameDescriptorLayout(Value, other.Value, Selection is not null)
                                        && Selection is null == other.Selection is null
-                                       && (Selection is null || Selection.Choices.SequenceEqual(other.Selection!.Choices));
+                                       && (Selection is null ||
+                                           Selection.Choices.SequenceEqual(other.Selection!.Choices));
         }
     }
 
@@ -111,17 +124,5 @@ internal abstract record DeviceRow(string Key)
                                                && Value.Detail == other.Value.Detail
                                                && Value.InputTestAvailable == other.Value.InputTestAvailable;
         }
-    }
-
-    /// <summary>Whether a descriptor control can show <paramref name="next" /> by refreshing its value.</summary>
-    /// <remarks>
-    ///     Whether a row can be invoked decides between an action button and a reading only for a row
-    ///     without an editor; a choice or slider just enables or disables.
-    /// </remarks>
-    private static bool SameDescriptorLayout(DescriptorRow next, DescriptorRow drawn, bool choice)
-    {
-        return next.Id == drawn.Id && next.Title == drawn.Title && next.Range == drawn.Range
-               && next.Options.SequenceEqual(drawn.Options)
-               && (choice || next.Range is not null || next.Options.Count > 0 || next.CanInvoke == drawn.CanInvoke);
     }
 }

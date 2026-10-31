@@ -6,7 +6,12 @@ namespace WSGM.Shell;
 /// <param name="SteamAppId">The Steam app id whose overlay hosts Notes, or zero for WSGM's overlay.</param>
 /// <param name="Description">The application or desktop, for messages and the log.</param>
 /// <param name="Monitor">The desktop display to capture, or zero for an application window.</param>
-internal sealed record NotesCaptureTarget(uint ProcessId, nint Window, uint SteamAppId, string Description, nint Monitor = 0)
+internal sealed record NotesCaptureTarget(
+    uint ProcessId,
+    nint Window,
+    uint SteamAppId,
+    string Description,
+    nint Monitor = 0)
 {
     /// <summary>Whether the target is a desktop display rather than an application window.</summary>
     internal bool IsDesktop => Monitor != 0;

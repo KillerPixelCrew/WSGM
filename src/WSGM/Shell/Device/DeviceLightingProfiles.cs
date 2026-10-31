@@ -35,8 +35,8 @@ internal sealed class DeviceLightingProfiles
     private readonly Action<Task, string> _observe;
     private readonly ProfileService _profiles;
     private readonly Func<bool?> _readOnAcPower;
-    private readonly SemaphoreSlim _reconcileGate;
     private readonly Func<string, CancellationToken, bool, Task> _reconcileDesiredValues;
+    private readonly SemaphoreSlim _reconcileGate;
     private readonly Func<HandheldDeviceRuntime?> _runtime;
     private readonly Func<DeviceCycleState> _state;
     private readonly Func<bool> _userCommandsInFlight;
@@ -290,8 +290,8 @@ internal sealed class DeviceLightingProfiles
         }
 
         var profile = _activeProfileScope()?.Profiles.FirstOrDefault(item => item.ProfileId == selected.Value
-                                                                            && item.CapabilityId ==
-                                                                            CapabilityIds.LightingColor);
+                                                                             && item.CapabilityId ==
+                                                                             CapabilityIds.LightingColor);
         if (profile?.Color is not (>= 0 and <= 0xFFFFFF))
         {
             SetStatus(
@@ -423,33 +423,33 @@ internal sealed class DeviceLightingProfiles
 
         Restore.Reset();
         _observe(Task.Run(async () =>
-        {
-            await _reconcileGate.WaitAsync(_lifetime).ConfigureAwait(false);
-            try
             {
-                await ReconcileProfileAsync(_profiles.Current, _lifetime,
-                    restoreAccepted: true).ConfigureAwait(false);
-                foreach (var view in _capabilities.Snapshot().Where(view =>
-                             DeviceLightingRestore.IsLighting(view.Descriptor.Role)
-                             && !OwnsProfile(view)))
+                await _reconcileGate.WaitAsync(_lifetime).ConfigureAwait(false);
+                try
                 {
-                    if (!view.Projection.State.Available || view.Projection.DesiredValue is not { } desired
-                                                         || DeviceDesiredWriteAdmission.RepeatsUncertain(view,
-                                                             desired)
-                                                         || view.Projection.PendingValue is not null)
+                    await ReconcileProfileAsync(_profiles.Current, _lifetime,
+                        restoreAccepted: true).ConfigureAwait(false);
+                    foreach (var view in _capabilities.Snapshot().Where(view =>
+                                 DeviceLightingRestore.IsLighting(view.Descriptor.Role)
+                                 && !OwnsProfile(view)))
                     {
-                        continue;
-                    }
+                        if (!view.Projection.State.Available || view.Projection.DesiredValue is not { } desired
+                                                             || DeviceDesiredWriteAdmission.RepeatsUncertain(view,
+                                                                 desired)
+                                                             || view.Projection.PendingValue is not null)
+                        {
+                            continue;
+                        }
 
-                    await _execute(view.Descriptor.CapabilityId, view.Descriptor.InstanceId, desired,
-                        CapabilityCommandOrigin.DesiredStateRestore, false, _lifetime).ConfigureAwait(false);
+                        await _execute(view.Descriptor.CapabilityId, view.Descriptor.InstanceId, desired,
+                            CapabilityCommandOrigin.DesiredStateRestore, false, _lifetime).ConfigureAwait(false);
+                    }
                 }
-            }
-            finally
-            {
-                _reconcileGate.Release();
-            }
-        }), $"lighting restore after {reason}");
+                finally
+                {
+                    _reconcileGate.Release();
+                }
+            }), $"lighting restore after {reason}");
     }
 
     /// <summary>Starts one lighting-only desired-value pass once a lighting zone can be restored.</summary>

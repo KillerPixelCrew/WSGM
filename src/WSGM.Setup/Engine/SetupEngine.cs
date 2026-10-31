@@ -416,7 +416,8 @@ internal sealed class SetupEngine : IDisposable
     {
         var support = Offers?.Handheld;
         return choices.HandheldDefinitionId is not null && choices.HandheldDefinitionId == support?.Definition.Id
-                                                        && (support.Definition.HardwareAccess & DeviceHardwareAccess.IntelKx) != 0;
+                                                        && (support.Definition.HardwareAccess &
+                                                            DeviceHardwareAccess.IntelKx) != 0;
     }
 
     /// <summary>Whether the controller stack must be installed because it is missing.</summary>
@@ -440,9 +441,13 @@ internal sealed class SetupEngine : IDisposable
             // Mandatory for this model: its KX power path cannot load HwRwDrv otherwise.
             choices = choices with
             {
-                Compatibility = choices.Compatibility with { DisableMemoryIntegrity = true, DisableDriverBlocklist = true }
+                Compatibility = choices.Compatibility with
+                {
+                    DisableMemoryIntegrity = true, DisableDriverBlocklist = true
+                }
             };
         }
+
         List<SetupStep> steps = [];
         if (choices.Compatibility.CreateRestorePoint)
         {
@@ -451,6 +456,7 @@ internal sealed class SetupEngine : IDisposable
             steps.Add(new SetupStep("Creating a Windows restore point", "Windows restore point created", false,
                 step => CreateRestorePoint(step)));
         }
+
         if (Legacy is { } legacy)
         {
             steps.Add(new SetupStep("Removing WSGM " + legacy.Version, "WSGM " + legacy.Version + " removed", true,
@@ -467,6 +473,7 @@ internal sealed class SetupEngine : IDisposable
                 return true;
             }));
         }
+
         steps.Add(new SetupStep("Copying WSGM", $"WSGM {Display(ThisVersion)} installed", true,
             step => InstallApplication(step, controller)));
         steps.Add(new SetupStep("Keeping this setup for repair and uninstall", "Setup stored for repair", true,
@@ -485,14 +492,17 @@ internal sealed class SetupEngine : IDisposable
         {
             steps.Add(ProtectionStep("Memory Integrity", DriverCompatibility.DisableMemoryIntegrity));
         }
+
         if (choices.Compatibility.DisableDriverBlocklist)
         {
             steps.Add(ProtectionStep("Vulnerable-driver blocklist", DriverCompatibility.DisableDriverBlocklist));
         }
+
         if (choices.Compatibility.DisableControlFlowGuard)
         {
             steps.Add(ProtectionStep("System Control Flow Guard", DriverCompatibility.DisableControlFlowGuard));
         }
+
         if (controller)
         {
             steps.Add(UsbipStep(false));
@@ -601,6 +611,7 @@ internal sealed class SetupEngine : IDisposable
                 step.DoneLabel = name + " already off";
                 step.State = StepState.Skipped;
             }
+
             return true;
         });
     }
@@ -635,7 +646,8 @@ internal sealed class SetupEngine : IDisposable
             });
         }
 
-        steps.Add(new SetupStep("Restoring Windows protections and exclusions", "Windows protections and exclusions restored", false,
+        steps.Add(new SetupStep("Restoring Windows protections and exclusions",
+            "Windows protections and exclusions restored", false,
             step => Fail(step, DriverCompatibility.Restore(),
                 "Some protection settings could not be restored. The recovery record was retained.")));
         if (choices.RemoveHidHide && Components.HidHide)
@@ -833,7 +845,7 @@ internal sealed class SetupEngine : IDisposable
             return false;
         }
 
-        var blockers = _runtime.Blockers(includeSteam: true);
+        var blockers = _runtime.Blockers(true);
         if (blockers.Count > 0)
         {
             step.Note = blockers.Count == 1
@@ -1103,6 +1115,7 @@ internal sealed class SetupEngine : IDisposable
                 RestartRequired = true;
                 step.Note = "Restart Windows to finish turning off the other handheld manager's shortcuts and helpers.";
             }
+
             return Fail(step, result is 0 or SessionProtocolNames.RestartRequired,
                 "WSGM could not apply your choices; see wsgm.log.");
         }
@@ -1246,7 +1259,8 @@ internal sealed class SetupEngine : IDisposable
                 if (!RtssInstaller.TryDownload(new SocketsHttpHandler(), download, installer,
                         RtssInstaller.BodyStallTimeout, out var problem))
                 {
-                    step.Note = $"Setup could not download HidHide ({problem}). Connect to the internet and run Repair. Steam may show duplicate controllers until HidHide is installed.";
+                    step.Note =
+                        $"Setup could not download HidHide ({problem}). Connect to the internet and run Repair. Steam may show duplicate controllers until HidHide is installed.";
                     return false;
                 }
             }
@@ -1258,7 +1272,8 @@ internal sealed class SetupEngine : IDisposable
                 }
                 catch (FileNotFoundException)
                 {
-                    step.Note = "This setup is missing the bundled HidHide installer. Use a complete offline setup, or install HidHide and run Repair.";
+                    step.Note =
+                        "This setup is missing the bundled HidHide installer. Use a complete offline setup, or install HidHide and run Repair.";
                     return false;
                 }
             }
@@ -1267,14 +1282,16 @@ internal sealed class SetupEngine : IDisposable
             if (!Convert.ToHexString(SHA256.HashData(verified)).Equals(
                     component.GetProperty("assetSha256").GetString(), StringComparison.OrdinalIgnoreCase))
             {
-                step.Note = "The HidHide checksum does not match this setup's pin, so setup did not run it. Use a complete WSGM setup.";
+                step.Note =
+                    "The HidHide checksum does not match this setup's pin, so setup did not run it. Use a complete WSGM setup.";
                 return false;
             }
 
             if (AuthenticodeSignature.Verify(installer, verified.SafeFileHandle,
                     component.GetProperty("signerThumbprint").GetString()!) is { } signatureProblem)
             {
-                step.Note = $"The HidHide installer signature is invalid ({signatureProblem}), so setup did not run it. Use a complete WSGM setup.";
+                step.Note =
+                    $"The HidHide installer signature is invalid ({signatureProblem}), so setup did not run it. Use a complete WSGM setup.";
                 return false;
             }
 
@@ -1284,7 +1301,7 @@ internal sealed class SetupEngine : IDisposable
         {
             try
             {
-                Directory.Delete(stage, recursive: true);
+                Directory.Delete(stage, true);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -1306,6 +1323,7 @@ internal sealed class SetupEngine : IDisposable
             Components.Write(ComponentsFile);
             RestartRequired |= code == SessionProtocolNames.RestartRequired;
         }
+
         return Fail(step, code is 0 or SessionProtocolNames.RestartRequired,
             $"HidHide setup exited with code {code}. Steam may show duplicate controllers until it is installed.");
     }
@@ -1544,6 +1562,7 @@ internal sealed class SetupEngine : IDisposable
         {
             RollbackIncomplete = true;
         }
+
         try
         {
             if (_shutdownApplied && !_runtime.StopService())

@@ -139,7 +139,7 @@ public partial class OverlayWindow
 
             // Nested pages retain focus ownership while one is open.
             if (ActiveSubView is { } nested && FocusSearch.First<Button>(nested.Host, IsFocusableButton) is
-                { } nestedButton)
+                    { } nestedButton)
             {
                 return nestedButton;
             }
@@ -591,7 +591,7 @@ public partial class OverlayWindow
         // Quick access and the Device page's widget toggles are not kept current while hidden, so
         // they are drawn each time they show.
         RenderPins();
-        RefreshPluginWidgets(device: true, plugins: false);
+        RefreshPluginWidgets(true, false);
         RestoreDestinationState(restoreFocus);
         RefreshWorkspace();
         SelectRememberedSection(restoreFocus);

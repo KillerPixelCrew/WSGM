@@ -23,9 +23,9 @@ namespace WSGM.Shell;
 /// </remarks>
 internal sealed class NotesCaptureTransaction
 {
-    private readonly Func<string, byte[], int, int, NoteEditResult> _insert;
     private readonly Action _changed;
     private readonly Lock _gate = new();
+    private readonly Func<string, byte[], int, int, NoteEditResult> _insert;
     private CancellationTokenSource? _active;
     private string? _cancelReason;
     private NotesCaptureStatus _status = NotesCaptureStatus.None;
@@ -185,7 +185,9 @@ internal sealed class NotesCaptureTransaction
 
         if (!await ports.Surface.ReturnToGameAsync(target, token).ConfigureAwait(false))
         {
-            return target.IsDesktop ? "WSGM could not return you to the desktop." : "WSGM could not return you to the game.";
+            return target.IsDesktop
+                ? "WSGM could not return you to the desktop."
+                : "WSGM could not return you to the game.";
         }
 
         for (var remaining = seconds; remaining > 0; remaining--)
@@ -214,7 +216,8 @@ internal sealed class NotesCaptureTransaction
         var frame = await ports.Capture(target, CancellationToken.None).ConfigureAwait(false);
         if (frame.Image is null)
         {
-            return frame.Error ?? (target.IsDesktop ? "The desktop could not be captured." : "The game could not be captured.");
+            return frame.Error ??
+                   (target.IsDesktop ? "The desktop could not be captured." : "The game could not be captured.");
         }
 
         var result = _insert(pageId, frame.Image, frame.Width, frame.Height);

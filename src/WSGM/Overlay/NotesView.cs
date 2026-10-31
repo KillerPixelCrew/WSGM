@@ -57,18 +57,18 @@ public sealed class NotesView : ServiceSubView
     private readonly Stack<InkStep> _redo = new();
     private readonly Stack<InkStep> _undo = new();
     private NotesCanvas? _canvas;
+    private int _columns = 2;
     private StackPanel? _details;
-    private StackPanel? _tools;
     private NotesCurrentGame _game = NotesCurrentGame.NoGame;
+    private string _inkColor = "#FFFFFF";
+    private NotesInkTool _inkTool = NotesInkTool.Pen;
+    private double _inkWidth = 6;
     private NotePage? _page;
     private StackPanel? _pageRoot;
     private string? _pendingConflict;
     private NotesService? _service;
-    private string _inkColor = "#FFFFFF";
-    private NotesInkTool _inkTool = NotesInkTool.Pen;
-    private double _inkWidth = 6;
+    private StackPanel? _tools;
     private TopLevel? _window;
-    private int _columns = 2;
 
     /// <summary>Keeps the notebook and editor fitted to the current Overlay window.</summary>
     public NotesView()
@@ -101,6 +101,12 @@ public sealed class NotesView : ServiceSubView
         };
     }
 
+    /// <summary>Starts an Add Screenshot from this overlay for a page; set by the overlay controller.</summary>
+    internal Func<string, int, SteamUiCommandResult>? StartCapture { get; set; }
+
+    /// <inheritdoc />
+    protected override string LogScope => "Notes";
+
     private void WindowResized(object? sender, SizeChangedEventArgs args)
     {
         if (_canvas is not null)
@@ -108,12 +114,6 @@ public sealed class NotesView : ServiceSubView
             SizeCanvas();
         }
     }
-
-    /// <summary>Starts an Add Screenshot from this overlay for a page; set by the overlay controller.</summary>
-    internal Func<string, int, SteamUiCommandResult>? StartCapture { get; set; }
-
-    /// <inheritdoc />
-    protected override string LogScope => "Notes";
 
     /// <summary>Follows the session's Notes owner, or none with null.</summary>
     /// <param name="service">
@@ -221,7 +221,8 @@ public sealed class NotesView : ServiceSubView
         var title = service.NotebookTitle(scope);
         var body = NewStack("Notes");
         body.Children.Add(ChoiceRow("Notebook", service.ReadNotebooks(_game)
-            .Select(book => (book.Scope, book.Title + (book.Scope == _game.Scope ? " · Running now" : ""))).ToArray(), scope,
+                .Select(book => (book.Scope, book.Title + (book.Scope == _game.Scope ? " · Running now" : "")))
+                .ToArray(), scope,
             selected =>
             {
                 NavigationStack.Clear();
@@ -234,38 +235,49 @@ public sealed class NotesView : ServiceSubView
         var grid = new UniformGrid { Columns = _columns, Tag = "notes.library:" + _columns };
         foreach (var summary in pages)
         {
-            var card = new StackPanel { Spacing = 0, Margin = new Thickness(0, 0, 12, 12), Tag = "notes.card:" + summary.Id };
+            var card = new StackPanel
+                { Spacing = 0, Margin = new Thickness(0, 0, 12, 12), Tag = "notes.card:" + summary.Id };
             var preview = new StackPanel { Spacing = 10, Margin = new Thickness(18) };
             var kind = summary.ReadOnly ? "READ ONLY" : summary.Pinned ? "PINNED PAGE" : "NOTE PAGE";
             preview.Children.Add(SectionLabel(kind));
             preview.Children.Add(new TextBlock
             {
-                Text = summary.Preview.Length > 0 ? summary.Preview : summary.Images > 0 ? "Screenshots and annotations"
+                Text = summary.Preview.Length > 0 ? summary.Preview
+                    : summary.Images > 0 ? "Screenshots and annotations"
                     : summary.Strokes > 0 ? "Handwritten notes" : "A fresh page for your next idea",
-                FontSize = 17, TextWrapping = TextWrapping.Wrap, MaxLines = 4, TextTrimming = TextTrimming.CharacterEllipsis
+                FontSize = 17, TextWrapping = TextWrapping.Wrap, MaxLines = 4,
+                TextTrimming = TextTrimming.CharacterEllipsis
             });
-            var cover = new Border { Child = preview, Height = 142, CornerRadius = new CornerRadius(8, 8, 0, 0), ClipToBounds = true };
+            var cover = new Border
+                { Child = preview, Height = 142, CornerRadius = new CornerRadius(8, 8, 0, 0), ClipToBounds = true };
             cover.Bind(Border.BackgroundProperty, cover.GetResourceObservable("DeckGroupBrush"));
             card.Children.Add(cover);
-            var detail = string.Join(" · ", new[] { Count(summary.Texts, "text block"), Count(summary.Images, "image"),
-                summary.Strokes > 0 ? "Ink" : null }.Where(part => part is not null));
+            var detail = string.Join(" · ", new[]
+            {
+                Count(summary.Texts, "text block"), Count(summary.Images, "image"),
+                summary.Strokes > 0 ? "Ink" : null
+            }.Where(part => part is not null));
             card.Children.Add(Tagged(Row(summary.Title, detail.Length > 0 ? detail : "Empty page", null,
                 () => Navigate(() => RenderPage(summary.Id))), "notes.page:" + summary.Id));
-            card.Children.Add(Caption("Edited " + summary.Modified.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)));
+            card.Children.Add(Caption("Edited " +
+                                      summary.Modified.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)));
             grid.Children.Add(card);
         }
 
         if (pages.Count == 0)
         {
             var empty = new StackPanel { Spacing = 14, Margin = new Thickness(24, 36) };
-            empty.Children.Add(new TextBlock { Text = "Your notebook starts here", FontSize = 24, FontWeight = FontWeight.SemiBold });
-            empty.Children.Add(Caption($"Create a page in {title} for text, drawings and game screenshots. Changes stay on this PC."));
+            empty.Children.Add(new TextBlock
+                { Text = "Your notebook starts here", FontSize = 24, FontWeight = FontWeight.SemiBold });
+            empty.Children.Add(Caption(
+                $"Create a page in {title} for text, drawings and game screenshots. Changes stay on this PC."));
             body.Children.Add(empty);
         }
         else
         {
             body.Children.Add(grid);
         }
+
         SetContent(body);
     }
 
@@ -275,7 +287,8 @@ public sealed class NotesView : ServiceSubView
         {
             return _game.State switch
             {
-                NotesGameState.Unknown => $"Global notes. {_game.Detail} Nothing is saved to a game's notebook until it is known.",
+                NotesGameState.Unknown =>
+                    $"Global notes. {_game.Detail} Nothing is saved to a game's notebook until it is known.",
                 NotesGameState.Game => $"Global notes. {_game.Title} has its own notebook under Switch notebook.",
                 _ => "Global notes, not tied to any game."
             };
@@ -347,6 +360,7 @@ public sealed class NotesView : ServiceSubView
             {
                 SetContent(_pageRoot);
             }
+
             return;
         }
 
@@ -383,7 +397,8 @@ public sealed class NotesView : ServiceSubView
 
     private void RenderDetails()
     {
-        if (_details is null || _tools is null || _canvas is null || _page is not { } page || _service is not { } service)
+        if (_details is null || _tools is null || _canvas is null || _page is not { } page ||
+            _service is not { } service)
         {
             return;
         }
@@ -396,6 +411,7 @@ public sealed class NotesView : ServiceSubView
         {
             heading.Text = page.Title;
         }
+
         if (_pendingConflict is { } conflict)
         {
             _tools.Children.Add(Tagged(Caption(conflict), "notes.conflict"));
@@ -450,7 +466,8 @@ public sealed class NotesView : ServiceSubView
                 Command("notes.undo", "Undo", _undo.Count > 0 ? Undo : null),
                 Command("notes.redo", "Redo", _redo.Count > 0 ? Redo : null),
                 Command("notes.clear", "Clear ink…", page.Strokes.Count > 0 ? ConfirmClearInk : null)));
-            var widthChoice = ChoiceRow("Width", Widths.Select(width => (width.Width, width.Name)).ToArray(), _inkWidth, SetWidth);
+            var widthChoice = ChoiceRow("Width", Widths.Select(width => (width.Width, width.Name)).ToArray(), _inkWidth,
+                SetWidth);
             widthChoice.Width = 240;
             widthChoice.Margin = new Thickness(0, 0, 8, 8);
             _tools.Children.Add(CommandStrip([
@@ -470,8 +487,8 @@ public sealed class NotesView : ServiceSubView
         SizeCanvas();
 
         if (focusedTag is not null && _tools.GetLogicalDescendants().Concat(_details.GetLogicalDescendants())
-                .OfType<Control>().FirstOrDefault(control => Equals(control.Tag, focusedTag) && control.Focusable)
-            is { } refocus)
+                    .OfType<Control>().FirstOrDefault(control => Equals(control.Tag, focusedTag) && control.Focusable)
+                is { } refocus)
         {
             refocus.Focus(NavigationMethod.Directional);
         }
@@ -518,11 +535,13 @@ public sealed class NotesView : ServiceSubView
 
         _page = page;
         var body = NewStack("Page options");
-        body.Children.Add(Caption($"{service.NotebookTitle(page.Scope)} · Saved on this PC · {page.Modified.ToLocalTime():g}"));
+        body.Children.Add(
+            Caption($"{service.NotebookTitle(page.Scope)} · Saved on this PC · {page.Modified.ToLocalTime():g}"));
         body.Children.Add(Tagged(Row("Page contents", $"{page.Elements.Count} items", Icons.ListLines,
             () => Navigate(RenderContents)), "notes.contents"));
-        if (_canvas?.SelectedElement is { } selectedId && page.Elements.Find(item => item.Id == selectedId) is { } selected
-            && !service.IsReadOnly(page.Id))
+        if (_canvas?.SelectedElement is { } selectedId && page.Elements.Find(item => item.Id == selectedId) is
+                                                           { } selected
+                                                       && !service.IsReadOnly(page.Id))
         {
             if (selected.Kind == NoteElement.TextKind)
             {
@@ -533,11 +552,14 @@ public sealed class NotesView : ServiceSubView
             body.Children.Add(Tagged(Row("Arrange selection", "Move, resize, bring to front or remove", Icons.Grid4,
                 () => Navigate(RenderSelection)), "notes.selection.arrange"));
         }
+
         if (!service.IsReadOnly(page.Id))
         {
             body.Children.Add(Tagged(Row("Rename page", page.Title, Icons.Keyboard, EditTitle), "notes.title"));
-            body.Children.Add(Tagged(Row(page.Pinned ? "Unpin page" : "Pin page", "Pinned pages stay at the top", Icons.Pin,
-                () => Run(_ => Task.FromResult(service.SetPinned(page.Id, !page.Pinned).ToCommandResult()))), "notes.pin"));
+            body.Children.Add(Tagged(Row(page.Pinned ? "Unpin page" : "Pin page", "Pinned pages stay at the top",
+                    Icons.Pin,
+                    () => Run(_ => Task.FromResult(service.SetPinned(page.Id, !page.Pinned).ToCommandResult()))),
+                "notes.pin"));
             body.Children.Add(CommandStrip(
                 Command("notes.move.up", "Move page up",
                     () => Run(_ => Task.FromResult(service.MovePage(page.Id, -1).ToCommandResult()))),
@@ -573,7 +595,9 @@ public sealed class NotesView : ServiceSubView
     {
         if (_canvas is not null)
         {
-            _canvas.Height = Math.Clamp((_window?.Bounds.Height ?? 800) - (_canvas.Mode == NotesCanvasMode.Ink ? 470 : 430), 180, 430);
+            _canvas.Height =
+                Math.Clamp((_window?.Bounds.Height ?? 800) - (_canvas.Mode == NotesCanvasMode.Ink ? 470 : 430), 180,
+                    430);
         }
     }
 
@@ -586,7 +610,8 @@ public sealed class NotesView : ServiceSubView
         }
 
         var revision = page.Revision;
-        target.Children.Add(SectionLabel(element.Kind == NoteElement.ImageKind ? "Selected screenshot" : "Selected text"));
+        target.Children.Add(
+            SectionLabel(element.Kind == NoteElement.ImageKind ? "Selected screenshot" : "Selected text"));
         if (element.Kind == NoteElement.TextKind)
         {
             target.Children.Add(Tagged(PrimaryRow("Edit text", FirstLine(element.Text), Icons.Keyboard,
@@ -602,10 +627,12 @@ public sealed class NotesView : ServiceSubView
             Command("notes.selection.bigger", "Bigger", () => Place(element, 0, 0, 1.15)),
             Command("notes.selection.front", "To front",
                 () => Edit(() => _service!.RaiseElement(page.Id, revision, element.Id)))));
-        target.Children.Add(Tagged(DangerRow(element.Kind == NoteElement.ImageKind ? "Delete screenshot" : "Delete text",
-            "The rest of the page stays", Icons.Close,
-            () => ConfirmCommand("Delete selection", "Remove this item? The rest of the page stays.",
-                _ => Task.FromResult(_service!.RemoveElement(page.Id, revision, element.Id).ToCommandResult()))), "notes.selection.delete"));
+        target.Children.Add(Tagged(DangerRow(
+                element.Kind == NoteElement.ImageKind ? "Delete screenshot" : "Delete text",
+                "The rest of the page stays", Icons.Close,
+                () => ConfirmCommand("Delete selection", "Remove this item? The rest of the page stays.",
+                    _ => Task.FromResult(_service!.RemoveElement(page.Id, revision, element.Id).ToCommandResult()))),
+            "notes.selection.delete"));
     }
 
     private SteamUiCommandResult DeleteAndReturn(NotePage page)
@@ -734,7 +761,8 @@ public sealed class NotesView : ServiceSubView
         var exists = draft.ElementId is null || newest.Elements.Any(item => item.Id == draft.ElementId);
         if (exists)
         {
-            body.Children.Add(Tagged(PrimaryRow(draft.ElementId is null ? "Add my text to the newest version" : "Replace with my text",
+            body.Children.Add(Tagged(PrimaryRow(
+                draft.ElementId is null ? "Add my text to the newest version" : "Replace with my text",
                 "Applies your text to the page as it is now", Icons.CopyDoc,
                 () => Reapply(draft with { BaseRevision = newest.Revision })), "notes.conflict.apply"));
         }
@@ -782,7 +810,8 @@ public sealed class NotesView : ServiceSubView
             return;
         }
 
-        var removed = page.Strokes.Select((stroke, index) => (stroke, index)).Where(item => ids.Contains(item.stroke.Id))
+        var removed = page.Strokes.Select((stroke, index) => (stroke, index))
+            .Where(item => ids.Contains(item.stroke.Id))
             .ToArray();
         if (removed.Length == 0)
         {
@@ -790,7 +819,8 @@ public sealed class NotesView : ServiceSubView
         }
 
         RunEdit(() => _service!.RemoveStrokes(page.Id, page.Revision, ids),
-            () => PushUndo(new InkStep([.. removed.Select(item => item.stroke)], [.. removed.Select(item => item.index)], false)),
+            () => PushUndo(new InkStep([.. removed.Select(item => item.stroke)],
+                [.. removed.Select(item => item.index)], false)),
             newest => _service!.RemoveStrokes(page.Id, newest.Revision, ids));
     }
 
@@ -802,7 +832,8 @@ public sealed class NotesView : ServiceSubView
         }
 
         var strokes = page.Strokes.ToArray();
-        ConfirmCommand("Clear ink", "Remove every drawing on this page? Text and screenshots stay. Undo can bring it back.",
+        ConfirmCommand("Clear ink",
+            "Remove every drawing on this page? Text and screenshots stay. Undo can bring it back.",
             _ =>
             {
                 var result = _service!.RemoveStrokes(page.Id, page.Revision, null);
@@ -966,7 +997,8 @@ public sealed class NotesView : ServiceSubView
                                   + "during the countdown to cancel."));
         body.Children.Add(ChoiceRow("Countdown",
             Enumerable.Range(NoteSettings.MinimumCountdown,
-                NoteSettings.MaximumCountdown - NoteSettings.MinimumCountdown + 1).Select(value => (value, $"{value} seconds"))
+                    NoteSettings.MaximumCountdown - NoteSettings.MinimumCountdown + 1)
+                .Select(value => (value, $"{value} seconds"))
                 .ToArray(), seconds, value => service.SetCountdown(value)));
         body.Children.Add(Tagged(PrimaryRow("Start countdown", "Returns to the app or desktop now", Icons.Play, () =>
         {
@@ -977,7 +1009,8 @@ public sealed class NotesView : ServiceSubView
                 Toast(result.Error ?? "The screenshot could not start.");
             }
         }), "notes.capture.start"));
-        body.Children.Add(Tagged(Row("Cancel", "Stay on this page", Icons.ArrowLeft, () => Back()), "notes.capture.cancel"));
+        body.Children.Add(Tagged(Row("Cancel", "Stay on this page", Icons.ArrowLeft, () => Back()),
+            "notes.capture.cancel"));
         SetContent(body);
     }
 

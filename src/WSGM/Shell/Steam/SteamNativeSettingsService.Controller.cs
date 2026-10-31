@@ -10,6 +10,16 @@ namespace WSGM.Shell;
 
 internal sealed partial class SteamNativeSettingsService
 {
+    /// <summary>
+    ///     Why the controller row is inert, stated as the one cause that can still produce it: the session is running
+    ///     without device integration.
+    /// </summary>
+    internal const string ControllerUnavailableDetail =
+        "Controller management is unavailable: this session is running without device integration.";
+
+    /// <summary>What the controller row adds to its status while a running game holds the target it launched with.</summary>
+    internal const string RestartToRebind = "Restart the application to rebind.";
+
     /// <summary>Adds the Controller page's rumble calibration when a device owner exists.</summary>
     /// <param name="controller">The page's sections, appended in order.</param>
     /// <param name="offer">The read's offered command set.</param>
@@ -69,16 +79,6 @@ internal sealed partial class SteamNativeSettingsService
             }
         }
     }
-
-    /// <summary>
-    ///     Why the controller row is inert, stated as the one cause that can still produce it: the session is running
-    ///     without device integration.
-    /// </summary>
-    internal const string ControllerUnavailableDetail =
-        "Controller management is unavailable: this session is running without device integration.";
-
-    /// <summary>What the controller row adds to its status while a running game holds the target it launched with.</summary>
-    internal const string RestartToRebind = "Restart the application to rebind.";
 
     /// <summary>The managed-controller target, in Quick Access and on the Settings Controller page.</summary>
     /// <param name="controller">The Settings page's sections.</param>

@@ -5,7 +5,10 @@ using WSGM.Device.Sdk.Capabilities;
 namespace WSGM.Overlay;
 
 /// <summary>One page of the Device destination as a description: its rail entry and its groups.</summary>
-/// <param name="RailKey">The stable rail key: <c>device.overview</c>, <c>device.gpu</c> or <c>device.section.plugin.&lt;id&gt;</c>.</param>
+/// <param name="RailKey">
+///     The stable rail key: <c>device.overview</c>, <c>device.gpu</c> or
+///     <c>device.section.plugin.&lt;id&gt;</c>.
+/// </param>
 /// <param name="Title">The rail label.</param>
 /// <param name="Icon">The declared section icon.</param>
 /// <param name="SectionId">The published section the page draws, or null for the Overview and GPU pages.</param>

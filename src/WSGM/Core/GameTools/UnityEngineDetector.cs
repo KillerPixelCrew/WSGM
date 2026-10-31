@@ -26,7 +26,7 @@ internal sealed class UnityEngineDetector : IGameEngineDetector
             evidence.EngineLabel = label;
             evidence.Structural = true;
             evidence.Mark(file.RelativePath, 70, GameRuntimeRole.Game, "Unity player with its " +
-                                                                        Path.GetFileName(data) + " folder");
+                                                                       Path.GetFileName(data) + " folder");
         }
     }
 }

@@ -28,6 +28,9 @@ internal sealed record ScaledResolutionState(
     internal IReadOnlyList<GpuScaledResolution> Resolutions => (Catalog?.Modes ?? [])
         .Distinct().OrderByDescending(mode => mode.Width).ThenByDescending(mode => mode.Height).ToArray();
 
-    internal string ResolutionLabel(GpuScaledResolution mode) => $"{mode.Width} × {mode.Height}"
-        + (mode == Native ? " · native" : "");
+    internal string ResolutionLabel(GpuScaledResolution mode)
+    {
+        return $"{mode.Width} × {mode.Height}"
+               + (mode == Native ? " · native" : "");
+    }
 }

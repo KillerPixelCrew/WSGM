@@ -58,11 +58,11 @@ internal sealed record AudioSnapshot(
                 inputVolume,
                 inputMuted != 0,
                 inputVolumeRevision,
-                IncludedEndpoints: false,
-                OutputResult: 0,
-                Outputs: [],
-                InputResult: 0,
-                Inputs: []);
+                false,
+                0,
+                [],
+                0,
+                []);
         }
 
         var outputResult = CoreAudio.ListEndpoints(CoreAudio.AudioDirection.Render, out var outputs);
@@ -76,7 +76,7 @@ internal sealed record AudioSnapshot(
             inputVolume,
             inputMuted != 0,
             inputVolumeRevision,
-            IncludedEndpoints: true,
+            true,
             outputResult,
             outputs,
             inputResult,

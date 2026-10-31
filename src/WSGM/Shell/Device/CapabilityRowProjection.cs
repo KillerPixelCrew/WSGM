@@ -57,6 +57,7 @@ internal static class CapabilityRowProjection
             displayed = CapabilityValue.Curve(FanCurvePresets.DefaultCurve(presets, descriptor.CurveInputs,
                 descriptor.Minimum ?? 0, descriptor.Maximum ?? 100));
         }
+
         var actionOnlyReady = state is { Available: true, Reason: null, Quality: HardwareStateQuality.Unknown }
                               && descriptor is { SupportsAction: true, SupportsRead: false };
         var current = CapabilityFreshness.CanCommand(state);

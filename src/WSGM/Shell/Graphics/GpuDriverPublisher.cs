@@ -15,7 +15,6 @@ namespace WSGM.Shell;
 internal sealed class GpuDriverPublisher : ICapabilityPublisher, IBuiltinGpuDriver
 {
     private readonly GpuCoordinator _coordinator;
-    private readonly GpuDriver _driver;
     private readonly Lock _gate = new();
     private readonly Dictionary<DeviceCapabilityKey, CapabilityState> _states = [];
     private bool _closed;
@@ -30,17 +29,17 @@ internal sealed class GpuDriverPublisher : ICapabilityPublisher, IBuiltinGpuDriv
     {
         _coordinator = coordinator;
         Definition = definition;
-        _driver = BuiltinGpuDrivers.Create(definition, stateDirectory);
-        _driver.DescriptorsChanged += OnDescriptors;
-        _driver.StateChanged += OnState;
-        _driver.StatusChanged += OnStatus;
+        NativeDriver = BuiltinGpuDrivers.Create(definition, stateDirectory);
+        NativeDriver.DescriptorsChanged += OnDescriptors;
+        NativeDriver.StateChanged += OnState;
+        NativeDriver.StatusChanged += OnStatus;
         _coordinator.OpenBuiltin(this);
     }
 
     internal BuiltinGpuDriver Definition { get; }
 
     /// <summary>Borrowed native owner; source-mode edits use its existing serialized driver lane.</summary>
-    internal GpuDriver NativeDriver => _driver;
+    internal GpuDriver NativeDriver { get; }
 
     /// <summary>Reads physical output identities from the current driver descriptor generation.</summary>
     internal IReadOnlyDictionary<string, GpuDisplayTarget> DisplayTargets
@@ -70,25 +69,25 @@ internal sealed class GpuDriverPublisher : ICapabilityPublisher, IBuiltinGpuDriv
         CloseAdmission();
         try
         {
-            await _driver.DisposeAsync().ConfigureAwait(false);
+            await NativeDriver.DisposeAsync().ConfigureAwait(false);
         }
         finally
         {
-            _driver.DescriptorsChanged -= OnDescriptors;
-            _driver.StateChanged -= OnState;
-            _driver.StatusChanged -= OnStatus;
+            NativeDriver.DescriptorsChanged -= OnDescriptors;
+            NativeDriver.StateChanged -= OnState;
+            NativeDriver.StatusChanged -= OnStatus;
             _coordinator.CloseBuiltin(this);
         }
     }
 
     public ValueTask<GpuHealth> StartAsync(CancellationToken token)
     {
-        return _driver.StartAsync(token);
+        return NativeDriver.StartAsync(token);
     }
 
     public ValueTask RefreshTopologyAsync(CancellationToken token)
     {
-        return _driver.RefreshTopologyAsync(token);
+        return NativeDriver.RefreshTopologyAsync(token);
     }
 
     public void CloseAdmission()
@@ -181,7 +180,7 @@ internal sealed class GpuDriverPublisher : ICapabilityPublisher, IBuiltinGpuDriv
 
     private async Task<CapabilityCommandResult> ExecuteOwnedAsync(CapabilityCommand command, CancellationToken token)
     {
-        var result = await _driver.ExecuteAsync(new GpuCommand
+        var result = await NativeDriver.ExecuteAsync(new GpuCommand
         {
             CapabilityId = command.CapabilityId, InstanceId = command.InstanceId,
             RequestedValue = command.RequestedValue is null ? null : ToLibrary(command.RequestedValue)
@@ -205,7 +204,7 @@ internal sealed class GpuDriverPublisher : ICapabilityPublisher, IBuiltinGpuDriv
             return null;
         }
 
-        var work = _driver.SyncApplicationProfilesAsync(new GpuProfileSync(sync.Revision,
+        var work = NativeDriver.SyncApplicationProfilesAsync(new GpuProfileSync(sync.Revision,
             sync.Profiles.Select(profile => new GpuApplicationProfile(profile.ProfileId, profile.DisplayName,
                 profile.Executables, profile.Values.Select(value => new GpuApplicationValue(value.CapabilityId,
                     value.InstanceId, ToLibrary(value.Value))).ToArray())).ToArray()), cancellationToken).AsTask();

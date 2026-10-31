@@ -27,12 +27,12 @@ internal sealed class GameToolReleases : IDisposable
 
     private static readonly TimeSpan LatestLifetime = TimeSpan.FromHours(6);
     private static readonly TimeSpan FailureLifetime = TimeSpan.FromMinutes(10);
-
-    private readonly string _userRoot;
     private readonly DownloadClient _client;
-    private readonly HostedReleases _releases;
     private readonly Dictionary<string, GameToolLatest> _latest = new(StringComparer.Ordinal);
     private readonly object _latestGate = new();
+    private readonly HostedReleases _releases;
+
+    private readonly string _userRoot;
     private int _swept;
 
     /// <summary>Creates the release owner.</summary>
@@ -69,7 +69,7 @@ internal sealed class GameToolReleases : IDisposable
     internal bool LookupDue(GameToolDefinition tool)
     {
         return Cached(tool) is not { } cached
-               || cached.Release is null && DateTime.UtcNow - cached.CheckedUtc >= FailureLifetime;
+               || (cached.Release is null && DateTime.UtcNow - cached.CheckedUtc >= FailureLifetime);
     }
 
     /// <summary>Looks up the latest release, reusing a recent answer or failure unless forced.</summary>
@@ -126,7 +126,7 @@ internal sealed class GameToolReleases : IDisposable
                 StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidDataException("The published package is not the expected ." + tool.Source.PackageType
-                                           + " archive.");
+                + " archive.");
         }
 
         var identity = string.Join('|', release.Version, release.Asset.Name, sha, release.Asset.Url);
@@ -151,7 +151,7 @@ internal sealed class GameToolReleases : IDisposable
         {
             var archive = Path.Combine(stage, release.Asset.Name);
             await DownloadAsync(release.Asset, archive,
-                copied => progress("Downloading " + tool.Name, copied, release.Asset.Size), cancellationToken)
+                    copied => progress("Downloading " + tool.Name, copied, release.Asset.Size), cancellationToken)
                 .ConfigureAwait(false);
             progress("Extracting", 0, 0);
             var extracted = Path.Combine(stage, "payload");
@@ -269,7 +269,7 @@ internal sealed class GameToolReleases : IDisposable
         // Three transfer attempts on transient failures, and a single verified re-download after a size or
         // hash mismatch. Both are bounded re-fetches of a verified file, not repeated writes to a game.
         var mismatches = 0;
-        for (var attempt = 1; ; attempt++)
+        for (var attempt = 1;; attempt++)
         {
             try
             {

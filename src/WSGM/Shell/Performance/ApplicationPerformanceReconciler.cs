@@ -75,7 +75,9 @@ internal sealed class ApplicationPerformanceReconciler(
         }
 
         var coordinator = readCoordinator();
-        var power = coordinator is null ? null : AutoTdpPowerCapability.FindPrimary(coordinator.Capabilities.Snapshot());
+        var power = coordinator is null
+            ? null
+            : AutoTdpPowerCapability.FindPrimary(coordinator.Capabilities.Snapshot());
         var vrr = FindVariableRefreshCapability();
         // Each value keeps its own identity and records it only once its capability was there to take
         // it. A graphics package publishing variable refresh before the device package publishes its

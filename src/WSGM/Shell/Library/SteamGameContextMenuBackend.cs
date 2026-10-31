@@ -43,12 +43,12 @@ internal sealed class SteamGameContextMenuBackend : ISteamGameContextMenuBackend
     private const string ReservedPrefix = "wsgm.";
 
     private readonly Func<uint, string>? _artworkRoute;
+    private readonly Func<uint, string>? _gameToolsRoute;
     private readonly Func<uint, CancellationToken, Task<SteamUiCommandResult>>? _openArtwork;
+    private readonly Func<uint, CancellationToken, Task<SteamUiCommandResult>>? _openGameTools;
+    private readonly Func<uint, CancellationToken, Task<SteamUiCommandResult>>? _openLaunchActions;
 
     private readonly CommonPluginSteamUiSource? _pluginSteamUi;
-    private readonly Func<uint, CancellationToken, Task<SteamUiCommandResult>>? _openLaunchActions;
-    private readonly Func<uint, CancellationToken, Task<SteamUiCommandResult>>? _openGameTools;
-    private readonly Func<uint, string>? _gameToolsRoute;
 
     /// <summary>Creates the menu over WSGM's artwork browser and an optional plugin source.</summary>
     /// <param name="pluginSteamUi">The admitted-package projection, or null when there is none.</param>
@@ -140,7 +140,8 @@ internal sealed class SteamGameContextMenuBackend : ISteamGameContextMenuBackend
 
         if (_openLaunchActions is not null)
         {
-            items.Add(new SteamGameContextMenuItem(LaunchActionsId, "Launch Actions", SteamLaunchActionsSurface.Template));
+            items.Add(new SteamGameContextMenuItem(LaunchActionsId, "Launch Actions",
+                SteamLaunchActionsSurface.Template));
         }
 
         if (_openGameTools is not null)

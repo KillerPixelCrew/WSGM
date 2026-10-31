@@ -48,7 +48,8 @@ public sealed class AnimationServiceTests : IDisposable
         await service.Completion;
 
         Assert.False(service.ReadState().Busy);
-        Assert.Equal("The movie operation could not be completed. See wsgm.log for details.", service.ReadState().Error);
+        Assert.Equal("The movie operation could not be completed. See wsgm.log for details.",
+            service.ReadState().Error);
         Assert.True((await service.DownloadAsync("calm", CancellationToken.None)).Succeeded);
         await service.Completion;
         Assert.False(service.ReadState().Busy);

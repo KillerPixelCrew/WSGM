@@ -16,14 +16,14 @@ namespace WSGM.Core;
 /// </remarks>
 internal sealed record FanCurvePresetTable(string Name, int[] Quiet, int[] Default, int[] Aggressive)
 {
-    /// <summary>How the software curve is steadied on this device.</summary>
-    internal DeviceFanCurveSmoothing Smoothing { get; init; } = DeviceFanCurveSmoothing.Default;
-
     /// <summary>HandheldCompanion's arrays from <c>IDevice.fanPresets</c>, in its Quiet, Default, Aggressive order.</summary>
     internal static readonly FanCurvePresetTable HandheldCompanion = new("HandheldCompanion",
         [20, 20, 20, 20, 20, 25, 30, 40, 70, 70, 100],
         [20, 20, 20, 30, 40, 50, 70, 80, 90, 100, 100],
         [40, 40, 40, 40, 40, 50, 70, 80, 90, 100, 100]);
+
+    /// <summary>How the software curve is steadied on this device.</summary>
+    internal DeviceFanCurveSmoothing Smoothing { get; init; } = DeviceFanCurveSmoothing.Default;
 
     /// <summary>The samples of one preset.</summary>
     internal int[] Samples(FanCurvePreset preset)

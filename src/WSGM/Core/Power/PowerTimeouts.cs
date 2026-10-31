@@ -9,7 +9,8 @@ namespace WSGM.Core;
 
 /// <summary>
 ///     Reads and writes the active power scheme's display-off, standby and hibernate idle
-///     timeouts, located by Windows Device Control, through the flat powrprof policy API (locale-independent, unlike parsing
+///     timeouts, located by Windows Device Control, through the flat powrprof policy API (locale-independent, unlike
+///     parsing
 ///     <c>powercfg /q</c>). Values are seconds; 0 means Never. Writes go to the active
 ///     scheme and are applied immediately via <c>PowerSetActiveScheme</c> — the same thing
 ///     the Settings app does, so Windows may later replace them (updates, OEM tools);

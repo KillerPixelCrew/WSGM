@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
@@ -19,7 +20,7 @@ public sealed class ProcessorTuningControlsTests
     public void UnknownValuesAndResetResultStayReadableWithoutSendingCommands(bool restartRequired)
     {
         using UiFixture fixture = new();
-        var body = new StackPanel { Spacing = 8, Margin = new Avalonia.Thickness(16) };
+        var body = new StackPanel { Spacing = 8, Margin = new Thickness(16) };
         foreach (var (id, label, min, max, unit) in new[]
                  {
                      ("processor.cpu-curve-all", "CPU all-core curve offset", -24, 12, CapabilityUnit.None),
@@ -45,8 +46,10 @@ public sealed class ProcessorTuningControlsTests
             State = new CapabilityState
             {
                 CapabilityId = descriptor.CapabilityId, Available = true, Quality = HardwareStateQuality.Unknown,
-                Reason = restartRequired ? new CapabilityReason(CapabilityReasonCode.Unsupported,
-                    "Saved processor overrides cleared. Restart Windows to restore firmware defaults for: GPU clock, CPU temperature limit.") : null
+                Reason = restartRequired
+                    ? new CapabilityReason(CapabilityReasonCode.Unsupported,
+                        "Saved processor overrides cleared. Restart Windows to restore firmware defaults for: GPU clock, CPU temperature limit.")
+                    : null
             }
         }, null);
         var reset = CapabilityRowProjection.ToOverlayCapability(view, new HashSet<string>(),

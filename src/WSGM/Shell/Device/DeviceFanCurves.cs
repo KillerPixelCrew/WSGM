@@ -21,9 +21,9 @@ internal sealed class DeviceFanCurves
     private readonly DeviceCapabilityRouter _capabilities;
     private readonly Func<bool> _closed;
     private readonly Func<bool> _integrationEnabled;
-    private readonly Func<FanCurvePresetTable> _presets;
     private readonly CancellationToken _lifetime;
     private readonly Func<RtssOsdMetrics> _metrics;
+    private readonly Func<FanCurvePresetTable> _presets;
     private readonly ProfileService _profiles;
     private readonly Func<HandheldDeviceRuntime?> _runtime;
     private readonly Func<DeviceCycleState> _state;
@@ -93,7 +93,8 @@ internal sealed class DeviceFanCurves
                 }
 
                 var mode = FanModeView(_capabilities.Snapshot(), instance);
-                var automatic = mode?.Descriptor.Choices.FirstOrDefault(choice => choice.Value == FanControlModes.Firmware);
+                var automatic =
+                    mode?.Descriptor.Choices.FirstOrDefault(choice => choice.Value == FanControlModes.Firmware);
                 if (mode is not null && automatic is not null)
                 {
                     var restored = await execute(mode.Descriptor.CapabilityId,
@@ -159,6 +160,7 @@ internal sealed class DeviceFanCurves
         RtssOsdMetrics metrics, DateTimeOffset now)
     {
         var selected = new DeviceFanCurveTemperature(null, DateTimeOffset.MinValue);
+
         void Consider(double? value, DateTimeOffset sampledAt)
         {
             var age = now - sampledAt;
@@ -167,16 +169,22 @@ internal sealed class DeviceFanCurves
             {
                 return;
             }
+
             if (selected.Celsius is null || celsius > selected.Celsius)
             {
                 selected = new DeviceFanCurveTemperature(celsius, sampledAt);
             }
         }
-        if (native is { Available: true, Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified,
-                ObservedAt: { } at })
+
+        if (native is
+            {
+                Available: true, Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified,
+                ObservedAt: { } at
+            })
         {
             Consider(native.ObservedValue?.IntegerValue, at);
         }
+
         Consider(metrics.CpuTemperatureC, metrics.CapturedAt);
         Consider(metrics.GpuTemperatureC, metrics.CapturedAt);
         return selected;
@@ -201,7 +209,7 @@ internal sealed class DeviceFanCurves
         // The editor's Default preset for this device on the software curve's inputs, until the user saves one.
         var effective = curve is { Count: > 0 }
             ? curve
-            : FanCurvePresets.DefaultCurve(table, FanCurvePresets.SoftwareCurveInputs, minimum: 0, maximum: 100);
+            : FanCurvePresets.DefaultCurve(table, FanCurvePresets.SoftwareCurveInputs, 0, 100);
         _runtime()?.SetSoftwareFans([.. fans.Select(fan => fan.InstanceId)], fans.Length > 0 ? effective : curve ?? []);
         return Controller.ConfigureAsync(fans.Length > 0 ? effective : null, fans,
             _integrationEnabled() && _state() is DeviceCycleState.Active or DeviceCycleState.Degraded,
@@ -262,8 +270,8 @@ internal sealed class DeviceFanCurves
 
         var selected = snapshot.Layers.Reference(values => values.FanCurveProfileId);
         var profile = _activeProfileScope()?.Profiles.FirstOrDefault(item => item.ProfileId == selected.Value
-                                                                            && item.CapabilityId ==
-                                                                            CapabilityIds.FanCurve);
+                                                                             && item.CapabilityId ==
+                                                                             CapabilityIds.FanCurve);
         // Every WSGM authored curve uses duty control. Native firmware curves remain library operations.
         if (profile is null)
         {

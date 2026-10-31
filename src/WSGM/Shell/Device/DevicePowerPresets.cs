@@ -312,7 +312,7 @@ internal sealed class DevicePowerPresets(
     private static bool SameTarget(IReadOnlyList<DeviceCapabilityView> views, DevicePowerPreset preset, bool custom)
     {
         return ValidTarget(views, preset, custom) && TryPair(views, out _, out _) && FastCurrent(views)
-                                                  && (preset.ScenarioOnAc is null || Current(ScenarioView(views)));
+               && (preset.ScenarioOnAc is null || Current(ScenarioView(views)));
     }
 
     private static DeviceCapabilityView? ScenarioView(IReadOnlyList<DeviceCapabilityView> views)

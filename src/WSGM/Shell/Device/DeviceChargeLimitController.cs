@@ -15,8 +15,8 @@ internal sealed class DeviceChargeLimitController(
     private bool _failed;
     private int? _limit;
     private Task _loop = Task.CompletedTask;
-    private bool? _written;
     private bool _suspendedByUser;
+    private bool? _written;
 
     public async ValueTask DisposeAsync()
     {

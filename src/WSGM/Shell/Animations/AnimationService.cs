@@ -39,18 +39,18 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     // readers see and a slow movie folder never holds up a publication read. Taken before _sync and
     // never while _sync is held.
     private readonly Lock _libraryWork = new();
+
+    // The movie operation and every background task this service started and has not seen finish:
+    // repository reads, movie downloads and copies, reloads and Steam choice work. The session joins them.
+    private readonly ServiceOperation _operation;
     private readonly Random _random;
     private readonly Func<AnimationsConfig> _readConfig;
+    private readonly AnimationRepoCatalog _repository;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly SteamStartupMovieAccess? _steamChoice;
     private readonly Func<string?> _steamDirectory;
     private readonly Func<bool> _steamRunning;
     private readonly Lock _sync = new();
-
-    // The movie operation and every background task this service started and has not seen finish:
-    // repository reads, movie downloads and copies, reloads and Steam choice work. The session joins them.
-    private readonly ServiceOperation _operation;
-    private readonly AnimationRepoCatalog _repository;
     private readonly Action<Action<AnimationsConfig>> _writeConfig;
     private AnimationsConfig _config;
     private bool _disposed;
@@ -302,6 +302,15 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    /// <inheritdoc />
+    public string? PreviewPath(string id)
+    {
+        lock (_sync)
+        {
+            return _library.Find(id)?.Path;
+        }
+    }
+
     /// <summary>Reads the library, shuffles when asked to, and writes the override before Steam starts.</summary>
     internal void Start()
     {
@@ -450,15 +459,6 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     internal AnimationBrowseSession CreateBrowserSession(string tab)
     {
         return new AnimationBrowseSession(this, _repository, tab);
-    }
-
-    /// <inheritdoc />
-    public string? PreviewPath(string id)
-    {
-        lock (_sync)
-        {
-            return _library.Find(id)?.Path;
-        }
     }
 
     private static SteamAnimationsItem ProjectEntry(AnimationEntry entry)

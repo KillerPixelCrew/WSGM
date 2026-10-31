@@ -27,7 +27,7 @@ public sealed class DeviceIntegrationOffTests
         {
             Enabled = false,
             ControllerManagementEnabled = true
-        }, new ProfileConfig(), definition: null);
+        }, new ProfileConfig(), null);
 
         Assert.False(selection.Enabled);
     }
@@ -39,7 +39,7 @@ public sealed class DeviceIntegrationOffTests
         {
             Enabled = false,
             ControllerManagementEnabled = true
-        }, new ProfileConfig(), definition: null);
+        }, new ProfileConfig(), null);
 
         // Nothing downstream may read a target out of a disabled selection and act on it.
         Assert.False(selection.Enabled);

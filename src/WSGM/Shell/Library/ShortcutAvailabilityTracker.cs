@@ -32,8 +32,8 @@ internal sealed class ShortcutAvailabilityTracker : IAsyncDisposable
     private readonly RemovableDriveManager? _drives;
     private readonly EmulatorManager? _emulators;
     private readonly Lock _gate = new();
-    private readonly Func<CancellationToken, Task<IReadOnlyList<ExistingShortcut>>> _readLibrary;
     private readonly Func<EmulatorStore> _readEmulators;
+    private readonly Func<CancellationToken, Task<IReadOnlyList<ExistingShortcut>>> _readLibrary;
     private readonly CancellationTokenSource _stop = new();
     private readonly ImportStateStore _store;
     private readonly SemaphoreSlim _wake = new(0, 1);
@@ -70,6 +70,16 @@ internal sealed class ShortcutAvailabilityTracker : IAsyncDisposable
 
     /// <summary>The latest published result.</summary>
     internal ShortcutAvailabilitySnapshot Current => Volatile.Read(ref _current);
+
+    public ValueTask DisposeAsync()
+    {
+        lock (_gate)
+        {
+            _disposed = true;
+            _dispose ??= DisposeCoreAsync();
+            return new ValueTask(_dispose);
+        }
+    }
 
     /// <summary>Raised on the worker after a pass changed the published statuses or libraries.</summary>
     internal event Action? Changed;
@@ -126,16 +136,6 @@ internal sealed class ShortcutAvailabilityTracker : IAsyncDisposable
         Request();
         var error = await pass.WaitAsync(cancellationToken).ConfigureAwait(false);
         return error is null ? SteamUiCommandResult.Applied : new SteamUiCommandResult(false, error);
-    }
-
-    public ValueTask DisposeAsync()
-    {
-        lock (_gate)
-        {
-            _disposed = true;
-            _dispose ??= DisposeCoreAsync();
-            return new ValueTask(_dispose);
-        }
     }
 
     private void OnTopologyChanged()
@@ -230,10 +230,13 @@ internal sealed class ShortcutAvailabilityTracker : IAsyncDisposable
         var volumes = ObserveVolumes(context, token);
         var reads = volumes.Where(volume => volume.Removable)
             .ToDictionary(volume => volume.VolumeId, ReadCard, StringComparer.OrdinalIgnoreCase);
-        volumes = [.. volumes.Select(volume => reads.TryGetValue(volume.VolumeId, out var read)
-                                               && read.Manifest is { } manifest
-            ? volume with { CardId = manifest.Id }
-            : volume)];
+        volumes =
+        [
+            .. volumes.Select(volume => reads.TryGetValue(volume.VolumeId, out var read)
+                                        && read.Manifest is { } manifest
+                ? volume with { CardId = manifest.Id }
+                : volume)
+        ];
         var cards = volumes.Where(volume => reads.GetValueOrDefault(volume.VolumeId)?.Manifest is not null)
             .GroupBy(volume => reads[volume.VolumeId].Manifest!.Id, StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -274,7 +277,7 @@ internal sealed class ShortcutAvailabilityTracker : IAsyncDisposable
 
         token.ThrowIfCancellationRequested();
         var changed = !checkedOnce.Equals(previous.Checked) || !statuses.SequenceEqual(previous.Shortcuts)
-                      || !rows.SequenceEqual(previous.Libraries);
+                                                            || !rows.SequenceEqual(previous.Libraries);
         Volatile.Write(ref _current, new ShortcutAvailabilitySnapshot(previous.Revision + (changed ? 1 : 0),
             checkedOnce, statuses, rows, volumes, connected, ambiguous));
         if (changed)
@@ -314,7 +317,8 @@ internal sealed class ShortcutAvailabilityTracker : IAsyncDisposable
                 out var read, out _)
                 ? volume.Label
                 : read;
-            var (name, contentId) = removable ? CardName(volume.VolumeId, label)
+            var (name, contentId) = removable
+                ? CardName(volume.VolumeId, label)
                 : (label.Length > 0 ? label : volume.MountPath.TrimEnd('\\'), "");
             context.UseMount(volume.VolumeId, volume.MountPath);
             volumes.Add(new ObservedVolume(volume.VolumeId, volume.MountPath, name, contentId, removable));
@@ -438,7 +442,7 @@ internal sealed class ShortcutAvailabilityTracker : IAsyncDisposable
                 updated.RepairRequired = false;
             }
             else if (reads.TryGetValue(library.VolumeId, out var read) && read.State != CardState.Present
-                     && read.State != CardState.Unreadable)
+                                                                       && read.State != CardState.Unreadable)
             {
                 // The accepted card is mounted, but its game list is gone or damaged: launching waits for repair.
                 updated.RepairRequired = true;
@@ -463,7 +467,7 @@ internal sealed class ShortcutAvailabilityTracker : IAsyncDisposable
         Dictionary<string, ConnectedCard> connected, ManagedContentCheckContext context, CancellationToken token)
     {
         var legacy = _store.InventoryEntries().Where(entry => entry.Content is { LibraryId.Length: 0 } content
-                                                             && StorageLibraryStorage.IsPortable(content))
+                                                              && StorageLibraryStorage.IsPortable(content))
             .GroupBy(entry => entry.Content!.BackingPath.VolumeId, StringComparer.OrdinalIgnoreCase);
         foreach (var group in legacy)
         {
@@ -489,7 +493,7 @@ internal sealed class ShortcutAvailabilityTracker : IAsyncDisposable
                                 .OfType<StorageLibraryContent>().DistinctBy(entry => entry.Id)
                         ]
                     };
-                    StorageLibraryStorage.Publish(volume.VolumeId, manifest, expectedRevision: null);
+                    StorageLibraryStorage.Publish(volume.VolumeId, manifest, null);
                     library = new StorageLibraryRecord
                     {
                         Id = manifest.Id, Name = volume.Name, VolumeId = volume.VolumeId,
@@ -576,10 +580,13 @@ internal sealed class ShortcutAvailabilityTracker : IAsyncDisposable
                     CardState.Unsupported => new GameLibraryStorage(library.Id, library.Name, "Update WSGM",
                         read.Detail, count, false, false),
                     CardState.Unreadable => new GameLibraryStorage(library.Id, library.Name, "Cannot read",
-                        read.Detail.Length > 0 ? read.Detail : "The card could not be read. Check it, then choose Recheck.",
+                        read.Detail.Length > 0
+                            ? read.Detail
+                            : "The card could not be read. Check it, then choose Recheck.",
                         count, false, false),
                     CardState.Present => new GameLibraryStorage(library.Id, library.Name, "Different card",
-                        "A different library's card is connected here. Insert this library's card.", count, false, false),
+                        "A different library's card is connected here. Insert this library's card.", count, false,
+                        false),
                     _ => new GameLibraryStorage(library.Id, library.Name, "Needs repair",
                         "This card's game list is missing or damaged, so its games cannot start. Repair library "
                         + "rebuilds it from the titles WSGM knows.", count, true, false)
@@ -674,6 +681,7 @@ internal sealed class ShortcutAvailabilityTracker : IAsyncDisposable
         {
             var library = libraries.FirstOrDefault(known => Same(known.Id, content.LibraryId));
             location = library?.Name ?? content.Location;
+
             ShortcutStatus Missing(string detail)
             {
                 return new ShortcutStatus(appId, name, owned, content.Id, content.LibraryId,
@@ -694,7 +702,8 @@ internal sealed class ShortcutAvailabilityTracker : IAsyncDisposable
 
             if (library.RepairRequired && ManagedContentStorage.MountOf(library.VolumeId, context) is not null)
             {
-                return Missing($"{location}'s game list needs repair. Choose Repair library under Storage in Game Library.");
+                return Missing(
+                    $"{location}'s game list needs repair. Choose Repair library under Storage in Game Library.");
             }
         }
 
@@ -734,8 +743,8 @@ internal sealed class ShortcutAvailabilityTracker : IAsyncDisposable
 
             first ??= verdict;
             if (verdict.State != ContentAvailability.Available
-                && (worst is null || verdict.State == ContentAvailability.LibraryMissing
-                    && worst.State != ContentAvailability.LibraryMissing))
+                && (worst is null || (verdict.State == ContentAvailability.LibraryMissing
+                                      && worst.State != ContentAvailability.LibraryMissing)))
             {
                 worst = verdict;
             }

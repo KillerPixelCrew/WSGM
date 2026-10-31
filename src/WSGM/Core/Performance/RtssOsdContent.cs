@@ -133,12 +133,15 @@ internal static class RtssOsdContent
             {
                 value += "/" + Format(slow, "W");
             }
+
             if (status.FastWatts is { } fast)
             {
                 value += "/" + Format(fast, "W");
             }
+
             elements.Add(Element(value, "W"));
         }
+
         return Entry("TDP", TdpColor, indent, elements);
     }
 

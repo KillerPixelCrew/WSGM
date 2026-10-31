@@ -13,9 +13,9 @@ internal static class Program
     private static int Main(string[] args)
     {
         if (args.Length != 4 || !args[0].StartsWith("WSGM.Screensaver.", StringComparison.Ordinal)
-            || !int.TryParse(args[1], CultureInfo.InvariantCulture, out var parentId)
-            || !long.TryParse(args[2], CultureInfo.InvariantCulture, out var parentStarted)
-            || !BrowserNative.IsMediumIntegrity(Environment.ProcessId))
+                             || !int.TryParse(args[1], CultureInfo.InvariantCulture, out var parentId)
+                             || !long.TryParse(args[2], CultureInfo.InvariantCulture, out var parentStarted)
+                             || !BrowserNative.IsMediumIntegrity(Environment.ProcessId))
         {
             return 2;
         }

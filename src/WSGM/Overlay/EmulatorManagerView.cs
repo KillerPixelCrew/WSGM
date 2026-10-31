@@ -237,9 +237,12 @@ public sealed partial class EmulatorManagerView : ServiceSubView
         {
             install.Children.Add(Tagged(Row("Install required runtimes",
                 "Install verified Microsoft components; Windows may request permission",
-                Icons.Grid4, snapshot.Busy ? null : () => Run(token =>
-                    _service!.InstallEmulatorRuntimeDependenciesAsync(definitionId, token))), "emu.runtimes"));
+                Icons.Grid4, snapshot.Busy
+                    ? null
+                    : () => Run(token =>
+                        _service!.InstallEmulatorRuntimeDependenciesAsync(definitionId, token))), "emu.runtimes"));
         }
+
         var setup = Group(body, "Set up from your BIOS folder", "setup");
         setup.Children.Add(Caption(state.Bios.Folder ?? "Choose your BIOS folder on the BIOS & firmware tab."));
         foreach (var prerequisite in definition.Prerequisites)
@@ -309,10 +312,14 @@ public sealed partial class EmulatorManagerView : ServiceSubView
         if (installation.DataPolicy.RequiresVisualCpp || installation.DefinitionId == "model2")
         {
             setup.Children.Add(Tagged(Row("Install required runtimes",
-                "Install verified Microsoft components, then refresh or repair this emulator",
-                Icons.Grid4, snapshot.Busy ? null : () => Run(token =>
-                    _service!.InstallEmulatorRuntimeDependenciesAsync(installation.DefinitionId, token))), "emu.runtimes"));
+                    "Install verified Microsoft components, then refresh or repair this emulator",
+                    Icons.Grid4, snapshot.Busy
+                        ? null
+                        : () => Run(token =>
+                            _service!.InstallEmulatorRuntimeDependenciesAsync(installation.DefinitionId, token))),
+                "emu.runtimes"));
         }
+
         foreach (var missing in installation.MissingRequirements)
         {
             setup.Children.Add(Caption("Required: " + missing));
@@ -492,7 +499,7 @@ public sealed partial class EmulatorManagerView : ServiceSubView
         bool NeedsFiles(EmulatorCore core)
         {
             return coreStatus.FirstOrDefault(item => item.InstallationId == installationId
-                                                    && item.CoreId == core.Id)?.Missing == true;
+                                                     && item.CoreId == core.Id)?.Missing == true;
         }
     }
 
@@ -548,17 +555,6 @@ public sealed partial class EmulatorManagerView : ServiceSubView
         return shown.Catalog == next.Catalog && shown.Progress.Busy == next.Progress.Busy;
     }
 
-    /// <summary>What an emulator level was drawn from, split as the service publishes it.</summary>
-    /// <param name="Catalog">The service's catalogue revision when it was read.</param>
-    /// <param name="Page">The page projection: catalogue, installations, BIOS, choices and shortcut status.</param>
-    /// <param name="Progress">The manager's busy state and status line.</param>
-    private sealed record EmulatorShown(long Catalog, EmulatorPageState Page, EmulatorProgressState Progress)
-    {
-        /// <summary>The projection's catalogue with the manager's busy state and status line.</summary>
-        internal EmulatorSnapshot Snapshot { get; } =
-            Page.Emulators with { Busy = Progress.Busy, Status = Progress.Status };
-    }
-
     private void RenderEmulatorDefaults()
     {
         var shown = ReadShown();
@@ -609,7 +605,7 @@ public sealed partial class EmulatorManagerView : ServiceSubView
                         preference?.InstallationId ?? "",
                         value => Run(token => _service!.SetPreferredEmulatorAsync(systemId, value,
                             choices.FirstOrDefault(item => item.Id == value)?.DefaultCoreId ?? "", token)))
-            { IsEnabled = !snapshot.Busy, HorizontalAlignment = HorizontalAlignment.Stretch },
+                    { IsEnabled = !snapshot.Busy, HorizontalAlignment = HorizontalAlignment.Stretch },
                 "default.emulator:" + systemId);
             AutomationProperties.SetName(emulator, name + " emulator");
             Grid.SetColumn(emulator, 1);
@@ -622,7 +618,7 @@ public sealed partial class EmulatorManagerView : ServiceSubView
                             preference?.CoreId ?? selected.DefaultCoreId,
                             value => Run(token =>
                                 _service!.SetPreferredEmulatorAsync(systemId, selected.Id, value, token)))
-                { IsEnabled = !snapshot.Busy, HorizontalAlignment = HorizontalAlignment.Stretch },
+                        { IsEnabled = !snapshot.Busy, HorizontalAlignment = HorizontalAlignment.Stretch },
                     "default.core:" + systemId);
                 AutomationProperties.SetName(core, name + " core");
             }
@@ -694,5 +690,16 @@ public sealed partial class EmulatorManagerView : ServiceSubView
                     _service!.ConfigureEmulatorPrerequisiteAsync(installationId, path, prerequisite.Kind, token));
             }
         }
+    }
+
+    /// <summary>What an emulator level was drawn from, split as the service publishes it.</summary>
+    /// <param name="Catalog">The service's catalogue revision when it was read.</param>
+    /// <param name="Page">The page projection: catalogue, installations, BIOS, choices and shortcut status.</param>
+    /// <param name="Progress">The manager's busy state and status line.</param>
+    private sealed record EmulatorShown(long Catalog, EmulatorPageState Page, EmulatorProgressState Progress)
+    {
+        /// <summary>The projection's catalogue with the manager's busy state and status line.</summary>
+        internal EmulatorSnapshot Snapshot { get; } =
+            Page.Emulators with { Busy = Progress.Busy, Status = Progress.Status };
     }
 }

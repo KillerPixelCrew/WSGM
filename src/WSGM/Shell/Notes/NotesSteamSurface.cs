@@ -36,6 +36,11 @@ internal static class NotesSteamSurface
     /// <summary>The name the page's gate registers under.</summary>
     internal const string GateName = "notes";
 
+    private const string Invalid = "The Notes request is malformed.";
+
+    /// <summary>The prefix a conflict refusal carries, so the page can offer reapplying.</summary>
+    internal const string ConflictPrefix = "Conflict: ";
+
     /// <summary>Installs the page renderer and its state subscription.</summary>
     internal static ISteamUiPatch Patch { get; } = SteamPagePatch.Create(
         PatchId, GateName, "notes-v1:steam-page", "Notes");
@@ -60,16 +65,18 @@ internal static class NotesSteamSurface
                 Command("openPage", request => OpenPage(service, request)),
                 Command("closePage", _ => ClosePage(service)),
                 Command("create", request => Create(service, request)),
-                Command("rename", request => Edit(request, r => service.RenamePage(r.PageId!, r.Revision!.Value, r.Title ?? ""))),
+                Command("rename",
+                    request => Edit(request, r => service.RenamePage(r.PageId!, r.Revision!.Value, r.Title ?? ""))),
                 Command("addText", request => Edit(request, r => r is { X: { } x, Y: { } y }
                     ? service.AddText(r.PageId!, r.Revision!.Value, x, y, r.Text ?? "")
                     : NoteEditResult.Refuse(Invalid))),
                 Command("setText", request => Edit(request, r => r.ElementId is { } id && r.Text is { } text
                     ? service.SetText(r.PageId!, r.Revision!.Value, id, text)
                     : NoteEditResult.Refuse(Invalid))),
-                Command("place", request => Edit(request, r => r is { ElementId: { } id, X: { } x, Y: { } y, Width: { } w, Height: { } h }
-                    ? service.PlaceElement(r.PageId!, r.Revision!.Value, id, x, y, w, h)
-                    : NoteEditResult.Refuse(Invalid))),
+                Command("place", request => Edit(request, r =>
+                    r is { ElementId: { } id, X: { } x, Y: { } y, Width: { } w, Height: { } h }
+                        ? service.PlaceElement(r.PageId!, r.Revision!.Value, id, x, y, w, h)
+                        : NoteEditResult.Refuse(Invalid))),
                 Command("raise", request => Edit(request, r => r.ElementId is { } id
                     ? service.RaiseElement(r.PageId!, r.Revision!.Value, id)
                     : NoteEditResult.Refuse(Invalid))),
@@ -85,7 +92,8 @@ internal static class NotesSteamSurface
                 Command("removeStrokes", request => Edit(request, r => r.StrokeIds is { Count: > 0 } ids
                     ? service.RemoveStrokes(r.PageId!, r.Revision!.Value, ids.ToHashSet(StringComparer.Ordinal))
                     : NoteEditResult.Refuse(Invalid))),
-                Command("clearInk", request => Edit(request, r => service.RemoveStrokes(r.PageId!, r.Revision!.Value, null))),
+                Command("clearInk",
+                    request => Edit(request, r => service.RemoveStrokes(r.PageId!, r.Revision!.Value, null))),
                 Command("deletePage", request => DeletePage(service, request)),
                 Command("pin", request => request is { PageId: { } id, Pinned: { } pinned }
                     ? service.SetPinned(id, pinned).ToCommandResult()
@@ -121,11 +129,10 @@ internal static class NotesSteamSurface
         var scope = view.Scope ?? game.Scope ?? NoteScope.Global;
         var page = view.PageId is { } pageId ? service.ReadPage(pageId) : null;
         return new NotesSteamState(true, service.LoadError, view.Notice, steamGame, scope, service.NotebookTitle(scope),
-            service.ReadNotebooks(game), service.ReadPages(scope), page, page is not null && service.IsReadOnly(page.Id),
+            service.ReadNotebooks(game), service.ReadPages(scope), page,
+            page is not null && service.IsReadOnly(page.Id),
             captureState, service.CountdownSeconds, view.ProcessId != 0);
     }
-
-    private const string Invalid = "The Notes request is malformed.";
 
     private static SteamUiCommandHandler Command(string name, Func<NotesSteamRequest, SteamUiCommandResult> apply)
     {
@@ -262,9 +269,6 @@ internal static class NotesSteamSurface
             : Refusal(result);
     }
 
-    /// <summary>The prefix a conflict refusal carries, so the page can offer reapplying.</summary>
-    internal const string ConflictPrefix = "Conflict: ";
-
     private static SteamUiCommandResult Refusal(NoteEditResult result)
     {
         return new SteamUiCommandResult(false,
@@ -325,7 +329,7 @@ internal static class NotesSteamSurface
 
         var bytes = service.ReadAsset(request.Asset!);
         if (bytes is null || ImageHeader.Format(bytes) is not ("png" or "jpg")
-            || ImageHeader.DataUrl(bytes) is not { } url)
+                          || ImageHeader.DataUrl(bytes) is not { } url)
         {
             return new SteamUiCommandResult(false, "The image is missing.");
         }

@@ -46,31 +46,31 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
 
     // The cog menu opens the page and the page then opens itself; one walk serves both.
     private const long FreshScan = 5000;
-
-    private readonly string _userRoot;
-    private readonly Func<SteamClient?> _steam;
-    private readonly GameRunningCheck _running;
-    private readonly Lazy<GameToolReleases> _releases;
-    private readonly GameToolInstaller _installer;
-    private readonly GameToolRecovery _recovery;
-    private readonly Lazy<IReadOnlyList<string>> _vendors;
     private readonly PeArchitectureCache _architectures = new();
+    private readonly HashSet<string> _checking = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly GameToolInstaller _installer;
     private readonly CancellationTokenSource _lifetime = new();
-    private readonly object _sync = new();
+    private readonly HashSet<uint> _loading = [];
+    private readonly Dictionary<uint, (string? Error, string? Notice)> _messages = [];
+    private readonly GameToolRecovery _recovery;
+    private readonly HashSet<uint> _releaseStale = [];
+    private readonly Lazy<GameToolReleases> _releases;
+    private readonly GameRunningCheck _running;
     private readonly Dictionary<uint, GameToolsScan> _scans = [];
     private readonly Dictionary<uint, GameToolsState> _states = [];
-    private readonly Dictionary<uint, (string? Error, string? Notice)> _messages = [];
-    private readonly HashSet<uint> _loading = [];
-    private readonly HashSet<uint> _releaseStale = [];
-    private readonly HashSet<string> _checking = new(StringComparer.Ordinal);
+    private readonly Func<SteamClient?> _steam;
+    private readonly object _sync = new();
+
+    private readonly string _userRoot;
+    private readonly Lazy<IReadOnlyList<string>> _vendors;
     private uint _appId;
-    private uint _viewedAppId;
     private GameToolsBusy? _busy;
+    private bool _disposed;
+    private long _lastProgress;
     private Task? _operation;
     private CancellationTokenSource? _operationCancellation;
-    private long _lastProgress;
-    private bool _disposed;
+    private uint _viewedAppId;
 
     /// <summary>Creates the service; the catalog and the release owner are created on first use.</summary>
     /// <param name="context">The per-user data location.</param>
@@ -90,9 +90,6 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         var detect = vendors ?? GpuDriver.DetectVendors;
         _vendors = new Lazy<IReadOnlyList<string>>(() => DetectVendors(detect));
     }
-
-    /// <summary>Raised after state, progress or a result changed, on whatever thread did the work.</summary>
-    public event Action? Changed;
 
     private static GameToolCatalog Catalog => GameToolCatalog.Current;
 
@@ -125,32 +122,8 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default).ObserveFaults();
     }
 
-    /// <summary>Opens the page for a game: makes it the Steam publication's game and starts a scan.</summary>
-    /// <param name="appId">The game from the cog menu.</param>
-    /// <param name="cancellationToken">The bridge request's cancellation.</param>
-    /// <returns>Applied when the game was accepted; the scan result follows through <see cref="Changed" />.</returns>
-    internal Task<SteamUiCommandResult> OpenAsync(uint appId, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        if (appId == 0)
-        {
-            return Task.FromResult(new SteamUiCommandResult(false, "No game was supplied."));
-        }
-
-        _appId = appId;
-        SetMessage(appId, null, null);
-        if (IsFresh(appId))
-        {
-            Changed?.Invoke();
-            StartLatestLookups(appId, false);
-        }
-        else
-        {
-            StartRefresh(appId);
-        }
-
-        return Task.FromResult(SteamUiCommandResult.Applied);
-    }
+    /// <summary>Raised after state, progress or a result changed, on whatever thread did the work.</summary>
+    public event Action? Changed;
 
     /// <inheritdoc />
     public Task<SteamUiCommandResult> RefreshAsync(uint appId, CancellationToken cancellationToken)
@@ -158,14 +131,6 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         StartRefresh(appId);
         return Task.FromResult(SteamUiCommandResult.Applied);
-    }
-
-    /// <summary>The Steam publication: the game opened from the cog menu.</summary>
-    /// <returns>The state, or null when no game was opened.</returns>
-    internal ValueTask<GameToolsState?> ReadStateAsync()
-    {
-        var appId = _appId;
-        return new ValueTask<GameToolsState?>(appId == 0 ? null : Peek(appId));
     }
 
     /// <inheritdoc />
@@ -190,7 +155,10 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
                 };
             }
 
-            return Placeholder(appId) with { Busy = busy, Loading = true, Error = messages.Error, Notice = messages.Notice };
+            return Placeholder(appId) with
+            {
+                Busy = busy, Loading = true, Error = messages.Error, Notice = messages.Notice
+            };
         }
     }
 
@@ -199,7 +167,10 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     {
         if (appId == 0)
         {
-            return Placeholder(0) with { Loading = false, Availability = "notInstalled", Reason = "No game was supplied." };
+            return Placeholder(0) with
+            {
+                Loading = false, Availability = "notInstalled", Reason = "No game was supplied."
+            };
         }
 
         bool queue;
@@ -319,7 +290,8 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     {
         cancellationToken.ThrowIfCancellationRequested();
         return Start(appId, toolId, "update", null, (tool, context, token) => ReinstallCoreAsync(tool, appId, "update",
-            (_, releaseToken) => LatestReleaseAsync(tool, releaseToken), "Updating " + tool.Name, replaceConfig, context,
+            (_, releaseToken) => LatestReleaseAsync(tool, releaseToken), "Updating " + tool.Name, replaceConfig,
+            context,
             token));
     }
 
@@ -388,6 +360,41 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    /// <summary>Opens the page for a game: makes it the Steam publication's game and starts a scan.</summary>
+    /// <param name="appId">The game from the cog menu.</param>
+    /// <param name="cancellationToken">The bridge request's cancellation.</param>
+    /// <returns>Applied when the game was accepted; the scan result follows through <see cref="Changed" />.</returns>
+    internal Task<SteamUiCommandResult> OpenAsync(uint appId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (appId == 0)
+        {
+            return Task.FromResult(new SteamUiCommandResult(false, "No game was supplied."));
+        }
+
+        _appId = appId;
+        SetMessage(appId, null, null);
+        if (IsFresh(appId))
+        {
+            Changed?.Invoke();
+            StartLatestLookups(appId, false);
+        }
+        else
+        {
+            StartRefresh(appId);
+        }
+
+        return Task.FromResult(SteamUiCommandResult.Applied);
+    }
+
+    /// <summary>The Steam publication: the game opened from the cog menu.</summary>
+    /// <returns>The state, or null when no game was opened.</returns>
+    internal ValueTask<GameToolsState?> ReadStateAsync()
+    {
+        var appId = _appId;
+        return new ValueTask<GameToolsState?>(appId == 0 ? null : Peek(appId));
+    }
+
     private async Task<string> InstallCoreAsync(GameToolDefinition tool, GameToolsInstallRequest request,
         OperationContext context, CancellationToken token)
     {
@@ -405,8 +412,8 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
             .ConfigureAwait(false);
         var proxy = request.ProxyName ?? GameToolInstaller.SuggestProxy(inspection.Proxies, tool.Proxy.Default);
         var outcome = await _installer.InstallAsync(tool, target, package,
-            new GameToolRequest(request.ReplaceExisting ? "replaceExisting" : "install", proxy, request.Settings),
-            null, () => _running.ClosedMessage(target), phase => context.Phase(phase, false), token, inspection)
+                new GameToolRequest(request.ReplaceExisting ? "replaceExisting" : "install", proxy, request.Settings),
+                null, () => _running.ClosedMessage(target), phase => context.Phase(phase, false), token, inspection)
             .ConfigureAwait(false);
         GameToolStorage.RememberIdentity(_userRoot, appId, scan.IsShortcut, scan.Name);
         return outcome.Notice;
@@ -423,9 +430,10 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
             context.Progress, token).ConfigureAwait(false);
         context.Phase(phase, false);
         var outcome = await _installer.InstallAsync(tool, target, package,
-            new GameToolRequest(operation, manifest.ProxyName, new Dictionary<string, string>(StringComparer.Ordinal),
-                replaceConfig),
-            manifest, () => _running.ClosedMessage(target), text => context.Phase(text, false), token)
+                new GameToolRequest(operation, manifest.ProxyName,
+                    new Dictionary<string, string>(StringComparer.Ordinal),
+                    replaceConfig),
+                manifest, () => _running.ClosedMessage(target), text => context.Phase(text, false), token)
             .ConfigureAwait(false);
         return outcome.Notice;
     }
@@ -433,7 +441,8 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     private async Task<HostedRelease> LatestReleaseAsync(GameToolDefinition tool, CancellationToken token)
     {
         var latest = await Releases.LatestAsync(tool, false, token).ConfigureAwait(false);
-        return latest.Release ?? throw new GameToolException(latest.Error ?? "No release of " + tool.Name + " is available.");
+        return latest.Release ??
+               throw new GameToolException(latest.Error ?? "No release of " + tool.Name + " is available.");
     }
 
     // Configure, remove and the reinstalls act on the manifest's own target, so the cached walk is reused.
@@ -734,7 +743,9 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     {
         var shortcut = SteamApps.IsShortcutAppId(appId);
         var steam = _steam();
-        var details = steam is null ? null : await SteamLaunchConfig.ReadAsync(steam, appId, token).ConfigureAwait(false);
+        var details = steam is null
+            ? null
+            : await SteamLaunchConfig.ReadAsync(steam, appId, token).ConfigureAwait(false);
         var record = GameToolStorage.ReadLocked(_userRoot).Find(appId);
         var name = details?.Name ?? record?.Name ?? appId.ToString(CultureInfo.InvariantCulture);
         GameToolsScan scan;
@@ -837,8 +848,9 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         var chosen = scan.Resolution?.Chosen;
         var targetDirectory = manifest is not null && scan.HasFolder
             ? GameToolPaths.Resolve(scan.InstallFolder, manifest.TargetDirectory)
-            : chosen is not null ? Path.GetDirectoryName(chosen.FullPath)
-            : null;
+            : chosen is not null
+                ? Path.GetDirectoryName(chosen.FullPath)
+                : null;
         var inspection = scan.HasFolder && targetDirectory is not null && Directory.Exists(targetDirectory)
             ? GameToolInstaller.Inspect(tool, targetDirectory, manifest)
             : null;
@@ -849,7 +861,11 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
             inspection, latest?.Release, scan.Upscalers);
         var proxies = inspection?.Proxies.Select(proxy =>
                           new GameToolsProxyOption(proxy.Name, proxy.Hint, proxy.Available, proxy.Conflict)).ToArray()
-                      ?? [.. tool.Proxy.Options.Select(option => new GameToolsProxyOption(option.Name, option.Hint, true, null))];
+                      ??
+                      [
+                          .. tool.Proxy.Options.Select(option =>
+                              new GameToolsProxyOption(option.Name, option.Hint, true, null))
+                      ];
         var proxyName = manifest?.ProxyName
                         ?? (inspection is null
                             ? tool.Proxy.Default
@@ -869,8 +885,10 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
             latest?.Release?.Version, latest?.Error, false, evaluation.UpdateChangesConfig, proxyName,
             manifest is null ? tool.Proxy.Intro : tool.Proxy.RenameIntro, proxies, settings, evaluation.ShowOptions,
             evaluation.CanEditOptions,
-            [.. evaluation.Conflicts.Select(conflict => new GameToolsConflict(conflict.RelativePath, conflict.Kind,
-                GameToolStatus.KindLabel(conflict.Kind), conflict.Message))],
+            [
+                .. evaluation.Conflicts.Select(conflict => new GameToolsConflict(conflict.RelativePath, conflict.Kind,
+                    GameToolStatus.KindLabel(conflict.Kind), conflict.Message))
+            ],
             evaluation.Warnings, evaluation.Actions,
             new GameToolsFiles(relativeTarget, manifest?.Files.Count ?? 0, manifest?.Replaced.Count ?? 0,
                 inspection?.Missing ?? [], inspection?.Modified ?? []));
@@ -880,7 +898,8 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     {
         try
         {
-            return [.. detect().Select(vendor => vendor.ToString().ToLowerInvariant()).Distinct(StringComparer.Ordinal)];
+            return
+                [.. detect().Select(vendor => vendor.ToString().ToLowerInvariant()).Distinct(StringComparer.Ordinal)];
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

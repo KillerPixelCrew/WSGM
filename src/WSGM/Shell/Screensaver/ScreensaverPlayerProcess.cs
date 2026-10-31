@@ -61,7 +61,8 @@ internal sealed class ScreensaverPlayerProcess
         _job = WorkerJobObject.Create();
         var pipeName = "WSGM.Screensaver." + Guid.NewGuid().ToString("N");
         using var identity = WindowsIdentity.GetCurrent();
-        var sid = identity.User?.Value ?? throw new InvalidOperationException("Current Windows account is unavailable.");
+        var sid = identity.User?.Value ??
+                  throw new InvalidOperationException("Current Windows account is unavailable.");
         var security = new PipeSecurity();
         security.SetSecurityDescriptorSddlForm("D:P(D;;GA;;;NU)(A;;GA;;;SY)(A;;GA;;;" + sid + ")");
         _pipe = NamedPipeServerStreamAcl.Create(pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte,
@@ -96,7 +97,7 @@ internal sealed class ScreensaverPlayerProcess
         await connection.ConfigureAwait(false);
         var hello = await ScreensaverWire.ReadAsync(_pipe, token).ConfigureAwait(false);
         if (hello.Kind != "hello" || !BrowserNative.GetNamedPipeClientProcessId(_pipe.SafePipeHandle, out var clientId)
-            || clientId != hello.ProcessId || !BrowserNative.IsMediumIntegrity(hello.ProcessId))
+                                  || clientId != hello.ProcessId || !BrowserNative.IsMediumIntegrity(hello.ProcessId))
         {
             throw new InvalidDataException("Screensaver host identity or medium integrity could not be verified.");
         }
@@ -144,7 +145,7 @@ internal sealed class ScreensaverPlayerProcess
 
         if (!_contained && _helper is { HasExited: false })
         {
-            _helper.Kill(entireProcessTree: true);
+            _helper.Kill(true);
             await _helper.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
         }
 
@@ -203,7 +204,8 @@ internal sealed class ScreensaverPlayerProcess
                 }
             }
         }
-        catch (Exception error) when (error is IOException or InvalidDataException or OperationCanceledException or ObjectDisposedException)
+        catch (Exception error) when (error is IOException or InvalidDataException or OperationCanceledException
+                                          or ObjectDisposedException)
         {
             confirmed.TrySetException(error);
             if (!token.IsCancellationRequested && current())

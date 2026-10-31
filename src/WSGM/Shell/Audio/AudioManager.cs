@@ -58,15 +58,15 @@ public sealed class AudioManager : ObservableObject, IDisposable
     {
         _changes = new AudioChangeWatch(() => QueueRefresh(false), () => QueueRefresh(true));
         _outputSelection = new AudioEndpointSelection(
-            output: true,
+            true,
             () => _disposed,
             result => OnSelectionSettled("output", result),
-            message => PostFailure(message, sticky: true));
+            message => PostFailure(message, true));
         _inputSelection = new AudioEndpointSelection(
-            output: false,
+            false,
             () => _disposed,
             result => OnSelectionSettled("input", result),
-            message => PostFailure(message, sticky: true));
+            message => PostFailure(message, true));
     }
 
     /// <summary>Gets the active playback endpoints.</summary>
@@ -535,7 +535,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
         {
             PostFailure(
                 $"Could not select audio {kind} (HRESULT 0x{result:X8}).",
-                sticky: true);
+                true);
         }
         else
         {

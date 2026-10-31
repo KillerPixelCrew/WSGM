@@ -106,7 +106,10 @@ internal sealed class PerformanceStateStore
     /// <param name="next">Receives the state after it.</param>
     /// <param name="enabledNow">Receives whether this switched integration on.</param>
     /// <returns>False when the snapshot was older or changed nothing, and no state moved.</returns>
-    /// <remarks>Does not raise <see cref="StateChanged" />; the caller raises <paramref name="next" /> once its adapter gate is free.</remarks>
+    /// <remarks>
+    ///     Does not raise <see cref="StateChanged" />; the caller raises <paramref name="next" /> once its adapter gate
+    ///     is free.
+    /// </remarks>
     internal bool TryApplyProfiles(
         ProfileSnapshot profiles,
         bool enabled,

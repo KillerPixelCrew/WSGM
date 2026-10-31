@@ -44,6 +44,7 @@ public sealed class ScaledResolutionEditorTests
             Assert.True(Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(),
                 block => block.Text == editor.ActivationNotice).IsEffectivelyVisible);
         }
+
         Assert.True(window.GetVisualDescendants().OfType<Button>()
             .Single(button => button.Content as string == "Edit").IsEffectivelyEnabled);
         editor.Resolution = editor.Resolutions.First();

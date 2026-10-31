@@ -205,7 +205,7 @@ internal sealed class LibraryServices(SessionState state, SteamUiServices steamU
                     profiles.SetApplicationControllerTargetAsync(id, name, target, removeEmptyProfile, token),
                 openArtwork: ArtworkPage is { } artwork ? artwork.OpenAsync : null,
                 controllerManaged: () => state.Config.DeviceIntegration is
-                { Enabled: true, ControllerManagementEnabled: true },
+                    { Enabled: true, ControllerManagementEnabled: true },
                 updateSettings: change =>
                     state.CommitSetting(config => change(config.GameLibrary), false).GameLibrary,
                 folderSource: folder => new ShortcutFolderSource(folder),

@@ -249,7 +249,8 @@ public sealed partial class GameLibraryView
     {
         if (systemId == "auto")
         {
-            body.Children.Add(Caption("Recognizes system folders such as gc, n3ds and genesis. Each system uses its preferred emulator. You can preview before installing an emulator."));
+            body.Children.Add(Caption(
+                "Recognizes system folders such as gc, n3ds and genesis. Each system uses its preferred emulator. You can preview before installing an emulator."));
             return;
         }
 

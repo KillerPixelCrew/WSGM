@@ -7,4 +7,10 @@ namespace WSGM.Shell;
 /// <param name="Text">The unsaved text.</param>
 /// <param name="X">Where a new block goes.</param>
 /// <param name="Y">Where a new block goes.</param>
-internal sealed record NotesTextDraft(string PageId, string? ElementId, long BaseRevision, string Text, double X, double Y);
+internal sealed record NotesTextDraft(
+    string PageId,
+    string? ElementId,
+    long BaseRevision,
+    string Text,
+    double X,
+    double Y);

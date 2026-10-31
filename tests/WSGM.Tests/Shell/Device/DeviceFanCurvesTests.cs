@@ -45,9 +45,12 @@ public sealed class DeviceFanCurvesTests
         Assert.Null(DeviceFanCurves.SelectFanTemperature(native, metrics, Now).Celsius);
     }
 
-    private static CapabilityState Native(int celsius, DateTimeOffset at) => new()
+    private static CapabilityState Native(int celsius, DateTimeOffset at)
     {
-        CapabilityId = "telemetry.temperature", Available = true, Quality = HardwareStateQuality.Observed,
-        ObservedValue = CapabilityValue.Integer(celsius), ObservedAt = at
-    };
+        return new CapabilityState
+        {
+            CapabilityId = "telemetry.temperature", Available = true, Quality = HardwareStateQuality.Observed,
+            ObservedValue = CapabilityValue.Integer(celsius), ObservedAt = at
+        };
+    }
 }

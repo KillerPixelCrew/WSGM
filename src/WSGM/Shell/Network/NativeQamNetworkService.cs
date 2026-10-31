@@ -23,12 +23,12 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
 {
     private readonly Func<bool> _indicatorActive;
     private readonly Lock _joinLock = new();
-    private SteamNetworkJoin? _join;
-    private long _joinAttempts;
     private readonly Timer _poll;
     private readonly Action _publish;
     private readonly Timer _publishDebounce;
     private readonly RadioManager _radios;
+    private SteamNetworkJoin? _join;
+    private long _joinAttempts;
 
     /// <summary>Creates the service and starts the indicator poll.</summary>
     /// <param name="radios">The session's radio manager.</param>

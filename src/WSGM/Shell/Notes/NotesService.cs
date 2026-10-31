@@ -32,6 +32,11 @@ namespace WSGM.Shell;
 /// </remarks>
 internal sealed class NotesService : IChangeSource, IAsyncDisposable
 {
+    private const string ConflictMessage =
+        "This note changed in the other overlay since you opened it. It now shows the newest version.";
+
+    private const string ReadOnlyMessage = "This note was saved by a newer WSGM and is read-only here.";
+    private const string Missing = "\u0000missing";
     private readonly Lock _gate = new();
     private readonly Dictionary<string, NotePage> _pages = new(StringComparer.Ordinal);
     private readonly HashSet<string> _readOnly = new(StringComparer.Ordinal);
@@ -224,7 +229,9 @@ internal sealed class NotesService : IChangeSource, IAsyncDisposable
                 _settings = snapshot.Settings;
                 _loadError = null;
                 Log.Info($"Notes: loaded {_pages.Count} pages"
-                         + (snapshot.SetAside.Count > 0 ? $", set {snapshot.SetAside.Count} unreadable files aside." : "."));
+                         + (snapshot.SetAside.Count > 0
+                             ? $", set {snapshot.SetAside.Count} unreadable files aside."
+                             : "."));
             }
             catch (NoteStoreException ex)
             {
@@ -426,7 +433,8 @@ internal sealed class NotesService : IChangeSource, IAsyncDisposable
     {
         return Edit(pageId, expectedRevision, page =>
         {
-            if (page.Elements.FirstOrDefault(item => item.Id == elementId) is not { Kind: NoteElement.TextKind } element)
+            if (page.Elements.FirstOrDefault(item => item.Id == elementId) is not
+                { Kind: NoteElement.TextKind } element)
             {
                 return Missing;
             }
@@ -743,12 +751,6 @@ internal sealed class NotesService : IChangeSource, IAsyncDisposable
         Interlocked.Increment(ref _revision);
         Changed?.Invoke();
     }
-
-    private const string ConflictMessage =
-        "This note changed in the other overlay since you opened it. It now shows the newest version.";
-
-    private const string ReadOnlyMessage = "This note was saved by a newer WSGM and is read-only here.";
-    private const string Missing = "\u0000missing";
 
     private NoteEditResult InsertCapturedImage(string pageId, byte[] image, int width, int height)
     {

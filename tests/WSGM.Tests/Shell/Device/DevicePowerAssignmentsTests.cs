@@ -320,14 +320,15 @@ public sealed class DevicePowerAssignmentsTests
         Rig rig = new();
         var assignments = rig.Create();
         var qamPresets = rig.Device.Create();
-        DevicePowerAssignments? qamAssignments = assignments;
+        var qamAssignments = assignments;
         Assert.True(assignments.Snapshot().IsGlobal);
         Assert.Equal("Manual selection", (await PowerPresetRows.ReadAsync(qamPresets, qamAssignments))!.UnsetLabel);
         rig.Application = "steam:42";
         rig.Config.Games.Add(new GameProfile
             { Id = rig.Application, Enabled = true });
         Assert.False(assignments.Snapshot().IsGlobal);
-        Assert.Equal("Use global assignment", (await PowerPresetRows.ReadAsync(qamPresets, qamAssignments))!.UnsetLabel);
+        Assert.Equal("Use global assignment",
+            (await PowerPresetRows.ReadAsync(qamPresets, qamAssignments))!.UnsetLabel);
     }
 
     [Theory]
@@ -398,19 +399,22 @@ public sealed class DevicePowerAssignmentsTests
         Rig rig = new() { Config = { Global = { AcPowerPreset = null } } };
         var assignments = rig.Create();
         var qamPresets = rig.Device.Create();
-        DevicePowerAssignments? qamAssignments = assignments;
-        Assert.True((await PowerPresetRows.AssignAsync(qamAssignments, false, "balanced", CancellationToken.None)).Succeeded);
+        var qamAssignments = assignments;
+        Assert.True((await PowerPresetRows.AssignAsync(qamAssignments, false, "balanced", CancellationToken.None))
+            .Succeeded);
         Assert.Equal("balanced", rig.Config.Global.BatteryPowerPreset?.PresetId);
         Assert.Empty(rig.Device.Calls);
         var state = (await PowerPresetRows.ReadAsync(qamPresets, qamAssignments))!;
         Assert.Equal("", state.Ac);
         Assert.Equal("balanced", state.Battery);
         Assert.DoesNotContain(state.Options, option => option.Id == "custom");
-        Assert.True((await PowerPresetRows.AssignAsync(qamAssignments, true, "extreme", CancellationToken.None)).Succeeded);
+        Assert.True((await PowerPresetRows.AssignAsync(qamAssignments, true, "extreme", CancellationToken.None))
+            .Succeeded);
         Assert.Equal(2, rig.Device.Calls.Count);
         Assert.True((await PowerPresetRows.AssignAsync(qamAssignments, true, null, CancellationToken.None)).Succeeded);
         Assert.Null(rig.Config.Global.AcPowerPreset);
-        Assert.False((await PowerPresetRows.AssignAsync(qamAssignments, false, "missing", CancellationToken.None)).Succeeded);
+        Assert.False((await PowerPresetRows.AssignAsync(qamAssignments, false, "missing", CancellationToken.None))
+            .Succeeded);
     }
 
     [Fact]

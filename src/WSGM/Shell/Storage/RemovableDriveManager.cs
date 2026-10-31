@@ -48,10 +48,10 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     /// <summary>The storage read behind the current list, shared with the format flow and Steam's pages.</summary>
     private StorageInventory _inventory = StorageInventory.Empty;
 
-    private int _refreshing;
-
     /// <summary>1 when a refresh was asked for while one was running; that one then reads again.</summary>
     private int _refreshPending;
+
+    private int _refreshing;
     private DispatcherTimer? _settle;
     private DispatcherTimer? _timer;
     private MessageWindow? _window;
@@ -87,12 +87,6 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     ///     a consumer reacting to a list change sees the read that produced it and needs no walk of its own.
     /// </remarks>
     internal StorageInventory Inventory => Volatile.Read(ref _inventory);
-
-    /// <summary>
-    ///     Raised on the inventory worker when any volume's mount, identity or readiness changes, or any
-    ///     external disk's facts change.
-    /// </summary>
-    internal event Action? TopologyChanged;
 
     /// <summary>
     ///     Gets whether anything ejectable is present; the sheet shows
@@ -161,6 +155,12 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
             _window = null;
         }
     }
+
+    /// <summary>
+    ///     Raised on the inventory worker when any volume's mount, identity or readiness changes, or any
+    ///     external disk's facts change.
+    /// </summary>
+    internal event Action? TopologyChanged;
 
     /// <summary>
     ///     Performs a first refresh, follows volume arrival and removal, and starts the

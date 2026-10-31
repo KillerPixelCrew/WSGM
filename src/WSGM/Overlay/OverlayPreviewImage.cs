@@ -18,8 +18,8 @@ namespace WSGM.Overlay;
 internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
 {
     private static readonly SemaphoreSlim Downloads = new(4);
-    private readonly string? _source;
     private readonly Func<CancellationToken, Task<byte[]>>? _read;
+    private readonly string? _source;
     private readonly Stretch _stretch;
     private Bitmap? _bitmap;
     private CancellationTokenSource? _load;

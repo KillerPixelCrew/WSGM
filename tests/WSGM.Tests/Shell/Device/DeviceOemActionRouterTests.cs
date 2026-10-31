@@ -1,3 +1,6 @@
+using LibHandheld.Contracts;
+using LibHandheld.Families.Acer;
+using LibHandheld.Families.RogAlly;
 using WSGM.Core;
 using WSGM.Shell;
 using CanonicalButtons = LibHandheld.Contracts.CanonicalButtons;
@@ -21,7 +24,7 @@ public sealed class DeviceOemActionRouterTests
     {
         var shortcuts = new List<bool>();
         using var router = new DeviceOemActionRouter();
-        router.OnControls(LibHandheld.Families.Acer.AcerButtonSource.Controls);
+        router.OnControls(AcerButtonSource.Controls);
         router.ConfigureActions(Actions(_ => Task.FromResult(true)) with
         {
             WrapperInputLeaseActive = () => true,
@@ -31,7 +34,7 @@ public sealed class DeviceOemActionRouterTests
                 return Task.FromResult(true);
             }
         });
-        router.UpdateConfiguration([], controllerManagementEnabled: true, ManagedControllerTarget.SteamDeckComposite);
+        router.UpdateConfiguration([], true, ManagedControllerTarget.SteamDeckComposite);
 
         router.OnEvent(Event(OemControlEdge.Pressed, "atlas-front", id));
         await router.Completion;
@@ -44,16 +47,16 @@ public sealed class DeviceOemActionRouterTests
     [InlineData("rc73xa")]
     public async Task NativeXboxAllyCompanionMetadataOpensTheOverlay(string modelId)
     {
-        var model = LibHandheld.Families.RogAlly.AllyModels.ById(modelId)!;
+        var model = AllyModels.ById(modelId)!;
         var invoked = 0;
         using var router = new DeviceOemActionRouter(_ => true);
-        router.OnControls(LibHandheld.Families.RogAlly.AllyModels.OemControls(model));
+        router.OnControls(AllyModels.OemControls(model));
         router.ConfigureActions(Actions(_ =>
         {
             invoked++;
             return Task.FromResult(true);
         }));
-        router.UpdateConfiguration([], controllerManagementEnabled: false, ManagedControllerTarget.Xbox360);
+        router.UpdateConfiguration([], false, ManagedControllerTarget.Xbox360);
         router.OnEvent(Event(OemControlEdge.Pressed, "native", "armoury-crate"));
         await router.Completion;
         Assert.Equal(1, invoked);
@@ -68,10 +71,12 @@ public sealed class DeviceOemActionRouterTests
         var controllerPresses = 0;
         var leaseActive = true;
         using var router = new DeviceOemActionRouter();
-        router.OnControls([Control(OemControlPlacement.Front, false) with
-        {
-            ControllerButton = quickAccess ? CanonicalButtons.QuickAccess : CanonicalButtons.Guide
-        }]);
+        router.OnControls([
+            Control(OemControlPlacement.Front, false) with
+            {
+                ControllerButton = quickAccess ? CanonicalButtons.QuickAccess : CanonicalButtons.Guide
+            }
+        ]);
         router.ConfigureActions(Actions(_ => Task.FromResult(true)) with
         {
             WrapperInputLeaseActive = () => leaseActive,
@@ -112,20 +117,21 @@ public sealed class DeviceOemActionRouterTests
         var shortcuts = 0;
         var overlays = 0;
         using var router = new DeviceOemActionRouter();
-        router.OnControls([Control(OemControlPlacement.Front, false) with { ControllerButton = CanonicalButtons.Guide }]);
+        router.OnControls(
+            [Control(OemControlPlacement.Front, false) with { ControllerButton = CanonicalButtons.Guide }]);
         router.ConfigureActions(Actions(_ =>
-        {
-            overlays++;
-            return Task.FromResult(true);
-        }) with
-        {
-            WrapperInputLeaseActive = static () => true,
-            SendSteamShortcutAsync = (_, _) =>
             {
-                shortcuts++;
+                overlays++;
                 return Task.FromResult(true);
-            }
-        });
+            }) with
+            {
+                WrapperInputLeaseActive = static () => true,
+                SendSteamShortcutAsync = (_, _) =>
+                {
+                    shortcuts++;
+                    return Task.FromResult(true);
+                }
+            });
         router.UpdateConfiguration([new DeviceOemAssignment { ControlId = "armoury-crate", Action = assigned }],
             false, ManagedControllerTarget.Xbox360);
 
@@ -140,18 +146,21 @@ public sealed class DeviceOemActionRouterTests
     public async Task AnUnavailableControlDoesNotWithholdItsControllerButton()
     {
         using var router = new DeviceOemActionRouter();
-        router.OnControls([Control(OemControlPlacement.Front, false) with
-        {
-            ControllerButton = CanonicalButtons.Guide,
-            RequiresControllerAcquisition = true
-        }]);
-        router.ConfigureActions(Actions(_ => Task.FromResult(true)) with { WrapperInputLeaseActive = static () => true });
+        router.OnControls([
+            Control(OemControlPlacement.Front, false) with
+            {
+                ControllerButton = CanonicalButtons.Guide,
+                RequiresControllerAcquisition = true
+            }
+        ]);
+        router.ConfigureActions(
+            Actions(_ => Task.FromResult(true)) with { WrapperInputLeaseActive = static () => true });
         var press = Event(OemControlEdge.Pressed, "one", "armoury-crate");
         router.OnEvent(press);
         await router.Completion;
 
         Assert.Equal(CanonicalButtons.Guide, router.FilterControllerButtons(
-            LibHandheld.Contracts.CanonicalControllerSample.Neutral(press.Timestamp.AddMilliseconds(1)) with
+            CanonicalControllerSample.Neutral(press.Timestamp.AddMilliseconds(1)) with
             {
                 Buttons = CanonicalButtons.Guide
             }));
@@ -162,12 +171,13 @@ public sealed class DeviceOemActionRouterTests
     {
         var active = true;
         using var router = new DeviceOemActionRouter();
-        router.OnControls([Control(OemControlPlacement.Front, false) with { ControllerButton = CanonicalButtons.Guide }]);
+        router.OnControls(
+            [Control(OemControlPlacement.Front, false) with { ControllerButton = CanonicalButtons.Guide }]);
         router.ConfigureActions(Actions(_ => Task.FromResult(true)) with { WrapperInputLeaseActive = () => active });
         var press = Event(OemControlEdge.Pressed, "one", "armoury-crate");
         router.OnEvent(press);
         await router.Completion;
-        var held = LibHandheld.Contracts.CanonicalControllerSample.Neutral(press.Timestamp.AddMilliseconds(1)) with
+        var held = CanonicalControllerSample.Neutral(press.Timestamp.AddMilliseconds(1)) with
         {
             Buttons = CanonicalButtons.Guide | CanonicalButtons.A
         };
@@ -175,26 +185,29 @@ public sealed class DeviceOemActionRouterTests
         Assert.Equal(CanonicalButtons.A, router.FilterControllerButtons(held));
         active = false;
         Assert.Equal(CanonicalButtons.A, router.FilterControllerButtons(held));
-        router.FilterControllerButtons(LibHandheld.Contracts.CanonicalControllerSample.Neutral(
+        router.FilterControllerButtons(CanonicalControllerSample.Neutral(
             press.Timestamp.AddMilliseconds(2)));
-        Assert.Equal(held.Buttons, router.FilterControllerButtons(held with { Timestamp = press.Timestamp.AddMilliseconds(3) }));
+        Assert.Equal(held.Buttons,
+            router.FilterControllerButtons(held with { Timestamp = press.Timestamp.AddMilliseconds(3) }));
     }
 
     [Fact]
     public async Task AQueuedOlderSampleCannotReleaseANewerKeyboardOwnedPress()
     {
         using var router = new DeviceOemActionRouter();
-        router.OnControls([Control(OemControlPlacement.Front, false) with { ControllerButton = CanonicalButtons.Guide }]);
-        router.ConfigureActions(Actions(_ => Task.FromResult(true)) with { WrapperInputLeaseActive = static () => true });
+        router.OnControls(
+            [Control(OemControlPlacement.Front, false) with { ControllerButton = CanonicalButtons.Guide }]);
+        router.ConfigureActions(
+            Actions(_ => Task.FromResult(true)) with { WrapperInputLeaseActive = static () => true });
         var press = Event(OemControlEdge.Pressed, "one", "armoury-crate");
         router.OnEvent(press);
         await router.Completion;
 
-        router.FilterControllerButtons(LibHandheld.Contracts.CanonicalControllerSample.Neutral(
+        router.FilterControllerButtons(CanonicalControllerSample.Neutral(
             press.Timestamp.AddMilliseconds(-1)));
 
         Assert.Equal(CanonicalButtons.None, router.FilterControllerButtons(
-            LibHandheld.Contracts.CanonicalControllerSample.Neutral(press.Timestamp.AddMilliseconds(1)) with
+            CanonicalControllerSample.Neutral(press.Timestamp.AddMilliseconds(1)) with
             {
                 Buttons = CanonicalButtons.Guide
             }));

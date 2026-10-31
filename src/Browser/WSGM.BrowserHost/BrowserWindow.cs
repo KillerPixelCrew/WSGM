@@ -11,34 +11,38 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using WSGM.Browser;
+using Timer = System.Windows.Forms.Timer;
 
 namespace WSGM.BrowserHost;
 
 /// <summary>Unelevated, unprivileged WebView2 owner. The Form is embedded by the resident after verification.</summary>
 internal sealed partial class BrowserWindow : Form
 {
-    private readonly string _pipeName;
-    private readonly Process _parent;
-    private readonly string _profile;
     private readonly CancellationTokenSource _lifetime = new();
-    private readonly Channel<BrowserPacket> _outbound = Channel.CreateBounded<BrowserPacket>(new BoundedChannelOptions(32)
-    {
-        FullMode = BoundedChannelFullMode.DropOldest,
-        SingleReader = true
-    });
-    private readonly System.Windows.Forms.Timer _parentWatch = new() { Interval = 500 };
-    private CoreWebView2Environment? _environment;
-    private CoreWebView2Controller? _controller;
-    private NamedPipeClientStream? _pipe;
+
+    private readonly Channel<BrowserPacket> _outbound = Channel.CreateBounded<BrowserPacket>(
+        new BoundedChannelOptions(32)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true
+        });
+
+    private readonly Process _parent;
+    private readonly Timer _parentWatch = new() { Interval = 500 };
+    private readonly string _pipeName;
+    private readonly string _profile;
     private bool _closing;
-    private bool _visible;
-    private bool _loading;
-    private long _visibilityGeneration;
-    private string _status = "";
-    private string _pageStatus = "";
-    private double _zoom = 1;
-    private ulong _navigationId;
+    private CoreWebView2Controller? _controller;
     private bool _creating;
+    private CoreWebView2Environment? _environment;
+    private bool _loading;
+    private ulong _navigationId;
+    private string _pageStatus = "";
+    private NamedPipeClientStream? _pipe;
+    private string _status = "";
+    private long _visibilityGeneration;
+    private bool _visible;
+    private double _zoom = 1;
 
     internal BrowserWindow(string pipeName, Process parent, string profile)
     {
@@ -145,14 +149,16 @@ internal sealed partial class BrowserWindow : Form
                     Send(new BrowserPacket
                     {
                         Kind = "processes",
-                        Text = JsonSerializer.Serialize(_environment?.GetProcessInfos().Select(info => info.ProcessId).ToArray() ?? [])
+                        Text = JsonSerializer.Serialize(_environment?.GetProcessInfos().Select(info => info.ProcessId)
+                            .ToArray() ?? [])
                     });
                     break;
                 case "capture" when _visible && _controller is { } captureController:
                     // Fixed, profile-local diagnostic output. No caller-supplied path, script or page bridge.
                     await using (var capture = File.Create(Path.Combine(_profile, "BrowserAcceptance.png")))
                     {
-                        await captureController.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, capture);
+                        await captureController.CoreWebView2.CapturePreviewAsync(
+                            CoreWebView2CapturePreviewImageFormat.Png, capture);
                     }
 
                     Send(new BrowserPacket { Kind = "capture" });
@@ -211,7 +217,7 @@ internal sealed partial class BrowserWindow : Form
                     // CDP insertText affects only this WebView's current editable selection. No script or host
                     // object is injected; the page cannot use this one-way UI action to invoke the resident.
                     textController.MoveFocus(CoreWebView2MoveFocusReason.Programmatic);
-                    if (packet.NavigationId != 0 && packet.NavigationId != _navigationId
+                    if ((packet.NavigationId != 0 && packet.NavigationId != _navigationId)
                         || !await InvokeTextInputAsync(textController.CoreWebView2, "wsgmRestoreTextInput()"))
                     {
                         Publish("The selected web field changed. Select it again to enter text.");
@@ -241,7 +247,8 @@ internal sealed partial class BrowserWindow : Form
             Publish("Browser unavailable: " + ex.Message);
             if (_controller is null)
             {
-                Send(new BrowserPacket { Kind = "failed", Text = "WebView2 could not start. Repair the WebView2 runtime and retry." });
+                Send(new BrowserPacket
+                    { Kind = "failed", Text = "WebView2 could not start. Repair the WebView2 runtime and retry." });
             }
         }
     }
@@ -266,7 +273,8 @@ internal sealed partial class BrowserWindow : Form
         {
             if (!_closing)
             {
-                Send(new BrowserPacket { Kind = "failed", Text = "WebView2 could not start. Repair the WebView2 runtime and retry." });
+                Send(new BrowserPacket
+                    { Kind = "failed", Text = "WebView2 could not start. Repair the WebView2 runtime and retry." });
             }
         }
         finally
@@ -304,7 +312,8 @@ internal sealed partial class BrowserWindow : Form
         var modifiers = key == "ShiftTab" ? 8 : key == "SelectAll" ? 2 : 0;
         await web.CallDevToolsProtocolMethodAsync("Input.dispatchKeyEvent", JsonSerializer.Serialize(new
         {
-            type = "keyDown", key = nativeKey, code = key == "SelectAll" ? "KeyA" : nativeKey, windowsVirtualKeyCode = code,
+            type = "keyDown", key = nativeKey, code = key == "SelectAll" ? "KeyA" : nativeKey,
+            windowsVirtualKeyCode = code,
             modifiers, text = key == "Enter" ? "\r" : key == "Space" ? " " : ""
         }));
         await web.CallDevToolsProtocolMethodAsync("Input.dispatchKeyEvent", JsonSerializer.Serialize(new
@@ -422,14 +431,16 @@ internal sealed partial class BrowserWindow : Form
                 var suspended = await SuspendAsync(web).WaitAsync(TimeSpan.FromSeconds(2));
                 if (!_closing && generation == _visibilityGeneration)
                 {
-                    Publish(suspended ? "Retained, muted and suspended" : "Retained and muted; this page cannot suspend", lifecycle: true);
+                    Publish(
+                        suspended ? "Retained, muted and suspended" : "Retained and muted; this page cannot suspend",
+                        true);
                 }
             }
             catch (Exception) when (!_closing)
             {
                 if (generation == _visibilityGeneration)
                 {
-                    Publish("Retained and muted", lifecycle: true);
+                    Publish("Retained and muted", true);
                 }
             }
         }
@@ -507,9 +518,20 @@ internal sealed partial class BrowserWindow : Form
         }
     }
 
-    private void OnSourceChanged(object? sender, CoreWebView2SourceChangedEventArgs e) => Publish();
-    private void OnHistoryChanged(object? sender, object e) => Publish();
-    private void OnTitleChanged(object? sender, object e) => Publish();
+    private void OnSourceChanged(object? sender, CoreWebView2SourceChangedEventArgs e)
+    {
+        Publish();
+    }
+
+    private void OnHistoryChanged(object? sender, object e)
+    {
+        Publish();
+    }
+
+    private void OnTitleChanged(object? sender, object e)
+    {
+        Publish();
+    }
 
     private void OnNewWindow(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
     {
@@ -582,8 +604,15 @@ internal sealed partial class BrowserWindow : Form
         Send(new BrowserPacket { Kind = "chrome" });
     }
 
-    private void OnGotFocus(object? sender, object e) => Send(new BrowserPacket { Kind = "viewport" });
-    private void OnLostFocus(object? sender, object e) => Send(new BrowserPacket { Kind = "blur" });
+    private void OnGotFocus(object? sender, object e)
+    {
+        Send(new BrowserPacket { Kind = "viewport" });
+    }
+
+    private void OnLostFocus(object? sender, object e)
+    {
+        Send(new BrowserPacket { Kind = "blur" });
+    }
 
     private void Publish(string? status = null, bool lifecycle = false)
     {
@@ -615,7 +644,10 @@ internal sealed partial class BrowserWindow : Form
         }
     }
 
-    private void Send(BrowserPacket packet) => _outbound.Writer.TryWrite(packet);
+    private void Send(BrowserPacket packet)
+    {
+        _outbound.Writer.TryWrite(packet);
+    }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {

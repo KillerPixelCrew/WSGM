@@ -97,7 +97,7 @@ internal static class PrimaryDisplayModes
                     static (mode, current) => mode.BitsPerPixel == current.BitsPerPixel
                                               && mode.RefreshHz == current.RefreshHz
                                               && (IsUsableResolution(mode.Width, mode.Height)
-                                                  || mode.Width == current.Width && mode.Height == current.Height),
+                                                  || (mode.Width == current.Width && mode.Height == current.Height)),
                     static (mode, current) => new CandidateMode(mode.Width, mode.Height, current.RefreshHz),
                     static mode => $"{mode.Width}x{mode.Height}")
                 .Select(mode => new DisplayResolution(mode.Width, mode.Height))

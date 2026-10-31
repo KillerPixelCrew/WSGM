@@ -204,8 +204,11 @@ internal sealed class GameLibraryEntryState(string id, ImportPlanEntry plan, Dis
             Acknowledged = picked is ImportMode.SteamIntegration && Acknowledged,
             Excluded = Excluded,
             Route = Route != Plan.Route ? Route : string.Empty,
-            Artwork = [.. SettledPicks.Concat(Picks).GroupBy(pair => pair.Key)
-                .Select(group => group.Last().Value)],
+            Artwork =
+            [
+                .. SettledPicks.Concat(Picks).GroupBy(pair => pair.Key)
+                    .Select(group => group.Last().Value)
+            ],
             MatchProvider = Match?.ProviderId ?? string.Empty,
             MatchId = Match?.Id ?? string.Empty,
             MatchName = Match?.Name ?? string.Empty,
@@ -244,12 +247,13 @@ internal sealed class GameLibraryEntryState(string id, ImportPlanEntry plan, Dis
         foreach (var (asset, pick) in Picks.ToArray())
         {
             if (settled.TryGetValue(asset, out var applied) && applied.Url == pick.Url
-                && applied.Revision == pick.Revision)
+                                                            && applied.Revision == pick.Revision)
             {
                 SettledPicks[asset] = pick;
                 Picks.Remove(asset);
             }
         }
+
         Selected = Picks.Count > 0;
         ContentChanged = false;
         RecordedTitleName = Game.Content?.Name ?? Game.Name;

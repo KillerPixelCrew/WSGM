@@ -9,5 +9,9 @@ namespace WSGM.Core;
 ///     The shortcut exists either way.
 /// </param>
 /// <param name="CreationMayExist">False only when an add was definitely not sent or explicitly rejected.</param>
-public sealed record ShortcutWriteResult(uint AppId, bool Confirmed, string? Error, string? Mismatch = null,
+public sealed record ShortcutWriteResult(
+    uint AppId,
+    bool Confirmed,
+    string? Error,
+    string? Mismatch = null,
     bool CreationMayExist = true);

@@ -197,7 +197,7 @@ internal sealed class ControllerForwarding
         }
 
         return started
-            ? NeutralizeRoutingAsync("ui-capture", blockForwarding: false, cancellationToken)
+            ? NeutralizeRoutingAsync("ui-capture", false, cancellationToken)
             : Task.CompletedTask;
     }
 
@@ -234,7 +234,7 @@ internal sealed class ControllerForwarding
     /// <returns>A task completing once the target has been left neutral.</returns>
     internal Task BlockForwardingAsync(string reason, CancellationToken cancellationToken)
     {
-        return NeutralizeRoutingAsync(reason, blockForwarding: true, cancellationToken);
+        return NeutralizeRoutingAsync(reason, true, cancellationToken);
     }
 
     /// <summary>Lets samples reach the kept target again after a sleep or a session lock.</summary>
@@ -332,7 +332,7 @@ internal sealed class ControllerForwarding
     {
         try
         {
-            if (!await SetSyntheticButtonAsync(pressed, enabled: true, cancellationToken).ConfigureAwait(false))
+            if (!await SetSyntheticButtonAsync(pressed, true, cancellationToken).ConfigureAwait(false))
             {
                 return false;
             }
@@ -344,7 +344,7 @@ internal sealed class ControllerForwarding
         {
             // A cancelled action must still publish the release; otherwise the virtual target keeps
             // the button held until the next physical sample happens to arrive.
-            await SetSyntheticButtonAsync(pressed, enabled: false, CancellationToken.None)
+            await SetSyntheticButtonAsync(pressed, false, CancellationToken.None)
                 .ConfigureAwait(false);
         }
     }

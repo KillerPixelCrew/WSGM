@@ -61,7 +61,8 @@ public sealed class SteamCefActivationPolicyTests
     {
         var policy = new SteamCefActivationPolicy();
 
-        Assert.Equal(SteamCefActivation.None, policy.Decide(true, false, new SteamProcessSnapshot(true, 100, null, true)));
+        Assert.Equal(SteamCefActivation.None,
+            policy.Decide(true, false, new SteamProcessSnapshot(true, 100, null, true)));
     }
 
     [Fact]

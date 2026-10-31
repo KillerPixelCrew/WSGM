@@ -92,7 +92,10 @@ public static class PreviewLiveProgress
         Dispatcher.UIThread.RunJobs();
         Click(window, "Sources (2 on)");
 
-        var applying = idle with { Phase = GameLibraryPhases.Applying, Loading = true, Progress = 1, ProgressTotal = 3 };
+        var applying = idle with
+        {
+            Phase = GameLibraryPhases.Applying, Loading = true, Progress = 1, ProgressTotal = 3
+        };
         Publish(source, applying);
         Require(!Single<ActionButton>(window, "source:xbox").IsEnabled, "The apply did not disable the sources.");
         Save(window, directory, "library-sources-applying", width, height);
@@ -176,8 +179,10 @@ public static class PreviewLiveProgress
         var button = FocusSearch.First<ActionButton>(window,
                          button => button.Title == title && button.IsEffectivelyVisible)
                      ?? throw new InvalidOperationException("Preview action is missing: " + title + ". Visible: "
-                         + string.Join(" | ", window.GetVisualDescendants().OfType<ActionButton>()
-                             .Where(candidate => candidate.IsEffectivelyVisible).Select(candidate => candidate.Title)));
+                                                            + string.Join(" | ",
+                                                                window.GetVisualDescendants().OfType<ActionButton>()
+                                                                    .Where(candidate => candidate.IsEffectivelyVisible)
+                                                                    .Select(candidate => candidate.Title)));
         UiFixture.Click(window, button);
         Dispatcher.UIThread.RunJobs();
     }

@@ -14,7 +14,6 @@ namespace WSGM.Shell;
 /// <param name="state">The session's live state.</param>
 internal sealed class SystemServices(SessionState state)
 {
-    private SteamGuideChordMirror? _chordMirror;
     private ControllerManager? _controllerStatusSource;
     private ControllerDisplayWake? _controllerWake;
 
@@ -58,7 +57,7 @@ internal sealed class SystemServices(SessionState state)
     internal NativeQamBrightnessService? Brightness { get; private set; }
 
     /// <summary>The guide chord mirror, which Steam's Quick Access offers.</summary>
-    internal SteamGuideChordMirror? ChordMirror => _chordMirror;
+    internal SteamGuideChordMirror? ChordMirror { get; private set; }
 
     /// <summary>
     ///     Starts the keep-awake. Session-lifetime on purpose (survives desktop trips): a Steam download
@@ -102,8 +101,8 @@ internal sealed class SystemServices(SessionState state)
         // exists, and it puts Valve's file back when that target goes.
         ShellSession.TryStart("guide chord mirror", () =>
         {
-            _chordMirror = SteamGuideChordMirror.ForInstalledSteam();
-            _chordMirror?.SetEnabled(state.Config.DeviceIntegration.KeepGuideChordEdits);
+            ChordMirror = SteamGuideChordMirror.ForInstalledSteam();
+            ChordMirror?.SetEnabled(state.Config.DeviceIntegration.KeepGuideChordEdits);
         });
 
         // Not started here: scanning is expensive and belongs to whichever surface is showing a
@@ -141,7 +140,7 @@ internal sealed class SystemServices(SessionState state)
     /// </remarks>
     private void OnControllerStatusChanged(ControllerManagerStatus status)
     {
-        _chordMirror?.SetSteamDeckTargetActive(status is
+        ChordMirror?.SetSteamDeckTargetActive(status is
         {
             State: ControllerManagementState.Active,
             Target: ManagedControllerTarget.SteamDeckComposite
@@ -171,7 +170,8 @@ internal sealed class SystemServices(SessionState state)
         if (device is { } wakeCoordinator)
         {
             ShellSession.TryStart("controller display wake",
-                () => _controllerWake = new ControllerDisplayWake(messageWindow, wakeCoordinator.Controllers.Forwarding));
+                () => _controllerWake =
+                    new ControllerDisplayWake(messageWindow, wakeCoordinator.Controllers.Forwarding));
         }
 
         // Reads the flag on every wakeup, like the standby guard, so a config reload needs no rebuild.
@@ -216,7 +216,7 @@ internal sealed class SystemServices(SessionState state)
     /// <param name="config">The reloaded configuration.</param>
     internal void ApplyChordConfig(AppConfig config)
     {
-        _chordMirror?.SetEnabled(config.DeviceIntegration.KeepGuideChordEdits);
+        ChordMirror?.SetEnabled(config.DeviceIntegration.KeepGuideChordEdits);
     }
 
     /// <summary>Applies the reloaded keep-awake gates.</summary>
@@ -326,8 +326,8 @@ internal sealed class SystemServices(SessionState state)
     {
         await steps.UiStepAsync("Disposing the chord mirror during application shutdown failed", () =>
         {
-            _chordMirror?.Dispose();
-            _chordMirror = null;
+            ChordMirror?.Dispose();
+            ChordMirror = null;
         }).ConfigureAwait(false);
         await steps.StepAsync("Disposing the audio profile service during application shutdown failed",
             async () =>

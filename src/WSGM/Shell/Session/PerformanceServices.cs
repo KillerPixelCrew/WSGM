@@ -58,6 +58,10 @@ internal sealed class PerformanceServices(
     /// <summary>The running-application monitor; null in overlay-test.</summary>
     internal RunningApplicationMonitor? RunningApplications { get; private set; }
 
+    /// <summary>The running application now, or the initial snapshot when none is tracked.</summary>
+    internal RunningApplicationTargetSnapshot CurrentApplication =>
+        RunningApplications?.Current ?? RunningApplicationTargetSnapshot.Initial();
+
     /// <summary>
     ///     Creates RTSS, its overlay projection and the profile fan-out, and applies the OSD settings.
     ///     Overlay-test then pretends one Steam game is running.
@@ -139,10 +143,6 @@ internal sealed class PerformanceServices(
                 : ApplyRunningApplicationTargetAsync);
         _foregroundWindows.Start();
     }
-
-    /// <summary>The running application now, or the initial snapshot when none is tracked.</summary>
-    internal RunningApplicationTargetSnapshot CurrentApplication =>
-        RunningApplications?.Current ?? RunningApplicationTargetSnapshot.Initial();
 
     /// <summary>Samples the sensors AutoTDP consults, or nothing before RTSS started.</summary>
     /// <returns>The current OSD metrics.</returns>

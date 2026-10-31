@@ -17,7 +17,7 @@ internal static class PreviewScaledResolutions
 {
     internal static SettingsWindow Create(UiFixture fixture, int width, bool intel)
     {
-        var window = fixture.Settings(width, height: width == 1024 ? 640 : 800);
+        var window = fixture.Settings(width, width == 1024 ? 640 : 800);
         UiFixture.Click(window, UiFixture.Tab(window, 6));
         var model = (SettingsViewModel)window.DataContext!;
         var display = new GpuDisplayTarget
@@ -58,7 +58,8 @@ internal static class PreviewScaledResolutions
 
             window.MouseMove(new Point(-20, -20));
             using var frame = window.CaptureRenderedFrame()
-                              ?? throw new InvalidOperationException("No scaled-resolution editor frame was available.");
+                              ?? throw new InvalidOperationException(
+                                  "No scaled-resolution editor frame was available.");
             var path = Path.Combine(directory, "settings-scaled-resolutions-" + width + ".png");
             frame.Save(path, new PngBitmapEncoderOptions());
             Console.WriteLine(path);

@@ -8,7 +8,11 @@ namespace WSGM.Core;
 /// <param name="RuntimeExecutable">The absolute runtime executable; its folder is the target directory.</param>
 /// <param name="Architecture">The runtime executable's architecture.</param>
 /// <param name="Engine">The detected engine id.</param>
-internal sealed record GameToolTarget(uint AppId, string InstallRoot, string RuntimeExecutable, string Architecture,
+internal sealed record GameToolTarget(
+    uint AppId,
+    string InstallRoot,
+    string RuntimeExecutable,
+    string Architecture,
     string Engine)
 {
     /// <summary>The absolute directory the tool is installed into.</summary>

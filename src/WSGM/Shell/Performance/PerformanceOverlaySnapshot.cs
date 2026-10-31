@@ -16,16 +16,16 @@ internal sealed record PerformanceOverlaySnapshot(
     IReadOnlyList<DescriptorRow> Rows,
     IReadOnlyList<DescriptorRow> ProfileRows)
 {
-    /// <summary>The Device page these rows are drawn on, beside the Overview.</summary>
-    /// <remarks>The enable toggle in <see cref="ProfileRows" /> heads the Overview alone.</remarks>
-    public string SectionId => DeviceSections.PowerId;
-
     /// <summary>The id of the per-application enable toggle among <see cref="ProfileRows" />.</summary>
     /// <remarks>
     ///     The header's profile switch and this row are two placements of one state, the running
     ///     application's profile scope, and both write it through the same command.
     /// </remarks>
     internal const string ApplicationProfileRowId = "application-profile";
+
+    /// <summary>The Device page these rows are drawn on, beside the Overview.</summary>
+    /// <remarks>The enable toggle in <see cref="ProfileRows" /> heads the Overview alone.</remarks>
+    public string SectionId => DeviceSections.PowerId;
 
     /// <summary>The per-application enable toggle, or null when the snapshot has none.</summary>
     public DescriptorRow? ApplicationProfile =>

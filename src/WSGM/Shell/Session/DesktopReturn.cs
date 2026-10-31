@@ -16,15 +16,14 @@ namespace WSGM.Shell;
 internal sealed class DesktopReturn(SessionModes modes, ExplorerDesktopHost host, SteamMonitor? monitor)
 {
     // UI-thread only: written when a return settles, cleared when an entry starts.
-    private bool _complete;
 
     /// <summary>Whether the last return restored Explorer without a warning. UI thread.</summary>
-    internal bool Complete => _complete;
+    internal bool Complete { get; private set; }
 
     /// <summary>Forgets the last return, because an entry is leaving the desktop again. UI thread.</summary>
     internal void Reset()
     {
-        _complete = false;
+        Complete = false;
     }
 
     /// <summary>
@@ -49,7 +48,7 @@ internal sealed class DesktopReturn(SessionModes modes, ExplorerDesktopHost host
         {
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                _complete = restored && warnings.Count == 0;
+                Complete = restored && warnings.Count == 0;
                 monitor?.Paused = !restored;
                 if (restored)
                 {
@@ -72,7 +71,7 @@ internal sealed class DesktopReturn(SessionModes modes, ExplorerDesktopHost host
         }
 
         Log.Info($"Desktop return completed: restored={restored}, warnings={warnings.Count}, "
-                 + $"complete={_complete}.");
+                 + $"complete={Complete}.");
         return restored;
     }
 }

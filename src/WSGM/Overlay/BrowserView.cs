@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Browser;
@@ -16,27 +17,27 @@ namespace WSGM.Overlay;
 /// <summary>Quick lookup chrome; the native viewport never owns application policy or input leases.</summary>
 public sealed class BrowserView : OverlaySubView
 {
+    private readonly Button _address = new() { MinHeight = 44, HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly TextBlock _addressText = new() { TextTrimming = TextTrimming.CharacterEllipsis, MaxLines = 1 };
+    private readonly Button _back;
+    private readonly TextBlock _emptyViewport;
+    private readonly Button _enter;
+    private readonly Button _forward;
+    private readonly Button _gameSearch = new() { MinHeight = 44, MaxWidth = 210, IsVisible = false };
+    private readonly OverlayChoice<BrowserMemoryBehavior> _memory;
+    private readonly Button _reload;
+    private readonly StackPanel _stack;
+    private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Classes = { "caption" } };
     private readonly BrowserViewport _viewport = new();
     private readonly Grid _viewportFrame = new() { Height = 320, MinHeight = 240 };
-    private readonly TextBlock _emptyViewport;
-    private readonly Button _address = new() { MinHeight = 44, HorizontalAlignment = HorizontalAlignment.Stretch };
-    private readonly TextBlock _addressText = new() { TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis, MaxLines = 1 };
-    private readonly Button _gameSearch = new() { MinHeight = 44, MaxWidth = 210, IsVisible = false };
-    private readonly Button _back;
-    private readonly Button _forward;
-    private readonly Button _reload;
-    private readonly Button _enter;
-    private readonly TextBlock _status = new() { TextWrapping = Avalonia.Media.TextWrapping.Wrap, Classes = { "caption" } };
     private readonly TextBlock _zoom = new() { VerticalAlignment = VerticalAlignment.Center };
-    private readonly OverlayChoice<BrowserMemoryBehavior> _memory;
-    private BrowserSession? _session;
-    private OverlayWindow? _window;
-    private ScrollViewer? _scroller;
-    private readonly StackPanel _stack;
-    private bool _entered;
     private bool _covered;
+    private bool _entered;
     private BrowserPacket? _pendingPageText;
     private BrowserMemoryBehavior? _renderedPolicy;
+    private ScrollViewer? _scroller;
+    private BrowserSession? _session;
+    private OverlayWindow? _window;
 
     /// <summary>Builds only Avalonia chrome. No browser environment or helper starts here.</summary>
     public BrowserView()
@@ -47,7 +48,7 @@ public sealed class BrowserView : OverlaySubView
         _address.Click += (_, _) => EditAddress();
         var addressRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 10 };
         addressRow.Children.Add(_address);
-        _gameSearch.Click += (_, _) => EditAddress(withGame: true);
+        _gameSearch.Click += (_, _) => EditAddress(true);
         Grid.SetColumn(_gameSearch, 1);
         addressRow.Children.Add(_gameSearch);
         _stack.Children.Add(addressRow);
@@ -103,11 +104,16 @@ public sealed class BrowserView : OverlaySubView
             Refresh();
         };
         var memoryRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 16 };
-        memoryRow.Children.Add(new TextBlock { Text = "Browser memory behavior", VerticalAlignment = VerticalAlignment.Center, TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+        memoryRow.Children.Add(new TextBlock
+        {
+            Text = "Browser memory behavior", VerticalAlignment = VerticalAlignment.Center,
+            TextWrapping = TextWrapping.Wrap
+        });
         Grid.SetColumn(_memory, 1);
         memoryRow.Children.Add(_memory);
         _stack.Children.Add(memoryRow);
-        _stack.Children.Add(Caption("Page: D-pad scrolls, LB/RB selects links, Confirm activates, Y opens the keyboard. Back / Escape returns to browser controls. Downloads and application links are disabled."));
+        _stack.Children.Add(Caption(
+            "Page: D-pad scrolls, LB/RB selects links, Confirm activates, Y opens the keyboard. Back / Escape returns to browser controls. Downloads and application links are disabled."));
         Content = _stack;
         // The frame's effective viewport changes exactly when the scroller's viewport or the frame's
         // place in it does, the two inputs of the fit; a tree-wide layout pass adds nothing.
@@ -118,6 +124,8 @@ public sealed class BrowserView : OverlaySubView
     /// <inheritdoc />
     protected override string LogScope => "Browser";
 
+    internal bool ViewportOwnsInput => _session?.ViewportFocused == true;
+
     /// <inheritdoc />
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
@@ -127,8 +135,6 @@ public sealed class BrowserView : OverlaySubView
             RefreshLifetime();
         }
     }
-
-    internal bool ViewportOwnsInput => _session?.ViewportFocused == true;
 
     /// <summary>Connects the inert page to the one session-owned browser and the sheet that hosts it.</summary>
     /// <param name="session">The session's browser.</param>
@@ -199,7 +205,7 @@ public sealed class BrowserView : OverlaySubView
 
     private void OnWindowPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
-        if (e.Property == Visual.IsVisibleProperty)
+        if (e.Property == IsVisibleProperty)
         {
             RefreshLifetime();
         }
@@ -371,7 +377,10 @@ public sealed class BrowserView : OverlaySubView
         }
     }
 
-    internal bool TryReturnToChrome() => _session?.ReturnToChrome() == true;
+    internal bool TryReturnToChrome()
+    {
+        return _session?.ReturnToChrome() == true;
+    }
 
     internal void HandleViewportButtons(GamepadButtons buttons, bool nintendoLayout)
     {
@@ -412,14 +421,15 @@ public sealed class BrowserView : OverlaySubView
             _session.ReturnToChrome();
             var generation = NavigationGeneration;
             var keyboard = new KeyboardPanel("Website text", field.Text, 4096,
-                sensitive: field.Sensitive, multiline: field.Multiline);
+                field.Sensitive, field.Multiline);
             keyboard.Accepted += text =>
             {
                 if (_entered && generation == NavigationGeneration)
                 {
                     _pendingPageText = new BrowserPacket
                     {
-                        Text = text, Submit = !field.Multiline, Replace = field.Replace, NavigationId = field.NavigationId
+                        Text = text, Submit = !field.Multiline, Replace = field.Replace,
+                        NavigationId = field.NavigationId
                     };
                 }
             };
@@ -439,9 +449,15 @@ public sealed class BrowserView : OverlaySubView
         return true;
     }
 
-    internal void PageText(string text) => _session?.InsertText(text);
+    internal void PageText(string text)
+    {
+        _session?.InsertText(text);
+    }
 
-    private void OnFrameViewportChanged(object? sender, EffectiveViewportChangedEventArgs e) => FitViewport();
+    private void OnFrameViewportChanged(object? sender, EffectiveViewportChangedEventArgs e)
+    {
+        FitViewport();
+    }
 
     private void FitViewport()
     {
@@ -452,7 +468,7 @@ public sealed class BrowserView : OverlaySubView
 
         var scroller = _scroller;
         if (scroller is null || scroller.Viewport.Height <= 0
-            || _viewportFrame.TranslatePoint(default, scroller) is not { } origin)
+                             || _viewportFrame.TranslatePoint(default, scroller) is not { } origin)
         {
             return;
         }
@@ -499,8 +515,11 @@ public sealed class BrowserView : OverlaySubView
 
     private void FocusChrome()
     {
-        if (!_entered || TopLevel.GetTopLevel(this) is not OverlayWindow { IsVisible: true, Surfaces.HasActive: false } window
-            || _memory.IsDropDownOpen)
+        if (!_entered || TopLevel.GetTopLevel(this) is not OverlayWindow
+                      {
+                          IsVisible: true, Surfaces.HasActive: false
+                      } window
+                      || _memory.IsDropDownOpen)
         {
             return;
         }
@@ -532,7 +551,7 @@ public sealed class BrowserView : OverlaySubView
             _ => session?.Loading == true ? "Stop" : "Reload"
         };
         _enter.IsEnabled = session is { Lifecycle: BrowserLifecycle.Active, Address: not BrowserNavigation.Home };
-        _zoom.Text = $"{(session?.Options.ZoomFactor ?? 1):P0}";
+        _zoom.Text = $"{session?.Options.ZoomFactor ?? 1:P0}";
         _status.Text = session?.Status ?? "Browser is unavailable in this session.";
         UpdateViewportVisibility();
         _gameSearch.IsVisible = session?.CurrentGame is not null;

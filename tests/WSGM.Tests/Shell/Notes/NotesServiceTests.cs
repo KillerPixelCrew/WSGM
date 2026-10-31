@@ -30,7 +30,8 @@ public sealed class NotesServiceTests : IDisposable
     private static RunningApplicationTargetSnapshot Running(RunningApplicationTargetState state, uint? appId = null,
         string? application = null)
     {
-        return new RunningApplicationTargetSnapshot(1, 1, state, application ?? (appId is { } id ? "steam:" + id : null),
+        return new RunningApplicationTargetSnapshot(1, 1, state,
+            application ?? (appId is { } id ? "steam:" + id : null),
             appId, null, "game.exe", null);
     }
 
@@ -98,6 +99,7 @@ public sealed class NotesServiceTests : IDisposable
     {
         var service = Create();
         var page = service.CreatePage(NoteScope.Global).Page!;
+
         NoteStroke Stroke(float y)
         {
             return new NoteStroke { Id = NoteDocumentRules.NewId(), Points = [0, y, 10, y] };
@@ -230,7 +232,8 @@ public sealed class NotesServiceTests : IDisposable
         Assert.Equal(page.Id, state.Page!.Id);
         Assert.True(state.CaptureAvailable);
         // The published page carries no image bytes; images are requested one at a time.
-        Assert.DoesNotContain("data:image", JsonSerializer.Serialize(state, NotesSteamJsonContext.Default.NotesSteamState));
+        Assert.DoesNotContain("data:image",
+            JsonSerializer.Serialize(state, NotesSteamJsonContext.Default.NotesSteamState));
     }
 
     private static JsonElement Json(string text)

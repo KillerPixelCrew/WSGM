@@ -27,10 +27,10 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
     private EmulatorProgressState _progress = new(false, "");
     private long _progressRevision;
     private RomEmulatorState? _romState;
+    private string _shortcutStatus = "";
+    private EmulatorShortcutSync? _shortcuts;
     private EmulatorSnapshot _snapshot = new();
     private IReadOnlyList<RomSystemProfile>? _systems;
-    private EmulatorShortcutSync? _shortcuts;
-    private string _shortcutStatus = "";
 
     internal EmulatorService(EmulatorManager manager, Action<string> openUrl)
     {
@@ -40,9 +40,6 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
         manager.InstallationsChanged += OnInstallationsChanged;
         OnChanged();
     }
-
-    /// <inheritdoc />
-    public long CatalogRevision => Interlocked.Read(ref _catalogRevision);
 
     internal long ProgressRevision => Interlocked.Read(ref _progressRevision);
 
@@ -84,13 +81,10 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
         _manager.InstallationsChanged -= OnInstallationsChanged;
     }
 
-    public event Action? Changed;
+    /// <inheritdoc />
+    public long CatalogRevision => Interlocked.Read(ref _catalogRevision);
 
-    /// <summary>The manager's live snapshot, for commands that act on current state.</summary>
-    internal EmulatorSnapshot ReadState()
-    {
-        return _manager.GetSnapshot();
-    }
+    public event Action? Changed;
 
     public EmulatorPageState ReadPageState()
     {
@@ -186,12 +180,14 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
         return Run(() => _manager.RemoveAsync(installationId, cancellationToken));
     }
 
-    public async Task<SteamUiCommandResult> SetEmulatorShortcutAsync(string installationId, bool enabled, int launchMode,
+    public async Task<SteamUiCommandResult> SetEmulatorShortcutAsync(string installationId, bool enabled,
+        int launchMode,
         CancellationToken cancellationToken)
     {
         var wasEnabled = _manager.GetSnapshot().Installations
             .FirstOrDefault(installation => installation.Id == installationId)?.SteamShortcutEnabled == true;
-        var result = await Run(() => _manager.SetSteamShortcutAsync(installationId, enabled, launchMode, cancellationToken))
+        var result = await Run(() =>
+                _manager.SetSteamShortcutAsync(installationId, enabled, launchMode, cancellationToken))
             .ConfigureAwait(false);
         if (result.Succeeded)
         {
@@ -206,44 +202,6 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
         }
 
         return result;
-    }
-
-    /// <summary>Attaches the existing Steam writer to this session's emulator owner once.</summary>
-    internal void AttachSteamShortcuts(ImportStateStore store, Func<SteamShortcutWriter?> writer,
-        Func<CancellationToken, Task<IReadOnlyList<ExistingShortcut>>> readLibrary,
-        Func<uint, CancellationToken, Task<ExistingShortcut?>> readShortcut,
-        Func<bool> inputManaged, Func<bool> ready,
-        Func<EmulatorDefinition, uint, CancellationToken, Task<int>> artwork)
-    {
-        lock (_gate)
-        {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            _shortcuts ??= new EmulatorShortcutSync(_manager, store, writer, readLibrary, readShortcut,
-                inputManaged, ready, artwork, SetShortcutStatus, () => ShortcutsChanged?.Invoke());
-        }
-    }
-
-    /// <summary>Reconciles pending shortcuts after Steam readiness, reconnect or configuration changes.</summary>
-    internal void RequestShortcutSync()
-    {
-        _shortcuts?.Request();
-    }
-
-    private void SetShortcutStatus(string status)
-    {
-        lock (_gate)
-        {
-            if (_disposed || _shortcutStatus == status)
-            {
-                return;
-            }
-
-            _shortcutStatus = status;
-            _pageState = null;
-            Interlocked.Increment(ref _catalogRevision);
-        }
-
-        Changed?.Invoke();
     }
 
     public Task<SteamUiCommandResult> IgnoreEmulatorVersionAsync(string installationId, string releaseId,
@@ -286,6 +244,50 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
 
         _openUrl(url);
         return Task.FromResult(SteamUiCommandResult.Applied);
+    }
+
+    /// <summary>The manager's live snapshot, for commands that act on current state.</summary>
+    internal EmulatorSnapshot ReadState()
+    {
+        return _manager.GetSnapshot();
+    }
+
+    /// <summary>Attaches the existing Steam writer to this session's emulator owner once.</summary>
+    internal void AttachSteamShortcuts(ImportStateStore store, Func<SteamShortcutWriter?> writer,
+        Func<CancellationToken, Task<IReadOnlyList<ExistingShortcut>>> readLibrary,
+        Func<uint, CancellationToken, Task<ExistingShortcut?>> readShortcut,
+        Func<bool> inputManaged, Func<bool> ready,
+        Func<EmulatorDefinition, uint, CancellationToken, Task<int>> artwork)
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _shortcuts ??= new EmulatorShortcutSync(_manager, store, writer, readLibrary, readShortcut,
+                inputManaged, ready, artwork, SetShortcutStatus, () => ShortcutsChanged?.Invoke());
+        }
+    }
+
+    /// <summary>Reconciles pending shortcuts after Steam readiness, reconnect or configuration changes.</summary>
+    internal void RequestShortcutSync()
+    {
+        _shortcuts?.Request();
+    }
+
+    private void SetShortcutStatus(string status)
+    {
+        lock (_gate)
+        {
+            if (_disposed || _shortcutStatus == status)
+            {
+                return;
+            }
+
+            _shortcutStatus = status;
+            _pageState = null;
+            Interlocked.Increment(ref _catalogRevision);
+        }
+
+        Changed?.Invoke();
     }
 
     internal event Action? ChoicesChanged;

@@ -44,10 +44,11 @@ internal static class EmulatorShortcutArtwork
                  })
         {
             var page = await provider.GetAssetsForGameAsync(slot, id.Value, key,
-                new ArtworkQuery(Animated: false, Adult: false, Humor: false, Epilepsy: false), token)
+                    new ArtworkQuery(Animated: false, Adult: false, Humor: false, Epilepsy: false), token)
                 .ConfigureAwait(false);
             var candidate = page.Candidates.FirstOrDefault(item => !item.Animated && !item.Nsfw && !item.Humor
-                && !item.Epilepsy && JsonRead.HttpsUrl(item.Url).Length > 0);
+                                                                   && !item.Epilepsy &&
+                                                                   JsonRead.HttpsUrl(item.Url).Length > 0);
             if (candidate is not null)
             {
                 result.Add((slot, candidate.Url));

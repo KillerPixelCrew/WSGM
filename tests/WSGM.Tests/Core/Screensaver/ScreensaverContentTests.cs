@@ -5,11 +5,20 @@ namespace WSGM.Tests.Core;
 
 public sealed class ScreensaverContentTests : IDisposable
 {
-    private readonly string _root = Path.Combine(Path.GetTempPath(), "WSGM.ScreensaverTests", Guid.NewGuid().ToString("N"));
+    private readonly string _root =
+        Path.Combine(Path.GetTempPath(), "WSGM.ScreensaverTests", Guid.NewGuid().ToString("N"));
 
     public ScreensaverContentTests()
     {
         Directory.CreateDirectory(_root);
+    }
+
+    public void Dispose()
+    {
+        var expected = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "WSGM.ScreensaverTests")) +
+                       Path.DirectorySeparatorChar;
+        Assert.StartsWith(expected, Path.GetFullPath(_root), StringComparison.OrdinalIgnoreCase);
+        Directory.Delete(_root, true);
     }
 
     [Fact]
@@ -27,7 +36,8 @@ public sealed class ScreensaverContentTests : IDisposable
         source.Folder = Path.Combine(_root, "removed-drive");
         Assert.False(ScreensaverContent.Read(source, new Version(2, 4, 0)).Available);
         Directory.CreateDirectory(source.Folder);
-        File.WriteAllBytes(Path.Combine(source.Folder, "one.gif"), Convert.FromBase64String("R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="));
+        File.WriteAllBytes(Path.Combine(source.Folder, "one.gif"),
+            Convert.FromBase64String("R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="));
         Assert.True(ScreensaverContent.Read(source, new Version(2, 4, 0)).Available);
     }
 
@@ -41,7 +51,8 @@ public sealed class ScreensaverContentTests : IDisposable
     public void ManifestCannotAuthorizeOutsideOrAlternateStreamAssets(string asset)
     {
         WriteScene(new[] { asset });
-        var result = ScreensaverContent.Read(new ScreensaverSourceConfig { Folder = _root, Pack = true }, new Version(2, 4, 0));
+        var result = ScreensaverContent.Read(new ScreensaverSourceConfig { Folder = _root, Pack = true },
+            new Version(2, 4, 0));
         Assert.False(result.Available);
     }
 
@@ -68,9 +79,11 @@ public sealed class ScreensaverContentTests : IDisposable
     public async Task WireRejectsOversizedAndTruncatedMessages()
     {
         using var oversized = new MemoryStream(BitConverter.GetBytes(ScreensaverWire.MaximumPacketBytes + 1));
-        await Assert.ThrowsAsync<InvalidDataException>(() => ScreensaverWire.ReadAsync(oversized, CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            ScreensaverWire.ReadAsync(oversized, CancellationToken.None));
         using var truncated = new MemoryStream([10, 0, 0, 0, 123]);
-        await Assert.ThrowsAsync<EndOfStreamException>(() => ScreensaverWire.ReadAsync(truncated, CancellationToken.None));
+        await Assert.ThrowsAsync<EndOfStreamException>(() =>
+            ScreensaverWire.ReadAsync(truncated, CancellationToken.None));
     }
 
     private void WriteScene(string[] assets)
@@ -81,13 +94,7 @@ public sealed class ScreensaverContentTests : IDisposable
             Id = "test.scene", Name = "Test scene", Author = "WSGM", Version = "1.0.0", Type = "scene",
             Entry = "index.html", Assets = [.. assets], MinimumWsgm = "2.3.2"
         };
-        File.WriteAllText(Path.Combine(_root, "screensaver.json"), JsonSerializer.Serialize(manifest, ScreensaverJson.Default.ScreensaverManifest));
-    }
-
-    public void Dispose()
-    {
-        var expected = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "WSGM.ScreensaverTests")) + Path.DirectorySeparatorChar;
-        Assert.StartsWith(expected, Path.GetFullPath(_root), StringComparison.OrdinalIgnoreCase);
-        Directory.Delete(_root, recursive: true);
+        File.WriteAllText(Path.Combine(_root, "screensaver.json"),
+            JsonSerializer.Serialize(manifest, ScreensaverJson.Default.ScreensaverManifest));
     }
 }

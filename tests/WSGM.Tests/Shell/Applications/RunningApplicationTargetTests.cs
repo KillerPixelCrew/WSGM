@@ -474,7 +474,7 @@ public sealed class RunningApplicationTargetTests : IDisposable
         var active = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var global = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var monitor = new RunningApplicationMonitor(new SteamClient(transport).RunningApps,
-            steamEnabled: false, foregroundExited: (_, _) => Volatile.Read(ref exited) != 0);
+            false, foregroundExited: (_, _) => Volatile.Read(ref exited) != 0);
         monitor.Changed += state =>
         {
             if (state.State == RunningApplicationTargetState.Active)
@@ -486,7 +486,7 @@ public sealed class RunningApplicationTargetTests : IDisposable
                 global.TrySetResult();
             }
         };
-        monitor.ReportForeground("game.exe", @"D:\Games\game.exe", processId: 42);
+        monitor.ReportForeground("game.exe", @"D:\Games\game.exe", 42);
         using var observation = monitor.AcquireObservation();
         monitor.Start();
         await active.Task.WaitAsync(TimeSpan.FromSeconds(5));

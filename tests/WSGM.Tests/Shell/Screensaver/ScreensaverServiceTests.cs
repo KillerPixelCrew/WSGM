@@ -27,13 +27,14 @@ public sealed class ScreensaverServiceTests
         Assert.Same(cover, await service.ReadThumbnailAsync("photos", CancellationToken.None));
         Assert.Null(await service.ReadThumbnailAsync("../unregistered.bmp", CancellationToken.None));
         Assert.Equal(before.Revision, service.Snapshot().Revision);
-        Assert.DoesNotContain("data:image", SteamScreensaverSurface.Serialize(new SteamScreensaverState([], 0)
+        Assert.DoesNotContain("data:image", SteamScreensaverSurface.Serialize(new SteamScreensaverState([])
         {
             Content = service.Snapshot()
         }).ToString(), StringComparison.Ordinal);
         using var cancelled = new CancellationTokenSource();
         await cancelled.CancelAsync();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.ReadThumbnailAsync("photos", cancelled.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            service.ReadThumbnailAsync("photos", cancelled.Token));
     }
 
     [Fact]
@@ -100,10 +101,13 @@ public sealed class ScreensaverServiceTests
     {
         return new ScreensaverConfig
         {
-            Sources = [new ScreensaverSourceConfig
-            {
-                Id = "photos", Name = "Photos", Folder = folder, IntervalSeconds = 17, Fill = true, Shuffle = false
-            }]
+            Sources =
+            [
+                new ScreensaverSourceConfig
+                {
+                    Id = "photos", Name = "Photos", Folder = folder, IntervalSeconds = 17, Fill = true, Shuffle = false
+                }
+            ]
         };
     }
 

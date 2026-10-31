@@ -61,14 +61,17 @@ internal sealed class LibraryTabManager(ConfigStore store)
     ///     the patch host installs once the transport opens, so the wait runs inside Steam rather than
     ///     as a round trip per check. It settles on its own before the evaluation's deadline.
     /// </remarks>
-    private static string LibraryReadyProbe(bool requireTabClaim) =>
-        "(async()=>{const ns=" + SteamCef.JsString(SteamUiBridgeIdentity.Namespace) + ";"
-        + "const ready=()=>!!window.webpackChunksteamui&&window.appStore?.m_bIsInitialized===true"
-        + (requireTabClaim ? "&&!!window.collectionStore&&!!window[ns]?.gate('wsgmLibraryTabs')" : "") + ";"
-        + "const until=Date.now()+" + LibraryReadyProbeBudget.TotalMilliseconds.ToString(CultureInfo.InvariantCulture) +
-        ";"
-        + "while(!ready()){if(Date.now()>until)return 'false';await new Promise(r=>setTimeout(r,250));}"
-        + "return 'true';})()";
+    private static string LibraryReadyProbe(bool requireTabClaim)
+    {
+        return "(async()=>{const ns=" + SteamCef.JsString(SteamUiBridgeIdentity.Namespace) + ";"
+               + "const ready=()=>!!window.webpackChunksteamui&&window.appStore?.m_bIsInitialized===true"
+               + (requireTabClaim ? "&&!!window.collectionStore&&!!window[ns]?.gate('wsgmLibraryTabs')" : "") + ";"
+               + "const until=Date.now()+" +
+               LibraryReadyProbeBudget.TotalMilliseconds.ToString(CultureInfo.InvariantCulture) +
+               ";"
+               + "while(!ready()){if(Date.now()>until)return 'false';await new Promise(r=>setTimeout(r,250));}"
+               + "return 'true';})()";
+    }
 
     /// <summary>
     ///     Recomputes every WSGM library tab and injects them into Steam's tab

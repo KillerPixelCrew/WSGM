@@ -12,7 +12,10 @@ public static class StorageLibraryStorage
     private const string ManifestPath = @".wsgm\library.json";
     private static readonly object PublicationGate = new();
 
-    /// <summary>Reads a complete strict manifest through the expected volume GUID, or throws without substituting empty inventory.</summary>
+    /// <summary>
+    ///     Reads a complete strict manifest through the expected volume GUID, or throws without substituting empty
+    ///     inventory.
+    /// </summary>
     public static StorageLibraryManifest Read(string volumeId, string? expectedLibraryId = null)
     {
         using var document = JsonDocument.Parse(ReadBytes(volumeId), new JsonDocumentOptions { MaxDepth = 32 });
@@ -33,6 +36,7 @@ public static class StorageLibraryStorage
         {
             throw new InvalidDataException("This storage contains a different library. Review it in Game Library.");
         }
+
         return manifest;
     }
 
@@ -52,6 +56,7 @@ public static class StorageLibraryStorage
                 throw new StorageLibraryUnsupportedVersionException(
                     $"This library contains an unsupported field '{property.Name}'. Update WSGM before using this card.");
             }
+
             if (known.PropertyType == typeof(StorageLibraryPath))
             {
                 CheckKnownFields(property.Value, typeof(StorageLibraryPath));
@@ -61,7 +66,8 @@ public static class StorageLibraryStorage
                          || known.PropertyType == typeof(List<StorageLibraryContent>)))
             {
                 var itemType = known.PropertyType == typeof(List<StorageLibraryPath>)
-                    ? typeof(StorageLibraryPath) : typeof(StorageLibraryContent);
+                    ? typeof(StorageLibraryPath)
+                    : typeof(StorageLibraryContent);
                 foreach (var item in property.Value.EnumerateArray())
                 {
                     CheckKnownFields(item, itemType);
@@ -77,22 +83,28 @@ public static class StorageLibraryStorage
     }
 
     /// <summary>Repairs a missing/damaged manifest only after explicit review/Apply of an accepted local binding.</summary>
-    /// <remarks>Build inventory only from known managed records. Existing bytes are preserved in a unique sibling before replacement.</remarks>
+    /// <remarks>
+    ///     Build inventory only from known managed records. Existing bytes are preserved in a unique sibling before
+    ///     replacement.
+    /// </remarks>
     public static void Repair(StorageLibraryRecord library, StorageLibraryManifest manifest)
     {
         Validate(manifest, library.VolumeId);
         if (!library.RepairRequired || !SameId(library.Id, manifest.Id)
-            || manifest.Revision != checked(library.ManifestRevision + 1))
+                                    || manifest.Revision != checked(library.ManifestRevision + 1))
         {
             throw new InvalidDataException("Review this library's repair and expected revision before applying.");
         }
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(manifest, StorageLibraryJsonContext.Default.StorageLibraryManifest);
+
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(manifest,
+            StorageLibraryJsonContext.Default.StorageLibraryManifest);
         lock (PublicationGate)
         {
             try
             {
                 _ = Read(library.VolumeId);
-                throw new InvalidOperationException("This manifest is valid. Recheck and publish a normal revision instead.");
+                throw new InvalidOperationException(
+                    "This manifest is valid. Recheck and publish a normal revision instead.");
             }
             catch (Exception ex) when (ex is JsonException or InvalidDataException)
             {
@@ -102,6 +114,7 @@ public static class StorageLibraryStorage
             {
                 RequireMissingManifest(library.VolumeId);
             }
+
             byte[]? Snapshot()
             {
                 try
@@ -114,6 +127,7 @@ public static class StorageLibraryStorage
                     return null;
                 }
             }
+
             var original = Snapshot();
             Directory.CreateDirectory(ManagedContentStorage.ResolveLibraryPath(library.VolumeId, ".wsgm"));
             ManagedContentStorage.RejectLibraryReparsePoints(library.VolumeId, ".wsgm");
@@ -124,24 +138,32 @@ public static class StorageLibraryStorage
                 using var preserved = new FileStream(backup, FileMode.CreateNew, FileAccess.Write,
                     FileShare.None, 4096, FileOptions.WriteThrough);
                 preserved.Write(original);
-                preserved.Flush(flushToDisk: true);
+                preserved.Flush(true);
             }
+
             AtomicFile.Write(ManagedContentStorage.ResolveLibraryPath(library.VolumeId, ManifestPath), stream =>
             {
                 stream.Write(bytes);
-                stream.Flush(flushToDisk: true);
+                stream.Flush(true);
                 var current = Snapshot();
                 if (original is null ? current is not null : current is null || !original.SequenceEqual(current))
                 {
                     throw new InvalidDataException("The library changed during repair. Review it again.");
                 }
+
                 return true;
-            }, durable: true);
+            }, true);
         }
     }
 
-    /// <summary>Atomically publishes the next generation; null revision permits creation only, never replacement of a lost known manifest.</summary>
-    /// <remarks>The session owner must serialize inventory decisions and check cancellation before calling. An uncertain failure is never retried here.</remarks>
+    /// <summary>
+    ///     Atomically publishes the next generation; null revision permits creation only, never replacement of a lost
+    ///     known manifest.
+    /// </summary>
+    /// <remarks>
+    ///     The session owner must serialize inventory decisions and check cancellation before calling. An uncertain
+    ///     failure is never retried here.
+    /// </remarks>
     public static void Publish(string volumeId, StorageLibraryManifest manifest, long? expectedRevision)
     {
         Validate(manifest, volumeId);
@@ -150,7 +172,8 @@ public static class StorageLibraryStorage
             throw new InvalidDataException("The library manifest revision must advance by exactly one.");
         }
 
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(manifest, StorageLibraryJsonContext.Default.StorageLibraryManifest);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(manifest,
+            StorageLibraryJsonContext.Default.StorageLibraryManifest);
         lock (PublicationGate)
         {
             AssertGeneration(volumeId, manifest.Id, expectedRevision);
@@ -161,10 +184,10 @@ public static class StorageLibraryStorage
             AtomicFile.Write(target, stream =>
             {
                 stream.Write(bytes);
-                stream.Flush(flushToDisk: true);
+                stream.Flush(true);
                 AssertGeneration(volumeId, manifest.Id, expectedRevision);
                 return true;
-            }, durable: true);
+            }, true);
         }
     }
 
@@ -174,8 +197,10 @@ public static class StorageLibraryStorage
         {
             if (Read(volumeId, libraryId).Revision != revision.Value)
             {
-                throw new InvalidDataException("The library changed while it was being checked. Recheck before applying.");
+                throw new InvalidDataException(
+                    "The library changed while it was being checked. Recheck before applying.");
             }
+
             return;
         }
 
@@ -207,7 +232,7 @@ public static class StorageLibraryStorage
             {
                 VolumeId = volumeId, RelativePath = relativePath, Directory = directory,
                 AbsolutePath = ManagedContentStorage.ResolveLibraryPath(volumeId, relativePath)
-            }, context, rejectReparsePoints: true);
+            }, context, true);
         }
         catch (InvalidDataException)
         {
@@ -245,14 +270,17 @@ public static class StorageLibraryStorage
         {
             throw new InvalidDataException("A content record belongs to another library.");
         }
+
         var recipe = FromManaged(content, content.BackingPath.VolumeId);
         var matches = manifest.Entries.Where(entry => SameRecipe(entry, recipe)
-            && (!recipe.RequiresLocalRecipe || entry.Id == content.Id)).Take(2).ToArray();
+                                                      && (!recipe.RequiresLocalRecipe || entry.Id == content.Id))
+            .Take(2).ToArray();
         return matches.Length switch
         {
             0 => null,
             1 => matches[0],
-            _ => throw new InvalidDataException("Several library entries match this launch recipe. Review the conflict.")
+            _ => throw new InvalidDataException(
+                "Several library entries match this launch recipe. Review the conflict.")
         };
     }
 
@@ -260,9 +288,13 @@ public static class StorageLibraryStorage
     /// <remarks>Value equality for publication decisions: an unchanged entry is never rewritten.</remarks>
     public static bool SameEntry(StorageLibraryContent left, StorageLibraryContent right)
     {
-        static bool SamePath(StorageLibraryPath? a, StorageLibraryPath? b) => a is null || b is null
-            ? a is null && b is null
-            : a.Directory == b.Directory && string.Equals(a.RelativePath, b.RelativePath, StringComparison.Ordinal);
+        static bool SamePath(StorageLibraryPath? a, StorageLibraryPath? b)
+        {
+            return a is null || b is null
+                ? a is null && b is null
+                : a.Directory == b.Directory && string.Equals(a.RelativePath, b.RelativePath, StringComparison.Ordinal);
+        }
+
         return left.Id == right.Id && left.Name == right.Name && left.SourceKind == right.SourceKind
                && left.SourceName == right.SourceName && left.SystemId == right.SystemId
                && SamePath(left.BackingPath, right.BackingPath) && SamePath(left.SourceRoot, right.SourceRoot)
@@ -274,19 +306,29 @@ public static class StorageLibraryStorage
 
     private static bool SameRecipe(StorageLibraryContent left, StorageLibraryContent right)
     {
-        static bool SamePath(StorageLibraryPath? a, StorageLibraryPath? b) => a is null || b is null
-            ? a is null && b is null
-            : a.Directory == b.Directory && string.Equals(a.RelativePath.Replace('/', '\\'),
-                b.RelativePath.Replace('/', '\\'), StringComparison.OrdinalIgnoreCase);
+        static bool SamePath(StorageLibraryPath? a, StorageLibraryPath? b)
+        {
+            return a is null || b is null
+                ? a is null && b is null
+                : a.Directory == b.Directory && string.Equals(a.RelativePath.Replace('/', '\\'),
+                    b.RelativePath.Replace('/', '\\'), StringComparison.OrdinalIgnoreCase);
+        }
+
         return left.SourceKind == right.SourceKind && SamePath(left.BackingPath, right.BackingPath)
-            && (left.SourceKind == LibrarySourceKind.Rom
-                ? EmulatorStorage.NormalizeSystemId(left.SystemId) == EmulatorStorage.NormalizeSystemId(right.SystemId)
-                : left.RequiresLocalRecipe == right.RequiresLocalRecipe && SamePath(left.Program, right.Program)
-                    && SamePath(left.WorkingDirectory, right.WorkingDirectory) && left.RawArguments == right.RawArguments);
+                                                   && (left.SourceKind == LibrarySourceKind.Rom
+                                                       ? EmulatorStorage.NormalizeSystemId(left.SystemId) ==
+                                                         EmulatorStorage.NormalizeSystemId(right.SystemId)
+                                                       : left.RequiresLocalRecipe == right.RequiresLocalRecipe &&
+                                                         SamePath(left.Program, right.Program)
+                                                         && SamePath(left.WorkingDirectory, right.WorkingDirectory) &&
+                                                         left.RawArguments == right.RawArguments);
     }
 
-    private static bool SameId(string left, string right) => Guid.TryParse(left, out var a)
-        && Guid.TryParse(right, out var b) && a == b;
+    private static bool SameId(string left, string right)
+    {
+        return Guid.TryParse(left, out var a)
+               && Guid.TryParse(right, out var b) && a == b;
+    }
 
     private static void RejectDuplicateProperties(JsonElement element)
     {
@@ -299,6 +341,7 @@ public static class StorageLibraryStorage
                 {
                     throw new InvalidDataException("The library manifest contains duplicate properties.");
                 }
+
                 RejectDuplicateProperties(property.Value);
             }
         }
@@ -321,23 +364,28 @@ public static class StorageLibraryStorage
         }
 
         if (!Guid.TryParseExact(manifest.Id, "D", out var id) || id == Guid.Empty
-            || manifest.Name is null || manifest.Revision < 1 || manifest.Entries is null)
+                                                              || manifest.Name is null || manifest.Revision < 1 ||
+                                                              manifest.Entries is null)
         {
             throw new InvalidDataException("The library manifest schema, UUID or revision is invalid.");
         }
+
         HashSet<string> ids = new(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in manifest.Entries)
         {
             if (entry is null || entry.Id is null || entry.Id.Length != 32 || !entry.Id.All(Uri.IsHexDigit)
                 || !ids.Add(entry.Id) || entry.Name is null || entry.SourceName is null || entry.SystemId is null
                 || entry.RawArguments is null || entry.RequiredPaths is null || entry.BackingPath is null
-                || entry.SourceKind is not (LibrarySourceKind.Rom or LibrarySourceKind.Folder or LibrarySourceKind.Manual)
-                || entry.SourceKind == LibrarySourceKind.Rom && entry.SystemId.Length == 0
-                || entry.SourceKind != LibrarySourceKind.Rom && !entry.RequiresLocalRecipe
-                    && (entry.Program is null || entry.WorkingDirectory is null))
+                || entry.SourceKind is not (LibrarySourceKind.Rom or LibrarySourceKind.Folder
+                    or LibrarySourceKind.Manual)
+                || (entry.SourceKind == LibrarySourceKind.Rom && entry.SystemId.Length == 0)
+                || (entry.SourceKind != LibrarySourceKind.Rom && !entry.RequiresLocalRecipe
+                                                              && (entry.Program is null ||
+                                                                  entry.WorkingDirectory is null)))
             {
                 throw new InvalidDataException("A library entry has invalid identity, source or launch fields.");
             }
+
             foreach (var path in new[] { entry.BackingPath, entry.SourceRoot, entry.Program, entry.WorkingDirectory }
                          .Where(path => path is not null).Concat(entry.RequiredPaths))
             {
@@ -345,26 +393,33 @@ public static class StorageLibraryStorage
                 {
                     throw new InvalidDataException("A library entry has an incomplete path.");
                 }
+
                 _ = ManagedContentStorage.ResolveLibraryPath(volumeId, path.RelativePath);
             }
         }
     }
 
     /// <summary>Projects local metadata to a portable recipe without leaking external dependency paths.</summary>
-    public static StorageLibraryContent FromManaged(ManagedContentRecord content, string volumeId, string sourceName = "")
+    public static StorageLibraryContent FromManaged(ManagedContentRecord content, string volumeId,
+        string sourceName = "")
     {
         _ = ManagedContentStorage.ResolveLibraryPath(volumeId, "");
         if (ManagedContentStorage.RecordDefect(content) is { } defect)
         {
             throw new InvalidDataException(defect);
         }
-        StorageLibraryPath? Portable(ManagedContentPath path) => path.VolumeId.Equals(volumeId, StringComparison.OrdinalIgnoreCase)
-            ? new StorageLibraryPath
-            {
-                RelativePath = ManagedContentStorage.NormalizeLocalRelativePath(path.RelativePath),
-                Directory = path.Directory
-            }
-            : null;
+
+        StorageLibraryPath? Portable(ManagedContentPath path)
+        {
+            return path.VolumeId.Equals(volumeId, StringComparison.OrdinalIgnoreCase)
+                ? new StorageLibraryPath
+                {
+                    RelativePath = ManagedContentStorage.NormalizeLocalRelativePath(path.RelativePath),
+                    Directory = path.Directory
+                }
+                : null;
+        }
+
         var backing = Portable(content.BackingPath)
                       ?? throw new InvalidDataException("The backing content belongs to different storage.");
         var program = Portable(content.Program);
@@ -379,7 +434,9 @@ public static class StorageLibraryStorage
             BackingPath = backing,
             SourceRoot = Portable(content.SourceRoot),
             RequiredPaths = content.RequiredPaths.Select(path => Portable(path)
-                ?? throw new InvalidDataException("A backing companion is outside this storage.")).ToList(),
+                                                                 ?? throw new InvalidDataException(
+                                                                     "A backing companion is outside this storage."))
+                .ToList(),
             Program = content.SourceKind == LibrarySourceKind.Rom ? null : program,
             WorkingDirectory = content.SourceKind == LibrarySourceKind.Rom ? null : directory,
             RawArguments = content.SourceKind == LibrarySourceKind.Rom ? "" : content.RawArguments.Trim(),
@@ -392,18 +449,24 @@ public static class StorageLibraryStorage
     public static ManagedContentRecord ToManaged(StorageLibraryContent entry, StorageLibraryRecord library,
         string sourceId, ManagedContentRecord? localRecipe = null)
     {
-        ManagedContentPath Bind(StorageLibraryPath path) => new()
+        ManagedContentPath Bind(StorageLibraryPath path)
         {
-            VolumeId = library.VolumeId, RelativePath = path.RelativePath, Directory = path.Directory,
-            AbsolutePath = ManagedContentStorage.ResolveLibraryPath(library.VolumeId, path.RelativePath)
-        };
+            return new ManagedContentPath
+            {
+                VolumeId = library.VolumeId, RelativePath = path.RelativePath, Directory = path.Directory,
+                AbsolutePath = ManagedContentStorage.ResolveLibraryPath(library.VolumeId, path.RelativePath)
+            };
+        }
+
         var content = localRecipe?.Copy() ?? new ManagedContentRecord();
         if (localRecipe is not null && (localRecipe.Id != entry.Id
-            || !SameId(localRecipe.LibraryId, library.Id)
-            || !localRecipe.BackingPath.VolumeId.Equals(library.VolumeId, StringComparison.OrdinalIgnoreCase)))
+                                        || !SameId(localRecipe.LibraryId, library.Id)
+                                        || !localRecipe.BackingPath.VolumeId.Equals(library.VolumeId,
+                                            StringComparison.OrdinalIgnoreCase)))
         {
             throw new InvalidDataException("The local command recipe belongs to another library or title.");
         }
+
         content.Id = entry.Id;
         content.LibraryId = library.Id;
         content.SourceId = sourceId;
@@ -433,6 +496,7 @@ public static class StorageLibraryStorage
             content.RawArguments = entry.RawArguments;
             content.Arguments = [];
         }
+
         return content;
     }
 }

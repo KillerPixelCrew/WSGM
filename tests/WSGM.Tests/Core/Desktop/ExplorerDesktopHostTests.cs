@@ -7,6 +7,16 @@ namespace WSGM.Tests.Core;
 
 public sealed class ExplorerDesktopHostTests : IDisposable
 {
+    public ExplorerDesktopHostTests()
+    {
+        ApplicationShutdownRequest.ResetForTests();
+    }
+
+    public void Dispose()
+    {
+        ApplicationShutdownRequest.ResetForTests();
+    }
+
     [Fact]
     public async Task ForcedExitUsesTaskManagersStatusOnTheHeldHelperHandle()
     {
@@ -30,20 +40,10 @@ public sealed class ExplorerDesktopHostTests : IDisposable
         {
             if (!helper.HasExited)
             {
-                helper.Kill(entireProcessTree: false);
+                helper.Kill(false);
                 await helper.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
             }
         }
-    }
-
-    public ExplorerDesktopHostTests()
-    {
-        ApplicationShutdownRequest.ResetForTests();
-    }
-
-    public void Dispose()
-    {
-        ApplicationShutdownRequest.ResetForTests();
     }
 
     [Fact]

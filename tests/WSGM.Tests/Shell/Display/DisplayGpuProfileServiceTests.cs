@@ -146,12 +146,12 @@ public sealed class DisplayGpuProfileServiceTests
         }
 
         Assert.True(await GameModeReturnRecovery.RestorePendingAsync(store.Store, CancellationToken.None,
-            audio, warnings.Add, applyGraphics: Missing, requireAudio: false));
+            audio, warnings.Add, Missing, false));
         Assert.Equal("8", Assert.Single(store.Store.Read().RequireConfig()
             .GameModeLaunchRecovery.PendingReturnDisplayGpu).Value.Text);
         Assert.Contains(warnings, warning => warning.Contains("display driver controls", StringComparison.Ordinal));
         Assert.False(await GameModeReturnRecovery.RestorePendingAsync(store.Store, CancellationToken.None,
-            audio, warnings.Add, applyGraphics: Missing));
+            audio, warnings.Add, Missing));
         Assert.Equal(2, attempts);
     }
 

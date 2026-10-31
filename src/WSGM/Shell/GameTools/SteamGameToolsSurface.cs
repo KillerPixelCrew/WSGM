@@ -66,7 +66,8 @@ internal static class SteamGameToolsSurface
                 SteamUiModuleBuilder.Command<GameToolsInstallRequest>(PatchId, "install", TryInstall,
                     service.InstallAsync, "The install request is invalid."),
                 SteamUiModuleBuilder.Command<(uint AppId, string ToolId, bool ReplaceConfig)>(PatchId, "update",
-                    TryUpdate, (value, token) => service.UpdateAsync(value.AppId, value.ToolId, value.ReplaceConfig, token),
+                    TryUpdate,
+                    (value, token) => service.UpdateAsync(value.AppId, value.ToolId, value.ReplaceConfig, token),
                     "The update request is invalid."),
                 SteamUiModuleBuilder.Command<(uint AppId, string ToolId)>(PatchId, "repair", TryTool,
                     (value, token) => service.RepairAsync(value.AppId, value.ToolId, token),
@@ -131,10 +132,11 @@ internal static class SteamGameToolsSurface
     {
         value = default;
         if (!Only(payload, "appId", "toolId", "replaceConfig") || !AppId(payload, out var appId)
-                                                              || !SteamUiPayload.TryReadNonBlankString(payload, "toolId",
-                                                                  out var toolId)
-                                                              || !OptionalBoolean(payload, "replaceConfig",
-                                                                  out var replaceConfig))
+                                                               || !SteamUiPayload.TryReadNonBlankString(payload,
+                                                                   "toolId",
+                                                                   out var toolId)
+                                                               || !OptionalBoolean(payload, "replaceConfig",
+                                                                   out var replaceConfig))
         {
             return false;
         }
@@ -184,7 +186,8 @@ internal static class SteamGameToolsSurface
     {
         value = false;
         return !payload.TryGetProperty(name, out var property) || property.ValueKind == JsonValueKind.Null
-                                                               || SteamUiPayload.TryReadBoolean(payload, name, out value);
+                                                               || SteamUiPayload.TryReadBoolean(payload, name,
+                                                                   out value);
     }
 
     // Absent means null; the toolkit reader accepts null or a non-blank string.

@@ -33,12 +33,12 @@ public sealed class PerformanceServiceTests
         await using var service = Service(adapter, profiles);
         await service.SetAsync(PerformanceControl.OverlayLevel, 1, "overlay", "enable");
 
-        await service.ApplyProfilesAsync(profiles.Current, enabled: false);
+        await service.ApplyProfilesAsync(profiles.Current, false);
 
         Assert.Equal(0, adapter.Values[string.Empty].OverlayLevel);
         Assert.Equal(0, service.Current.Observed.OverlayLevel);
         Assert.Equal(1, profiles.Current.Config.Global.OverlayLevel);
-        await service.ApplyProfilesAsync(profiles.Current, enabled: true);
+        await service.ApplyProfilesAsync(profiles.Current, true);
         Assert.Equal(1, adapter.Values[string.Empty].OverlayLevel);
     }
 
@@ -797,6 +797,7 @@ public sealed class PerformanceServiceTests
             {
                 OverlayPresentationEnabled = request.Value > 0 ? true : null;
             }
+
             Values.TryGetValue(request.RtssProfileName, out var current);
             Values[request.RtssProfileName] = (current ?? PerformanceValues.Empty).With(
                 request.Control,

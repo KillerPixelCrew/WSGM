@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security;
 
 namespace WSGM.Core;
 
@@ -96,7 +97,7 @@ internal sealed class GameFolderLayout
             {
                 entries = directory.GetFileSystemInfos();
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SecurityException)
             {
                 continue;
             }

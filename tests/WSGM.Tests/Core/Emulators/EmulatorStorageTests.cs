@@ -20,11 +20,14 @@ public sealed class EmulatorStorageTests
             DataPath = temporary.Root,
             DataPolicy = new EmulatorDataPolicy
             {
-                Prerequisites = [new EmulatorPrerequisite
-                {
-                    Kind = "keys", Name = "Console keys", Required = true, Destination = "keys",
-                    RequiredNames = ["prod.keys"]
-                }]
+                Prerequisites =
+                [
+                    new EmulatorPrerequisite
+                    {
+                        Kind = "keys", Name = "Console keys", Required = true, Destination = "keys",
+                        RequiredNames = ["prod.keys"]
+                    }
+                ]
             }
         };
 

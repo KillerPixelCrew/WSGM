@@ -14,9 +14,14 @@ internal static class SteamLaunchActionsSurface
     internal static ISteamUiModule Module(Func<bool> enabled, LaunchActionService service)
     {
         return new SteamUiModule(Template,
-            [SteamPagePatch.Create(PatchId, "launchActions", "wsgm-launch-actions-v2:native-submenu", "Launch Actions")],
-            [SteamUiModuleBuilder.Publication(PatchId, enabled, service.ReadStateAsync,
-                LaunchActionsJsonContext.Default.LaunchActionState)],
+            [
+                SteamPagePatch.Create(PatchId, "launchActions", "wsgm-launch-actions-v2:native-submenu",
+                    "Launch Actions")
+            ],
+            [
+                SteamUiModuleBuilder.Publication(PatchId, enabled, service.ReadStateAsync,
+                    LaunchActionsJsonContext.Default.LaunchActionState)
+            ],
             [
                 SteamUiModuleBuilder.Command<uint>(PatchId, "open", TryAppId, service.OpenAsync,
                     "A valid game AppID is required."),
@@ -29,7 +34,8 @@ internal static class SteamLaunchActionsSurface
                 SteamUiModuleBuilder.Command<(uint AppId, string Path, string Arguments)>(PatchId, "custom", TryCustom,
                     async (value, token) =>
                     {
-                        var result = await service.ApplyCustomAsync(value.AppId, value.Path, value.Arguments, token).ConfigureAwait(false);
+                        var result = await service.ApplyCustomAsync(value.AppId, value.Path, value.Arguments, token)
+                            .ConfigureAwait(false);
                         return new SteamUiCommandResult(result.Ok, result.Detail);
                     }, "The custom launch action is invalid.")
             ]);
@@ -39,7 +45,8 @@ internal static class SteamLaunchActionsSurface
     {
         appId = 0;
         return payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("appId", out var id)
-            && id.ValueKind == JsonValueKind.Number && id.TryGetUInt32(out appId) && appId > 0;
+                                                         && id.ValueKind == JsonValueKind.Number &&
+                                                         id.TryGetUInt32(out appId) && appId > 0;
     }
 
     private static bool TryAppId(JsonElement payload, out uint appId)
@@ -51,7 +58,7 @@ internal static class SteamLaunchActionsSurface
     {
         value = default;
         if (!AppId(payload, out var appId) || !SteamUiPayload.TryReadInt(payload, "mode", 0, 3, out var mode)
-            || !SteamUiPayload.HasExactly(payload, 2))
+                                           || !SteamUiPayload.HasExactly(payload, 2))
         {
             return false;
         }
@@ -64,8 +71,9 @@ internal static class SteamLaunchActionsSurface
     {
         value = default;
         if (!AppId(payload, out var appId) || !SteamUiPayload.TryReadNonBlankString(payload, "path", out var path)
-            || !SteamUiPayload.TryReadNullableString(payload, "arguments", out var arguments)
-            || !SteamUiPayload.HasExactly(payload, 3))
+                                           || !SteamUiPayload.TryReadNullableString(payload, "arguments",
+                                               out var arguments)
+                                           || !SteamUiPayload.HasExactly(payload, 3))
         {
             return false;
         }

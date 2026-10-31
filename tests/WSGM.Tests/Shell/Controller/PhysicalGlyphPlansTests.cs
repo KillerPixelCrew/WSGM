@@ -2,6 +2,8 @@ using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
+using Avalonia.Skia;
+using LibHandheld;
 using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Serialization;
@@ -16,7 +18,7 @@ public sealed class PhysicalGlyphPlansTests
     {
         // Geometry.Parse uses the platform renderer even without a window. Use the real CPU Skia
         // implementation so these fixtures exercise authored paths rather than a mock geometry.
-        Avalonia.Skia.SkiaPlatform.Initialize();
+        SkiaPlatform.Initialize();
     }
 
     [Fact]
@@ -274,9 +276,9 @@ public sealed class PhysicalGlyphPlansTests
     [Fact]
     public void EveryEmbeddedDefinitionImportsAndItsActualControlOutlinesParse()
     {
-        var assembly = typeof(LibHandheld.HandheldDevice).Assembly;
+        var assembly = typeof(HandheldDevice).Assembly;
         var resources = assembly.GetManifestResourceNames();
-        foreach (var definition in LibHandheld.HandheldDevice.Definitions)
+        foreach (var definition in HandheldDevice.Definitions)
         {
             var manifestResource = Assert.Single(resources, name =>
                 name.Contains(".glyphs.profiles.", StringComparison.Ordinal)
@@ -343,36 +345,6 @@ public sealed class PhysicalGlyphPlansTests
             plans.Resolve(selected, control, PhysicalGlyphSurface.NavigationHint, false).FallbackReason);
     }
 
-    private sealed class EmbeddedProfileSource(string manifestResource) : IGlyphPackageSource
-    {
-        private readonly string _family = manifestResource[
-            ..(manifestResource.IndexOf(".glyphs.profiles.", StringComparison.Ordinal) + 1)];
-
-        private readonly string _profileId = manifestResource[
-            (manifestResource.IndexOf(".glyphs.profiles.", StringComparison.Ordinal) + ".glyphs.profiles.".Length)..^5];
-
-        public IReadOnlyList<string> EnumerateProfileIds()
-        {
-            return [_profileId];
-        }
-
-        public bool TryRead(string relativePath, int maximumBytes, out byte[] bytes)
-        {
-            using var resource = typeof(LibHandheld.HandheldDevice).Assembly.GetManifestResourceStream(
-                _family + relativePath.Replace('/', '.'));
-            if (resource is null || resource.Length > maximumBytes)
-            {
-                bytes = [];
-                return false;
-            }
-
-            using MemoryStream output = new();
-            resource.CopyTo(output);
-            bytes = output.ToArray();
-            return true;
-        }
-    }
-
     private static byte[] OnePixelPng()
     {
         using MemoryStream output = new();
@@ -425,5 +397,35 @@ public sealed class PhysicalGlyphPlansTests
         }
 
         return ~crc;
+    }
+
+    private sealed class EmbeddedProfileSource(string manifestResource) : IGlyphPackageSource
+    {
+        private readonly string _family = manifestResource[
+            ..(manifestResource.IndexOf(".glyphs.profiles.", StringComparison.Ordinal) + 1)];
+
+        private readonly string _profileId = manifestResource[
+            (manifestResource.IndexOf(".glyphs.profiles.", StringComparison.Ordinal) + ".glyphs.profiles.".Length)..^5];
+
+        public IReadOnlyList<string> EnumerateProfileIds()
+        {
+            return [_profileId];
+        }
+
+        public bool TryRead(string relativePath, int maximumBytes, out byte[] bytes)
+        {
+            using var resource = typeof(HandheldDevice).Assembly.GetManifestResourceStream(
+                _family + relativePath.Replace('/', '.'));
+            if (resource is null || resource.Length > maximumBytes)
+            {
+                bytes = [];
+                return false;
+            }
+
+            using MemoryStream output = new();
+            resource.CopyTo(output);
+            bytes = output.ToArray();
+            return true;
+        }
     }
 }

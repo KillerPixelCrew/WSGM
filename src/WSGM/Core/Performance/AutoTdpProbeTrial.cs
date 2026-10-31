@@ -27,8 +27,9 @@ internal sealed class AutoTdpProbeTrial
     /// <summary>How far GPU load must climb across a probe for its failure to be power-correlated.</summary>
     private const double GpuRise = 15;
 
-    private int _missHistory;
     private double? _missGpu;
+
+    private int _missHistory;
 
     /// <summary>Windows the current probe has passed.</summary>
     internal int Judged { get; private set; }

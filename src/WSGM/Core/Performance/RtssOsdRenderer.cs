@@ -13,12 +13,12 @@ namespace WSGM.Core;
 internal sealed class RtssOsdRenderer : IAsyncDisposable
 {
     private readonly SystemMetricsSource _metrics;
+    private readonly Func<RtssOsdMetrics> _sample;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly SemaphoreSlim _wake = new(0, 1);
+    private readonly Func<string, bool> _write;
 
     private readonly RtssOsdWriter _writer = new();
-    private readonly Func<string, bool> _write;
-    private readonly Func<RtssOsdMetrics> _sample;
     private volatile RtssOsdCustomSettings _custom = RtssOsdCustomSettings.Default;
     private bool _disposed;
     private volatile int _level;

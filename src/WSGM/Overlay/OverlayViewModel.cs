@@ -328,5 +328,4 @@ public sealed class OverlayViewModel : ObservableObject
     ///     can write the launch configuration itself.
     /// </summary>
     public bool ShowRemoveLaunchWrapper => ConfigureLaunchOptionsLive;
-
 }

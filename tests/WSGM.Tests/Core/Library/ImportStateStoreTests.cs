@@ -19,7 +19,11 @@ public sealed class ImportStateStoreTests
         store.SaveChoice(new ImportChoice
         {
             Source = "folder", Key = "game",
-            Artwork = [new ArtworkPick { Asset = ArtworkAsset.Hero, Url = "https://example.test/hero.png", Revision = "pick-1" }]
+            Artwork =
+            [
+                new ArtworkPick
+                    { Asset = ArtworkAsset.Hero, Url = "https://example.test/hero.png", Revision = "pick-1" }
+            ]
         });
         store.SaveApplied(new ImportedEntry
         {
@@ -27,7 +31,7 @@ public sealed class ImportStateStoreTests
             Mode = nameof(ImportMode.SteamIntegration),
             SettledArtwork = new Dictionary<ArtworkAsset, AppliedArtworkChoice>
             {
-                [ArtworkAsset.Hero] = new AppliedArtworkChoice("https://example.test/hero.png", "pick-1")
+                [ArtworkAsset.Hero] = new("https://example.test/hero.png", "pick-1")
             }
         });
 
@@ -53,7 +57,7 @@ public sealed class ImportStateStoreTests
             Mode = nameof(ImportMode.SteamIntegration),
             SettledArtwork = new Dictionary<ArtworkAsset, AppliedArtworkChoice>
             {
-                [ArtworkAsset.Hero] = new AppliedArtworkChoice("", "clear-1")
+                [ArtworkAsset.Hero] = new("", "clear-1")
             }
         });
         var detached = Assert.Single(store.Entries());
@@ -214,12 +218,13 @@ public sealed class ImportStateStoreTests
         store.SetActiveAccount(7);
         store.Save(new ImportedEntry
         {
-            AccountId = 7, Source = "epic", Key = "Moonlit", AppId = 9, Name = "Moonlit", Target = "t", LaunchOptions = "o",
+            AccountId = 7, Source = "epic", Key = "Moonlit", AppId = 9, Name = "Moonlit", Target = "t",
+            LaunchOptions = "o",
             Mode = nameof(ImportMode.ControllerOnly)
         });
         store.SaveChoice(new ImportChoice { Source = "epic", Key = "Moonlit", MatchId = "7" });
 
-        store.Forget("EPIC", "moonlit", accountId: 7);
+        store.Forget("EPIC", "moonlit", 7);
 
         Assert.Empty(store.Entries());
         Assert.Equal("Moonlit", Assert.Single(store.Choices()).Key);
@@ -286,38 +291,38 @@ public sealed class ImportStateStoreTests
         using TemporaryDirectory temporary = new();
         var path = temporary.GetPath("library-import.json");
         File.WriteAllText(path, """
-            {
-              "Version": 2,
-              "Entries": [
-                {
-                  "Source": "epic", "Key": "Hades", "Name": "Hades",
-                  "Content": {
-                    "Id": "0123456789abcdef0123456789abcdef", "SourceId": "epic", "SourceKey": "Hades",
-                    "Name": "Hades", "SourceKind": "Launcher", "LaunchKind": "Native",
-                    "Availability": 2, "AvailabilityDetail": "Connect it", "LibraryBindingAccepted": true,
-                    "InventoryRemoved": false
-                  },
-                  "SteamMappings": []
-                },
-                {
-                  "Source": "folder", "Key": "Game", "Name": "Game",
-                  "Content": {
-                    "Id": "fedcba9876543210fedcba9876543210", "SourceId": "folder", "SourceKey": "Game",
-                    "Name": "Game", "SourceKind": "Folder", "LaunchKind": "Direct", "Availability": 1,
-                    "AvailabilityDetail": "Available"
-                  },
-                  "SteamMappings": []
-                }
-              ],
-              "Libraries": [
-                {
-                  "Id": "6f1c5e2a-0d4b-4c39-9a51-3f2b8f1e7c10", "Name": "SD card",
-                  "VolumeId": "\\\\?\\Volume{6f1c5e2a-0d4b-4c39-9a51-3f2b8f1e7c10}\\", "LastMountPath": "D:\\",
-                  "ManifestRevision": 3, "MigrationPending": false, "RepairRequired": false
-                }
-              ]
-            }
-            """);
+                                {
+                                  "Version": 2,
+                                  "Entries": [
+                                    {
+                                      "Source": "epic", "Key": "Hades", "Name": "Hades",
+                                      "Content": {
+                                        "Id": "0123456789abcdef0123456789abcdef", "SourceId": "epic", "SourceKey": "Hades",
+                                        "Name": "Hades", "SourceKind": "Launcher", "LaunchKind": "Native",
+                                        "Availability": 2, "AvailabilityDetail": "Connect it", "LibraryBindingAccepted": true,
+                                        "InventoryRemoved": false
+                                      },
+                                      "SteamMappings": []
+                                    },
+                                    {
+                                      "Source": "folder", "Key": "Game", "Name": "Game",
+                                      "Content": {
+                                        "Id": "fedcba9876543210fedcba9876543210", "SourceId": "folder", "SourceKey": "Game",
+                                        "Name": "Game", "SourceKind": "Folder", "LaunchKind": "Direct", "Availability": 1,
+                                        "AvailabilityDetail": "Available"
+                                      },
+                                      "SteamMappings": []
+                                    }
+                                  ],
+                                  "Libraries": [
+                                    {
+                                      "Id": "6f1c5e2a-0d4b-4c39-9a51-3f2b8f1e7c10", "Name": "SD card",
+                                      "VolumeId": "\\\\?\\Volume{6f1c5e2a-0d4b-4c39-9a51-3f2b8f1e7c10}\\", "LastMountPath": "D:\\",
+                                      "ManifestRevision": 3, "MigrationPending": false, "RepairRequired": false
+                                    }
+                                  ]
+                                }
+                                """);
         ImportStateStore store = new(path);
 
         var entries = store.InventoryEntries();
@@ -403,7 +408,7 @@ public sealed class ImportStateStoreTests
         store.SaveChoice(new ImportChoice { Source = "xbox", Key = "A_x!App", Excluded = true });
         store.SaveChoice(new ImportChoice { Source = "xbox", Key = "B_y!App", Excluded = true });
 
-        store.Forget("xbox", "A_x!App", accountId: 7);
+        store.Forget("xbox", "A_x!App", 7);
 
         Assert.Equal(["A_x!App", "B_y!App"], store.Choices().Select(choice => choice.Key).Order().ToArray());
     }

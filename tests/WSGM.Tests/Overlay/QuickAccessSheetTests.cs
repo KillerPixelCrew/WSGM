@@ -37,7 +37,8 @@ public sealed class QuickAccessSheetTests
     public void EdgeSwipeRoutesToTheSteamOsLayout(
         object edge, bool explorerRunning, object expected)
     {
-        Assert.Equal((OverlayActivation.SwipeAction)expected, OverlayActivation.DecideSwipe((ScreenEdge)edge, explorerRunning));
+        Assert.Equal((OverlayActivation.SwipeAction)expected,
+            OverlayActivation.DecideSwipe((ScreenEdge)edge, explorerRunning));
     }
 
     [Theory]

@@ -27,10 +27,11 @@ internal sealed class DeviceCapabilityCommands
     private readonly DevicePowerPolicy _power;
     private readonly ProfileService _profiles;
 
+    private readonly Func<Task> _reconcileChargeLimit;
+
     /// <summary>Serializes desired-value passes, lighting profile selection and processor resets.</summary>
     private readonly SemaphoreSlim _reconcileGate;
 
-    private readonly Func<Task> _reconcileChargeLimit;
     private readonly Func<HandheldDeviceRuntime?> _runtime;
     private int _userCommands;
 
@@ -128,7 +129,7 @@ internal sealed class DeviceCapabilityCommands
         var role = FindDescriptor(capabilityId, instanceId)?.Role;
         var power = role is
             CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit or CapabilityRole.PowerFastLimit
-                or CapabilityRole.PowerPeakLimit or CapabilityRole.ScenarioMode;
+            or CapabilityRole.PowerPeakLimit or CapabilityRole.ScenarioMode;
         if (origin == CapabilityCommandOrigin.User && role == CapabilityRole.PowerSustainedLimit)
         {
             applyPowerPair |= _profiles.Current.Layers.ManualTdp()?.Unified == true;
@@ -185,7 +186,8 @@ internal sealed class DeviceCapabilityCommands
         {
             if (user && capabilityId is CapabilityIds.ProcessorReset or CapabilityIds.ProcessorGpuClockAutomatic
                      && value is null
-                     && _deviceIdentityKey() is { } processorDevice && FindCapability(capabilityId, instanceId) is not null)
+                     && _deviceIdentityKey() is { } processorDevice &&
+                     FindCapability(capabilityId, instanceId) is not null)
             {
                 // Join any in-flight profile pass before clearing intent and restoring hardware.
                 // Otherwise an already-admitted old clock could be written after the reset.
@@ -212,14 +214,14 @@ internal sealed class DeviceCapabilityCommands
                 {
                     // The chosen mode decides who drives this fan: Software starts the curve on it, and
                     // anything else, a manual duty included, hands it back before the write.
-                    await _fanCurves.ConfigureAsync(_fanCurves.SavedSoftwareCurve(), explicitSelection: true,
+                    await _fanCurves.ConfigureAsync(_fanCurves.SavedSoftwareCurve(), true,
                         (instanceId ?? string.Empty,
                             manualDescriptor.Role == CapabilityRole.FanMode
                             && value?.ChoiceValue == FanControlModes.Software)).ConfigureAwait(false);
                 }
                 else if (manualDescriptor.Role == CapabilityRole.FanCurve && instanceId is not null)
                 {
-                    await _fanCurves.ConfigureAsync(null, explicitSelection: true, stopAll: true)
+                    await _fanCurves.ConfigureAsync(null, true, stopAll: true)
                         .ConfigureAwait(false);
                 }
             }
@@ -325,7 +327,8 @@ internal sealed class DeviceCapabilityCommands
                                            && ManualFanVisibility.Hides(_capabilities.Snapshot(), view))
                                       && !(view.Descriptor.Role is CapabilityRole.PowerSlowLimit
                                                or CapabilityRole.PowerFastLimit or CapabilityRole.PowerPeakLimit
-                                           && (_power.ManualTdpUnified || _power.PowerAssignments.HasCurrentAssignment)),
+                                           && (_power.ManualTdpUnified ||
+                                               _power.PowerAssignments.HasCurrentAssignment)),
                     Abandon = () => lightingOnly && UserCommandsInFlight
                 },
                 reason,

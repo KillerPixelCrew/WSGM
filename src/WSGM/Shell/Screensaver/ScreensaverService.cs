@@ -60,65 +60,16 @@ internal sealed class ScreensaverService : ISteamScreensaverContentBackend, IAsy
     }
 
     /// <inheritdoc />
-    public event Action? Changed;
-
-    /// <summary>Takes the reloaded configuration and rescans the sources in the background.</summary>
-    internal void ConfigurationChanged()
+    public ValueTask DisposeAsync()
     {
-        _catalog.MarkDirty();
         lock (_workGate)
         {
-            if (!_disposed)
-            {
-                _catalogWork = Task.Run(RefreshCatalog);
-                Log.Observe(_catalogWork, "Refreshing screensaver configuration");
-            }
+            return new ValueTask(_disposal ??= DisposeCoreAsync());
         }
     }
 
-    /// <summary>Rescans the sources when the scan is stale, then answers the state both surfaces show.</summary>
-    /// <returns>The state.</returns>
-    internal SteamScreensaverContentState ReadState()
-    {
-        string? active;
-        lock (_state)
-        {
-            active = _nativeActive ? _selected : null;
-        }
-
-        if (_catalog.RefreshDue(active))
-        {
-            RefreshCatalog();
-        }
-
-        return Snapshot();
-    }
-
-    /// <summary>The state both surfaces show, without rescanning.</summary>
-    /// <returns>The state.</returns>
-    internal SteamScreensaverContentState Snapshot()
-    {
-        lock (_state)
-        {
-            return new SteamScreensaverContentState
-            {
-                Sources = _catalog.Entries.Select(entry => Project(entry.Source, entry.Content)).ToArray(),
-                SelectedId = _selected,
-                NativeSelection = _nativeSelection,
-                SelectionRequest = _selectionRequest,
-                SelectionRevision = _selectionRevision,
-                PreviewSelection = _previewSelection,
-                DismissRevision = _dismissRevision,
-                Status = _selectionRequest is not null ? "Applying screensaver selection…"
-                    : !_nativeActive ? "Steam controls idle timing."
-                    : _selected.Length == 0 || _failedForActivation == _selected
-                        ? "Steam's stock screensaver is active."
-                        : _status,
-                Error = _error,
-                Revision = _revision
-            };
-        }
-    }
+    /// <inheritdoc />
+    public event Action? Changed;
 
     /// <inheritdoc />
     public async Task<SteamUiCommandResult> ExecuteAsync(SteamScreensaverContentCommand command,
@@ -209,11 +160,72 @@ internal sealed class ScreensaverService : ISteamScreensaverContentBackend, IAsy
             Publish();
             return SteamUiCommandResult.Applied;
         }
-        catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException
-                                      or InvalidOperationException)
+        catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException
+                                          or ArgumentException
+                                          or InvalidOperationException)
         {
             SetStatus("Steam's stock screensaver remains available.", error.Message);
             return new SteamUiCommandResult(false, error.Message);
+        }
+    }
+
+    /// <summary>Takes the reloaded configuration and rescans the sources in the background.</summary>
+    internal void ConfigurationChanged()
+    {
+        _catalog.MarkDirty();
+        lock (_workGate)
+        {
+            if (!_disposed)
+            {
+                _catalogWork = Task.Run(RefreshCatalog);
+                Log.Observe(_catalogWork, "Refreshing screensaver configuration");
+            }
+        }
+    }
+
+    /// <summary>Rescans the sources when the scan is stale, then answers the state both surfaces show.</summary>
+    /// <returns>The state.</returns>
+    internal SteamScreensaverContentState ReadState()
+    {
+        string? active;
+        lock (_state)
+        {
+            active = _nativeActive ? _selected : null;
+        }
+
+        if (_catalog.RefreshDue(active))
+        {
+            RefreshCatalog();
+        }
+
+        return Snapshot();
+    }
+
+    /// <summary>The state both surfaces show, without rescanning.</summary>
+    /// <returns>The state.</returns>
+    internal SteamScreensaverContentState Snapshot()
+    {
+        lock (_state)
+        {
+            return new SteamScreensaverContentState
+            {
+                Sources = _catalog.Entries.Select(entry => Project(entry.Source, entry.Content)).ToArray(),
+                SelectedId = _selected,
+                NativeSelection = _nativeSelection,
+                SelectionRequest = _selectionRequest,
+                SelectionRevision = _selectionRevision,
+                PreviewSelection = _previewSelection,
+                DismissRevision = _dismissRevision,
+                Status = _selectionRequest is not null
+                    ? "Applying screensaver selection…"
+                    : !_nativeActive
+                        ? "Steam controls idle timing."
+                        : _selected.Length == 0 || _failedForActivation == _selected
+                            ? "Steam's stock screensaver is active."
+                            : _status,
+                Error = _error,
+                Revision = _revision
+            };
         }
     }
 
@@ -260,15 +272,6 @@ internal sealed class ScreensaverService : ISteamScreensaverContentBackend, IAsy
         }
     }
 
-    /// <inheritdoc />
-    public ValueTask DisposeAsync()
-    {
-        lock (_workGate)
-        {
-            return new ValueTask(_disposal ??= DisposeCoreAsync());
-        }
-    }
-
     private async Task DisposeCoreAsync()
     {
         _disposed = true;
@@ -309,7 +312,8 @@ internal sealed class ScreensaverService : ISteamScreensaverContentBackend, IAsy
     {
         if (!_steamAvailable())
         {
-            return new SteamUiCommandResult(false, "Start Steam Big Picture with WSGM Steam integration enabled to select a screensaver.");
+            return new SteamUiCommandResult(false,
+                "Start Steam Big Picture with WSGM Steam integration enabled to select a screensaver.");
         }
 
         lock (_state)
@@ -335,10 +339,12 @@ internal sealed class ScreensaverService : ISteamScreensaverContentBackend, IAsy
         lock (_state)
         {
             var entry = _catalog.Entries.FirstOrDefault(item => item.Source.Id == command.Id
-                && ScreensaverContent.SelectorId(item.Source.Name) == command.SelectorId);
+                                                                && ScreensaverContent.SelectorId(item.Source.Name) ==
+                                                                command.SelectorId);
             if (command.Id.Length > 0 && entry is null)
             {
-                return new SteamUiCommandResult(false, "The native screensaver source no longer matches the registered source.");
+                return new SteamUiCommandResult(false,
+                    "The native screensaver source no longer matches the registered source.");
             }
 
             _selected = entry?.Source.Id ?? "";
@@ -389,7 +395,8 @@ internal sealed class ScreensaverService : ISteamScreensaverContentBackend, IAsy
         lock (_state)
         {
             entry = _nativeActive && !_disposed && _failedForActivation != _selected
-                ? _catalog.Entries.FirstOrDefault(candidate => candidate.Source.Id == _selected && candidate.Content.Available)
+                ? _catalog.Entries.FirstOrDefault(candidate =>
+                    candidate.Source.Id == _selected && candidate.Content.Available)
                 : null;
             var signature = entry?.Content.Playback is { } content
                 ? $"{entry.Source.Id}|{content.Revision}|{content.Shuffle}|{content.IntervalSeconds}|{content.Fill}|{content.FramesPerSecond}"
@@ -435,7 +442,8 @@ internal sealed class ScreensaverService : ISteamScreensaverContentBackend, IAsy
 
             if (!await _player.StopAsync().ConfigureAwait(false))
             {
-                throw new InvalidOperationException("The previous screensaver process could not be released. A second player was not started.");
+                throw new InvalidOperationException(
+                    "The previous screensaver process could not be released. A second player was not started.");
             }
 
             if (entry?.Content.Playback is not { } playback || !IsCurrent(generation))

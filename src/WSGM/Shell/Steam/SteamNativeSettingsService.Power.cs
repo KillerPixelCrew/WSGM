@@ -122,9 +122,9 @@ internal sealed partial class SteamNativeSettingsService
             active = new SteamSettingsRow("power.preset-current", SteamSettingsRowKind.Note, "Active profile",
                 detail.Length > 0 ? detail : null, Text: presets.Current, Icon: "check",
                 Summary: string.Join(" · ", new[]
-                    {
-                        Assigned("Plugged in", presets.Ac), Assigned("Battery", presets.Battery)
-                    }.Where(text => text.Length > 0)) is { Length: > 0 } assigned
+                {
+                    Assigned("Plugged in", presets.Ac), Assigned("Battery", presets.Battery)
+                }.Where(text => text.Length > 0)) is { Length: > 0 } assigned
                     ? assigned
                     : presets.Current);
             rows.Add(active);
@@ -143,12 +143,12 @@ internal sealed partial class SteamNativeSettingsService
             bool ac)
         {
             var row = ChoiceRow(key, label, icon,
-                new ChoiceRowState(presets.Available, options, selected, description ?? string.Empty, accent))! with
-            {
-                // Both assignments together are the active profile's summary.
-                Summary = null,
-                Disabled = !presets.Available
-            };
+                    new ChoiceRowState(presets.Available, options, selected, description ?? string.Empty, accent))! with
+                {
+                    // Both assignments together are the active profile's summary.
+                    Summary = null,
+                    Disabled = !presets.Available
+                };
             offer.Quick("powerPreset", offer.Add(rows, row,
                 (value, token) => PowerPresetRows.AssignAsync(coordinator?.Power.PowerAssignments, ac,
                     EmptyToNull(value.GetString()), token), true));

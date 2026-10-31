@@ -38,8 +38,9 @@ internal static class GameFolderGuard
             return null;
         }
 
-        if (folder.Length == 0 || Path.GetPathRoot(folder) is { } root
-            && Path.TrimEndingDirectorySeparator(root).Equals(folder, StringComparison.OrdinalIgnoreCase))
+        if (folder.Length == 0 || (Path.GetPathRoot(folder) is { } root
+                                   && Path.TrimEndingDirectorySeparator(root)
+                                       .Equals(folder, StringComparison.OrdinalIgnoreCase)))
         {
             return "That folder is too broad. Choose a program inside the game's own folder.";
         }
@@ -61,7 +62,8 @@ internal static class GameFolderGuard
             Environment.GetEnvironmentVariable("OneDriveCommercial") ?? ""
         ];
         return broad.Any(path => path.Length > 0
-                                 && Path.TrimEndingDirectorySeparator(path).Equals(folder, StringComparison.OrdinalIgnoreCase))
+                                 && Path.TrimEndingDirectorySeparator(path)
+                                     .Equals(folder, StringComparison.OrdinalIgnoreCase))
             ? "That folder is too broad. Choose a program inside the game's own folder."
             : null;
     }

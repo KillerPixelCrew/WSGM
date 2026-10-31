@@ -91,7 +91,8 @@ internal static class GameRuntimeResolver
             }
 
             if (name.Length >= 3 && Simplify(Path.GetFileNameWithoutExtension(file.Name)) is { Length: >= 3 } simple
-                                 && (simple.Contains(name, StringComparison.Ordinal) || name.Contains(simple, StringComparison.Ordinal)))
+                                 && (simple.Contains(name, StringComparison.Ordinal) ||
+                                     name.Contains(simple, StringComparison.Ordinal)))
             {
                 score += 15;
                 reasons.Add("Named like the game");
@@ -125,7 +126,8 @@ internal static class GameRuntimeResolver
 
         // A shortcut can start a program outside its start folder; it is still the strongest candidate.
         if (directTarget is not null && File.Exists(directTarget)
-                                     && candidates.All(candidate => !StoragePaths.Same(candidate.FullPath, directTarget))
+                                     && candidates.All(candidate =>
+                                         !StoragePaths.Same(candidate.FullPath, directTarget))
                                      && PeImage.TryArchitecture(directTarget) is { } targetArchitecture)
         {
             candidates.Add(new GameRuntimeCandidate(GameToolPaths.Relative(layout.Root, directTarget),
@@ -133,8 +135,11 @@ internal static class GameRuntimeResolver
                 ["The program Steam's shortcut starts"], 40, directTarget));
         }
 
-        candidates = [.. candidates.OrderByDescending(candidate => candidate.Score)
-            .ThenBy(candidate => candidate.RelativePath, StringComparer.OrdinalIgnoreCase)];
+        candidates =
+        [
+            .. candidates.OrderByDescending(candidate => candidate.Score)
+                .ThenBy(candidate => candidate.RelativePath, StringComparer.OrdinalIgnoreCase)
+        ];
         var rememberedMissing = false;
         if (!string.IsNullOrEmpty(remembered))
         {
@@ -171,8 +176,8 @@ internal static class GameRuntimeResolver
         else if (plausible.Length > 1 && plausible[0].Score - plausible[1].Score >= DecisiveLead)
         {
             chosen = plausible[0];
-            var structuralWinner = evidence.Structural && chosen.Role == GameRuntimeRole.Game
-                                   || directTarget is not null && StoragePaths.Same(chosen.FullPath, directTarget);
+            var structuralWinner = (evidence.Structural && chosen.Role == GameRuntimeRole.Game)
+                                   || (directTarget is not null && StoragePaths.Same(chosen.FullPath, directTarget));
             confidence = structuralWinner ? GameRuntimeConfidence.Structural : GameRuntimeConfidence.Single;
         }
 

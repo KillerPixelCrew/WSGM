@@ -6,5 +6,9 @@ namespace WSGM.Core;
 /// <param name="Kind"><c>upscaler</c>, <c>frameGeneration</c> or <c>other</c>.</param>
 /// <param name="RelativePath">The forward-slash path relative to the install root.</param>
 /// <param name="Version">The file's product or file version, or null.</param>
-internal sealed record GameUpscalerFile(string Technology, string Family, string Kind, string RelativePath,
+internal sealed record GameUpscalerFile(
+    string Technology,
+    string Family,
+    string Kind,
+    string RelativePath,
     string? Version);

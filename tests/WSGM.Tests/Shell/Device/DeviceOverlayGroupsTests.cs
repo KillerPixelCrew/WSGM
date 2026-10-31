@@ -93,7 +93,7 @@ public sealed class DeviceOverlayGroupsTests
         var snapshot = Snapshot(
             Placed("a", DeviceSections.InfoId) with
             {
-                SortOrder = 1, LayoutPair = new CapabilityLayoutPair("c", null)
+                SortOrder = 1, LayoutPair = new CapabilityLayoutPair("c")
             },
             Placed("b", DeviceSections.InfoId) with { SortOrder = 2 },
             Placed("c", DeviceSections.InfoId) with { SortOrder = 3 });

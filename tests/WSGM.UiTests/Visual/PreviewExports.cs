@@ -126,6 +126,7 @@ public static class PreviewExports
                                                         + string.Join(", ", rail.Children.OfType<Button>()
                                                             .Select(button => button.Tag)));
                 }
+
                 button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             }
 
@@ -180,9 +181,10 @@ public static class PreviewExports
                         selected.IsExpanded = true;
                         Dispatcher.UIThread.RunJobs();
                         var scroll = selected.GetVisualAncestors().OfType<ScrollViewer>().FirstOrDefault();
-                        if (scroll?.Content is Avalonia.Visual content && selected.TranslatePoint(default, content) is { } point)
+                        if (scroll?.Content is Avalonia.Visual content && selected.TranslatePoint(default, content) is
+                                { } point)
                         {
-                            scroll.Offset = new Vector(x: 0, point.Y);
+                            scroll.Offset = new Vector(0, point.Y);
                         }
 
                         Dispatcher.UIThread.RunJobs();

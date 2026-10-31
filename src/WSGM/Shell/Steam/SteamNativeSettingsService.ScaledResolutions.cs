@@ -15,8 +15,8 @@ namespace WSGM.Shell;
 internal sealed partial class SteamNativeSettingsService
 {
     private string? _scaledDisplay;
-    private string _scaledStatus = "";
     private bool _scaledDriverOptions;
+    private string _scaledStatus = "";
 
     private async Task AddScaledResolutionSectionAsync(List<SteamSettingsSection> display, OfferedRows offer)
     {
@@ -45,10 +45,11 @@ internal sealed partial class SteamNativeSettingsService
                 selectedCatalog.AdapterIdentity, selectedCatalog.Display.DevicePath,
                 selectedCatalog.Display.AdapterLowPart?.ToString(CultureInfo.InvariantCulture),
                 selectedCatalog.Display.AdapterHighPart?.ToString(CultureInfo.InvariantCulture),
-                selectedCatalog.Display.TargetId?.ToString(CultureInfo.InvariantCulture))))) : "unavailable";
+                selectedCatalog.Display.TargetId?.ToString(CultureInfo.InvariantCulture)))))
+            : "unavailable";
         offer.Add(rows, new SteamSettingsRow("scaled.display", SteamSettingsRowKind.Choice, "Display",
-            state.Catalog is { } gpu ? gpu.AdapterName : null, Text: _scaledDisplay ?? "",
-            Choices: state.Displays.Select(item => new SteamSettingsChoice(item.Path, item.Name)).ToArray()),
+                state.Catalog is { } gpu ? gpu.AdapterName : null, Text: _scaledDisplay ?? "",
+                Choices: state.Displays.Select(item => new SteamSettingsChoice(item.Path, item.Name)).ToArray()),
             (value, _) =>
             {
                 _scaledDisplay = value.GetString();
@@ -69,7 +70,8 @@ internal sealed partial class SteamNativeSettingsService
                 SteamSettingsRowKind.ResolutionList, "Resolutions",
                 "Your active resolution stays the same. The native resolution is protected.", Choices: choices,
                 ResolutionEditor: new SteamSettingsResolutionEditor(
-                    state.Resolutions.Where(mode => mode != state.Native).Select(mode => $"{mode.Width}x{mode.Height}").ToArray(),
+                    state.Resolutions.Where(mode => mode != state.Native).Select(mode => $"{mode.Width}x{mode.Height}")
+                        .ToArray(),
                     state.Native?.Width, state.Native?.Height, state.Original is not null)), async (value, token) =>
             {
                 var operation = value.GetProperty("operation").GetString();
@@ -82,15 +84,18 @@ internal sealed partial class SteamNativeSettingsService
 
                 if (operation == "restore")
                 {
-                    return await Apply(() => scaledResolutions.RestoreOriginalAsync(catalog, token)).ConfigureAwait(false);
+                    return await Apply(() => scaledResolutions.RestoreOriginalAsync(catalog, token))
+                        .ConfigureAwait(false);
                 }
 
-                var mode = new GpuScaledResolution(value.GetProperty("width").GetInt32(), value.GetProperty("height").GetInt32());
+                var mode = new GpuScaledResolution(value.GetProperty("width").GetInt32(),
+                    value.GetProperty("height").GetInt32());
                 return await Apply(operation switch
                 {
                     "add" => () => scaledResolutions.AddAsync(catalog, [mode], token),
                     "remove" => () => scaledResolutions.RemoveAsync(catalog, mode, token),
-                    "steps" => () => scaledResolutions.AddAsync(catalog, ScaledResolutionService.PercentagePreview(mode), token),
+                    "steps" => () =>
+                        scaledResolutions.AddAsync(catalog, ScaledResolutionService.PercentagePreview(mode), token),
                     _ => throw new InvalidOperationException("Unknown resolution edit.")
                 }).ConfigureAwait(false);
             });
@@ -101,10 +106,10 @@ internal sealed partial class SteamNativeSettingsService
                     "Driver options",
                     catalog.OutputSpecific ? null : "Restart the driver to activate changes.",
                     ButtonLabel: _scaledDriverOptions ? "Hide" : "Show"), (_, _) =>
-                    {
-                        _scaledDriverOptions = !_scaledDriverOptions;
-                        return Task.FromResult(SteamUiCommandResult.Applied);
-                    });
+                {
+                    _scaledDriverOptions = !_scaledDriverOptions;
+                    return Task.FromResult(SteamUiCommandResult.Applied);
+                });
                 if (_scaledDriverOptions)
                 {
                     if (state.Missing.Count > 0)
@@ -172,7 +177,8 @@ internal sealed partial class SteamNativeSettingsService
     internal static bool ValidResolutionEdit(SteamSettingsRow row, JsonElement value)
     {
         if (value.ValueKind != JsonValueKind.Object || row.ResolutionEditor is not { } editor
-            || !value.TryGetProperty("operation", out var operation) || operation.ValueKind != JsonValueKind.String)
+                                                    || !value.TryGetProperty("operation", out var operation) ||
+                                                    operation.ValueKind != JsonValueKind.String)
         {
             return false;
         }
@@ -188,10 +194,12 @@ internal sealed partial class SteamNativeSettingsService
         }
 
         if (!value.TryGetProperty("width", out var widthValue) || widthValue.ValueKind != JsonValueKind.Number
-            || !widthValue.TryGetInt32(out var width)
-            || !value.TryGetProperty("height", out var heightValue) || heightValue.ValueKind != JsonValueKind.Number
-            || !heightValue.TryGetInt32(out var height)
-            || !new GpuScaledResolution(width, height).Valid)
+                                                               || !widthValue.TryGetInt32(out var width)
+                                                               || !value.TryGetProperty("height",
+                                                                   out var heightValue) || heightValue.ValueKind !=
+                                                               JsonValueKind.Number
+                                                               || !heightValue.TryGetInt32(out var height)
+                                                               || !new GpuScaledResolution(width, height).Valid)
         {
             return false;
         }

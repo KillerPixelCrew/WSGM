@@ -15,6 +15,14 @@ namespace WSGM.UiTests.Visual;
 /// <summary>Populated tool captures over explicit local fakes, without Steam, network or installs.</summary>
 public static class PreviewTools
 {
+    /// <summary>Storage cases render only when a filter names them, so ordinary exports are unchanged.</summary>
+    private static readonly string[] StorageScenarios =
+    [
+        "importer-storage-home", "importer-storage-list", "importer-storage-lower", "importer-storage-entry",
+        "importer-storage-empty", "importer-storage-checking", "importer-storage-error", "importer-entry-removed",
+        "importer-entry-loading"
+    ];
+
     /// <summary>Exports only the affected Display settings and emulator dependency previews.</summary>
     public static void ExportFeatureCases(string directory, int width, int height)
     {
@@ -30,14 +38,6 @@ public static class PreviewTools
         Directory.CreateDirectory(directory);
         Export(directory, width, height, StorageScenarios);
     }
-
-    /// <summary>Storage cases render only when a filter names them, so ordinary exports are unchanged.</summary>
-    private static readonly string[] StorageScenarios =
-    [
-        "importer-storage-home", "importer-storage-list", "importer-storage-lower", "importer-storage-entry",
-        "importer-storage-empty", "importer-storage-checking", "importer-storage-error", "importer-entry-removed",
-        "importer-entry-loading"
-    ];
 
     internal static OverlayWindow Create(UiFixture fixture, int width = 1280, int height = 800,
         FakeLibrarySource? library = null)
@@ -61,13 +61,15 @@ public static class PreviewTools
         return window;
     }
 
-    internal static void Export(string directory, int width, int height, IReadOnlyCollection<string>? scenarioFilter = null)
+    internal static void Export(string directory, int width, int height,
+        IReadOnlyCollection<string>? scenarioFilter = null)
     {
         foreach (var scenario in new[]
                  {
                      "themes-installed", "themes-browse", "themes-profiles", "themes-settings", "movies-library",
                      "movies-browse", "movies-settings", "artwork", "artwork-manage", "artwork-logo", "importer",
-                     "importer-review", "importer-artwork", "importer-all-artwork", "importer-rom-source", "emulators-installed",
+                     "importer-review", "importer-artwork", "importer-all-artwork", "importer-rom-source",
+                     "emulators-installed",
                      "emulators-detail", "emulators-install", "emulators-cores", "emulators-defaults", "emulators-bios",
                      "programs", "programs-detail", "programs-unavailable", "programs-pins"
                  }.Concat(scenarioFilter is null ? Array.Empty<string>() : StorageScenarios))

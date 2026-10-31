@@ -140,7 +140,7 @@ internal static class GameToolStatus
 
         var canEdit = actions.Contains("install") || actions.Contains("configure");
         return new GameToolEvaluation(status, statusText, incompatible, actions, conflicts, warnings, changesConfig,
-            canEdit || manifest is not null && folderReady, canEdit);
+            canEdit || (manifest is not null && folderReady), canEdit);
     }
 
     /// <summary>Whether the game has a folder to work in, even while it runs.</summary>

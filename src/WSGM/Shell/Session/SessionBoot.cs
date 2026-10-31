@@ -155,10 +155,11 @@ internal sealed class SessionBoot(
     /// <summary>Starts the startup-app relaunch watcher once; a failure leaves the session without it.</summary>
     internal void WatchStartupApps()
     {
-        ShellSession.TryStart("startup app watcher", () => _startupWatcher ??= new StartupAppWatcher(state.Config.StartupApps)
-        {
-            IsLaunchSuppressed = path => desktopHost()?.IsApplicationLaunchSuppressed(path) == true
-        });
+        ShellSession.TryStart("startup app watcher", () => _startupWatcher ??=
+            new StartupAppWatcher(state.Config.StartupApps)
+            {
+                IsLaunchSuppressed = path => desktopHost()?.IsApplicationLaunchSuppressed(path) == true
+            });
     }
 
     /// <summary>Applies a reloaded startup-app list to the watcher.</summary>

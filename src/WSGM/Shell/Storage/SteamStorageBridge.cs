@@ -19,7 +19,8 @@ namespace WSGM.Shell;
 ///     for eject, <see cref="SdFormatManager" /> for format and its <see cref="SteamLibraryProvisioner" />
 ///     for library registration. Nothing is reimplemented for Steam's benefit, so the identity checks,
 ///     the volume-GUID resolution, the backup-and-splice of Steam's library file and the staged
-///     destructive sequence are the same code whichever surface asked — which is the whole point of the issue this satisfies.
+///     destructive sequence are the same code whichever surface asked — which is the whole point of the issue this
+///     satisfies.
 ///     <para>
 ///         Formatting stays behind its own switch, defaulting off. Steam's page can offer it to a controller
 ///         press, and this repository treats erasing a card as an attended operation; the switch is what

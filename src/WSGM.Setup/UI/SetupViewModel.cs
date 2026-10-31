@@ -6,6 +6,7 @@ using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using Avalonia.Threading;
+using LibHandheld.Contracts;
 using WSGM.Install;
 using WSGM.Setup.Engine;
 
@@ -48,12 +49,12 @@ internal sealed class SetupViewModel : Observable
     private readonly SetupOptions _options;
     private JsonObject? _answers;
     private Task<JsonObject>? _answersTask;
+    private DriverCompatibilityPage? _compatibility;
     private SetupEngine? _engine;
     private HardwarePage? _hardware;
     private IReadOnlyList<CommonOption>? _newGraphics;
     private Page _page;
     private ProfilePage? _profile;
-    private DriverCompatibilityPage? _compatibility;
     private int _step;
     private UninstallPage? _uninstall;
 
@@ -104,9 +105,11 @@ internal sealed class SetupViewModel : Observable
     public string Version => SetupEngine.Display(_engine?.ThisVersion);
     public string InstallPath => InstallLayout.Root;
     public string HintLeft => _flow.Count == 0 ? "" : $"Step {_step + 1} of {_flow.Count}";
+
     public string PageLead => Page is LegacyPage or UpdatePage or MaintainPage or ProfilePage
         ? (Page.Lead + " " + _engine?.Payload?.PrerequisitesNotice).Trim()
         : Page.Lead;
+
     public bool HasPageLead => PageLead.Length > 0;
 
     private bool FinishingDrivers => _flow.Contains("finishdrivers");
@@ -210,7 +213,8 @@ internal sealed class SetupViewModel : Observable
             "maintain-repair" => ["profile", "customize", "compatibility", "progress", "summary"],
             _ =>
             [
-                engine.Legacy is null ? "welcome" : "legacy", "hardware", "profile", "customize", "compatibility", "drivers", "progress",
+                engine.Legacy is null ? "welcome" : "legacy", "hardware", "profile", "customize", "compatibility",
+                "drivers", "progress",
                 "summary"
             ]
         });
@@ -337,7 +341,7 @@ internal sealed class SetupViewModel : Observable
     private async Task ShowCompatibilityAsync()
     {
         var kxDevice = _hardware?.Chosen is { } chosen
-                       && (chosen.Offer.Definition.HardwareAccess & LibHandheld.Contracts.DeviceHardwareAccess.IntelKx) != 0
+                       && (chosen.Offer.Definition.HardwareAccess & DeviceHardwareAccess.IntelKx) != 0
             ? chosen.Name
             : null;
         if (_compatibility is not null && _compatibility.KxDevice == kxDevice)
@@ -345,6 +349,7 @@ internal sealed class SetupViewModel : Observable
             Page = _compatibility;
             return;
         }
+
         Page = new MessagePage("Compatibility", "Reading Windows protection settings…", "", "");
         try
         {
@@ -354,9 +359,11 @@ internal sealed class SetupViewModel : Observable
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             SetupLog.Warn("Reading driver protection settings failed: " + ex.Message);
-            _compatibility = new DriverCompatibilityPage(null, "Windows protection settings could not be read: " + ex.Message,
+            _compatibility = new DriverCompatibilityPage(null,
+                "Windows protection settings could not be read: " + ex.Message,
                 kxDevice);
         }
+
         Page = _compatibility;
     }
 
@@ -419,8 +426,11 @@ internal sealed class SetupViewModel : Observable
             // Update and repair keep what is installed and add the graphics plugins checked on the
             // update page, or every new one for a repair, which has no page for them.
             return engine.KeptChoices(answers,
-                NewGraphics().Where(option => option.Checked).Select(option => option.Plugin.Id))
-                with { Compatibility = compatibility };
+                    NewGraphics().Where(option => option.Checked).Select(option => option.Plugin.Id))
+                with
+                {
+                    Compatibility = compatibility
+                };
         }
 
         var device = _hardware.Chosen?.Offer.Definition.Id;

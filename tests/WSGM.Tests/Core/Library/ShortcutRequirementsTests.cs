@@ -96,7 +96,8 @@ public sealed class ShortcutRequirementsTests
     [Fact]
     public void ABoundCardThatIsOutIsLibraryMissingNamingTheCard()
     {
-        var verdict = ShortcutRequirements.DecideLiteral(42, GamePath, ContentPathState.VolumeAbsent, null, Bound, null);
+        var verdict =
+            ShortcutRequirements.DecideLiteral(42, GamePath, ContentPathState.VolumeAbsent, null, Bound, null);
 
         Assert.Equal(ContentAvailability.LibraryMissing, verdict.State);
         Assert.Equal("SDCard4", verdict.Location);
@@ -141,7 +142,8 @@ public sealed class ShortcutRequirementsTests
     {
         var renamed = Card4 with { VolumeId = OtherVolume };
 
-        var verdict = ShortcutRequirements.DecideLiteral(42, GamePath, ContentPathState.Missing, renamed, Bound, renamed);
+        var verdict =
+            ShortcutRequirements.DecideLiteral(42, GamePath, ContentPathState.Missing, renamed, Bound, renamed);
 
         Assert.Equal(ContentAvailability.FileMissing, verdict.State);
         Assert.Equal(OtherVolume, verdict.Binding!.VolumeId);
@@ -179,7 +181,8 @@ public sealed class ShortcutRequirementsTests
     [Fact]
     public void UnreadableStorageIsLibraryMissingAndKeepsItsBinding()
     {
-        var verdict = ShortcutRequirements.DecideLiteral(42, GamePath, ContentPathState.Unreadable, Card4, Bound, Card4);
+        var verdict =
+            ShortcutRequirements.DecideLiteral(42, GamePath, ContentPathState.Unreadable, Card4, Bound, Card4);
 
         Assert.Equal(ContentAvailability.LibraryMissing, verdict.State);
         Assert.Same(Bound, verdict.Binding);

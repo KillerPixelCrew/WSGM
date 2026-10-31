@@ -16,7 +16,7 @@ namespace WSGM.Shell;
 /// <param name="importState">The import state that records the confirmed Steam account.</param>
 internal sealed class SteamShortcutGateway(SteamClient steam, ImportStateStore importState)
 {
-    private readonly SemaphoreSlim _operations = new(initialCount: 1, maxCount: 1);
+    private readonly SemaphoreSlim _operations = new(1, 1);
 
     /// <summary>Reads Steam's collections in the confirmed account.</summary>
     /// <param name="accountId">The account the collections must belong to.</param>
@@ -34,7 +34,8 @@ internal sealed class SteamShortcutGateway(SteamClient steam, ImportStateStore i
             await RequireSameAccountAsync(accountId, cancellationToken).ConfigureAwait(false);
             if (!read.Succeeded || read.Value is null)
             {
-                throw new InvalidOperationException("Steam collections could not be read. Legacy collection changes remain pending.");
+                throw new InvalidOperationException(
+                    "Steam collections could not be read. Legacy collection changes remain pending.");
             }
 
             return read.Value.Select(collection => new ImportedCollection
@@ -73,7 +74,8 @@ internal sealed class SteamShortcutGateway(SteamClient steam, ImportStateStore i
                 if (writerAccount != account || importState.ActiveAccountId != account)
                 {
                     importState.SetActiveAccount(null);
-                    throw new InvalidOperationException("The Steam account changed. Scan the library before saving again.");
+                    throw new InvalidOperationException(
+                        "The Steam account changed. Scan the library before saving again.");
                 }
 
                 var result = await write().ConfigureAwait(false);
@@ -100,7 +102,7 @@ internal sealed class SteamShortcutGateway(SteamClient steam, ImportStateStore i
     {
         // Transport readiness precedes Steam's complete app-overview update. The bounded read wait
         // keeps startup reconciliation from retaining a transient library-initialization failure.
-        if (!await LibraryTabManager.WaitForLibraryAsync(steam, cancellationToken, requireTabClaim: false)
+        if (!await LibraryTabManager.WaitForLibraryAsync(steam, cancellationToken, false)
                 .ConfigureAwait(false))
         {
             throw new InvalidOperationException("Steam's library is not ready. Shortcut changes remain pending.");
@@ -126,7 +128,8 @@ internal sealed class SteamShortcutGateway(SteamClient steam, ImportStateStore i
             if (await ReadAccountAsync(cancellationToken).ConfigureAwait(false) != account)
             {
                 importState.SetActiveAccount(null);
-                throw new InvalidOperationException("The Steam account changed while reading its shortcuts. Scan again.");
+                throw new InvalidOperationException(
+                    "The Steam account changed while reading its shortcuts. Scan again.");
             }
 
             var result = shortcuts.Select(shortcut => new ExistingShortcut(shortcut.AppId, shortcut.Target,
@@ -169,7 +172,8 @@ internal sealed class SteamShortcutGateway(SteamClient steam, ImportStateStore i
             await RequireSameAccountAsync(account.Value, cancellationToken).ConfigureAwait(false);
             // Only an answer in the same confirmed account can establish absence.
             return read.Value is { } details
-                ? new ExistingShortcut(appId, details.ShortcutExe, details.ShortcutLaunchOptions, details.ShortcutStartDir,
+                ? new ExistingShortcut(appId, details.ShortcutExe, details.ShortcutLaunchOptions,
+                    details.ShortcutStartDir,
                     details.Name ?? "")
                 : null;
         }
@@ -214,7 +218,8 @@ internal sealed class SteamShortcutGateway(SteamClient steam, ImportStateStore i
         if (!read.Succeeded || read.Value == 0)
         {
             importState.SetActiveAccount(null);
-            throw new InvalidOperationException("Steam's signed-in account could not be confirmed. Shortcut changes remain pending.");
+            throw new InvalidOperationException(
+                "Steam's signed-in account could not be confirmed. Shortcut changes remain pending.");
         }
 
         return read.Value;
@@ -226,7 +231,8 @@ internal sealed class SteamShortcutGateway(SteamClient steam, ImportStateStore i
             || importState.ActiveAccountId != expected)
         {
             importState.SetActiveAccount(null);
-            throw new InvalidOperationException("The Steam account changed during the operation. Scan again before making changes.");
+            throw new InvalidOperationException(
+                "The Steam account changed during the operation. Scan again before making changes.");
         }
     }
 }

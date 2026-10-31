@@ -433,7 +433,7 @@ public sealed class SdFormatManager : ObservableObject
             if (_operations.IsElevated() == false)
             {
                 Progress.Finish("Formatting needs administrator rights, which WSGM does not have "
-                       + "right now.", false);
+                                + "right now.", false);
                 return;
             }
 
@@ -504,7 +504,7 @@ public sealed class SdFormatManager : ObservableObject
                 Warn($"Format: diskpart clean/partition failed (exit {partition.ExitCode}). "
                      + $"Output:\n{partition.Output}");
                 Progress.Finish("Formatting failed — Windows could not rebuild the drive. "
-                       + "Reinsert the card and try again.", false);
+                                + "Reinsert the card and try again.", false);
                 return;
             }
 
@@ -573,7 +573,8 @@ public sealed class SdFormatManager : ObservableObject
                 formatOutput = formatted.Output;
                 if (formatted.Outcome == ConsoleToolRunOutcome.Unknown)
                 {
-                    Progress.Finish("The card's format result is unknown. Reinsert it and check before using it.", false);
+                    Progress.Finish("The card's format result is unknown. Reinsert it and check before using it.",
+                        false);
                     return;
                 }
 
@@ -588,7 +589,7 @@ public sealed class SdFormatManager : ObservableObject
                 Warn($"Format: diskpart format failed after {FormatAttempts} attempts "
                      + $"(exit {formatExit}). Output:\n{formatOutput}");
                 Progress.Finish("Formatting failed — Windows could not format the new drive. "
-                       + "Reinsert the card and try again.", false);
+                                + "Reinsert the card and try again.", false);
                 return;
             }
 
@@ -632,7 +633,7 @@ public sealed class SdFormatManager : ObservableObject
             if (letter is null)
             {
                 Progress.Finish("The drive was formatted, but Windows did not mount it. "
-                       + "Reinsert the card.", false);
+                                + "Reinsert the card.", false);
                 return;
             }
 
@@ -645,8 +646,8 @@ public sealed class SdFormatManager : ObservableObject
                 Warn($"Format: expected to keep letter {keepLetter}: but disk "
                      + $"{target.DiskNumber} mounted as {letter}:.");
                 Progress.Finish($"Formatted, but Windows could not keep drive letter {keepLetter}:. "
-                       + $"It is now {letter}: — free {keepLetter}: and reformat, or reassign "
-                       + $"the letter in Disk Management.", false);
+                                + $"It is now {letter}: — free {keepLetter}: and reformat, or reassign "
+                                + $"the letter in Disk Management.", false);
                 return;
             }
 
@@ -669,7 +670,8 @@ public sealed class SdFormatManager : ObservableObject
 
             Progress.StatusText = "Creating Steam library...";
             _lifetime.ThrowIfCancellationRequested();
-            var summary = await Task.Run(() => Libraries.CreateSteamLibrary(letter.Value, volumeRoot, target.SizeBytes, label));
+            var summary = await Task.Run(() =>
+                Libraries.CreateSteamLibrary(letter.Value, volumeRoot, target.SizeBytes, label));
             Progress.Finish(summary, true);
         }
         catch (Exception ex)

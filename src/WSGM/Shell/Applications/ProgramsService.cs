@@ -18,19 +18,21 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
 {
     internal const string PinPrefix = "program:";
     private const int ErrorCancelled = 1223;
-    private readonly ConfigStore _store;
-    private readonly SemaphoreSlim _commands = new(initialCount: 1, maxCount: 1);
-    private readonly CancellationTokenSource _lifetime = new();
+    private readonly SemaphoreSlim _commands = new(1, 1);
     private readonly Lock _gate = new();
-    private readonly Dictionary<string, Bitmap?> _icons = new(StringComparer.OrdinalIgnoreCase);
+
     private readonly Dictionary<string, (long Length, DateTime Written, string Hash)> _hashes =
         new(StringComparer.OrdinalIgnoreCase);
-    private readonly HashSet<string> _pending = new(StringComparer.Ordinal);
+
+    private readonly Dictionary<string, Bitmap?> _icons = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, nint> _lastWindows = new(StringComparer.Ordinal);
+    private readonly CancellationTokenSource _lifetime = new();
+    private readonly HashSet<string> _pending = new(StringComparer.Ordinal);
+    private readonly Task _reconciliation;
+    private readonly ConfigStore _store;
     private ProgramDefinition[] _definitions;
     private HashSet<string> _pins;
     private ProgramState[] _state = [];
-    private readonly Task _reconciliation;
 
     internal ProgramsService(ConfigStore store, AppConfig config)
     {
@@ -38,6 +40,20 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         _definitions = config.Programs.Select(entry => entry with { }).ToArray();
         _pins = config.QuickAccessPins.ToHashSet(StringComparer.Ordinal);
         _reconciliation = Task.Run(ReconcileLoopAsync);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await _lifetime.CancelAsync().ConfigureAwait(false);
+        await _reconciliation.ConfigureAwait(false);
+        await _commands.WaitAsync().ConfigureAwait(false);
+        foreach (var bitmap in _icons.Values)
+        {
+            bitmap?.Dispose();
+        }
+
+        _commands.Release();
+        _lifetime.Dispose();
     }
 
     public event Action? Changed;
@@ -50,69 +66,64 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         }
     }
 
-    internal void ConfigurationChanged(AppConfig config)
+    /// <summary>Only explicit executable selection or replacement approval updates the launch fingerprint.</summary>
+    public Task SaveAsync(ProgramDefinition definition, bool approveExecutable)
     {
-        lock (_gate)
+        return CommandAsync(() =>
         {
-            _definitions = config.Programs.Select(entry => entry with { }).ToArray();
-            _pins = config.QuickAccessPins.ToHashSet(StringComparer.Ordinal);
-        }
+            var name = definition.Name.Trim();
+            if (name.Length == 0)
+            {
+                throw new InvalidOperationException("Enter a program name.");
+            }
 
-        Changed?.Invoke();
+            var executable = approveExecutable ? ValidateExecutable(definition.Executable) : "";
+            var hash = approveExecutable ? Hash(executable, true) : "";
+            if (definition.WorkingDirectory.Length > 0 && !Directory.Exists(definition.WorkingDirectory))
+            {
+                throw new InvalidOperationException("The working directory is unavailable.");
+            }
+
+            Persist(config =>
+            {
+                var index = config.Programs.FindIndex(existing => existing.Id == definition.Id);
+                if (index < 0 && !approveExecutable)
+                {
+                    throw new InvalidOperationException("This program was removed.");
+                }
+
+                // Identities come from the stored entry: only executable approval or explicit UI selection
+                // changes them, never a stale editor snapshot.
+                var stored = index < 0 ? null : config.Programs[index];
+                var entry = definition with
+                {
+                    Name = name,
+                    Executable = approveExecutable ? executable : stored!.Executable,
+                    ExecutableHash = approveExecutable ? hash : stored!.ExecutableHash,
+                    UiExecutable = approveExecutable ? "" : stored!.UiExecutable,
+                    UiExecutableHash = approveExecutable ? "" : stored!.UiExecutableHash
+                };
+                if (index < 0)
+                {
+                    config.Programs.Add(entry);
+                }
+                else
+                {
+                    config.Programs[index] = entry;
+                }
+            });
+        });
     }
 
-    /// <summary>Only explicit executable selection or replacement approval updates the launch fingerprint.</summary>
-    public Task SaveAsync(ProgramDefinition definition, bool approveExecutable) => CommandAsync(() =>
+    public Task RemoveAsync(string id)
     {
-        var name = definition.Name.Trim();
-        if (name.Length == 0)
+        return CommandAsync(() => Persist(config =>
         {
-            throw new InvalidOperationException("Enter a program name.");
-        }
-
-        var executable = approveExecutable ? ValidateExecutable(definition.Executable) : "";
-        var hash = approveExecutable ? Hash(executable, fresh: true) : "";
-        if (definition.WorkingDirectory.Length > 0 && !Directory.Exists(definition.WorkingDirectory))
-        {
-            throw new InvalidOperationException("The working directory is unavailable.");
-        }
-
-        Persist(config =>
-        {
-            var index = config.Programs.FindIndex(existing => existing.Id == definition.Id);
-            if (index < 0 && !approveExecutable)
-            {
-                throw new InvalidOperationException("This program was removed.");
-            }
-
-            // Identities come from the stored entry: only executable approval or explicit UI selection
-            // changes them, never a stale editor snapshot.
-            var stored = index < 0 ? null : config.Programs[index];
-            var entry = definition with
-            {
-                Name = name,
-                Executable = approveExecutable ? executable : stored!.Executable,
-                ExecutableHash = approveExecutable ? hash : stored!.ExecutableHash,
-                UiExecutable = approveExecutable ? "" : stored!.UiExecutable,
-                UiExecutableHash = approveExecutable ? "" : stored!.UiExecutableHash
-            };
-            if (index < 0)
-            {
-                config.Programs.Add(entry);
-            }
-            else
-            {
-                config.Programs[index] = entry;
-            }
-        });
-    });
-
-    public Task RemoveAsync(string id) => CommandAsync(() => Persist(config =>
-    {
-        config.Programs.RemoveAll(entry => entry.Id == id);
-        config.QuickAccessPins.RemoveAll(pin => pin == PinPrefix + id);
-        _pending.Remove(id);
-    }));
+            config.Programs.RemoveAll(entry => entry.Id == id);
+            config.QuickAccessPins.RemoveAll(pin => pin == PinPrefix + id);
+            _pending.Remove(id);
+        }));
+    }
 
     public bool IsPinned(string id)
     {
@@ -132,41 +143,47 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
     }
 
     /// <summary>User-assisted bootstrap resolution: retain only the selected HWND's verified current image.</summary>
-    public Task RememberWindowAsync(string id, ProgramUiCandidate candidate) => CommandAsync(() =>
+    public Task RememberWindowAsync(string id, ProgramUiCandidate candidate)
     {
-        var window = candidate.Window;
-        var process = ReadProcess(window.ProcessId)
-                      ?? throw new InvalidOperationException("The selected application closed or cannot be inspected.");
-        if (process.Started != candidate.Started || !string.Equals(process.Path, candidate.Executable,
-                StringComparison.OrdinalIgnoreCase) ||
-            !WindowFinder.ListSwitchableWindows().Any(current => current.Hwnd == window.Hwnd &&
-                                                               current.ProcessId == window.ProcessId))
+        return CommandAsync(() =>
         {
-            throw new InvalidOperationException("The selected application window changed. Choose it again.");
-        }
+            var window = candidate.Window;
+            var process = ReadProcess(window.ProcessId)
+                          ?? throw new InvalidOperationException(
+                              "The selected application closed or cannot be inspected.");
+            if (process.Started != candidate.Started || !string.Equals(process.Path, candidate.Executable,
+                    StringComparison.OrdinalIgnoreCase) ||
+                !WindowFinder.ListSwitchableWindows().Any(current => current.Hwnd == window.Hwnd &&
+                                                                     current.ProcessId == window.ProcessId))
+            {
+                throw new InvalidOperationException("The selected application window changed. Choose it again.");
+            }
 
-        var hash = Hash(ValidateExecutable(process.Path), fresh: true);
-        Persist(config =>
+            var hash = Hash(ValidateExecutable(process.Path), true);
+            Persist(config =>
+            {
+                var entry = Stored(config, id);
+                entry.UiExecutable = process.Path;
+                entry.UiExecutableHash = hash;
+            });
+            _pending.Remove(id);
+        });
+    }
+
+    public Task ForgetUiAsync(string id)
+    {
+        return CommandAsync(() => Persist(config =>
         {
             var entry = Stored(config, id);
-            entry.UiExecutable = process.Path;
-            entry.UiExecutableHash = hash;
-        });
-        _pending.Remove(id);
-    });
+            entry.UiExecutable = "";
+            entry.UiExecutableHash = "";
+        }));
+    }
 
-    public Task ForgetUiAsync(string id) => CommandAsync(() => Persist(config =>
+    public Task ClearPendingAsync(string id)
     {
-        var entry = Stored(config, id);
-        entry.UiExecutable = "";
-        entry.UiExecutableHash = "";
-    }));
-
-    private static ProgramDefinition Stored(AppConfig config, string id) =>
-        config.Programs.FirstOrDefault(item => item.Id == id)
-        ?? throw new InvalidOperationException("This program was removed.");
-
-    public Task ClearPendingAsync(string id) => CommandAsync(() => _pending.Remove(id));
+        return CommandAsync(() => _pending.Remove(id));
+    }
 
     /// <summary>Called only after Overlay closure and input-lease release, on a worker thread.</summary>
     public async Task<string> ActivateAsync(string id, CancellationToken cancellationToken)
@@ -195,7 +212,8 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
 
             if (_pending.Contains(id))
             {
-                return "A launch was already dispatched. Select its UI application or explicitly clear the pending launch in Programs.";
+                return
+                    "A launch was already dispatched. Select its UI application or explicitly clear the pending launch in Programs.";
             }
 
             if (matched.Count > 0)
@@ -214,13 +232,15 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
 
                 if (!entry.ReactivateWithoutWindow)
                 {
-                    return "Running, but no eligible application window is available. No additional instance was started.";
+                    return
+                        "Running, but no eligible application window is available. No additional instance was started.";
                 }
             }
 
-            if (!Approved(entry.Executable, entry.ExecutableHash, fresh: true))
+            if (!Approved(entry.Executable, entry.ExecutableHash, true))
             {
-                return "Executable missing or changed. Choose an executable or approve its replacement in Programs before launching.";
+                return
+                    "Executable missing or changed. Choose an executable or approve its replacement in Programs before launching.";
             }
 
             if (entry.WorkingDirectory.Length > 0 && !Directory.Exists(entry.WorkingDirectory))
@@ -228,9 +248,10 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
                 return "The working directory is unavailable. Edit it in Programs before launching.";
             }
 
-            if (entry.UiExecutable.Length > 0 && !Approved(entry.UiExecutable, entry.UiExecutableHash, fresh: true))
+            if (entry.UiExecutable.Length > 0 && !Approved(entry.UiExecutable, entry.UiExecutableHash, true))
             {
-                return "Resolved UI executable missing or changed. Select the running UI again or forget the UI identity before launching.";
+                return
+                    "Resolved UI executable missing or changed. Select the running UI again or forget the UI identity before launching.";
             }
 
             token.ThrowIfCancellationRequested();
@@ -263,7 +284,8 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
                 if (result == ScheduledTaskLaunchDisposition.NotDispatched)
                 {
                     _pending.Remove(id);
-                    return "Windows did not dispatch the normal-user launch. Enable elevation explicitly only if this tool requires it.";
+                    return
+                        "Windows did not dispatch the normal-user launch. Enable elevation explicitly only if this tool requires it.";
                 }
             }
 
@@ -279,7 +301,8 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
                 }
             }
 
-            return "Launch dispatched; no matching UI window appeared. For bootstrap apps, use Select running UI application in Programs.";
+            return
+                "Launch dispatched; no matching UI window appeared. For bootstrap apps, use Select running UI application in Programs.";
         }
         finally
         {
@@ -294,10 +317,30 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         }
     }
 
-    internal static ProgramUiCandidate[] SelectableWindows() => WindowFinder.ListSwitchableWindows()
-        .Select(window => (Window: window, Process: ReadProcess(window.ProcessId)))
-        .Where(item => item.Process is { Path.Length: > 0 })
-        .Select(item => new ProgramUiCandidate(item.Window, item.Process!.Path, item.Process.Started)).ToArray();
+    internal void ConfigurationChanged(AppConfig config)
+    {
+        lock (_gate)
+        {
+            _definitions = config.Programs.Select(entry => entry with { }).ToArray();
+            _pins = config.QuickAccessPins.ToHashSet(StringComparer.Ordinal);
+        }
+
+        Changed?.Invoke();
+    }
+
+    private static ProgramDefinition Stored(AppConfig config, string id)
+    {
+        return config.Programs.FirstOrDefault(item => item.Id == id)
+               ?? throw new InvalidOperationException("This program was removed.");
+    }
+
+    internal static ProgramUiCandidate[] SelectableWindows()
+    {
+        return WindowFinder.ListSwitchableWindows()
+            .Select(window => (Window: window, Process: ReadProcess(window.ProcessId)))
+            .Where(item => item.Process is { Path.Length: > 0 })
+            .Select(item => new ProgramUiCandidate(item.Window, item.Process!.Path, item.Process.Started)).ToArray();
+    }
 
     private async Task<string> FocusAsync(string id, AppWindow window, CancellationToken token)
     {
@@ -345,7 +388,8 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
 
         return active
                ?? windows.FirstOrDefault(window => window.Hwnd == last)
-               ?? windows.FirstOrDefault(); // EnumWindows is in top-level Z order, filtered for visible non-tool windows.
+               ??
+               windows.FirstOrDefault(); // EnumWindows is in top-level Z order, filtered for visible non-tool windows.
     }
 
     private List<ProgramProcess> Match(ProgramDefinition entry, ProgramProcess[] processes)
@@ -361,10 +405,15 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
             : [];
     }
 
-    private static bool HasUnknownCandidate(ProgramDefinition entry, IEnumerable<ProgramProcess> processes) =>
-        processes.Any(process => process.Path.Length == 0 &&
-            (string.Equals(process.Name, Path.GetFileNameWithoutExtension(entry.Executable), StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(process.Name, Path.GetFileNameWithoutExtension(entry.UiExecutable), StringComparison.OrdinalIgnoreCase)));
+    private static bool HasUnknownCandidate(ProgramDefinition entry, IEnumerable<ProgramProcess> processes)
+    {
+        return processes.Any(process => process.Path.Length == 0 &&
+                                        (string.Equals(process.Name, Path.GetFileNameWithoutExtension(entry.Executable),
+                                             StringComparison.OrdinalIgnoreCase) ||
+                                         string.Equals(process.Name,
+                                             Path.GetFileNameWithoutExtension(entry.UiExecutable),
+                                             StringComparison.OrdinalIgnoreCase)));
+    }
 
     private async Task CommandAsync(Action operation)
     {
@@ -432,9 +481,9 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         nint foreground = 0;
         var states = definitions.Select(entry =>
         {
-            var available = Approved(entry.Executable, entry.ExecutableHash, fresh: false);
+            var available = Approved(entry.Executable, entry.ExecutableHash, false);
             var uiAvailable = entry.UiExecutable.Length == 0 ||
-                              Approved(entry.UiExecutable, entry.UiExecutableHash, fresh: false);
+                              Approved(entry.UiExecutable, entry.UiExecutableHash, false);
             var matched = Match(entry, processes);
             var running = matched.Count > 0;
             if (running && switchable is null)
@@ -450,13 +499,17 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
             }
 
             var runningStatus = window is null ? "Running · no window" : "Running";
-            var status = running ? available && uiAvailable ? runningStatus : runningStatus + " · launch unavailable"
-                : HasUnknownCandidate(entry, processes) ? "Identity unavailable"
-                : _pending.Contains(entry.Id) ? "Launch pending · select UI or clear pending"
-                : !available ? "Unavailable · executable missing or changed"
-                : !uiAvailable
-                    ? "UI executable changed · select running UI again"
-                    : "Not running";
+            var status = running
+                ? available && uiAvailable ? runningStatus : runningStatus + " · launch unavailable"
+                : HasUnknownCandidate(entry, processes)
+                    ? "Identity unavailable"
+                    : _pending.Contains(entry.Id)
+                        ? "Launch pending · select UI or clear pending"
+                        : !available
+                            ? "Unavailable · executable missing or changed"
+                            : !uiAvailable
+                                ? "UI executable changed · select running UI again"
+                                : "Not running";
             return new ProgramState(entry with { }, running, available, status, Icon(entry), uiAvailable);
         }).ToArray();
         bool changed;
@@ -480,7 +533,7 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
             return cached;
         }
 
-        var bitmap = File.Exists(entry.Executable) ? IconRasterizer.FromExecutable(entry.Executable, size: 32) : null;
+        var bitmap = File.Exists(entry.Executable) ? IconRasterizer.FromExecutable(entry.Executable, 32) : null;
         _icons[key] = bitmap;
         return bitmap;
     }
@@ -529,15 +582,19 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         return full;
     }
 
-    private static string WorkingDirectory(ProgramDefinition entry) => entry.WorkingDirectory.Length > 0
-        ? entry.WorkingDirectory : Path.GetDirectoryName(entry.Executable)!;
+    private static string WorkingDirectory(ProgramDefinition entry)
+    {
+        return entry.WorkingDirectory.Length > 0
+            ? entry.WorkingDirectory
+            : Path.GetDirectoryName(entry.Executable)!;
+    }
 
     private static ProgramProcess? ReadProcess(uint id)
     {
         try
         {
             using var process = Process.GetProcessById(checked((int)id));
-            return ReadProcess(process, started: true);
+            return ReadProcess(process, true);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -581,7 +638,7 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         {
             using (process)
             {
-                if (names.Contains(process.ProcessName) && ReadProcess(process, started: false) is { } captured)
+                if (names.Contains(process.ProcessName) && ReadProcess(process, false) is { } captured)
                 {
                     result.Add(captured);
                 }
@@ -589,20 +646,6 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         }
 
         return result.ToArray();
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        await _lifetime.CancelAsync().ConfigureAwait(false);
-        await _reconciliation.ConfigureAwait(false);
-        await _commands.WaitAsync().ConfigureAwait(false);
-        foreach (var bitmap in _icons.Values)
-        {
-            bitmap?.Dispose();
-        }
-
-        _commands.Release();
-        _lifetime.Dispose();
     }
 
     private sealed record ProgramProcess(uint Id, string Path, string Name, DateTime Started = default);

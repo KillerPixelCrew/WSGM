@@ -4,6 +4,7 @@ using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Overlay;
 using WSGM.Shell;
 using static WSGM.Tests.Builders.ControllerBuilders;
+using CapabilityDescriptorSet = LibHandheld.Contracts.CapabilityDescriptorSet;
 
 namespace WSGM.Tests.Shell;
 
@@ -30,7 +31,8 @@ public sealed class DeviceOverlayBridgeTests
             Quality = HardwareStateQuality.Unknown
         };
         var capability = new DeviceCapabilityView(descriptor, new CapabilityProjection { State = state }, null);
-        var row = CapabilityRowProjection.ToOverlayCapability(capability, new HashSet<string>(), FanCurvePresetTable.HandheldCompanion);
+        var row = CapabilityRowProjection.ToOverlayCapability(capability, new HashSet<string>(),
+            FanCurvePresetTable.HandheldCompanion);
         Assert.True(row.CanInvoke);
         Assert.Equal(instance, row.InstanceId);
         Assert.Equal(descriptor.CurveInputs, row.CurrentValue!.CurveValue.Select(point => point.Input));
@@ -64,7 +66,7 @@ public sealed class DeviceOverlayBridgeTests
         };
         inputs[0] = 50;
         var descriptor = Assert.Single(HandheldUiProjection.Descriptors(
-            new LibHandheld.Contracts.CapabilityDescriptorSet { Descriptors = [native] }).Descriptors);
+            new CapabilityDescriptorSet { Descriptors = [native] }).Descriptors);
         Assert.Equal([0, 20, 40, 60, 80, 100], descriptor.CurveInputs);
     }
 
@@ -507,7 +509,8 @@ public sealed class DeviceOverlayBridgeTests
                 true,
                 Status(ControllerManagementState.Active, ManagedControllerTarget.Xbox360)));
 
-        var entry = Assert.Single(DevicePages.Build(snapshot, null, default), page => page.SectionId is not null && page.Count > 0);
+        var entry = Assert.Single(DevicePages.Build(snapshot, null, default),
+            page => page.SectionId is not null && page.Count > 0);
 
         Assert.Equal(DeviceSections.ControllerId, entry.SectionId);
         Assert.Equal(1, entry.Count);
@@ -750,7 +753,7 @@ public sealed class DeviceOverlayBridgeTests
         var row = DeviceHostRows.AutoTdpTargetRow(true, new AutoTdpTargetView(45, 40, true))!;
 
         Assert.Equal(DeviceHostRowIds.AutoTdpTarget, row.Id);
-        Assert.Equal(new DescriptorRange(AutoTdpTarget.MinimumFps, AutoTdpTarget.MaximumFps, Step: 1, Unit: "FPS"),
+        Assert.Equal(new DescriptorRange(AutoTdpTarget.MinimumFps, AutoTdpTarget.MaximumFps, 1, "FPS"),
             row.Range);
         Assert.Equal(45, row.Value);
         Assert.Equal(nameof(ProfileField.AutoTdpTarget), row.OverrideId);

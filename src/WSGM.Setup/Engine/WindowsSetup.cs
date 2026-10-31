@@ -306,7 +306,7 @@ internal static class WindowsSetup
     {
         var grace = TimeSpan.FromSeconds(Math.Min(15, budget.TotalSeconds / 2));
         var stopped = SteamProcessControl.StopAsync(budget, grace,
-            message => SetupLog.Info(message), CancellationToken.None, entireProcessTree: true).GetAwaiter().GetResult();
+            message => SetupLog.Info(message), CancellationToken.None, true).GetAwaiter().GetResult();
         if (!stopped)
         {
             SetupLog.Warn($"Steam did not exit within {budget.TotalSeconds:0} s, including forced shutdown.");

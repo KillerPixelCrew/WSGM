@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using LibHandheld.Contracts;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Lifecycle;
@@ -33,12 +34,12 @@ internal sealed class DeviceOemActionRouter : IDisposable
     private readonly Dictionary<string, DateTimeOffset> _recentEvents = new(StringComparer.Ordinal);
     private readonly Func<bool, bool> _setSecondaryButton;
     private DeviceOemActionServices? _actions;
-    private CanonicalButtons _keyboardSteamButtons;
-    private DateTimeOffset _keyboardSteamButtonsAt;
     private IReadOnlyList<DeviceOemAssignment> _assignments = [];
     private HandheldDeviceRuntime? _client;
     private bool _controllerManagementEnabled;
     private bool _disposed;
+    private CanonicalButtons _keyboardSteamButtons;
+    private DateTimeOffset _keyboardSteamButtonsAt;
     private Action<HandheldRuntimeState>? _lifecycleHandler;
     private bool _mouseAdmission = true;
     private bool _secondaryButtonDown;
@@ -319,31 +320,31 @@ internal sealed class DeviceOemActionRouter : IDisposable
                 ? await actions.SendSteamShortcutAsync(action == OemAction.ToggleSteamQuickAccess, bounded.Token)
                     .ConfigureAwait(false)
                 : action switch
-            {
-                OemAction.ToggleWsgmOverlay => await actions.ToggleOverlayAsync(bounded.Token)
-                    .ConfigureAwait(false),
-                OemAction.ToggleSteamQuickAccess =>
-                    await actions.ToggleSteamQuickAccessAsync(bounded.Token).ConfigureAwait(false),
-                OemAction.ToggleSteamOverlay =>
-                    await actions.ToggleSteamOverlayAsync(bounded.Token).ConfigureAwait(false),
-                OemAction.ShowWsgmDevicePage => await actions.ToggleDevicePageAsync(bounded.Token)
-                    .ConfigureAwait(false),
-                OemAction.ToggleWsgmTaskbar => await actions.ToggleOpenAppsAsync(bounded.Token)
-                    .ConfigureAwait(false),
-                OemAction.ToggleDesktopGameMode =>
-                    await actions.ToggleDesktopGameModeAsync(bounded.Token).ConfigureAwait(false),
-                OemAction.ToggleOnScreenKeyboard =>
-                    await actions.ToggleOnScreenKeyboardAsync(bounded.Token).ConfigureAwait(false),
-                OemAction.CyclePerformanceProfile =>
-                    await actions.CyclePerformanceProfileAsync(bounded.Token).ConfigureAwait(false),
-                OemAction.CyclePerformanceOverlayLevel =>
-                    await actions.CyclePerformanceOverlayLevelAsync(bounded.Token).ConfigureAwait(false),
-                OemAction.VirtualTargetRearButton1 =>
-                    await actions.SetRearButtonAsync(1, bounded.Token).ConfigureAwait(false),
-                OemAction.VirtualTargetRearButton2 =>
-                    await actions.SetRearButtonAsync(2, bounded.Token).ConfigureAwait(false),
-                _ => true
-            };
+                {
+                    OemAction.ToggleWsgmOverlay => await actions.ToggleOverlayAsync(bounded.Token)
+                        .ConfigureAwait(false),
+                    OemAction.ToggleSteamQuickAccess =>
+                        await actions.ToggleSteamQuickAccessAsync(bounded.Token).ConfigureAwait(false),
+                    OemAction.ToggleSteamOverlay =>
+                        await actions.ToggleSteamOverlayAsync(bounded.Token).ConfigureAwait(false),
+                    OemAction.ShowWsgmDevicePage => await actions.ToggleDevicePageAsync(bounded.Token)
+                        .ConfigureAwait(false),
+                    OemAction.ToggleWsgmTaskbar => await actions.ToggleOpenAppsAsync(bounded.Token)
+                        .ConfigureAwait(false),
+                    OemAction.ToggleDesktopGameMode =>
+                        await actions.ToggleDesktopGameModeAsync(bounded.Token).ConfigureAwait(false),
+                    OemAction.ToggleOnScreenKeyboard =>
+                        await actions.ToggleOnScreenKeyboardAsync(bounded.Token).ConfigureAwait(false),
+                    OemAction.CyclePerformanceProfile =>
+                        await actions.CyclePerformanceProfileAsync(bounded.Token).ConfigureAwait(false),
+                    OemAction.CyclePerformanceOverlayLevel =>
+                        await actions.CyclePerformanceOverlayLevelAsync(bounded.Token).ConfigureAwait(false),
+                    OemAction.VirtualTargetRearButton1 =>
+                        await actions.SetRearButtonAsync(1, bounded.Token).ConfigureAwait(false),
+                    OemAction.VirtualTargetRearButton2 =>
+                        await actions.SetRearButtonAsync(2, bounded.Token).ConfigureAwait(false),
+                    _ => true
+                };
             Log.Info($"Device OEM action: control={input.ControlId}, action={action}, "
                      + $"completed={completed}.");
         }
@@ -418,7 +419,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
 
     /// <summary>Withholds a translated OEM press from the virtual pad until its physical release.</summary>
     /// <remarks>Pure button state on the sample path; marker lookup happens only on OEM edges.</remarks>
-    internal CanonicalButtons FilterControllerButtons(LibHandheld.Contracts.CanonicalControllerSample sample)
+    internal CanonicalButtons FilterControllerButtons(CanonicalControllerSample sample)
     {
         lock (_gate)
         {

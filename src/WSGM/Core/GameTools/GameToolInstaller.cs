@@ -199,7 +199,8 @@ internal sealed class GameToolInstaller(string userRoot)
             throw new GameToolException("The downloaded " + tool.Name + " does not match the game's architecture.");
         }
 
-        if (tool.Proxy.Options.All(option => !option.Name.Equals(request.ProxyName, StringComparison.OrdinalIgnoreCase)))
+        if (tool.Proxy.Options.All(option =>
+                !option.Name.Equals(request.ProxyName, StringComparison.OrdinalIgnoreCase)))
         {
             throw new GameToolException("Choose one of the offered file names.");
         }
@@ -208,7 +209,8 @@ internal sealed class GameToolInstaller(string userRoot)
             && current.Family != package.Family && !request.ReplaceConfig)
         {
             throw new GameToolException("This update changes " + tool.Name + "'s configuration format. Confirm "
-                                        + "that WSGM may replace " + tool.PrimaryConfig + " and re-apply your settings.");
+                                        + "that WSGM may replace " + tool.PrimaryConfig +
+                                        " and re-apply your settings.");
         }
 
         phase("Checking the game folder");
@@ -325,11 +327,19 @@ internal sealed class GameToolInstaller(string userRoot)
             var installed = pending with
             {
                 Files = files,
-                Replaced = [.. (current?.Replaced ?? []).Where(original => !restored.Contains(original.RelativePath)
-                    && newOriginals.All(added =>
-                        !added.RelativePath.Equals(original.RelativePath, StringComparison.OrdinalIgnoreCase))), .. newOriginals],
-                CreatedDirectories = [.. (current?.CreatedDirectories ?? []).Union(plan.Directories,
-                    StringComparer.OrdinalIgnoreCase)],
+                Replaced =
+                [
+                    .. (current?.Replaced ?? []).Where(original => !restored.Contains(original.RelativePath)
+                                                                   && newOriginals.All(added =>
+                                                                       !added.RelativePath.Equals(original.RelativePath,
+                                                                           StringComparison.OrdinalIgnoreCase))),
+                    .. newOriginals
+                ],
+                CreatedDirectories =
+                [
+                    .. (current?.CreatedDirectories ?? []).Union(plan.Directories,
+                        StringComparer.OrdinalIgnoreCase)
+                ],
                 Settings = settings,
                 State = GameToolManifestState.Installed,
                 Journal = [],
@@ -446,7 +456,8 @@ internal sealed class GameToolInstaller(string userRoot)
                 Persist(target.AppId, manifest);
                 GameToolStorage.DeleteTree(transaction);
                 notices.Add(tool.Name + " now loads as " + option.Name + ".");
-                Log.Info($"Game Tools: renamed {tool.Id} for {target.AppId} from {current.ProxyName} to {option.Name}.");
+                Log.Info(
+                    $"Game Tools: renamed {tool.Id} for {target.AppId} from {current.ProxyName} to {option.Name}.");
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -467,7 +478,8 @@ internal sealed class GameToolInstaller(string userRoot)
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                throw new GameToolException(tool.PrimaryConfig + " is in use or protected. Close the game and try again.",
+                throw new GameToolException(
+                    tool.PrimaryConfig + " is in use or protected. Close the game and try again.",
                     ex);
             }
 
@@ -511,7 +523,8 @@ internal sealed class GameToolInstaller(string userRoot)
                 message += " Left in place because they changed since: " + string.Join(", ", changed) + ".";
             }
 
-            return new GameToolOutcome(undone ? GameToolStorage.Read(userRoot).Find(target.AppId)?.Manifest(tool.Id)
+            return new GameToolOutcome(undone
+                ? GameToolStorage.Read(userRoot).Find(target.AppId)?.Manifest(tool.Id)
                 : current, message);
         }
 
@@ -528,7 +541,8 @@ internal sealed class GameToolInstaller(string userRoot)
 
             try
             {
-                if (file.Kind == GameToolFileKind.Binary && !Sha256(path).Equals(file.Sha256, StringComparison.OrdinalIgnoreCase))
+                if (file.Kind == GameToolFileKind.Binary &&
+                    !Sha256(path).Equals(file.Sha256, StringComparison.OrdinalIgnoreCase))
                 {
                     left.Add(file.RelativePath);
                     continue;
@@ -602,7 +616,8 @@ internal sealed class GameToolInstaller(string userRoot)
             notice = tool.Name + " removed.";
             if (unrestored.Count == 0)
             {
-                GameToolStorage.DeleteTree(GameToolStorage.BackupRoot(userRoot, target.AppId, tool.Id, current.InstallId));
+                GameToolStorage.DeleteTree(GameToolStorage.BackupRoot(userRoot, target.AppId, tool.Id,
+                    current.InstallId));
             }
             else
             {
@@ -830,19 +845,12 @@ internal sealed class GameToolInstaller(string userRoot)
         return "The game or another mod already has a file with this name.";
     }
 
-    // Restore marks a game original copied back from its backup: it is no longer owned or replaced.
-    private sealed record PlanItem(string Relative, string? Source, GameToolJournalAction Action, bool Original,
-        string NewSha256, string PreviousSha256, GameToolFileKind Kind, bool Restore = false);
-
-    // Unchanged maps each file the plan leaves alone to its hash when planning already read it, else null.
-    private sealed record InstallPlan(List<PlanItem> Items, List<string> Directories,
-        Dictionary<string, string?> Unchanged);
-
     private static InstallPlan Plan(GameToolDefinition tool, string directory, GameToolPackage package, string proxy,
         GameToolRequest request, GameToolManifest? current, GameToolInspection inspection)
     {
         var owned = (current?.Files ?? []).ToDictionary(file => file.RelativePath, StringComparer.OrdinalIgnoreCase);
-        var replaced = (current?.Replaced ?? []).ToDictionary(file => file.RelativePath, StringComparer.OrdinalIgnoreCase);
+        var replaced =
+            (current?.Replaced ?? []).ToDictionary(file => file.RelativePath, StringComparer.OrdinalIgnoreCase);
         List<PlanItem> items = [];
         List<string> directories = [];
         List<string> conflicts = [];
@@ -856,8 +864,9 @@ internal sealed class GameToolInstaller(string userRoot)
             if (!request.ReplaceExisting)
             {
                 throw new GameToolException(tool.Name + " is already installed outside WSGM ("
-                                            + string.Join(", ", inspection.Unmanaged.Select(copy => copy.RelativePath))
-                                            + "). Use \"Replace existing installation\" to let WSGM take over.");
+                                                      + string.Join(", ",
+                                                          inspection.Unmanaged.Select(copy => copy.RelativePath))
+                                                      + "). Use \"Replace existing installation\" to let WSGM take over.");
             }
 
             foreach (var copy in inspection.Unmanaged)
@@ -955,7 +964,9 @@ internal sealed class GameToolInstaller(string userRoot)
             {
                 var suggestion = SuggestProxy(inspection.Proxies, proxy);
                 conflicts.Add(DescribeExisting(tool, destination, false)
-                              + (suggestion.Equals(proxy, StringComparison.OrdinalIgnoreCase) ? "" : " Try " + suggestion + "."));
+                              + (suggestion.Equals(proxy, StringComparison.OrdinalIgnoreCase)
+                                  ? ""
+                                  : " Try " + suggestion + "."));
             }
             else
             {
@@ -1005,7 +1016,8 @@ internal sealed class GameToolInstaller(string userRoot)
         for (var depth = 1; depth < parts.Length; depth++)
         {
             var folder = string.Join('/', parts[..depth]);
-            if (!Directory.Exists(Path.Combine(root, folder)) && !created.Contains(folder, StringComparer.OrdinalIgnoreCase))
+            if (!Directory.Exists(Path.Combine(root, folder)) &&
+                !created.Contains(folder, StringComparer.OrdinalIgnoreCase))
             {
                 created.Add(folder);
             }
@@ -1059,7 +1071,8 @@ internal sealed class GameToolInstaller(string userRoot)
         // Files the plan left unchanged because they already matched are still owned; refresh their stamps.
         // Planning hashed them already and the transaction didn't touch them.
         foreach (var (relative, sha) in plan.Unchanged.Where(entry => !files.ContainsKey(entry.Key)
-                                                                       || files[entry.Key].Kind == GameToolFileKind.Binary))
+                                                                      || files[entry.Key].Kind ==
+                                                                      GameToolFileKind.Binary))
         {
             var path = Path.Combine(directory, relative);
             if (File.Exists(path))
@@ -1091,7 +1104,8 @@ internal sealed class GameToolInstaller(string userRoot)
         Dictionary<string, string> merged = new(StringComparer.Ordinal);
         foreach (var setting in tool.Settings)
         {
-            var value = requested.GetValueOrDefault(setting.Id) ?? current?.GetValueOrDefault(setting.Id) ?? setting.Default;
+            var value = requested.GetValueOrDefault(setting.Id) ??
+                        current?.GetValueOrDefault(setting.Id) ?? setting.Default;
             if (setting.Options.All(option => option.Value != value))
             {
                 throw new GameToolException("The value for " + setting.Label + " is not one of its options.");
@@ -1120,8 +1134,12 @@ internal sealed class GameToolInstaller(string userRoot)
         }
 
         var missing = GameToolIni.Apply(path, edits);
-        return [.. tool.Settings.Where(setting => missing.Any(edit => edit.Key == setting.Key && edit.Section == setting.Section))
-            .Select(setting => setting.Label)];
+        return
+        [
+            .. tool.Settings.Where(setting =>
+                    missing.Any(edit => edit.Key == setting.Key && edit.Section == setting.Section))
+                .Select(setting => setting.Label)
+        ];
     }
 
     private void Persist(uint appId, GameToolManifest? manifest, string? toolId = null)
@@ -1142,7 +1160,9 @@ internal sealed class GameToolInstaller(string userRoot)
 
     private static Exception Translate(Exception ex, bool undone)
     {
-        var suffix = undone ? " Nothing was changed." : " Some files couldn't be restored; use Remove to finish undoing it.";
+        var suffix = undone
+            ? " Nothing was changed."
+            : " Some files couldn't be restored; use Remove to finish undoing it.";
         return ex switch
         {
             GameToolException known => new GameToolException(known.Message + (undone ? "" : suffix), known),
@@ -1244,4 +1264,21 @@ internal sealed class GameToolInstaller(string userRoot)
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         return Convert.ToHexStringLower(SHA256.HashData(stream));
     }
+
+    // Restore marks a game original copied back from its backup: it is no longer owned or replaced.
+    private sealed record PlanItem(
+        string Relative,
+        string? Source,
+        GameToolJournalAction Action,
+        bool Original,
+        string NewSha256,
+        string PreviousSha256,
+        GameToolFileKind Kind,
+        bool Restore = false);
+
+    // Unchanged maps each file the plan leaves alone to its hash when planning already read it, else null.
+    private sealed record InstallPlan(
+        List<PlanItem> Items,
+        List<string> Directories,
+        Dictionary<string, string?> Unchanged);
 }

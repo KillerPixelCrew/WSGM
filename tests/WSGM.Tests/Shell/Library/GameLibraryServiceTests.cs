@@ -30,10 +30,13 @@ public sealed class GameLibraryServiceTests
         harness.Store.SaveChoice(new ImportChoice
         {
             Source = record.Source, Key = record.Key,
-            Artwork = [new ArtworkPick
-            {
-                Asset = ArtworkAsset.Hero, Url = "https://example.test/hero.png", Revision = "pick-1"
-            }]
+            Artwork =
+            [
+                new ArtworkPick
+                {
+                    Asset = ArtworkAsset.Hero, Url = "https://example.test/hero.png", Revision = "pick-1"
+                }
+            ]
         });
         using var source = harness.Create([Game()]);
         var entry = Assert.Single((await ScannedAsync(source)).Entries);

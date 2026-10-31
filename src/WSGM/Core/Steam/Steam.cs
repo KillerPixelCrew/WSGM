@@ -451,10 +451,11 @@ public static class Steam
     public static void StopForUpdate()
     {
         var stopped = SteamProcessControl.StopAsync(UpdateStopBudget, UpdateGracefulExitBudget,
-            message => Log.Info(message), CancellationToken.None, entireProcessTree: true).GetAwaiter().GetResult();
+            message => Log.Info(message), CancellationToken.None, true).GetAwaiter().GetResult();
         if (!stopped)
         {
-            Log.Warn("Steam remained active after the update-stop budget; setup will enforce termination before replacement.");
+            Log.Warn(
+                "Steam remained active after the update-stop budget; setup will enforce termination before replacement.");
         }
 
         LogActiveLaunchHelpers("update");

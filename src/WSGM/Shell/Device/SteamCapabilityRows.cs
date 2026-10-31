@@ -107,7 +107,9 @@ internal static class SteamCapabilityRows
                 candidate = CapabilityValue.Choice(value.GetString()!);
                 return true;
             case { Writable: true, ValueKind: CapabilityValueKind.Text } when value.ValueKind == JsonValueKind.String
-                && (capability.MaximumLength is null || value.GetString()!.Length <= capability.MaximumLength):
+                                                                              && (capability.MaximumLength is null ||
+                                                                                  value.GetString()!.Length <=
+                                                                                  capability.MaximumLength):
                 candidate = CapabilityValue.Text(value.GetString()!);
                 return true;
             case { Writable: true, ValueKind: CapabilityValueKind.Color } when TryColor(value, out var color):
@@ -218,11 +220,15 @@ internal static class SteamCapabilityRows
         foreach (var point in value.EnumerateArray())
         {
             if (point.ValueKind != JsonValueKind.Object || !point.TryGetProperty("input", out var input)
-                || input.ValueKind != JsonValueKind.Number || !input.TryGetInt32(out var temperature)
-                || !point.TryGetProperty("output", out var output) || output.ValueKind != JsonValueKind.Number
-                || !output.TryGetInt32(out var duty) || point.EnumerateObject().Count() != 2
-                || temperature != inputs[index].Input
-                || duty < (capability.Minimum ?? 0) || duty > (capability.Maximum ?? 100))
+                                                        || input.ValueKind != JsonValueKind.Number ||
+                                                        !input.TryGetInt32(out var temperature)
+                                                        || !point.TryGetProperty("output", out var output) ||
+                                                        output.ValueKind != JsonValueKind.Number
+                                                        || !output.TryGetInt32(out var duty) ||
+                                                        point.EnumerateObject().Count() != 2
+                                                        || temperature != inputs[index].Input
+                                                        || duty < (capability.Minimum ?? 0) ||
+                                                        duty > (capability.Maximum ?? 100))
             {
                 return false;
             }

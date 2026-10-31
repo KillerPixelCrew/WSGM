@@ -1,4 +1,5 @@
 using System.Net;
+using System.Web;
 using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Shell;
@@ -134,7 +135,7 @@ public sealed class SoundPackServiceTests : IDisposable
     public async Task LoadMoreAppendsTheNextPageOfTheLastSearch()
     {
         using var handler = new PagedStore();
-        var store = new ThemeStoreClient(handler, apiUrl: "https://example.invalid");
+        var store = new ThemeStoreClient(handler, "https://example.invalid");
         await using var service = new SoundPackService(new SoundPackLibrary(Root), () => "", _ => { },
             () => null, store, _ => { });
 
@@ -160,7 +161,7 @@ public sealed class SoundPackServiceTests : IDisposable
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
-            var query = System.Web.HttpUtility.ParseQueryString(request.RequestUri!.Query);
+            var query = HttpUtility.ParseQueryString(request.RequestUri!.Query);
             Queries.Add($"page={query["page"]}&search={query["search"]}");
             var json = $$"""{"total":2,"items":[{"id":"page{{query["page"]}}","name":"Pack {{query["page"]}}"}]}""";
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json) });

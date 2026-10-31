@@ -153,7 +153,8 @@ public static class PreviewGameTools
         Dispatcher.UIThread.RunJobs();
         Require(Single<ActionButton>(window, "game.back").Opacity == 1,
             "The operation's end did not redraw the page.");
-        Require(FocusSearch.First<ActionButton>(window, button => button.Title == "Install OptiScaler")?.IsEnabled == true,
+        Require(
+            FocusSearch.First<ActionButton>(window, button => button.Title == "Install OptiScaler")?.IsEnabled == true,
             "The operation's end left Install disabled.");
         Require(!Single<OverlayProgress>(window, "game.busy").IsVisible,
             "The progress element stayed visible after the operation ended.");
@@ -179,8 +180,10 @@ public static class PreviewGameTools
         var button = FocusSearch.First<ActionButton>(window,
                          button => button.Title == title && button.IsEffectivelyVisible)
                      ?? throw new InvalidOperationException("Preview action is missing: " + title + ". Visible: "
-                         + string.Join(" | ", window.GetVisualDescendants().OfType<ActionButton>()
-                             .Where(candidate => candidate.IsEffectivelyVisible).Select(candidate => candidate.Title)));
+                                                            + string.Join(" | ",
+                                                                window.GetVisualDescendants().OfType<ActionButton>()
+                                                                    .Where(candidate => candidate.IsEffectivelyVisible)
+                                                                    .Select(candidate => candidate.Title)));
         UiFixture.Click(window, button);
         Dispatcher.UIThread.RunJobs();
     }
@@ -239,8 +242,10 @@ public static class PreviewGameTools
             "game-tools-conflict" or "game-tools-conflict-end" => ready with
             {
                 AntiCheat = ["Easy Anti-Cheat"],
-                AntiCheatWarning = "Anti-cheat found: Easy Anti-Cheat. Do not use with online games. Anti-cheat may ban accounts.",
-                Error = "OptiScaler is already installed outside WSGM (dxgi.dll). Use \"Replace existing installation\" to let WSGM take over.",
+                AntiCheatWarning =
+                "Anti-cheat found: Easy Anti-Cheat. Do not use with online games. Anti-cheat may ban accounts.",
+                Error =
+                "OptiScaler is already installed outside WSGM (dxgi.dll). Use \"Replace existing installation\" to let WSGM take over.",
                 Tools =
                 [
                     Tool() with
@@ -316,12 +321,13 @@ public static class PreviewGameTools
                     "Lets the game offer DLSS so OptiScaler can replace it.", "on", null,
                     [new GameToolsSettingOption("on", "On"), new GameToolsSettingOption("off", "Off")], true, null),
                 new GameToolsSetting("menuScale", "Menu size", "Scales OptiScaler's in-game menu.", "auto", null,
-                    [
-                        new GameToolsSettingOption("auto", "Automatic"), new GameToolsSettingOption("1.0", "100%"),
-                        new GameToolsSettingOption("1.5", "150%")
-                    ], true, null),
+                [
+                    new GameToolsSettingOption("auto", "Automatic"), new GameToolsSettingOption("1.0", "100%"),
+                    new GameToolsSettingOption("1.5", "150%")
+                ], true, null),
                 new GameToolsSetting("hideSplash", "Hide the start message", "Hides OptiScaler's splash text.", "off",
-                    null, [new GameToolsSettingOption("off", "Off"), new GameToolsSettingOption("on", "On")], true, null)
+                    null, [new GameToolsSettingOption("off", "Off"), new GameToolsSettingOption("on", "On")], true,
+                    null)
             ],
             true, true, [], [], ["install"], new GameToolsFiles("Game", 0, 0, [], []));
     }
@@ -336,9 +342,6 @@ public static class PreviewGameTools
         internal GameToolsState? State { get; private set; } = state;
 
         /// <inheritdoc />
-        public event Action? Changed;
-
-        /// <inheritdoc />
         public GameToolsState Peek(uint appId)
         {
             return State is { } current && appId == current.AppId
@@ -346,13 +349,8 @@ public static class PreviewGameTools
                 : throw new InvalidOperationException("The preview has no state for game " + appId + ".");
         }
 
-        /// <summary>Publishes a new state, as the service does after a change.</summary>
-        /// <param name="next">The state.</param>
-        internal void Publish(GameToolsState next)
-        {
-            State = next;
-            Changed?.Invoke();
-        }
+        /// <inheritdoc />
+        public event Action? Changed;
 
         /// <inheritdoc />
         public Task<GameToolsState> ReadAsync(uint appId, CancellationToken cancellationToken = default)
@@ -416,6 +414,14 @@ public static class PreviewGameTools
         public Task<SteamUiCommandResult> CancelAsync(uint appId, CancellationToken cancellationToken)
         {
             return Admitted();
+        }
+
+        /// <summary>Publishes a new state, as the service does after a change.</summary>
+        /// <param name="next">The state.</param>
+        internal void Publish(GameToolsState next)
+        {
+            State = next;
+            Changed?.Invoke();
         }
 
         private static Task<SteamUiCommandResult> Admitted()

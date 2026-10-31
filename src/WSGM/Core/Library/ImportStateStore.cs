@@ -32,9 +32,9 @@ public sealed class ImportStateStore
 {
     private readonly Lock _gate = new();
     private readonly string _path;
-    private ImportState? _state;
     private uint? _activeAccount;
     private bool _needsLegacyBackup;
+    private ImportState? _state;
 
     /// <summary>Creates the store over the owner's explicit per-user directory.</summary>
     /// <param name="context">The directory context supplied by the owner.</param>
@@ -51,15 +51,6 @@ public sealed class ImportStateStore
         _path = path;
     }
 
-    /// <summary>Sets the account established by a settled Steam observation; null or zero means unknown.</summary>
-    public void SetActiveAccount(uint? accountId)
-    {
-        lock (_gate)
-        {
-            _activeAccount = accountId is > 0 ? accountId : null;
-        }
-    }
-
     /// <summary>The last settled account observation, null while unknown.</summary>
     public uint? ActiveAccountId
     {
@@ -69,6 +60,15 @@ public sealed class ImportStateStore
             {
                 return _activeAccount;
             }
+        }
+    }
+
+    /// <summary>Sets the account established by a settled Steam observation; null or zero means unknown.</summary>
+    public void SetActiveAccount(uint? accountId)
+    {
+        lock (_gate)
+        {
+            _activeAccount = accountId is > 0 ? accountId : null;
         }
     }
 
@@ -93,7 +93,8 @@ public sealed class ImportStateStore
                     var recorded = entry.Copy();
                     mapping.Project(recorded);
                     var matches = shortcuts.Where(shortcut => (mapping.AppId == 0 || shortcut.AppId == mapping.AppId)
-                        && ImportPlan.OwnsRecorded(shortcut, recorded)).Take(2).ToArray();
+                                                              && ImportPlan.OwnsRecorded(shortcut, recorded)).Take(2)
+                        .ToArray();
                     if (matches is [{ } match])
                     {
                         mapping.AccountId = accountId;
@@ -149,7 +150,8 @@ public sealed class ImportStateStore
             foreach (var collection in state.Collections.Where(item => item.AccountId is null))
             {
                 if (state.Collections.Any(item => item.AccountId == accountId
-                        && string.Equals(item.Group, collection.Group, StringComparison.OrdinalIgnoreCase)))
+                                                  && string.Equals(item.Group, collection.Group,
+                                                      StringComparison.OrdinalIgnoreCase)))
                 {
                     continue;
                 }
@@ -195,7 +197,8 @@ public sealed class ImportStateStore
 
         Mutate(state =>
         {
-            state.Libraries.RemoveAll(existing => string.Equals(existing.Id, library.Id, StringComparison.OrdinalIgnoreCase));
+            state.Libraries.RemoveAll(existing =>
+                string.Equals(existing.Id, library.Id, StringComparison.OrdinalIgnoreCase));
             state.Libraries.Add(library.Copy());
         });
     }
@@ -226,7 +229,9 @@ public sealed class ImportStateStore
                 var saved = new ImportedEntry
                 {
                     Source = entry.Source, Key = entry.Key, Name = entry.Name, Content = entry.Content?.Copy(),
-                    SteamMappings = previous is null ? [] : [.. previous.SteamMappings.Select(mapping => mapping.Copy())]
+                    SteamMappings = previous is null
+                        ? []
+                        : [.. previous.SteamMappings.Select(mapping => mapping.Copy())]
                 };
                 if (ImportStateSanitizer.EntryDefect(saved) is { } defect)
                 {
@@ -353,8 +358,14 @@ public sealed class ImportStateStore
     {
         lock (_gate)
         {
-            return _activeAccount is null ? [] : [.. Read().Collections
-                .Where(collection => collection.AccountId == _activeAccount).Select(collection => collection.Copy())];
+            return _activeAccount is null
+                ? []
+                :
+                [
+                    .. Read().Collections
+                        .Where(collection => collection.AccountId == _activeAccount)
+                        .Select(collection => collection.Copy())
+                ];
         }
     }
 
@@ -363,7 +374,11 @@ public sealed class ImportStateStore
     {
         lock (_gate)
         {
-            return [.. Read().Collections.Where(collection => collection.AccountId is null).Select(collection => collection.Copy())];
+            return
+            [
+                .. Read().Collections.Where(collection => collection.AccountId is null)
+                    .Select(collection => collection.Copy())
+            ];
         }
     }
 
@@ -387,7 +402,8 @@ public sealed class ImportStateStore
 
             var accountId = RequireAccount(collection.AccountId);
             state.Collections.RemoveAll(existing =>
-                existing.AccountId == accountId && string.Equals(existing.Group, collection.Group, StringComparison.OrdinalIgnoreCase));
+                existing.AccountId == accountId &&
+                string.Equals(existing.Group, collection.Group, StringComparison.OrdinalIgnoreCase));
             if (collection.Id.Length > 0)
             {
                 var saved = collection.Copy();
@@ -540,9 +556,10 @@ public sealed class ImportStateStore
 
     private uint RequireAccount(uint? expected = null)
     {
-        if (_activeAccount is not { } accountId || expected is not null && expected != accountId)
+        if (_activeAccount is not { } accountId || (expected is not null && expected != accountId))
         {
-            throw new InvalidOperationException("Steam's active account is unknown or changed; no import records were changed.");
+            throw new InvalidOperationException(
+                "Steam's active account is unknown or changed; no import records were changed.");
         }
 
         return accountId;
@@ -552,7 +569,8 @@ public sealed class ImportStateStore
     {
         if (entry.AccountId is null || entry.AccountUnknown || entry.HasUnresolvedLegacyMapping)
         {
-            throw new InvalidOperationException("This title needs an exact Steam account observation before it can be changed.");
+            throw new InvalidOperationException(
+                "This title needs an exact Steam account observation before it can be changed.");
         }
 
         return RequireAccount(entry.AccountId);
@@ -574,8 +592,11 @@ public sealed class ImportStateStore
         var projection = entry.Copy();
         projection.AccountId = _activeAccount;
         projection.AccountUnknown = _activeAccount is null;
-        var mapping = _activeAccount is null ? null : entry.SteamMappings.FirstOrDefault(item => item.AccountId == _activeAccount);
-        projection.HasUnresolvedLegacyMapping = mapping is null && entry.SteamMappings.Any(item => item.AccountId is null);
+        var mapping = _activeAccount is null
+            ? null
+            : entry.SteamMappings.FirstOrDefault(item => item.AccountId == _activeAccount);
+        projection.HasUnresolvedLegacyMapping =
+            mapping is null && entry.SteamMappings.Any(item => item.AccountId is null);
         mapping?.Project(projection);
         if (projection.Content is { LibraryId.Length: > 0 } content
             && libraryNames.TryGetValue(content.LibraryId, out var libraryName))
@@ -657,7 +678,7 @@ public sealed class ImportStateStore
                     new InvalidDataException($"Import state version {version}."));
             }
 
-            loaded = JsonSerializer.Deserialize(document.RootElement, ImportStateJsonContext.Default.ImportState)
+            loaded = document.RootElement.Deserialize(ImportStateJsonContext.Default.ImportState)
                      ?? throw new JsonException("Import state is null.");
             loaded.Version = version;
             DropLauncherRouteContent(document.RootElement, loaded);
@@ -670,16 +691,18 @@ public sealed class ImportStateStore
                     var index = 0;
                     foreach (var legacy in legacyEntries.EnumerateArray())
                     {
-                        if (loaded.Entries is not null && index < loaded.Entries.Count && loaded.Entries[index] is { } entry
+                        if (loaded.Entries is not null && index < loaded.Entries.Count &&
+                            loaded.Entries[index] is { } entry
                             && legacy.ValueKind == JsonValueKind.Object)
                         {
-                            var mapping = JsonSerializer.Deserialize(legacy, ImportStateJsonContext.Default.ImportAccountMapping)
+                            var mapping = legacy.Deserialize(ImportStateJsonContext.Default.ImportAccountMapping)
                                           ?? throw new JsonException("Legacy shortcut receipt is null.");
                             mapping.AccountId = null;
                             if (ImportStateSanitizer.MappingDefect(mapping) is { } defect)
                             {
                                 // Preserve v1's row-local recovery without weakening v2 ownership validation.
-                                Log.Warn($"Library import legacy record {ImportStateSanitizer.Describe(entry)} dropped: {defect}.");
+                                Log.Warn(
+                                    $"Library import legacy record {ImportStateSanitizer.Describe(entry)} dropped: {defect}.");
                                 entry.Source = "";
                                 entry.SteamMappings = [];
                             }
@@ -782,13 +805,14 @@ public sealed class ImportStateStore
                     try
                     {
                         using (var original = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.Read))
-                        using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                        using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write,
+                                   FileShare.None))
                         {
                             original.CopyTo(output);
-                            output.Flush(flushToDisk: true);
+                            output.Flush(true);
                         }
 
-                        File.Move(temporary, backup, overwrite: false);
+                        File.Move(temporary, backup, false);
                     }
                     finally
                     {

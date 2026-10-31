@@ -27,9 +27,11 @@ internal static class EmulatorValidation
             using (PEReader image = new(input))
             {
                 var architecture = PeImage.Architecture(image.PEHeaders.CoffHeader.Machine);
-                if (image.PEHeaders.PEHeader is not { AddressOfEntryPoint: > 0 } || architecture != installed.Architecture)
+                if (image.PEHeaders.PEHeader is not { AddressOfEntryPoint: > 0 } ||
+                    architecture != installed.Architecture)
                 {
-                    throw new InvalidDataException("The package has no Windows executable matching the selected architecture.");
+                    throw new InvalidDataException(
+                        "The package has no Windows executable matching the selected architecture.");
                 }
             }
 
@@ -85,7 +87,8 @@ internal static class EmulatorValidation
                                     && (definition.ValidationOutput.Length == 0 || output.Contains(
                                         definition.ValidationOutput,
                                         StringComparison.OrdinalIgnoreCase))
-                                    && (definition.Id is not ("pcsx2" or "armsx2") || !output.Contains("Unknown parameter",
+                                    && (definition.Id is not ("pcsx2" or "armsx2") || !output.Contains(
+                                        "Unknown parameter",
                                         StringComparison.OrdinalIgnoreCase));
     }
 }

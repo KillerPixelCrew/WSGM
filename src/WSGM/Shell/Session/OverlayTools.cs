@@ -39,6 +39,9 @@ internal sealed class OverlayTools(
     /// <summary>The Browser's preferences owner; it holds no engine until a page opens.</summary>
     internal BrowserSession? Browser { get; private set; }
 
+    /// <summary>The Browser's own cleanup, or a completed task.</summary>
+    internal Task BrowserShutdownCompletion => Browser?.ShutdownCompletion ?? Task.CompletedTask;
+
     /// <summary>
     ///     Deletes media previews a crash left behind, then creates Programs, the Browser, the screensavers
     ///     and Notes. No sheet exists yet, so no preview is in use.
@@ -113,15 +116,23 @@ internal sealed class OverlayTools(
     private BrowserGameContext? ReadBrowserGame()
     {
         var target = performance.RunningApplications?.Current;
-        return target is { State: RunningApplicationTargetState.Active or RunningApplicationTargetState.IdentityOnly, SteamAppId: { } appId }
-               && _browserGame?.AppId == appId.ToString(CultureInfo.InvariantCulture) ? _browserGame : null;
+        return target is
+               {
+                   State: RunningApplicationTargetState.Active or RunningApplicationTargetState.IdentityOnly,
+                   SteamAppId: { } appId
+               }
+               && _browserGame?.AppId == appId.ToString(CultureInfo.InvariantCulture)
+            ? _browserGame
+            : null;
     }
 
     private void RefreshBrowserGame()
     {
         var target = performance.RunningApplications?.Current;
-        var appId = target is { State: RunningApplicationTargetState.Active or RunningApplicationTargetState.IdentityOnly }
-            ? target.SteamAppId ?? 0 : 0;
+        var appId = target is
+            { State: RunningApplicationTargetState.Active or RunningApplicationTargetState.IdentityOnly }
+            ? target.SteamAppId ?? 0
+            : 0;
         if (appId == _browserGameRequested)
         {
             return;
@@ -202,9 +213,6 @@ internal sealed class OverlayTools(
     {
         Browser?.Dispose();
     }
-
-    /// <summary>The Browser's own cleanup, or a completed task.</summary>
-    internal Task BrowserShutdownCompletion => Browser?.ShutdownCompletion ?? Task.CompletedTask;
 
     /// <summary>Disposes Programs, Notes and the screensavers, in that order.</summary>
     /// <param name="steps">The shutdown's step runner.</param>

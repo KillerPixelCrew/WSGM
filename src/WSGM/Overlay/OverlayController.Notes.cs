@@ -54,7 +54,7 @@ public sealed partial class OverlayController
                            && overlay.Screens.ScreenFromWindow(overlay)?.TryGetPlatformHandle()?.Handle is { } monitor
                            && monitor != 0)
         {
-            target = new NotesCaptureTarget(ProcessId: 0, Window: 0, SteamAppId: 0, Description: "desktop", Monitor: monitor);
+            target = new NotesCaptureTarget(0, 0, 0, "desktop", monitor);
         }
 
         if (target is null)

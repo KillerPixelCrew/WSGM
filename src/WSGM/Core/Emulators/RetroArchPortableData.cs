@@ -315,7 +315,8 @@ internal static class RetroArchPortableData
                 var (parent, stem) = RetroArchContentName(rom);
                 var content = Path.Combine(directory, Path.GetFileName(parent) + ".cfg");
                 if (Path.GetFileNameWithoutExtension(config).Equals(stem, StringComparison.OrdinalIgnoreCase)
-                    && !EmulatorPortable.Same(content, config) && !EmulatorPortable.Same(content, core) && File.Exists(content))
+                    && !EmulatorPortable.Same(content, config) && !EmulatorPortable.Same(content, core) &&
+                    File.Exists(content))
                 {
                     inherited = RetroArchFlags(content, inherited, originalValues: originalValues);
                 }

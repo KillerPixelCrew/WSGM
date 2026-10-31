@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using WSGM.Core;
 using WSGM.Shell;
 using WSGM.Testing;
@@ -14,8 +15,10 @@ public sealed class ProgramsServiceTests
         return path;
     }
 
-    private static ProgramDefinition Stored(TemporaryConfigStore store, string id) =>
-        store.Store.Read().RequireConfig().Programs.Single(entry => entry.Id == id);
+    private static ProgramDefinition Stored(TemporaryConfigStore store, string id)
+    {
+        return store.Store.Read().RequireConfig().Programs.Single(entry => entry.Id == id);
+    }
 
     [Fact]
     public async Task AnEditorSnapshotCannotChangeTheApprovedExecutableOrUiIdentity()
@@ -25,7 +28,7 @@ public sealed class ProgramsServiceTests
         var executable = FakeExecutable(files);
         await using var service = new ProgramsService(store.Store, store.Store.Read().RequireConfig());
         var definition = new ProgramDefinition { Name = "Tool", Executable = executable };
-        await service.SaveAsync(definition, approveExecutable: true);
+        await service.SaveAsync(definition, true);
         var approved = Stored(store, definition.Id);
 
         await service.SaveAsync(approved with
@@ -36,7 +39,7 @@ public sealed class ProgramsServiceTests
             ExecutableHash = "forged",
             UiExecutable = executable,
             UiExecutableHash = "forged"
-        }, approveExecutable: false);
+        }, false);
 
         var saved = Stored(store, definition.Id);
         Assert.Equal("Renamed", saved.Name);
@@ -65,10 +68,10 @@ public sealed class ProgramsServiceTests
         await using var service = new ProgramsService(store.Store, store.Store.Read().RequireConfig());
         File.WriteAllBytes(executable, [(byte)'M', (byte)'Z', 2]);
 
-        await service.SaveAsync(definition, approveExecutable: true);
+        await service.SaveAsync(definition, true);
 
         var saved = Stored(store, definition.Id);
-        Assert.Equal(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(executable))),
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(executable))),
             saved.ExecutableHash);
         Assert.Equal("", saved.UiExecutable);
         Assert.Equal("", saved.UiExecutableHash);
@@ -81,12 +84,12 @@ public sealed class ProgramsServiceTests
         using var files = new TemporaryDirectory();
         await using var service = new ProgramsService(store.Store, store.Store.Read().RequireConfig());
         var definition = new ProgramDefinition { Name = "Tool", Executable = FakeExecutable(files) };
-        await service.SaveAsync(definition, approveExecutable: true);
+        await service.SaveAsync(definition, true);
         var snapshot = Stored(store, definition.Id);
         await service.RemoveAsync(definition.Id);
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.SaveAsync(snapshot with { Name = "Renamed" }, approveExecutable: false));
+            service.SaveAsync(snapshot with { Name = "Renamed" }, false));
         var forget = await Assert.ThrowsAsync<InvalidOperationException>(() => service.ForgetUiAsync(definition.Id));
 
         Assert.Equal("This program was removed.", error.Message);
@@ -102,12 +105,15 @@ public sealed class ProgramsServiceTests
         await using var service = new ProgramsService(store.Store, store.Store.Read().RequireConfig());
         var kept = new ProgramDefinition { Name = "Kept", Executable = FakeExecutable(files, "kept.exe") };
         var removed = new ProgramDefinition { Name = "Removed", Executable = FakeExecutable(files) };
-        await service.SaveAsync(kept, approveExecutable: true);
-        await service.SaveAsync(removed, approveExecutable: true);
+        await service.SaveAsync(kept, true);
+        await service.SaveAsync(removed, true);
         store.Store.Update(config =>
         {
-            config.QuickAccessPins = ["home.desktop", ProgramsService.PinPrefix + kept.Id,
-                ProgramsService.PinPrefix + removed.Id];
+            config.QuickAccessPins =
+            [
+                "home.desktop", ProgramsService.PinPrefix + kept.Id,
+                ProgramsService.PinPrefix + removed.Id
+            ];
             return true;
         });
         service.ConfigurationChanged(store.Store.Read().RequireConfig());
@@ -132,7 +138,7 @@ public sealed class ProgramsServiceTests
         await using var service = new ProgramsService(store.Store, store.Store.Read().RequireConfig());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.SaveAsync(new ProgramDefinition { Name = "Notes", Executable = text }, approveExecutable: true));
+            service.SaveAsync(new ProgramDefinition { Name = "Notes", Executable = text }, true));
 
         Assert.Empty(store.Store.Read().RequireConfig().Programs);
     }

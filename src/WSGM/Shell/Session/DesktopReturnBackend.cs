@@ -99,7 +99,8 @@ internal sealed class DesktopReturnBackend(
         {
             if (result.MatchesCapturedQuality)
             {
-                Log.Info("Desktop shell restored with the captured job-bound characteristics; diagnostic quality remains Degraded.");
+                Log.Info(
+                    "Desktop shell restored with the captured job-bound characteristics; diagnostic quality remains Degraded.");
             }
             else
             {

@@ -115,7 +115,8 @@ internal static class EmulatorPortable
 
                     break;
                 case "eden" or "rpcs3":
-                    VerifyDirectory(program, EmulatorPortableProfiles.Alias(installed.DefinitionId), installed.DataPath);
+                    VerifyDirectory(program, EmulatorPortableProfiles.Alias(installed.DefinitionId),
+                        installed.DataPath);
                     break;
                 case "dolphin":
                     if (!File.Exists(Path.Combine(program, "portable.txt")))
@@ -123,7 +124,8 @@ internal static class EmulatorPortable
                         throw new InvalidDataException("Dolphin's portable marker is missing. Use Repair.");
                     }
 
-                    VerifyDirectory(program, EmulatorPortableProfiles.Alias(installed.DefinitionId), installed.DataPath);
+                    VerifyDirectory(program, EmulatorPortableProfiles.Alias(installed.DefinitionId),
+                        installed.DataPath);
                     break;
                 default:
                     if (!EmulatorPortableProfiles.Supports(installed.DefinitionId))
@@ -371,7 +373,7 @@ internal static class EmulatorPortable
                 break;
             }
 
-            if ((installed.DefinitionId is "pcsx2" or "armsx2") && argument == "-datapath")
+            if (installed.DefinitionId is "pcsx2" or "armsx2" && argument == "-datapath")
             {
                 throw new InvalidDataException("The legacy PCSX2 data override bypasses portable mode. Use Repair.");
             }
@@ -444,10 +446,12 @@ internal static class EmulatorPortable
                 }
             }
 
-            if ((installed.DefinitionId is "dolphin" or "primehack") && (argument is "-C" or "--config"
-                                                        || argument.StartsWith("--config=", StringComparison.Ordinal)
-                                                        || (argument.StartsWith("-C", StringComparison.Ordinal) &&
-                                                            argument.Length > 2)))
+            if (installed.DefinitionId is "dolphin" or "primehack" && (argument is "-C" or "--config"
+                                                                       || argument.StartsWith("--config=",
+                                                                           StringComparison.Ordinal)
+                                                                       || (argument.StartsWith("-C",
+                                                                               StringComparison.Ordinal) &&
+                                                                           argument.Length > 2)))
             {
                 var value = argument.StartsWith("--config=", StringComparison.Ordinal) ? argument[9..]
                     : argument.Length > 2 && argument[1] != '-' ? argument[2..]
@@ -520,7 +524,8 @@ internal static class EmulatorPortable
             {
                 if (empty.Length == 0)
                 {
-                    throw new InvalidDataException("Model 2's ROM search list is full. Remove an unused folder in EMULATOR.INI.");
+                    throw new InvalidDataException(
+                        "Model 2's ROM search list is full. Remove an unused folder in EMULATOR.INI.");
                 }
 
                 IniFile.SetValue(config, empty, directory, "RomDirs");

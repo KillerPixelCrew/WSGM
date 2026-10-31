@@ -219,6 +219,11 @@ internal static partial class NativeMethods
     internal const uint WinEventOutOfContext = 0x0000;
     internal const uint WinEventSkipOwnProcess = 0x0002;
 
+    internal const nint HwndTopmost = -1;
+    internal const uint SwpNoSize = 0x0001;
+    internal const uint SwpNoMove = 0x0002;
+    internal const uint SwpShowWindow = 0x0040;
+
     /// <summary>
     ///     GUID_SESSION_DISPLAY_STATUS {2B84C20E-AD23-4DDF-93DB-05FFBD7EFCA5}: the
     ///     display of the CALLING SESSION turned on or off. Microsoft documents this as the
@@ -423,11 +428,6 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool SetForegroundWindow(nint hWnd);
-
-    internal const nint HwndTopmost = -1;
-    internal const uint SwpNoSize = 0x0001;
-    internal const uint SwpNoMove = 0x0002;
-    internal const uint SwpShowWindow = 0x0040;
 
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

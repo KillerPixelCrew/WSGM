@@ -92,9 +92,9 @@ internal static class GameLibraryProjection
             revision,
             [.. settings.RomSources.Select(source => source.Copy())],
             [.. settings.ManualSources.Select(source => source.Copy())],
-            StorageLibraries: tracked.Libraries,
-            Shortcuts: tracked.Shortcuts,
-            StorageChecked: tracked.Checked);
+            tracked.Libraries,
+            tracked.Shortcuts,
+            tracked.Checked);
     }
 
     /// <summary>The stand-in discovery for a title whose source no longer lists it.</summary>
@@ -161,8 +161,11 @@ internal static class GameLibraryProjection
             entry.AppId,
             entry.ArtworkApplied,
             entry.Editable
-                ? [.. GameLibraryArtwork.Assets.Select(type =>
-                    Slot(entry, type, Options(entry, type, artwork), preference, artwork))]
+                ?
+                [
+                    .. GameLibraryArtwork.Assets.Select(type =>
+                        Slot(entry, type, Options(entry, type, artwork), preference, artwork))
+                ]
                 : [],
             StatusName(progress.Status),
             progress.Detail,

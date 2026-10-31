@@ -26,7 +26,9 @@ internal sealed class DriverCompatibilityPage : Page
                 false, null) { IsNew = true },
             new FeatureOption("memory", "Disable Memory Integrity",
                 $"Current override: {Value(state?.MemoryIntegrity)}. Allows drivers blocked by HVCI; a restart is required."
-                + (state?.MemoryIntegrityLocked == true ? " This setting is firmware-locked and cannot be changed here." : required),
+                + (state?.MemoryIntegrityLocked == true
+                    ? " This setting is firmware-locked and cannot be changed here."
+                    : required),
                 kxDevice is not null, null)
             {
                 IsNew = true, Enabled = kxDevice is null && state is { MemoryIntegrityLocked: false }
@@ -43,13 +45,17 @@ internal sealed class DriverCompatibilityPage : Page
 
     public override string Eyebrow => "Optional Windows settings";
     public override string Title => "Driver compatibility";
-    public override string Lead => "A restore point is created first unless you switch it off. The other choices reduce Windows "
-                                   + "protection; leave them off unless you want the change. Only selected settings change when "
-                                   + "installation starts; WSGM restores its changes on uninstall.";
+
+    public override string Lead =>
+        "A restore point is created first unless you switch it off. The other choices reduce Windows "
+        + "protection; leave them off unless you want the change. Only selected settings change when "
+        + "installation starts; WSGM restores its changes on uninstall.";
+
     public IReadOnlyList<FeatureOption> Options { get; }
 
     /// <summary>The handheld that made the driver settings mandatory, or null.</summary>
     public string? KxDevice { get; }
+
     public string ReadError { get; }
     public bool HasReadError => ReadError.Length > 0;
 
@@ -57,9 +63,17 @@ internal sealed class DriverCompatibilityPage : Page
     {
         CreateRestorePoint = Selected("restore"), DefenderExclusions = Selected("defender"),
         DisableMemoryIntegrity = KxDevice is not null || Selected("memory"),
-        DisableDriverBlocklist = KxDevice is not null || Selected("blocklist"), DisableControlFlowGuard = Selected("cfg")
+        DisableDriverBlocklist = KxDevice is not null || Selected("blocklist"),
+        DisableControlFlowGuard = Selected("cfg")
     };
 
-    private bool Selected(string key) => Options.Single(option => option.Key == key) is { On: true, Enabled: true };
-    private static string Value(bool? value) => value is null ? "Windows default" : value.Value ? "On" : "Off";
+    private bool Selected(string key)
+    {
+        return Options.Single(option => option.Key == key) is { On: true, Enabled: true };
+    }
+
+    private static string Value(bool? value)
+    {
+        return value is null ? "Windows default" : value.Value ? "On" : "Off";
+    }
 }

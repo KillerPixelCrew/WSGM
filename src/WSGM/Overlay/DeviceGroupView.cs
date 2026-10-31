@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Avalonia.Controls;
+using Avalonia.Layout;
 using WSGM.Controls;
 
 namespace WSGM.Overlay;
@@ -20,7 +21,7 @@ internal sealed class DeviceGroupView : Border
         Group = group;
         Pinned = pinned;
         Tag = (pinned ? QuickAccessPins.TagPrefix : string.Empty) + group.Id;
-        VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top;
+        VerticalAlignment = VerticalAlignment.Top;
     }
 
     /// <inheritdoc />

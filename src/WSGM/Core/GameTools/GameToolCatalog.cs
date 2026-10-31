@@ -62,26 +62,40 @@ internal sealed record GameToolCatalog
     private static void Validate(GameToolDefinition tool)
     {
         var invalid = !Regex.IsMatch(tool.Id, "^[a-z0-9][a-z0-9-]*$") || tool.Name.Length == 0
-                      || tool.PrimaryFile.Length == 0 || Path.GetFileName(tool.PrimaryFile) != tool.PrimaryFile
-                      || tool.Architectures.Length == 0 || tool.Proxy.Options.Length == 0
-                      || tool.Proxy.Options.All(option => option.Name != tool.Proxy.Default)
-                      || tool.Proxy.Options.Any(option => !DownloadClient.IsSafeAssetName(option.Name))
-                      || tool.Identity.OriginalFilename.Length == 0
-                      || !HostedReleases.Providers.Contains(tool.Source.Provider)
-                      || tool.RequiresUpscaler.Any(requirement => requirement.Family.Length == 0
-                                                                  || requirement.Label.Length == 0)
-                      || tool.Source.PackageType is not ("7z" or "zip")
-                      || tool.Source.AssetPattern.Length == 0
-                      || tool.Payload.Required.Length == 0
-                      || tool.ConfigFiles.Any(name => !SafeRelative(name))
-                      || tool.RuntimeArtifacts.Any(name => !SafeRelative(name))
-                      || tool.Homepage.Length > 0 && JsonRead.HttpsUrl(tool.Homepage).Length == 0;
+                                                                      || tool.PrimaryFile.Length == 0 ||
+                                                                      Path.GetFileName(tool.PrimaryFile) !=
+                                                                      tool.PrimaryFile
+                                                                      || tool.Architectures.Length == 0 ||
+                                                                      tool.Proxy.Options.Length == 0
+                                                                      || tool.Proxy.Options.All(option =>
+                                                                          option.Name != tool.Proxy.Default)
+                                                                      || tool.Proxy.Options.Any(option =>
+                                                                          !DownloadClient.IsSafeAssetName(option.Name))
+                                                                      || tool.Identity.OriginalFilename.Length == 0
+                                                                      || !HostedReleases.Providers.Contains(tool.Source
+                                                                          .Provider)
+                                                                      || tool.RequiresUpscaler.Any(requirement =>
+                                                                          requirement.Family.Length == 0
+                                                                          || requirement.Label.Length == 0)
+                                                                      || tool.Source.PackageType is not ("7z" or "zip")
+                                                                      || tool.Source.AssetPattern.Length == 0
+                                                                      || tool.Payload.Required.Length == 0
+                                                                      || tool.ConfigFiles.Any(name =>
+                                                                          !SafeRelative(name))
+                                                                      || tool.RuntimeArtifacts.Any(name =>
+                                                                          !SafeRelative(name))
+                                                                      || (tool.Homepage.Length > 0 &&
+                                                                          JsonRead.HttpsUrl(tool.Homepage).Length == 0);
         foreach (var setting in tool.Settings)
         {
             invalid |= !Regex.IsMatch(setting.Id, "^[a-zA-Z][a-zA-Z0-9]*$") || setting.Section.Length == 0
-                       || setting.Key.Length == 0 || setting.Options.Length == 0
-                       || setting.Options.All(option => option.Value != setting.Default)
-                       || setting.Options.Any(option => option.Ini.IndexOfAny(['\r', '\n']) >= 0);
+                                                                            || setting.Key.Length == 0 ||
+                                                                            setting.Options.Length == 0
+                                                                            || setting.Options.All(option =>
+                                                                                option.Value != setting.Default)
+                                                                            || setting.Options.Any(option =>
+                                                                                option.Ini.IndexOfAny(['\r', '\n']) >=
+                                                                                0);
         }
 
         foreach (var family in tool.Families)
@@ -100,6 +114,7 @@ internal sealed record GameToolCatalog
     private static bool SafeRelative(string path)
     {
         return path.Length > 0 && !Path.IsPathRooted(path)
-                               && path.Split('/').All(segment => segment.Length > 0 && segment != ".." && segment != ".");
+                               && path.Split('/')
+                                   .All(segment => segment.Length > 0 && segment != ".." && segment != ".");
     }
 }

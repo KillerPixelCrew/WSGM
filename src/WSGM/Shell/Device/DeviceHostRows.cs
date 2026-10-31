@@ -14,6 +14,21 @@ namespace WSGM.Shell;
 /// <remarks>Pure formatting shared by the overlay bridge, the simulated source and Steam's settings page.</remarks>
 internal static class DeviceHostRows
 {
+    /// <summary>
+    ///     Every controller target in the order both surfaces offer it, with the label its choice
+    ///     carries.
+    /// </summary>
+    /// <remarks>
+    ///     Steam Deck first, because it is the target that carries every control the canonical model
+    ///     defines; the other two exist for compatibility with software that does not understand it.
+    /// </remarks>
+    internal static readonly IReadOnlyList<(ManagedControllerTarget Target, string Label)> Targets =
+    [
+        (ManagedControllerTarget.SteamDeckComposite, "Steam Deck"),
+        (ManagedControllerTarget.Xbox360, "Xbox 360"),
+        (ManagedControllerTarget.DualShock4, "DualShock 4")
+    ];
+
     /// <summary>One choice of a host-owned row.</summary>
     /// <param name="value">The value the row reports.</param>
     /// <param name="label">What the user reads.</param>
@@ -319,21 +334,6 @@ internal static class DeviceHostRows
             DescriptorStatus.Warning) { SectionId = DeviceSections.InfoId };
     }
 
-    /// <summary>
-    ///     Every controller target in the order both surfaces offer it, with the label its choice
-    ///     carries.
-    /// </summary>
-    /// <remarks>
-    ///     Steam Deck first, because it is the target that carries every control the canonical model
-    ///     defines; the other two exist for compatibility with software that does not understand it.
-    /// </remarks>
-    internal static readonly IReadOnlyList<(ManagedControllerTarget Target, string Label)> Targets =
-    [
-        (ManagedControllerTarget.SteamDeckComposite, "Steam Deck"),
-        (ManagedControllerTarget.Xbox360, "Xbox 360"),
-        (ManagedControllerTarget.DualShock4, "DualShock 4")
-    ];
-
     /// <summary>The controller-target choices the backend can build, in <see cref="Targets" /> order.</summary>
     /// <param name="supported">Targets the backend can build.</param>
     /// <returns>The offered targets with their labels.</returns>
@@ -433,7 +433,7 @@ internal static class DeviceHostRows
             ? new DescriptorRow(DeviceHostRowIds.AutoTdpTarget, "Target frame rate", target.Description,
                 string.Create(CultureInfo.InvariantCulture, $"{target.Fps} FPS"), true, DescriptorStatus.Available)
             {
-                Range = new DescriptorRange(AutoTdpTarget.MinimumFps, AutoTdpTarget.MaximumFps, Step: 1, Unit: "FPS"),
+                Range = new DescriptorRange(AutoTdpTarget.MinimumFps, AutoTdpTarget.MaximumFps, 1, "FPS"),
                 Value = target.Fps,
                 OverrideId = target.GameOverride ? nameof(ProfileField.AutoTdpTarget) : null,
                 SectionId = DeviceSections.PowerId

@@ -10,11 +10,11 @@ public sealed class RtssOsdRendererTests
         using var release = new ManualResetEventSlim();
         var sampling = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var published = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        await using var renderer = new RtssOsdRenderer(write: text =>
+        await using var renderer = new RtssOsdRenderer(text =>
         {
             published.TrySetResult(text);
             return true;
-        }, sample: () =>
+        }, () =>
         {
             sampling.TrySetResult();
             release.Wait(TimeSpan.FromSeconds(5));
@@ -39,7 +39,7 @@ public sealed class RtssOsdRendererTests
     {
         var published = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         var samples = 0;
-        await using var renderer = new RtssOsdRenderer(write: text =>
+        await using var renderer = new RtssOsdRenderer(text =>
         {
             if (text.Length > 0)
             {
@@ -47,7 +47,7 @@ public sealed class RtssOsdRendererTests
             }
 
             return true;
-        }, sample: () =>
+        }, () =>
         {
             Interlocked.Increment(ref samples);
             throw new IOException("Sensors unavailable.");
@@ -68,7 +68,7 @@ public sealed class RtssOsdRendererTests
         var shown = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var cleared = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var clears = 0;
-        await using var renderer = new RtssOsdRenderer(write: text =>
+        await using var renderer = new RtssOsdRenderer(text =>
         {
             if (text.Length > 0)
             {

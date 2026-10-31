@@ -17,6 +17,25 @@ namespace WSGM.Overlay;
 /// </remarks>
 internal sealed class OverlayActivation : IDisposable
 {
+    /// <summary>What an edge swipe opens (routing result).</summary>
+    public enum SwipeAction
+    {
+        /// <summary>The swipe is ignored.</summary>
+        None,
+
+        /// <summary>The quick access sheet opens.</summary>
+        QuickAccess,
+
+        /// <summary>The quick access sheet opens with focus on its Open apps strip.</summary>
+        QuickAccessApps,
+
+        /// <summary>Steam Big Picture's left-side Steam menu opens.</summary>
+        SteamMenu,
+
+        /// <summary>Steam Big Picture's right-side Quick Access Menu opens.</summary>
+        SteamQuickAccess
+    }
+
     private readonly GamepadChordWatcher? _chordWatcher;
     private readonly bool _enabled;
     private readonly HotkeyService? _hotkey;
@@ -44,33 +63,8 @@ internal sealed class OverlayActivation : IDisposable
         ApplyGestures(config.Gestures);
     }
 
-    /// <summary>What an edge swipe opens (routing result).</summary>
-    public enum SwipeAction
-    {
-        /// <summary>The swipe is ignored.</summary>
-        None,
-
-        /// <summary>The quick access sheet opens.</summary>
-        QuickAccess,
-
-        /// <summary>The quick access sheet opens with focus on its Open apps strip.</summary>
-        QuickAccessApps,
-
-        /// <summary>Steam Big Picture's left-side Steam menu opens.</summary>
-        SteamMenu,
-
-        /// <summary>Steam Big Picture's right-side Quick Access Menu opens.</summary>
-        SteamQuickAccess
-    }
-
     /// <summary>The controller polling the chord and the sheet's navigation read.</summary>
     internal GamepadService Gamepad { get; } = new();
-
-    /// <summary>Raised when the hotkey, the chord or the top edge asks for the sheet.</summary>
-    internal event Action? QuickAccessRequested;
-
-    /// <summary>Raised when the bottom edge asks for the sheet on its Open apps strip.</summary>
-    internal event Action? OpenAppsRequested;
 
     /// <summary>Releases the hotkey, the chord, the controller polling and the edge recognizer, in that order.</summary>
     public void Dispose()
@@ -98,6 +92,12 @@ internal sealed class OverlayActivation : IDisposable
         _touchSwipes.Dispose();
         _touchSwipes = null;
     }
+
+    /// <summary>Raised when the hotkey, the chord or the top edge asks for the sheet.</summary>
+    internal event Action? QuickAccessRequested;
+
+    /// <summary>Raised when the bottom edge asks for the sheet on its Open apps strip.</summary>
+    internal event Action? OpenAppsRequested;
 
     /// <summary>Whether the controller chord opens the sheet, which keeps the gamepad polled while it is closed.</summary>
     /// <param name="config">The configuration to read.</param>

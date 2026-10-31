@@ -21,6 +21,21 @@ internal sealed class FakeDevice : IDeviceOverlaySource
     internal Func<DeviceOverlayCapability, CancellationToken, Task>? Invoke { get; set; }
     internal Func<string, string?, Task>? SelectHost { get; set; }
 
+    public DeviceOverlaySnapshot Snapshot()
+    {
+        return State;
+    }
+
+    public PhysicalGlyphRenderPlan? NavigationHint(GlyphControlId control)
+    {
+        return null;
+    }
+
+    public void Dispose()
+    {
+        Assert.Equal(0, Subscribers);
+    }
+
     public event Action? Changed
     {
         add
@@ -33,16 +48,6 @@ internal sealed class FakeDevice : IDeviceOverlaySource
             _changed -= value;
             Subscribers--;
         }
-    }
-
-    public DeviceOverlaySnapshot Snapshot()
-    {
-        return State;
-    }
-
-    public PhysicalGlyphRenderPlan? NavigationHint(GlyphControlId control)
-    {
-        return null;
     }
 
     public IDisposable ObservePhysicalSamples()
@@ -78,11 +83,6 @@ internal sealed class FakeDevice : IDeviceOverlaySource
         throw new InvalidOperationException("Unexpected device retry");
     }
 
-    public void Dispose()
-    {
-        Assert.Equal(0, Subscribers);
-    }
-
     public event Action<CanonicalControllerSample>? PhysicalSampleReceived
     {
         add
@@ -107,11 +107,6 @@ internal sealed class FakeDevice : IDeviceOverlaySource
                 throw new InvalidOperationException("Unexpected physical input subscription removal");
             }
         }
-    }
-
-    internal void Notify()
-    {
-        _changed?.Invoke();
     }
 
     public event Action<GlyphControlId, bool>? PhysicalOemControlReceived
@@ -148,5 +143,10 @@ internal sealed class FakeDevice : IDeviceOverlaySource
                 SampleSource.PhysicalInputReset -= value;
             }
         }
+    }
+
+    internal void Notify()
+    {
+        _changed?.Invoke();
     }
 }

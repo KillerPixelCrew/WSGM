@@ -12,8 +12,8 @@ namespace WSGM.Overlay;
 
 public sealed partial class GameToolsView
 {
-    private readonly Dictionary<string, Dictionary<string, string>> _draftSettings = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _draftProxy = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Dictionary<string, string>> _draftSettings = new(StringComparer.Ordinal);
     private uint _appId;
     private string _gameName = "";
 
@@ -134,7 +134,7 @@ public sealed partial class GameToolsView
         return shown with { Busy = null, Tools = Array.Empty<GameToolsTool>() }
                == next with { Busy = null, Tools = Array.Empty<GameToolsTool>() }
                && shown.Busy?.Operation == next.Busy?.Operation
-               && (shown.Busy is null) == (next.Busy is null)
+               && shown.Busy is null == next.Busy is null
                && shown.Tools.SequenceEqual(next.Tools);
     }
 
@@ -283,7 +283,9 @@ public sealed partial class GameToolsView
         if (tool.Actions.Contains("update"))
         {
             body.Children.Add(Tagged(PrimaryRow("Update " + tool.Name,
-                tool.LatestVersion is { } tag ? "Install " + tag + " and keep its settings" : "Install the latest release",
+                tool.LatestVersion is { } tag
+                    ? "Install " + tag + " and keep its settings"
+                    : "Install the latest release",
                 Icons.ArrowDown, idle ? () => StartUpdate(state, tool) : null), key + ".update"));
         }
 
@@ -292,7 +294,9 @@ public sealed partial class GameToolsView
             // Repair leads only when files are missing or changed; otherwise it is a supporting command.
             Func<string, string, Geometry?, Action?, ActionButton> row = tool.Status == "modified" ? PrimaryRow : Row;
             body.Children.Add(Tagged(row("Repair " + tool.Name, "Restore its missing or changed files", Icons.Wrench,
-                idle ? () => RunTool((service, token) => service.RepairAsync(_appId, tool.Id, token), "repair") : null),
+                    idle
+                        ? () => RunTool((service, token) => service.RepairAsync(_appId, tool.Id, token), "repair")
+                        : null),
                 key + ".repair"));
         }
 
@@ -360,7 +364,8 @@ public sealed partial class GameToolsView
             }), key + ".setting:" + id);
             row.IsEnabled = enabled && setting.Available;
             body.Children.Add(row);
-            var note = string.Join(" ", new[] { setting.Description, setting.Note ?? "" }.Where(part => part.Length > 0));
+            var note = string.Join(" ",
+                new[] { setting.Description, setting.Note ?? "" }.Where(part => part.Length > 0));
             body.Children.Add(Tagged(Caption(note), key + ".setting-note:" + id));
         }
     }
@@ -420,12 +425,12 @@ public sealed partial class GameToolsView
 
         var body = NewStack("Choose the program");
         body.Children.Add(Tagged(Caption(
-            "Pick the program that runs the game itself, not its launcher. WSGM installs tools beside it."),
+                "Pick the program that runs the game itself, not its launcher. WSGM installs tools beside it."),
             "candidates.intro"));
         if (state.ScanTruncated)
         {
             body.Children.Add(Tagged(Caption(
-                "The folder is too large to list completely. Use Browse if the program is missing."),
+                    "The folder is too large to list completely. Use Browse if the program is missing."),
                 "candidates.truncated"));
         }
 

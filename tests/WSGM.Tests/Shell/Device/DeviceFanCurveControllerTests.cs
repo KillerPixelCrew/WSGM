@@ -245,7 +245,7 @@ public sealed class DeviceFanCurveControllerTests
                 writes.Add(duty);
                 return ValueTask.FromResult(new DeviceFanCurveWriteResult(true));
             }, _ => { }, now: () => Now, waitTick: ticks.WaitAsync,
-            smoothing: new DeviceFanCurveSmoothing(0, 100, 100, AverageSamples: 3));
+            smoothing: new DeviceFanCurveSmoothing(0, 100, 100, 3));
         await controller.ConfigureAsync(Curve, [new DeviceFanCurveFan("cpu")], true);
         await ticks.WaitForLoopAsync();
         sample = new DeviceFanCurveTemperature(90, Now);
@@ -283,7 +283,7 @@ public sealed class DeviceFanCurveControllerTests
         // The same curve with a two-sample average restarts the loop on a fresh window: it reads 90 alone,
         // writes the curve's value once more, and the next reading averages with 90 rather than 60.
         await controller.ConfigureAsync(Curve, [new DeviceFanCurveFan("cpu")], true,
-            smoothing: new DeviceFanCurveSmoothing(0, 100, 100, AverageSamples: 2));
+            smoothing: new DeviceFanCurveSmoothing(0, 100, 100, 2));
         await ticks.WaitForLoopAsync();
         Assert.Equal([60, 100, 100], writes);
         sample = new DeviceFanCurveTemperature(50, Now);
@@ -292,7 +292,7 @@ public sealed class DeviceFanCurveControllerTests
 
         // Re-sending the same smoothing is not a change: the loop, its window and ramp continue.
         await controller.ConfigureAsync(Curve, [new DeviceFanCurveFan("cpu")], true,
-            smoothing: new DeviceFanCurveSmoothing(0, 100, 100, AverageSamples: 2));
+            smoothing: new DeviceFanCurveSmoothing(0, 100, 100, 2));
         sample = new DeviceFanCurveTemperature(70, Now);
         await ticks.AdvanceAsync();
         Assert.Equal([60, 100, 100, 80, 60], writes);

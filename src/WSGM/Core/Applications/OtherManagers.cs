@@ -55,6 +55,7 @@ public static class OtherManagers
         {
             targets ??= new OtherManagerWindowsTargets();
         }
+
         autostart ??= new AutostartSystem();
         services ??= new ServiceSystem();
         running ??= RunningProcessNames();
@@ -76,6 +77,7 @@ public static class OtherManagers
             {
                 continue;
             }
+
             List<string> activeServices =
                 [.. manager.Services.Where(service => services.ReadStart(service, out _) is not (null or 4))];
             // A catalog task counts only when it exists and is enabled.
@@ -171,7 +173,8 @@ public static class OtherManagers
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 record(target);
-                (targets.Disable(target) ? disabled : failed).Add($"{manager.Manager.Label} {target.Kind} {target.Name}");
+                (targets.Disable(target) ? disabled : failed).Add(
+                    $"{manager.Manager.Label} {target.Kind} {target.Name}");
             }
 
             foreach (var task in manager.Tasks)
@@ -214,9 +217,10 @@ public static class OtherManagers
                  + $"[{string.Join(", ", stillRunning)}].");
         return new OtherManagersResult(disabled, failed, stillRunning)
         {
-            RestartRequired = serviceRestartRequired || targets.RestartRequired || stillRunning.Count > 0
+            RestartRequired = serviceRestartRequired || targets.RestartRequired || (stillRunning.Count > 0
                 && detected.Any(manager => manager.Manager.PackageFamilies.Count > 0
-                    && manager.Running.Any(name => stillRunning.Contains(name, StringComparer.OrdinalIgnoreCase)))
+                                           && manager.Running.Any(name =>
+                                               stillRunning.Contains(name, StringComparer.OrdinalIgnoreCase))))
         };
     }
 
@@ -279,7 +283,10 @@ public static class OtherManagers
 
             foreach (var target in manager.Targets)
             {
-                (left?.Targets.Any(item => Key(item) == Key(target)) == true && elevatedExit != SessionProtocolNames.RestartRequired ? failed : disabled)
+                (left?.Targets.Any(item => Key(item) == Key(target)) == true &&
+                 elevatedExit != SessionProtocolNames.RestartRequired
+                        ? failed
+                        : disabled)
                     .Add($"{manager.Manager.Label} {target.Kind} {target.Name}");
             }
         }
@@ -315,7 +322,10 @@ public static class OtherManagers
             var detected = Detect();
             if (!closeRunning)
             {
-                detected = [.. detected.Select(manager => manager with { Running = [] }).Where(manager => manager.Active)];
+                detected =
+                [
+                    .. detected.Select(manager => manager with { Running = [] }).Where(manager => manager.Active)
+                ];
             }
 
             if (detected.Count == 0)
@@ -371,7 +381,7 @@ public static class OtherManagers
             using var timer = new PeriodicTimer(TimeSpan.FromMinutes(5));
             while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
             {
-                ReapplyAtStart(store, closeRunning: false, cancellationToken);
+                ReapplyAtStart(store, false, cancellationToken);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -444,7 +454,8 @@ public static class OtherManagers
                     [.. config.OtherManagersDisabled.Where(entry => !done.Contains(Key(entry)))];
                 return true;
             });
-            return restored.Count != records.Count ? 1 : targets.RestartRequired ? SessionProtocolNames.RestartRequired : 0;
+            return restored.Count != records.Count ? 1 :
+                targets.RestartRequired ? SessionProtocolNames.RestartRequired : 0;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

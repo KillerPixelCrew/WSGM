@@ -72,19 +72,9 @@ internal sealed class EmulatorOverlaySource : IEmulatorBackend
     /// <inheritdoc />
     public long CatalogRevision { get; private set; }
 
-    public event Action? Changed;
-
     public EmulatorProgressState ReadProgressState()
     {
         return new EmulatorProgressState(State.Busy, State.Status);
-    }
-
-    /// <summary>Publishes a new snapshot, as the manager does after a change.</summary>
-    /// <param name="next">The snapshot.</param>
-    internal void Publish(EmulatorSnapshot next)
-    {
-        State = next;
-        Changed?.Invoke();
     }
 
     public EmulatorPageState ReadPageState()
@@ -104,6 +94,8 @@ internal sealed class EmulatorOverlaySource : IEmulatorBackend
                 EmulatorPresentation.HasUpdate(State, item))).ToArray()
         };
     }
+
+    public event Action? Changed;
 
     public Task<SteamUiCommandResult> CancelAsync(CancellationToken cancellationToken)
     {
@@ -206,6 +198,14 @@ internal sealed class EmulatorOverlaySource : IEmulatorBackend
         return Command("SetPreferredEmulatorAsync", cancellationToken);
     }
 
+    /// <summary>Publishes a new snapshot, as the manager does after a change.</summary>
+    /// <param name="next">The snapshot.</param>
+    internal void Publish(EmulatorSnapshot next)
+    {
+        State = next;
+        Changed?.Invoke();
+    }
+
     private Task<SteamUiCommandResult> Command(string name, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -288,11 +288,13 @@ internal static class OverlayToolFixtures
     {
         Entries =
         [
-            StorageEntry("retro-quest", "Pixel Quest", 101, "lib-retro", "Retro card", ContentAvailability.Available, ""),
+            StorageEntry("retro-quest", "Pixel Quest", 101, "lib-retro", "Retro card", ContentAvailability.Available,
+                ""),
             StorageEntry("retro-deleted", "Deleted Platformer", 102, "lib-retro", "Retro card",
                 ContentAvailability.FileMissing,
                 "The game files are missing from Retro card. Rescan its source, or remove the title in Game Library."),
-            StorageEntry("travel-rpg", "Lantern Saga", 103, "lib-travel", "Travel SSD", ContentAvailability.LibraryMissing,
+            StorageEntry("travel-rpg", "Lantern Saga", 103, "lib-travel", "Travel SSD",
+                ContentAvailability.LibraryMissing,
                 "Insert Travel SSD.")
         ],
         SelectedCount = 0,
@@ -322,17 +324,18 @@ internal static class OverlayToolFixtures
         [
             new GameLibraryStorage("lib-long",
                 "Extremely long removable storage library name for checking wrapping (Example 1 TB card)",
-                "Connected", "", 1, CanRepair: false, CanAcceptBinding: false),
+                "Connected", "", 1, false, false),
             new GameLibraryStorage("lib-handheld", "Handheld microSD", "Needs repair",
                 "This card's game list is missing or damaged, so its games cannot start. Repair library rebuilds it "
-                + "from the titles WSGM knows.", 1, CanRepair: true, CanAcceptBinding: false),
+                + "from the titles WSGM knows.", 1, true, false),
             new GameLibraryStorage("lib-new", "New card", "Not in use here",
                 "Choose Use this card to launch this card's games on this device, then scan to import them.", 4,
-                CanRepair: false, CanAcceptBinding: true),
-            new GameLibraryStorage("lib-retro", "Retro card", "Connected", "", 3, CanRepair: false,
-                CanAcceptBinding: false),
-            new GameLibraryStorage("lib-travel", "Travel SSD", "Disconnected", "Insert Travel SSD to check its games.", 2,
-                CanRepair: false, CanAcceptBinding: false)
+                false, true),
+            new GameLibraryStorage("lib-retro", "Retro card", "Connected", "", 3, false,
+                false),
+            new GameLibraryStorage("lib-travel", "Travel SSD", "Disconnected", "Insert Travel SSD to check its games.",
+                2,
+                false, false)
         ]
     };
 
@@ -343,7 +346,8 @@ internal static class OverlayToolFixtures
         {
             Source = "Removable games", SourceId = "storage", ManagedId = id, LibraryId = libraryId,
             Location = location, ContentPath = @"F:\Roms\" + name + ".sfc", Availability = state.ToString(),
-            AvailabilityLabel = ShortcutStatusPresentation.Label(state), Unavailable = state != ContentAvailability.Available,
+            AvailabilityLabel = ShortcutStatusPresentation.Label(state),
+            Unavailable = state != ContentAvailability.Available,
             AvailabilityDetail = detail, Reason = "Imported from removable storage"
         };
     }
@@ -351,7 +355,8 @@ internal static class OverlayToolFixtures
     private static ShortcutStatus Shortcut(uint appId, string name, bool owned, string libraryId, string location,
         ContentAvailability state, string detail)
     {
-        return new ShortcutStatus(appId, name, owned, owned ? "content-" + appId : "", libraryId, state, location, detail);
+        return new ShortcutStatus(appId, name, owned, owned ? "content-" + appId : "", libraryId, state, location,
+            detail);
     }
 
     private static string MakeImage()
@@ -390,58 +395,6 @@ internal sealed class FakeThemesSource : IThemeBrowseSession, ISteamThemesBacken
 {
     internal readonly List<string> Commands = [];
     internal SteamThemesState State = OverlayToolFixtures.Themes;
-    public event Action? Changed;
-
-    public SteamThemesState ReadState()
-    {
-        return State;
-    }
-
-    public string Tab
-    {
-        get => State.ActiveTab;
-        set => State = State with { ActiveTab = value };
-    }
-
-    public void CancelQueries()
-    {
-    }
-
-    public void Dispose()
-    {
-    }
-
-    public Task<SteamUiCommandResult> SetTabAsync(string tab, CancellationToken cancellationToken)
-    {
-        return Command("SetTabAsync");
-    }
-
-    public Task<SteamUiCommandResult> BrowseAsync(string filter, string order, string search,
-        CancellationToken cancellationToken)
-    {
-        return Command("BrowseAsync");
-    }
-
-    public Task<SteamUiCommandResult> LoadMoreAsync(CancellationToken cancellationToken)
-    {
-        return Command("LoadMoreAsync");
-    }
-
-    public Task<SteamUiCommandResult> OpenAsync(string id, CancellationToken cancellationToken)
-    {
-        var item = State.Browse.Items.First();
-        State = State with
-        {
-            Detail = new SteamThemesDetail(item, "Theme details", [OverlayToolFixtures.Image], [], false, null)
-        };
-        return Command("OpenAsync");
-    }
-
-    public Task<SteamUiCommandResult> CloseDetailAsync(CancellationToken cancellationToken)
-    {
-        State = State with { Detail = null };
-        return Command("CloseDetailAsync");
-    }
 
     public Task<SteamUiCommandResult> InstallAsync(string id, CancellationToken cancellationToken)
     {
@@ -516,6 +469,59 @@ internal sealed class FakeThemesSource : IThemeBrowseSession, ISteamThemesBacken
         return Command("DismissAsync");
     }
 
+    public SteamThemesState ReadState()
+    {
+        return State;
+    }
+
+    public string Tab
+    {
+        get => State.ActiveTab;
+        set => State = State with { ActiveTab = value };
+    }
+
+    public void CancelQueries()
+    {
+    }
+
+    public void Dispose()
+    {
+    }
+
+    public event Action? Changed;
+
+    public Task<SteamUiCommandResult> SetTabAsync(string tab, CancellationToken cancellationToken)
+    {
+        return Command("SetTabAsync");
+    }
+
+    public Task<SteamUiCommandResult> BrowseAsync(string filter, string order, string search,
+        CancellationToken cancellationToken)
+    {
+        return Command("BrowseAsync");
+    }
+
+    public Task<SteamUiCommandResult> LoadMoreAsync(CancellationToken cancellationToken)
+    {
+        return Command("LoadMoreAsync");
+    }
+
+    public Task<SteamUiCommandResult> OpenAsync(string id, CancellationToken cancellationToken)
+    {
+        var item = State.Browse.Items.First();
+        State = State with
+        {
+            Detail = new SteamThemesDetail(item, "Theme details", [OverlayToolFixtures.Image], [], false, null)
+        };
+        return Command("OpenAsync");
+    }
+
+    public Task<SteamUiCommandResult> CloseDetailAsync(CancellationToken cancellationToken)
+    {
+        State = State with { Detail = null };
+        return Command("CloseDetailAsync");
+    }
+
     internal void Publish()
     {
         Changed?.Invoke();
@@ -533,7 +539,6 @@ internal sealed class FakeMoviesSource : IAnimationBrowseSession, ISteamAnimatio
 {
     internal readonly List<string> Commands = [];
     internal SteamAnimationsState State = OverlayToolFixtures.Movies;
-    public event Action? Changed;
 
     public SteamAnimationsState ReadState()
     {
@@ -546,14 +551,11 @@ internal sealed class FakeMoviesSource : IAnimationBrowseSession, ISteamAnimatio
         set => State = State with { ActiveTab = value };
     }
 
-    public string? PreviewPath(string id)
-    {
-        return null;
-    }
-
     public void Dispose()
     {
     }
+
+    public event Action? Changed;
 
     public Task<SteamUiCommandResult> SetTabAsync(string tab, CancellationToken cancellationToken)
     {
@@ -570,11 +572,6 @@ internal sealed class FakeMoviesSource : IAnimationBrowseSession, ISteamAnimatio
         return Command("BrowseMoreAsync");
     }
 
-    public Task<SteamUiCommandResult> RefreshAsync(CancellationToken cancellationToken)
-    {
-        return Command("RefreshAsync");
-    }
-
     public Task<SteamUiCommandResult> OpenAsync(string id, CancellationToken cancellationToken)
     {
         return Command("OpenAsync");
@@ -583,6 +580,16 @@ internal sealed class FakeMoviesSource : IAnimationBrowseSession, ISteamAnimatio
     public Task<SteamUiCommandResult> CloseDetailAsync(CancellationToken cancellationToken)
     {
         return Command("CloseDetailAsync");
+    }
+
+    public string? PreviewPath(string id)
+    {
+        return null;
+    }
+
+    public Task<SteamUiCommandResult> RefreshAsync(CancellationToken cancellationToken)
+    {
+        return Command("RefreshAsync");
     }
 
     public Task<SteamUiCommandResult> DownloadAsync(string id, CancellationToken cancellationToken)
@@ -641,8 +648,8 @@ internal sealed class FakeMoviesSource : IAnimationBrowseSession, ISteamAnimatio
 internal sealed class FakeArtworkSource : IArtworkBrowseSession
 {
     internal readonly List<string> Commands = [];
-    private int _gameRead;
     internal SteamArtworkBrowserState State = OverlayToolFixtures.Artwork;
+    private int _gameRead;
 
     /// <summary>
     ///     The answers to the library reads, in order; the last one repeats. The default answers every read with
@@ -650,8 +657,6 @@ internal sealed class FakeArtworkSource : IArtworkBrowseSession
     /// </summary>
     internal Task<SteamLibraryReadResult>[] GameReads { get; init; } =
         [Task.FromResult(new SteamLibraryReadResult([new SteamLibraryApp(42, "Example game")], null))];
-
-    public event Action? Changed;
 
     public SteamArtworkBrowserState ReadState()
     {
@@ -665,6 +670,8 @@ internal sealed class FakeArtworkSource : IArtworkBrowseSession
     public void CancelBrowsing()
     {
     }
+
+    public event Action? Changed;
 
     public Task<SteamUiCommandResult> OpenAsync(uint id, string? title, CancellationToken token)
     {
@@ -763,12 +770,33 @@ internal sealed class FakeLibrarySource : IGameLibraryOverlaySource
 {
     internal readonly List<string> Commands = [];
     internal GameLibraryState State = OverlayToolFixtures.Library;
-    public event Action? Changed;
 
     public RomEmulatorState ReadRomState()
     {
         return RomEmulatorState.Empty;
     }
+
+    public GameLibraryState ReadState()
+    {
+        return State;
+    }
+
+    public GameLibraryDetails? ReadDetails(string id)
+    {
+        return new GameLibraryDetails("Game folder", "source-identity", "Source-provided launch route", "Known",
+            "Catalog", []);
+    }
+
+    public GameLibraryOptionsAnswer? ReadArtworkOptions(string id, string asset)
+    {
+        return new GameLibraryOptionsAnswer(asset, "ready", "", 1,
+        [
+            new GameLibraryArtworkOption(OverlayToolFixtures.Image, OverlayToolFixtures.Image, "Catalog", true, 600,
+                900)
+        ]);
+    }
+
+    public event Action? Changed;
 
     public IReadOnlyList<RomSystemProfile> ReadRomSystems()
     {
@@ -847,26 +875,6 @@ internal sealed class FakeLibrarySource : IGameLibraryOverlaySource
     public Task<SteamUiCommandResult> UseLibraryAsync(string id, CancellationToken cancellationToken)
     {
         return Command("UseLibraryAsync");
-    }
-
-    public GameLibraryState ReadState()
-    {
-        return State;
-    }
-
-    public GameLibraryDetails? ReadDetails(string id)
-    {
-        return new GameLibraryDetails("Game folder", "source-identity", "Source-provided launch route", "Known",
-            "Catalog", []);
-    }
-
-    public GameLibraryOptionsAnswer? ReadArtworkOptions(string id, string asset)
-    {
-        return new GameLibraryOptionsAnswer(asset, "ready", "", 1,
-        [
-            new GameLibraryArtworkOption(OverlayToolFixtures.Image, OverlayToolFixtures.Image, "Catalog", true, 600,
-                900)
-        ]);
     }
 
     public Task<SteamUiCommandResult> ScanAsync(CancellationToken cancellationToken)

@@ -94,7 +94,8 @@ internal sealed record StorageInventory(
                 label = read;
             }
 
-            var volumeId = volume.Ready && NativeStorage.TryGetVolumeGuidPath(volume.Letter, out var guid) && guid is not null
+            var volumeId = volume.Ready && NativeStorage.TryGetVolumeGuidPath(volume.Letter, out var guid) &&
+                           guid is not null
                 ? guid
                 : "";
             volumes.Add(new StorageVolumeFacts(

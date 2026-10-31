@@ -21,7 +21,7 @@ public sealed class SuspendedProcessTests
         start.Arguments = $"/c echo launched>\"{marker}\"";
 
         Assert.Throws<launch::WSGM.Core.ProcessCreationException>(() =>
-            SuspendedProcess.Start(start, primaryToken: -1));
+            SuspendedProcess.Start(start, -1));
         Assert.False(File.Exists(marker));
     }
 

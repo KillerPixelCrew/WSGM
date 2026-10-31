@@ -5,6 +5,9 @@ namespace WSGM.Core;
 /// <summary>Package activation and dedicated keyboard operations used by manager takeover and recovery.</summary>
 public interface IOtherManagerTargets
 {
+    /// <summary>Whether an accepted device command requires a restart.</summary>
+    bool RestartRequired { get; }
+
     /// <summary>Whether the exact handheld definition matches this machine.</summary>
     /// <param name="definitionId">Exact built-in LibHandheld definition ID.</param>
     /// <returns>True only for the detected definition.</returns>
@@ -24,7 +27,4 @@ public interface IOtherManagerTargets
     /// <param name="target">The retained pre-change snapshot.</param>
     /// <returns>Whether restoration completed or the target is gone.</returns>
     bool Restore(OtherManagerRecord target);
-
-    /// <summary>Whether an accepted device command requires a restart.</summary>
-    bool RestartRequired { get; }
 }

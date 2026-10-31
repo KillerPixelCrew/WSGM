@@ -189,7 +189,10 @@ public sealed class KeyboardEditingTests
 
         throw new InvalidOperationException("No visible keyboard key " + key);
 
-        Button? Find() => keyboard.GetVisualDescendants().OfType<Button>()
-            .FirstOrDefault(candidate => candidate.IsEffectivelyVisible && Equals(candidate.Tag, key));
+        Button? Find()
+        {
+            return keyboard.GetVisualDescendants().OfType<Button>()
+                .FirstOrDefault(candidate => candidate.IsEffectivelyVisible && Equals(candidate.Tag, key));
+        }
     }
 }

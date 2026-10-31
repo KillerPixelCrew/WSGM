@@ -7,7 +7,10 @@ namespace WSGM.Shell;
 /// <param name="Name">The game's name.</param>
 /// <param name="IsShortcut">Whether the id is a non-Steam shortcut.</param>
 /// <param name="InstallFolder">The game's current install folder, empty when Steam reports none.</param>
-/// <param name="Availability"><c>ready</c>, <c>notInstalled</c>, <c>folderUnavailable</c>, <c>steamUnavailable</c> or <c>running</c>.</param>
+/// <param name="Availability">
+///     <c>ready</c>, <c>notInstalled</c>, <c>folderUnavailable</c>, <c>steamUnavailable</c> or
+///     <c>running</c>.
+/// </param>
 /// <param name="Reason">A user-facing explanation when the game is not <c>ready</c>.</param>
 /// <param name="Loading">Whether a scan is running and the other fields may be placeholders.</param>
 /// <param name="EngineLabel">The detected engine shown to the user.</param>

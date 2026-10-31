@@ -35,8 +35,11 @@ internal sealed class DevicePowerPresetRig
         {
             Descriptor = Views[0].Descriptor with
             {
-                PowerPresets = [Battery with { FastWatts = 12 }, Balanced with { FastWatts = 25 },
-                    Extreme with { FastWatts = 35 }]
+                PowerPresets =
+                [
+                    Battery with { FastWatts = 12 }, Balanced with { FastWatts = 25 },
+                    Extreme with { FastWatts = 35 }
+                ]
             }
         };
         Views = [.. Views, View(CapabilityRole.PowerFastLimit, 20)];

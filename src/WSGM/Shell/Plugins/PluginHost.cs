@@ -101,7 +101,7 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
             }
 
             var registration = new PluginRegistration(this, plugin, identity,
-                new PluginContext(identity, Generation: 1, _mode, Deadline.Never, stateDirectory), capabilities);
+                new PluginContext(identity, 1, _mode, Deadline.Never, stateDirectory), capabilities);
             _instances.Add(identity, registration);
             return registration;
         }

@@ -8,82 +8,6 @@ public sealed class NotesCaptureTransactionTests
     private static readonly NotesCaptureTarget Game = new(4321, 77, 0, "game.exe");
     private static readonly byte[] Jpeg = [0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3];
 
-    private sealed class Surface : INotesCaptureSurface
-    {
-        internal bool ReturnResult { get; init; } = true;
-        internal int Returns { get; private set; }
-        internal List<string> Reopened { get; } = [];
-
-        public Task<bool> ReturnToGameAsync(NotesCaptureTarget target, CancellationToken cancellationToken)
-        {
-            Returns++;
-            return Task.FromResult(ReturnResult);
-        }
-
-        public Task<bool> ReopenAsync(NotesCaptureTarget target, string pageId, CancellationToken cancellationToken)
-        {
-            Reopened.Add(pageId);
-            return Task.FromResult(true);
-        }
-    }
-
-    private sealed class Countdown : INotesCountdownDisplay
-    {
-        internal List<int> Shown { get; } = [];
-        internal int Hides { get; private set; }
-        internal bool Visible { get; private set; }
-
-        public void Show(int remaining, string game)
-        {
-            Shown.Add(remaining);
-            Visible = true;
-        }
-
-        public void Hide()
-        {
-            Hides++;
-            Visible = false;
-        }
-    }
-
-    private sealed class Harness
-    {
-        internal Surface Surface { get; init; } = new();
-        internal Countdown Countdown { get; } = new();
-        internal List<(string Page, int Width)> Inserted { get; } = [];
-        internal NotesCaptureFrame Frame { get; set; } = new(Jpeg, 1920, 1080, null);
-        internal Func<uint, bool> Alive { get; set; } = _ => true;
-        internal Func<int, Task>? OnTick { get; set; }
-        internal int Captures { get; private set; }
-        private int _ticks;
-
-        internal NotesCaptureTransaction Transaction { get; }
-
-        internal Harness()
-        {
-            Transaction = new NotesCaptureTransaction((page, _, width, _) =>
-            {
-                Inserted.Add((page, width));
-                return new NoteEditResult(NoteEditStatus.Applied, null, null, "element");
-            }, () => { });
-        }
-
-        internal NotesCapturePorts Ports => new(Surface, Countdown, (_, _) =>
-        {
-            Captures++;
-            return Task.FromResult(Frame);
-        }, pid => Alive(pid), async (delay, token) =>
-        {
-            token.ThrowIfCancellationRequested();
-            if (delay >= TimeSpan.FromSeconds(1) && OnTick is not null)
-            {
-                await OnTick(++_ticks);
-            }
-
-            token.ThrowIfCancellationRequested();
-        });
-    }
-
     [Fact]
     public async Task ACompletedCaptureCountsDownInsertsAndReturnsToTheSamePage()
     {
@@ -105,8 +29,9 @@ public sealed class NotesCaptureTransactionTests
     [Fact]
     public async Task ADesktopCaptureNeedsNoRunningGameAndReturnsToTheSamePage()
     {
-        var harness = new Harness { Alive = _ => throw new InvalidOperationException("A desktop has no game process.") };
-        var desktop = new NotesCaptureTarget(ProcessId: 0, Window: 0, SteamAppId: 0, Description: "desktop", Monitor: 99);
+        var harness = new Harness
+            { Alive = _ => throw new InvalidOperationException("A desktop has no game process.") };
+        var desktop = new NotesCaptureTarget(0, 0, 0, "desktop", 99);
         NotesCaptureTarget? captured = null;
         var ports = harness.Ports with
         {
@@ -133,7 +58,7 @@ public sealed class NotesCaptureTransactionTests
     public async Task CancellingADesktopCountdownCapturesNothing()
     {
         var harness = new Harness { Alive = _ => false };
-        var desktop = new NotesCaptureTarget(ProcessId: 0, Window: 0, SteamAppId: 0, Description: "desktop", Monitor: 99);
+        var desktop = new NotesCaptureTarget(0, 0, 0, "desktop", 99);
         harness.OnTick = _ =>
         {
             Assert.True(harness.Transaction.Cancel("Screenshot cancelled."));
@@ -272,5 +197,82 @@ public sealed class NotesCaptureTransactionTests
 
         Assert.Equal("A screenshot is already pending.", second.Outcome);
         Assert.Equal([("page", 1920)], harness.Inserted);
+    }
+
+    private sealed class Surface : INotesCaptureSurface
+    {
+        internal bool ReturnResult { get; init; } = true;
+        internal int Returns { get; private set; }
+        internal List<string> Reopened { get; } = [];
+
+        public Task<bool> ReturnToGameAsync(NotesCaptureTarget target, CancellationToken cancellationToken)
+        {
+            Returns++;
+            return Task.FromResult(ReturnResult);
+        }
+
+        public Task<bool> ReopenAsync(NotesCaptureTarget target, string pageId, CancellationToken cancellationToken)
+        {
+            Reopened.Add(pageId);
+            return Task.FromResult(true);
+        }
+    }
+
+    private sealed class Countdown : INotesCountdownDisplay
+    {
+        internal List<int> Shown { get; } = [];
+        internal int Hides { get; private set; }
+        internal bool Visible { get; private set; }
+
+        public void Show(int remaining, string game)
+        {
+            Shown.Add(remaining);
+            Visible = true;
+        }
+
+        public void Hide()
+        {
+            Hides++;
+            Visible = false;
+        }
+    }
+
+    private sealed class Harness
+    {
+        private int _ticks;
+
+        internal Harness()
+        {
+            Transaction = new NotesCaptureTransaction((page, _, width, _) =>
+            {
+                Inserted.Add((page, width));
+                return new NoteEditResult(NoteEditStatus.Applied, null, null, "element");
+            }, () => { });
+        }
+
+        internal Surface Surface { get; init; } = new();
+        internal Countdown Countdown { get; } = new();
+        internal List<(string Page, int Width)> Inserted { get; } = [];
+        internal NotesCaptureFrame Frame { get; set; } = new(Jpeg, 1920, 1080, null);
+        internal Func<uint, bool> Alive { get; set; } = _ => true;
+        internal Func<int, Task>? OnTick { get; set; }
+        internal int Captures { get; private set; }
+
+        internal NotesCaptureTransaction Transaction { get; }
+
+        internal NotesCapturePorts Ports => new(Surface, Countdown, (_, _) =>
+        {
+            Captures++;
+            return Task.FromResult(Frame);
+        }, pid => Alive(pid), async (delay, token) =>
+        {
+            token.ThrowIfCancellationRequested();
+            if (delay >= TimeSpan.FromSeconds(1) && OnTick is not null)
+            {
+                await OnTick(++_ticks);
+            }
+
+            token.ThrowIfCancellationRequested();
+        });
     }
 }

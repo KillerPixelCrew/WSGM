@@ -21,11 +21,11 @@ namespace WSGM.Core;
 /// </remarks>
 public sealed partial class EmulatorManager : IDisposable
 {
+    private readonly DownloadClient _client;
     private readonly UserDataContext _context;
     private readonly EmulatorInstallFolders _folders;
     private readonly ImportStateStore? _importState;
     private readonly CancellationTokenSource _lifetime = new();
-    private readonly DownloadClient _client;
     private readonly SemaphoreSlim _operations = new(1);
     private readonly EmulatorPackages _packages;
     private readonly EmulatorReleases _releases;
@@ -611,7 +611,7 @@ public sealed partial class EmulatorManager : IDisposable
                     if (runtimes.Length > 0)
                     {
                         throw new InvalidOperationException(string.Join(" ", runtimes) +
-                            " Choose Install required runtimes on this emulator's page, then install or repair it again.");
+                                                            " Choose Install required runtimes on this emulator's page, then install or repair it again.");
                     }
 
                     EmulatorValidation.ProbeAsync(definition, candidate, cancellationToken).GetAwaiter().GetResult();

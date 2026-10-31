@@ -89,7 +89,7 @@ internal static class SteamEmulatorSurface
         if (!SteamUiPayload.HasExactly(payload, 3)
             || !SteamUiPayload.TryReadNonBlankString(payload, "installationId", out var id)
             || !SteamUiPayload.TryReadBoolean(payload, "enabled", out var enabled)
-            || !SteamUiPayload.TryReadInt(payload, "launchMode", minimum: 0, maximum: 3, out var launchMode))
+            || !SteamUiPayload.TryReadInt(payload, "launchMode", 0, 3, out var launchMode))
         {
             return false;
         }
@@ -221,6 +221,7 @@ internal static class SteamEmulatorSurface
     }
 
     private readonly record struct BiosRequest(string Path, string SystemId);
+
     private readonly record struct ShortcutRequest(string InstallationId, bool Enabled, int LaunchMode);
 
     private readonly record struct ReleaseRequest(string DefinitionId, string Channel);

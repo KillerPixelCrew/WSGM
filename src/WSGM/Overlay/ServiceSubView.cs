@@ -57,6 +57,9 @@ public abstract class ServiceSubView : OverlaySubView
         };
     }
 
+    /// <summary>Whether the current level shows the service's state, so the service's changes redraw it.</summary>
+    private protected virtual bool RedrawsOnSourceChange => true;
+
     private void OnSurfaceClosed()
     {
         if (_renderDeferred && IsEffectivelyVisible)
@@ -65,9 +68,6 @@ public abstract class ServiceSubView : OverlaySubView
             CurrentLevel?.Invoke();
         }
     }
-
-    /// <summary>Whether the current level shows the service's state, so the service's changes redraw it.</summary>
-    private protected virtual bool RedrawsOnSourceChange => true;
 
     /// <summary>Opens the view on its home level.</summary>
     public override void Open()

@@ -72,7 +72,8 @@ public static class ShortcutRequirements
             }
 
             var found = atDrive.VolumeId.Length > 0
-                ? new ShortcutBinding(binding?.AccountId ?? 0, appId, path, atDrive.VolumeId, atDrive.CardId, atDrive.Name)
+                ? new ShortcutBinding(binding?.AccountId ?? 0, appId, path, atDrive.VolumeId, atDrive.CardId,
+                    atDrive.Name)
                 : null;
             return new LiteralVerdict(ContentAvailability.Available, atDrive.Name, "", found);
         }

@@ -10,13 +10,85 @@ namespace WSGM.BrowserHost;
 internal sealed partial class BrowserWindow
 {
     private const string InputBinding = "wsgmTextInput";
-    private readonly string _inputWorld = "WSGM.Input." + Guid.NewGuid().ToString("N");
+
+    private const string TextInputScript = """
+                                           (() => {
+                                             const fields = 'input,textarea,[contenteditable]';
+                                             let selected = null, editing = null;
+                                             const editable = node => node instanceof HTMLElement && !node.disabled && !node.readOnly &&
+                                               (node instanceof HTMLTextAreaElement || node.isContentEditable ||
+                                                (node instanceof HTMLInputElement && /^(text|search|url|tel|email|password|number)$/.test(node.type)));
+                                             const prepare = node => {
+                                               if (editable(node) && node.getAttribute('inputmode') !== 'none') node.setAttribute('inputmode', 'none');
+                                             };
+                                             const scan = root => {
+                                               prepare(root);
+                                               root.querySelectorAll?.(fields).forEach(prepare);
+                                             };
+                                             const active = () => {
+                                               let node = document.activeElement;
+                                               while (node?.shadowRoot?.activeElement) node = node.shadowRoot.activeElement;
+                                               return editable(node) ? node : null;
+                                             };
+                                             const report = (node, request, extra = {}) => wsgmTextInput(JSON.stringify({
+                                               request, editable: !!node, sensitive: node?.type === 'password',
+                                               multiline: node instanceof HTMLTextAreaElement || !!node?.isContentEditable, ...extra
+                                             }));
+                                             const request = node => {
+                                               if (!editable(node) || !node.isConnected) return false;
+                                               const replace = !node.isContentEditable && node.value.length <= 4096;
+                                               editing = {node, start: node.selectionStart, end: node.selectionEnd,
+                                                 range: node.isContentEditable && getSelection()?.rangeCount ? getSelection().getRangeAt(0).cloneRange() : null};
+                                               report(node, true, {replace, text: replace ? node.value : '',
+                                                 start: replace ? node.selectionStart ?? node.value.length : 0,
+                                                 end: replace ? node.selectionEnd ?? node.value.length : 0});
+                                               return true;
+                                             };
+                                             globalThis.wsgmRequestTextInput = () => request(active() || selected);
+                                             globalThis.wsgmRestoreTextInput = () => {
+                                               const saved = editing || (selected ? {node: selected} : null), node = saved?.node;
+                                               if (!editable(node) || !node.isConnected) return false;
+                                               node.focus({preventScroll: true});
+                                               if (saved.range) {const range=getSelection();range.removeAllRanges();range.addRange(saved.range);}
+                                               else if (typeof saved.start === 'number') {
+                                                 try {node.setSelectionRange(saved.start, saved.end);} catch {}
+                                               }
+                                               editing = null;
+                                               return true;
+                                             };
+                                             const target = event => event.composedPath().find(editable);
+                                             scan(document);
+                                             new MutationObserver(changes => {
+                                               for (const change of changes) {
+                                                 if (change.type === 'attributes') prepare(change.target);
+                                                 else for (const node of change.addedNodes) scan(node);
+                                               }
+                                             }).observe(document, {subtree: true, childList: true, attributes: true,
+                                               attributeFilter: ['inputmode', 'contenteditable', 'type', 'readonly', 'disabled']});
+                                             document.addEventListener('pointerdown', event => prepare(target(event)), true);
+                                             document.addEventListener('focusin', event => {
+                                               const node = target(event);
+                                               prepare(node);
+                                               if (node) selected = node;
+                                               report(node || null, false);
+                                             }, true);
+                                             document.addEventListener('click', event => {
+                                               const node = target(event);
+                                               if (event.isTrusted && node && (event.pointerType === 'touch' || event.pointerType === 'pen')) {
+                                                 setTimeout(() => { if (active() === node) request(node); }, 0);
+                                               }
+                                             }, true);
+                                             document.addEventListener('focusout', () => setTimeout(() => report(active(), false), 0), true);
+                                           })();
+                                           """;
+
     private readonly HashSet<int> _inputContexts = [];
-    private int _textInputContext;
+    private readonly string _inputWorld = "WSGM.Input." + Guid.NewGuid().ToString("N");
+    private CoreWebView2DevToolsProtocolEventReceiver? _inputCleared;
     private CoreWebView2DevToolsProtocolEventReceiver? _inputCreated;
     private CoreWebView2DevToolsProtocolEventReceiver? _inputDestroyed;
-    private CoreWebView2DevToolsProtocolEventReceiver? _inputCleared;
     private CoreWebView2DevToolsProtocolEventReceiver? _inputMessages;
+    private int _textInputContext;
 
     private async Task InitializeTextInputAsync(CoreWebView2 web)
     {
@@ -134,75 +206,4 @@ internal sealed partial class BrowserWindow
 
         _inputContexts.Clear();
     }
-
-    private const string TextInputScript = """
-        (() => {
-          const fields = 'input,textarea,[contenteditable]';
-          let selected = null, editing = null;
-          const editable = node => node instanceof HTMLElement && !node.disabled && !node.readOnly &&
-            (node instanceof HTMLTextAreaElement || node.isContentEditable ||
-             (node instanceof HTMLInputElement && /^(text|search|url|tel|email|password|number)$/.test(node.type)));
-          const prepare = node => {
-            if (editable(node) && node.getAttribute('inputmode') !== 'none') node.setAttribute('inputmode', 'none');
-          };
-          const scan = root => {
-            prepare(root);
-            root.querySelectorAll?.(fields).forEach(prepare);
-          };
-          const active = () => {
-            let node = document.activeElement;
-            while (node?.shadowRoot?.activeElement) node = node.shadowRoot.activeElement;
-            return editable(node) ? node : null;
-          };
-          const report = (node, request, extra = {}) => wsgmTextInput(JSON.stringify({
-            request, editable: !!node, sensitive: node?.type === 'password',
-            multiline: node instanceof HTMLTextAreaElement || !!node?.isContentEditable, ...extra
-          }));
-          const request = node => {
-            if (!editable(node) || !node.isConnected) return false;
-            const replace = !node.isContentEditable && node.value.length <= 4096;
-            editing = {node, start: node.selectionStart, end: node.selectionEnd,
-              range: node.isContentEditable && getSelection()?.rangeCount ? getSelection().getRangeAt(0).cloneRange() : null};
-            report(node, true, {replace, text: replace ? node.value : '',
-              start: replace ? node.selectionStart ?? node.value.length : 0,
-              end: replace ? node.selectionEnd ?? node.value.length : 0});
-            return true;
-          };
-          globalThis.wsgmRequestTextInput = () => request(active() || selected);
-          globalThis.wsgmRestoreTextInput = () => {
-            const saved = editing || (selected ? {node: selected} : null), node = saved?.node;
-            if (!editable(node) || !node.isConnected) return false;
-            node.focus({preventScroll: true});
-            if (saved.range) {const range=getSelection();range.removeAllRanges();range.addRange(saved.range);}
-            else if (typeof saved.start === 'number') {
-              try {node.setSelectionRange(saved.start, saved.end);} catch {}
-            }
-            editing = null;
-            return true;
-          };
-          const target = event => event.composedPath().find(editable);
-          scan(document);
-          new MutationObserver(changes => {
-            for (const change of changes) {
-              if (change.type === 'attributes') prepare(change.target);
-              else for (const node of change.addedNodes) scan(node);
-            }
-          }).observe(document, {subtree: true, childList: true, attributes: true,
-            attributeFilter: ['inputmode', 'contenteditable', 'type', 'readonly', 'disabled']});
-          document.addEventListener('pointerdown', event => prepare(target(event)), true);
-          document.addEventListener('focusin', event => {
-            const node = target(event);
-            prepare(node);
-            if (node) selected = node;
-            report(node || null, false);
-          }, true);
-          document.addEventListener('click', event => {
-            const node = target(event);
-            if (event.isTrusted && node && (event.pointerType === 'touch' || event.pointerType === 'pen')) {
-              setTimeout(() => { if (active() === node) request(node); }, 0);
-            }
-          }, true);
-          document.addEventListener('focusout', () => setTimeout(() => report(active(), false), 0), true);
-        })();
-        """;
 }

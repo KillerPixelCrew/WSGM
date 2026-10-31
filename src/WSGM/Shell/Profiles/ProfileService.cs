@@ -219,8 +219,10 @@ internal sealed class ProfileService
             foreach (var values in config.Games.Select(game => game.Values).Prepend(config.Global))
             {
                 changed |= values.Device.RemoveAll(entry => entry.DeviceIdentityKey == deviceIdentityKey
-                    && (capabilityId is null ? entry.CapabilityId.StartsWith("processor.", StringComparison.Ordinal)
-                        : entry.CapabilityId == capabilityId)) > 0;
+                                                            && (capabilityId is null
+                                                                ? entry.CapabilityId.StartsWith("processor.",
+                                                                    StringComparison.Ordinal)
+                                                                : entry.CapabilityId == capabilityId)) > 0;
             }
 
             return changed;

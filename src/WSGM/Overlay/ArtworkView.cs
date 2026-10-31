@@ -18,8 +18,8 @@ namespace WSGM.Overlay;
 /// <summary>The complete artwork workflow over a surface-scoped session of the shared owner.</summary>
 public sealed class ArtworkView : ServiceSubView
 {
-    private int _cardSize = 160;
     private readonly GameList _games = new();
+    private int _cardSize = 160;
     private UserDataContext? _context;
     private SteamLogoPosition _logo = new("BottomLeft", 50, 50);
     private uint _logoApp;
@@ -259,7 +259,7 @@ public sealed class ArtworkView : ServiceSubView
             body.Children.Add(Caption("Current " + slot.Label +
                                       (slot.HasCustomArtwork ? " · Custom" : " · Steam default")));
             body.Children.Add(new OverlayPreviewImage(slot.ImageUrl, 180)
-            { Tag = "managed:" + id + ":" + slot.ImageUrl?.GetHashCode() });
+                { Tag = "managed:" + id + ":" + slot.ImageUrl?.GetHashCode() });
             body.Children.Add(Tagged(
                 Row("Clear " + slot.Label, "Restore default artwork", Icons.Close,
                     () => Run(token => _source!.ClearAsync(id, token))), "clear:" + id));

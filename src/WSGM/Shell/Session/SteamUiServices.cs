@@ -35,8 +35,6 @@ internal sealed class SteamUiServices
     // retract-then-close ordering. Every retraction under it has a deadline, so the
     // gate loop never waits behind a hung renderer for longer than that.
     private readonly SemaphoreSlim _cefMasterGate = new(1, 1);
-
-    private Task<IAsyncDisposable>[] _consoleSubscriptions = [];
     private readonly IntegrationServices _integrations;
     private readonly Func<SessionModes?> _modes;
     private readonly PerformanceServices _performance;
@@ -63,6 +61,8 @@ internal sealed class SteamUiServices
     // retraction task reads it to decide whether closing the choke point is still
     // wanted, while the UI thread writes it.
     private volatile bool _cefMasterEnabled;
+
+    private Task<IAsyncDisposable>[] _consoleSubscriptions = [];
 
     // The holds in force, as SteamUiHold bits; Resuming is derived from _resumeSettledAt.
     private int _holds;
@@ -183,6 +183,9 @@ internal sealed class SteamUiServices
         }
     }
 
+    /// <summary>The transport gate loop, or a completed task when it never started.</summary>
+    internal Task TransportGateWork => _transportGateWork ?? Task.CompletedTask;
+
     private bool HasHold(SteamUiHold hold)
     {
         return (Holds & hold) != SteamUiHold.None;
@@ -203,7 +206,9 @@ internal sealed class SteamUiServices
     internal bool SharedContextReady()
     {
         return Transport?.GetSnapshots().Any(snapshot =>
-            snapshot.Role == SteamUiTargetRole.SharedJsContext && snapshot.Health == SteamUiTransportHealth.Ready) == true;
+                   snapshot.Role == SteamUiTargetRole.SharedJsContext &&
+                   snapshot.Health == SteamUiTransportHealth.Ready) ==
+               true;
     }
 
     /// <summary>
@@ -218,9 +223,6 @@ internal sealed class SteamUiServices
             RunTransportGateAsync(_state.ShutdownToken));
         Log.Observe(_transportGateWork, "Steam UI transport gate");
     }
-
-    /// <summary>The transport gate loop, or a completed task when it never started.</summary>
-    internal Task TransportGateWork => _transportGateWork ?? Task.CompletedTask;
 
     /// <summary>
     ///     Opens or closes the Steam UI transport from the master switch, the shell mode, the holds and
@@ -824,7 +826,8 @@ internal sealed class SteamUiServices
                 Dispatcher.UIThread.Post(() =>
                 {
                     if (_state.ShutdownRequested || !_cefMasterEnabled
-                                                 || HasHold(SteamUiHold.BigPictureRequest | SteamUiHold.BigPictureClose))
+                                                 || HasHold(SteamUiHold.BigPictureRequest |
+                                                            SteamUiHold.BigPictureClose))
                     {
                         return;
                     }

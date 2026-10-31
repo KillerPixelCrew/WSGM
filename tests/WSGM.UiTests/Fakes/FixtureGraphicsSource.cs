@@ -32,15 +32,20 @@ internal sealed class FixtureGraphicsSource : IGraphicsOverlaySource
 
     internal int Subscribers { get; private set; }
 
+    public GraphicsOverlaySnapshot Snapshot()
+    {
+        return GraphicsOverlayBridge.Project([PublisherSnapshot()]);
+    }
+
+    public void Dispose()
+    {
+        Assert.Equal(0, Subscribers);
+    }
+
     public event Action? Changed
     {
         add { Subscribers++; }
         remove { Subscribers--; }
-    }
-
-    public GraphicsOverlaySnapshot Snapshot()
-    {
-        return GraphicsOverlayBridge.Project([PublisherSnapshot()]);
     }
 
     public Task<CapabilityCommandResult?> WriteAsync(DeviceOverlayCapability capability, CapabilityValue? value,
@@ -52,11 +57,6 @@ internal sealed class FixtureGraphicsSource : IGraphicsOverlaySource
     public Task<bool> UseGlobalAsync(string overrideId, CancellationToken cancellationToken = default)
     {
         throw new InvalidOperationException("Unexpected graphics profile write");
-    }
-
-    public void Dispose()
-    {
-        Assert.Equal(0, Subscribers);
     }
 
     internal static FixtureGraphicsSource Load()

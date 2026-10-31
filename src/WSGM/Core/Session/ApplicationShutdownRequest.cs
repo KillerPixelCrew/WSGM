@@ -14,7 +14,10 @@ internal static class ApplicationShutdownRequest
     /// <summary>Gets whether any caller reported Windows session termination, independently of reason priority.</summary>
     internal static bool SessionEnding => Volatile.Read(ref _sessionEnding) != 0;
 
-    /// <summary>Gets the reason cleanup runs under: session end whenever Windows is ending the session, otherwise <see cref="Current" />.</summary>
+    /// <summary>
+    ///     Gets the reason cleanup runs under: session end whenever Windows is ending the session, otherwise
+    ///     <see cref="Current" />.
+    /// </summary>
     internal static ApplicationShutdownReason Effective =>
         SessionEnding ? ApplicationShutdownReason.SessionEnd : Current;
 

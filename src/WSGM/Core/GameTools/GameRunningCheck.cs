@@ -68,7 +68,8 @@ internal sealed class GameRunningCheck(IGameProcessProbe probe)
         {
             try
             {
-                paths.AddRange(Directory.EnumerateFiles(folder!, "*.exe", SearchOption.TopDirectoryOnly).Take(FolderLimit));
+                paths.AddRange(Directory.EnumerateFiles(folder!, "*.exe", SearchOption.TopDirectoryOnly)
+                    .Take(FolderLimit));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -87,7 +88,9 @@ internal sealed class GameRunningCheck(IGameProcessProbe probe)
             return Running(layout.Root, Path.GetDirectoryName(runtime), runtime);
         }
 
-        var directory = runtime is null ? "" : GameToolPaths.RelativeDirectory(layout.Root, Path.GetDirectoryName(runtime)!);
+        var directory = runtime is null
+            ? ""
+            : GameToolPaths.RelativeDirectory(layout.Root, Path.GetDirectoryName(runtime)!);
         List<string> paths = [];
         if (runtime is not null && File.Exists(runtime))
         {

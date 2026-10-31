@@ -29,8 +29,8 @@ public sealed class RtssLauncherTests
         using RtssLauncher launcher = new(_ => true);
         var probes = 0;
 
-        var started = await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), enabled: true,
-            ready: _ =>
+        var started = await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true,
+            _ =>
             {
                 probes++;
                 return Task.FromResult(true);

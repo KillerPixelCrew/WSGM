@@ -290,7 +290,9 @@ public sealed partial class EmulatorManager
                 var configured = new Dictionary<string, string>(installed.ConfiguredPrerequisites);
                 foreach (var rule in installed.DataPolicy.Prerequisites.Where(rule => !rule.NativeInstaller))
                 {
-                    var target = installed.DefinitionId is "dolphin" or "primehack" ? Path.Combine(folder, "GC") : folder;
+                    var target = installed.DefinitionId is "dolphin" or "primehack"
+                        ? Path.Combine(folder, "GC")
+                        : folder;
                     if (installed.DefinitionId is "dolphin" or "primehack")
                     {
                         LinkBiosDirectory(Path.Combine(installed.DataPath, "GC"), target);
@@ -326,7 +328,8 @@ public sealed partial class EmulatorManager
                             .Select(file => Path.Combine(folder, file.Path)).Where(File.Exists).ToList();
                         if (rule.Kind == "keys" && File.Exists(Path.Combine(folder, "prod.keys")))
                         {
-                            files.AddRange(new[] { "prod.keys", "title.keys" }.Select(name => Path.Combine(folder, name))
+                            files.AddRange(new[] { "prod.keys", "title.keys" }
+                                .Select(name => Path.Combine(folder, name))
                                 .Where(File.Exists));
                         }
 
@@ -337,7 +340,8 @@ public sealed partial class EmulatorManager
                         else if (files.Count > 0)
                         {
                             foreach (var file in files.Distinct(StringComparer.OrdinalIgnoreCase).Where(file =>
-                                         rule.Extensions.Length == 0 || rule.Extensions.Contains(Path.GetExtension(file),
+                                         rule.Extensions.Length == 0 || rule.Extensions.Contains(
+                                             Path.GetExtension(file),
                                              StringComparer.OrdinalIgnoreCase)))
                             {
                                 installed = EmulatorPrerequisites.Configure(installed, file, rule.Kind, token);

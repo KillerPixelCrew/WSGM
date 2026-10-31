@@ -79,8 +79,8 @@ internal sealed class SteamLifecycle
     private DateTime _lastHomeLaunchUtc;
     private IDisposable? _pendingSteamRelaunch;
     private int _steamCefRecoveryInProgress;
-    private int _steamClosedByUser;
     private volatile Task _steamCloseWork = Task.CompletedTask;
+    private int _steamClosedByUser;
 
     /// <summary>Creates the Steam owner of one mode coordinator and subscribes to its monitor's exits.</summary>
     /// <param name="modes">The owning coordinator.</param>
@@ -302,9 +302,10 @@ internal sealed class SteamLifecycle
             return;
         }
 
-        Log.Warn("Steam ignored both Big Picture close requests; enforcing Steam shutdown before restoring the desktop.");
+        Log.Warn(
+            "Steam ignored both Big Picture close requests; enforcing Steam shutdown before restoring the desktop.");
         if (!await Steam.StopAsync(TimeSpan.FromSeconds(5), TimeSpan.Zero, CancellationToken.None,
-                    entireProcessTree: true)
+                    true)
                 .ConfigureAwait(false))
         {
             throw new InvalidOperationException("Steam remained active after forced shutdown during desktop return.");
@@ -394,7 +395,7 @@ internal sealed class SteamLifecycle
             {
                 await _steamControlGate.WaitAsync(token).ConfigureAwait(false);
                 acquired = true;
-                if (!await Steam.StopAsync(token, entireProcessTree: true).ConfigureAwait(false))
+                if (!await Steam.StopAsync(token, true).ConfigureAwait(false))
                 {
                     _modes.ReportWarning(
                         "Steam could not be closed, including forced shutdown. Check wsgm.log for details.");
@@ -577,7 +578,7 @@ internal sealed class SteamLifecycle
                 return false;
             }
 
-            if (!SteamCef.EnsureRemoteDebuggingEnabled(Steam.InstallDirectory, enabled: true))
+            if (!SteamCef.EnsureRemoteDebuggingEnabled(Steam.InstallDirectory, true))
             {
                 _modes.ReportWarning("Couldn't enable Steam debugging. Check wsgm.log for the file access error.");
                 return true;

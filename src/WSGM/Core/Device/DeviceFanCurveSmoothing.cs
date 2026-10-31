@@ -15,8 +15,11 @@ namespace WSGM.Core;
 ///     temperature behaves differently carries its own values on its LibHandheld definition, which reach
 ///     the curve through its <see cref="FanCurvePresetTable" />.
 /// </remarks>
-internal readonly record struct DeviceFanCurveSmoothing(double HysteresisCelsius, int MaximumRisePerTick,
-    int MaximumFallPerTick, int AverageSamples = 1)
+internal readonly record struct DeviceFanCurveSmoothing(
+    double HysteresisCelsius,
+    int MaximumRisePerTick,
+    int MaximumFallPerTick,
+    int AverageSamples = 1)
 {
     /// <summary>Every tick follows the curve exactly.</summary>
     internal static readonly DeviceFanCurveSmoothing None = new(0, 100, 100);

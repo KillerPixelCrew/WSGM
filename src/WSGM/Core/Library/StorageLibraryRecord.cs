@@ -10,15 +10,22 @@ public sealed class StorageLibraryRecord
 {
     /// <summary>The durable portable UUID.</summary>
     public string Id { get; set; } = "";
+
     /// <summary>The last known friendly card name, shown while it is disconnected.</summary>
     public string Name { get; set; } = "";
+
     /// <summary>The explicitly accepted local Windows volume GUID path.</summary>
     public string VolumeId { get; set; } = "";
+
     /// <summary>The manifest generation last written or read here, for optimistic concurrency only.</summary>
     public long ManifestRevision { get; set; }
+
     /// <summary>Whether a missing or damaged manifest blocks launch until the user repairs it.</summary>
     public bool RepairRequired { get; set; }
 
     /// <summary>Returns a detached checkpoint.</summary>
-    public StorageLibraryRecord Copy() => (StorageLibraryRecord)MemberwiseClone();
+    public StorageLibraryRecord Copy()
+    {
+        return (StorageLibraryRecord)MemberwiseClone();
+    }
 }

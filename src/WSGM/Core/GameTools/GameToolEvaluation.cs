@@ -3,7 +3,10 @@ using System.Collections.Generic;
 namespace WSGM.Core;
 
 /// <summary>What one tool's page shows for one game, decided from facts already read from disk.</summary>
-/// <param name="Status"><c>notInstalled</c>, <c>installed</c>, <c>updateAvailable</c>, <c>modified</c>, <c>conflict</c> or <c>unavailable</c>.</param>
+/// <param name="Status">
+///     <c>notInstalled</c>, <c>installed</c>, <c>updateAvailable</c>, <c>modified</c>, <c>conflict</c> or
+///     <c>unavailable</c>.
+/// </param>
 /// <param name="StatusText">A short user-facing status line.</param>
 /// <param name="IncompatibleReason">Why the tool can't be installed for the chosen runtime, or null.</param>
 /// <param name="Actions">Commands currently valid for this tool.</param>

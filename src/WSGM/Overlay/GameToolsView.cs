@@ -118,7 +118,7 @@ public sealed partial class GameToolsView : ServiceSubView
         }
 
         body.Children.Add(Tagged(Caption(
-            "Add tools such as OptiScaler to a game's folder. Choose a game, or open its page in Steam first."),
+                "Add tools such as OptiScaler to a game's folder. Choose a game, or open its page in Steam first."),
             "games.intro"));
         AddGameList(body, _games, Icons.Wrench, ReadLibraryAsync, game => OpenGame(game.AppId, game.Name),
             RenderList);

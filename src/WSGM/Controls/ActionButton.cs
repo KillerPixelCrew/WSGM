@@ -40,8 +40,6 @@ public class ActionButton : Button
     private readonly PhysicalGlyphImage _glyph = new() { Width = 18, Height = 18 };
     private readonly TextBlock _hint = new() { VerticalAlignment = VerticalAlignment.Center };
 
-    private readonly StackPanel _labels = new() { Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
-
     private readonly Path _icon = new()
     {
         Width = 20,
@@ -51,6 +49,8 @@ public class ActionButton : Button
         StrokeJoin = PenLineJoin.Round,
         VerticalAlignment = VerticalAlignment.Center
     };
+
+    private readonly StackPanel _labels = new() { Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
 
     private readonly Path _pin = new()
     {
@@ -70,7 +70,7 @@ public class ActionButton : Button
         _labels.Children.Add(_title);
         _labels.Children.Add(_description);
         var hints = new StackPanel
-        { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+            { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
         hints.Children.Add(_pin);
         hints.Children.Add(_glyph);
         hints.Children.Add(_hint);

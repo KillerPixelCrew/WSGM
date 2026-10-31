@@ -29,10 +29,10 @@ internal sealed partial class SteamNativeSettingsService
 
         if (resolution is not null
             && ChoiceRow("display.resolution", "Display resolution", "aspect",
-                ProjectResolution(resolution.Options(), PrimaryDisplayModes.ReadCurrentResolution())) is
-            {
-                Disabled: false
-            } modes)
+                    ProjectResolution(resolution.Options(), PrimaryDisplayModes.ReadCurrentResolution())) is
+                {
+                    Disabled: false
+                } modes)
         {
             offer.Quick("resolution", offer.Add(displayRows, modes,
                 (value, token) => SetResolutionAsync(resolution, value.GetString()!, token)));
@@ -129,6 +129,7 @@ internal sealed partial class SteamNativeSettingsService
 
         await AddScaledResolutionSectionAsync(display, offer).ConfigureAwait(false);
     }
+
     /// <summary>The graphics owners' Quick Access groups: one titled section per publisher.</summary>
     /// <param name="offer">The read's offered command set and Quick Access sections.</param>
     /// <remarks>

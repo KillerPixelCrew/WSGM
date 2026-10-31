@@ -54,10 +54,10 @@ internal sealed class DevicePins
     {
         private readonly DevicePins _owner;
         private DeviceOverlaySnapshot? _device;
-        private GraphicsOverlaySnapshot? _graphics;
-        private PerformanceOverlaySnapshot? _performance;
         private bool _deviceRead;
+        private GraphicsOverlaySnapshot? _graphics;
         private bool _graphicsRead;
+        private PerformanceOverlaySnapshot? _performance;
         private bool _performanceRead;
 
         internal Pass(DevicePins owner, DeviceOverlaySnapshot? device, PerformanceOverlaySnapshot? performance,

@@ -169,7 +169,8 @@ public sealed class ThemeServiceTests : IDisposable
         Assert.False((await Section(service).ConfigureExtensionAsync(Key("patch", "Dark", "Blur"),
                 Json("9"), CancellationToken.None))
             .Succeeded);
-        Assert.False((await Section(service).ConfigureExtensionAsync("nonsense", Json("1"), CancellationToken.None)).Succeeded);
+        Assert.False((await Section(service).ConfigureExtensionAsync("nonsense", Json("1"), CancellationToken.None))
+            .Succeeded);
         Assert.False((await Section(service).ConfigureExtensionAsync(Key("patch", "Dark", "Gone"),
                 Json("\"x\""), CancellationToken.None))
             .Succeeded);
@@ -285,7 +286,8 @@ public sealed class ThemeServiceTests : IDisposable
         var key = Key("theme", "Steam: Dark");
 
         Assert.Contains(Section(service).ReadExtensionsItem().Settings!, setting => setting.Key == key);
-        Assert.True((await Section(service).ConfigureExtensionAsync(key, Json("true"), CancellationToken.None)).Succeeded);
+        Assert.True((await Section(service).ConfigureExtensionAsync(key, Json("true"), CancellationToken.None))
+            .Succeeded);
         Assert.True(service.ReadState().Themes.Single().Enabled);
         Assert.DoesNotContain(':', key[(key.IndexOf(':') + 1)..]);
     }

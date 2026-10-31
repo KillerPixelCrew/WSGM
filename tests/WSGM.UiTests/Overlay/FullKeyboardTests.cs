@@ -42,8 +42,10 @@ public sealed class FullKeyboardTests
 
         Page(window, keyboard, "More");
         foreach (var key in Enumerable.Range(0, 12).Select(index => Key.F1 + index)
-                     .Concat([Key.LeftAlt, Key.LWin, Key.CapsLock, Key.Tab, Key.Home, Key.End, Key.Delete, Key.Up, Key.Down,
-                         Key.Insert, Key.PrintScreen, Key.Scroll, Key.Pause]))
+                     .Concat([
+                         Key.LeftAlt, Key.LWin, Key.CapsLock, Key.Tab, Key.Home, Key.End, Key.Delete, Key.Up, Key.Down,
+                         Key.Insert, Key.PrintScreen, Key.Scroll, Key.Pause
+                     ]))
         {
             var button = keyboard.GetVisualDescendants().OfType<Button>()
                 .Single(button => button.IsEffectivelyVisible && Equals(button.Tag, key));

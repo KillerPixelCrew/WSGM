@@ -48,13 +48,13 @@ internal static class ScreensaverThumbnail
             var h = decoded.Height;
             var values = codec.EncodedOrigin switch
             {
-                SKEncodedOrigin.TopRight => (-1f, 0f, (float)w, 0f, 1f, 0f),
-                SKEncodedOrigin.BottomRight => (-1f, 0f, (float)w, 0f, -1f, (float)h),
-                SKEncodedOrigin.BottomLeft => (1f, 0f, 0f, 0f, -1f, (float)h),
+                SKEncodedOrigin.TopRight => (-1f, 0f, w, 0f, 1f, 0f),
+                SKEncodedOrigin.BottomRight => (-1f, 0f, w, 0f, -1f, h),
+                SKEncodedOrigin.BottomLeft => (1f, 0f, 0f, 0f, -1f, h),
                 SKEncodedOrigin.LeftTop => (0f, 1f, 0f, 1f, 0f, 0f),
-                SKEncodedOrigin.RightTop => (0f, -1f, (float)h, 1f, 0f, 0f),
-                SKEncodedOrigin.RightBottom => (0f, -1f, (float)h, -1f, 0f, (float)w),
-                SKEncodedOrigin.LeftBottom => (0f, 1f, 0f, -1f, 0f, (float)w),
+                SKEncodedOrigin.RightTop => (0f, -1f, h, 1f, 0f, 0f),
+                SKEncodedOrigin.RightBottom => (0f, -1f, h, -1f, 0f, w),
+                SKEncodedOrigin.LeftBottom => (0f, 1f, 0f, -1f, 0f, w),
                 _ => (1f, 0f, 0f, 0f, 1f, 0f)
             };
             var orientation = new SKMatrix

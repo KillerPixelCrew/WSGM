@@ -129,7 +129,7 @@ internal static class ProfileConfigRules
         {
             if (reference.CustomValues is not { SustainedWatts: > 0 } values
                 || values.SlowWatts < values.SustainedWatts || !Enum.IsDefined(values.WindowsMode)
-                || values.FastWatts is <= 0 || values.FastWatts is { } fast && fast < values.SlowWatts
+                || values.FastWatts is <= 0 || (values.FastWatts is { } fast && fast < values.SlowWatts)
                 || values.Scenario is { Length: 0 })
             {
                 return null;

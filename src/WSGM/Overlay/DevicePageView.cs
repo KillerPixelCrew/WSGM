@@ -33,6 +33,7 @@ public sealed class DevicePageView : Panel
     private readonly TextBlock _gpuNote = new() { Classes = { "caption" }, TextWrapping = TextWrapping.Wrap };
     private readonly StackPanel _groups = new() { Spacing = 12 };
     private readonly StackPanel _pins = new() { Spacing = 8 };
+
     private readonly TextBlock _status = new()
     {
         FontSize = 16, FontWeight = FontWeight.SemiBold, Margin = new Thickness(2, 0, 2, 0)
@@ -103,6 +104,10 @@ public sealed class DevicePageView : Panel
 
     /// <summary>The rail key of the page shown last, or null before the first.</summary>
     internal string? Shown { get; private set; }
+
+    /// <summary>The number of row controls on the page shown, for the render log.</summary>
+    internal int RowCount => (_gpu.IsVisible ? _gpuGroups : _groups).GetLogicalDescendants()
+        .Count(control => control is DeviceCapabilityControl);
 
     /// <summary>Supplies the renderer and the session's fold state, once, before the first page is shown.</summary>
     /// <param name="renderer">The renderer every Device description is drawn with.</param>
@@ -270,8 +275,4 @@ public sealed class DevicePageView : Panel
         PrerequisiteBanner.IsVisible = advice.HasAdvice;
         PrerequisiteDetail.Text = advice.Detail;
     }
-
-    /// <summary>The number of row controls on the page shown, for the render log.</summary>
-    internal int RowCount => (_gpu.IsVisible ? _gpuGroups : _groups).GetLogicalDescendants()
-        .Count(control => control is DeviceCapabilityControl);
 }

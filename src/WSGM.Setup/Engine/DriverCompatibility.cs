@@ -31,6 +31,7 @@ internal sealed class DriverCompatibilityRecovery
     public ControlFlowGuardSetting OriginalControlFlowGuard { get; set; }
     public List<string> AddedPaths { get; set; } = [];
     public List<string> AddedProcesses { get; set; } = [];
+
     [JsonIgnore]
     public bool Empty => !OwnsMemoryIntegrity && !OwnsDriverBlocklist && !OwnsControlFlowGuard
                          && AddedPaths.Count == 0 && AddedProcesses.Count == 0;
@@ -56,20 +57,25 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
     private readonly IDriverCompatibilitySystem _system = system ?? new WindowsSystem();
     private readonly List<Action> _undo = [];
 
-    internal WindowsProtectionState Read() => _system.Read(controlFlowGuard: true);
+    internal WindowsProtectionState Read()
+    {
+        return _system.Read(true);
+    }
 
     /// <summary>Records the original before dispatch. Unknown/failed writes retain recovery ownership.</summary>
     internal bool DisableMemoryIntegrity()
     {
-        var current = _system.Read(controlFlowGuard: false);
+        var current = _system.Read(false);
         if (current.MemoryIntegrity == false)
         {
             return false;
         }
+
         if (current.MemoryIntegrityLocked)
         {
             throw new InvalidOperationException("Memory Integrity is firmware-locked. Its setting was left unchanged.");
         }
+
         var record = Load();
         var wasOwned = record.OwnsMemoryIntegrity;
         if (!record.OwnsMemoryIntegrity)
@@ -78,12 +84,14 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
             record.OwnsMemoryIntegrity = true;
             Save(record);
         }
+
         _undo.Add(() =>
         {
-            if (_system.Read(controlFlowGuard: false).MemoryIntegrity == false)
+            if (_system.Read(false).MemoryIntegrity == false)
             {
                 _system.SetMemoryIntegrity(current.MemoryIntegrity);
             }
+
             if (!wasOwned)
             {
                 var retained = Load();
@@ -97,11 +105,12 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
 
     internal bool DisableDriverBlocklist()
     {
-        var current = _system.Read(controlFlowGuard: false);
+        var current = _system.Read(false);
         if (current.VulnerableDriverBlocklist == false)
         {
             return false;
         }
+
         var record = Load();
         var wasOwned = record.OwnsDriverBlocklist;
         if (!record.OwnsDriverBlocklist)
@@ -110,12 +119,14 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
             record.OwnsDriverBlocklist = true;
             Save(record);
         }
+
         _undo.Add(() =>
         {
-            if (_system.Read(controlFlowGuard: false).VulnerableDriverBlocklist == false)
+            if (_system.Read(false).VulnerableDriverBlocklist == false)
             {
                 _system.SetDriverBlocklist(current.VulnerableDriverBlocklist);
             }
+
             if (!wasOwned)
             {
                 var retained = Load();
@@ -134,6 +145,7 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
         {
             return false;
         }
+
         var record = Load();
         var wasOwned = record.OwnsControlFlowGuard;
         if (!record.OwnsControlFlowGuard)
@@ -142,12 +154,14 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
             record.OwnsControlFlowGuard = true;
             Save(record);
         }
+
         _undo.Add(() =>
         {
             if (ControlFlowGuard() == ControlFlowGuardSetting.Disabled)
             {
                 _system.SetControlFlowGuard(current);
             }
+
             if (!wasOwned)
             {
                 var retained = Load();
@@ -162,28 +176,31 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
     // An unknown CFG state changes nothing and keeps any recovery ownership for a later attempt.
     private ControlFlowGuardSetting ControlFlowGuard()
     {
-        return _system.Read(controlFlowGuard: true).ControlFlowGuard
+        return _system.Read(true).ControlFlowGuard
                ?? throw new IOException("Windows could not report the system Control Flow Guard setting.");
     }
 
     internal void AddDefenderExclusions(string installationRoot)
     {
         var root = Path.GetFullPath(installationRoot).TrimEnd(Path.DirectorySeparatorChar);
-        if (string.Equals(root, Path.GetPathRoot(root)?.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(root, Path.GetPathRoot(root)?.TrimEnd(Path.DirectorySeparatorChar),
+                StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException("A drive root cannot be a WSGM exclusion.");
         }
+
         var current = _system.ReadExclusions();
         var record = Load();
-        Add(root, current.Paths, record.AddedPaths, _system.AddPath, process: false);
+        Add(root, current.Paths, record.AddedPaths, _system.AddPath, false);
         foreach (var path in new[]
                  {
                      Path.Combine(root, "App", "WSGM.exe"),
                      Path.Combine(root, "App", "Resources", "Intel", "KX", "KX.exe")
                  })
         {
-            Add(path, current.Processes, record.AddedProcesses, _system.AddProcess, process: true);
+            Add(path, current.Processes, record.AddedProcesses, _system.AddProcess, true);
         }
+
         return;
 
         void Add(string path, IReadOnlyList<string> existing, List<string> owned, Action<string> write, bool process)
@@ -192,16 +209,19 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
             {
                 return;
             }
+
             var wasOwned = owned.Contains(path, StringComparer.OrdinalIgnoreCase);
             if (!wasOwned)
             {
                 owned.Add(path);
                 Save(record);
             }
+
             _undo.Add(() =>
             {
                 var exclusions = _system.ReadExclusions();
-                if ((process ? exclusions.Processes : exclusions.Paths).Contains(path, StringComparer.OrdinalIgnoreCase))
+                if ((process ? exclusions.Processes : exclusions.Paths).Contains(path,
+                        StringComparer.OrdinalIgnoreCase))
                 {
                     if (process)
                     {
@@ -212,6 +232,7 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
                         _system.RemovePath(path);
                     }
                 }
+
                 if (!wasOwned)
                 {
                     var retained = Load();
@@ -238,6 +259,7 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
                 SetupLog.Warn("Protection/exclusion rollback incomplete; recovery retained: " + ex.Message);
             }
         }
+
         _undo.Clear();
         return complete;
     }
@@ -255,10 +277,12 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
                 {
                     return;
                 }
-                if (_system.Read(controlFlowGuard: false).MemoryIntegrity == false)
+
+                if (_system.Read(false).MemoryIntegrity == false)
                 {
                     _system.SetMemoryIntegrity(record.OriginalMemoryIntegrity);
                 }
+
                 record.OwnsMemoryIntegrity = false;
             });
             RestoreOne(() =>
@@ -267,10 +291,12 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
                 {
                     return;
                 }
-                if (_system.Read(controlFlowGuard: false).VulnerableDriverBlocklist == false)
+
+                if (_system.Read(false).VulnerableDriverBlocklist == false)
                 {
                     _system.SetDriverBlocklist(record.OriginalDriverBlocklist);
                 }
+
                 record.OwnsDriverBlocklist = false;
             });
             RestoreOne(() =>
@@ -279,13 +305,16 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
                 {
                     return;
                 }
+
                 if (ControlFlowGuard() == ControlFlowGuardSetting.Disabled)
                 {
                     _system.SetControlFlowGuard(record.OriginalControlFlowGuard);
                 }
+
                 record.OwnsControlFlowGuard = false;
             });
         }
+
         if (record.AddedPaths.Count > 0 || record.AddedProcesses.Count > 0)
         {
             foreach (var path in record.AddedPaths.ToArray())
@@ -296,9 +325,11 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
                     {
                         _system.RemovePath(path);
                     }
+
                     record.AddedPaths.Remove(path);
                 });
             }
+
             foreach (var path in record.AddedProcesses.ToArray())
             {
                 RestoreOne(() =>
@@ -307,10 +338,12 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
                     {
                         _system.RemoveProcess(path);
                     }
+
                     record.AddedProcesses.Remove(path);
                 });
             }
         }
+
         return complete;
 
         void RestoreOne(Action restore)
@@ -331,7 +364,8 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
     private DriverCompatibilityRecovery Load()
     {
         return File.Exists(recoveryPath)
-            ? JsonSerializer.Deserialize(File.ReadAllText(recoveryPath), SetupJsonContext.Default.DriverCompatibilityRecovery)
+            ? JsonSerializer.Deserialize(File.ReadAllText(recoveryPath),
+                  SetupJsonContext.Default.DriverCompatibilityRecovery)
               ?? throw new InvalidDataException("The protection recovery record is empty.")
             : new DriverCompatibilityRecovery();
     }
@@ -343,22 +377,59 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
             File.Delete(recoveryPath);
             return;
         }
+
         Directory.CreateDirectory(Path.GetDirectoryName(recoveryPath)!);
         var staging = recoveryPath + ".tmp";
-        File.WriteAllText(staging, JsonSerializer.Serialize(record, SetupJsonContext.Default.DriverCompatibilityRecovery));
-        File.Move(staging, recoveryPath, overwrite: true);
+        File.WriteAllText(staging,
+            JsonSerializer.Serialize(record, SetupJsonContext.Default.DriverCompatibilityRecovery));
+        File.Move(staging, recoveryPath, true);
     }
 
     private sealed class WindowsSystem : IDriverCompatibilitySystem
     {
-        public WindowsProtectionState Read(bool controlFlowGuard) => WindowsProtectionSettings.Read(controlFlowGuard);
-        public void SetMemoryIntegrity(bool? value) => WindowsProtectionSettings.SetMemoryIntegrity(value);
-        public void SetDriverBlocklist(bool? value) => WindowsProtectionSettings.SetVulnerableDriverBlocklist(value);
-        public void SetControlFlowGuard(ControlFlowGuardSetting value) => WindowsProtectionSettings.SetControlFlowGuard(value);
-        public DefenderExclusionState ReadExclusions() => WindowsProtectionSettings.ReadDefenderExclusions();
-        public void AddPath(string path) => WindowsProtectionSettings.AddDefenderPath(path);
-        public void AddProcess(string path) => WindowsProtectionSettings.AddDefenderProcess(path);
-        public void RemovePath(string path) => WindowsProtectionSettings.RemoveDefenderPath(path);
-        public void RemoveProcess(string path) => WindowsProtectionSettings.RemoveDefenderProcess(path);
+        public WindowsProtectionState Read(bool controlFlowGuard)
+        {
+            return WindowsProtectionSettings.Read(controlFlowGuard);
+        }
+
+        public void SetMemoryIntegrity(bool? value)
+        {
+            WindowsProtectionSettings.SetMemoryIntegrity(value);
+        }
+
+        public void SetDriverBlocklist(bool? value)
+        {
+            WindowsProtectionSettings.SetVulnerableDriverBlocklist(value);
+        }
+
+        public void SetControlFlowGuard(ControlFlowGuardSetting value)
+        {
+            WindowsProtectionSettings.SetControlFlowGuard(value);
+        }
+
+        public DefenderExclusionState ReadExclusions()
+        {
+            return WindowsProtectionSettings.ReadDefenderExclusions();
+        }
+
+        public void AddPath(string path)
+        {
+            WindowsProtectionSettings.AddDefenderPath(path);
+        }
+
+        public void AddProcess(string path)
+        {
+            WindowsProtectionSettings.AddDefenderProcess(path);
+        }
+
+        public void RemovePath(string path)
+        {
+            WindowsProtectionSettings.RemoveDefenderPath(path);
+        }
+
+        public void RemoveProcess(string path)
+        {
+            WindowsProtectionSettings.RemoveDefenderProcess(path);
+        }
     }
 }

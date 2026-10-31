@@ -76,7 +76,8 @@ internal static class AppConfigRules
             .Where(entry => entry is { Valid: true }).Distinct().ToList();
         config.ScaledResolutionBackups = (config.ScaledResolutionBackups ?? [])
             .Where(entry => entry is { Valid: true })
-            .DistinctBy(entry => (entry.AdapterIdentity, entry.OutputSpecific, entry.DisplayPath, entry.EdidIdentity)).ToList();
+            .DistinctBy(entry => (entry.AdapterIdentity, entry.OutputSpecific, entry.DisplayPath, entry.EdidIdentity))
+            .ToList();
         config.PluginWidgetPins = PluginWidgetPins.Normalize(config.PluginWidgetPins);
         config.QuickAccessPins =
         [

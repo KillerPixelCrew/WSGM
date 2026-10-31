@@ -202,7 +202,8 @@ internal sealed class UiFixture : IDisposable
             {
                 w.Width = width / renderScale;
                 w.Height = height / renderScale;
-                w.Placement.ApplyContentScale(OverlayPlacement.ComputeContentScale(uiScale, renderScale, width, height));
+                w.Placement.ApplyContentScale(
+                    OverlayPlacement.ComputeContentScale(uiScale, renderScale, width, height));
             }, uiScale);
         window.SetPins(["home.steam", "home.desktop"]);
         window.WindowsPolicies.Refresh(false, false, false);

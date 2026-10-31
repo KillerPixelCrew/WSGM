@@ -19,8 +19,9 @@ public sealed class SetupCompatibilityCaptureTests
     public void OptionalChoicesRemainReachable(int width, int height, bool unavailable)
     {
         using var fixture = new UiFixture();
-        var page = new DriverCompatibilityPage(unavailable ? null
-            : new WindowsProtectionState(true, true, ControlFlowGuardSetting.Default, false),
+        var page = new DriverCompatibilityPage(unavailable
+                ? null
+                : new WindowsProtectionState(true, true, ControlFlowGuardSetting.Default, false),
             unavailable ? "Windows protection settings could not be read." : null);
         var model = new SetupViewModel(new SetupOptions(), null, page,
             ["welcome", "profile", "customize", "compatibility", "progress", "summary"], 3);

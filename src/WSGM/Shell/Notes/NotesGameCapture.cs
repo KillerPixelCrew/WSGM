@@ -1,13 +1,16 @@
 using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using Windows.Foundation;
 using Windows.Graphics.Capture;
 using Windows.Graphics.DirectX;
 using Windows.Graphics.Imaging;
 using Windows.Storage.Streams;
 using WSGM.Core;
 using WSGM.Interop;
+using Buffer = Windows.Storage.Streams.Buffer;
 
 namespace WSGM.Shell;
 
@@ -55,10 +58,10 @@ internal static class NotesGameCapture
             return !process.HasExited;
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException
-                                       or System.ComponentModel.Win32Exception)
+                                       or Win32Exception)
         {
             // HasExited can be unreadable across integrity levels; the process exists, so it runs.
-            return ex is System.ComponentModel.Win32Exception;
+            return ex is Win32Exception;
         }
     }
 
@@ -111,7 +114,8 @@ internal static class NotesGameCapture
             return NotesCaptureFrame.Failed($"{target.Description} was minimized when the countdown ended.");
         }
 
-        if (!target.IsDesktop && steamOverlayOpen is not null && await steamOverlayOpen(target.ProcessId, cancellationToken)
+        if (!target.IsDesktop && steamOverlayOpen is not null &&
+            await steamOverlayOpen(target.ProcessId, cancellationToken)
                 .ConfigureAwait(false))
         {
             return NotesCaptureFrame.Failed(
@@ -127,10 +131,11 @@ internal static class NotesGameCapture
         try
         {
             using var device = NotesCaptureInterop.CreateDevice();
-            var item = NotesCaptureInterop.CreateItem(target.IsDesktop ? target.Monitor : window, monitor: target.IsDesktop);
+            var item = NotesCaptureInterop.CreateItem(target.IsDesktop ? target.Monitor : window, target.IsDesktop);
             using var pool = Direct3D11CaptureFramePool.CreateFreeThreaded(device,
                 DirectXPixelFormat.B8G8R8A8UIntNormalized, 1, item.Size);
-            TaskCompletionSource<Direct3D11CaptureFrame> arrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            TaskCompletionSource<Direct3D11CaptureFrame> arrived =
+                new(TaskCreationOptions.RunContinuationsAsynchronously);
             pool.FrameArrived += (sender, _) =>
             {
                 var frame = sender.TryGetNextFrame();
@@ -144,7 +149,8 @@ internal static class NotesGameCapture
             var borderless = NotesCaptureInterop.TryHideBorder(session);
             session.StartCapture();
             using var captured = await arrived.Task.WaitAsync(FrameTimeout, cancellationToken).ConfigureAwait(false);
-            using var bitmap = await SoftwareBitmap.CreateCopyFromSurfaceAsync(captured.Surface, BitmapAlphaMode.Ignore);
+            using var bitmap =
+                await SoftwareBitmap.CreateCopyFromSurfaceAsync(captured.Surface, BitmapAlphaMode.Ignore);
             if (!target.IsDesktop && IsBlank(bitmap))
             {
                 Log.Info("Notes capture: the frame was blank (exclusive fullscreen or protected content).");
@@ -154,8 +160,9 @@ internal static class NotesGameCapture
             }
 
             var bytes = await EncodeAsync(bitmap).ConfigureAwait(false);
-            Log.Info($"Notes capture: {bitmap.PixelWidth}x{bitmap.PixelHeight} from {target.Description} (pid {target.ProcessId}), "
-                     + $"{bytes.Length} bytes, border hidden={borderless}.");
+            Log.Info(
+                $"Notes capture: {bitmap.PixelWidth}x{bitmap.PixelHeight} from {target.Description} (pid {target.ProcessId}), "
+                + $"{bytes.Length} bytes, border hidden={borderless}.");
             return new NotesCaptureFrame(bytes, bitmap.PixelWidth, bitmap.PixelHeight, null);
         }
         catch (TimeoutException)
@@ -180,7 +187,7 @@ internal static class NotesGameCapture
     private static bool IsBlank(SoftwareBitmap bitmap)
     {
         var length = (uint)(bitmap.PixelWidth * bitmap.PixelHeight * 4);
-        Windows.Storage.Streams.Buffer buffer = new(length);
+        Buffer buffer = new(length);
         bitmap.CopyToBuffer(buffer);
         using var reader = DataReader.FromBuffer(buffer);
         var pixels = new byte[buffer.Length];
@@ -200,7 +207,7 @@ internal static class NotesGameCapture
     private static async Task<byte[]> EncodeAsync(SoftwareBitmap bitmap)
     {
         using InMemoryRandomAccessStream stream = new();
-        BitmapPropertySet options = new() { { "ImageQuality", new BitmapTypedValue(0.9f, Windows.Foundation.PropertyType.Single) } };
+        BitmapPropertySet options = new() { { "ImageQuality", new BitmapTypedValue(0.9f, PropertyType.Single) } };
         var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, stream, options);
         encoder.SetSoftwareBitmap(bitmap);
         await encoder.FlushAsync();

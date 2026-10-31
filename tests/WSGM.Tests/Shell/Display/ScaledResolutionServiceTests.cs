@@ -63,7 +63,8 @@ public sealed class ScaledResolutionServiceTests
             DisplayPath = "monitor", AdapterIdentity = "gpu", OutputSpecific = true,
             Modes = [new ScaledResolutionSize(1920, 1080)]
         };
-        var config = ConfigJson.Clone(new AppConfig { ScaledResolutionBackups = [backup] }, ConfigJsonContext.Default.AppConfig);
+        var config = ConfigJson.Clone(new AppConfig { ScaledResolutionBackups = [backup] },
+            ConfigJsonContext.Default.AppConfig);
         var saved = Assert.Single(config.ScaledResolutionBackups);
         Assert.True(saved.Valid);
         Assert.Equal(backup.Modes, saved.Modes);

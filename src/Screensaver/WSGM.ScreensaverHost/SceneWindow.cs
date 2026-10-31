@@ -2,9 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.IO.Pipes;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -18,24 +20,26 @@ internal sealed class SceneWindow : Form, IMessageFilter
 {
     private const string Origin = "https://wsgm-screensaver.invalid/";
     private const string ImageDocument = "__wsgm_images.html";
+
     private const string Policy = "default-src 'none'; script-src 'self' 'unsafe-inline'; "
                                   + "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
                                   + "font-src 'self'; connect-src 'self'; media-src 'none'; frame-src 'none'; "
                                   + "worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
-    private readonly string _pipeName;
-    private readonly Process _parent;
-    private readonly string _profile;
+
     private readonly CancellationTokenSource _lifetime = new();
-    private readonly SemaphoreSlim _send = new(1, 1);
+    private readonly Process _parent;
+    private readonly string _pipeName;
+    private readonly string _profile;
     private readonly SemaphoreSlim _render = new(1, 1);
-    private NamedPipeClientStream? _pipe;
-    private CoreWebView2Environment? _environment;
-    private CoreWebView2Controller? _controller;
-    private CancellationTokenSource? _load;
-    private Task _connection = Task.CompletedTask;
-    private Task _rendering = Task.CompletedTask;
-    private long _generation;
+    private readonly SemaphoreSlim _send = new(1, 1);
     private bool _closing;
+    private Task _connection = Task.CompletedTask;
+    private CoreWebView2Controller? _controller;
+    private CoreWebView2Environment? _environment;
+    private long _generation;
+    private CancellationTokenSource? _load;
+    private NamedPipeClientStream? _pipe;
+    private Task _rendering = Task.CompletedTask;
 
     internal SceneWindow(string pipeName, Process parent, string profile)
     {
@@ -66,13 +70,6 @@ internal sealed class SceneWindow : Form, IMessageFilter
 
     protected override bool ShowWithoutActivation => true;
 
-    private void ConnectWhenShown(object? sender, EventArgs arguments)
-    {
-        Shown -= ConnectWhenShown;
-        Hide();
-        _connection = ConnectAsync();
-    }
-
     public bool PreFilterMessage(ref Message message)
     {
         if (!_closing && message.Msg is 0x100 or 0x104 or 0x201 or 0x204 or 0x207 or 0x20a or 0x246)
@@ -85,9 +82,16 @@ internal sealed class SceneWindow : Form, IMessageFilter
         return false;
     }
 
+    private void ConnectWhenShown(object? sender, EventArgs arguments)
+    {
+        Shown -= ConnectWhenShown;
+        Hide();
+        _connection = ConnectAsync();
+    }
+
     protected override void WndProc(ref Message message)
     {
-        if (!_closing && (message.Msg == 0x7e || message.Msg == 0x218 && message.WParam is 4 or 7 or 0x12))
+        if (!_closing && (message.Msg == 0x7e || (message.Msg == 0x218 && message.WParam is 4 or 7 or 0x12)))
         {
             Finish("closed", "Display or sleep state changed; stock screensaver fallback.");
         }
@@ -143,8 +147,10 @@ internal sealed class SceneWindow : Form, IMessageFilter
             await _render.WaitAsync(load.Token);
             entered = true;
             if (packet.Type is not "images" and not "scene" || !Path.IsPathFullyQualified(packet.Root)
-                || packet.Assets.Count > ScreensaverContent.MaximumImages || packet.Images.Count > ScreensaverContent.MaximumImages
-                || packet.IntervalSeconds is < 2 or > 3600 || packet.FramesPerSecond is < 1 or > 60)
+                                                            || packet.Assets.Count > ScreensaverContent.MaximumImages ||
+                                                            packet.Images.Count > ScreensaverContent.MaximumImages
+                                                            || packet.IntervalSeconds is < 2 or > 3600 ||
+                                                            packet.FramesPerSecond is < 1 or > 60)
             {
                 throw new InvalidDataException("Invalid screensaver playback definition.");
             }
@@ -157,13 +163,15 @@ internal sealed class SceneWindow : Form, IMessageFilter
             }
 
             if (packet.Type == "scene" && (!assets.Contains(packet.Entry)
-                                           || Path.GetExtension(packet.Entry).ToLowerInvariant() is not ".html" and not ".htm"))
+                                           || Path.GetExtension(packet.Entry).ToLowerInvariant() is not ".html"
+                                               and not ".htm"))
             {
                 throw new InvalidDataException("The scene entry is not a declared HTML asset.");
             }
 
             if (packet.Type == "images" && (packet.Images.Count == 0
-                                           || packet.Images.Any(image => !assets.Contains(image) || !ScreensaverContent.IsImage(image))))
+                                            || packet.Images.Any(image =>
+                                                !assets.Contains(image) || !ScreensaverContent.IsImage(image))))
             {
                 throw new InvalidDataException("The image playlist is invalid.");
             }
@@ -203,6 +211,7 @@ internal sealed class SceneWindow : Form, IMessageFilter
             var entry = packet.Type == "images" ? ImageDocument : packet.Entry;
             var entryUrl = Url(entry);
             var controller = _controller;
+
             void FailCurrent(string reason)
             {
                 if (!_closing && generation == _generation && controller == _controller)
@@ -210,6 +219,7 @@ internal sealed class SceneWindow : Form, IMessageFilter
                     Finish("error", reason);
                 }
             }
+
             web.PermissionRequested += (_, arguments) => arguments.State = CoreWebView2PermissionState.Deny;
             web.NewWindowRequested += (_, arguments) => arguments.Handled = true;
             web.DownloadStarting += (_, arguments) => arguments.Cancel = true;
@@ -217,10 +227,12 @@ internal sealed class SceneWindow : Form, IMessageFilter
             web.NavigationStarting += (_, arguments) => arguments.Cancel = arguments.Uri != entryUrl;
             web.FrameNavigationStarting += (_, arguments) => arguments.Cancel = true;
             web.WindowCloseRequested += (_, _) => FailCurrent("The scene closed its window. Stock fallback is active.");
-            web.ProcessFailed += (_, arguments) => FailCurrent("Scene renderer stopped: " + arguments.ProcessFailedKind);
+            web.ProcessFailed += (_, arguments) =>
+                FailCurrent("Scene renderer stopped: " + arguments.ProcessFailedKind);
             web.DocumentTitleChanged += (_, _) =>
             {
-                if (packet.Type == "images" && web.DocumentTitle.StartsWith("WSGM_IMAGE_ERROR:", StringComparison.Ordinal))
+                if (packet.Type == "images" &&
+                    web.DocumentTitle.StartsWith("WSGM_IMAGE_ERROR:", StringComparison.Ordinal))
                 {
                     FailCurrent("No image in the source could be decoded. Stock fallback is active.");
                 }
@@ -243,7 +255,7 @@ internal sealed class SceneWindow : Form, IMessageFilter
                     string mime;
                     if (packet.Type == "images" && relative == ImageDocument)
                     {
-                        bytes = System.Text.Encoding.UTF8.GetBytes(ImageHtml(packet));
+                        bytes = Encoding.UTF8.GetBytes(ImageHtml(packet));
                         mime = "text/html; charset=utf-8";
                     }
                     else
@@ -265,11 +277,13 @@ internal sealed class SceneWindow : Form, IMessageFilter
                         mime = Mime(relative);
                     }
 
-                    arguments.Response = _environment.CreateWebResourceResponse(new MemoryStream(bytes, writable: false),
-                        200, "OK", "Content-Type: " + mime + "\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n"
+                    arguments.Response = _environment.CreateWebResourceResponse(new MemoryStream(bytes, false),
+                        200, "OK", "Content-Type: " + mime +
+                                   "\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n"
                                    + "Referrer-Policy: no-referrer\r\nContent-Security-Policy: " + Policy + "\r\n");
                 }
-                catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException)
+                catch (Exception error) when (error is IOException or InvalidDataException
+                                                  or UnauthorizedAccessException or ArgumentException)
                 {
                     arguments.Response = _environment.CreateWebResourceResponse(null, 404, "Missing asset", "");
                     FailCurrent("A source asset became unavailable: " + error.Message);
@@ -302,7 +316,8 @@ internal sealed class SceneWindow : Form, IMessageFilter
                 _ = SendAsync(new ScreensaverPlayback { Kind = "playing", Revision = packet.Revision });
             };
             var exceptions = web.GetDevToolsProtocolEventReceiver("Runtime.exceptionThrown");
-            exceptions.DevToolsProtocolEventReceived += (_, _) => FailCurrent("The scene raised an uncaught JavaScript error.");
+            exceptions.DevToolsProtocolEventReceived +=
+                (_, _) => FailCurrent("The scene raised an uncaught JavaScript error.");
             await web.CallDevToolsProtocolMethodAsync("Runtime.enable", "{}");
             await web.AddScriptToExecuteOnDocumentCreatedAsync(AnimationBootstrap(packet.FramesPerSecond));
             load.Token.ThrowIfCancellationRequested();
@@ -408,26 +423,28 @@ internal sealed class SceneWindow : Form, IMessageFilter
     {
         var sources = string.Join(',', packet.Images.Select(image => "\"" + Url(image) + "\""));
         var shuffle = packet.Shuffle ? "true" : "false";
-        return "<!doctype html><html><head><meta charset=utf-8><style>html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden}img{width:100%;height:100%;object-fit:"
-               + (packet.Fill ? "cover" : "contain") + "}</style></head><body><img id=image><script>"
-               + "const items=[" + sources + "];let order=[],at=0,failed=0;const image=document.getElementById('image');"
-               + "function cycle(){order=items.map((_,i)=>i);if(" + shuffle
-               + "){for(let i=order.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[order[i],order[j]]=[order[j],order[i]];}}at=0;}"
-               + "function next(){if(at>=order.length)cycle();image.src=items[order[at++]];}"
-               + "image.onerror=()=>{if(++failed>=items.length){document.title='WSGM_IMAGE_ERROR:decode';return;}next();};"
-               + "image.onload=()=>{failed=0;};cycle();next();setInterval(next," + packet.IntervalSeconds * 1000 + ");"
-               + "</script></body></html>";
+        return
+            "<!doctype html><html><head><meta charset=utf-8><style>html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden}img{width:100%;height:100%;object-fit:"
+            + (packet.Fill ? "cover" : "contain") + "}</style></head><body><img id=image><script>"
+            + "const items=[" + sources + "];let order=[],at=0,failed=0;const image=document.getElementById('image');"
+            + "function cycle(){order=items.map((_,i)=>i);if(" + shuffle
+            + "){for(let i=order.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[order[i],order[j]]=[order[j],order[i]];}}at=0;}"
+            + "function next(){if(at>=order.length)cycle();image.src=items[order[at++]];}"
+            + "image.onerror=()=>{if(++failed>=items.length){document.title='WSGM_IMAGE_ERROR:decode';return;}next();};"
+            + "image.onload=()=>{failed=0;};cycle();next();setInterval(next," + packet.IntervalSeconds * 1000 + ");"
+            + "</script></body></html>";
     }
 
     private static string AnimationBootstrap(int framesPerSecond)
     {
-        return "(()=>{const raf=window.requestAnimationFrame.bind(window),caf=window.cancelAnimationFrame.bind(window),pending=new Map();let next=0,handle=0,last=0;const step="
-               + (1000.0 / framesPerSecond).ToString(System.Globalization.CultureInfo.InvariantCulture)
-               + ";function tick(t){handle=0;if(t-last<step){handle=raf(tick);return;}last=t;const batch=[...pending];pending.clear();for(const [id,fn] of batch){try{fn(t);}catch(e){setTimeout(()=>{throw e;},0);}}if(pending.size&&!handle)handle=raf(tick);}"
-               + "Object.defineProperty(window,'requestAnimationFrame',{value:fn=>{if(typeof fn!=='function'||pending.size>=64)return 0;const id=++next;pending.set(id,fn);if(!handle)handle=raf(tick);return id;},writable:false,configurable:false});"
-               + "Object.defineProperty(window,'cancelAnimationFrame',{value:id=>{pending.delete(id);if(!pending.size&&handle){caf(handle);handle=0;}},writable:false,configurable:false});"
-               + "for(const key of ['showOpenFilePicker','showSaveFilePicker','showDirectoryPicker','requestFileSystem','webkitRequestFileSystem','resolveLocalFileSystemURL','webkitResolveLocalFileSystemURL','RTCPeerConnection','webkitRTCPeerConnection']){try{Object.defineProperty(window,key,{value:undefined,writable:false,configurable:false});}catch{}}"
-               + "const storage=Object.getPrototypeOf(navigator.storage??{});if(storage&&'getDirectory' in storage){Object.defineProperty(storage,'getDirectory',{value:undefined,writable:false,configurable:false});}})();";
+        return
+            "(()=>{const raf=window.requestAnimationFrame.bind(window),caf=window.cancelAnimationFrame.bind(window),pending=new Map();let next=0,handle=0,last=0;const step="
+            + (1000.0 / framesPerSecond).ToString(CultureInfo.InvariantCulture)
+            + ";function tick(t){handle=0;if(t-last<step){handle=raf(tick);return;}last=t;const batch=[...pending];pending.clear();for(const [id,fn] of batch){try{fn(t);}catch(e){setTimeout(()=>{throw e;},0);}}if(pending.size&&!handle)handle=raf(tick);}"
+            + "Object.defineProperty(window,'requestAnimationFrame',{value:fn=>{if(typeof fn!=='function'||pending.size>=64)return 0;const id=++next;pending.set(id,fn);if(!handle)handle=raf(tick);return id;},writable:false,configurable:false});"
+            + "Object.defineProperty(window,'cancelAnimationFrame',{value:id=>{pending.delete(id);if(!pending.size&&handle){caf(handle);handle=0;}},writable:false,configurable:false});"
+            + "for(const key of ['showOpenFilePicker','showSaveFilePicker','showDirectoryPicker','requestFileSystem','webkitRequestFileSystem','resolveLocalFileSystemURL','webkitResolveLocalFileSystemURL','RTCPeerConnection','webkitRTCPeerConnection']){try{Object.defineProperty(window,key,{value:undefined,writable:false,configurable:false});}catch{}}"
+            + "const storage=Object.getPrototypeOf(navigator.storage??{});if(storage&&'getDirectory' in storage){Object.defineProperty(storage,'getDirectory',{value:undefined,writable:false,configurable:false});}})();";
     }
 
     private sealed class SteamWindow(nint handle) : IWin32Window

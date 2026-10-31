@@ -11,17 +11,6 @@ namespace WSGM.Setup.Engine;
 /// <summary>Releases actual users of the exact installation files setup will replace.</summary>
 internal static partial class SetupFileOwners
 {
-    internal readonly record struct Owner(uint ProcessId, ulong Started, string Name, uint ApplicationType);
-
-    /// <summary>A held process handle, so a reused PID can never receive the termination.</summary>
-    internal interface IProcess : IDisposable
-    {
-        ulong Started { get; }
-        bool Critical { get; }
-        string Image { get; }
-        bool Stop(TimeSpan budget);
-    }
-
     internal static string? Release(IReadOnlyList<string> paths)
     {
         return Release(paths, (uint)Environment.ProcessId, ScanPaths, Open, WindowsSetup.ShellAnchorRecoverySettled);
@@ -96,8 +85,8 @@ internal static partial class SetupFileOwners
         {
             SetupLog.Error("Could not release the files setup must replace", ex);
             return "Setup could not release WSGM's files: " + ex.Message
-                   + $" Required paths: {locations}. Close programs using WSGM and run setup again. "
-                   + "Setup stopped before changing these paths.";
+                                                            + $" Required paths: {locations}. Close programs using WSGM and run setup again. "
+                                                            + "Setup stopped before changing these paths.";
         }
     }
 
@@ -109,7 +98,8 @@ internal static partial class SetupFileOwners
             var absolute = Path.GetFullPath(path);
             // A file itself can be ordinary while a parent junction redirects it outside the
             // installation. Refuse that path before registering any resources with Windows.
-            for (var parent = Path.GetDirectoryName(absolute); parent is not null;
+            for (var parent = Path.GetDirectoryName(absolute);
+                 parent is not null;
                  parent = Path.GetDirectoryName(parent))
             {
                 if (Directory.Exists(parent)
@@ -328,6 +318,70 @@ internal static partial class SetupFileOwners
         }
     }
 
+    [LibraryImport("rstrtmgr.dll")]
+    private static unsafe partial uint RmStartSession(out uint session, uint flags, char* key);
+
+    [LibraryImport("rstrtmgr.dll")]
+    private static unsafe partial uint RmRegisterResources(uint session, uint files, nint* names,
+        uint applications, void* processes, uint services, nint* serviceNames);
+
+    [LibraryImport("rstrtmgr.dll")]
+    private static unsafe partial uint RmGetList(uint session, out uint needed, ref uint count,
+        ProcessInfo* processes, out uint rebootReasons);
+
+    [LibraryImport("rstrtmgr.dll")]
+    private static partial uint RmEndSession(uint session);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial nint OpenProcess(uint access, [MarshalAs(UnmanagedType.Bool)] bool inherit, uint processId);
+
+    [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", StringMarshalling = StringMarshalling.Utf16,
+        SetLastError = true)]
+    private static partial SafeFileHandle CreateFileW(string path, uint access, uint share, nint security,
+        uint creation, uint flags, nint template);
+
+    [LibraryImport("ntdll.dll")]
+    private static unsafe partial int NtQueryInformationFile(SafeFileHandle file, out IoStatusBlock status,
+        void* information, uint length, uint informationClass);
+
+    [LibraryImport("ntdll.dll")]
+    private static partial uint RtlNtStatusToDosError(int status);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetProcessTimes(nint handle, out ulong started, out ulong exited,
+        out ulong kernel, out ulong user);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static unsafe partial bool QueryFullProcessImageNameW(nint handle, uint flags, char* image, ref uint size);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool IsProcessCritical(nint handle, [MarshalAs(UnmanagedType.Bool)] out bool critical);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool TerminateProcess(nint handle, uint exitCode);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial uint WaitForSingleObject(nint handle, uint milliseconds);
+
+    [LibraryImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool CloseHandle(nint handle);
+
+    internal readonly record struct Owner(uint ProcessId, ulong Started, string Name, uint ApplicationType);
+
+    /// <summary>A held process handle, so a reused PID can never receive the termination.</summary>
+    internal interface IProcess : IDisposable
+    {
+        ulong Started { get; }
+        bool Critical { get; }
+        string Image { get; }
+        bool Stop(TimeSpan budget);
+    }
+
     private sealed class HeldProcess(nint handle) : IProcess
     {
         public unsafe string Image
@@ -416,63 +470,10 @@ internal static partial class SetupFileOwners
         internal int Restartable;
     }
 
-    [LibraryImport("rstrtmgr.dll")]
-    private static unsafe partial uint RmStartSession(out uint session, uint flags, char* key);
-
-    [LibraryImport("rstrtmgr.dll")]
-    private static unsafe partial uint RmRegisterResources(uint session, uint files, nint* names,
-        uint applications, void* processes, uint services, nint* serviceNames);
-
-    [LibraryImport("rstrtmgr.dll")]
-    private static unsafe partial uint RmGetList(uint session, out uint needed, ref uint count,
-        ProcessInfo* processes, out uint rebootReasons);
-
-    [LibraryImport("rstrtmgr.dll")]
-    private static partial uint RmEndSession(uint session);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    private static partial nint OpenProcess(uint access, [MarshalAs(UnmanagedType.Bool)] bool inherit, uint processId);
-
     [StructLayout(LayoutKind.Sequential)]
     private struct IoStatusBlock
     {
         internal nint Status;
         internal nuint Information;
     }
-
-    [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", StringMarshalling = StringMarshalling.Utf16,
-        SetLastError = true)]
-    private static partial SafeFileHandle CreateFileW(string path, uint access, uint share, nint security,
-        uint creation, uint flags, nint template);
-
-    [LibraryImport("ntdll.dll")]
-    private static unsafe partial int NtQueryInformationFile(SafeFileHandle file, out IoStatusBlock status,
-        void* information, uint length, uint informationClass);
-
-    [LibraryImport("ntdll.dll")]
-    private static partial uint RtlNtStatusToDosError(int status);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool GetProcessTimes(nint handle, out ulong started, out ulong exited,
-        out ulong kernel, out ulong user);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static unsafe partial bool QueryFullProcessImageNameW(nint handle, uint flags, char* image, ref uint size);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool IsProcessCritical(nint handle, [MarshalAs(UnmanagedType.Bool)] out bool critical);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool TerminateProcess(nint handle, uint exitCode);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    private static partial uint WaitForSingleObject(nint handle, uint milliseconds);
-
-    [LibraryImport("kernel32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool CloseHandle(nint handle);
 }

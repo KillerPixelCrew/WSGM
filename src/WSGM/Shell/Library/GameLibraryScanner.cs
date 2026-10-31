@@ -274,8 +274,8 @@ internal sealed class GameLibraryScanner(
             foreach (var pick in choice.Artwork)
             {
                 if (record is null || record.AppId != planned.AppId
-                    || !record.SettledArtwork.TryGetValue(pick.Asset, out var applied)
-                    || applied.Url != pick.Url || applied.Revision != pick.Revision)
+                                   || !record.SettledArtwork.TryGetValue(pick.Asset, out var applied)
+                                   || applied.Url != pick.Url || applied.Revision != pick.Revision)
                 {
                     created.Picks[pick.Asset] = pick;
                 }
@@ -311,7 +311,9 @@ internal sealed class GameLibraryScanner(
             var checkedStorage = await tracker.RecheckAsync(cancellationToken).ConfigureAwait(false);
             if (!checkedStorage.Succeeded && checkedStorage.Error is { } pending)
             {
-                owner.Note(generation, "Storage could not be checked, so titles on missing storage may be offered for removal. " + pending);
+                owner.Note(generation,
+                    "Storage could not be checked, so titles on missing storage may be offered for removal. " +
+                    pending);
             }
 
             lock (owner.Gate)
@@ -368,8 +370,10 @@ internal sealed class GameLibraryScanner(
         catch (Exception ex) when ((GameLibraryCardStorage.IsStorageFailure(ex) || ex is InvalidOperationException)
                                    && ex is not ImportStateException)
         {
-            owner.Note(generation, "Collection ownership could not be checked; its changes remain pending. " + ex.Message);
+            owner.Note(generation,
+                "Collection ownership could not be checked; its changes remain pending. " + ex.Message);
         }
+
         // Emulator UI shortcuts share the ownership ledger, but are reconciled by their manager.
         var recorded = store.Entries().Where(entry => entry.Source != EmulatorShortcutSync.Source).ToArray();
         var scanChoices = store.Choices().ToDictionary(choice => (choice.Source, choice.Key), ImportPlan.Identity);
@@ -400,6 +404,7 @@ internal sealed class GameLibraryScanner(
                 {
                     continue;
                 }
+
                 if (game.Content is { SourceKind: LibrarySourceKind.Rom } observed)
                 {
                     // Only the resolved emulator command is shown; availability belongs to the tracker.

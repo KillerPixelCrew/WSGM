@@ -274,7 +274,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     /// </returns>
     internal static double TargetFrametime(PerformanceState? state, ProfileLayers layers)
     {
-        int? activeLimit = state is { Observed.FrameLimit: > 0 } && state.Desired.FrameLimit != 0
+        var activeLimit = state is { Observed.FrameLimit: > 0 } && state.Desired.FrameLimit != 0
             ? state.Observed.FrameLimit
             : null;
         return 1000d / AutoTdpTarget.EffectiveFps(layers.Value(values => values.AutoTdpTargetFps).Value,

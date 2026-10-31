@@ -94,7 +94,8 @@ internal sealed class DeviceFanCurveController : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (!explicitSelection && enabled == _enabled && points.AsSpan().SequenceEqual(_curve) && tuning == _smoothing
+            if (!explicitSelection && enabled == _enabled && points.AsSpan().SequenceEqual(_curve) &&
+                tuning == _smoothing
                 && fans.Count == _fans.Length && fans.SequenceEqual(_fans.Select(fan => fan.Definition)))
             {
                 return;
@@ -356,7 +357,8 @@ internal sealed class DeviceFanCurveController : IAsyncDisposable
     {
         var pinned = temperature <= _curve[0].Input || temperature >= _curve[^1].Input;
         if (fan.Target is not { } target || pinned
-            || Math.Abs(temperature - fan.TargetTemperature) >= _smoothing.HysteresisCelsius)
+                                         || Math.Abs(temperature - fan.TargetTemperature) >=
+                                         _smoothing.HysteresisCelsius)
         {
             target = Interpolate(_curve, temperature, fan.Definition.MinimumDuty, fan.Definition.MaximumDuty);
             fan.Target = target;

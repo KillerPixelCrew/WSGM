@@ -110,8 +110,8 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
         private bool _mediaFailed;
         private bool _ready;
         private double? _seek;
-        private double? _volume;
         private bool _setting;
+        private double? _volume;
 
         internal MediaViewport(UserDataContext context, string source, bool image)
         {
@@ -244,7 +244,8 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
                     else if (_volume is { } volume)
                     {
                         _volume = null;
-                        script = "(()=>{const v=document.querySelector('video');if(v)v.volume=" + Fraction(volume / 100) +
+                        script = "(()=>{const v=document.querySelector('video');if(v)v.volume=" +
+                                 Fraction(volume / 100) +
                                  ";})()";
                     }
                     else

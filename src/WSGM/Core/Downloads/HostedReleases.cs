@@ -52,7 +52,7 @@ internal sealed class HostedReleases(DownloadClient client)
         }
 
         var regex = new Regex(pattern, RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
-        for (var page = 1; ; page++)
+        for (var page = 1;; page++)
         {
             var endpoint = prefix + repository + $"/releases?page={page}&per_page=100&limit=100";
             using var document = JsonDocument.Parse(await client.TextAsync(new Uri(baseUri, endpoint).AbsoluteUri,
@@ -63,7 +63,7 @@ internal sealed class HostedReleases(DownloadClient client)
             foreach (var release in releases)
             {
                 if (JsonRead.Flag(release, "draft")
-                    || source.Channel == "stable" && JsonRead.Flag(release, "prerelease"))
+                    || (source.Channel == "stable" && JsonRead.Flag(release, "prerelease")))
                 {
                     continue;
                 }
@@ -73,7 +73,8 @@ internal sealed class HostedReleases(DownloadClient client)
                 if (offered.Count == 0 && source.BodyAssets)
                 {
                     foreach (Match match in Regex.Matches(JsonRead.StringOrNumber(release, "body"),
-                                 @"https://[^\s)\]<>""]+[.]zip", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))
+                                 @"https://[^\s)\]<>""]+[.]zip", RegexOptions.CultureInvariant,
+                                 TimeSpan.FromSeconds(1)))
                     {
                         var uri = DownloadClient.Https(match.Value);
                         if (regex.IsMatch(Uri.UnescapeDataString(Path.GetFileName(uri.AbsolutePath))))

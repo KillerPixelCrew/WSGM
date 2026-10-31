@@ -10,10 +10,11 @@ namespace WSGM.Shell;
 /// </remarks>
 internal sealed class ApplicationReconcileKeys
 {
+    private (string? ApplicationId, CpuBoostMode? Mode)? _cpuBoost;
+
     // Record value equality, not generated ToString text, decides whether a value changed.
     private (string? ApplicationId, ManualTdpProfile? Manual)? _power;
     private (string? ApplicationId, bool? VariableRefresh)? _variableRefresh;
-    private (string? ApplicationId, CpuBoostMode? Mode)? _cpuBoost;
 
     /// <summary>Decides whether this pass carries the processor boost mode and records it as carried.</summary>
     /// <param name="applicationId">The running application, or null for the desktop.</param>

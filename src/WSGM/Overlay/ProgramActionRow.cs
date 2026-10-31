@@ -9,8 +9,8 @@ namespace WSGM.Overlay;
 /// <summary>One shared presentation for a page action and its home pin, with a borrowed cached application icon.</summary>
 internal sealed class ProgramActionRow : ActionButton, IOverlayRefreshable
 {
-    private readonly Image _image = new() { Width = 32, Height = 32 };
     private readonly Control? _fallback;
+    private readonly Image _image = new() { Width = 32, Height = 32 };
     private Action _activate;
 
     internal ProgramActionRow(ProgramState state, Action activate)
@@ -29,6 +29,23 @@ internal sealed class ProgramActionRow : ActionButton, IOverlayRefreshable
         IconGeometry = Icons.Rocket;
         Apply(state);
         Click += (_, _) => _activate();
+    }
+
+    public void RefreshFrom(Control replacement)
+    {
+        var row = (ProgramActionRow)replacement;
+        Title = row.Title;
+        Description = row.Description;
+        TrailingText = row.TrailingText;
+        IsPinned = row.IsPinned;
+        _image.Source = row._image.Source;
+        _image.IsVisible = row._image.IsVisible;
+        if (_fallback is not null)
+        {
+            _fallback.IsVisible = !_image.IsVisible;
+        }
+
+        _activate = row._activate;
     }
 
     internal void Apply(ProgramState state)
@@ -61,22 +78,5 @@ internal sealed class ProgramActionRow : ActionButton, IOverlayRefreshable
         {
             _fallback.IsVisible = _image.Source is null;
         }
-    }
-
-    public void RefreshFrom(Control replacement)
-    {
-        var row = (ProgramActionRow)replacement;
-        Title = row.Title;
-        Description = row.Description;
-        TrailingText = row.TrailingText;
-        IsPinned = row.IsPinned;
-        _image.Source = row._image.Source;
-        _image.IsVisible = row._image.IsVisible;
-        if (_fallback is not null)
-        {
-            _fallback.IsVisible = !_image.IsVisible;
-        }
-
-        _activate = row._activate;
     }
 }

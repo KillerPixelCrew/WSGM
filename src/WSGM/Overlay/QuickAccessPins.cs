@@ -26,28 +26,6 @@ internal sealed class QuickAccessPins
     /// <summary>The Tag prefix that marks a Quick access clone; X on one unpins.</summary>
     internal const string TagPrefix = "pin:";
 
-    /// <summary>The pin id a stored pin is drawn and toggled under.</summary>
-    /// <param name="id">A pin id read from AppConfig.QuickAccessPins.</param>
-    /// <returns>
-    ///     The id of the shared page's host-row group for a pin saved while Device drew WSGM-owned fallback
-    ///     pages, which it did with integration off or before a device's layout arrived; any other id unchanged.
-    /// </returns>
-    internal static string CurrentId(string id)
-    {
-        return id switch
-        {
-            "section.device.power" => "section.device.plugin.power.configuration",
-            "section.device.controller" or "section.device.controller-and-motion" =>
-                "section.device.plugin.controller.configuration",
-            "section.device.lighting" => "section.device.plugin.rgb.configuration",
-            "section.device.diagnostics" => "section.device.plugin.info.configuration",
-            _ => id
-        };
-    }
-
-    // The pinnable Tools sections, by pin id, with whether each is offered now.
-    private readonly Dictionary<string, Func<bool>> _sections = new(StringComparer.Ordinal);
-
     // Every section heading currently in the window's tree; each adds itself on attach and leaves on detach.
     private readonly HashSet<SectionPinHeader> _headers = [];
     private readonly Panel _mirrorGrid;
@@ -66,18 +44,21 @@ internal sealed class QuickAccessPins
     /// </summary>
     private readonly Dictionary<string, ActionButton> _rows = new(StringComparer.Ordinal);
 
+    // The pinnable Tools sections, by pin id, with whether each is offered now.
+    private readonly Dictionary<string, Func<bool>> _sections = new(StringComparer.Ordinal);
+
     private readonly Control _toast;
     private readonly TextBlock _toastHint;
     private readonly TextBlock _toastText;
     private bool _detached;
     private ActionButton? _ghost;
 
+    /// <summary>False until the first Set, so restoring stored pins never toasts.</summary>
+    private bool _initialized;
+
     // The pin list the current mirrors were built for. Mirrors follow their source rows through
     // property changes, so while the list is unchanged a render only revisits the pinned sections.
     private string[]? _mirrored;
-
-    /// <summary>False until the first Set, so restoring stored pins never toasts.</summary>
-    private bool _initialized;
 
     private DispatcherTimer? _toastTimer;
 
@@ -104,6 +85,25 @@ internal sealed class QuickAccessPins
 
     /// <summary>The pinned ids in display order.</summary>
     internal IReadOnlyList<string> Ids { get; private set; } = [];
+
+    /// <summary>The pin id a stored pin is drawn and toggled under.</summary>
+    /// <param name="id">A pin id read from AppConfig.QuickAccessPins.</param>
+    /// <returns>
+    ///     The id of the shared page's host-row group for a pin saved while Device drew WSGM-owned fallback
+    ///     pages, which it did with integration off or before a device's layout arrived; any other id unchanged.
+    /// </returns>
+    internal static string CurrentId(string id)
+    {
+        return id switch
+        {
+            "section.device.power" => "section.device.plugin.power.configuration",
+            "section.device.controller" or "section.device.controller-and-motion" =>
+                "section.device.plugin.controller.configuration",
+            "section.device.lighting" => "section.device.plugin.rgb.configuration",
+            "section.device.diagnostics" => "section.device.plugin.info.configuration",
+            _ => id
+        };
+    }
 
     /// <summary>Whether an id is pinned.</summary>
     /// <param name="id">A pin id.</param>

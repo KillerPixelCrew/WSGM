@@ -68,7 +68,7 @@ public sealed class RtssOsdContentTests
     [Fact]
     public void Tdp_ShowsPublishedBoostLimitsAfterSustained()
     {
-        var power = new RtssOsdPowerStatus(25, false, false, null, string.Empty, SlowWatts: 37);
+        var power = new RtssOsdPowerStatus(25, false, false, null, string.Empty, 37);
 
         var text = RtssOsdContent.Build(2, FullMetrics, power);
 

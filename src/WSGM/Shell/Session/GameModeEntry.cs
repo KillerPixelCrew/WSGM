@@ -43,7 +43,8 @@ internal sealed class GameModeEntry(SessionModes modes, SteamMonitor? monitor)
             {
                 if (wasInGameMode)
                 {
-                    Log.Warn("Explorer returned while Game Mode was active; restoring Desktop state before re-entering Game Mode.");
+                    Log.Warn(
+                        "Explorer returned while Game Mode was active; restoring Desktop state before re-entering Game Mode.");
                     if (!await hooks.Entry.ReturnToDesktopAsync(null, true).ConfigureAwait(false))
                     {
                         return;

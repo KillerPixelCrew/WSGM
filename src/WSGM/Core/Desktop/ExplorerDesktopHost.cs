@@ -33,8 +33,8 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
     // failed restore keeps it, so the launch sequence never starts a listed integration meanwhile.
     private int _desktopAppsSuspended;
     private int _disposeState;
-    private bool _sourceWasJobBound;
     private uint _sourceDesktopPid;
+    private bool _sourceWasJobBound;
 
     /// <summary>Creates a desktop-host owner for the current interactive session.</summary>
     /// <param name="context">Interactive user-data context used for desktop integration and scheduler recovery.</param>
@@ -385,7 +385,8 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
                     if (owner is not null)
                     {
                         _exit.ForceStop(owner);
-                        await owner.WaitForExitAsync(cancellationToken).WaitAsync(Remaining(deadline), cancellationToken)
+                        await owner.WaitForExitAsync(cancellationToken)
+                            .WaitAsync(Remaining(deadline), cancellationToken)
                             .ConfigureAwait(false);
                     }
                 }

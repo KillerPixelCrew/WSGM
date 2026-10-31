@@ -560,14 +560,14 @@ public sealed class ShellSession
                 _state.OverlayTestOnly
                     ? DisplayModeAccess.Unavailable
                     : new DisplayModeAccess(ReadOverlayDisplayModeAsync,
-                        (snapshot, mode) => Task.Run(() => DisplayModes.Apply(snapshot, mode, persist: true)),
+                        (snapshot, mode) => Task.Run(() => DisplayModes.Apply(snapshot, mode, true)),
                         _displayChangeWindow),
                 _powerProfiles,
                 _library.EmulatorTool,
                 _tools.Programs,
                 _library.LaunchActions,
                 _library.LibraryManager,
-                Notes: _tools.Notes,
+                _tools.Notes,
                 Screensavers: _tools.Screensavers,
                 Browser: _tools.Browser,
                 GameTools: _library.GameTools,

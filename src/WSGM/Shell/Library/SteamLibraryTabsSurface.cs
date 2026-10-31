@@ -66,17 +66,23 @@ internal static class SteamLibraryTabsSurface
                 SteamUiModuleBuilder.Command(PatchId, "loadTags", async token =>
                 {
                     var picker = await service.LoadTagsAsync(token).ConfigureAwait(false);
-                    return picker.Error is null ? SteamUiCommandResult.Applied : new SteamUiCommandResult(false, picker.Error);
+                    return picker.Error is null
+                        ? SteamUiCommandResult.Applied
+                        : new SteamUiCommandResult(false, picker.Error);
                 }),
                 SteamUiModuleBuilder.Command(PatchId, "loadCollections", async token =>
                 {
                     var picker = await service.LoadCollectionsAsync(token).ConfigureAwait(false);
-                    return picker.Error is null ? SteamUiCommandResult.Applied : new SteamUiCommandResult(false, picker.Error);
+                    return picker.Error is null
+                        ? SteamUiCommandResult.Applied
+                        : new SteamUiCommandResult(false, picker.Error);
                 }),
                 SteamUiModuleBuilder.Command(PatchId, "loadGames", async token =>
                 {
                     var picker = await service.LoadGamesAsync(token).ConfigureAwait(false);
-                    return picker.Error is null ? SteamUiCommandResult.Applied : new SteamUiCommandResult(false, picker.Error);
+                    return picker.Error is null
+                        ? SteamUiCommandResult.Applied
+                        : new SteamUiCommandResult(false, picker.Error);
                 }),
                 .. SteamUiModuleBuilder.BrowseCommands(PatchId,
                     new SteamUiBrowseBindings { Subject = "library tab", Dismiss = service.DismissAsync })
@@ -102,7 +108,7 @@ internal static class SteamLibraryTabsSurface
 
         try
         {
-            var parsed = JsonSerializer.Deserialize(element, LibraryManagerJsonContext.Default.CustomTabConfig);
+            var parsed = element.Deserialize(LibraryManagerJsonContext.Default.CustomTabConfig);
             if (parsed is null)
             {
                 return false;

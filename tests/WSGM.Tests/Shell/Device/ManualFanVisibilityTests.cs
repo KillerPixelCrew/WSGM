@@ -80,7 +80,10 @@ public sealed class ManualFanVisibilityTests
     {
         var mode = FanControlModes.WithSoftwareChoice(Mode with
         {
-            Choices = [.. Mode.Choices, new CapabilityChoice("full-speed", new CapabilityDisplay { Key = DisplayKey.FanMode })]
+            Choices =
+            [
+                .. Mode.Choices, new CapabilityChoice("full-speed", new CapabilityDisplay { Key = DisplayKey.FanMode })
+            ]
         });
 
         Assert.Equal(["automatic", "custom", "full-speed", "software"], mode.Choices.Select(choice => choice.Value));

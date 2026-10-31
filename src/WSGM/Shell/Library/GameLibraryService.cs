@@ -43,8 +43,6 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     private readonly GameLibraryApplier _applier;
     private readonly GameLibraryArtwork? _artwork;
     private readonly GameLibraryEmulators _emulators;
-    private readonly Dictionary<string, GameLibraryEntryState> _entries = new(StringComparer.Ordinal);
-    private readonly Lock _gate = new();
 
     /// <summary>What the last scan or apply had to say that is not an error, in the order it came up.</summary>
     private readonly List<string> _notes = [];
@@ -63,9 +61,10 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     private bool _disposed;
     private string? _error;
     private long _generation;
+
     private string? _launcher;
+
     // One of the GameLibraryPhases values, published as it is.
-    private string _phase = GameLibraryPhases.Idle;
     private int _progress;
     private int _progressTotal;
     private GameLibraryState? _published;
@@ -172,13 +171,13 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     internal long Revision => Interlocked.Read(ref _revision);
 
     /// <summary>The gate that guards the review, its run state and the collaborators' state beside it.</summary>
-    internal Lock Gate => _gate;
+    internal Lock Gate { get; } = new();
 
     /// <summary>The review's entries by id. The caller holds <see cref="Gate" />.</summary>
-    internal Dictionary<string, GameLibraryEntryState> Entries => _entries;
+    internal Dictionary<string, GameLibraryEntryState> Entries { get; } = new(StringComparer.Ordinal);
 
     /// <summary>The run's phase, one of the <see cref="GameLibraryPhases" /> values. The caller holds <see cref="Gate" />.</summary>
-    internal string Phase => _phase;
+    internal string Phase { get; private set; } = GameLibraryPhases.Idle;
 
     /// <summary>Whether admission closed. The caller holds <see cref="Gate" />.</summary>
     internal bool Closed => _disposed;
@@ -189,7 +188,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     /// <summary>Scan, apply and the immediate storage commands share this lane; card writes also take the tracker's gate.</summary>
     internal SemaphoreSlim StorageLane { get; } = new(1, 1);
 
-    private bool Busy => _phase is GameLibraryPhases.Scanning or GameLibraryPhases.Applying;
+    private bool Busy => Phase is GameLibraryPhases.Scanning or GameLibraryPhases.Applying;
 
     /// <inheritdoc />
     public void Dispose()
@@ -204,14 +203,14 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     public Task<SteamUiCommandResult> ScanAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
+        lock (Gate)
         {
             if (_disposed)
             {
                 return Task.FromResult(ShuttingDown);
             }
 
-            if (_phase is GameLibraryPhases.Applying)
+            if (Phase is GameLibraryPhases.Applying)
             {
                 return Refuse("An import is already running.");
             }
@@ -227,7 +226,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     public Task<SteamUiCommandResult> CancelAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
+        lock (Gate)
         {
             if (!_disposed)
             {
@@ -261,7 +260,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         ArgumentNullException.ThrowIfNull(group);
         ArgumentNullException.ThrowIfNull(query);
         cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
+        lock (Gate)
         {
             if (Guard() is { } refusal)
             {
@@ -269,7 +268,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             }
 
             var search = query.Trim();
-            foreach (var entry in _entries.Values)
+            foreach (var entry in Entries.Values)
             {
                 if ((group.Length > 0
                      && !string.Equals(GameLibraryProjection.GroupOf(entry, _artwork), group, StringComparison.Ordinal))
@@ -299,7 +298,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     {
         ArgumentNullException.ThrowIfNull(ids);
         cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
+        lock (Gate)
         {
             if (Guard() is { } refusal)
             {
@@ -308,7 +307,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
             foreach (var id in ids)
             {
-                if (_entries.TryGetValue(id, out var entry))
+                if (Entries.TryGetValue(id, out var entry))
                 {
                     entry.Selected = selected && entry.Selectable;
                 }
@@ -437,9 +436,9 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         cancellationToken.ThrowIfCancellationRequested();
         uint appId;
         string title;
-        lock (_gate)
+        lock (Gate)
         {
-            if (!_entries.TryGetValue(id, out var entry))
+            if (!Entries.TryGetValue(id, out var entry))
             {
                 return Unlisted;
             }
@@ -487,7 +486,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     {
         cancellationToken.ThrowIfCancellationRequested();
         var launcher = _resolveLauncher();
-        lock (_gate)
+        lock (Gate)
         {
             if (_disposed)
             {
@@ -499,7 +498,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 return Refuse("Something is already running.");
             }
 
-            var selected = _entries.Values
+            var selected = Entries.Values
                 .Where(entry => entry is { Selected: true, Selectable: true })
                 .OrderBy(entry => entry.Plan.Name, StringComparer.CurrentCulture)
                 .ToList();
@@ -546,7 +545,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             return Refuse("Sources cannot be changed in this session.");
         }
 
-        lock (_gate)
+        lock (Gate)
         {
             if (Guard() is { } refusal)
             {
@@ -621,7 +620,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                     return;
                 }
 
-                lock (_gate)
+                lock (Gate)
                 {
                     if (_disposed)
                     {
@@ -699,7 +698,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             return Refuse("Choose at least one file type.");
         }
 
-        lock (_gate)
+        lock (Gate)
         {
             if (Guard() is { } refusal)
             {
@@ -768,7 +767,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 _scanner.ForgetDetection(id);
 
                 // A scan in progress still holds the folder's source and would bring its titles back.
-                if (_phase is GameLibraryPhases.Scanning)
+                if (Phase is GameLibraryPhases.Scanning)
                 {
                     _scanner.StartScan();
                 }
@@ -913,9 +912,9 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         }
 
         GameLibraryOptionsAnswer answer;
-        lock (_gate)
+        lock (Gate)
         {
-            if (!_entries.TryGetValue(id, out var entry))
+            if (!Entries.TryGetValue(id, out var entry))
             {
                 return Task.FromResult(Unlisted);
             }
@@ -949,9 +948,9 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         }
 
         string term;
-        lock (_gate)
+        lock (Gate)
         {
-            if (!_entries.TryGetValue(id, out var entry))
+            if (!Entries.TryGetValue(id, out var entry))
             {
                 return new GameLibraryMatchSearch(Unlisted);
             }
@@ -1019,15 +1018,6 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         return _storage.UseLibraryAsync(id, cancellationToken);
     }
 
-    /// <summary>The Steam details page's Recheck: one pass, then whether the shortcut is tracked at all.</summary>
-    /// <param name="appId">The shortcut's app id.</param>
-    /// <param name="cancellationToken">Cancels waiting for the pass.</param>
-    /// <returns>The pass's outcome, or why the shortcut has nothing to check.</returns>
-    internal Task<SteamUiCommandResult> RecheckShortcutAsync(uint appId, CancellationToken cancellationToken)
-    {
-        return _storage.RecheckShortcutAsync(appId, cancellationToken);
-    }
-
     /// <summary>The artwork candidates of one editable entry's type, for the overlay's picker.</summary>
     /// <param name="id">The entry.</param>
     /// <param name="asset">The artwork type's id.</param>
@@ -1039,9 +1029,9 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             return null;
         }
 
-        lock (_gate)
+        lock (Gate)
         {
-            if (!_entries.TryGetValue(id, out var entry) || !entry.Editable)
+            if (!Entries.TryGetValue(id, out var entry) || !entry.Editable)
             {
                 return null;
             }
@@ -1059,7 +1049,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     /// <returns>The latest published review snapshot; this read does not start a scan.</returns>
     public GameLibraryState ReadState()
     {
-        lock (_gate)
+        lock (Gate)
         {
             if (_published is { } cached && _publishedRevision == _revision)
             {
@@ -1071,10 +1061,10 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 _scanner.Sources(),
                 _scanner.Availability,
                 _scanner.Counts,
-                _entries.Values,
+                Entries.Values,
                 _artwork,
                 _storage.Tracked,
-                _phase,
+                Phase,
                 _progress,
                 _progressTotal,
                 _launcher,
@@ -1092,9 +1082,9 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     /// <returns>The details, or null when the entry is no longer listed.</returns>
     public GameLibraryDetails? ReadDetails(string id)
     {
-        lock (_gate)
+        lock (Gate)
         {
-            if (!_entries.TryGetValue(id, out var entry))
+            if (!Entries.TryGetValue(id, out var entry))
             {
                 return null;
             }
@@ -1111,10 +1101,19 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         }
     }
 
+    /// <summary>The Steam details page's Recheck: one pass, then whether the shortcut is tracked at all.</summary>
+    /// <param name="appId">The shortcut's app id.</param>
+    /// <param name="cancellationToken">Cancels waiting for the pass.</param>
+    /// <returns>The pass's outcome, or why the shortcut has nothing to check.</returns>
+    internal Task<SteamUiCommandResult> RecheckShortcutAsync(uint appId, CancellationToken cancellationToken)
+    {
+        return _storage.RecheckShortcutAsync(appId, cancellationToken);
+    }
+
     /// <summary>Refuses new commands and cancels pending work without blocking the caller.</summary>
     internal void CloseAdmission()
     {
-        lock (_gate)
+        lock (Gate)
         {
             if (_disposed)
             {
@@ -1150,7 +1149,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     {
         CloseAdmission();
         Task running;
-        lock (_gate)
+        lock (Gate)
         {
             running = _running;
         }
@@ -1180,7 +1179,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     internal void ConfigurationChanged(GameLibraryConfig settings)
     {
         _artwork?.ConfigurationChanged();
-        lock (_gate)
+        lock (Gate)
         {
             if (_disposed)
             {
@@ -1189,7 +1188,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
             _settings = settings.Copy();
             _scanner.InvalidateSources();
-            if (_phase == GameLibraryPhases.Scanning)
+            if (Phase == GameLibraryPhases.Scanning)
             {
                 _scanner.StartScan();
             }
@@ -1212,7 +1211,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     /// <returns>The kept copy.</returns>
     internal GameLibraryConfig ReadSettings()
     {
-        lock (_gate)
+        lock (Gate)
         {
             return _settings;
         }
@@ -1243,14 +1242,14 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     /// <returns>Shutting down, frozen during an apply, or null. The caller holds <see cref="Gate" />.</returns>
     internal SteamUiCommandResult? Guard()
     {
-        return _disposed ? ShuttingDown : _phase is GameLibraryPhases.Applying ? Frozen : null;
+        return _disposed ? ShuttingDown : Phase is GameLibraryPhases.Applying ? Frozen : null;
     }
 
     /// <summary>Ends a scan in review with what it had to say. The caller holds <see cref="Gate" />.</summary>
     /// <param name="notes">The scan's notes, in the order they came up.</param>
     internal void ShowReview(IReadOnlyList<string> notes)
     {
-        _phase = GameLibraryPhases.Review;
+        Phase = GameLibraryPhases.Review;
         _notes.AddRange(notes);
         Publish();
     }
@@ -1261,14 +1260,14 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     /// <param name="problems">What went wrong without stopping it.</param>
     internal void Complete(long generation, string note, IReadOnlyList<string> problems)
     {
-        lock (_gate)
+        lock (Gate)
         {
             if (generation != _generation)
             {
                 return;
             }
 
-            _phase = GameLibraryPhases.Done;
+            Phase = GameLibraryPhases.Done;
             _notes.Add(note);
 
             // A problem is an error the user sees, not a note the completion message replaces: a
@@ -1298,11 +1297,11 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         }
 
         GameLibraryArtworkRequest[] requests;
-        lock (_gate)
+        lock (Gate)
         {
             requests =
             [
-                .. _entries.Values
+                .. Entries.Values
                     .Where(entry => entry.Action is not (ImportAction.Remove or ImportAction.Conflict))
                     .OrderByDescending(entry => entry.Selected)
                     .Select(entry => new GameLibraryArtworkRequest(
@@ -1352,14 +1351,14 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
                 // The user's Stop, a rescan that replaced this one, or shutdown: the run's own token.
-                lock (_gate)
+                lock (Gate)
                 {
                     if (generation != _generation || _disposed)
                     {
                         return;
                     }
 
-                    _phase = GameLibraryPhases.Review;
+                    Phase = GameLibraryPhases.Review;
                     _notes.Add("Stopped.");
                     Publish();
                 }
@@ -1375,7 +1374,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             finally
             {
                 var restarted = false;
-                lock (_gate)
+                lock (Gate)
                 {
                     if (generation == _generation && _rescanAfterRun && !_disposed && !Busy)
                     {
@@ -1402,7 +1401,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         _work?.Cancel();
         _work?.Dispose();
         _work = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
-        _phase = phase;
+        Phase = phase;
         _notes.Clear();
         _error = null;
         _progress = 0;
@@ -1417,14 +1416,14 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     /// <param name="problems">What went wrong before it failed.</param>
     internal void Fail(long generation, string error, IReadOnlyList<string> problems)
     {
-        lock (_gate)
+        lock (Gate)
         {
             if (generation != _generation)
             {
                 return;
             }
 
-            _phase = GameLibraryPhases.Review;
+            Phase = GameLibraryPhases.Review;
             _error = string.Join(" ", [error, .. problems]);
             Publish();
         }
@@ -1438,7 +1437,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     /// <param name="note">What it had to say.</param>
     internal void Note(long generation, string note)
     {
-        lock (_gate)
+        lock (Gate)
         {
             if (generation != _generation)
             {
@@ -1457,7 +1456,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     /// <param name="applied">How many it applied.</param>
     internal void Progress(long generation, int applied)
     {
-        lock (_gate)
+        lock (Gate)
         {
             if (generation != _generation)
             {
@@ -1555,7 +1554,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     private SteamUiCommandResult ChangeSettings(Action<GameLibraryConfig> change, Action saved,
         Func<string?>? refusal = null, Action? settled = null)
     {
-        lock (_gate)
+        lock (Gate)
         {
             if (Guard() is { } blocked)
             {
@@ -1573,7 +1572,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             return new SteamUiCommandResult(false, reason);
         }
 
-        lock (_gate)
+        lock (Gate)
         {
             if (_disposed)
             {
@@ -1595,7 +1594,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         {
             lock (_settingsWrite)
             {
-                lock (_gate)
+                lock (Gate)
                 {
                     if (_disposed)
                     {
@@ -1607,7 +1606,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 // The disk write runs outside the gate, so reading the state and other commands do
                 // not wait on it.
                 var stored = _updateSettings!(change).Copy();
-                lock (_gate)
+                lock (Gate)
                 {
                     _settings = stored;
                     _scanner.InvalidateSources();
@@ -1634,14 +1633,14 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         string id, bool editable, Func<GameLibraryEntryState, string?> edit, bool remember = false)
     {
         var result = SteamUiCommandResult.Applied;
-        lock (_gate)
+        lock (Gate)
         {
             if (Guard() is { } refusal)
             {
                 return Task.FromResult(refusal);
             }
 
-            if (!_entries.TryGetValue(id, out var entry))
+            if (!Entries.TryGetValue(id, out var entry))
             {
                 return Task.FromResult(Unlisted);
             }
@@ -1670,7 +1669,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 }
             }
 
-            if ((editable || remember) && _phase == GameLibraryPhases.Scanning)
+            if ((editable || remember) && Phase == GameLibraryPhases.Scanning)
             {
                 _scanner.StartScan();
             }
@@ -1711,14 +1710,14 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     private Task<SteamUiCommandResult> EditMany(Func<GameLibraryEntryState, bool> edit)
     {
         var result = SteamUiCommandResult.Applied;
-        lock (_gate)
+        lock (Gate)
         {
             if (Guard() is { } refusal)
             {
                 return Task.FromResult(refusal);
             }
 
-            var targets = _entries.Values.Where(entry => entry is { Selected: true, Editable: true }).ToList();
+            var targets = Entries.Values.Where(entry => entry is { Selected: true, Editable: true }).ToList();
             if (targets.Count == 0)
             {
                 return Refuse("Select the titles to change first.");
@@ -1744,11 +1743,11 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     /// <summary>Takes one source's titles out of the review and the artwork stage.</summary>
     private void Drop(string sourceId)
     {
-        foreach (var (id, entry) in _entries.ToList())
+        foreach (var (id, entry) in Entries.ToList())
         {
             if (string.Equals(entry.Plan.Source, sourceId, StringComparison.OrdinalIgnoreCase))
             {
-                _entries.Remove(id);
+                Entries.Remove(id);
             }
         }
 
@@ -1758,7 +1757,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     private void OnArtworkChanged()
     {
         // Rematch runs inside an edit; that edit publishes and notifies after releasing the gate.
-        if (_gate.IsHeldByCurrentThread)
+        if (Gate.IsHeldByCurrentThread)
         {
             return;
         }
@@ -1772,7 +1771,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
     private void OnAvailabilityChanged()
     {
-        lock (_gate)
+        lock (Gate)
         {
             if (_disposed)
             {
@@ -1789,7 +1788,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
     private void OnEmulatorsChanged()
     {
-        lock (_gate)
+        lock (Gate)
         {
             if (_disposed)
             {

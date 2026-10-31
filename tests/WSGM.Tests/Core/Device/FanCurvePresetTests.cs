@@ -98,11 +98,13 @@ public sealed class FanCurvePresetTests
                     .Select(p => p.Output)
             ],
             [
-                .. FanCurvePresets.SampleOnto(FanCurvePresetTable.HandheldCompanion, FanCurvePreset.Default, ClawTable())
+                .. FanCurvePresets.SampleOnto(FanCurvePresetTable.HandheldCompanion, FanCurvePreset.Default,
+                        ClawTable())
                     .Select(p => p.Output)
             ],
             [
-                .. FanCurvePresets.SampleOnto(FanCurvePresetTable.HandheldCompanion, FanCurvePreset.Aggressive, ClawTable())
+                .. FanCurvePresets.SampleOnto(FanCurvePresetTable.HandheldCompanion, FanCurvePreset.Aggressive,
+                        ClawTable())
                     .Select(p => p.Output)
             ]
         ];

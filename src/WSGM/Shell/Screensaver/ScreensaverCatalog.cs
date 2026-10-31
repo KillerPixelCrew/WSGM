@@ -111,10 +111,14 @@ internal sealed class ScreensaverCatalog : IAsyncDisposable
             var scanned = sources.Select(source =>
             {
                 var content = ScreensaverContent.Read(source, version);
-                var known = current.FirstOrDefault(entry => entry.Source.Id == source.Id && entry.Source.Folder == source.Folder);
+                var known = current.FirstOrDefault(entry =>
+                    entry.Source.Id == source.Id && entry.Source.Folder == source.Folder);
                 if (!content.Available && known is not null)
                 {
-                    content = content with { Preview = known.Content.Preview, PreviewRevision = known.Content.PreviewRevision };
+                    content = content with
+                    {
+                        Preview = known.Content.Preview, PreviewRevision = known.Content.PreviewRevision
+                    };
                 }
 
                 return new ScreensaverEntry(source, content);
@@ -190,7 +194,7 @@ internal sealed class ScreensaverCatalog : IAsyncDisposable
             var source = config.Sources.FirstOrDefault(source => source.Id == id)
                          ?? throw new InvalidOperationException("This source was removed.");
             if (config.Sources.Any(other => other.Id != id
-                && string.Equals(other.Name, name, StringComparison.OrdinalIgnoreCase)))
+                                            && string.Equals(other.Name, name, StringComparison.OrdinalIgnoreCase)))
             {
                 throw new InvalidOperationException("A source already has that name. Choose a different name.");
             }
@@ -292,7 +296,8 @@ internal sealed class ScreensaverCatalog : IAsyncDisposable
 
             return bytes;
         }
-        catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException)
+        catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException
+                                          or ArgumentException)
         {
             return null;
         }
@@ -319,7 +324,8 @@ internal sealed class ScreensaverCatalog : IAsyncDisposable
         {
             folder = activeSourceId is null
                 ? null
-                : _entries.FirstOrDefault(entry => entry.Source.Id == activeSourceId && entry.Content.Available)?.Source.Folder;
+                : _entries.FirstOrDefault(entry => entry.Source.Id == activeSourceId && entry.Content.Available)?.Source
+                    .Folder;
         }
 
         // Moving or unplugging the watched root need not produce an event inside that root.
@@ -334,7 +340,8 @@ internal sealed class ScreensaverCatalog : IAsyncDisposable
             var watcher = new FileSystemWatcher(source.Folder)
             {
                 IncludeSubdirectories = source.Pack,
-                NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.Size | NotifyFilters.LastWrite
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.Size |
+                               NotifyFilters.LastWrite
             };
             watcher.Created += SourceChanged;
             watcher.Changed += SourceChanged;

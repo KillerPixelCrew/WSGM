@@ -19,10 +19,11 @@ internal static class SteamBrowserSurface
     internal static ISteamUiModule Module(Func<bool> enabled)
     {
         return new SteamUiModule("browser", [Patch],
-            [
-                SteamUiModuleBuilder.Publication(PatchId, enabled,
-                    () => new ValueTask<SteamBrowserState?>(new SteamBrowserState(BrowserNavigation.Home, BrowserNavigation.SearchPrefix)),
-                    SteamBrowserJson.Default.SteamBrowserState)
-            ]);
+        [
+            SteamUiModuleBuilder.Publication(PatchId, enabled,
+                () => new ValueTask<SteamBrowserState?>(new SteamBrowserState(BrowserNavigation.Home,
+                    BrowserNavigation.SearchPrefix)),
+                SteamBrowserJson.Default.SteamBrowserState)
+        ]);
     }
 }

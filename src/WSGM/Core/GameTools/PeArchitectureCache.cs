@@ -22,7 +22,7 @@ internal sealed class PeArchitectureCache
         lock (_sync)
         {
             if (_entries.TryGetValue(file.FullPath, out var entry) && entry.Size == file.Size
-                                                                  && entry.LastWriteUtc == file.LastWriteUtc)
+                                                                   && entry.LastWriteUtc == file.LastWriteUtc)
             {
                 return entry.Architecture;
             }

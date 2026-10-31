@@ -380,6 +380,12 @@ public sealed class EmulatorResolveContext
 /// <summary>Small read-only store/resolver shared with the launch helper. It never starts the app.</summary>
 public static class EmulatorStorage
 {
+    /// <summary>Shared camel-case serialization options for emulator metadata and receipts.</summary>
+    public static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        WriteIndented = true
+    };
+
     /// <summary>Resolves the current emulator UI without requiring ROMs, cores, BIOS or firmware.</summary>
     public static EmulatorResolvedLaunch ResolveInterface(EmulatorStore store, string installationId)
     {
@@ -388,7 +394,8 @@ public static class EmulatorStorage
         EmulatorPortable.Verify(installed);
         if (!File.Exists(installed.ExecutablePath))
         {
-            throw new FileNotFoundException("The emulator executable is missing. Use Repair.", installed.ExecutablePath);
+            throw new FileNotFoundException("The emulator executable is missing. Use Repair.",
+                installed.ExecutablePath);
         }
 
         string Expand(string value)
@@ -403,12 +410,6 @@ public static class EmulatorStorage
                 .Concat(installed.DataPolicy.DataArguments).Select(Expand).ToArray()),
             installed.Environment.ToDictionary(pair => pair.Key, pair => Expand(pair.Value), StringComparer.Ordinal));
     }
-
-    /// <summary>Shared camel-case serialization options for emulator metadata and receipts.</summary>
-    public static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        WriteIndented = true
-    };
 
     /// <summary>Maps upstream aliases to the importer's canonical system identity.</summary>
     public static string NormalizeSystemId(string systemId)
@@ -436,7 +437,8 @@ public static class EmulatorStorage
     {
         return installation.Cores
             .Where(core => core.MetadataMissing || core.Systems.Length == 0
-                                                || (core.Id == "picodrive_libretro" && NormalizeSystemId(systemId) is "pico" or "sega32x")
+                                                || (core.Id == "picodrive_libretro" &&
+                                                    NormalizeSystemId(systemId) is "pico" or "sega32x")
                                                 || core.Systems.Any(system =>
                                                     NormalizeSystemId(system) == NormalizeSystemId(systemId)))
             .ToArray();
@@ -546,7 +548,7 @@ public static class EmulatorStorage
             }
 
             if (disc is null || Path.GetExtension(disc).Equals(".m3u", StringComparison.OrdinalIgnoreCase)
-                || !File.Exists(disc))
+                             || !File.Exists(disc))
             {
                 throw new InvalidDataException("The first disc in this playlist is missing or invalid.");
             }
@@ -562,10 +564,12 @@ public static class EmulatorStorage
         var core = ValidateSelection(installation, systemId, coreId);
         var extension = Path.GetExtension(romPath).TrimStart('.').ToLowerInvariant();
         if (core is { Extensions.Length: > 0 } && extension is not ("zip" or "7z")
-            && !core.Extensions.Any(value => value.TrimStart('.').Equals(extension, StringComparison.OrdinalIgnoreCase)))
+                                               && !core.Extensions.Any(value =>
+                                                   value.TrimStart('.').Equals(extension,
+                                                       StringComparison.OrdinalIgnoreCase)))
         {
             throw new InvalidOperationException("The selected core does not support " + Path.GetExtension(romPath)
-                                                + " files. Choose a compatible core or convert the file.");
+                + " files. Choose a compatible core or convert the file.");
         }
 
         void CheckInstallation()
@@ -660,7 +664,8 @@ public static class EmulatorStorage
     {
         var missing = new List<string>();
         var runtimeFolder = Environment.GetFolderPath(installed.Architecture == "x86"
-            ? Environment.SpecialFolder.SystemX86 : Environment.SpecialFolder.System);
+            ? Environment.SpecialFolder.SystemX86
+            : Environment.SpecialFolder.System);
         if (installed.DataPolicy.RequiresVisualCpp
             && !File.Exists(Path.Combine(Path.GetDirectoryName(installed.ExecutablePath)!, "vcruntime140_1.dll"))
             && !File.Exists(Path.Combine(runtimeFolder, "vcruntime140_1.dll")))
@@ -679,8 +684,9 @@ public static class EmulatorStorage
                                !File.Exists(Path.Combine(system, name))).ToArray();
             if (absent.Length > 0)
             {
-                missing.Add("Install Microsoft's DirectX End-User Runtimes (June 2010), including x86 components. Missing: "
-                            + string.Join(", ", absent) + ".");
+                missing.Add(
+                    "Install Microsoft's DirectX End-User Runtimes (June 2010), including x86 components. Missing: "
+                    + string.Join(", ", absent) + ".");
             }
         }
 
@@ -690,6 +696,7 @@ public static class EmulatorStorage
     internal static bool PrerequisitePresent(EmulatorInstallation installed, EmulatorPrerequisite rule)
     {
         var path = PrerequisitePath(installed, rule);
+
         bool Usable(string file)
         {
             if (!UsablePrerequisiteFile(file))
@@ -719,10 +726,14 @@ public static class EmulatorStorage
             ? rule.RequiredNames.All(name => Usable(Path.Combine(path, name)))
             : rule.RequiredExtensions.Length > 0
                 ? Directory.Exists(path) && Directory.EnumerateFiles(path).Any(file =>
-                    rule.RequiredExtensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase) && Usable(file))
+                    rule.RequiredExtensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase) &&
+                    Usable(file))
                 : rule.NativeInstaller
-                    ? Directory.Exists(path) && Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).Any(Usable)
-                    : Directory.Exists(path) ? Directory.EnumerateFiles(path).Any(Usable) : Usable(path);
+                    ? Directory.Exists(path) &&
+                      Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).Any(Usable)
+                    : Directory.Exists(path)
+                        ? Directory.EnumerateFiles(path).Any(Usable)
+                        : Usable(path);
     }
 
     private static bool UsablePrerequisiteFile(string path)

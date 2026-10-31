@@ -10,7 +10,10 @@ namespace WSGM.Shell;
 /// <param name="License">The upstream license identifier.</param>
 /// <param name="Notice">The affiliation notice.</param>
 /// <param name="IncompatibleReason">Why it can't be installed for the chosen runtime, or null when it can.</param>
-/// <param name="Status"><c>notInstalled</c>, <c>installed</c>, <c>updateAvailable</c>, <c>modified</c>, <c>conflict</c> or <c>unavailable</c>.</param>
+/// <param name="Status">
+///     <c>notInstalled</c>, <c>installed</c>, <c>updateAvailable</c>, <c>modified</c>, <c>conflict</c> or
+///     <c>unavailable</c>.
+/// </param>
 /// <param name="StatusText">A short user-facing status line.</param>
 /// <param name="InstalledVersion">The installed product version, or null.</param>
 /// <param name="LatestVersion">The latest stable release tag, or null when unknown.</param>
