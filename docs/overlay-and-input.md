@@ -624,15 +624,15 @@ Ctrl+Alt+S. [`HotkeysService`](../src/WSGM/Shell/Applications/HotkeysService.cs)
 and publications until they are saved or discarded; an unsaved edit is marked on its hotkey and an
 unsaved new hotkey is listed as one to finish. Hotkeys are global, not per game.
 
-An empty list offers two ready-made hotkeys, OptiScaler menu (Insert) and Lossless Scaling
-(Ctrl+Alt+S); each opens the editor filled in. The editor shows the name and keycaps on top, then
-the name row (in-window keyboard), Ctrl, Alt, Shift and Win switches, the key picker grouped like a
-keyboard, Press the keys… and the press delay. Press the keys… reads the window's own key events.
-WSGM cannot tell a keyboard from a handheld's built-in HID keyboards, so it is always offered. The
-capture field ignores keys for 300 ms after it opens, because the press that opened it and Steam's
-keyboard echo of a controller press arrive then. It takes back focus a navigation key moved and
-consumes Enter, Space and Tab; Esc or B cancels. Delete asks with the hotkey's name and also removes
-its pin.
+A new configuration starts with two ordinary hotkeys, OptiScaler menu (Insert) and Lossless Scaling
+(Ctrl+Alt+S), which pin, edit and delete like any other. The editor shows the name and keycaps on
+top, then the name row (in-window keyboard), Ctrl, Alt, Shift and Win switches, the key picker
+grouped like a keyboard, Press the keys… and the press delay. Press the keys… reads the window's own
+key events. WSGM cannot tell a keyboard from a handheld's built-in HID keyboards, so it is always
+offered. The capture field ignores keys for 300 ms after it opens, because the press that opened it
+and Steam's keyboard echo of a controller press arrive then. It takes back focus a navigation key
+moved and consumes Enter, Space and Tab; Esc or B cancels. Delete asks with the hotkey's name and
+also removes its pin.
 
 A hotkey pins as `hotkey:<id>` and draws as a Quick Access tile with its name and keycaps
 (`HotkeyActionRow`, `Keycaps`). X, touch hold, right-click and the editor's heading pin toggle it,

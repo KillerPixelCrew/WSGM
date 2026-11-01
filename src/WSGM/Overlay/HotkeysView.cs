@@ -31,14 +31,6 @@ public sealed class HotkeysView : ServiceSubView
     // The press delays offered; a stored value outside them is offered too.
     private static readonly int[] Delays = [0, 20, 50, 100, 250, 500, 1000, 2000, HotkeyDefinition.MaximumPressDelayMs];
 
-    private static readonly (string Id, string Name, int[] Keys, string Detail)[] Presets =
-    [
-        ("optiscaler", "OptiScaler menu", [HotkeyKeys.Insert],
-            "Opens OptiScaler's settings in a game where it is installed"),
-        ("lossless", "Lossless Scaling", [HotkeyKeys.Control, HotkeyKeys.Alt, HotkeyKeys.S],
-            "Lossless Scaling's default Scale hotkey; match it if you changed it there")
-    ];
-
     // Editor drafts by hotkey id, including hotkeys not saved yet.
     private readonly Dictionary<string, HotkeyDefinition> _drafts = new(StringComparer.Ordinal);
 
@@ -170,21 +162,7 @@ public sealed class HotkeysView : ServiceSubView
 
         if (states.Length == 0)
         {
-            body.Children.Add(Tagged(SectionLabel("Ready-made hotkeys"), "hotkeys.presets.heading"));
-            body.Children.Add(Tagged(Caption("No hotkeys yet. Start from one of these, or create your own."),
-                "hotkeys.empty"));
-            foreach (var preset in Presets)
-            {
-                var row = new HotkeyActionRow(new HotkeyState(
-                        new HotkeyDefinition { Name = preset.Name, Keys = [.. preset.Keys] }, preset.Detail),
-                    () => OpenNew(preset.Name, preset.Keys))
-                {
-                    Tag = "hotkeys.preset:" + preset.Id,
-                    TrailingText = "Add",
-                    AccessibleName = "Add " + preset.Name
-                };
-                body.Children.Add(row);
-            }
+            body.Children.Add(Tagged(Caption("No hotkeys. Create one with New hotkey."), "hotkeys.empty"));
         }
         else
         {

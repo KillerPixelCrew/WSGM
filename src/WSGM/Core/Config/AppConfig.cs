@@ -334,9 +334,18 @@ public sealed class AppConfig
 
     /// <summary>
     ///     Key combinations the Overlay sends to the game in front, in display order; their pins use
-    ///     hotkey:{stable id} in QuickAccessPins. Not the Overlay's own shortcut, which is <see cref="Hotkey" />.
+    ///     hotkey:{stable id} in QuickAccessPins. A new configuration starts with OptiScaler's menu key and Lossless
+    ///     Scaling's default Scale hotkey as ordinary hotkeys. Not the Overlay's own shortcut, which is
+    ///     <see cref="Hotkey" />.
     /// </summary>
-    public List<HotkeyDefinition> Hotkeys { get; set; } = [];
+    public List<HotkeyDefinition> Hotkeys { get; set; } =
+    [
+        new HotkeyDefinition { Id = "optiscaler", Name = "OptiScaler menu", Keys = [HotkeyKeys.Insert] },
+        new HotkeyDefinition
+        {
+            Id = "lossless", Name = "Lossless Scaling", Keys = [HotkeyKeys.Control, HotkeyKeys.Alt, HotkeyKeys.S]
+        }
+    ];
 
     /// <summary>Explicit source sizes added to a physical display's driver list.</summary>
     public List<ScaledResolutionAddition> ScaledResolutions { get; set; } = [];

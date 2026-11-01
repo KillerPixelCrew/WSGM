@@ -1,9 +1,23 @@
+using System.Text.Json;
 using WSGM.Core;
 
 namespace WSGM.Tests.Core;
 
 public sealed class HotkeyDefinitionTests
 {
+    [Fact]
+    public void ANewConfigurationStartsWithTheTwoDefaultHotkeysAndAnEmptySavedListStaysEmpty()
+    {
+        var hotkeys = AppConfigRules.Normalize(new AppConfig()).Value.Hotkeys;
+
+        Assert.Equal(["optiscaler", "lossless"], hotkeys.Select(hotkey => hotkey.Id));
+        Assert.Equal([HotkeyKeys.Insert], hotkeys[0].Keys);
+        Assert.Equal([HotkeyKeys.Control, HotkeyKeys.Alt, HotkeyKeys.S], hotkeys[1].Keys);
+
+        var json = JsonSerializer.Serialize(new AppConfig { Hotkeys = [] }, ConfigJsonContext.Default.AppConfig);
+        Assert.Empty(ConfigRepair.Deserialize(json)!.Hotkeys);
+    }
+
     [Fact]
     public void NormalizationDropsEntriesWithoutKeysAndInvalidKeysAndRenumbersRepeatedIds()
     {

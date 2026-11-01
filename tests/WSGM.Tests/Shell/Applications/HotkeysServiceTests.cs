@@ -13,6 +13,12 @@ public sealed class HotkeysServiceTests
     private static async Task<(HotkeysService Service, HotkeyDefinition Hotkey)> CreateAsync(
         TemporaryConfigStore store, FakeDesktop desktop, int delay = 0)
     {
+        // These tests follow one hotkey; a new configuration's two default hotkeys would only add noise.
+        store.Store.Update(config =>
+        {
+            config.Hotkeys = [];
+            return true;
+        });
         var service = new HotkeysService(store.Store, store.Store.Read().RequireConfig(), desktop);
         var hotkey = new HotkeyDefinition
         {

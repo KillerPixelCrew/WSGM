@@ -6,7 +6,9 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Core;
+using WSGM.Input;
 using WSGM.Overlay;
+using WSGM.Tests.Fakes;
 using WSGM.UiTests.Fakes;
 using WSGM.UiTests.Infrastructure;
 using WSGM.UiTests.Visual;
@@ -51,23 +53,6 @@ public sealed class HotkeysViewTests
         Assert.Equal(width, window.ClientSize.Width);
         Assert.Equal(height, window.ClientSize.Height);
         VisualBaseline.Verify(window, name);
-    }
-
-    [AvaloniaFact]
-    public void AReadyMadeHotkeyOpensItsEditorAndIsStoredOnlyOnSave()
-    {
-        using UiFixture fixture = new();
-        var (window, source) = Open(fixture, true);
-
-        Click(window, "hotkeys.preset:lossless");
-        Assert.Equal("Lossless Scaling", UiFixture.Tagged<ActionButton>(window, "editor.name").Description);
-        Assert.Empty(source.Commands);
-
-        Click(window, "editor.save");
-        var saved = Assert.IsType<HotkeyDefinition>(Assert.Single(source.Commands).Argument);
-        Assert.Equal("Lossless Scaling", saved.Name);
-        Assert.Equal([HotkeyKeys.Control, HotkeyKeys.Alt, HotkeyKeys.S], saved.Keys);
-        Assert.NotNull(UiFixture.Tagged<HotkeyActionRow>(window, "hotkey:" + saved.Id));
     }
 
     [AvaloniaFact]
@@ -118,6 +103,23 @@ public sealed class HotkeysViewTests
         Assert.Equal(("remove", (object)"lossless"), Assert.Single(source.Commands));
         Assert.DoesNotContain(window.GetVisualDescendants().OfType<HotkeyActionRow>(),
             row => Equals(row.Tag, "hotkey:lossless"));
+    }
+
+    [AvaloniaFact]
+    public void ControllerXOnAHotkeyRowPinsIt()
+    {
+        using UiFixture fixture = new();
+        var (window, _) = Open(fixture);
+        List<string> toggled = [];
+        window.PinToggleRequested += toggled.Add;
+        var buttons = new FakeButtonSource();
+        using var navigation = OverlayInput.Create(window, buttons, () => window.TryCancelSubView());
+        var row = UiFixture.Tagged<HotkeyActionRow>(window, "hotkey:menu");
+        Assert.True(row.Focus(NavigationMethod.Directional));
+
+        buttons.Press(GamepadButtons.X);
+
+        Assert.Equal(["hotkey:menu"], toggled);
     }
 
     [AvaloniaFact]
