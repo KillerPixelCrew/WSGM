@@ -172,15 +172,13 @@ opens the surface itself. Without an active target, or when the pad refuses the 
 falls back to Big Picture's shortcut, which only works while Big Picture is visible. The Steam Input
 lease, HidHide and the physical pad are left exactly as they are.
 
-A control whose descriptor carries a `ControllerButton` already puts that button on the virtual pad
-with its own press. When controller management is on and that button covers everything the action
-would press, the router sends nothing more (`DeviceOemActionRouter.PadCarriesSteamButtons`), so
-Steam sees one press. On the Atlas, Task assigned to the Steam menu sends its own Guide on every
-target, and Predator assigned to Quick Access sends its own Quick Access on the Steam Deck target.
-The Xbox 360 and DualShock 4 targets have no Quick Access button, so there Predator still gets the
-Guide + A pulse. A button assigned to the other surface, or one that carries no pad button, is
-pulsed as before. Under a wrapper lease the carried button is withheld from the pad and the shortcut
-is sent instead.
+A control whose descriptor carries Guide or Quick Access as its `ControllerButton` already puts that
+button on the virtual pad, so Steam reads the press itself. With controller management on, a Steam
+menu or Quick Access action on such a control sends nothing more
+(`DeviceOemActionRouter.PadCarriesSteamButton`). The extra press exists only for a wrapper lease,
+which hides the pad from Steam: the control's own button is then withheld and Big Picture's shortcut
+is sent instead. A control that carries no Steam button, such as a rear button assigned to the Steam
+menu, still gets the pad pulse because nothing else reaches Steam.
 
 ## Owner claims and the Settings handoff
 

@@ -78,10 +78,9 @@ leases keep capture and wrapped-game ownership separate from native device acqui
 action assignments override defaults; Guide and Quick Access actions remain available through
 wrapper leases.
 
-Unassigned, the Atlas Task button reaches Steam as the pad's Guide and Predator as its Quick Access
-button, which only the Steam Deck target has; during a wrapper lease both send Big Picture's
-shortcuts instead. Assigning the Steam menu to Task, or Quick Access to Predator on the Steam Deck
-target, adds no second press
+The Atlas Task button reaches Steam as the pad's Guide and Predator as its Quick Access button,
+which only the Steam Deck target has. WSGM adds a press of its own only during a wrapper lease, when
+it sends Big Picture's shortcuts instead
 ([Steam surfaces from OEM buttons](steam-input.md#steam-surfaces-from-oem-buttons)).
 
 The Xbox Ally Armoury Crate button declares the companion-application default and opens WSGM without

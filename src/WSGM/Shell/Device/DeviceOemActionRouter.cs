@@ -232,9 +232,9 @@ internal sealed class DeviceOemActionRouter : IDisposable
                 return;
             }
 
-            // The library merges the control's ControllerButton into the virtual pad, so Steam
-            // already reads this press. A second, synthetic press would open the surface twice.
-            if (!keyboardSteamAction && _controllerManagementEnabled && PadCarriesSteamButtons(control, action, _target))
+            // A control that carries Guide or Quick Access already reaches Steam through the virtual
+            // pad. The synthetic press exists only for a wrapper lease, which hides the pad from Steam.
+            if (!keyboardSteamAction && _controllerManagementEnabled && PadCarriesSteamButton(control, action))
             {
                 Log.Info($"Device OEM action: control={control.ControlId}, action={action}, carried by the pad.");
                 return;
@@ -416,23 +416,14 @@ internal sealed class DeviceOemActionRouter : IDisposable
             : OemAction.Disabled;
     }
 
-    /// <summary>Whether the control's own pad button already sends what a Steam action would press.</summary>
+    /// <summary>Whether a Steam action on this control is left to the button it carries on the virtual pad.</summary>
     /// <param name="control">Published OEM control declaration, including the button it carries on the pad.</param>
     /// <param name="action">The resolved action.</param>
-    /// <param name="target">The chosen virtual target, which decides the Quick Access buttons.</param>
-    /// <returns>True for a Steam menu or Quick Access action whose every pressed button the control carries.</returns>
-    internal static bool PadCarriesSteamButtons(
-        OemControlDescriptor control,
-        OemAction action,
-        ManagedControllerTarget? target)
+    /// <returns>True for a Steam menu or Quick Access action on a control that carries Guide or Quick Access.</returns>
+    internal static bool PadCarriesSteamButton(OemControlDescriptor control, OemAction action)
     {
-        if (action is not (OemAction.ToggleSteamOverlay or OemAction.ToggleSteamQuickAccess))
-        {
-            return false;
-        }
-
-        var pressed = ControllerManager.SteamButtons(action is OemAction.ToggleSteamQuickAccess, target);
-        return (control.ControllerButton & pressed) == pressed;
+        return action is OemAction.ToggleSteamOverlay or OemAction.ToggleSteamQuickAccess
+               && (control.ControllerButton & (CanonicalButtons.Guide | CanonicalButtons.QuickAccess)) != 0;
     }
 
     private void ExpireDeduplicationUnderGate(DateTimeOffset now)

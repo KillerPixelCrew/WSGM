@@ -45,14 +45,13 @@ public sealed class DeviceOemActionRouterTests
     [Theory]
     [InlineData("guide", OemAction.ToggleSteamOverlay, ManagedControllerTarget.SteamDeckComposite, false)]
     [InlineData("guide", OemAction.ToggleSteamOverlay, ManagedControllerTarget.Xbox360, false)]
-    [InlineData("guide", OemAction.ToggleSteamOverlay, ManagedControllerTarget.DualShock4, false)]
+    [InlineData("guide", OemAction.ToggleSteamQuickAccess, ManagedControllerTarget.DualShock4, false)]
     [InlineData("qam", OemAction.ToggleSteamQuickAccess, ManagedControllerTarget.SteamDeckComposite, false)]
-    [InlineData("qam", OemAction.ToggleSteamQuickAccess, ManagedControllerTarget.Xbox360, true)]
-    [InlineData("guide", OemAction.ToggleSteamQuickAccess, ManagedControllerTarget.SteamDeckComposite, true)]
-    [InlineData("guide", OemAction.ToggleSteamQuickAccess, ManagedControllerTarget.DualShock4, true)]
-    [InlineData("qam", OemAction.ToggleSteamOverlay, ManagedControllerTarget.Xbox360, true)]
+    [InlineData("qam", OemAction.ToggleSteamQuickAccess, ManagedControllerTarget.Xbox360, false)]
+    [InlineData("qam", OemAction.ToggleSteamOverlay, ManagedControllerTarget.Xbox360, false)]
     [InlineData("m1", OemAction.ToggleSteamOverlay, ManagedControllerTarget.SteamDeckComposite, true)]
-    public async Task ASteamActionPulsesOnlyWhatTheControlDoesNotAlreadyCarry(
+    [InlineData("m1", OemAction.ToggleSteamQuickAccess, ManagedControllerTarget.Xbox360, true)]
+    public async Task OnlyAControlWithoutAPadSteamButtonPulsesOutsideALease(
         string id,
         OemAction action,
         ManagedControllerTarget target,
