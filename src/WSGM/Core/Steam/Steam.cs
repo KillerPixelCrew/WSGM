@@ -24,8 +24,9 @@ public static class Steam
     public const string ProcessNames = "steam;steamwebhelper";
 
     /// <summary>
-    ///     Big Picture window class (paired with the steamwebhelper process —
-    ///     SDL_app alone is not unique to Steam).
+    ///     Big Picture window class, paired with a Steam process. The desktop client's windows are SDL_app too, so
+    ///     Big Picture is the unowned one without caption and sizing frame (measured 2026-11-01: desktop "Steam"
+    ///     0x94CF0000, Big Picture 0x94020000 full-screen; its title is localized, so it is not used).
     /// </summary>
     private const string BigPictureWindowClass = "SDL_app";
 
@@ -154,7 +155,7 @@ public static class Steam
     /// <returns>The window handle, or <see cref="IntPtr.Zero" />.</returns>
     public static nint FindBigPictureWindow()
     {
-        return WindowFinder.FindWindow(ProcessNames, BigPictureWindowClass);
+        return WindowFinder.FindWindow(ProcessNames, BigPictureWindowClass, frameless: true);
     }
 
     /// <summary>Finds Steam's Big Picture window among processes the caller already enumerated.</summary>
@@ -162,7 +163,7 @@ public static class Steam
     /// <returns>The window handle, or <see cref="IntPtr.Zero" />.</returns>
     internal static nint FindBigPictureWindow(HashSet<uint> steamProcessIds)
     {
-        return WindowFinder.FindWindow(steamProcessIds, BigPictureWindowClass);
+        return WindowFinder.FindWindow(steamProcessIds, BigPictureWindowClass, frameless: true);
     }
 
     private static string? ResolveExePath()

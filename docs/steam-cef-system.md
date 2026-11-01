@@ -90,7 +90,7 @@ Steam Input proxy.
 | Fact                | Value                                                                                                     |
 | ------------------- | --------------------------------------------------------------------------------------------------------- |
 | Process names       | `steam`, `steamwebhelper`; only `steam.exe` services `steam://` URLs                                      |
-| Big Picture window  | class `SDL_app` owned by a Steam process; `IsBigPictureVisible` is stronger than `IsRunning` on purpose   |
+| Big Picture window  | unowned `SDL_app` Steam window without caption or sizing frame; the desktop client uses `SDL_app` too     |
 | URLs                | `steam://open/bigpicture`, `steam://close/bigpicture`, `steam://exit`                                     |
 | Shortcuts           | Ctrl+1 opens the Steam menu, Ctrl+2 the Quick Access Menu, sent without a foreground gate                 |
 | Update stop         | 10 s budget, 5 s graceful `steam://exit` window, then full forced termination                             |

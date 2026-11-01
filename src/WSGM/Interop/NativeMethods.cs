@@ -84,6 +84,10 @@ internal static partial class NativeMethods
 
     // ---- Switchable-window enumeration (alt-tab style) ----
     internal const int GwlExStyle = -20;
+    internal const int GwlStyle = -16;
+    internal const uint GwOwner = 4;
+    internal const int WsCaption = 0x00C00000;
+    internal const int WsThickFrame = 0x00040000;
     internal const int WsExToolWindow = 0x0080;
     internal const uint DwmWaCloaked = 14;
 
@@ -528,6 +532,9 @@ internal static partial class NativeMethods
 
     [LibraryImport("user32.dll", EntryPoint = "GetWindowLongW")]
     internal static partial int GetWindowLong(nint hWnd, int nIndex);
+
+    [LibraryImport("user32.dll")]
+    internal static partial nint GetWindow(nint hWnd, uint uCmd);
 
     [LibraryImport("user32.dll", EntryPoint = "GetWindowTextW", StringMarshalling = StringMarshalling.Utf16)]
     internal static partial int GetWindowTextW(nint hWnd, [Out] char[] text, int maxCount);

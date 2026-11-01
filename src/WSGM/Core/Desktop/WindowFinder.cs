@@ -79,17 +79,22 @@ public static class WindowFinder
     /// <summary>Finds the first qualifying top-level window owned by an allowed process.</summary>
     /// <param name="processNames">Semicolon-separated process names that may own the window.</param>
     /// <param name="windowClass">An optional exact Win32 window-class filter.</param>
+    /// <param name="frameless">Only an unowned window without caption and sizing frame.</param>
     /// <returns>The native window handle, or zero when no qualifying window exists.</returns>
-    public static nint FindWindow(string processNames, string? windowClass)
+    public static nint FindWindow(string processNames, string? windowClass, bool frameless = false)
     {
-        return FindWindow(ProcessLookup.FindProcessIds(processNames), windowClass);
+        return FindWindow(ProcessLookup.FindProcessIds(processNames), windowClass, frameless);
     }
 
     /// <summary>Finds the first qualifying top-level window owned by one of the given processes.</summary>
     /// <param name="processIds">The process ids that may own the window.</param>
     /// <param name="windowClass">An optional exact Win32 window-class filter.</param>
+    /// <param name="frameless">
+    ///     Only an unowned window without caption and sizing frame, such as a full-screen app window rather than
+    ///     an ordinary resizable one or a menu.
+    /// </param>
     /// <returns>The native window handle, or zero when no qualifying window exists.</returns>
-    public static unsafe nint FindWindow(HashSet<uint> processIds, string? windowClass)
+    public static unsafe nint FindWindow(HashSet<uint> processIds, string? windowClass, bool frameless = false)
     {
         if (processIds.Count == 0)
         {
@@ -97,7 +102,10 @@ public static class WindowFinder
         }
 
         var state = new SearchState
-            { ProcessIds = processIds, WindowClass = string.IsNullOrWhiteSpace(windowClass) ? null : windowClass };
+        {
+            ProcessIds = processIds, WindowClass = string.IsNullOrWhiteSpace(windowClass) ? null : windowClass,
+            Frameless = frameless
+        };
         RunEnumWindows(&EnumWindowsProc, state);
         return state.Found;
     }
@@ -137,6 +145,14 @@ public static class WindowFinder
             {
                 return 1;
             }
+        }
+
+        if (state.Frameless
+            && (NativeMethods.GetWindow(hWnd, NativeMethods.GwOwner) != 0
+                || (NativeMethods.GetWindowLong(hWnd, NativeMethods.GwlStyle)
+                    & (NativeMethods.WsCaption | NativeMethods.WsThickFrame)) != 0))
+        {
+            return 1;
         }
 
         state.Found = hWnd;
@@ -369,6 +385,7 @@ public static class WindowFinder
         public nint Found;
         public required HashSet<uint> ProcessIds;
         public string? WindowClass;
+        public bool Frameless;
     }
 
     private sealed class ListState
