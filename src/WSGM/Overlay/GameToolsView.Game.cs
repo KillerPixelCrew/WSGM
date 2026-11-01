@@ -17,6 +17,7 @@ public sealed partial class GameToolsView
     private readonly Dictionary<string, string> _draftChannel = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _draftProxy = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Dictionary<string, string>> _draftSettings = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Dictionary<string, bool>> _draftAddons = new(StringComparer.Ordinal);
     private uint _appId;
     private string _gameName = "";
 
@@ -37,6 +38,7 @@ public sealed partial class GameToolsView
         _appId = 0;
         _gameName = "";
         _draftSettings.Clear();
+        _draftAddons.Clear();
         _draftProxy.Clear();
         _draftChannel.Clear();
     }

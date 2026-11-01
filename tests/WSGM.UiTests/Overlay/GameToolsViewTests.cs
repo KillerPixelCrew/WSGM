@@ -20,6 +20,8 @@ public sealed class GameToolsViewTests
     [InlineData("overlay-game-tools-game-980", "game", 980, 640)]
     [InlineData("overlay-game-tools-installed-1280", "installed", 1280, 800)]
     [InlineData("overlay-game-tools-installed-980", "installed", 980, 640)]
+    [InlineData("overlay-game-tools-addons-1280", "addons", 1280, 800)]
+    [InlineData("overlay-game-tools-addons-980", "addons", 980, 640)]
     [InlineData("overlay-game-tools-installing-1280", "installing", 1280, 800)]
     [InlineData("overlay-game-tools-installing-980", "installing", 980, 640)]
     [InlineData("overlay-game-tools-program-1280", "program", 1280, 800)]
@@ -94,6 +96,44 @@ public sealed class GameToolsViewTests
         var request = Assert.IsType<GameToolsInstallRequest>(Assert.Single(source.Commands).Arguments[0]);
         Assert.Equal("nightly", request.Channel);
         Assert.False(request.AcknowledgeRisk);
+    }
+
+    [AvaloniaFact]
+    public async Task OptiPatcherFollowsItsRecommendationUntilTurnedOffAndTheDraftIsSent()
+    {
+        using UiFixture fixture = new();
+        var (window, source) = PreviewGameTools.Open(fixture, "game", 1280, 800);
+        var toggle = UiFixture.Tagged<ToggleSwitch>(window, "tool:optiscaler.addon:optipatcher.editor");
+        Assert.True(toggle.IsChecked);
+
+        toggle.IsChecked = false;
+        Dispatcher.UIThread.RunJobs();
+        source.Publish(GameToolsFixtures.NotInstalled with { Notice = "Checked for updates." });
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(UiFixture.Tagged<ToggleSwitch>(window, "tool:optiscaler.addon:optipatcher.editor").IsChecked);
+        Assert.Empty(source.Commands);
+
+        UiFixture.Click(window, UiFixture.Tagged<ActionButton>(window, "tool:optiscaler.primary"));
+        await source.NextCommandAsync();
+        var request = Assert.IsType<GameToolsInstallRequest>(Assert.Single(source.Commands).Arguments[0]);
+        Assert.False(request.Addons!["optipatcher"]);
+    }
+
+    [AvaloniaFact]
+    public async Task AnInstalledOptiPatcherIsRemovedAndUpdatedAtOnce()
+    {
+        using UiFixture fixture = new();
+        var (window, source) = PreviewGameTools.Open(fixture, "addons", 1280, 800);
+        UiFixture.Click(window,
+            UiFixture.Tagged<ActionButton>(window, "tool:optiscaler.addon-update:optipatcher"));
+        await source.NextCommandAsync();
+        Assert.Equal("setAddon", source.Commands[^1].Command);
+        Assert.Equal([GameToolsFixtures.Cyberpunk, "optiscaler", "optipatcher", true], source.Commands[^1].Arguments);
+
+        UiFixture.Tagged<ToggleSwitch>(window, "tool:optiscaler.addon:optipatcher.editor").IsChecked = false;
+        await source.NextCommandAsync();
+        Assert.Equal("setAddon", source.Commands[^1].Command);
+        Assert.Equal([GameToolsFixtures.Cyberpunk, "optiscaler", "optipatcher", false], source.Commands[^1].Arguments);
     }
 
     [AvaloniaFact]

@@ -64,6 +64,40 @@ public sealed class GameToolReleasesTests
     }
 
     [Fact]
+    public async Task ALookupIsRetriedAfterADroppedConnectionButNotAfterARateLimit()
+    {
+        using var directory = new TemporaryDirectory();
+        var calls = 0;
+        using var handler = new StubHttpMessageHandler(_ => ++calls switch
+        {
+            1 => throw new HttpRequestException("The connection attempt timed out."),
+            2 => throw new HttpIOException(HttpRequestError.ResponseEnded, "net_http_content_stream_copy_error"),
+            _ => Json(StableReleases.Replace("STABLE", Hash('s'), StringComparison.Ordinal))
+        });
+        using var releases = new GameToolReleases(directory.Root, handler);
+        var tool = GameToolCatalog.Current.Find("optiscaler")!;
+
+        var latest = await releases.LatestAsync(tool, tool.DefaultChannel, false, CancellationToken.None);
+
+        Assert.Equal("0.9.4", latest.Release!.Version);
+        Assert.Equal(3, calls);
+
+        using var limited = new StubHttpMessageHandler(_ =>
+        {
+            calls++;
+            return new HttpResponseMessage(HttpStatusCode.Forbidden);
+        });
+        using var limitedReleases = new GameToolReleases(directory.Root, limited);
+        calls = 0;
+
+        var refused = await limitedReleases.LatestAsync(tool, tool.DefaultChannel, false, CancellationToken.None);
+
+        Assert.Null(refused.Release);
+        Assert.Equal("GitHub is limiting requests right now. Try again later.", refused.Error);
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
     public async Task PrepareReportsTheDownloadThenThePackageCheck()
     {
         using var directory = new TemporaryDirectory();

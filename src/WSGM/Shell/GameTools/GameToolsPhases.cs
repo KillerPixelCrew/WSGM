@@ -19,6 +19,8 @@ internal static class GameToolsPhases
             GameToolPhase.Download => "Downloading " + tool + (version is { Length: > 0 } ? " " + version : "")
                                       + (provider is { Length: > 0 } ? " from " + provider : ""),
             GameToolPhase.Verify => "Checking the package",
+            GameToolPhase.Copy when operation == "removeAddon" => "Removing " + tool,
+            GameToolPhase.Copy when operation == "addAddon" => "Copying " + tool,
             GameToolPhase.Copy => "Backing up game files and copying " + tool,
             GameToolPhase.Settings => operation == "configure" ? "Saving settings" : "Applying settings",
             GameToolPhase.Remove => "Removing " + tool + " and restoring the game's files",

@@ -108,7 +108,8 @@
         "nvapi64.dll",
         "D3D12_Optiscaler/*",
         "Licenses/*",
-        "OptiScaler/*"
+        "OptiScaler/*",
+        "plugins/OptiPatcher.asi"
       ],
       "legacyFiles": [
         "OptiScaler.ini",
@@ -132,6 +133,39 @@
       "families": [
         { "id": "v09", "pattern": "^0[.]9([.]|$)" },
         { "id": "v10", "pattern": "^(0[.]10|10)([.]|$)" }
+      ],
+      "addons": [
+        {
+          "id": "optipatcher",
+          "name": "OptiPatcher",
+          "description": "An OptiScaler plugin that unlocks this game's DLSS and DLSS frame generation inputs without spoofing an NVIDIA graphics card, which saves the spoofing's overhead.",
+          "homepage": "https://github.com/optiscaler/OptiPatcher",
+          "license": "MIT",
+          "source": {
+            "provider": "GitHub",
+            "baseUrl": "https://api.github.com/",
+            "repository": "optiscaler/OptiPatcher",
+            "assetPattern": "^OptiPatcher[.]asi$",
+            "channel": "stable",
+            "packageType": "asi"
+          },
+          "file": "plugins/OptiPatcher.asi",
+          "familyFiles": { "v10": "OptiScaler/plugins/OptiPatcher.asi" },
+          "configSection": "Plugins",
+          "configKey": "LoadAsiPlugins",
+          "configOn": "true",
+          "configOff": "auto",
+          "vendors": ["amd", "intel"],
+          "vendorNotes": { "nvidia": "Not needed on NVIDIA graphics." },
+          "supportUrl": "https://raw.githubusercontent.com/optiscaler/OptiPatcher/main/OptiPatcher/dllmain.cpp",
+          "supportRules": [
+            {
+              "pattern": "CHECK_UE\\s*\\(\\s*([A-Za-z0-9_]+)\\s*\\)",
+              "names": ["{0}-win64-shipping.exe", "{0}-wingdk-shipping.exe"]
+            },
+            { "pattern": "exeName\\s*==\\s*[\"']([^\"']+)[\"']", "names": ["{0}"] }
+          ]
+        }
       ],
       "settings": [
         {

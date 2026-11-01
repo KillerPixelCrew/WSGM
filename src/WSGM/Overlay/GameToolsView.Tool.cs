@@ -55,6 +55,11 @@ public sealed partial class GameToolsView
                 AddRow(rows, SettingRow(tool, setting, editable && setting.Available,
                     installed && tool.Actions.Contains("configure")));
             }
+
+            foreach (var addon in tool.Addons)
+            {
+                AddRow(rows, AddonRow(tool, addon, idle && addon.CanChange, installed));
+            }
         }
 
         if (rows.Children.Count > 0)
@@ -256,9 +261,12 @@ public sealed partial class GameToolsView
             "repair" => "Repairing",
             "configure" => "Saving settings",
             "remove" => "Removing",
+            "addAddon" => "Adding plugin",
+            "removeAddon" => "Removing plugin",
             _ => "Working"
         };
-        return busy.Version is { Length: > 0 } version && busy.Operation is not ("configure" or "remove")
+        return busy.Version is { Length: > 0 } version
+               && busy.Operation is not ("configure" or "remove" or "addAddon" or "removeAddon")
             ? verb + " " + version
             : verb;
     }
@@ -367,7 +375,8 @@ public sealed partial class GameToolsView
     private Border ProgressPanel(GameToolsState state, GameToolsBusy busy)
     {
         var panel = new StackPanel { Spacing = 14 };
-        var installs = busy.Operation is "install" or "replaceExisting" or "update" or "switchChannel" or "repair";
+        var installs = busy.Operation is "install" or "replaceExisting" or "update" or "switchChannel" or "repair"
+            or "addAddon" or "removeAddon";
         if (installs)
         {
             panel.Children.Add(Steps(busy.Phase));
@@ -379,6 +388,7 @@ public sealed partial class GameToolsView
             "update" => "update",
             "switchChannel" => "switch",
             "repair" => "repair",
+            "addAddon" or "removeAddon" => "change",
             _ => "install"
         };
         panel.Children.Add(Caption(!installs
@@ -601,6 +611,55 @@ public sealed partial class GameToolsView
         }
     }
 
+    // An add-on is a switch: a draft that goes out with Install, or added and removed at once afterwards.
+    private Grid AddonRow(GameToolsTool tool, GameToolsAddon addon, bool enabled, bool installed)
+    {
+        var key = "tool:" + tool.Id + ".addon:" + addon.Id;
+        var on = AddonOn(tool, addon, installed);
+        var description = string.Join(" ", new[] { addon.Description, addon.Text, addon.Note ?? "" }
+            .Where(part => part.Length > 0));
+        var toggle = new ToggleSwitch
+        {
+            IsChecked = on, IsEnabled = enabled, OnContent = null, OffContent = null,
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
+        toggle.IsCheckedChanged += (_, _) =>
+        {
+            var chosen = toggle.IsChecked == true;
+            if (chosen == on)
+            {
+                return;
+            }
+
+            if (installed)
+            {
+                RunTool((service, token) => service.SetAddonAsync(_appId, tool.Id, addon.Id, chosen, token),
+                    chosen ? "add " + addon.Name : "remove " + addon.Name);
+                return;
+            }
+
+            if (!_draftAddons.TryGetValue(tool.Id, out var draft))
+            {
+                draft = new Dictionary<string, bool>(StringComparer.Ordinal);
+                _draftAddons[tool.Id] = draft;
+            }
+
+            draft[addon.Id] = chosen;
+            CurrentLevel?.Invoke();
+        };
+        return ValueRow(key, addon.Name, description, toggle);
+    }
+
+    /// <summary>Whether a card shows an add-on on: installed, else the user's draft, else its recommendation.</summary>
+    private bool AddonOn(GameToolsTool tool, GameToolsAddon addon, bool installed)
+    {
+        return installed
+            ? addon.Installed
+            : _draftAddons.GetValueOrDefault(tool.Id)?.TryGetValue(addon.Id, out var draft) == true
+                ? draft
+                : addon.Recommended;
+    }
+
     // ---- Supporting actions and the footer ----
 
     private Grid? Secondary(GameToolsTool tool, GameToolsChannel channel, bool idle)
@@ -621,6 +680,14 @@ public sealed partial class GameToolsView
         {
             left.Add(Command(key + ".repair", "Repair", idle
                 ? () => RunTool((service, token) => service.RepairAsync(_appId, tool.Id, token), "repair")
+                : null));
+        }
+
+        foreach (var addon in tool.Addons.Where(addon => addon is { Installed: true, UpdateAvailable: true }))
+        {
+            left.Add(Command(key + ".addon-update:" + addon.Id, "Update " + addon.Name, idle && addon.CanChange
+                ? () => RunTool((service, token) => service.SetAddonAsync(_appId, tool.Id, addon.Id, true, token),
+                    "update " + addon.Name)
                 : null));
         }
 
@@ -814,8 +881,12 @@ public sealed partial class GameToolsView
         var shown = ProxyFor(tool);
         var proxy = shown == tool.ProxyName ? null : shown;
         var channel = DraftChannel(tool).Id;
+
+        // Every add-on the card shows goes out as shown, so a recommendation the user left on is installed too.
+        var addons = tool.Addons.ToDictionary(addon => addon.Id, addon => AddonOn(tool, addon, false),
+            StringComparer.Ordinal);
         return new GameToolsInstallRequest(_appId, tool.Id, proxy, settings, acknowledgeRisk, replaceExisting,
-            channel == tool.Channels[0].Id ? null : channel);
+            channel == tool.Channels[0].Id ? null : channel, addons.Count > 0 ? addons : null);
     }
 
     /// <summary>The channel the card shows: the user's draft while offered, otherwise the one the tool follows.</summary>

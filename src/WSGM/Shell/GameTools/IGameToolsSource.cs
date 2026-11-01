@@ -93,6 +93,19 @@ internal interface IGameToolsSource : IChangeSource
     Task<SteamUiCommandResult> ConfigureAsync(uint appId, string toolId, string? proxyName,
         IReadOnlyDictionary<string, string> settings, CancellationToken cancellationToken);
 
+    /// <summary>Adds, updates or removes one add-on of an installed tool.</summary>
+    /// <param name="appId">The game.</param>
+    /// <param name="toolId">The tool.</param>
+    /// <param name="addonId">The add-on.</param>
+    /// <param name="enabled">
+    ///     True installs it, or its latest build when it is installed; false removes it. Adding needs the game on
+    ///     the add-on's support list.
+    /// </param>
+    /// <param name="cancellationToken">The request's cancellation.</param>
+    /// <returns>Whether the work was admitted.</returns>
+    Task<SteamUiCommandResult> SetAddonAsync(uint appId, string toolId, string addonId, bool enabled,
+        CancellationToken cancellationToken);
+
     /// <summary>Removes a tool and restores the game files it replaced.</summary>
     /// <param name="appId">The game.</param>
     /// <param name="toolId">The tool.</param>

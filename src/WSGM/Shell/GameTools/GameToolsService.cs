@@ -316,7 +316,8 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
             tool => GameToolAdmission.Settings(tool, request.Settings)
                     ?? (request.Channel is { } channel && tool.Channel(channel) is null
                         ? "Unknown release channel."
-                        : null),
+                        : null)
+                    ?? (request.Addons?.Keys.Any(id => tool.Addon(id) is null) == true ? "Unknown add-on." : null),
             (tool, context, token) => InstallCoreAsync(tool, request, context, token));
     }
 
@@ -379,6 +380,53 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
                     () => _running.ClosedMessage(target)), CancellationToken.None).ConfigureAwait(false);
                 return outcome.Notice;
             });
+    }
+
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> SetAddonAsync(uint appId, string toolId, string addonId, bool enabled,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var operation = enabled ? "addAddon" : "removeAddon";
+        return Start(appId, toolId, operation, tool => tool.Addon(addonId) is null ? "Unknown add-on." : null,
+            async (tool, context, token) =>
+            {
+                var addon = tool.Addon(addonId)!;
+                var (target, manifest) = await InstalledAsync(tool, appId).ConfigureAwait(false);
+                GameToolAdmission.RequireCompleted(manifest);
+                var installed = manifest.Addons.Any(record => record.Id == addon.Id);
+                if (!enabled && !installed)
+                {
+                    throw new GameToolException(addon.Name + " isn't installed.");
+                }
+
+                if (enabled && !installed)
+                {
+                    // Turning an add-on on is only offered for a game on its list; the list is checked again here.
+                    var support = await Releases.SupportAsync(tool, addon, false, token).ConfigureAwait(false);
+                    var program = Path.GetFileName(manifest.RuntimeExecutable);
+                    if (!support.Supports(program))
+                    {
+                        throw new GameToolException(support.Error ?? addon.Name + " doesn't support " + program + ".");
+                    }
+                }
+
+                await RequireClosedAsync(target).ConfigureAwait(false);
+                var channel = tool.ChannelOrDefault(manifest.Channel);
+                var package = await Releases.PrepareAsync(tool, channel, GameToolReleases.FromManifest(manifest),
+                    context.Progress, token).ConfigureAwait(false);
+                IEnumerable<GameToolAddon> addons = manifest.Addons.Select(record => tool.Addon(record.Id))
+                    .OfType<GameToolAddon>().Where(item => item.Id != addon.Id);
+                package = await WithAddonsAsync(tool, package, enabled ? addons.Append(addon) : addons, manifest,
+                    target.Architecture, context, token).ConfigureAwait(false);
+                context.Phase(GameToolPhase.Copy, false);
+                var outcome = await _installer.InstallAsync(tool, target, package,
+                        new GameToolRequest(operation, manifest.ProxyName,
+                            new Dictionary<string, string>(StringComparer.Ordinal), false, channel.Id),
+                        manifest, () => _running.ClosedMessage(target), phase => context.Phase(phase, false), token)
+                    .ConfigureAwait(false);
+                return outcome.Notice;
+            }, tool => tool.Addon(addonId)?.Name);
     }
 
     /// <inheritdoc />
@@ -484,6 +532,9 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         context.Release(channel, release);
         var package = await Releases.PrepareAsync(tool, channel, release, context.Progress, token)
             .ConfigureAwait(false);
+        package = await WithAddonsAsync(tool, package,
+            await InstallAddonsAsync(tool, request, Path.GetFileName(target.RuntimeExecutable), token)
+                .ConfigureAwait(false), null, target.Architecture, context, token).ConfigureAwait(false);
         context.Phase(GameToolPhase.Copy, false);
 
         // Inspected after the download, right before planning, so the install sees the folder as it is now.
@@ -510,6 +561,11 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         context.Release(channel, chosen);
         var package = await Releases.PrepareAsync(tool, channel, chosen, context.Progress, token)
             .ConfigureAwait(false);
+
+        // Installed add-ons go along with the latest build, so an update or repair keeps what the user chose.
+        package = await WithAddonsAsync(tool, package,
+            manifest.Addons.Select(record => tool.Addon(record.Id)).OfType<GameToolAddon>(), manifest,
+            target.Architecture, context, token).ConfigureAwait(false);
         context.Phase(GameToolPhase.Copy, false);
         var outcome = await _installer.InstallAsync(tool, target, package,
                 new GameToolRequest(operation, manifest.ProxyName,
@@ -517,6 +573,60 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
                 manifest, () => _running.ClosedMessage(target), phase => context.Phase(phase, false), token)
             .ConfigureAwait(false);
         return outcome.Notice;
+    }
+
+    // A fresh install takes the add-ons the user turned on, and otherwise those recommended for this game: on its
+    // support list and useful on this machine's graphics.
+    private async Task<IReadOnlyList<GameToolAddon>> InstallAddonsAsync(GameToolDefinition tool,
+        GameToolsInstallRequest request, string program, CancellationToken token)
+    {
+        List<GameToolAddon> chosen = [];
+        foreach (var addon in tool.Addons)
+        {
+            var requested = request.Addons?.TryGetValue(addon.Id, out var on) == true ? on : (bool?)null;
+            if (requested == false)
+            {
+                continue;
+            }
+
+            var support = await Releases.SupportAsync(tool, addon, false, token).ConfigureAwait(false);
+            var supported = support.Supports(program);
+            if (requested == true && !supported)
+            {
+                throw new GameToolException(support.Error ?? addon.Name + " doesn't support " + program + ".");
+            }
+
+            if (supported && (requested == true
+                              || _vendors.Value.Any(vendor => addon.Vendors.Contains(vendor, StringComparer.Ordinal))))
+            {
+                chosen.Add(addon);
+            }
+        }
+
+        return chosen;
+    }
+
+    // Downloads each add-on's latest build. When the lookup fails, the build an installation already has is used
+    // again from the package cache, so a repair works offline.
+    private async Task<GameToolPackage> WithAddonsAsync(GameToolDefinition tool, GameToolPackage package,
+        IEnumerable<GameToolAddon> addons, GameToolManifest? manifest, string architecture, OperationContext context,
+        CancellationToken token)
+    {
+        List<GameToolAddonPackage> prepared = [];
+        foreach (var addon in addons)
+        {
+            var latest = await Releases.LatestAddonAsync(tool, addon, false, token).ConfigureAwait(false);
+            var record = manifest?.Addons.FirstOrDefault(item => item.Id == addon.Id);
+            var release = latest.Release ?? (record is null
+                ? throw new GameToolException(latest.Error ?? "No build of " + addon.Name + " is available.")
+                : new HostedRelease(record.ReleaseVersion, record.ReleaseId, "", addon.Source.Provider,
+                    new ReleaseAsset(record.AssetName, record.SourceUrl, record.AssetSha256)));
+            context.AddonDownload(addon, release);
+            prepared.Add(await Releases.PrepareAddonAsync(tool, addon, release, architecture,
+                (bytes, total) => context.AddonProgress(addon, release, bytes, total), token).ConfigureAwait(false));
+        }
+
+        return package with { Addons = prepared };
     }
 
     private async Task<HostedRelease> LatestReleaseAsync(GameToolDefinition tool, GameToolChannel channel,
@@ -546,9 +656,11 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     }
 
     // Finds the tool and checks the request before admitting the work, then runs it behind the gate.
+    // Subject names what the phase lines talk about when it isn't the tool itself, such as an add-on.
     private Task<SteamUiCommandResult> Start(uint appId, string toolId, string operation,
         Func<GameToolDefinition, string?>? validate,
-        Func<GameToolDefinition, OperationContext, CancellationToken, Task<string>> body)
+        Func<GameToolDefinition, OperationContext, CancellationToken, Task<string>> body,
+        Func<GameToolDefinition, string?>? subject = null)
     {
         if (Catalog.Find(toolId) is not { } tool)
         {
@@ -580,10 +692,11 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
 
             var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
             _operationCancellation = cancellation;
+            var name = subject?.Invoke(tool) ?? tool.Name;
             _busy = new GameToolsBusy(appId, tool.Id, operation, GameToolPhase.Starting,
-                GameToolsPhases.Detail(GameToolPhase.Starting, operation, tool.Name, null, null), 0, 0, true);
+                GameToolsPhases.Detail(GameToolPhase.Starting, operation, name, null, null), 0, 0, true);
             _messages[appId] = (null, null);
-            var context = new OperationContext(this, tool, operation);
+            var context = new OperationContext(this, name, operation);
             _operation = Task.Run(() => RunAsync(appId, tool.Id, operation, context,
                 token => body(tool, context, token), cancellation));
             _operation.ObserveFaults();
@@ -719,7 +832,54 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
             {
                 StartLatestLookup(appId, tool, channel, force);
             }
+
+            foreach (var addon in tool.Addons)
+            {
+                StartAddonLookup(tool, addon, force);
+            }
         }
+    }
+
+    // An add-on's latest build and its support list are read together; the row appears once the list names the
+    // game's program.
+    private void StartAddonLookup(GameToolDefinition tool, GameToolAddon addon, bool force)
+    {
+        if (!force && !Releases.AddonLookupDue(tool, addon))
+        {
+            return;
+        }
+
+        var key = CheckingKey(tool.Id, "addon:" + addon.Id);
+        lock (_sync)
+        {
+            if (_disposed || !_checking.Add(key))
+            {
+                return;
+            }
+        }
+
+        Task.Run(async () =>
+        {
+            try
+            {
+                await Task.WhenAll(Releases.LatestAddonAsync(tool, addon, force, _lifetime.Token),
+                    Releases.SupportAsync(tool, addon, force, _lifetime.Token)).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // The session is stopping.
+            }
+            finally
+            {
+                lock (_sync)
+                {
+                    _checking.Remove(key);
+                }
+
+                RecomposeOpenGames();
+                Changed?.Invoke();
+            }
+        }).ObserveFaults();
     }
 
     // Every channel has its own lookup and cache. A forced check reports the outcome of the channel the game's
@@ -1077,6 +1237,17 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         var relativeTarget = targetDirectory is null
             ? ""
             : GameToolPaths.RelativeDirectory(scan.InstallFolder, targetDirectory);
+
+        // An add-on checks the running program's name: the one the tool was installed beside, else the chosen one.
+        var program = manifest is not null ? Path.GetFileName(manifest.RuntimeExecutable) : chosen?.FileName;
+        var addons = tool.Addons.Select(addon => (Addon: addon, State: GameToolStatus.Addon(addon, manifest, program,
+                Releases.CachedSupport(tool, addon), Releases.CachedAddon(tool, addon)?.Release, _vendors.Value,
+                evaluation.ShowOptions, evaluation.CanEditOptions)))
+            .Where(entry => entry.State.Show)
+            .Select(entry => new GameToolsAddon(entry.Addon.Id, entry.Addon.Name, entry.Addon.Description,
+                entry.Addon.Homepage, entry.Addon.License, entry.State.Support, entry.State.Installed,
+                entry.State.Recommended, entry.State.CanChange, entry.State.Text, entry.State.Note,
+                entry.State.UpdateAvailable)).ToArray();
         return new GameToolsTool(tool.Id, tool.Name, tool.Description, tool.Homepage, tool.License, tool.Notice,
             evaluation.IncompatibleReason, evaluation.Status, evaluation.StatusText,
             manifest is null ? null : GameToolVersions.Installed(manifest),
@@ -1091,7 +1262,7 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
             ],
             evaluation.Warnings, evaluation.Actions,
             new GameToolsFiles(relativeTarget, manifest?.Files.Count ?? 0, manifest?.Replaced.Count ?? 0,
-                inspection?.Missing ?? [], inspection?.Modified ?? []));
+                inspection?.Missing ?? [], inspection?.Modified ?? []), addons);
     }
 
     private static IReadOnlyList<string> DetectVendors(Func<IReadOnlyList<GpuVendor>> detect)
@@ -1206,10 +1377,30 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
 
     /// <summary>Progress reporting handed to one operation.</summary>
     /// <param name="owner">The service publishing the progress.</param>
-    /// <param name="tool">The tool the operation changes.</param>
+    /// <param name="subject">What the operation changes, as the phase lines name it: the tool or an add-on.</param>
     /// <param name="operation">The operation id.</param>
-    private sealed class OperationContext(GameToolsService owner, GameToolDefinition tool, string operation)
+    private sealed class OperationContext(GameToolsService owner, string subject, string operation)
     {
+        /// <summary>Names the add-on build being downloaded, still cancellable.</summary>
+        /// <param name="addon">The add-on.</param>
+        /// <param name="release">Its release.</param>
+        internal void AddonDownload(GameToolAddon addon, HostedRelease release)
+        {
+            AddonProgress(addon, release, 0, release.Asset.Size);
+        }
+
+        /// <summary>Reports an add-on download's bytes.</summary>
+        /// <param name="addon">The add-on.</param>
+        /// <param name="release">Its release.</param>
+        /// <param name="bytes">Bytes copied.</param>
+        /// <param name="total">The expected total.</param>
+        internal void AddonProgress(GameToolAddon addon, HostedRelease release, long bytes, long total)
+        {
+            owner.Report(GameToolPhase.Download, GameToolsPhases.Detail(GameToolPhase.Download, operation,
+                addon.Name, null, release.Provider.Length > 0 ? release.Provider : addon.Source.Provider), bytes,
+                total, true);
+        }
+
         private string? _provider;
         private string? _version;
 
@@ -1243,7 +1434,7 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
 
         private string Detail(string phase)
         {
-            return GameToolsPhases.Detail(phase, operation, tool.Name, _version, _provider);
+            return GameToolsPhases.Detail(phase, operation, subject, _version, _provider);
         }
     }
 }

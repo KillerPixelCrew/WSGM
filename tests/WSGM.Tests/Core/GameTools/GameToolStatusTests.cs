@@ -70,6 +70,56 @@ public sealed class GameToolStatusTests
         Assert.Equal("Likely the game", GameToolStatus.RoleLabel(GameRuntimeRole.Game));
     }
 
+    [Fact]
+    public void OptiPatcherIsOfferedOnlyForAGameOnItsListAndSuggestedOnlyWhereItHelps()
+    {
+        var addon = Tool.Addon("optipatcher")!;
+        var listed = new GameToolAddonSupport(new HashSet<string> { "mgsdelta-win64-shipping.exe" }, null,
+            DateTime.UtcNow);
+
+        var amd = GameToolStatus.Addon(addon, null, "MGSDelta-Win64-Shipping.exe", listed, null, ["amd"], true, true);
+        Assert.True(amd is { Show: true, Support: "supported", Recommended: true, CanChange: true, Installed: false });
+        Assert.Equal("OptiPatcher supports MGSDelta-Win64-Shipping.exe.", amd.Text);
+
+        var nvidia = GameToolStatus.Addon(addon, null, "MGSDelta-Win64-Shipping.exe", listed, null, ["nvidia"],
+            true, true);
+        Assert.True(nvidia is { Show: true, Recommended: false, CanChange: true });
+        Assert.Equal("Not needed on NVIDIA graphics.", nvidia.Note);
+
+        var other = GameToolStatus.Addon(addon, null, "DS2.exe", listed, null, ["amd"], true, true);
+        Assert.False(other.Show);
+
+        var checking = GameToolStatus.Addon(addon, null, "MGSDelta-Win64-Shipping.exe", null, null, ["amd"], true,
+            true);
+        Assert.False(checking.Show);
+
+        var failed = GameToolStatus.Addon(addon, null, "MGSDelta-Win64-Shipping.exe",
+            new GameToolAddonSupport(null, "Couldn't reach GitHub.", DateTime.UtcNow), null, ["amd"], true, true);
+        Assert.True(failed is { Show: true, CanChange: false, Recommended: false, Text: "Couldn't reach GitHub." });
+    }
+
+    [Fact]
+    public void AnInstalledOptiPatcherStaysShownAndOffersANewerBuild()
+    {
+        var addon = Tool.Addon("optipatcher")!;
+        var manifest = Manifest("stable", "0.9.4", "v0.9.4:11:ccc", "Optiscaler_0.9.4-final.20260718._MM.7z",
+            "v09") with
+        {
+            Addons = [new GameToolAddonRecord { Id = "optipatcher", ReleaseId = "rolling:1:aaa", BuildDate = "2026-10-18" }]
+        };
+        var newer = new HostedRelease("rolling", "rolling:1:bbb", "", "GitHub",
+            new ReleaseAsset("OptiPatcher.asi", "https://example.test/OptiPatcher.asi", "bbb", 1,
+                "9:2026-10-30T01:59:01Z"));
+
+        var current = GameToolStatus.Addon(addon, manifest, "Game.exe", null, null, ["amd"], true, true);
+        var outdated = GameToolStatus.Addon(addon, manifest, "Game.exe", null, newer, ["amd"], true, true);
+
+        Assert.True(current is { Show: true, Installed: true, CanChange: true, UpdateAvailable: false });
+        Assert.Equal("Installed, the build of 18 Oct 2026.", current.Text);
+        Assert.True(outdated.UpdateAvailable);
+        Assert.Equal("The build of 30 Oct 2026 is available.", outdated.Text);
+    }
+
     private static GameToolManifest Manifest(string channel, string version, string releaseId, string asset,
         string family)
     {

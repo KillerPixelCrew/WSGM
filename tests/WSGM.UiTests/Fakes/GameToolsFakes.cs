@@ -104,6 +104,13 @@ internal sealed class FakeGameToolsSource(IEnumerable<GameToolsState> states, Ga
     }
 
     /// <inheritdoc />
+    public Task<SteamUiCommandResult> SetAddonAsync(uint appId, string toolId, string addonId, bool enabled,
+        CancellationToken cancellationToken)
+    {
+        return Record("setAddon", appId, toolId, addonId, enabled);
+    }
+
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> RemoveAsync(uint appId, string toolId, CancellationToken cancellationToken)
     {
         return Record("remove", appId, toolId);
@@ -243,7 +250,14 @@ internal static class GameToolsFixtures
                 ProxyIntro = "WSGM renames the installed file. Try another name when the game ignores OptiScaler or "
                              + "crashes.",
                 Actions = ["update", "switchChannel", "configure", "repair", "remove"],
-                Files = new GameToolsFiles("bin/x64", 14, 3, [], [])
+                Files = new GameToolsFiles("bin/x64", 14, 3, [], []),
+                Addons =
+                [
+                    OptiPatcher() with
+                    {
+                        Installed = true, Text = "The build of 30 Oct 2026 is available.", UpdateAvailable = true
+                    }
+                ]
             }
         ]
     };
@@ -377,7 +391,17 @@ internal static class GameToolsFixtures
                     "Skips the message OptiScaler shows when the game starts.", "off", null,
                     [new GameToolsSettingOption("off", "Off"), new GameToolsSettingOption("on", "On")], true, null)
             ],
-            true, true, [], [], ["install"], new GameToolsFiles("", 0, 0, [], []));
+            true, true, [], [], ["install"], new GameToolsFiles("", 0, 0, [], []), [OptiPatcher()]);
+    }
+
+    /// <summary>OptiPatcher, supported by the game's program and recommended on AMD graphics.</summary>
+    internal static GameToolsAddon OptiPatcher()
+    {
+        return new GameToolsAddon("optipatcher", "OptiPatcher",
+            "An OptiScaler plugin that unlocks this game's DLSS and DLSS frame generation inputs without spoofing an "
+            + "NVIDIA graphics card, which saves the spoofing's overhead.",
+            "https://github.com/optiscaler/OptiPatcher", "MIT", "supported", false, true, true,
+            "OptiPatcher supports AlanWake2.exe.", null, false);
     }
 
     private static GameToolsGameSummary Game(uint appId, string name, GameToolsToolSummary tool)

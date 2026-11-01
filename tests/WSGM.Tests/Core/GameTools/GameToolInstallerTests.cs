@@ -60,6 +60,53 @@ public sealed class GameToolInstallerTests
     }
 
     [Fact]
+    public async Task OptiPatcherIsInstalledWithOptiScalerAndRemovedOnItsOwn()
+    {
+        using var directory = new TemporaryDirectory();
+        var game = Path.Combine(directory.Root, "game");
+        Directory.CreateDirectory(game);
+        await File.WriteAllTextAsync(Path.Combine(game, "MGSDelta-Win64-Shipping.exe"), "program");
+        var target = new GameToolTarget(AppId, game, Path.Combine(game, "MGSDelta-Win64-Shipping.exe"), "x64",
+            "unreal");
+        var data = Path.Combine(directory.Root, "data");
+        var installer = new GameToolInstaller(data);
+        var stable = Package(directory.Root, "stable", "0.9.4", "v09", "Optiscaler_0.9.4-final.20260718._MM.7z", []);
+        var addon = Tool.Addon("optipatcher")!;
+        var asi = Path.Combine(directory.Root, "OptiPatcher.asi");
+        await File.WriteAllTextAsync(asi, "patcher");
+        var sha = GameToolInstaller.Sha256(asi);
+        var build = new HostedRelease("rolling", "rolling:1:" + sha, "", "GitHub",
+            new ReleaseAsset("OptiPatcher.asi", "https://example.test/OptiPatcher.asi", sha, 7,
+                "9:2026-10-30T01:59:01Z"));
+
+        var installed = await installer.InstallAsync(Tool, target,
+            stable with { Addons = [new GameToolAddonPackage(addon, build, asi)] },
+            new GameToolRequest("install", "dxgi.dll", new Dictionary<string, string>()), null, () => null,
+            _ => { }, CancellationToken.None);
+
+        Assert.Equal("OptiScaler 0.9.4 installed as dxgi.dll. OptiPatcher added.", installed.Notice);
+        Assert.Equal("patcher", await File.ReadAllTextAsync(Path.Combine(game, "plugins", "OptiPatcher.asi")));
+        Assert.Contains("LoadAsiPlugins=true", await File.ReadAllTextAsync(Path.Combine(game, "OptiScaler.ini")),
+            StringComparison.Ordinal);
+        var record = Assert.Single(installed.Manifest!.Addons);
+        Assert.Equal(("optipatcher", "plugins/OptiPatcher.asi", "2026-10-30"),
+            (record.Id, record.RelativePath, record.BuildDate));
+        Assert.Contains(installed.Manifest.Files, file => file.RelativePath == "plugins/OptiPatcher.asi");
+
+        var removed = await installer.InstallAsync(Tool, target, stable,
+            new GameToolRequest("removeAddon", "dxgi.dll", new Dictionary<string, string>()), installed.Manifest,
+            () => null, _ => { }, CancellationToken.None);
+
+        Assert.Equal("OptiPatcher removed.", removed.Notice);
+        Assert.False(File.Exists(Path.Combine(game, "plugins", "OptiPatcher.asi")));
+        Assert.True(File.Exists(Path.Combine(game, "dxgi.dll")));
+        Assert.Contains("LoadAsiPlugins=auto", await File.ReadAllTextAsync(Path.Combine(game, "OptiScaler.ini")),
+            StringComparison.Ordinal);
+        Assert.Empty(removed.Manifest!.Addons);
+        Assert.DoesNotContain(removed.Manifest.Files, file => file.RelativePath == "plugins/OptiPatcher.asi");
+    }
+
+    [Fact]
     public void ASavedSettingNamesItselfAndItsFileWithoutClaimingWhenItApplies()
     {
         Assert.Equal("Menu scale saved to OptiScaler.ini.",
@@ -79,7 +126,7 @@ public sealed class GameToolInstallerTests
         Directory.CreateDirectory(payload);
         File.WriteAllText(Path.Combine(payload, "OptiScaler.dll"), name);
         File.WriteAllText(Path.Combine(payload, "OptiScaler.ini"),
-            "[Menu]\nScale=auto\nDisableSplash=auto\n[Spoofing]\nDxgi=auto\n");
+            "[Menu]\nScale=auto\nDisableSplash=auto\n[Spoofing]\nDxgi=auto\n[Plugins]\nLoadAsiPlugins=auto\n");
         foreach (var file in bundled)
         {
             var path = Path.Combine(payload, file.Replace('/', '\\'));

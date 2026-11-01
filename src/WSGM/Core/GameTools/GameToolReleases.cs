@@ -7,6 +7,7 @@ using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -32,6 +33,7 @@ internal sealed class GameToolReleases : IDisposable
     private readonly Dictionary<string, GameToolLatest> _latest = new(StringComparer.Ordinal);
     private readonly object _latestGate = new();
     private readonly HostedReleases _releases;
+    private readonly Dictionary<string, GameToolAddonSupport> _support = new(StringComparer.Ordinal);
 
     private readonly string _userRoot;
     private int _swept;
@@ -92,26 +94,215 @@ internal sealed class GameToolReleases : IDisposable
             return cached;
         }
 
-        GameToolLatest answer;
-        try
-        {
-            var release = await _releases.FindAsync(channel.Source.Hosted(), tool.Architectures[0],
-                cancellationToken).ConfigureAwait(false);
-            answer = new GameToolLatest(channel.Normalize(release), null, DateTime.UtcNow);
-        }
-        catch (Exception ex) when (ex is HttpRequestException or InvalidDataException or JsonException
-                                       or TimeoutException or IOException or KeyNotFoundException)
-        {
-            Log.Warn($"Game Tools: release lookup for {tool.Id} ({channel.Id}) failed: {ex.Message}");
-            answer = new GameToolLatest(null, ReleaseError(ex, channel.Source.Provider), DateTime.UtcNow);
-        }
-
+        var answer = await LookupAsync(channel.Source, tool.Id + " (" + channel.Id + ")",
+            release => channel.Normalize(release), tool.Architectures[0], cancellationToken).ConfigureAwait(false);
         lock (_latestGate)
         {
             _latest[Key(tool, channel)] = answer;
         }
 
         return answer;
+    }
+
+    /// <summary>The cached latest build of an add-on without contacting the network.</summary>
+    /// <param name="tool">The tool.</param>
+    /// <param name="addon">The add-on.</param>
+    /// <returns>The cached answer, or null when none has been looked up.</returns>
+    internal GameToolLatest? CachedAddon(GameToolDefinition tool, GameToolAddon addon)
+    {
+        lock (_latestGate)
+        {
+            return _latest.GetValueOrDefault(AddonKey(tool, addon));
+        }
+    }
+
+    /// <summary>The cached support list of an add-on without contacting the network.</summary>
+    /// <param name="tool">The tool.</param>
+    /// <param name="addon">The add-on.</param>
+    /// <returns>The cached answer, or null when it has not been read.</returns>
+    internal GameToolAddonSupport? CachedSupport(GameToolDefinition tool, GameToolAddon addon)
+    {
+        lock (_latestGate)
+        {
+            return _support.GetValueOrDefault(AddonKey(tool, addon));
+        }
+    }
+
+    /// <summary>Whether opening a page should read an add-on's build and support list again.</summary>
+    /// <param name="tool">The tool.</param>
+    /// <param name="addon">The add-on.</param>
+    /// <returns>True when either is unknown or a failure has aged out, as for a channel.</returns>
+    internal bool AddonLookupDue(GameToolDefinition tool, GameToolAddon addon)
+    {
+        return Due(CachedAddon(tool, addon)?.Release is null, CachedAddon(tool, addon)?.CheckedUtc)
+               || Due(CachedSupport(tool, addon)?.Executables is null, CachedSupport(tool, addon)?.CheckedUtc);
+
+        static bool Due(bool failed, DateTime? checkedUtc)
+        {
+            return checkedUtc is not { } at || (failed && DateTime.UtcNow - at >= FailureLifetime);
+        }
+    }
+
+    /// <summary>Looks up an add-on's latest build, reusing a recent answer or failure unless forced.</summary>
+    /// <param name="tool">The tool.</param>
+    /// <param name="addon">The add-on.</param>
+    /// <param name="force">Whether to bypass the cache.</param>
+    /// <param name="cancellationToken">Cancels the lookup.</param>
+    /// <returns>The answer; a failure is carried in it rather than thrown.</returns>
+    internal async Task<GameToolLatest> LatestAddonAsync(GameToolDefinition tool, GameToolAddon addon, bool force,
+        CancellationToken cancellationToken)
+    {
+        if (!force && CachedAddon(tool, addon) is { } cached
+                   && DateTime.UtcNow - cached.CheckedUtc < (cached.Release is null ? FailureLifetime : LatestLifetime))
+        {
+            return cached;
+        }
+
+        var answer = await LookupAsync(addon.Source, tool.Id + " " + addon.Id, release => release,
+            tool.Architectures[0], cancellationToken).ConfigureAwait(false);
+        lock (_latestGate)
+        {
+            _latest[AddonKey(tool, addon)] = answer;
+        }
+
+        return answer;
+    }
+
+    /// <summary>Reads the games an add-on supports, reusing a recent answer or failure unless forced.</summary>
+    /// <param name="tool">The tool.</param>
+    /// <param name="addon">The add-on.</param>
+    /// <param name="force">Whether to bypass the cache.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The answer; a failure is carried in it rather than thrown.</returns>
+    /// <remarks>
+    ///     The list is read from the publisher's source with the catalog's rules, as OptiScaler's setup script reads
+    ///     it. A source without a single supported name is reported as unreadable rather than as "nothing supported".
+    /// </remarks>
+    internal async Task<GameToolAddonSupport> SupportAsync(GameToolDefinition tool, GameToolAddon addon, bool force,
+        CancellationToken cancellationToken)
+    {
+        if (!force && CachedSupport(tool, addon) is { } cached
+                   && DateTime.UtcNow - cached.CheckedUtc
+                   < (cached.Executables is null ? FailureLifetime : LatestLifetime))
+        {
+            return cached;
+        }
+
+        GameToolAddonSupport answer;
+        for (var attempt = 1;; attempt++)
+        {
+            try
+            {
+                var text = await _client.TextAsync(addon.SupportUrl, cancellationToken).ConfigureAwait(false);
+                var names = GameToolAddonSupport.Parse(text, addon.SupportRules);
+                answer = names.Count > 0
+                    ? new GameToolAddonSupport(names, null, DateTime.UtcNow)
+                    : new GameToolAddonSupport(null, "The list of games " + addon.Name + " supports couldn't be read.",
+                        DateTime.UtcNow);
+                break;
+            }
+            catch (Exception ex) when (attempt < 3 && Transient(ex) && !cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(attempt), cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TimeoutException or IOException
+                                           or InvalidDataException or RegexMatchTimeoutException)
+            {
+                Log.Warn($"Game Tools: reading the games {addon.Id} supports failed after {attempt} attempts: "
+                         + ex.Message);
+                answer = new GameToolAddonSupport(null,
+                    ex is RegexMatchTimeoutException or InvalidDataException
+                        ? "The list of games " + addon.Name + " supports couldn't be read."
+                        : "Couldn't reach " + addon.Source.Provider + " to check which games " + addon.Name
+                          + " supports.",
+                    DateTime.UtcNow);
+                break;
+            }
+        }
+
+        lock (_latestGate)
+        {
+            _support[AddonKey(tool, addon)] = answer;
+        }
+
+        return answer;
+    }
+
+    /// <summary>Returns a verified add-on file for a release, downloading it once.</summary>
+    /// <param name="tool">The tool.</param>
+    /// <param name="addon">The add-on.</param>
+    /// <param name="release">The add-on's release.</param>
+    /// <param name="architecture">The game's architecture, which the file must match.</param>
+    /// <param name="progress">Receives the bytes copied and the expected total.</param>
+    /// <param name="cancellationToken">Cancels the download.</param>
+    /// <returns>The verified file, cached under the package root by its hash.</returns>
+    /// <exception cref="InvalidDataException">No checksum was published, or the file is not a matching library.</exception>
+    internal async Task<GameToolAddonPackage> PrepareAddonAsync(GameToolDefinition tool, GameToolAddon addon,
+        HostedRelease release, string architecture, Action<long, long> progress, CancellationToken cancellationToken)
+    {
+        var sha = UpdateChecker.ParseHash(release.Asset.Sha256)
+                  ?? throw new InvalidDataException("The publisher didn't provide a checksum for " + addon.Name
+                                                    + ", so WSGM won't install it.");
+        release = release with { Asset = release.Asset with { Sha256 = sha } };
+        var directory = Path.Combine(GameToolStorage.DataRoot(_userRoot), "packages", tool.Id, "addons",
+            addon.Id + "-" + sha[..12]);
+        var file = Path.Combine(directory, addon.FileName);
+        if (File.Exists(file) && GameToolInstaller.Sha256(file) == sha)
+        {
+            return ValidateAddon(addon, release, file, architecture);
+        }
+
+        Directory.CreateDirectory(directory);
+        var stage = file + ".stage-" + Guid.NewGuid().ToString("N");
+        try
+        {
+            await DownloadAsync(release.Asset, stage, copied => progress(copied, release.Asset.Size),
+                cancellationToken).ConfigureAwait(false);
+            ValidateAddon(addon, release, stage, architecture);
+            File.Move(stage, file, true);
+            return new GameToolAddonPackage(addon, release, file);
+        }
+        finally
+        {
+            FileCleanup.TryDelete(stage);
+        }
+    }
+
+    private static GameToolAddonPackage ValidateAddon(GameToolAddon addon, HostedRelease release, string file,
+        string architecture)
+    {
+        if (PeImage.TryArchitecture(file) != architecture)
+        {
+            throw new InvalidDataException("The downloaded " + addon.Name + " doesn't match the game's architecture.");
+        }
+
+        return new GameToolAddonPackage(addon, release, file);
+    }
+
+    // A lookup gets the download's three attempts on transient failures, so a network that is still coming up
+    // after a restart or resume does not leave a failure cached for ten minutes.
+    private async Task<GameToolLatest> LookupAsync(GameToolSource source, string name,
+        Func<HostedRelease, HostedRelease> normalize, string architecture, CancellationToken cancellationToken)
+    {
+        for (var attempt = 1;; attempt++)
+        {
+            try
+            {
+                var release = await _releases.FindAsync(source.Hosted(), architecture, cancellationToken)
+                    .ConfigureAwait(false);
+                return new GameToolLatest(normalize(release), null, DateTime.UtcNow);
+            }
+            catch (Exception ex) when (attempt < 3 && Transient(ex) && !cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(attempt), cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or InvalidDataException or JsonException
+                                           or TimeoutException or IOException or KeyNotFoundException)
+            {
+                Log.Warn($"Game Tools: release lookup for {name} failed after {attempt} attempts: {ex.Message}");
+                return new GameToolLatest(null, ReleaseError(ex, source.Provider), DateTime.UtcNow);
+            }
+        }
     }
 
     /// <summary>Returns a verified package for a release, downloading it once.</summary>
@@ -317,11 +508,17 @@ internal sealed class GameToolReleases : IDisposable
         return tool.Id + "/" + channel.Id;
     }
 
+    // A channel id can't contain a colon, so an add-on's key never meets one.
+    private static string AddonKey(GameToolDefinition tool, GameToolAddon addon)
+    {
+        return tool.Id + "/addon:" + addon.Id;
+    }
+
     private static string ReleaseError(Exception ex, string provider)
     {
         return ex is HttpRequestException { StatusCode: HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests }
             ? provider + " is limiting requests right now. Try again later."
-            : ex is HttpRequestException or TimeoutException
+            : ex is HttpRequestException or TimeoutException or HttpIOException
                 ? "Couldn't reach " + provider + " to check for releases."
                 : "Couldn't read the published releases: " + ex.Message;
     }

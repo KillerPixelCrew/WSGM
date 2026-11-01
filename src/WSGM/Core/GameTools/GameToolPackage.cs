@@ -21,6 +21,12 @@ internal sealed record GameToolPackage(
     internal IReadOnlyDictionary<string, (string Sha256, long Size)> Hashes { get; init; } =
         new Dictionary<string, (string Sha256, long Size)>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    ///     The add-ons installed with this package. An add-on the current installation has and this list lacks is
+    ///     removed by the transaction, like a file a new version no longer ships.
+    /// </summary>
+    internal IReadOnlyList<GameToolAddonPackage> Addons { get; init; } = [];
+
     /// <summary>The SHA-256 of a payload file, from the extraction record while its size still matches.</summary>
     /// <param name="relativePath">The forward-slash path relative to <see cref="Root" />.</param>
     /// <param name="source">The file's absolute path.</param>

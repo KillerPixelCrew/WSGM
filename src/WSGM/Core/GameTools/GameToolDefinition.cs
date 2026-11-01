@@ -66,6 +66,9 @@ internal sealed record GameToolDefinition
     /// <summary>Settings mapped onto configuration keys.</summary>
     public GameToolSetting[] Settings { get; init; } = [];
 
+    /// <summary>Optional plugins the tool loads, offered for the games their publishers support.</summary>
+    public GameToolAddon[] Addons { get; init; } = [];
+
     /// <summary>The channel a game uses until the user chooses another.</summary>
     internal GameToolChannel DefaultChannel => Channels[0];
 
@@ -78,6 +81,14 @@ internal sealed record GameToolDefinition
     internal GameToolChannel? Channel(string? id)
     {
         return Channels.FirstOrDefault(channel => channel.Id == id);
+    }
+
+    /// <summary>Finds an add-on by id.</summary>
+    /// <param name="id">The add-on id.</param>
+    /// <returns>The add-on, or null when the tool has no such add-on.</returns>
+    internal GameToolAddon? Addon(string? id)
+    {
+        return Addons.FirstOrDefault(addon => addon.Id == id);
     }
 
     /// <summary>The channel a manifest was installed from; an unknown or empty id is the default channel.</summary>

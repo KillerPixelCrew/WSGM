@@ -65,8 +65,10 @@ const gameToolsWorking = (busy) => {
       repair: "Repairing",
       configure: "Saving settings",
       remove: "Removing",
+      addAddon: "Adding plugin",
+      removeAddon: "Removing plugin",
     }[busy.operation] ?? "Working";
-  return busy.version && busy.operation !== "configure" && busy.operation !== "remove"
+  return busy.version && !["configure", "remove", "addAddon", "removeAddon"].includes(busy.operation)
     ? `${verb} ${busy.version}`
     : verb;
 };
@@ -208,8 +210,13 @@ const gameToolsTags = (tool, channel, working: boolean, busy) => {
  * @returns The progress block.
  */
 const gameToolsProgress = (ui, busy, onCancel: () => void) => {
-  const installs = ["install", "replaceExisting", "update", "switchChannel", "repair"].includes(busy.operation);
-  const noun = { update: "update", switchChannel: "switch", repair: "repair" }[busy.operation] ?? "install";
+  const installs = ["install", "replaceExisting", "update", "switchChannel", "repair", "addAddon", "removeAddon"].includes(
+    busy.operation,
+  );
+  const noun =
+    { update: "update", switchChannel: "switch", repair: "repair", addAddon: "change", removeAddon: "change" }[
+      busy.operation
+    ] ?? "install";
   const amount =
     busy.bytes > 0
       ? busy.total > 0
@@ -253,12 +260,18 @@ function GameToolsTool({ ui, state, tool, draft, game, idle, act, setDraft, conf
   const channel = gameToolsChannel(tool, draft);
   const proxyName = gameToolsProxy(tool, draft);
   const antiCheat: string[] = state.antiCheat ?? [];
+  // An add-on shows as installed, else as the user's draft, else as its recommendation.
+  const addonOn = (addon) => (installed ? !!addon.installed : (draft.addons?.[addon.id] ?? !!addon.recommended));
 
   const installPayload = (replaceExisting: boolean, acknowledgeRisk: boolean) => {
     const payload: any = { appId, toolId, replaceExisting, acknowledgeRisk };
     if (proxyName !== tool.proxyName) payload.proxyName = proxyName;
     if (draft.settings && Object.keys(draft.settings).length) payload.settings = draft.settings;
     if (tool.channels?.[0] && channel.id !== tool.channels[0].id) payload.channel = channel.id;
+    // Every add-on the page shows goes out as shown, so a recommendation left on is installed too.
+    if ((tool.addons ?? []).length) {
+      payload.addons = Object.fromEntries(tool.addons.map((addon) => [addon.id, addonOn(addon)]));
+    }
     return payload;
   };
   const install = () => {
@@ -440,6 +453,17 @@ function GameToolsTool({ ui, state, tool, draft, game, idle, act, setDraft, conf
       }
       rows.push({ key: `setting-${setting.id}`, kind: "choice", label: setting.label, description, text: value, choices, disabled });
     }
+    // An add-on is a toggle: a draft that goes out with Install, or added and removed at once afterwards.
+    for (const addon of tool.addons ?? []) {
+      rows.push({
+        key: `addon-${addon.id}`,
+        kind: "boolean",
+        label: addon.name,
+        description: [addon.description, addon.text, addon.note].filter(Boolean).join(" ") || undefined,
+        checked: addonOn(addon),
+        disabled: !(idle && addon.canChange),
+      });
+    }
   }
   const change = (row, value) => {
     if (!idle || value === undefined || value === null) return;
@@ -451,6 +475,14 @@ function GameToolsTool({ ui, state, tool, draft, game, idle, act, setDraft, conf
       if (value === proxyName) return;
       if (installed) void act("configure", { appId, toolId, proxyName: value });
       else setDraft({ ...draft, proxyName: value });
+      return;
+    }
+    const addon = (tool.addons ?? []).find((entry) => `addon-${entry.id}` === row.key);
+    if (addon) {
+      const enabled = !!value;
+      if (enabled === addonOn(addon)) return;
+      if (installed) void act("setAddon", { appId, toolId, addonId: addon.id, enabled });
+      else setDraft({ ...draft, addons: { ...(draft.addons ?? {}), [addon.id]: enabled } });
       return;
     }
     const setting = (tool.settings ?? []).find((entry) => `setting-${entry.id}` === row.key);
@@ -475,6 +507,14 @@ function GameToolsTool({ ui, state, tool, draft, game, idle, act, setDraft, conf
     }
     if (actions.includes("repair") && tool.status !== "modified") {
       secondary.push({ id: "repair", label: "Repair", disabled: !idle, onClick: () => void act("repair", { appId, toolId }) });
+    }
+    for (const addon of (tool.addons ?? []).filter((entry) => entry.installed && entry.updateAvailable)) {
+      secondary.push({
+        id: `addon-update-${addon.id}`,
+        label: `Update ${addon.name}`,
+        disabled: !idle || !addon.canChange,
+        onClick: () => void act("setAddon", { appId, toolId, addonId: addon.id, enabled: true }),
+      });
     }
   }
   const removable = !working && actions.includes("remove");

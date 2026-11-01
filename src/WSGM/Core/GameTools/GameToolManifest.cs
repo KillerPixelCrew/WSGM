@@ -63,6 +63,9 @@ internal sealed record GameToolManifest
     /// <summary>Directories WSGM created, relative to the target directory.</summary>
     public List<string> CreatedDirectories { get; init; } = [];
 
+    /// <summary>Add-ons installed with the tool; each file is also listed in <see cref="Files" />.</summary>
+    public List<GameToolAddonRecord> Addons { get; init; } = [];
+
     /// <summary>Applied setting values by setting id; the proxy name is recorded separately.</summary>
     public Dictionary<string, string> Settings { get; init; } = new(StringComparer.Ordinal);
 

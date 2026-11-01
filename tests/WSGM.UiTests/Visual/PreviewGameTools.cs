@@ -21,7 +21,7 @@ public static class PreviewGameTools
 {
     /// <summary>Every scene, in the order the page reaches them.</summary>
     internal static readonly string[] Scenes =
-        ["list", "game", "installed", "installing", "program", "anticheat", "nightly"];
+        ["list", "game", "installed", "addons", "installing", "program", "anticheat", "nightly"];
 
     /// <summary>Exports every Game Tools scene at one viewport.</summary>
     /// <param name="directory">The output folder.</param>
@@ -73,7 +73,7 @@ public static class PreviewGameTools
             case "game" or "nightly":
                 Open(window, "game:" + GameToolsFixtures.AlanWake);
                 break;
-            case "installed":
+            case "installed" or "addons":
                 Open(window, "tools:" + GameToolsFixtures.Cyberpunk);
                 break;
             case "installing":
@@ -99,7 +99,13 @@ public static class PreviewGameTools
         }
 
         Dispatcher.UIThread.RunJobs();
-        if (scene != "anticheat")
+        if (scene == "addons")
+        {
+            // The add-on row and the actions under it sit below the settings, past the first screen.
+            UiFixture.Tagged<Control>(window, "tool:optiscaler.actions").BringIntoView();
+            Dispatcher.UIThread.RunJobs();
+        }
+        else if (scene != "anticheat")
         {
             ScrollToTop(window);
         }

@@ -250,6 +250,9 @@ internal sealed class GameToolInstaller(string userRoot)
         var settings = MergeSettings(tool, current?.Settings, request.Settings);
         var configWritten = plan.Items.Any(item => item.Kind == GameToolFileKind.Config
                                                    && item.Action != GameToolJournalAction.Delete);
+        string[] addonIds = [.. package.Addons.Select(addon => addon.Addon.Id)];
+        var addonsChanged = !addonIds.ToHashSet(StringComparer.Ordinal)
+            .SetEquals((current?.Addons ?? []).Select(addon => addon.Id));
         List<string> unavailable = [];
         var configIndex = plan.Items.FindIndex(item => !item.Restore && item.Action != GameToolJournalAction.Delete
                                                                      && item.Relative.Equals(tool.PrimaryConfig,
@@ -261,7 +264,7 @@ internal sealed class GameToolInstaller(string userRoot)
             Directory.CreateDirectory(staging);
             File.Copy(item.Source!, staged, true);
             File.SetAttributes(staged, File.GetAttributes(staged) & ~FileAttributes.ReadOnly);
-            unavailable = ApplySettings(tool, staging, settings);
+            unavailable = ApplySettings(tool, staging, settings, addonIds);
             plan.Items[configIndex] = item with { Source = staged, NewSha256 = Sha256(staged) };
         }
 
@@ -314,6 +317,7 @@ internal sealed class GameToolInstaller(string userRoot)
             Replaced = current?.Replaced ?? [],
             CreatedDirectories = current?.CreatedDirectories ?? [],
             Settings = current?.Settings ?? new Dictionary<string, string>(StringComparer.Ordinal),
+            Addons = current?.Addons ?? [],
             InstalledUtc = current?.InstalledUtc ?? now,
             UpdatedUtc = now,
             State = GameToolManifestState.Pending,
@@ -331,10 +335,10 @@ internal sealed class GameToolInstaller(string userRoot)
             RequireClosed(ensureClosed);
             await Task.Run(() => Execute(directory, plan, journal), CancellationToken.None).ConfigureAwait(false);
             phase(GameToolPhase.Settings);
-            if (configIndex < 0 && (configWritten || request.Settings.Count > 0))
+            if (configIndex < 0 && (configWritten || request.Settings.Count > 0 || addonsChanged))
             {
-                // Only a kept file the user asked to change is edited in place.
-                unavailable = ApplySettings(tool, directory, settings);
+                // Only a kept file the user asked to change, or whose add-ons changed, is edited in place.
+                unavailable = ApplySettings(tool, directory, settings, addonIds);
             }
 
             var files = BuildOwned(tool, directory, plan, current);
@@ -357,6 +361,7 @@ internal sealed class GameToolInstaller(string userRoot)
                         StringComparer.OrdinalIgnoreCase)
                 ],
                 Settings = settings,
+                Addons = [.. package.Addons.Select(addon => addon.Record(addon.Addon.FileFor(package.Family)))],
                 State = GameToolManifestState.Installed,
                 Journal = [],
                 JournalDirectories = [],
@@ -367,14 +372,21 @@ internal sealed class GameToolInstaller(string userRoot)
             GameToolStorage.DeleteTree(temporary);
             var channel = tool.ChannelOrDefault(installed.Channel);
             var shown = channel.Display(GameToolVersions.Installed(installed), installed.AssetName);
+            var addonNotice = AddonNotice(tool, current, package);
             var notice = request.Operation switch
             {
+                "addAddon" or "removeAddon" => addonNotice ?? "Nothing changed.",
                 "update" => tool.Name + " updated to " + shown + ".",
                 "switchChannel" => tool.Name + " switched to " + channel.Label.ToLowerInvariant() + " "
                                    + GameToolVersions.Installed(installed) + ".",
                 "repair" => tool.Name + " repaired.",
                 _ => tool.Name + " " + shown + " installed as " + proxy + "."
             };
+            if (request.Operation is not ("addAddon" or "removeAddon")
+                && addonNotice is not null)
+            {
+                notice += " " + addonNotice;
+            }
             if (unavailable.Count > 0)
             {
                 notice += " Not available in this version: " + string.Join(", ", unavailable) + ".";
@@ -902,10 +914,14 @@ internal sealed class GameToolInstaller(string userRoot)
             }
         }
 
+        // Add-on files go where the packaged family loads them and win over a payload file of the same path.
+        var addons = package.Addons.Select(addon => (Relative: addon.Addon.FileFor(package.Family), addon.Source,
+            Sha: addon.Release.Asset.Sha256)).ToArray();
         foreach (var source in Directory.EnumerateFiles(package.Root, "*", SearchOption.AllDirectories))
         {
             var payloadRelative = GameToolPattern.Normalize(Path.GetRelativePath(package.Root, source));
-            if (tool.IsExcluded(payloadRelative))
+            if (tool.IsExcluded(payloadRelative)
+                || addons.Any(addon => addon.Relative.Equals(payloadRelative, StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
             }
@@ -913,83 +929,12 @@ internal sealed class GameToolInstaller(string userRoot)
             var relative = payloadRelative.Equals(tool.PrimaryFile, StringComparison.OrdinalIgnoreCase)
                 ? proxy
                 : payloadRelative;
-            var destination = Path.GetFullPath(Path.Combine(directory, relative.Replace('/', '\\')));
-            if (!StoragePaths.IsUnder(directory, destination))
-            {
-                throw new GameToolException("The package contains a path outside the game folder.");
-            }
+            Consider(relative, source, () => package.Sha256(payloadRelative, source));
+        }
 
-            written.Add(relative);
-            var kind = tool.IsConfig(relative) ? GameToolFileKind.Config : GameToolFileKind.Binary;
-            AddDirectories(directory, relative, directories);
-            var exists = File.Exists(destination);
-            if (!exists)
-            {
-                if (Directory.Exists(destination))
-                {
-                    conflicts.Add("A folder has the name of a file.");
-                    continue;
-                }
-
-                items.Add(new PlanItem(relative, source, GameToolJournalAction.Create, false,
-                    package.Sha256(payloadRelative, source), "", kind));
-                continue;
-            }
-
-            if (kind == GameToolFileKind.Config && owned.ContainsKey(relative) && !request.ReplaceConfig)
-            {
-                unchanged[relative] = null;
-                continue;
-            }
-
-            var previous = Sha256(destination);
-            var newSha = package.Sha256(payloadRelative, source);
-            if (owned.TryGetValue(relative, out var ownedFile))
-            {
-                if (!previous.Equals(newSha, StringComparison.OrdinalIgnoreCase))
-                {
-                    // A game update rewrote a file whose original WSGM backed up: the game's new content is
-                    // the original now, so it replaces the old backup instead of being discarded.
-                    var rewritten = kind == GameToolFileKind.Binary && replaced.ContainsKey(relative)
-                                                                    && ownedFile.Sha256.Length > 0
-                                                                    && !previous.Equals(ownedFile.Sha256,
-                                                                        StringComparison.OrdinalIgnoreCase);
-                    items.Add(new PlanItem(relative, source, GameToolJournalAction.Replace, rewritten, newSha, previous,
-                        kind));
-                }
-                else
-                {
-                    unchanged[relative] = previous;
-                }
-
-                continue;
-            }
-
-            if (replaced.ContainsKey(relative))
-            {
-                // A game original backed up by an earlier version: replace it again under that backup.
-                items.Add(new PlanItem(relative, source, GameToolJournalAction.Replace, false, newSha, previous, kind));
-                continue;
-            }
-
-            if (clearing.Contains(relative) || tool.IsReplaceable(relative))
-            {
-                items.Add(new PlanItem(relative, source, GameToolJournalAction.Replace, true, newSha, previous, kind));
-                continue;
-            }
-
-            if (relative.Equals(proxy, StringComparison.OrdinalIgnoreCase))
-            {
-                var suggestion = SuggestProxy(inspection.Proxies, proxy);
-                conflicts.Add(DescribeExisting(tool, destination, false)
-                              + (suggestion.Equals(proxy, StringComparison.OrdinalIgnoreCase)
-                                  ? ""
-                                  : " Try " + suggestion + "."));
-            }
-            else
-            {
-                conflicts.Add(relative + " already exists and is not a file " + tool.Name + " may replace.");
-            }
+        foreach (var addon in addons)
+        {
+            Consider(addon.Relative, addon.Source, () => addon.Sha);
         }
 
         // Unmanaged copies and legacy files the new payload does not overwrite are backed up and removed.
@@ -1026,6 +971,87 @@ internal sealed class GameToolInstaller(string userRoot)
         }
 
         return new InstallPlan(items, directories, unchanged);
+
+        // Classifies one file the transaction writes: created, replaced as WSGM's own, backed up and replaced,
+        // left as it is, or a conflict.
+        void Consider(string relative, string source, Func<string> sha)
+        {
+            var destination = Path.GetFullPath(Path.Combine(directory, relative.Replace('/', '\\')));
+            if (!StoragePaths.IsUnder(directory, destination))
+            {
+                throw new GameToolException("The package contains a path outside the game folder.");
+            }
+
+            written.Add(relative);
+            var kind = tool.IsConfig(relative) ? GameToolFileKind.Config : GameToolFileKind.Binary;
+            AddDirectories(directory, relative, directories);
+            if (!File.Exists(destination))
+            {
+                if (Directory.Exists(destination))
+                {
+                    conflicts.Add("A folder has the name of a file.");
+                    return;
+                }
+
+                items.Add(new PlanItem(relative, source, GameToolJournalAction.Create, false, sha(), "", kind));
+                return;
+            }
+
+            if (kind == GameToolFileKind.Config && owned.ContainsKey(relative) && !request.ReplaceConfig)
+            {
+                unchanged[relative] = null;
+                return;
+            }
+
+            var previous = Sha256(destination);
+            var newSha = sha();
+            if (owned.TryGetValue(relative, out var ownedFile))
+            {
+                if (!previous.Equals(newSha, StringComparison.OrdinalIgnoreCase))
+                {
+                    // A game update rewrote a file whose original WSGM backed up: the game's new content is
+                    // the original now, so it replaces the old backup instead of being discarded.
+                    var rewritten = kind == GameToolFileKind.Binary && replaced.ContainsKey(relative)
+                                                                    && ownedFile.Sha256.Length > 0
+                                                                    && !previous.Equals(ownedFile.Sha256,
+                                                                        StringComparison.OrdinalIgnoreCase);
+                    items.Add(new PlanItem(relative, source, GameToolJournalAction.Replace, rewritten, newSha, previous,
+                        kind));
+                }
+                else
+                {
+                    unchanged[relative] = previous;
+                }
+
+                return;
+            }
+
+            if (replaced.ContainsKey(relative))
+            {
+                // A game original backed up by an earlier version: replace it again under that backup.
+                items.Add(new PlanItem(relative, source, GameToolJournalAction.Replace, false, newSha, previous, kind));
+                return;
+            }
+
+            if (clearing.Contains(relative) || tool.IsReplaceable(relative))
+            {
+                items.Add(new PlanItem(relative, source, GameToolJournalAction.Replace, true, newSha, previous, kind));
+                return;
+            }
+
+            if (relative.Equals(proxy, StringComparison.OrdinalIgnoreCase))
+            {
+                var suggestion = SuggestProxy(inspection.Proxies, proxy);
+                conflicts.Add(DescribeExisting(tool, destination, false)
+                              + (suggestion.Equals(proxy, StringComparison.OrdinalIgnoreCase)
+                                  ? ""
+                                  : " Try " + suggestion + "."));
+            }
+            else
+            {
+                conflicts.Add(relative + " already exists and is not a file " + tool.Name + " may replace.");
+            }
+        }
     }
 
     private static void AddDirectories(string root, string relative, List<string> created)
@@ -1135,6 +1161,39 @@ internal sealed class GameToolInstaller(string userRoot)
         return merged;
     }
 
+    /// <summary>What a transaction did to the add-ons, or null when they are as they were.</summary>
+    /// <param name="tool">The tool.</param>
+    /// <param name="current">The installation before the transaction, or null.</param>
+    /// <param name="package">The package with the add-ons that stay installed.</param>
+    /// <returns>Such as "OptiPatcher added." or "OptiPatcher updated to the build of 30 Oct 2026.".</returns>
+    internal static string? AddonNotice(GameToolDefinition tool, GameToolManifest? current, GameToolPackage package)
+    {
+        var before = (current?.Addons ?? []).ToDictionary(addon => addon.Id, StringComparer.Ordinal);
+        List<string> parts = [];
+        foreach (var addon in package.Addons)
+        {
+            if (!before.TryGetValue(addon.Addon.Id, out var installed))
+            {
+                parts.Add(addon.Addon.Name + " added.");
+            }
+            else if (installed.ReleaseId != addon.Release.Id)
+            {
+                var date = GameToolVersions.BuildDate(addon.Release.Asset);
+                parts.Add(addon.Addon.Name + " updated"
+                                           + (date is null
+                                               ? ""
+                                               : " to the build of " + GameToolVersions.DisplayDate(date)) + ".");
+            }
+        }
+
+        foreach (var removed in before.Keys.Where(id => package.Addons.All(addon => addon.Addon.Id != id)))
+        {
+            parts.Add((tool.Addon(removed)?.Name ?? removed) + " removed.");
+        }
+
+        return parts.Count == 0 ? null : string.Join(" ", parts);
+    }
+
     /// <summary>What a configure saved: the changed settings by label and the file they were written to.</summary>
     /// <param name="tool">The tool.</param>
     /// <param name="changed">The ids the user changed.</param>
@@ -1167,11 +1226,13 @@ internal sealed class GameToolInstaller(string userRoot)
         }
     }
 
+    // Addons names the add-ons the transaction leaves installed, whose loading keys are written with the
+    // settings; null leaves every loading key as the file has it.
     private static List<string> ApplySettings(GameToolDefinition tool, string directory,
-        IReadOnlyDictionary<string, string> settings)
+        IReadOnlyDictionary<string, string> settings, IReadOnlyCollection<string>? addons = null)
     {
         var path = Path.Combine(directory, tool.PrimaryConfig);
-        if (tool.Settings.Length == 0 || !File.Exists(path))
+        if ((tool.Settings.Length == 0 && addons is null) || tool.PrimaryConfig.Length == 0 || !File.Exists(path))
         {
             return [];
         }
@@ -1183,12 +1244,23 @@ internal sealed class GameToolInstaller(string userRoot)
             edits.Add(new GameToolIniEdit(setting.Section, setting.Key, option.Ini));
         }
 
+        foreach (var addon in addons is null ? [] : tool.Addons)
+        {
+            edits.Add(new GameToolIniEdit(addon.ConfigSection, addon.ConfigKey,
+                addons!.Contains(addon.Id) ? addon.ConfigOn : addon.ConfigOff));
+        }
+
         var missing = GameToolIni.Apply(path, edits);
         return
         [
             .. tool.Settings.Where(setting =>
                     missing.Any(edit => edit.Key == setting.Key && edit.Section == setting.Section))
-                .Select(setting => setting.Label)
+                .Select(setting => setting.Label),
+            // Only an installed add-on the tool can't be told to load is worth naming.
+            .. tool.Addons.Where(addon => addons?.Contains(addon.Id) == true
+                                          && missing.Any(edit => edit.Key == addon.ConfigKey
+                                                                 && edit.Section == addon.ConfigSection))
+                .Select(addon => addon.Name)
         ];
     }
 

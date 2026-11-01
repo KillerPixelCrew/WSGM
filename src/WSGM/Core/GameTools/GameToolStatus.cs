@@ -249,6 +249,61 @@ internal static class GameToolStatus
             matched is null ? "Set to \"" + raw + "\" in the configuration file." : note);
     }
 
+    /// <summary>Decides what a game's page shows for one add-on.</summary>
+    /// <param name="addon">The add-on.</param>
+    /// <param name="manifest">The tool's installed manifest, or null.</param>
+    /// <param name="program">The file name of the program the add-on would run in: the installed one, else the chosen one.</param>
+    /// <param name="support">The cached support list, or null before it was read.</param>
+    /// <param name="latest">The add-on's latest known build, or null.</param>
+    /// <param name="vendors">Lowercase GPU vendors present.</param>
+    /// <param name="showOptions">Whether the tool's options are shown.</param>
+    /// <param name="canEditOptions">Whether the tool's options can be changed now.</param>
+    /// <returns>The evaluation.</returns>
+    /// <remarks>
+    ///     A game the list doesn't name gets no row, so nothing is offered that the add-on would ignore. A failed read
+    ///     shows the row with the reason, locked; an installed add-on is always shown so it can be removed.
+    /// </remarks>
+    internal static GameToolAddonEvaluation Addon(GameToolAddon addon, GameToolManifest? manifest, string? program,
+        GameToolAddonSupport? support, HostedRelease? latest, IReadOnlyList<string> vendors, bool showOptions,
+        bool canEditOptions)
+    {
+        var record = manifest?.Addons.FirstOrDefault(item => item.Id == addon.Id);
+        var installed = record is not null;
+        var supportState = support?.Executables is null ? "unknown"
+            : program is not null && support.Supports(program) ? "supported"
+            : "unsupported";
+        var notes = vendors.Select(vendor => addon.VendorNotes.GetValueOrDefault(vendor))
+            .Where(note => note is not null).ToArray();
+        var update = installed && latest is not null && latest.Id != record!.ReleaseId;
+        string text;
+        if (installed)
+        {
+            var latestDate = latest is null ? null : GameToolVersions.BuildDate(latest.Asset);
+            text = update
+                ? latestDate is null
+                    ? "A newer build is available."
+                    : "The build of " + GameToolVersions.DisplayDate(latestDate) + " is available."
+                : record!.BuildDate.Length > 0
+                    ? "Installed, the build of " + GameToolVersions.DisplayDate(record.BuildDate) + "."
+                    : "Installed.";
+        }
+        else
+        {
+            text = supportState switch
+            {
+                "supported" => addon.Name + " supports " + program + ".",
+                "unsupported" => addon.Name + " doesn't support " + (program ?? "this game") + ".",
+                _ => support?.Error ?? "Checking which games " + addon.Name + " supports…"
+            };
+        }
+
+        var show = showOptions && (installed || supportState == "supported" || support?.Error is not null);
+        return new GameToolAddonEvaluation(show, supportState, installed,
+            supportState == "supported" && vendors.Any(vendor => addon.Vendors.Contains(vendor, StringComparer.Ordinal)),
+            canEditOptions && (installed || supportState == "supported"), text,
+            notes.Length > 0 ? string.Join(" ", notes) : null, update);
+    }
+
     /// <summary>The wire id of a confidence.</summary>
     /// <param name="confidence">The confidence.</param>
     /// <returns><c>confirmed</c>, <c>structural</c>, <c>single</c> or <c>needsChoice</c>.</returns>

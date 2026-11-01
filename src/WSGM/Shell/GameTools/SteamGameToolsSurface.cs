@@ -89,6 +89,10 @@ internal static class SteamGameToolsSurface
                     IReadOnlyDictionary<string, string> Settings)>(PatchId, "configure", TryConfigure,
                     (value, token) => service.ConfigureAsync(value.AppId, value.ToolId, value.ProxyName, value.Settings,
                         token), "The settings are invalid."),
+                SteamUiModuleBuilder.Command<(uint AppId, string ToolId, string AddonId, bool Enabled)>(PatchId,
+                    "setAddon", TrySetAddon,
+                    (value, token) => service.SetAddonAsync(value.AppId, value.ToolId, value.AddonId, value.Enabled,
+                        token), "The add-on request is invalid."),
                 SteamUiModuleBuilder.Command<(uint AppId, string ToolId)>(PatchId, "remove", TryTool,
                     (value, token) => service.RemoveAsync(value.AppId, value.ToolId, token),
                     "The remove request is invalid.")
@@ -162,19 +166,67 @@ internal static class SteamGameToolsSurface
     {
         value = null!;
         if (!Only(payload, "appId", "toolId", "proxyName", "settings", "acknowledgeRisk", "replaceExisting",
-                "channel")
+                "channel", "addons")
             || !AppId(payload, out var appId)
             || !SteamUiPayload.TryReadNonBlankString(payload, "toolId", out var toolId)
             || !OptionalName(payload, "proxyName", out var proxyName)
             || !Settings(payload, out var settings)
             || !OptionalBoolean(payload, "acknowledgeRisk", out var acknowledge)
             || !OptionalBoolean(payload, "replaceExisting", out var replace)
-            || !OptionalName(payload, "channel", out var channel))
+            || !OptionalName(payload, "channel", out var channel)
+            || !Addons(payload, out var addons))
         {
             return false;
         }
 
-        value = new GameToolsInstallRequest(appId, toolId, proxyName, settings, acknowledge, replace, channel);
+        value = new GameToolsInstallRequest(appId, toolId, proxyName, settings, acknowledge, replace, channel,
+            addons);
+        return true;
+    }
+
+    private static bool TrySetAddon(JsonElement payload,
+        out (uint AppId, string ToolId, string AddonId, bool Enabled) value)
+    {
+        value = default;
+        if (!AppId(payload, out var appId) || !SteamUiPayload.TryReadNonBlankString(payload, "toolId", out var toolId)
+                                           || !SteamUiPayload.TryReadNonBlankString(payload, "addonId",
+                                               out var addonId)
+                                           || !SteamUiPayload.TryReadBoolean(payload, "enabled", out var enabled)
+                                           || !SteamUiPayload.HasExactly(payload, 4))
+        {
+            return false;
+        }
+
+        value = (appId, toolId, addonId, enabled);
+        return true;
+    }
+
+    // Absent or null means every add-on follows its recommendation.
+    private static bool Addons(JsonElement payload, out IReadOnlyDictionary<string, bool>? addons)
+    {
+        addons = null;
+        if (!payload.TryGetProperty("addons", out var property) || property.ValueKind == JsonValueKind.Null)
+        {
+            return true;
+        }
+
+        if (property.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        Dictionary<string, bool> values = new(StringComparer.Ordinal);
+        foreach (var entry in property.EnumerateObject())
+        {
+            if (entry.Value.ValueKind is not (JsonValueKind.True or JsonValueKind.False) || values.Count >= 8)
+            {
+                return false;
+            }
+
+            values[entry.Name] = entry.Value.GetBoolean();
+        }
+
+        addons = values;
         return true;
     }
 

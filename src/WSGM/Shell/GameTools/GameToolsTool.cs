@@ -37,6 +37,7 @@ namespace WSGM.Shell;
 /// <param name="Warnings">Things the user should know before acting; the anti-cheat warning is game-level.</param>
 /// <param name="Actions">Commands currently valid for this tool.</param>
 /// <param name="Files">The ownership summary.</param>
+/// <param name="Addons">The add-ons a page shows for this game, already filtered by support.</param>
 internal sealed record GameToolsTool(
     string Id,
     string Name,
@@ -65,4 +66,5 @@ internal sealed record GameToolsTool(
     IReadOnlyList<GameToolsConflict> Conflicts,
     IReadOnlyList<string> Warnings,
     IReadOnlyList<string> Actions,
-    GameToolsFiles Files);
+    GameToolsFiles Files,
+    IReadOnlyList<GameToolsAddon> Addons);

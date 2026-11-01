@@ -112,6 +112,59 @@ internal sealed record GameToolCatalog
         {
             Validate(tool, channel);
         }
+
+        if (tool.Addons.Select(addon => addon.Id).Distinct(StringComparer.Ordinal).Count() != tool.Addons.Length)
+        {
+            throw new InvalidDataException("Invalid Game Tools definition: " + tool.Id);
+        }
+
+        foreach (var addon in tool.Addons)
+        {
+            Validate(tool, addon);
+        }
+    }
+
+    // An add-on is one file of one name wherever it goes, published as itself, with a loading key and a support
+    // list read over HTTPS by rules that each capture a name.
+    private static void Validate(GameToolDefinition tool, GameToolAddon addon)
+    {
+        var source = addon.Source;
+        var invalid = !Regex.IsMatch(addon.Id, "^[a-z][a-z0-9-]*$") || addon.Name.Length == 0
+                      || !SafeRelative(addon.File) || !DownloadClient.IsSafeAssetName(addon.FileName)
+                      || addon.FamilyFiles.Values.Any(path => !SafeRelative(path)
+                                                              || !Path.GetFileName(path).Equals(addon.FileName,
+                                                                  StringComparison.OrdinalIgnoreCase))
+                      || !HostedReleases.Providers.Contains(source.Provider)
+                      || !Regex.IsMatch(source.Repository, "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+                      || source.AssetPattern.Length == 0 || source.Channel.Length == 0
+                      || !Path.GetExtension(addon.FileName).TrimStart('.')
+                          .Equals(source.PackageType, StringComparison.OrdinalIgnoreCase)
+                      || addon.ConfigSection.Length == 0 || addon.ConfigKey.Length == 0
+                      || addon.ConfigOn.Length == 0 || addon.ConfigOff.Length == 0
+                      || new[] { addon.ConfigOn, addon.ConfigOff }.Any(value => value.IndexOfAny(['\r', '\n']) >= 0)
+                      || JsonRead.HttpsUrl(addon.SupportUrl).Length == 0 || addon.SupportRules.Length == 0
+                      || addon.SupportRules.Any(rule => rule.Names.Length == 0
+                                                        || rule.Names.Any(name => !name.Contains("{0}",
+                                                            StringComparison.Ordinal)))
+                      || (addon.Homepage.Length > 0 && JsonRead.HttpsUrl(addon.Homepage).Length == 0);
+        try
+        {
+            _ = new Regex(source.AssetPattern, RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+            invalid |= addon.SupportRules.Any(rule =>
+                new Regex(rule.Pattern, RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1))
+                    .GetGroupNumbers().Length < 2);
+        }
+        catch (ArgumentException)
+        {
+            invalid = true;
+        }
+
+        if (invalid)
+        {
+            throw new InvalidDataException("Invalid Game Tools add-on: " + tool.Id + "/" + addon.Id);
+        }
+
+        DownloadClient.Https(source.BaseUrl);
     }
 
     // Every channel is held to the same rules: a supported HTTPS provider, an explicit asset selection and

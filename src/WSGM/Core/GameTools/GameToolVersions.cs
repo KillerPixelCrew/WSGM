@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 
@@ -23,6 +24,29 @@ internal static class GameToolVersions
     internal static string Installed(GameToolManifest manifest)
     {
         return manifest.ReleaseVersion.Length > 0 ? manifest.ReleaseVersion : NumericToken(manifest.Version);
+    }
+
+    /// <summary>When a rebuilt-in-place asset such as a rolling build was last uploaded.</summary>
+    /// <param name="asset">The asset; its revision is <c>id:updated_at</c> as the hosted lookup records it.</param>
+    /// <returns>The date as <c>yyyy-MM-dd</c>, or null when the provider named none.</returns>
+    internal static string? BuildDate(ReleaseAsset asset)
+    {
+        var separator = asset.Revision.IndexOf(':', StringComparison.Ordinal);
+        return separator >= 0 && DateTimeOffset.TryParse(asset.Revision[(separator + 1)..],
+            CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var updated)
+            ? updated.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+            : null;
+    }
+
+    /// <summary>A <c>yyyy-MM-dd</c> build date as the user reads it.</summary>
+    /// <param name="date">The date.</param>
+    /// <returns>Such as <c>30 Oct 2026</c>, or the text unchanged when it is not a date.</returns>
+    internal static string DisplayDate(string date)
+    {
+        return DateOnly.TryParseExact(date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None,
+            out var day)
+            ? day.ToString("d MMM yyyy", CultureInfo.InvariantCulture)
+            : date;
     }
 
     /// <summary>Parses the numeric token into integers, treating missing parts as zero when compared.</summary>
