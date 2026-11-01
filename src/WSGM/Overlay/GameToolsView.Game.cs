@@ -1,8 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Layout;
+using Avalonia.Media;
+using FluentAvalonia.UI.Controls;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -65,507 +70,95 @@ public sealed partial class GameToolsView
             ? state.Name
             : _gameName.Length > 0 ? _gameName : state.Name;
     }
-    
 
-     rivate 
-    oid 
-    enderGame(
-    )
-    
+    private void RenderGame()
     {
-        if 
-    C
-    urrentState(
-    )
- 
-    s 
-    ot 
-  
-     
-    tate)
-    
+        if (CurrentState() is not { } state)
         {
-            RenderMessage(
-    "
-    Game Tools",
- 
-    Game Tools is not available in this session.")
-    ;
-    
+            RenderMessage("Game Tools", "Game Tools is not available in this session.");
             return;
-    
         }
 
-         ar 
-    ame 
-  
-    ameName(
-    s
-    tate)
-    ;
-    
-        var 
-    ody 
-  
-    ewStack(
-    "
-    ")
-    ;
-    
-        body.
-    C
-    hildren.
-    A
-    dd(
-    T
-    agged(
-    C
-    aption(
-    "
-    Game Tools  ›  " 
-  
-    ame)
-    ,
- 
-    game.crumb")
-    )
-    ;
-    
-        if 
-    s
-    tate.
-    E
-    rror 
-    s 
-  
-    ength:
- 
-     
-     
-     
-    rror)
-    
+        var name = GameName(state);
+        var body = NewStack("");
+        body.Children.Add(Tagged(Caption("Game Tools  ›  " + name), "game.crumb"));
+        if (state.Error is { Length: > 0 } error)
         {
-            body.
-    C
-    hildren.
-    A
-    dd(
-    B
-    anner(
-    "
-    game.error",
- 
-    AInfoBarSeverity.
-    E
-    rror,
- 
-    ull,
- 
-    rror)
-    )
-    ;
-    
+            body.Children.Add(Banner("game.error", FAInfoBarSeverity.Error, null, error));
         }
-        else 
-    f 
-    s
-    tate.
-    N
-    otice 
-    s 
-  
-    ength:
- 
-     
-     
-     
-    otice 
-    & 
-    tate.
-    B
-    usy 
-    s 
-    ull)
-    
+        else if (state.Notice is { Length: > 0 } notice && state.Busy is null)
         {
-            body.
-    C
-    hildren.
-    A
-    dd(
-    B
-    anner(
-    "
-    game.notice",
- 
-    AInfoBarSeverity.
-    S
-    uccess,
- 
-    ull,
- 
-    otice)
-    )
-    ;
-    
+            body.Children.Add(Banner("game.notice", FAInfoBarSeverity.Success, null, notice));
         }
 
-         f 
-    s
-    tate.
-    A
-    vailability 
-    = 
-    ready" 
-    & 
-    tate.
-    R
-    eason 
-    s 
-  
-    ength:
- 
-     
-     
-     
-    eason)
-    
+        if (state.Availability != "ready" && state.Reason is { Length: > 0 } reason)
         {
-            body.
-    C
-    hildren.
-    A
-    dd(
-    B
-    anner(
-    "
-    game.availability",
-    
-                state.
-    A
-    vailability 
-    = 
-    running" 
-  
-    AInfoBarSeverity.
-    W
-    arning 
-  
-    AInfoBarSeverity.
-    I
-    nformational,
-    
-                AvailabilityTitle(
-    s
-    tate.
-    A
-    vailability)
-    ,
- 
-    eason)
-    )
-    ;
-    
+            body.Children.Add(Banner("game.availability",
+                state.Availability == "running" ? FAInfoBarSeverity.Warning : FAInfoBarSeverity.Informational,
+                AvailabilityTitle(state.Availability), reason));
         }
 
-         ody.
-    C
-    hildren.
-    A
-    dd(
-    G
-    ameCard(
-    s
-    tate,
- 
-    ame)
-    )
-    ;
-    
-        var 
-    asFolder 
-  
-    tate.
-    A
-    vailability 
-    s 
-    ready" 
-    r 
-    running";
-    
-        var 
-    ardProgress 
-  
-    alse;
-    
-        if 
-    s
-    tate.
-    L
-    oading 
-    & 
-    tate.
-    T
-    ools.
-    C
-    ount 
-    = 
-    )
-    
+        body.Children.Add(GameCard(state, name));
+        var hasFolder = state.Availability is "ready" or "running";
+        var cardProgress = false;
+        if (state.Loading && state.Tools.Count == 0)
         {
-            body.
-    C
-    hildren.
-    A
-    dd(
-    n
-    ew 
-    verlayProgress(
-    "
-    game.busy",
- 
-    rogressOf(
-    s
-    tate)
-    )
-    )
-    ;
-    
-            cardProgress 
-  
-    rue;
-    
+            body.Children.Add(new OverlayProgress("game.busy", ProgressOf(state)));
+            cardProgress = true;
         }
-        else 
-    f 
-    h
-    asFolder)
-    
+        else if (hasFolder)
         {
-            if 
-    s
-    tate.
-    A
-    ntiCheat.
-    C
-    ount 
-  
-    )
-    
+            if (state.AntiCheat.Count > 0)
             {
-                body.
-    C
-    hildren.
-    A
-    dd(
-    B
-    anner(
-    "
-    game.anticheat",
- 
-    AInfoBarSeverity.
-    E
-    rror,
- 
-    ntiCheatTitle(
-    s
-    tate)
-    ,
-    
-                    AntiCheatMessage(
-    s
-    tate)
-    )
-    )
-    ;
-    
+                body.Children.Add(Banner("game.anticheat", FAInfoBarSeverity.Error, AntiCheatTitle(state),
+                    AntiCheatMessage(state)));
             }
 
-             oreach 
-    v
-    ar 
-    ool 
-    n 
-    tate.
-    T
-    ools)
-    
+            foreach (var tool in state.Tools)
             {
-                cardProgress 
-    = 
-    tate.
-    B
-    usy?
-    .
-    T
-    oolId 
-    = 
-    ool.
-    I
-    d;
-    
-                body.
-    C
-    hildren.
-    A
-    dd(
-    T
-    oolCard(
-    s
-    tate,
- 
-    ool,
- 
-    ame)
-    )
-    ;
-    
+                cardProgress |= state.Busy?.ToolId == tool.Id;
+                body.Children.Add(ToolCard(state, tool, name));
             }
         }
         else
         {
-            foreach 
-    v
-    ar 
-    ool 
-    n 
-    tate.
-    T
-    ools)
-    
+            foreach (var tool in state.Tools)
             {
-                body.
-    C
-    hildren.
-    A
-    dd(
-    U
-    navailableCard(
-    t
-    ool)
-    )
-    ;
-    
+                body.Children.Add(UnavailableCard(tool));
             }
         }
 
-         f 
-    !
-    c
-    ardProgress)
-    
+        if (!cardProgress)
         {
             // The level's one live progress element: the folder scan, or work for a tool this page doesn't draw.
-            body.
-    C
-    hildren.
-    A
-    dd(
-    n
-    ew 
-    verlayProgress(
-    "
-    game.busy",
- 
-    rogressOf(
-    s
-    tate)
-    )
-    )
-    ;
-    
+            body.Children.Add(new OverlayProgress("game.busy", ProgressOf(state)));
         }
 
-         ar 
-    dle 
-  
-    tate.
-    B
-    usy 
-    s 
-    ull 
-    & 
-    s
-    tate.
-    L
-    oading;
-    
-        body.
-    C
-    hildren.
-    A
-    dd(
-    T
-    agged(
-    C
-    ommandStrip(
-    
-            Command(
-    "
-    game.refresh",
- 
-    Scan the folder again",
- 
-    dle
-                ? 
-    )
- 
-    > 
-    unTool(
-    (
-    s
-    ervice,
- 
-    oken)
- 
-    > 
-    ervice.
-    R
-    efreshAsync(
-    _
-    appId,
- 
-    oken)
-    ,
- 
-    refresh")
-    
-                : 
-    ull)
-    ,
-    
-            Command(
-    "
-    game.back",
- 
-    Back to games",
- 
-    )
- 
-    > 
-    ack(
-    )
-    )
-    )
-    ,
- 
-    game.commands")
-    )
-    ;
-    
-        SetGameContent(body, /// <summary>
+        var idle = state.Busy is null && !state.Loading;
+        body.Children.Add(Tagged(CommandStrip(
+            Command("game.refresh", "Scan the folder again", idle
+                ? () => RunTool((service, token) => service.RefreshAsync(_appId, token), "refresh")
+                : null),
+            Command("game.back", "Back to games", () => Back())), "game.commands"));
+        SetGameContent(body, state, ProgressOf);
+    }
+
+    /// <summary>
     ///     Sets a level of the open game: download ticks update its progress element in place, and only a structural
     ///     change of the game's state redraws it.
     /// </summary>
     /// <param name="body">The level.</param>
     /// <param name="state">The state the level was drawn from.</param>
-    /// <param name="progress">The level's progress element state, or null for a level without one.</param>or a level without one.</param>
+    /// <param name="progress">The level's progress element state, or null for a level without one.</param>
     private void SetGameContent(StackPanel body, GameToolsState state,
-        Func<GameToolsState, OverlayProgre/// <summary>
+        Func<GameToolsState, OverlayProgressState?>? progress)
+    {
+        SetLiveContent(body, state, CurrentState, SameStructure, progress);
+    }
+
+    /// <summary>
     ///     Whether two states of the game draw the same page apart from the running work's byte progress. A new
     ///     phase is structural, because the step indicator, the Cancel availability and the explanation follow it.
-    /// </summary> structural, because the step indicator, the Cancel availability and the explanation follow it.
     /// </summary>
     private static bool SameStructure(GameToolsState shown, GameToolsState next)
     {
@@ -579,160 +172,25 @@ public sealed partial class GameToolsView
     }
 
     /// <summary>The level's progress element: the operation's phase line, amount and Cancel, or the folder scan.</summary>
-    private OverlayProgressState? ProgressOf(
-    G
-    ameToolsState 
-    tate)
-    
+    private OverlayProgressState? ProgressOf(GameToolsState state)
     {
-        if 
-    s
-    tate.
-    B
-    usy 
-    s 
-  
-     
-    usy)
-    
+        if (state.Busy is { } busy)
         {
-            var 
-    mount 
-  
-    usy.
-    B
-    ytes 
-    = 
-    
-                ? 
-    "
-                : 
-    usy.
-    T
-    otal 
-  
-    
-                    ? 
-    " · {L
-    ibraryCardView.
-    F
-    ormatBytes(
-    b
-    usy.
-    B
-    ytes)
-    }
-     of {L
-    ibraryCardView.
-    F
-    ormatBytes(
-    b
-    usy.
-    T
-    otal)
-    }
-    "
-                    : 
-    " · {L
-    ibraryCardView.
-    F
-    ormatBytes(
-    b
-    usy.
-    B
-    ytes)
-    }
-    ";
-    
-            var 
-    ppId 
-  
-    tate.
-    A
-    ppId;
-    
-            return 
-    ew 
-    verlayProgressState(
-    b
-    usy.
-    D
-    etail 
-  
-    …" 
-  
-    mount,
- 
-    rue,
-    
-                busy.
-    T
-    otal 
-  
-     
-     
-    d
-    ouble)
-    b
-    usy.
-    B
-    ytes 
-  
-    usy.
-    T
-    otal 
-  
-    ull,
-    
-                busy.
-    C
-    ancellable
-                    ? 
-    ew 
-    verlayProgressCancel(
-    "
-    Cancel",
- 
-    ",
-    
-                        ()
- 
-    > 
-    unTool(
-    (
-    s
-    ervice,
- 
-    oken)
- 
-    > 
-    ervice.
-    C
-    ancelAsync(
-    a
-    ppId,
- 
-    oken)
-    ,
- 
-    cancel")
-    )
-    
-                    : 
-    ull)
-    ;
-    
+            var amount = busy.Bytes <= 0
+                ? ""
+                : busy.Total > 0
+                    ? $" · {LibraryCardView.FormatBytes(busy.Bytes)} of {LibraryCardView.FormatBytes(busy.Total)}"
+                    : $" · {LibraryCardView.FormatBytes(busy.Bytes)}";
+            var appId = state.AppId;
+            return new OverlayProgressState(busy.Detail + "…" + amount, true,
+                busy.Total > 0 ? (double)busy.Bytes / busy.Total : null,
+                busy.Cancellable
+                    ? new OverlayProgressCancel("Cancel", "",
+                        () => RunTool((service, token) => service.CancelAsync(appId, token), "cancel"))
+                    : null);
         }
 
-         eturn 
-    tate.
-    L
-    oading 
-  
-    ew 
-    verlayProgressState(
-    "
-    Scanning the game folder…", true) : null;
+        return state.Loading ? new OverlayProgressState("Scanning the game folder…", true) : null;
     }
 
     // ---- The game card ----
@@ -805,323 +263,43 @@ public sealed partial class GameToolsView
         return Card(grid, "game.card:" + compact + ":" + _wide);
     }
 
-    private Grid 
-    acts(
-    G
-    ameToolsState 
-    tate)
-    
+    private Grid Facts(GameToolsState state)
     {
-        var 
-    acts 
-  
-    ew 
-    rid 
-  
-    olumnDefinitions 
-  
-    ew 
-    olumnDefinitions(
-    "
-    *,*,*")
-    ,
- 
-    olumnSpacing 
-  
-    4 
-    ;
-    
-        var 
-    untime 
-  
-    tate.
-    R
-    untime;
-    
-        facts.
-    C
-    hildren.
-    A
-    dd(
-    F
-    act(
-    "
-    Program",
- 
-    untime?
-    .
-    F
-    ileName 
-    ? 
-    s
-    tate.
-    L
-    oading 
-  
-    Looking…" 
-  
-    Not chosen")
-    ,
-    
-            runtime 
-    s 
-    ull
-                ? 
-    tate.
-    R
-    ememberedMissing
-                    ? 
-    The program chosen earlier is gone"
-                    : 
-    tate.
-    L
-    oading
-                        ? 
-    "
-                        : 
-    Several programs could be the game"
-                : 
-    tring.
-    J
-    oin(
-    "
-     · ",
- 
-    ew[
-    ]
- 
-     
-    untime.
-    A
-    rchitectureLabel,
- 
-    untime.
-    C
-    onfidenceLabel 
-    
-                    .W
-    here(
-    p
-    art 
-    > 
-    art.
-    L
-    ength 
-  
-    )
-    )
-    ,
- 
-    ull)
-    )
-    ;
-    
-        var 
-    pscalers 
-  
-    pscalerLabels(
-    s
-    tate)
-    ;
-    
-        Control?
- 
-    hips 
-  
-    ull;
-    
-        if 
-    u
-    pscalers.
-    C
-    ount 
-  
-    )
-    
+        var facts = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*,*"), ColumnSpacing = 14 };
+        var runtime = state.Runtime;
+        facts.Children.Add(Fact("Program", runtime?.FileName ?? (state.Loading ? "Looking…" : "Not chosen"),
+            runtime is null
+                ? state.RememberedMissing
+                    ? "The program chosen earlier is gone"
+                    : state.Loading
+                        ? ""
+                        : "Several programs could be the game"
+                : string.Join(" · ", new[] { runtime.ArchitectureLabel, runtime.ConfidenceLabel }
+                    .Where(part => part.Length > 0)), null));
+        var upscalers = UpscalerLabels(state);
+        Control? chips = null;
+        if (upscalers.Count > 0)
         {
-            var 
-    rap 
-  
-    ew 
-    rapPanel 
-  
-    rientation 
-  
-    rientation.
-    H
-    orizontal 
-    ;
-    
-            foreach 
-    v
-    ar 
-    abel 
-    n 
-    pscalers)
-    
+            var wrap = new WrapPanel { Orientation = Orientation.Horizontal };
+            foreach (var label in upscalers)
             {
-                var 
-    hip 
-  
-    hip(
-    l
-    abel,
- 
-    ")
-    ;
-    
-                chip.
-    M
-    argin 
-  
-    ew 
-    hickness(
-    0
-    ,
- 
-    ,
- 
-    ,
- 
-    )
-    ;
-    
-                wrap.
-    C
-    hildren.
-    A
-    dd(
-    c
-    hip)
-    ;
-    
+                var chip = Chip(label, "");
+                chip.Margin = new Thickness(0, 0, 6, 6);
+                wrap.Children.Add(chip);
             }
 
-             hips 
-  
-    rap;
-    
+            chips = wrap;
         }
 
-         ar 
-    pscalerFact 
-  
-    act(
-    "
-    Upscalers in the folder",
- 
-    pscalers.
-    C
-    ount 
-  
-     
-     
-    ull 
-  
-    None found",
-    
-            upscalers.
-    C
-    ount 
-  
-     
-     
-    " 
-  
-    The game may still have one built in",
- 
-    hips)
-    ;
-    
-        Grid.
-    S
-    etColumn(
-    u
-    pscalerFact,
- 
-    )
-    ;
-    
-        facts.
-    C
-    hildren.
-    A
-    dd(
-    u
-    pscalerFact)
-    ;
-    
-        var 
-    ntiCheat 
-  
-    act(
-    "
-    Anti-cheat",
-    
-            state.
-    A
-    ntiCheat.
-    C
-    ount 
-  
-     
-     
-    tring.
-    J
-    oin(
-    "
-    , ",
- 
-    tate.
-    A
-    ntiCheat)
- 
-     
-    None found",
-    
-            state.
-    G
-    puVendors.
-    C
-    ount 
-  
-     
-     
-    GPU: " 
-  
-    tring.
-    J
-    oin(
-    "
-    , ",
- 
-    tate.
-    G
-    puVendors.
-    S
-    elect(
-    V
-    endorLabel)
-    )
- 
-     
-    ",
- 
-    ull)
-    ;
-    
-        Grid.
-    S
-    etColumn(
-    a
-    ntiCheat,
- 
-    )
-    ;
-    
-        facts.
-    C
-    hildren.Add(antiCheat);
+        var upscalerFact = Fact("Upscalers in the folder", upscalers.Count > 0 ? null : "None found",
+            upscalers.Count > 0 ? "" : "The game may still have one built in", chips);
+        Grid.SetColumn(upscalerFact, 1);
+        facts.Children.Add(upscalerFact);
+        var antiCheat = Fact("Anti-cheat",
+            state.AntiCheat.Count > 0 ? string.Join(", ", state.AntiCheat) : "None found",
+            state.GpuVendors.Count > 0 ? "GPU: " + string.Join(", ", state.GpuVendors.Select(VendorLabel)) : "", null);
+        Grid.SetColumn(antiCheat, 2);
+        facts.Children.Add(antiCheat);
         return facts;
     }
 
@@ -1155,266 +333,45 @@ public sealed partial class GameToolsView
     }
 
     /// <summary>The compact card's one line: program, how it was chosen, upscalers and anti-cheat.</summary>
-    private static 
-    tring 
-    ummary(
-    G
-    ameToolsState 
-    tate)
-    
+    private static string Summary(GameToolsState state)
     {
-        List<
-    s
-    tring>
- 
-    arts 
-  
-    ]
-    ;
-    
-        if 
-    s
-    tate.
-    R
-    untime 
-    s 
-  
-     
-    untime)
-    
+        List<string> parts = [];
+        if (state.Runtime is { } runtime)
         {
-            parts.
-    A
-    dd(
-    r
-    untime.
-    R
-    elativePath.
-    R
-    eplace(
-    '
-    /',
- 
-    \\')
-    )
-    ;
-    
-            if 
-    r
-    untime.
-    C
-    onfidenceLabel.
-    L
-    ength 
-  
-    )
-    
+            parts.Add(runtime.RelativePath.Replace('/', '\\'));
+            if (runtime.ConfidenceLabel.Length > 0)
             {
-                parts.
-    A
-    dd(
-    c
-    har.
-    T
-    oLowerInvariant(
-    r
-    untime.
-    C
-    onfidenceLabel[
-    0
-    ]
-    )
- 
-     
-    untime.
-    C
-    onfidenceLabel[
-    1
-    .
-    .]
-    )
-    ;
-    
+                parts.Add(char.ToLowerInvariant(runtime.ConfidenceLabel[0]) + runtime.ConfidenceLabel[1..]);
             }
         }
 
-         ar 
-    pscalers 
-  
-    pscalerLabels(
-    s
-    tate)
-    ;
-    
-        parts.
-    A
-    dd(
-    u
-    pscalers.
-    C
-    ount 
-  
-    
-            ? 
-    tring.
-    J
-    oin(
-    "
-    , ",
- 
-    pscalers)
- 
-     
-     in the folder"
-            : 
-    no standalone upscaler found")
-    ;
-    
-        parts.
-    A
-    dd(
-    s
-    tate.
-    A
-    ntiCheat.
-    C
-    ount 
-  
-     
-     
-    tring.
-    J
-    oin(
-    "
-    , ",
- 
-    tate.
-    A
-    ntiCheat)
- 
-     
-     found" 
-  
-    no anti-cheat found")
-    ;
-
-       return string.Join(" · ", parts);
+        var upscalers = UpscalerLabels(state);
+        parts.Add(upscalers.Count > 0
+            ? string.Join(", ", upscalers) + " in the folder"
+            : "no standalone upscaler found");
+        parts.Add(state.AntiCheat.Count > 0 ? string.Join(", ", state.AntiCheat) + " found" : "no anti-cheat found");
+        return string.Join(" · ", parts);
     }
 
     /// <summary>The distinct upscaler technologies, each with its major and minor version when the name has none.</summary>
-    private static List<string>
- 
-    pscalerLabels(
-    G
-    ameToolsState 
-    tate)
-    
+    private static List<string> UpscalerLabels(GameToolsState state)
     {
         return
         [
-            .. 
-    tate.
-    U
-    pscalers.
-    S
-    elect(
-    u
-    pscaler 
-    >
+            .. state.Upscalers.Select(upscaler =>
             {
-                var 
-    umbered 
-  
-    pscaler.
-    T
-    echnology.
-    A
-    ny(
-    c
-    har.
-    I
-    sDigit)
-    ;
-    
-                var 
-    arts 
-  
-    u
-    pscaler.
-    V
-    ersion 
-    ? 
-    ")
-    .
-    S
-    plit(
-    '
-    .')
-    ;
-    
-                return 
-    umbered 
-    | 
-    arts.
-    L
-    ength 
-  
-     
-    | 
-    arts[
-    0
-    ]
-    .
-    L
-    ength 
-    = 
-    
-                    ? 
-    pscaler.
-    T
-    echnology
-                    : 
-    pscaler.
-    T
-    echnology 
-  
-     " 
-  
-    arts[
-    0
-    ]
- 
-     
-    ." 
-  
-    arts[
-    1
-    ]
-    ;
-    
-            })
-    .
-    Distinct(StringComparer.Ordinal)
+                var numbered = upscaler.Technology.Any(char.IsDigit);
+                var parts = (upscaler.Version ?? "").Split('.');
+                return numbered || parts.Length < 2 || parts[0].Length == 0
+                    ? upscaler.Technology
+                    : upscaler.Technology + " " + parts[0] + "." + parts[1];
+            }).Distinct(StringComparer.Ordinal)
         ];
     }
 
-    private static string 
-    ntiCheatTitle(
-    G
-    ameToolsState 
-    tate)
-    
+    private static string AntiCheatTitle(GameToolsState state)
     {
-        return 
-    tring.
-    J
-    oin(
-    "
-    , ",
- 
-    tate.
-    A
-    ntiCheat) + " found in this game's folder";
+        return string.Join(", ", state.AntiCheat) + " found in this game's folder";
     }
 
     // The service's warning names what was found and then the tools' own warnings; the title already names it.
@@ -1449,10 +406,8 @@ public sealed partial class GameToolsView
         {
             "amd" => "AMD",
             "intel" => "Intel",
-            "nvidia" => "N
-IIA",
+            "nvidia" => "NVIDIA",
             _ => vendor
-     
-   };
+        };
     }
 }
