@@ -69,6 +69,9 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     private GameToolsBusy? _busy;
     private bool _disposed;
     private long _lastProgress;
+
+    // When the running operation entered its current phase, so each phase's duration reaches the log.
+    private long _phaseStarted;
     private GameToolsLibrary? _library;
     private bool _libraryDirty;
     private Task<GameToolsLibrary>? _libraryRead;
@@ -693,6 +696,7 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
             var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
             _operationCancellation = cancellation;
             var name = subject?.Invoke(tool) ?? tool.Name;
+            _phaseStarted = Environment.TickCount64;
             _busy = new GameToolsBusy(appId, tool.Id, operation, GameToolPhase.Starting,
                 GameToolsPhases.Detail(GameToolPhase.Starting, operation, name, null, null), 0, 0, true);
             _messages[appId] = (null, null);
@@ -763,6 +767,7 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
 
             lock (_sync)
             {
+                LogPhaseEnd(_busy);
                 _busy = null;
                 _messages[appId] = (error, notice);
                 if (ReferenceEquals(_operationCancellation, cancellation))
@@ -1327,6 +1332,20 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         }
     }
 
+    // One line per phase, never per progress report: a tester log then shows which step took the time.
+    // Called under _sync.
+    private void LogPhaseEnd(GameToolsBusy? busy)
+    {
+        if (busy is null)
+        {
+            return;
+        }
+
+        var now = Environment.TickCount64;
+        Log.Info($"Game Tools: {busy.Operation} {busy.ToolId} for {busy.AppId}: {busy.Phase} took {now - _phaseStarted} ms.");
+        _phaseStarted = now;
+    }
+
     private void Report(string phase, string detail, long bytes, long total, bool cancellable,
         (string Channel, string Version)? release = null)
     {
@@ -1339,6 +1358,11 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
             }
 
             var now = Environment.TickCount64;
+            if (_busy.Phase != phase)
+            {
+                LogPhaseEnd(_busy);
+            }
+
             raise = _busy.Phase != phase || _busy.Cancellable != cancellable || release is not null
                     || now - _lastProgress >= ProgressInterval;
             _busy = _busy with
