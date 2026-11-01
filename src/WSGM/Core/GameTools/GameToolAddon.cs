@@ -35,9 +35,6 @@ internal sealed record GameToolAddon
     /// <summary>Where the file goes, relative to the tool's target directory.</summary>
     public string File { get; init; } = "";
 
-    /// <summary>Another location for a version family, such as the 10.x <c>OptiScaler/plugins</c> folder.</summary>
-    public Dictionary<string, string> FamilyFiles { get; init; } = new(StringComparer.Ordinal);
-
     /// <summary>The INI section of the key that makes the tool load the add-on.</summary>
     public string ConfigSection { get; init; } = "";
 
@@ -65,11 +62,4 @@ internal sealed record GameToolAddon
     /// <summary>The file name the add-on is installed under.</summary>
     internal string FileName => Path.GetFileName(File);
 
-    /// <summary>Where the file goes for a version family.</summary>
-    /// <param name="family">The installed or packaged family.</param>
-    /// <returns>A forward-slash path relative to the target directory.</returns>
-    internal string FileFor(string family)
-    {
-        return FamilyFiles.GetValueOrDefault(family) ?? File;
-    }
 }

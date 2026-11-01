@@ -817,14 +817,16 @@ generation. WSGM installs the stable `.7z` release of
   `OptiScaler/OptiScaler.log`.
 
 , downloaded with its GitHub digest checked like every package and refused unless it is a PE of the
-game's architecture. It is cached under `<data>GameToolspackagesoptiscaleraddonsoptipatcher-<hash>`.
-The build date shown is the asset's upload date.
+game's architecture. It is cached under
+`<data>\GameTools\packages\optiscaler\addons\optipatcher-<hash>`. The build date shown is the asset's
+upload date.
 
-- **Placement.** `plugins/OptiPatcher.asi` beside the program for 0.9.x and
-  `OptiScaler/plugins/OptiPatcher.asi` for 10.x, where each loads ASI plugins from. The file is one
-  more owned file of OptiScaler's manifest, so the journal, rollback, revalidation, Repair and
-  Remove cover it; `addons[]` in the manifest records its release. A manually installed
-  `plugins/OptiPatcher.asi` is replaceable with backup.
+- **Placement.** `plugins/OptiPatcher.asi` beside the program and OptiScaler's proxy DLL, for 0.9.x
+  and 10.x alike: both load ASI plugins from the relative `plugins` folder, as OptiPatcher's README
+  says, never from 10.x's `OptiScaler` subfolder. The file is one more owned file of OptiScaler's
+  manifest, so the journal, rollback, revalidation, Repair and Remove cover it; `addons[]` in the
+  manifest records its release. A manually installed `plugins/OptiPatcher.asi` is replaceable with
+  backup.
 - **Loading.** While it is installed, `[Plugins] LoadAsiPlugins` is `true`; removing it writes
   `auto` (OptiScaler's default, off). The key is written by the transaction that adds or removes the
   file, so a later settings change leaves a hand-edited value alone. An installed add-on whose INI

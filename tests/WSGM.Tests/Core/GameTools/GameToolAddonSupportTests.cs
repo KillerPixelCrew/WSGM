@@ -48,10 +48,10 @@ public sealed class GameToolAddonSupportTests
     }
 
     [Fact]
-    public void TheCatalogPlacesOptiPatcherWhereEachOptiScalerFamilyLoadsPlugins()
+    public void TheCatalogPlacesOptiPatcherInThePluginsFolderBesideOptiScalerForEveryVersion()
     {
-        Assert.Equal("plugins/OptiPatcher.asi", OptiPatcher.FileFor("v09"));
-        Assert.Equal("OptiScaler/plugins/OptiPatcher.asi", OptiPatcher.FileFor("v10"));
+        // OptiScaler 0.9.x and 10.x both load *.asi from the relative "plugins" folder, beside the proxy DLL.
+        Assert.Equal("plugins/OptiPatcher.asi", OptiPatcher.File);
         Assert.Equal(("Plugins", "LoadAsiPlugins", "true", "auto"),
             (OptiPatcher.ConfigSection, OptiPatcher.ConfigKey, OptiPatcher.ConfigOn, OptiPatcher.ConfigOff));
         Assert.Equal(["amd", "intel"], OptiPatcher.Vendors);

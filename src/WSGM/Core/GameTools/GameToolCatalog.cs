@@ -131,9 +131,6 @@ internal sealed record GameToolCatalog
         var source = addon.Source;
         var invalid = !Regex.IsMatch(addon.Id, "^[a-z][a-z0-9-]*$") || addon.Name.Length == 0
                       || !SafeRelative(addon.File) || !DownloadClient.IsSafeAssetName(addon.FileName)
-                      || addon.FamilyFiles.Values.Any(path => !SafeRelative(path)
-                                                              || !Path.GetFileName(path).Equals(addon.FileName,
-                                                                  StringComparison.OrdinalIgnoreCase))
                       || !HostedReleases.Providers.Contains(source.Provider)
                       || !Regex.IsMatch(source.Repository, "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
                       || source.AssetPattern.Length == 0 || source.Channel.Length == 0

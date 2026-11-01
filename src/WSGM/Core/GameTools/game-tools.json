@@ -150,7 +150,6 @@
             "packageType": "asi"
           },
           "file": "plugins/OptiPatcher.asi",
-          "familyFiles": { "v10": "OptiScaler/plugins/OptiPatcher.asi" },
           "configSection": "Plugins",
           "configKey": "LoadAsiPlugins",
           "configOn": "true",

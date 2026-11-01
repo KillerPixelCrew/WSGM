@@ -361,7 +361,7 @@ internal sealed class GameToolInstaller(string userRoot)
                         StringComparer.OrdinalIgnoreCase)
                 ],
                 Settings = settings,
-                Addons = [.. package.Addons.Select(addon => addon.Record(addon.Addon.FileFor(package.Family)))],
+                Addons = [.. package.Addons.Select(addon => addon.Record(addon.Addon.File))],
                 State = GameToolManifestState.Installed,
                 Journal = [],
                 JournalDirectories = [],
@@ -915,7 +915,7 @@ internal sealed class GameToolInstaller(string userRoot)
         }
 
         // Add-on files go where the packaged family loads them and win over a payload file of the same path.
-        var addons = package.Addons.Select(addon => (Relative: addon.Addon.FileFor(package.Family), addon.Source,
+        var addons = package.Addons.Select(addon => (Relative: addon.Addon.File, addon.Source,
             Sha: addon.Release.Asset.Sha256)).ToArray();
         foreach (var source in Directory.EnumerateFiles(package.Root, "*", SearchOption.AllDirectories))
         {
