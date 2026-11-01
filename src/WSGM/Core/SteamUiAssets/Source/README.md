@@ -1,8 +1,9 @@
 # Steam UI bootstrap source
 
-`emulators.ts` owns Emulator Manager's tabbed catalogue, installation details, core filters, BIOS
-checklist and system defaults. `library-import.ts` retains page registration, the shared local
-picker/setup sheet and state subscriptions. Both consume the one EmulatorService backend.
+`emulators.ts` owns the Emulators page's five tabs (Installed, Get emulators, RetroArch cores,
+System defaults, BIOS and firmware) and the detail levels opened from them, over EmulatorService's
+page projection. `library-import.ts` retains the page registration and the progress subscription.
+Both consume the one EmulatorService backend.
 
 This is WSGM's half of the injected asset: the renderers for WSGM's own pages in Steam.
 
@@ -47,7 +48,7 @@ bindings: the content drawn with Steam's fields, the kit and the toolkit's `ui-f
   space, one card's switches, rename, games and forget, over `LibraryManagerService`.
 - `library-tab-manager.ts`, the Library Tab Manager page: the custom tabs, the strip order and
   Steam-tab hiding, and the tab editor with its filter levels and pickers, over the same service.
-- `emulators.ts`, `notes.ts` and `browser.ts`: Emulator Manager, Notes and the browser handoff.
+- `emulators.ts`, `notes.ts` and `browser.ts`: the Emulators page, Notes and the browser handoff.
 - `game-tools.ts`, the Game Tools page (`/wsgm/game-tools/:appid?`): without an AppID the list of
   games with tools and the Steam library, from `wsgm.game-tools.library`; with one, opened from the
   game's cog menu, the game's hero, its program, detected upscalers and anti-cheat, and each tool's

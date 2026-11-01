@@ -21,6 +21,7 @@ public sealed partial class EmulatorManagerView
 
     private void RenderInstallation(string installationId)
     {
+        SecondaryHint = "";
         var shown = ReadShown();
         var installation = shown?.Snapshot.Installations.FirstOrDefault(item => item.Id == installationId);
         var item = shown?.Page.Installed.FirstOrDefault(entry => entry.Id == installationId);
@@ -428,6 +429,7 @@ public sealed partial class EmulatorManagerView
 
     private void RenderDefinition(string definitionId)
     {
+        SecondaryHint = "";
         var shown = ReadShown();
         var definition = shown?.Snapshot.Definitions.FirstOrDefault(item => item.Id == definitionId);
         if (shown is null || definition is null)

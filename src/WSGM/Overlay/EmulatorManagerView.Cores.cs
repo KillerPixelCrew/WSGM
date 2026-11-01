@@ -58,11 +58,7 @@ public sealed partial class EmulatorManagerView
         var needing = installation.Cores.Count(NeedsFiles);
         body.Children.Add(Tagged(Row("Search cores or systems",
             _coreSearch.Length > 0 ? _coreSearch : "Search by core or system name", Icons.ListLines,
-            () => EditText("Search cores or systems", _coreSearch, 120, value =>
-            {
-                _coreSearch = value;
-                _readyShown = CoreChunk;
-            })), "emu.cores.search"));
+            EditCoreSearch), "emu.cores.search"));
         var update = Command("emu.cores.update", "Update installed cores", shown.Progress.Busy || !installation.Managed
             ? null
             : () => Run(token => _service!.UpdateEmulatorAsync(id, token), "update cores"));
@@ -121,6 +117,16 @@ public sealed partial class EmulatorManagerView
         }
     }
 
+    /// <summary>Asks for the core search, from its row or from Y.</summary>
+    private void EditCoreSearch()
+    {
+        EditText("Search cores or systems", _coreSearch, 120, value =>
+        {
+            _coreSearch = value;
+            _readyShown = CoreChunk;
+        });
+    }
+
     private Control CoreRow(EmulatorInstallation installation, EmulatorCore core, EmulatorCoreStatus? missing)
     {
         var systems = string.Join(" · ", core.Systems.Select(EmulatorPresentation.SystemName));
@@ -160,6 +166,7 @@ public sealed partial class EmulatorManagerView
     /// <summary>One core's fixed facts: its file, file types, system mapping and declared files.</summary>
     private void RenderCore(string installationId, string coreId)
     {
+        SecondaryHint = "";
         var installation = ReadShown()?.Snapshot.Installations.FirstOrDefault(item => item.Id == installationId);
         var core = installation?.Cores.FirstOrDefault(item => item.Id == coreId);
         if (core is null)

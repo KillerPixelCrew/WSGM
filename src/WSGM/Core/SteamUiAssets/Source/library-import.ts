@@ -27,8 +27,7 @@ let ImportCapsule: any = null;
 let ImportCardType: any = null;
 
 // The emulator tool's progress is a publication of its own, so a progress tick does not resend the
-// whole catalogue. The emulator page's gate follows it while installed; the import page's emulator
-// setup sheet reads the same value.
+// whole catalogue. The emulator page's gate follows it while installed.
 const emulatorProgressStore = createLocalStore();
 let emulatorProgress: any = { busy: false, status: "" };
 let emulatorProgressEnd: (() => void) | null = null;
@@ -45,8 +44,6 @@ const importAct = (command: string, payload: any = {}) => libraryImportPage.act(
 const importReport = (message: { text: string; error: boolean } | null) =>
   libraryImportPage.report(message?.text ?? null, message?.error ?? true);
 const emulatorAct = (command: string, payload: any = {}) => emulatorPage.act(command, payload);
-const emulatorReport = (message: { text: string; error: boolean } | null) =>
-  emulatorPage.report(message?.text ?? null, message?.error ?? true);
 
 // A page's live state for a component that may be drawn on either page, or in a modal over it:
 // the page's own state when its gate has supplied React, else nothing. Either way it calls exactly
@@ -1189,83 +1186,6 @@ function ImportManualSourceBody({ sourceId, close }: any) {
   );
 }
 
-function ImportEmulatorSetupBody({ installationId, close }: any) {
-  const react = importUi.react;
-  const h = react.createElement;
-  const state = useEmulatorState();
-  const progress = useEmulatorProgress();
-  const [error, setError] = react.useState("");
-
-  const installation = (state?.emulators?.installations ?? []).find(
-    (item: any) => item.id === installationId,
-  );
-  const definition = (state?.emulators?.definitions ?? []).find(
-    (item: any) => item.id === installation?.definitionId,
-  );
-  const choose = (prerequisite: any, mode: "file" | "folder" | "any") =>
-    void showSteamFilePicker(importUi, {
-      title: `Choose ${prerequisite.name}`,
-      mode,
-      extensions: prerequisite.extensions,
-    }).then(
-      (path) =>
-        path &&
-        void emulatorPage.send("configureEmulatorPrerequisite", {
-          installationId,
-          path,
-          kind: prerequisite.kind,
-        }).then(
-          () => setError(""),
-          (failure: any) => setError(importError(failure)),
-        ),
-    );
-  return renderSteamUiSheet(
-    importUi,
-    {
-      note: "Choose BIOS, firmware or system files you already have.",
-      error,
-      actions: [
-        {
-          id: "recheck",
-          label: "Recheck setup",
-          disabled: progress.busy,
-          onClick: () => void emulatorAct("refreshEmulators"),
-        },
-        ...(progress.busy
-          ? [{ id: "stop", label: "Stop operation", onClick: () => void emulatorAct("cancel") }]
-          : []),
-        { id: "close", label: "Close", onClick: close },
-      ],
-    },
-    progress.busy
-      ? renderSteamUiProgress(importUi, { phase: progress.status || "Working…" })
-      : renderSteamUiStatus(importUi, [progress.status]),
-    ...(definition?.prerequisites ?? []).map((prerequisite: any) =>
-      h(
-        importUi.focusable,
-        { key: prerequisite.kind, className: "wsgm-import-pane", "flow-children": "column" },
-        h("h3", {}, prerequisite.name),
-        h("p", {}, prerequisite.description),
-        installation?.configuredPrerequisites?.[prerequisite.kind]
-          ? h("p", {}, "Configured: " + installation.configuredPrerequisites[prerequisite.kind])
-          : null,
-        h(
-          importUi.dialogButton,
-          { disabled: progress.busy, onClick: () => choose(prerequisite, "file") },
-          "Choose file…",
-        ),
-        prerequisite.allowDirectory
-          ? h(
-              importUi.dialogButton,
-              { disabled: progress.busy, onClick: () => choose(prerequisite, "folder") },
-              "Choose folder…",
-            )
-          : null,
-      ),
-    ),
-  );
-}
-
 // One poster in the grid. Memoized on what it draws: after a scan a publication changes a few
 // titles, and redrawing every card for it was what made the D-pad lag on a large library.
 function ImportCard({ entry, slot, asset, actions, returning }: any) {
@@ -2202,26 +2122,27 @@ const libraryImportPage = registerSteamPage({
 });
 
 /**
- * Draws one tab of the emulator tool from the host's state.
+ * Draws one tab of the Emulators page from the host's state.
  * @param props The frame's context, the host's state and the active tab.
  * @returns The tab's content.
  */
 function EmulatorManagerPage({ context, state, tab }: any) {
   importUi = context.ui();
-  return context.react().createElement(ImportEmulatorPage, { context, state, tab });
+  return context.react().createElement(EmulatorTab, { context, state, tab });
 }
 
 const emulatorPage = registerSteamPage({
   template: "emulators",
   gate: "emulatorManager",
   patchId: EmulatorPatchId,
-  title: "Emulator Manager",
+  title: "Emulators",
   id: "wsgm-emulators",
   style: emulatorStyles,
   loading: "Loading emulators…",
   // The emulator tool publishes no notice of its own; a refused command is the frame's banner.
   banner: false,
-  tabs: { source: "local", initial: "installed", list: (state) => emulatorTabs(state) },
+  // Steam's tabs are the Overlay's five views; L1 and R1 switch them.
+  tabs: { source: "local", initial: "installed", list: EmulatorTabs },
   // The progress publication is followed while the gate holds, so every sheet sees it.
   prepare: () => {
     try {
@@ -2240,7 +2161,7 @@ const emulatorPage = registerSteamPage({
     emulatorProgressEnd = null;
     emulatorProgress = { busy: false, status: "" };
     emulatorProgressStore.changed();
-    emulatorRouteMemory.reset();
+    emulatorMemory.reset();
   },
   status: () => ({ busy: !!emulatorProgress.busy }),
   Page: EmulatorManagerPage,

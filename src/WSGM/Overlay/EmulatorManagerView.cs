@@ -23,11 +23,16 @@ namespace WSGM.Overlay;
 ///     emulators, RetroArch cores, System defaults, BIOS and firmware) and a detail page per emulator.
 /// </summary>
 /// <remarks>
-///     LB/RB switch the views and Y checks for updates while the page is open. Install, update, Update all and repair
-///     run in the service and outlive the page; their steps and Stop show inline on the emulator they work on.
+///     LB/RB switch the views while the page is open. Y opens the focused emulator's details on Get emulators and the
+///     search on RetroArch cores, and the footer names it there. Install, update, Update all and repair run in the
+///     service and outlive the page; their steps and Stop show inline on the emulator they work on.
 /// </remarks>
 public sealed partial class EmulatorManagerView : ServiceSubView
 {
+    /// <summary>What Y does on the level on screen, for the footer: "Details", "Search" or empty for nothing.</summary>
+    public static readonly StyledProperty<string> SecondaryHintProperty =
+        AvaloniaProperty.Register<EmulatorManagerView, string>(nameof(SecondaryHint), "");
+
     // The controls pane is narrower than this at the 980 x 640 floor; grids then use fewer columns.
     private const double WideWidth = 820;
 
@@ -61,6 +66,13 @@ public sealed partial class EmulatorManagerView : ServiceSubView
     /// <inheritdoc />
     protected override string LogScope => "Emulator Manager";
 
+    /// <summary>What Y does on the level on screen, for the footer: "Details", "Search" or empty for nothing.</summary>
+    public string SecondaryHint
+    {
+        get => GetValue(SecondaryHintProperty);
+        private set => SetValue(SecondaryHintProperty, value);
+    }
+
     internal void Attach(IEmulatorBackend? service)
     {
         _service = service;
@@ -74,6 +86,10 @@ public sealed partial class EmulatorManagerView : ServiceSubView
         if (change.Property == IsVisibleProperty)
         {
             AttachSource(IsVisible ? _service : null);
+            if (!IsVisible)
+            {
+                SecondaryHint = "";
+            }
         }
     }
 
@@ -82,11 +98,18 @@ public sealed partial class EmulatorManagerView : ServiceSubView
     internal override void Leave()
     {
         _returnFocus = null;
+        SecondaryHint = "";
         base.Leave();
     }
 
     private protected override void RenderHome()
     {
+        SecondaryHint = _view switch
+        {
+            "catalog" => "Details",
+            "cores" => "Search",
+            _ => ""
+        };
         var shown = ReadShown();
         if (shown is null)
         {
@@ -182,16 +205,37 @@ public sealed partial class EmulatorManagerView : ServiceSubView
         return true;
     }
 
-    internal bool CheckForUpdates()
+    /// <summary>
+    ///     Y: the focused catalogue emulator's details on Get emulators, the core search on RetroArch cores. Elsewhere
+    ///     the page leaves Y to the sheet.
+    /// </summary>
+    /// <returns>Whether the page took the press.</returns>
+    internal bool SecondaryAction()
     {
-        if (!IsEffectivelyVisible || _service is null)
+        if (!IsEffectivelyVisible || _service is null || CurrentLevel is null || SecondaryHint.Length == 0)
         {
             return false;
         }
 
-        if (!_service.ReadProgressState().Busy)
+        if (_view == "cores")
         {
-            Run(_service.RefreshEmulatorsAsync);
+            EditCoreSearch();
+            return true;
+        }
+
+        // The card that holds focus: its details row, its Install button or the card around them.
+        var focused = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() as Control;
+        var tags = focused is null
+            ? []
+            : new[] { focused }.Concat(focused.GetLogicalAncestors().OfType<Control>())
+                .Select(control => control.Tag as string).OfType<string>().ToArray();
+        var item = _service.ReadPageState().Catalog.FirstOrDefault(entry => tags.Any(tag =>
+            tag == "emu.catalog:" + entry.DefinitionId || tag.StartsWith("emu.catalog:" + entry.DefinitionId + ".",
+                StringComparison.Ordinal)));
+        if (item is not null)
+        {
+            var id = item.DefinitionId;
+            Open("emu.catalog:" + id, () => RenderDefinition(id));
         }
 
         return true;

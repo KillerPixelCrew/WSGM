@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ov="using:WSGM.Overlay"
+        xmlns:cv="using:Avalonia.Data.Converters"
         xmlns:c="using:WSGM.Controls"
         xmlns:sh="using:WSGM.Shell"
         xmlns:fa="using:FluentAvalonia.UI.Controls"
@@ -391,10 +392,12 @@
                               VerticalAlignment="Center" />
                 <TextBlock Text="Pin to Quick access" Classes="caption" VerticalAlignment="Center" />
               </StackPanel>
-              <StackPanel Orientation="Horizontal" Spacing="5" IsVisible="{Binding #EmulatorManagerHost.IsVisible}">
+              <StackPanel Orientation="Horizontal" Spacing="5"
+                          IsVisible="{Binding #EmulatorManagerHost.SecondaryHint, Converter={x:Static cv:StringConverters.IsNotNullOrEmpty}}">
                 <ov:GlyphIcon Width="18" Height="18" Button="y" GlyphStyle="{Binding GlyphStyle}"
                               VerticalAlignment="Center" />
-                <TextBlock Text="Check for updates" Classes="caption" VerticalAlignment="Center" />
+                <TextBlock Text="{Binding #EmulatorManagerHost.SecondaryHint}" Classes="caption"
+                           VerticalAlignment="Center" />
               </StackPanel>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="14">

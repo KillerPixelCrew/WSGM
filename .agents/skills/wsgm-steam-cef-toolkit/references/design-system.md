@@ -212,8 +212,8 @@ Row and section glyphs come from the one table `SteamUiIconShapes` in `icons.ts`
 with `currentColor`, drawn by `renderSteamUiIcon(react, name, size)`. Rows use 20px through Field's
 `icon` slot (sliders with `iconLocation: "front"`), headers 18px, card stats 13px. No glyph appears
 twice in a panel and a header never repeats a row's glyph. `sectionOpen` and `sectionClosed` are
-only the fold caret; `chevron` is a breadcrumb separator. Host-supplied paths go through
-`renderSteamGlyph`, which accepts SVG path commands only.
+only the fold caret; `chevron` is a breadcrumb separator; `check`, `cross` and `dash` are the state
+marks. Host-supplied paths go through `renderSteamGlyph`, which accepts SVG path commands only.
 
 Controller hints are Steam's. Declare `onOKActionDescription`, `onCancelActionDescription`,
 `onSecondaryActionDescription`, `onOptionsActionDescription` or `onMenuActionDescription`, and
@@ -316,14 +316,16 @@ focused, disabled, long value. Do use it in boxes, toolbars, tables and side pan
 label. Don't put a full DropDownField beside another label.
 
 **Select row.** Kit:
-`renderSteamUiSelectRow(ui, { key, title, detail, error, status, selected, media, disabled, description, onClick })`.
+`renderSteamUiSelectRow(ui, { key, title, detail, error, status, selected, media, disabled, description, secondary, autoFocus, onClick })`.
 One DialogButton holding a `minmax(0,1fr) auto` grid (`auto minmax(0,1fr) auto` with `media`, a
 120px picture spanning both lines): title, trailing status, detail in 13px `text-muted` or
 `danger-text` that keeps its line breaks. In a `steam-ui-kit-list` the row is full width (10px 14px,
 height by content); `steam-ui-kit-list columns` is a grid of rows, `minmax(min(100%,360px),1fr)`.
 States: default, focused (detail `focus-detail`, error `focus-error`), selected (accent bar), error,
-disabled (refuses its activation). Do use it for candidates, sources, games and managed items, with
-status in tags. Don't append loose spans to a button or colour status text.
+disabled (refuses its activation). `secondary: { label, onActivate, disabled }` puts a second
+command on X, which Steam's footer names; a disabled one binds nothing. Do use it for candidates,
+sources, games and managed items, with status in tags. Don't append loose spans to a button or
+colour status text.
 
 **Section header.** Kit:
 `renderSteamUiHeader(ui, { title, icon, detail, collapsed, onToggle, sub, page })`.
@@ -352,11 +354,25 @@ blur or Enter. Don't set per-page tool widths; three pages do today, and a width
 the kit.
 
 **Card and grid.** Kit:
-`renderSteamUiCard(ui, { image, media, placeholder, stats, badge, title, meta, onActivate })`,
+`renderSteamUiCard(ui, { image, media, placeholder, stats, badge, icon, subtitle, title, tags, meta, description, secondary, autoFocus, onActivate })`,
 `renderSteamUiGrid(ui, cards)`. 16:10 shot, stats strip, badge, 15px title, 11px meta, `card-fill`;
-grid `repeat(auto-fill, minmax(240px, 1fr))`, 14px gap. States: default, focused (`card-fill-focus`
-and `focus-ring`), placeholder, badge. Do bound mounted cards with Load More. Don't nest focusable
-controls in a card.
+grid `repeat(auto-fill, minmax(240px, 1fr))`, 14px gap. With `icon` it is the compact program card
+(Emulators' Installed and Get emulators): 14px padding, the icon tile beside the 15px title and a
+13px `text-muted` subtitle, 13px meta lines, then tags. `description` names A (Open by default);
+`secondary` puts a second command on X. States: default, focused (`card-fill-focus` and
+`focus-ring`), placeholder, badge. Do bound mounted cards with Load More. Don't nest focusable
+controls in a card; a second command is X.
+
+**Icon tile.** Kit: `renderSteamUiIconTile(react, { images, glyph, size, label })`, with the sources
+from `steamAppIconImages(appId)` (`library-capsule.ts`, Steam's `GetIconURLForApp`, which includes a
+shortcut's own icon). A square on `surface-media` with a 1px `surface-control` border and
+`radius-control`; the icon is contained, and the `controller` glyph (42% of the edge, `text-muted`)
+shows where there is no icon or every source failed. No focus; decorative without a `label`.
+
+**State mark.** Kit: `renderSteamUiStateMark(react, { state, label })`. A 20px circle for a
+checklist line in a field's `icon` slot: `ready` (`success-fill`, `success-text` check), `missing`
+(`danger-tag-fill`, `danger-text` cross), `optional` (`tag-fill`, a dash). The row's description
+says the same in words. No focus.
 
 **Gallery.** Kit: `renderSteamUiGallery(ui, { images, index, onSelect, empty })`,
 `renderSteamUiVideo`, `renderSteamUiImagePreview`. A hero up to 556px, 96px thumbnails at 0.6
@@ -368,12 +384,15 @@ selects), empty. Do release video on unmount. Don't autoplay sound.
 panel, 40px 24px, dashed `line-dashed`, 6px radius, 22px title, one primary action. Do tell empty
 from no match and loading from unavailable. Don't hand-build the large panel.
 
-**Banner and status.** Kit: `renderSteamUiBanner(ui, { text, title, error, success, onDismiss })`,
+**Banner and status.** Kit:
+`renderSteamUiBanner(ui, { key, text, title, error, success, actions, onDismiss })`,
 `renderSteamUiStatus(ui, lines)`. Banner 10px 14px on `info-fill`, `danger-fill` (an alert) or
 `success-fill` with `success-text` and the 16px `check` glyph (a status, for a saved change with a
-next step); an optional bold title leads the text. Status lines 8px 12px on `info-fill-soft` or
-`danger-fill`, Dismiss as a small button. States: notice, success, error, titled, dismissible. Do
-keep the service's refusal text. Don't hide a partial failure behind a notice.
+next step); an optional bold title leads the text. `actions` puts what to do about it at the end as
+compact actions before Dismiss, such as Update both on the waiting updates. Status lines 8px 12px on
+`info-fill-soft` or `danger-fill`, Dismiss as a small button. States: notice, success, error,
+titled, dismissible. Do keep the service's refusal text. Don't hide a partial failure behind a
+notice.
 
 **Progress and meter.** Kit: `renderSteamUiProgress(ui, props)` (`phase`, `done`, `total`, `count`,
 `steps`, `step`, `detail`, `note`, `onCancel`, `cancelLabel`, `cancelling`, `outcome`),
@@ -392,8 +411,8 @@ and step text as the Overlay. Don't use the meter for an operation.
 `status`), the item heading and the side panel take them. Kit badge:
 `renderSteamUiCard({ badge: { text, warn } })`, an 11px bold pill on `badge-success` or
 `badge-warn`, over a card's image only. Do keep words to one to four. Don't colour status text by
-hand; card-manager's `.wsgm-cards-state`, emulators' `.wsgm-emu-badge` and sounds'
-`.wsgm-sounds-active` still do and belong on the tag.
+hand; card-manager's `.wsgm-cards-state` and sounds' `.wsgm-sounds-active` still do and belong on
+the tag.
 
 **Page header.** Kit: `renderSteamUiHeader(ui, { title, detail, page: true })`. `kit-page-title`
 with a 14px wrapping detail in `text-detail`; not focusable. Do state the page's purpose and scope.
@@ -413,12 +432,14 @@ section with `rule`, a 12px note in `text-muted`. Only a section with an action 
 node; its button is the compact size and refuses while disabled. A column for the controller; stacks
 below 760px. Do carry at most one action. Don't put a primary action in it.
 
-**Hero band.** Kit: `renderSteamUiHero(ui, { title, eyebrow, detail, images })`. Under Steam's
-header: the art (tried source by source with `renderSteamUiArt`, cover, 30% from the top) under the
-`hero-scrim` gradient, on `surface-hero` without art; an `eyebrow`, the `page-hero` title and a
-`kit-body` purpose line in `text-secondary`, 24px 40px 22px padding, 168px tall (132px compact
+**Hero band.** Kit: `renderSteamUiHero(ui, { title, eyebrow, detail, images, icon, tags })`. Under
+Steam's header: the art (tried source by source with `renderSteamUiArt`, cover, 30% from the top)
+under the `hero-scrim` gradient, on `surface-hero` without art; an `eyebrow`, the `page-hero` title
+and a `kit-body` purpose line in `text-secondary`, 24px 40px 22px padding, 168px tall (132px compact
 without a purpose line), a `line-subtle` rule. The text aligns with `--steam-ui-kit-page-width` when
-a page sets it. No focus. Do name the item or page in the title. Don't repeat it below.
+a page sets it. An item's band can lead with its icon tile, 20px before the words, and carry tags
+after the title on a wrapping line (an emulator's detail: its systems and "2.3.0 available"). No
+focus. Do name the item or page in the title. Don't repeat it below.
 
 **Item heading.** Kit: `renderSteamUiItemHeading(ui, { title, tags, fact, summary })`. The
 `item-heading` name, tags and a 14px `text-muted` fact on one wrapping line 8px 12px apart, then a
@@ -464,12 +485,11 @@ kit now (see Components). What is left is proposed: build each once in the kit, 
 `eng/check-ui-kit.mjs` and the toolkit reference, and move page-local copies onto it.
 
 - **Fact row.** A 12px `text-muted` label with its value and a `line-subtle` rule, replacing
-  `.wsgm-emu-fact` and `.wsgm-import-fact`.
+  `.wsgm-import-fact`.
 - **List row meter.** An optional meter line under a list row's detail, for a capacity per row.
 - **Move the remaining page-local copies.** The Game Library page's own 30px header and crumb onto
-  the hero band; `.wsgm-cards-state`, `.wsgm-emu-badge` and `.wsgm-sounds-active` (three greens and
-  two ambers) onto the tag; the card-manager and library-tab-manager full-width row rules onto
-  `steam-ui-kit-list`, which now carries them.
+  the hero band; `.wsgm-cards-state` and `.wsgm-sounds-active` onto the tag; the card-manager and
+  library-tab-manager full-width row rules onto `steam-ui-kit-list`, which now carries them.
 
 ### Reconciling the mockups
 

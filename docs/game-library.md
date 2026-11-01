@@ -469,8 +469,21 @@ and names what is deleted and what stays. Install, update and repair show their 
 download with its byte progress, extract, startup check) and Stop inside the emulator's own card,
 from the progress channel's `operation`, `targetId`, `phase`, `bytes` and `total`. The card icon is
 the icon the shortcut sync applied to the emulator's Steam shortcut from SteamGridDB; an emulator
-without a shortcut or icon shows the emulator glyph. LB/RB switch views and Y checks for updates in
-the Overlay.
+without a shortcut or icon shows the emulator glyph. In the Overlay LB/RB switch views, Y opens the
+focused emulator's details on Get emulators and the search on RetroArch cores, and the footer names
+Y only there. Check for updates sits beside the page title on every view.
+
+In Steam the five views are the page frame's tabs, which L1 and R1 switch, and the detail pages are
+levels inside the tab that B leaves. Installed and Get emulators are grids of icon cards (the
+shortcut's icon through Steam's `GetIconURLForApp`, else the controller glyph); a catalogue card
+opens its details on A and installs its first channel on X. The detail page is a hero band with the
+icon, the update actions, the setup checklist and In Steam as Steam's own fields, Repair and the
+core list, Remove set apart, and an Installation panel beside them. Remove and Forget use Steam's
+confirm with Cancel focused. The Overlay's Choose file, Recheck, Update all, Stop, Skip version and
+release notes are the same commands (`configureEmulatorPrerequisite`, `refreshEmulators`,
+`updateAllEmulators`, `cancel`, `ignoreEmulatorVersion`, `openEmulatorReleaseNotes`). A core that
+needs files offers BIOS and firmware on X. The page has no catalogue art and no region filter on
+BIOS, and RetroArch has no Add cores: it installs the whole published catalogue.
 
 Installing or registering an emulator also publishes its own interface as a managed Steam shortcut.
 Existing installations default to this on upgrade. Each installation's detail page, in Overlay and

@@ -119,6 +119,37 @@ public sealed class EmulatorManagerViewTests
     }
 
     [AvaloniaFact]
+    public void YOpensDetailsOnGetEmulatorsAndTheSearchOnCoresAndIsNamedOnlyThere()
+    {
+        using var fixture = new UiFixture();
+        var (window, _) = PreviewEmulatorPage.Open(fixture, "installed", 1280, 800);
+        var view = UiFixture.Named<EmulatorManagerView>(window, "EmulatorManagerHost");
+        Assert.Equal("", view.SecondaryHint);
+        Assert.False(view.SecondaryAction(), "Installed leaves Y to the sheet");
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<TextBlock>(),
+            text => text.Text == "Check for updates" && text.IsEffectivelyVisible && text.Classes.Contains("caption"));
+
+        PreviewEmulatorPage.Click(window, "Get emulators");
+        Assert.Equal("Details", view.SecondaryHint);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(),
+            text => text.Text == "Details" && text.IsEffectivelyVisible);
+        UiFixture.Tagged<ActionButton>(window, "emu.catalog:rpcs3.install").Focus();
+        Assert.True(view.SecondaryAction());
+        Dispatcher.UIThread.RunJobs();
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(),
+            text => text.Text == "Emulators  ›  Get emulators  ›  RPCS3");
+        Assert.Equal("", view.SecondaryHint);
+
+        UiFixture.Key(window, Key.Escape);
+        Dispatcher.UIThread.RunJobs();
+        PreviewEmulatorPage.Click(window, "RetroArch cores");
+        Assert.Equal("Search", view.SecondaryHint);
+        Assert.True(view.SecondaryAction());
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(window.Surfaces.HasActive, "Y asks for the core search");
+    }
+
+    [AvaloniaFact]
     public void ASystemWithGamesAndNoEmulatorLinksToTheCatalogueForIt()
     {
         using var fixture = new UiFixture();

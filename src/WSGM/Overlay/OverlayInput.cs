@@ -51,7 +51,7 @@ internal static class OverlayInput
             {
                 if (!window.Surfaces.HasActive)
                 {
-                    if (!window.EmulatorManagerHost.CheckForUpdates())
+                    if (!window.EmulatorManagerHost.SecondaryAction())
                     {
                         window.CycleNextApp();
                     }

@@ -352,8 +352,10 @@ elsewhere. Do keep sections flat. Don't seed counts.
 border, active label primary with a 3px accent underline. Do keep the destination order. Don't add a
 destination for one feature.
 
-**Footer hints.** Row 4 of `OverlayWindow.axaml` with `GlyphIcon`. Do show only buttons the page
-answers. Don't draw prompts as letters.
+**Footer hints.** Row 4 of `OverlayWindow.axaml` with `GlyphIcon`. A page names its own Y through a
+property the footer binds, such as `EmulatorManagerView.SecondaryHint` (Details on Get emulators,
+Search on RetroArch cores, nothing elsewhere). Do show only buttons the page answers. Don't draw
+prompts as letters.
 
 **Open apps strip.** Row 3 of `OverlayWindow.axaml`, `AppSwitcherViewModel`. Chips 48 tall, accent
 underline on the foreground window, minimized at 0.5. Do keep chip positions stable.
