@@ -11,8 +11,16 @@ namespace WSGM.Core;
 /// </summary>
 /// <remarks>
 ///     The pairing decision itself is <see cref="FrameLimitPairing" /> and stays pure; this owns the
-///     parts that touch the machine — discovering what the display accepts, caching that, applying a
-///     rate, and putting the original back.
+///     parts that touch the machine — discovering which rates apply, caching that, applying a rate,
+///     and putting the original back.
+///     <para>
+///         One decision, per display, says how a rate is applied. Where a graphics driver can hold the
+///         display at any rate in a range (<see cref="IFixedRefreshRateDriver" />, Intel's Arc Sync), every
+///         whole rate in that range applies, through the driver, and the Windows mode is left alone apart
+///         from being raised when it sits below the requested rate. Everywhere else only the rates Windows
+///         lists for the current mode apply, through a Windows mode change. Manual writes, Valve's row and
+///         the frame-limit pairing all go the same way, and the pairing picks only from what applies.
+///     </para>
 ///     <para>
 ///         Discovery is cached for the current display, resolution and colour depth. A topology or
 ///         mode change invalidates it. Driver reads are checked against that identity before caching.
@@ -21,6 +29,8 @@ namespace WSGM.Core;
 internal sealed class RefreshRatePairingService
 {
     private readonly Lock _discoveryGate = new();
+
+    private readonly IFixedRefreshRateDriver? _driver;
     private readonly Lock _gate = new();
 
     private readonly Dictionary<string, (DisplayTargetIdentity Target, int Rate)> _originals =
@@ -34,6 +44,13 @@ internal sealed class RefreshRatePairingService
 
     private IReadOnlyList<int>? _accepted;
     private IReadOnlyList<int>? _advertised;
+
+    /// <summary>The driver range the cached discovery found, or null when the listed Windows rates apply.</summary>
+    private DriverRefreshRange? _driverRange;
+
+    /// <summary>The display and rate the driver holds for this service, and whether the pairing set it.</summary>
+    private (DisplayTargetIdentity Target, int Rate, bool Paired)? _fixed;
+
     private DisplayOperatingPoint? _operatingPoint;
     private bool _operatingPointKnown;
     private long _operatingPointRevision;
@@ -42,30 +59,35 @@ internal sealed class RefreshRatePairingService
     private FrameLimitStrategy _strategy = FrameLimitStrategy.FrameLimitOnly;
 
     /// <summary>Creates the service over the real display.</summary>
-    internal RefreshRatePairingService()
+    /// <param name="driver">The graphics driver that can hold a rate, or null when none can.</param>
+    internal RefreshRatePairingService(IFixedRefreshRateDriver? driver)
         : this(
-            PrimaryDisplayModes.EnumerateAcceptedRefreshRates,
+            PrimaryDisplayModes.EnumerateRefreshRates,
             PrimaryDisplayModes.ReadAdvertisedRefreshRates,
             PrimaryDisplayModes.ReadPrimaryOperatingPoint,
             PrimaryDisplayModes.TryRestoreRefreshRate,
-            target => DisplayModes.Read(target)?.Current.RefreshHz)
+            target => DisplayModes.Read(target)?.Current.RefreshHz,
+            driver)
     {
     }
 
     /// <summary>Creates the service over supplied display operations, for tests.</summary>
-    /// <param name="readAcceptedRates">Every rate the driver accepts.</param>
+    /// <param name="readAcceptedRates">The rates Windows lists for the current mode.</param>
     /// <param name="readAdvertisedRates">Rates the panel itself advertises.</param>
     /// <param name="readOperatingPoint">Reads display identity and dimensions.</param>
-    /// <param name="restoreTarget">Applies a rate to the captured target.</param>
-    /// <param name="readTargetRate">Reads the rate from the captured target.</param>
+    /// <param name="restoreTarget">Applies a Windows mode rate to the captured target.</param>
+    /// <param name="readTargetRate">Reads the Windows mode rate from the captured target.</param>
+    /// <param name="driver">The graphics driver that can hold a rate, or null when none can.</param>
     internal RefreshRatePairingService(
         Func<IReadOnlyList<int>> readAcceptedRates,
         Func<IReadOnlyList<int>> readAdvertisedRates,
         Func<DisplayOperatingPoint?> readOperatingPoint,
         Func<DisplayTargetIdentity, int, bool> restoreTarget,
-        Func<DisplayTargetIdentity, int?> readTargetRate
+        Func<DisplayTargetIdentity, int?> readTargetRate,
+        IFixedRefreshRateDriver? driver = null
     )
     {
+        _driver = driver;
         _readAcceptedRates = readAcceptedRates;
         _readAdvertisedRates = readAdvertisedRates;
         _readOperatingPoint = readOperatingPoint ?? throw new ArgumentNullException(nameof(readOperatingPoint));
@@ -93,6 +115,7 @@ internal sealed class RefreshRatePairingService
         {
             _accepted = null;
             _advertised = null;
+            _driverRange = null;
             _operatingPoint = null;
             _operatingPointKnown = false;
             _operatingPointRevision++;
@@ -129,42 +152,124 @@ internal sealed class RefreshRatePairingService
         return true;
     }
 
-    /// <summary>The rates the driver accepts, discovered once and shared by every consumer.</summary>
-    /// <returns>Accepted rates, ascending. Empty when the display cannot be read.</returns>
+    /// <summary>The rates that apply on the current display, discovered once and shared by every consumer.</summary>
+    /// <returns>
+    ///     Every whole rate in the driver's range where a driver can hold one, else the rates Windows lists for
+    ///     the current mode; ascending. Empty when the display cannot be read.
+    /// </returns>
+    /// <remarks>
+    ///     Never a mode test: the list is the same before and after a resume, because a panel still waking
+    ///     refused every Windows mode but its current one and that answer used to shrink the list.
+    /// </remarks>
     internal IReadOnlyList<int> AcceptedRates()
+    {
+        return Discover()?.Rates ?? [];
+    }
+
+    /// <summary>The refresh rate the display presents now: a rate the driver holds, else the Windows mode's.</summary>
+    /// <returns>The rate, or null when the display cannot be read.</returns>
+    internal int? CurrentRefreshRate()
+    {
+        if (Discover() is not { } discovered)
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            if (discovered.Driver is not null && _fixed is { } held
+                                              && string.Equals(held.Target.DevicePath,
+                                                  discovered.Point.Target.DevicePath,
+                                                  StringComparison.OrdinalIgnoreCase))
+            {
+                return held.Rate;
+            }
+        }
+
+        return _readTargetRate(discovered.Point.Target);
+    }
+
+    private (DisplayOperatingPoint Point, IReadOnlyList<int> Rates, DriverRefreshRange? Driver)? Discover()
     {
         using var discovery = _discoveryGate.EnterScope();
         for (var attempt = 0; attempt < 2; attempt++)
         {
             RefreshOperatingPoint();
             long revision;
+            DisplayOperatingPoint point;
             lock (_gate)
             {
                 if (_operatingPoint is null)
                 {
-                    return [];
+                    return null;
                 }
 
                 if (_accepted is not null)
                 {
-                    return _accepted;
+                    return (_operatingPoint, _accepted, _driverRange);
                 }
 
                 revision = _operatingPointRevision;
+                point = _operatingPoint;
             }
 
-            var accepted = _readAcceptedRates();
+            var listed = _readAcceptedRates();
+            // Never above the fastest Windows mode: the panel cannot run faster than the mode it is driven at,
+            // and Arc Sync reports a range one hertz wider than the panel's modes (48-121 Hz on the Atlas).
+            var ceiling = listed.Count > 0 ? listed.Max() : int.MaxValue;
+            var range = _driver?.ReadRange(point.Target) is { } read
+                        && Math.Min(read.MaximumHz, ceiling) > read.MinimumHz
+                ? read with { MaximumHz = Math.Min(read.MaximumHz, ceiling) }
+                : null;
+            var rates = range is null
+                ? listed
+                : [.. Enumerable.Range(range.MinimumHz, range.MaximumHz - range.MinimumHz + 1)];
+            if (range is not null)
+            {
+                Log.Info($"Display modes: the graphics driver holds any rate in {range.MinimumHz}-{range.MaximumHz} Hz"
+                         + (range.FixedHz is { } held ? $", {held} Hz now." : "."));
+            }
+
             RefreshOperatingPoint(true);
             lock (_gate)
             {
                 if (revision == _operatingPointRevision)
                 {
-                    return _accepted ??= accepted;
+                    _accepted ??= rates;
+                    _driverRange = range;
+                    // The driver's own answer wins over what this service last wrote: an Arc Sync row the
+                    // user moved since hands the profile back, and nothing is fixed any more.
+                    _fixed = range?.FixedHz is { } fixedHz
+                        ? (point.Target, fixedHz, _fixed?.Paired ?? false)
+                        : range is null
+                            ? _fixed
+                            : null;
+                    return (point, _accepted, _driverRange);
                 }
             }
         }
 
-        return [];
+        return null;
+    }
+
+    /// <summary>The listed rate nearest to a requested one; the higher of two equally near.</summary>
+    /// <param name="rates">The listed rates.</param>
+    /// <param name="refreshHz">The requested rate.</param>
+    /// <returns>The nearest rate, or null when none is listed.</returns>
+    internal static int? NearestRate(IReadOnlyList<int> rates, int refreshHz)
+    {
+        int? nearest = null;
+        foreach (var rate in rates)
+        {
+            if (nearest is not { } best
+                || Math.Abs(rate - refreshHz) < Math.Abs(best - refreshHz)
+                || (Math.Abs(rate - refreshHz) == Math.Abs(best - refreshHz) && rate > best))
+            {
+                nearest = rate;
+            }
+        }
+
+        return nearest;
     }
 
     /// <summary>Applies a refresh rate the user chose by hand.</summary>
@@ -172,9 +277,12 @@ internal sealed class RefreshRatePairingService
     /// <param name="capFps">The frame cap in force; zero or negative means uncapped.</param>
     /// <returns>Whether the display is now at that rate.</returns>
     /// <remarks>
-    ///     Checked against the rates discovery accepted, not passed straight to the driver: the value
-    ///     arrives from injected JavaScript, and a rate the panel cannot show is a black screen. A
-    ///     manual write is user-owned, so no original is captured and nothing restores it later.
+    ///     Checked against what applies, not passed straight to the driver: the value arrives from injected
+    ///     JavaScript. Where only listed Windows rates apply, Valve's row still offers every whole rate between
+    ///     its bounds, so a rate between two listed ones goes to the nearest listed rate, and the next
+    ///     publication shows that rate on the row. Where a driver holds the rate, any rate in its range
+    ///     applies, and the Windows mode's own rate hands the display back to the driver's profile. A
+    ///     manual write is user-owned, so no original is captured and the pairing never restores it.
     /// </remarks>
     internal bool TryApplyManual(int refreshHz, int capFps)
     {
@@ -200,21 +308,43 @@ internal sealed class RefreshRatePairingService
 
         RefreshOperatingPoint(true);
         var revision = OperatingPointRevision;
-        var accepted = AcceptedRates();
-        if (revision != OperatingPointRevision)
+        var discovered = Discover();
+        if (revision != OperatingPointRevision || discovered is not { } current)
         {
             return false;
         }
 
-        if (accepted.Contains(refreshHz))
+        if (current.Driver is { } range)
         {
+            if (refreshHz < range.MinimumHz || refreshHz > range.MaximumHz)
+            {
+                Log.Warn($"Manual refresh rate {refreshHz} Hz refused: the driver holds "
+                         + $"{range.MinimumHz}-{range.MaximumHz} Hz.");
+                return false;
+            }
+
+            // The Windows mode's own rate is the display without a fixed rate: the profile it ran before.
+            if (_readTargetRate(current.Point.Target) == refreshHz)
+            {
+                return ReleaseFixed(false);
+            }
+
             return ApplyRate(refreshHz, revision, false);
         }
 
-        Log.Warn(
-            $"Manual refresh rate {refreshHz} Hz refused: accepted rates are "
-            + $"[{string.Join(",", accepted)}].");
-        return false;
+        if (NearestRate(current.Rates, refreshHz) is not { } listed)
+        {
+            Log.Warn($"Manual refresh rate {refreshHz} Hz refused: Windows lists no refresh rate for this mode.");
+            return false;
+        }
+
+        if (listed != refreshHz)
+        {
+            Log.Info($"Manual refresh rate {refreshHz} Hz applies as {listed} Hz, the nearest listed rate "
+                     + $"[{string.Join(",", current.Rates)}].");
+        }
+
+        return ApplyRate(listed, revision, false);
     }
 
     /// <summary>The frame caps worth offering under the current strategy, and the rate each is presented at.</summary>
@@ -302,7 +432,7 @@ internal sealed class RefreshRatePairingService
             originals = _originals.ToArray();
         }
 
-        var complete = true;
+        var complete = ReleaseFixed(true);
         foreach (var original in originals)
         {
             var restored = _restoreTarget(original.Value.Target, original.Value.Rate);
@@ -378,19 +508,55 @@ internal sealed class RefreshRatePairingService
         }
     }
 
+    /// <summary>Hands a rate the driver holds back to the driver's own profile.</summary>
+    /// <param name="pairedOnly">Only a rate the pairing set; a manual one is the user's.</param>
+    /// <returns>Whether nothing this service fixed is left fixed.</returns>
+    private bool ReleaseFixed(bool pairedOnly)
+    {
+        (DisplayTargetIdentity Target, int Rate, bool Paired) held;
+        lock (_gate)
+        {
+            if (_fixed is not { } current || (pairedOnly && !current.Paired))
+            {
+                return true;
+            }
+
+            held = current;
+        }
+
+        var released = _driver?.Release(held.Target) ?? true;
+        Log.Info($"Refresh rate {held.Rate} Hz released to the graphics driver's profile: "
+                 + (released ? "done." : "the driver refused; it stays until the next change."));
+        if (released)
+        {
+            lock (_gate)
+            {
+                if (_fixed == held)
+                {
+                    _fixed = null;
+                }
+            }
+        }
+
+        return released;
+    }
+
     /// <summary>Writes a rate to the display the caller's revision describes.</summary>
     /// <param name="rate">The rate to apply.</param>
     /// <param name="expectedRevision">The revision the caller chose the rate against.</param>
-    /// <param name="captureOriginal">Whether to record the target's rate first, so it can be restored.</param>
+    /// <param name="captureOriginal">Whether the pairing owns the write, so it records what to restore.</param>
     /// <returns>Whether the write landed; false when the display changed since the caller looked.</returns>
     /// <remarks>
     ///     The one forced re-read before the write: the caller read the display once at its start, and
-    ///     a change since then, notified or not, fails the revision check here.
+    ///     a change since then, notified or not, fails the revision check here. A driver-held rate is
+    ///     written through the driver; a Windows mode below that rate is raised to the highest listed one
+    ///     first, since the panel cannot run faster than its mode.
     /// </remarks>
     private bool ApplyRate(int rate, long expectedRevision, bool captureOriginal)
     {
         RefreshOperatingPoint(true);
         DisplayOperatingPoint? point;
+        DriverRefreshRange? driver;
         lock (_gate)
         {
             if (expectedRevision != _operatingPointRevision)
@@ -399,6 +565,7 @@ internal sealed class RefreshRatePairingService
             }
 
             point = _operatingPoint;
+            driver = _driverRange;
         }
 
         if (point is null)
@@ -406,12 +573,41 @@ internal sealed class RefreshRatePairingService
             return false;
         }
 
-        if (captureOriginal)
+        if (driver is null || _driver is not { } fixedRate)
         {
-            CaptureOriginal(point);
+            if (captureOriginal)
+            {
+                CaptureOriginal(point);
+            }
+
+            return _restoreTarget(point.Target, rate);
         }
 
-        return _restoreTarget(point.Target, rate);
+        if (_readTargetRate(point.Target) is { } mode && mode < rate
+                                                      && _readAcceptedRates().DefaultIfEmpty(0).Max() is var top
+                                                      && top > mode)
+        {
+            if (captureOriginal)
+            {
+                CaptureOriginal(point);
+            }
+
+            _ = _restoreTarget(point.Target, top);
+        }
+
+        if (!fixedRate.Apply(point.Target, rate))
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            // A manual write takes over a rate the pairing set, and the pairing keeps one the user set
+            // only until its own next write.
+            _fixed = (point.Target, rate, captureOriginal);
+        }
+
+        return true;
     }
 
     private void RefreshOperatingPoint(bool force = false)

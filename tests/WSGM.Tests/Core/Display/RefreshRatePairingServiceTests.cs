@@ -216,8 +216,8 @@ public sealed class RefreshRatePairingServiceTests
         Assert.Equal(new[] { 60, 120 }, service.AcceptedRates());
         point = Point("second", 2560);
 
-        Assert.False(service.TryApplyManual(60, 0));
-        Assert.True(service.TryApplyManual(72, 0));
+        // The second display lists 72 and 144 Hz: 60 Hz goes to its nearest listed rate, on that display.
+        Assert.True(service.TryApplyManual(60, 0));
         Assert.Equal(new[] { "second" }, writes);
     }
 
@@ -267,13 +267,175 @@ public sealed class RefreshRatePairingServiceTests
         Assert.Equal([60], harness.Applied);
     }
 
-    [Fact]
-    public void TryApplyManual_ARateDiscoveryDidNotAccept_NeverReachesTheDriver()
+    [Theory]
+    [InlineData(59, 60)]
+    [InlineData(72, 75)]
+    [InlineData(54, 60)]
+    [InlineData(200, 120)]
+    public void TryApplyManual_ARateWindowsDoesNotList_AppliesTheNearestListedRate(int requested, int applied)
     {
+        // Valve's row offers every whole rate between its bounds; only the listed ones are Windows modes.
         Harness harness = new();
 
-        Assert.False(harness.Service.TryApplyManual(59, 0));
+        Assert.True(harness.Service.TryApplyManual(requested, 0));
+
+        Assert.Equal([applied], harness.Applied);
+    }
+
+    [Fact]
+    public void TheListedRatesAreIdenticalBeforeAndAfterAResume()
+    {
+        // Discovery is enumeration only. A panel still waking used to refuse every mode test but its
+        // current mode, and the cached refusal shrank the list Valve's slider was indexing.
+        Harness harness = new();
+        var before = harness.Service.AcceptedRates();
+
+        harness.Service.Invalidate();
+        harness.Service.Pair(0, true);
+        var after = harness.Service.AcceptedRates();
+
+        Assert.Equal(Accepted, before);
+        Assert.Equal(before, after);
+        Assert.Equal(2, harness.AcceptedReads);
+    }
+
+    [Fact]
+    public void PairedModeOnListedRatesNeverPicksAnUnlistedRate()
+    {
+        Harness harness = new();
+        harness.Service.SetStrategy(FrameLimitStrategy.FrameDoubling);
+
+        foreach (var cap in new[] { 24, 30, 36, 40, 45, 50, 55, 60, 72, 90, 110 })
+        {
+            if (harness.Service.ApplyForCap(cap) is { } rate)
+            {
+                Assert.Contains(rate, Accepted);
+            }
+        }
+
+        Assert.All(harness.Applied, rate => Assert.Contains(rate, Accepted));
+    }
+
+    [Fact]
+    public void WithADriverRangeEveryWholeRateUpToTheFastestModeApplies()
+    {
+        // Intel's Arc Sync reports 48-121 Hz on the Atlas while its fastest Windows mode is 120 Hz.
+        Harness harness = new(new FakeFixedRefreshDriver(48, 121));
+
+        Assert.Equal(Enumerable.Range(48, 73), harness.Service.AcceptedRates());
+    }
+
+    [Fact]
+    public void WithADriverRangeAManualRateGoesToTheDriverWithoutAModeChange()
+    {
+        var driver = new FakeFixedRefreshDriver(48, 120);
+        Harness harness = new(driver);
+
+        Assert.True(harness.Service.TryApplyManual(72, 0));
+
+        Assert.Equal([72], driver.Applied);
         Assert.Empty(harness.Applied);
+        Assert.Equal(72, harness.Service.CurrentRefreshRate());
+    }
+
+    [Fact]
+    public void WithADriverRangeTheModesOwnRateReleasesTheFixedRate()
+    {
+        var driver = new FakeFixedRefreshDriver(48, 120);
+        Harness harness = new(driver);
+        harness.Service.TryApplyManual(72, 0);
+
+        Assert.True(harness.Service.TryApplyManual(120, 0));
+
+        Assert.Equal(1, driver.Releases);
+        Assert.Equal(120, harness.Service.CurrentRefreshRate());
+    }
+
+    [Fact]
+    public void WithADriverRangeARateOutsideItIsRefused()
+    {
+        var driver = new FakeFixedRefreshDriver(48, 120);
+        Harness harness = new(driver);
+
+        Assert.False(harness.Service.TryApplyManual(30, 0));
+
+        Assert.Empty(driver.Applied);
+    }
+
+    [Fact]
+    public void WithADriverRangePairedModePicksAWholeRateAndRestoreReleasesIt()
+    {
+        var driver = new FakeFixedRefreshDriver(48, 120);
+        Harness harness = new(driver);
+        harness.Service.SetStrategy(FrameLimitStrategy.FrameDoubling);
+
+        Assert.Equal(90, harness.Service.ApplyForCap(45));
+        Assert.True(harness.Service.Restore());
+
+        Assert.Equal([90], driver.Applied);
+        Assert.Equal(1, driver.Releases);
+        Assert.Empty(harness.Applied);
+    }
+
+    [Fact]
+    public void WithADriverRangePairedModeNeverPicksARateOutsideIt()
+    {
+        var driver = new FakeFixedRefreshDriver(48, 120);
+        Harness harness = new(driver);
+        harness.Service.SetStrategy(FrameLimitStrategy.FrameDoubling);
+
+        for (var cap = 15; cap <= 120; cap++)
+        {
+            harness.Service.ApplyForCap(cap);
+        }
+
+        Assert.All(driver.Applied, rate => Assert.InRange(rate, 48, 120));
+    }
+
+    [Fact]
+    public void AManualDriverRateIsTheUsersAndTheCapOnlyRestoreLeavesIt()
+    {
+        var driver = new FakeFixedRefreshDriver(48, 120);
+        Harness harness = new(driver);
+        harness.Service.TryApplyManual(72, 0);
+
+        Assert.True(harness.Service.Restore());
+
+        Assert.Equal(0, driver.Releases);
+    }
+
+    [Fact]
+    public void AWindowsModeBelowTheRequestedDriverRateIsRaisedToTheFastestModeFirst()
+    {
+        var driver = new FakeFixedRefreshDriver(48, 120);
+        Harness harness = new(driver, 60);
+
+        harness.Service.TryApplyManual(90, 0);
+
+        Assert.Equal([120], harness.Applied);
+        Assert.Equal([90], driver.Applied);
+    }
+
+    [Fact]
+    public void ADriverRangeStaysIdenticalBeforeAndAfterAResume()
+    {
+        var driver = new FakeFixedRefreshDriver(48, 120);
+        Harness harness = new(driver);
+        var before = harness.Service.AcceptedRates();
+
+        harness.Service.Invalidate();
+        var after = harness.Service.AcceptedRates();
+
+        Assert.Equal(before, after);
+    }
+
+    [Theory]
+    [InlineData(54, 60)]
+    [InlineData(53, 48)]
+    [InlineData(10, 30)]
+    public void NearestRateTakesTheHigherOfTwoEquallyNearRates(int requested, int nearest)
+    {
+        Assert.Equal(nearest, RefreshRatePairingService.NearestRate(Accepted, requested));
     }
 
     [Fact]
@@ -344,10 +506,39 @@ public sealed class RefreshRatePairingServiceTests
             new DisplayTargetIdentity(path, null, null, path, 0, 0, 1), width, 1080, 32);
     }
 
+    private sealed class FakeFixedRefreshDriver(int minimum, int maximum) : IFixedRefreshRateDriver
+    {
+        private int? _fixed;
+
+        public List<int> Applied { get; } = [];
+
+        public int Releases { get; private set; }
+
+        public DriverRefreshRange ReadRange(DisplayTargetIdentity target)
+        {
+            return new DriverRefreshRange(minimum, maximum, _fixed);
+        }
+
+        public bool Apply(DisplayTargetIdentity target, int refreshHz)
+        {
+            Applied.Add(refreshHz);
+            _fixed = refreshHz;
+            return true;
+        }
+
+        public bool Release(DisplayTargetIdentity target)
+        {
+            Releases++;
+            _fixed = null;
+            return true;
+        }
+    }
+
     private sealed class Harness
     {
-        public Harness()
+        public Harness(IFixedRefreshRateDriver? driver = null, int current = 120)
         {
+            Current = current;
             Service = new RefreshRatePairingService(
                 () =>
                 {
@@ -375,7 +566,8 @@ public sealed class RefreshRatePairingServiceTests
                     Current = rate;
                     return true;
                 },
-                _ => Current);
+                _ => Current,
+                driver);
         }
 
         public RefreshRatePairingService Service { get; }
@@ -390,6 +582,6 @@ public sealed class RefreshRatePairingServiceTests
 
         public bool ApplySucceeds { get; set; } = true;
 
-        private int Current { get; set; } = 120;
+        private int Current { get; set; }
     }
 }

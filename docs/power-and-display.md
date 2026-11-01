@@ -738,13 +738,38 @@ and `Core\Display\RefreshRatePairingService.cs`:
 
 - Enumeration alone cannot tell an advertised mode from a synthesized one, so the native-modes
   strategy needs the EDID. Without it that strategy would silently equal full frame doubling.
-- Rates are enumerated and then tested; a driver may refuse one it enumerated. `CDS_TEST` changes
-  nothing and is safe while a game runs.
-- Discovery is cached for the primary target, resolution and colour depth because each candidate
-  costs a driver round trip. Display-change notifications and resume invalidate the snapshot;
-  routine Overlay and Steam state reads reuse it without querying display topology. Concurrent
-  readers share discovery, and stale results are discarded. Actual refresh-rate writes revalidate
-  the operating point. Original rates are captured and restored per target.
+- One decision per display says how a rate applies, and manual writes, Valve's Quick Settings row
+  and the frame-limit pairing all follow it. Where Intel's driver offers an Arc Sync range for the
+  display, every whole rate in that range applies, capped at the fastest Windows mode (48-120 Hz on
+  the Atlas, whose Arc Sync reports 48-121). The rate is written through LibGPUDriverInteract as the
+  Custom Arc Sync profile with its minimum and maximum both at the rate, without a Windows mode
+  change; a Windows mode below the requested rate is first raised to the fastest listed one.
+  Everywhere else, NVIDIA, AMD and Intel without Arc Sync, only the rates Windows lists for the
+  current mode apply, through a Windows mode change.
+- Windows rates are enumerated, never tested with `CDS_TEST`. Right after a resume the test refused
+  every mode but the current one, the cached refusal shrank the list from 48-120 Hz to 120 Hz, and
+  Valve's refresh slider, reading its stored notch against the shorter list, threw inside Quick
+  Settings (Atlas, 2026-11-01). The listed modes are the same before and after a resume; a listed
+  mode the driver then refuses is reported by the write itself. Resolutions follow the same rule.
+- Valve's refresh row always offers every whole rate between its bounds. Where only listed Windows
+  rates apply, a rate between two listed ones goes to the nearest listed rate (the higher of two
+  equally near), and the next publication shows it. The row and the unified frame-limit row's notch
+  slider are keyed on their range, so a range that changes mounts a new slider rather than one
+  holding a notch past the end of its list.
+- A rate held through Arc Sync is shared driver state. The pairing releases the rate it set when it
+  stops owning it (cap-only strategy, no cap, shutdown); choosing the Windows mode's own rate on the
+  row releases a manual one. LibGPUDriverInteract puts the profile in use before the first fixed
+  rate back whenever its Intel session closes, which covers exit, upgrade, uninstall and switching
+  the Intel graphics driver off, and restores a rate a crashed process left behind at the next
+  start. A write through an Arc Sync row hands the profile back to the user. Every Arc Sync write
+  logs the profile, its bounds and the driver result. This path has no attended hardware pass yet.
+- Discovery is cached for the primary target, resolution and colour depth because each read costs a
+  driver round trip. A graphics driver that starts later triggers one new discovery; an Arc Sync
+  range once found stays while the Intel driver is configured, so a driver paused across a suspend
+  never shrinks the list. Display-change notifications and resume invalidate the snapshot; routine
+  Overlay and Steam state reads reuse it without querying display topology. Concurrent readers share
+  discovery, and stale results are discarded. Actual refresh-rate writes revalidate the operating
+  point. Original rates are captured and restored per target.
 - The frame-doubling strategy prefers the lowest mode at least twice the cap (30 FPS at 60 Hz, 60 at
   120). A 1:1 cadence keeps adaptive sync's low-framerate compensation out of reach, and a 30 Hz
   panel visibly flickers. Where no doubled multiple exists, and under native modes always, pairing

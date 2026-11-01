@@ -6,7 +6,7 @@ using System.Threading;
 namespace WSGM.Core;
 
 /// <summary>
-///     Offers the resolutions the driver accepts and applies the one the user chooses.
+///     Offers the resolutions Windows lists and applies the one the user chooses.
 /// </summary>
 /// <remarks>
 ///     Separate from <see cref="RefreshRatePairingService" /> even though both move the display, because
@@ -17,8 +17,8 @@ namespace WSGM.Core;
 ///     ended at the next restart, so the display kept returning to an old saved resolution (an Ally X
 ///     at 1120x630 on every boot, 2026-10-20).
 ///     <para>
-///         Discovery is cached until the display changes, because enumerating and <c>CDS_TEST</c>-ing every mode is
-///         not something to repeat while a menu is open.
+///         Discovery is cached until the display changes, because enumerating every mode is not something to repeat
+///         while a menu is open.
 ///     </para>
 /// </remarks>
 internal sealed class DisplayResolutionService
@@ -33,13 +33,13 @@ internal sealed class DisplayResolutionService
     /// <summary>Creates the service against the real display.</summary>
     internal DisplayResolutionService()
         : this(
-            PrimaryDisplayModes.EnumerateAcceptedResolutions,
+            PrimaryDisplayModes.EnumerateResolutions,
             PrimaryDisplayModes.TryApplyResolution)
     {
     }
 
     /// <summary>Creates the service against supplied display operations.</summary>
-    /// <param name="discover">Reads the resolutions the driver accepts.</param>
+    /// <param name="discover">Reads the resolutions Windows lists.</param>
     /// <param name="apply">Applies and saves one, reporting whether it took.</param>
     /// <remarks>Both are injected, so the service can be tested without a display.</remarks>
     internal DisplayResolutionService(
@@ -77,16 +77,16 @@ internal sealed class DisplayResolutionService
     /// <param name="resolution">The resolution to apply.</param>
     /// <returns>Whether the display is now at that resolution.</returns>
     /// <remarks>
-    ///     Refuses anything discovery did not accept rather than passing it to the driver. A resolution
-    ///     that was never validated is one the panel may not display at all, and recovering from a mode
-    ///     the user cannot see is not something to leave them to do.
+    ///     Refuses anything Windows did not list rather than passing it to the driver. A resolution the
+    ///     display never listed is one the panel may not show at all, and recovering from a mode the
+    ///     user cannot see is not something to leave them to do.
     /// </remarks>
     internal bool Apply(DisplayResolution resolution)
     {
         if (!Options().Contains(resolution))
         {
             Log.Warn(
-                $"Display resolution {resolution} refused: it is not among the accepted modes "
+                $"Display resolution {resolution} refused: it is not among the listed modes "
                 + $"[{string.Join(",", Options())}].");
             return false;
         }

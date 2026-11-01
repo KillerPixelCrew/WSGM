@@ -65,17 +65,16 @@ internal static class PrimaryDisplayModes
     }
 
     /// <summary>
-    ///     Discovers the resolutions the driver accepts on the primary display, at its current refresh
-    ///     rate and colour depth.
+    ///     The resolutions Windows lists for the primary display at its current refresh rate and colour depth.
     /// </summary>
     /// <returns>
-    ///     Accepted resolutions, ascending by pixel count and deduplicated. Empty when the display
-    ///     cannot be read.
+    ///     Listed resolutions, ascending by pixel count and deduplicated. Empty when the display cannot be read.
     /// </returns>
     /// <remarks>
-    ///     The same discover-then-test discipline as <see cref="EnumerateAcceptedRefreshRates" />, and
-    ///     for the same reason: an enumerated mode is a claim, not a promise, and `CDS_TEST` changes
-    ///     nothing so this is safe to call while a game is running.
+    ///     Enumerated only, never tested with <c>CDS_TEST</c>: the test refused every mode but the current one
+    ///     while a panel was still waking from sleep, and that answer was cached, so a resumed display offered a
+    ///     single resolution and a single refresh rate (Atlas, 2026-11-01). A listed mode the driver then refuses is
+    ///     reported by the write itself, which changes nothing.
     ///     <para>
     ///         Held at the current refresh rate on purpose. A resolution row that also moved the refresh
     ///         rate would fight the frame-limit pairing, which owns that axis; the two are separate
@@ -87,107 +86,86 @@ internal static class PrimaryDisplayModes
     ///         remains visible even when it is below that threshold.
     ///     </para>
     /// </remarks>
-    public static IReadOnlyList<DisplayResolution> EnumerateAcceptedResolutions()
-    {
-        return
-        [
-            .. EnumerateAccepted(
-                    "resolutions",
-                    "accepted resolutions",
-                    static (mode, current) => mode.BitsPerPixel == current.BitsPerPixel
-                                              && mode.RefreshHz == current.RefreshHz
-                                              && (IsUsableResolution(mode.Width, mode.Height)
-                                                  || (mode.Width == current.Width && mode.Height == current.Height)),
-                    static (mode, current) => new CandidateMode(mode.Width, mode.Height, current.RefreshHz),
-                    static mode => $"{mode.Width}x{mode.Height}")
-                .Select(mode => new DisplayResolution(mode.Width, mode.Height))
-        ];
-    }
-
-    /// <summary>
-    ///     The refresh rates the primary display will actually accept at its current resolution.
-    /// </summary>
-    /// <returns>Accepted rates, ascending and deduplicated. Empty when the display cannot be read.</returns>
-    /// <remarks>
-    ///     Enumerated and then <em>tested</em>, never assumed: a driver commonly offers rates the panel
-    ///     never advertises (the reference Claw accepts 30/48/60/75/100/120 while its EDID lists only
-    ///     60 and 120), and equally may refuse one it enumerated. `CDS_TEST` changes nothing, so this is
-    ///     safe to call while a game is running.
-    ///     <para>
-    ///         Hardcoding a rate list is the one thing this must never become: a panel without variable
-    ///         refresh will likely accept nothing but what it advertises, and that is exactly the case the
-    ///         frame-limit strategies exist to serve.
-    ///     </para>
-    /// </remarks>
-    public static IReadOnlyList<int> EnumerateAcceptedRefreshRates()
-    {
-        return
-        [
-            .. EnumerateAccepted(
-                    "refresh rates",
-                    "accepted",
-                    static (mode, current) => mode.Width == current.Width
-                                              && mode.Height == current.Height
-                                              && mode.BitsPerPixel == current.BitsPerPixel
-                                              && mode.RefreshHz > 1,
-                    static (mode, current) => new CandidateMode(current.Width, current.Height, mode.RefreshHz),
-                    static mode => mode.RefreshHz.ToString())
-                .Select(mode => mode.RefreshHz)
-        ];
-    }
-
-    private static List<CandidateMode> EnumerateAccepted(
-        string noun,
-        string acceptedLabel,
-        Func<PrimaryDisplayMode, PrimaryDisplayMode, bool> keep,
-        Func<PrimaryDisplayMode, PrimaryDisplayMode, CandidateMode> candidate,
-        Func<CandidateMode, string> describe)
+    public static IReadOnlyList<DisplayResolution> EnumerateResolutions()
     {
         if (DisplayModes.ReadPrimaryMode() is not { } current)
         {
-            Log.Warn($"Display modes: current settings unreadable; no {noun} discovered.");
+            Log.Warn("Display modes: current settings unreadable; no resolutions listed.");
             return [];
         }
 
-        HashSet<CandidateMode> enumerated = [];
-        if (keep(current, current))
-        {
-            enumerated.Add(candidate(current, current));
-        }
-
-        foreach (var mode in DisplayModes.EnumeratePrimaryModes())
-        {
-            if (keep(mode, current))
-            {
-                enumerated.Add(candidate(mode, current));
-            }
-        }
-
-        List<CandidateMode> accepted = [];
-        List<string> refused = [];
-        foreach (var mode in enumerated
-                     .OrderBy(entry => (long)entry.Width * entry.Height)
-                     .ThenBy(entry => entry.Width)
-                     .ThenBy(entry => entry.RefreshHz))
-        {
-            var isCurrent = mode.Width == current.Width
-                            && mode.Height == current.Height
-                            && mode.RefreshHz == current.RefreshHz;
-            if (isCurrent || DisplayModes.TestPrimaryMode(mode.Width, mode.Height, mode.RefreshHz))
-            {
-                accepted.Add(mode);
-            }
-            else
-            {
-                refused.Add(describe(mode));
-            }
-        }
-
+        var resolutions = ResolutionsOf(current, DisplayModes.EnumeratePrimaryModes());
         Log.Info(
             $"Display modes: {current.Width}x{current.Height} at {current.RefreshHz} Hz, "
-            + $"{acceptedLabel} [{string.Join(",", accepted.Select(describe))}]"
-            + (refused.Count is 0 ? "" : $", refused [{string.Join(",", refused)}]"));
-        return accepted;
+            + $"resolutions [{string.Join(",", resolutions.Select(mode => $"{mode.Width}x{mode.Height}"))}]");
+        return resolutions;
+    }
+
+    /// <summary>The refresh rates Windows lists for the primary display at its current resolution.</summary>
+    /// <returns>Listed rates, ascending and deduplicated. Empty when the display cannot be read.</returns>
+    /// <remarks>
+    ///     Enumerated only, never tested, for the reason <see cref="EnumerateResolutions" /> gives. The list is
+    ///     what every refresh-rate write may choose from: Windows changes the mode to a listed rate or refuses,
+    ///     and a driver commonly lists rates the panel never advertises (the reference Claw lists
+    ///     30/48/60/75/100/120 while its EDID names only 60 and 120).
+    ///     <para>
+    ///         Hardcoding a rate list is the one thing this must never become: a panel without variable
+    ///         refresh will likely list nothing but what it advertises, and that is exactly the case the
+    ///         frame-limit strategies exist to serve.
+    ///     </para>
+    /// </remarks>
+    public static IReadOnlyList<int> EnumerateRefreshRates()
+    {
+        if (DisplayModes.ReadPrimaryMode() is not { } current)
+        {
+            Log.Warn("Display modes: current settings unreadable; no refresh rates listed.");
+            return [];
+        }
+
+        var rates = RefreshRatesOf(current, DisplayModes.EnumeratePrimaryModes());
+        Log.Info(
+            $"Display modes: {current.Width}x{current.Height} at {current.RefreshHz} Hz, "
+            + $"rates [{string.Join(",", rates)}]");
+        return rates;
+    }
+
+    /// <summary>The resolutions to offer from one enumeration, at the current rate and colour depth.</summary>
+    /// <param name="current">The mode the display runs.</param>
+    /// <param name="modes">Every mode Windows enumerated, in any order and with duplicates.</param>
+    /// <returns>The resolutions, ascending by pixel count, then width; the current one always included.</returns>
+    internal static IReadOnlyList<DisplayResolution> ResolutionsOf(
+        PrimaryDisplayMode current, IEnumerable<PrimaryDisplayMode> modes)
+    {
+        return
+        [
+            .. modes.Where(mode => mode.BitsPerPixel == current.BitsPerPixel
+                                   && mode.RefreshHz == current.RefreshHz
+                                   && IsUsableResolution(mode.Width, mode.Height))
+                .Select(mode => new DisplayResolution(mode.Width, mode.Height))
+                .Append(new DisplayResolution(current.Width, current.Height))
+                .Distinct()
+                .OrderBy(mode => (long)mode.Width * mode.Height)
+                .ThenBy(mode => mode.Width)
+        ];
+    }
+
+    /// <summary>The refresh rates to offer from one enumeration, at the current resolution and colour depth.</summary>
+    /// <param name="current">The mode the display runs.</param>
+    /// <param name="modes">Every mode Windows enumerated, in any order and with duplicates.</param>
+    /// <returns>The rates, ascending; the current one always included.</returns>
+    internal static IReadOnlyList<int> RefreshRatesOf(PrimaryDisplayMode current, IEnumerable<PrimaryDisplayMode> modes)
+    {
+        return
+        [
+            .. modes.Where(mode => mode.Width == current.Width
+                                   && mode.Height == current.Height
+                                   && mode.BitsPerPixel == current.BitsPerPixel)
+                .Select(mode => mode.RefreshHz)
+                .Append(current.RefreshHz)
+                .Where(rate => rate > 1)
+                .Distinct()
+                .Order()
+        ];
     }
 
     /// <summary>
@@ -252,8 +230,8 @@ internal static class PrimaryDisplayModes
     /// </summary>
     /// <returns>Advertised rates, ascending; empty when the EDID cannot be read.</returns>
     /// <remarks>
-    ///     Distinct from <see cref="EnumerateAcceptedRefreshRates" />, and the difference is the point:
-    ///     the driver accepts rates the panel never advertised, so only the EDID can say which modes are
+    ///     Distinct from <see cref="EnumerateRefreshRates" />, and the difference is the point:
+    ///     the driver lists rates the panel never advertised, so only the EDID can say which modes are
     ///     the panel's own. An empty result makes the native-modes strategy offer nothing rather than
     ///     guess, which is the correct failure: a wrong list would pair caps against timings the panel
     ///     does not really have.
@@ -285,7 +263,4 @@ internal static class PrimaryDisplayModes
             return [];
         }
     }
-
-    /// <summary>A full candidate mode, so one test path serves both discovery axes.</summary>
-    private readonly record struct CandidateMode(int Width, int Height, int RefreshHz);
 }

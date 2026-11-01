@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using LibGPUDriverInteract;
 using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
@@ -30,6 +31,12 @@ internal sealed class PerformanceServices(
     ApplicationPerformanceReconciler applicationProfiles,
     IntegrationServices integrations)
 {
+    /// <summary>The Intel driver's fixed refresh rate over the session's native GPU owners, or null without them.</summary>
+    private GpuFixedRefreshRate? _fixedRefresh;
+
+    /// <summary>How many native GPU owners answered at the last look, so a newly started one is rediscovered.</summary>
+    private int _fixedRefreshAvailable;
+
     private ForegroundWindowWatcher? _foregroundWindows;
 
     /// <summary>When the last resume repair ran, so one wake's several resume notices repair once.</summary>
@@ -106,7 +113,16 @@ internal sealed class PerformanceServices(
     {
         // Overlay-test runs without a real display to move, and pairing is the one performance
         // concern that changes hardware state rather than an RTSS profile.
-        RefreshPairing = new RefreshRatePairingService();
+        // Intel's driver holds any rate in the panel's Arc Sync range; without it the Windows modes apply.
+        if (integrations.BuiltinGpu is { } gpu)
+        {
+            _fixedRefresh = new GpuFixedRefreshRate(gpu.ScaledResolutionDrivers,
+                () => BuiltinGpuDrivers.Enabled(state.Config, GpuVendor.Intel));
+            _fixedRefreshAvailable = _fixedRefresh.Available;
+            integrations.Gpu?.Changed += OnGraphicsChangedForPairing;
+        }
+
+        RefreshPairing = new RefreshRatePairingService(_fixedRefresh);
         Resolutions = new DisplayResolutionService();
         RefreshPairing.SetStrategy(state.Config.Performance.FrameLimitStrategy);
         Service!.StateChanged += OnPerformanceStateForPairing;
@@ -286,7 +302,7 @@ internal sealed class PerformanceServices(
         var vrrEnabled = view?.Projection.State.ObservedValue?.BooleanValue ?? false;
 
         // Read through the pairing service's session cache: this runs on every state publication,
-        // and enumerating plus CDS_TESTing every mode each time hammers the display driver.
+        // and enumerating every mode and asking the graphics driver each time hammers both.
         // Enumerated under every strategy: with the frame limit switched off the unified row
         // becomes a refresh-rate slider, offered whatever the pairing strategy is because there is
         // no cap left for it to fight. RefreshRatesSelectable below still gates Valve's SEPARATE
@@ -299,7 +315,7 @@ internal sealed class PerformanceServices(
             refreshRates.Count > 0 ? refreshRates.Min() : null,
             refreshRates.Count > 0 ? refreshRates.Max() : null,
             vrrEnabled,
-            refreshRates.Count > 0 ? PrimaryDisplayModes.ReadCurrentRefreshRate() : null,
+            refreshRates.Count > 0 ? pairing?.CurrentRefreshRate() : null,
             // None under the uncoupled strategy, where a cap changes no display state and the row
             // therefore has no rate to name — which is also what makes the label collapse from
             // "60 FPS (60 Hz)" to plain "60 FPS" without a second flag saying so.
@@ -451,6 +467,28 @@ internal sealed class PerformanceServices(
     ///         re-applying the same mode on each would put a driver round trip behind every one of them.
     ///     </para>
     /// </remarks>
+    /// <summary>Rediscovers the refresh rates once a native GPU owner that can hold a rate has started.</summary>
+    /// <remarks>
+    ///     The pairing reads the display before the graphics drivers finish starting, and its discovery is
+    ///     cached until the display changes. Only a rise in the number of running owners asks again; a
+    ///     pause across a suspend keeps the range already found.
+    /// </remarks>
+    private void OnGraphicsChangedForPairing()
+    {
+        if (_fixedRefresh is not { } fixedRefresh)
+        {
+            return;
+        }
+
+        var available = fixedRefresh.Available;
+        var previous = _fixedRefreshAvailable;
+        _fixedRefreshAvailable = available;
+        if (available > previous)
+        {
+            RefreshPairing?.Invalidate();
+        }
+    }
+
     private void OnPerformanceStateForPairing(PerformanceState performanceState)
     {
         // A frame limit below AutoTDP's target lowers the deadline; the rows hear about it from here.
@@ -556,6 +594,11 @@ internal sealed class PerformanceServices(
 
         steps.Step("Restoring the pre-game display refresh rate during application shutdown failed", () =>
         {
+            if (_fixedRefresh is not null)
+            {
+                integrations.Gpu?.Changed -= OnGraphicsChangedForPairing;
+            }
+
             var pairing = RefreshPairing;
             RefreshPairing = null;
             if (pairing is not null && !pairing.Restore())
