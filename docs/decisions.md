@@ -450,8 +450,10 @@ elevated client session and requests PL1/PL2; IPF applies them through its own I
 so no driver blocklist or Memory Integrity change is needed, and closing the session releases the
 request. IPF stays running on this path and off on PawnIO (and on the Atlas firmware path), where it
 fought the limits. On the Atlas this held 45 W sustained under OCCT where the firmware path fell to
-35 W, so its PL1 maximum is 45 W when IPF is offered. IPF arbitrates and the lowest request wins, so
-the path never exceeds what Intel's own policy asks for. Evidence is in the Atlas `PROVENANCE.md`.
+35 W, but 45 W kept the APU at its temperature limit, so the Atlas PL1 maximum stays the firmware's
+40 W on every path and it has no Extreme Power preset. IPF arbitrates and the lowest request wins,
+so the path never exceeds what Intel's own policy asks for. Evidence is in the Atlas
+`PROVENANCE.md`.
 
 **KX is removed again; the Atlas firmware path holds Manual (2026-11-01).** KX and its HwRwDrv
 driver are gone from LibHandheld, setup and the WSGM payload, and setup no longer forces Memory
