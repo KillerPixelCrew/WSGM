@@ -154,12 +154,6 @@ Picture window exists. After that, only a window missing for 3 s, a new steamweb
 process or a hold withdraws the admission: a window recreated across a display change or a wake no
 longer detaches every socket and forces a complete reapply.
 
-The same admission decides the two surfaces that exist only in Big Picture's own document:
-`steam-ui.pages`, which claims its router, and `steam-ui.home-carousel` on Home. They are wanted
-only while Big Picture is admitted (`SteamUiPatchSwitches.BigPictureOnly`), so with Big Picture
-closed on the desktop they read Disabled instead of failing every retry. Every other patch also
-holds in the desktop client's document.
-
 Desktop mode permits discovery on the master switch. In both modes WSGM constructs the toolkit
 transport with `requireMainWindow: true`: discovery must find exactly one validated, shaped
 MainWindow before it attaches to any target, including SharedJSContext. A login popup is not a
