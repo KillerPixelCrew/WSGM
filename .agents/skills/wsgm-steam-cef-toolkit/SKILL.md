@@ -47,7 +47,9 @@ desktop-mode gate; this documentation rule does not claim that the runtime parse
 5. Read [references/reusable-elements.md](references/reusable-elements.md) to choose the existing
    toolkit surface, typed client call, native field or UI kit element. Read
    [references/ui-and-overlay-parity.md](references/ui-and-overlay-parity.md) for the corresponding
-   Overlay control, styling and navigation.
+   Overlay control, styling and navigation, and
+   [references/design-system.md](references/design-system.md) for the Steam tokens, surfaces and
+   component states. A new element is allowed when it is Steam-styled and added once to the UI kit.
 6. If the task starts from a failure or missing UI, use the sibling `wsgm-steam-cef-debugging` skill
    first and identify the first broken boundary.
 

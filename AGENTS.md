@@ -66,9 +66,13 @@ The validation budget below overrides older gate recipes in skills and documenta
 - Editors give the document, image or other content the main workspace. Keep frequent tools compact
   and nearby; put organization, advanced properties and destructive actions in focused secondary
   views or contextual controls. Avoid permanent stacks of every possible command around the content.
-- Reuse Steam's native controls and the toolkit UI kit; use the Overlay's established controls,
-  shared theme tokens and in-window surfaces. Extend shared helpers for reusable behavior. Follow
-  each surface's navigation and visual language, with the same backend, actions and state on both.
+- In Steam, use a native control where one fits. A new element is welcome whenever the design needs
+  it, provided it is Steam-styled (palette, type, radius, `gpfocus` focus, controller navigation)
+  and built once in the toolkit UI kit, never as one-off page HTML. In the Overlay use the
+  established controls, shared theme tokens and in-window surfaces. The WSGM Steam and WSGM Overlay
+  design systems (linked from the UI skills) are the visual reference. Extend shared helpers for
+  reusable behavior. Follow each surface's navigation and visual language, with the same backend,
+  actions and state on both.
 - Make creation follow the user's task: select the source/context, supply sensible defaults, then
   confirm any required details. Keep names editable, explain failures where they occur, confirm
   destructive actions and preserve files and drafts on cancellation. Never expose implementation

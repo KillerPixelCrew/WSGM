@@ -76,9 +76,11 @@ pages consume them.
 - Use [`Icons`](../../../../src/WSGM/Controls/Icons.cs) stroke geometry with no fill. Give controls
   meaningful automation names and preserve keyboard, controller and touch operation.
 
-Steam presentation uses its resolved native fields first, then the shared toolkit
-[`ui-kit.ts`](../../../../external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiAssets/Source/ui-kit.ts)
-for structures Steam does not supply. The kit owns its `steam-ui-kit-*` stylesheet and roots render
+Steam presentation uses a resolved native field where one fits. New elements are allowed whenever
+the design calls for them, as long as they are Steam-styled and live in the shared toolkit
+[`ui-kit.ts`](../../../../external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiAssets/Source/ui-kit.ts),
+so every page reuses them. [The Steam design system](design-system.md) holds the tokens, surfaces
+and component states. The kit owns its `steam-ui-kit-*` stylesheet and roots render
 `steamUiKitStyle` in the document they inhabit. It uses Steam's React and Focusable components and
 the `gpfocus` state. Extend that shared stylesheet/helper when necessary; do not introduce another
 page-specific focus system, hard-code a hashed Steam class or copy Avalonia's palette into Steam.

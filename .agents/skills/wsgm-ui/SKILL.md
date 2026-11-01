@@ -85,11 +85,20 @@ related groups, and `ServiceSubView`/`OverlaySubView` helpers for rows, tabs, le
 parity guide for exact files and API choices.
 
 For Steam, resolve and use Steam's React, Focusable and native toggle, dropdown, slider, text,
-button and modal controls. Use `renderSteamUiChoice` for compact labelled choices and
+button and modal controls where one fits. Use `renderSteamUiChoice` for compact labelled choices and
 `renderSteamUiSelectRow` for readable title/status/detail selections. Compose sections, cards,
 galleries, toolbars, empty states and banners with the shared UI kit; include
-`steamUiKitStyle(react)` once in each consuming document root. Extend the existing shared primitive
-when a reusable behavior is missing. Keep feature labels and decisions in their owner.
+`steamUiKitStyle(react)` once in each consuming document root. A new element is fine whenever the
+design calls for it, even beside an existing native one, as long as it is Steam-styled: Steam's
+palette, type and 2 px radius, the `gpfocus` focus treatment and controller navigation. Add it once
+to the UI kit so other pages reuse it, never as one-off markup in a page. Keep feature labels and
+decisions in their owner.
+
+The design systems are the visual reference for both surfaces: the
+[Overlay design system](references/overlay-design-system.md) and the
+[Steam design system](../wsgm-steam-cef-toolkit/references/design-system.md). Use their tokens,
+anatomy and component states; add a reusable element to the system's code owner, then document it
+there.
 
 Consume the Overlay's `Deck*` and shared `Hc*` palette, typography and focus tokens. Steam uses its
 native control language and flat `steam-ui-kit-*` styles. Avoid page-specific copies of controls,
