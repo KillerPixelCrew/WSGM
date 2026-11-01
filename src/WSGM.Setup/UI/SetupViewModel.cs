@@ -348,8 +348,21 @@ internal sealed class SetupViewModel : Observable
         Page = new MessagePage("Compatibility", "Reading Windows protection settings…", "", "");
         try
         {
-            var state = await Task.Run(_engine!.DriverCompatibility.Read);
-            _compatibility = new DriverCompatibilityPage(state);
+            var engine = _engine!;
+            var state = await Task.Run(engine.DriverCompatibility.Read);
+            var excluded = await Task.Run(() =>
+            {
+                try
+                {
+                    return engine.HasDefenderExclusions();
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    SetupLog.Warn("Reading Defender exclusions failed: " + ex.Message);
+                    return false;
+                }
+            });
+            _compatibility = new DriverCompatibilityPage(state, defenderExcluded: excluded);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

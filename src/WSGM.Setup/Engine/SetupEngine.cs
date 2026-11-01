@@ -164,6 +164,13 @@ internal sealed class SetupEngine : IDisposable
 
     internal DriverCompatibility DriverCompatibility { get; }
 
+    /// <summary>Whether Defender already excludes this installation's folder and WSGM process.</summary>
+    /// <returns>True when both exclusions are present.</returns>
+    internal bool HasDefenderExclusions()
+    {
+        return DriverCompatibility.HasDefenderExclusions(_root);
+    }
+
     /// <summary>Creates a restore point with a description; tests replace it so no real point is made.</summary>
     internal Func<string, SystemRestorePointOutcome> RestorePoints { get; set; } = SystemRestorePoints.Create;
 

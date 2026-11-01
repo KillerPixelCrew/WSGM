@@ -1,5 +1,6 @@
 using WindowsDeviceControl;
 using WSGM.Setup.Engine;
+using WSGM.Setup.UI;
 
 namespace WSGM.Tests.Setup;
 
@@ -66,6 +67,44 @@ public sealed class DriverCompatibilityTests : IDisposable
         Assert.Empty(system.Paths);
         Assert.Empty(system.Processes);
         Assert.False(File.Exists(Path.Combine(_directory, "recovery.json")));
+    }
+
+    [Fact]
+    public void ExclusionsAddedOnAnEarlierRunAreRecognised()
+    {
+        var system = new FakeSystem();
+        var root = Path.Combine(_directory, "WSGM");
+        var service = Create(system);
+        Assert.False(service.HasDefenderExclusions(root));
+
+        service.AddDefenderExclusions(root);
+
+        Assert.True(Create(system).HasDefenderExclusions(root));
+    }
+
+    [Fact]
+    public void SettingsThisPcAlreadyHasShowAsDoneAndAreNotAppliedAgain()
+    {
+        var page = new DriverCompatibilityPage(
+            new WindowsProtectionState(false, false, ControlFlowGuardSetting.Disabled, false), defenderExcluded: true);
+
+        Assert.All(page.Options.Where(option => option.Key != "restore"), option =>
+        {
+            Assert.True(option.On);
+            Assert.False(option.Enabled);
+            Assert.StartsWith("Already set", option.Description, StringComparison.Ordinal);
+        });
+        var choices = page.Choices;
+        Assert.False(choices.DefenderExclusions || choices.DisableMemoryIntegrity || choices.DisableDriverBlocklist
+                     || choices.DisableControlFlowGuard);
+
+        var fresh = new DriverCompatibilityPage(new WindowsProtectionState(null, null, ControlFlowGuardSetting.Default,
+            false));
+        Assert.All(fresh.Options.Where(option => option.Key != "restore"), option =>
+        {
+            Assert.False(option.On);
+            Assert.True(option.Enabled);
+        });
     }
 
     private DriverCompatibility Create(FakeSystem system)

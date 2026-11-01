@@ -180,6 +180,17 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
                ?? throw new IOException("Windows could not report the system Control Flow Guard setting.");
     }
 
+    /// <summary>Whether Defender already excludes the WSGM folder and the WSGM process.</summary>
+    /// <param name="installationRoot">The WSGM installation root.</param>
+    /// <returns>True when both exclusions <see cref="AddDefenderExclusions" /> would add are present.</returns>
+    internal bool HasDefenderExclusions(string installationRoot)
+    {
+        var root = Path.GetFullPath(installationRoot).TrimEnd(Path.DirectorySeparatorChar);
+        var current = _system.ReadExclusions();
+        return current.Paths.Contains(root, StringComparer.OrdinalIgnoreCase)
+               && current.Processes.Contains(Path.Combine(root, "App", "WSGM.exe"), StringComparer.OrdinalIgnoreCase);
+    }
+
     internal void AddDefenderExclusions(string installationRoot)
     {
         var root = Path.GetFullPath(installationRoot).TrimEnd(Path.DirectorySeparatorChar);
