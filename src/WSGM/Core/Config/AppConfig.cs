@@ -7,7 +7,7 @@ namespace WSGM.Core;
 public sealed class AppConfig
 {
     /// <summary>The stored shape this build reads and writes. 2.0 files carry no version and read as 0.</summary>
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     /// <summary>
     ///     The default WSGM accent (Handheld Companion orange). The single source for the accent digits;

@@ -7,6 +7,7 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
 using Microsoft.Win32;
 using WindowsDeviceControl;
+using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Core;
 
@@ -64,8 +65,33 @@ internal static class ConfigRepair
             config.GameModeLaunch.DesktopLayout = KeepCurrentRotation(config.GameModeLaunch.DesktopLayout);
         }
 
+        if (stored < 2)
+        {
+            MovePowerPathToIpf(config);
+        }
+
         config.SchemaVersion = AppConfig.CurrentSchemaVersion;
         return stored;
+    }
+
+    /// <summary>
+    ///     Schema 2 made IPF the Atlas power-limit path (2026-11-01): it held 45 W sustained where the EC path
+    ///     fell to 35 W. A path saved on an Acer device before then moves to IPF once; a later choice stays.
+    ///     Where IPF is not installed the device does not offer it and its default path applies.
+    /// </summary>
+    private static void MovePowerPathToIpf(AppConfig config)
+    {
+        var layers = new[] { config.Profiles?.Global }
+            .Concat((config.Profiles?.Games ?? []).Select(static game => game?.Values));
+        foreach (var entry in layers.SelectMany(static values => values?.Device ?? []))
+        {
+            if (entry is { CapabilityId: "power.backend", Value: { } value }
+                && entry.DeviceIdentityKey.StartsWith("acer:", StringComparison.Ordinal)
+                && value.ChoiceValue != "ipf")
+            {
+                entry.Value = CapabilityValue.Choice("ipf");
+            }
+        }
     }
 
     private static DisplayLayout? KeepCurrentRotation(DisplayLayout? layout)
