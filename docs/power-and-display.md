@@ -483,10 +483,15 @@ Windows does not count gamepad input as activity, so a display the idle timeout 
 back only for the power button. `Shell\Controller\ControllerDisplayWake` follows the same session
 display signal and, while it reports off, turns an A, B, X or Y press on the managed controller into
 one injected zero-distance mouse move, which Windows does count. The press itself is withheld from
-the game until released, so waking Big Picture does not also activate the focused item. It needs
-Device Integration and an unlocked session: a lock suspends the device cycle, and the lock screen
-does not accept injected input. The log records
-`Display off: a controller face button woke the display.`
+the game until released, so waking Big Picture does not also activate the focused item.
+`Shell\Controller\ControllerWakeGate` counts the display as lit as soon as Windows accepts that
+move, so only the waking press is withheld. Earlier builds waited for the display-on notification,
+and when it never arrived (around standby, for example) every later A, B, X and Y press stayed away
+from Steam while the D-pad kept working. The display-on notification still clears the dark state
+after a wake by the power button, keyboard, mouse or touch, so the first face button after those
+reaches the game. A refused move leaves the display dark for the next press. It needs Device
+Integration and an unlocked session: a lock suspends the device cycle, and the lock screen does not
+accept injected input. The log records `Display off: a controller face button woke the display.`
 
 ### The mute claim keeps the endpoint it muted
 
