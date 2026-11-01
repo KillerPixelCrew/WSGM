@@ -103,8 +103,11 @@ install folder and reports one of four confidences:
   scan and never cached as truth. A shortcut's target is read through `OriginalsFrom`, which sees
   through WSGM's launch wrapper. Its start folder is the root only when it contains the target and
   is not too broad; otherwise the target's folder is.
-- The walk is bounded: depth 6, 6,000 directories and 40,000 files. It skips reparse points and
-  inaccessible directories. A capped walk sets `scanTruncated`, and the page suggests Browse.
+- The walk is bounded: depth 6, or 10 below a `Plugins` folder, 6,000 directories and 40,000 files.
+  The deeper limit reaches Unreal plugin libraries such as
+  `Engine/Plugins/Marketplace/nvidia/DLSS/Binaries/ThirdParty/Win64/nvngx_dlss.dll`. It skips
+  reparse points and inaccessible directories. A capped walk sets `scanTruncated`, and the page
+  suggests Browse.
 - Unreal: a root `Engine` folder and `<Project>/Binaries/Win64` or `WinGDK` executables, preferring
   `*-Shipping.exe`. A root executable beside them is a launcher. A `.uproject` is not required.
 - Unity: an executable beside `<Name>_Data` and `UnityPlayer.dll`, reported as IL2CPP with

@@ -10,12 +10,18 @@ namespace WSGM.Core;
 /// <remarks>
 ///     One walk serves the runtime resolver and the upscaler and anti-cheat scans. It skips reparse
 ///     points so a junction cannot lead it outside the game, ignores inaccessible directories, and stops at
-///     a depth and count cap so a mistaken root such as a whole drive cannot stall the page.
+///     a depth and count cap so a mistaken root such as a whole drive cannot stall the page. Below a
+///     <c>Plugins</c> folder it goes deeper, because Unreal ships plugin libraries such as DLSS and
+///     Streamline under paths like <c>Engine/Plugins/Marketplace/nvidia/DLSS/Binaries/ThirdParty/Win64</c>
+///     and Unity keeps native plugins in <c>&lt;Name&gt;_Data/Plugins</c>.
 /// </remarks>
 internal sealed class GameFolderLayout
 {
     /// <summary>The deepest directory level visited below the root.</summary>
     internal const int MaximumDepth = 6;
+
+    /// <summary>The deepest directory level visited below a <c>Plugins</c> folder.</summary>
+    internal const int MaximumPluginDepth = 10;
 
     private const int MaximumDirectories = 6000;
     private const int MaximumFiles = 40000;
@@ -80,11 +86,11 @@ internal sealed class GameFolderLayout
         HashSet<string> directories = new(StringComparer.OrdinalIgnoreCase);
         var truncated = false;
         var files = 0;
-        Queue<(DirectoryInfo Directory, string Relative, int Depth)> pending = new();
-        pending.Enqueue((new DirectoryInfo(root), "", 0));
+        Queue<(DirectoryInfo Directory, string Relative, int Depth, bool InPlugins)> pending = new();
+        pending.Enqueue((new DirectoryInfo(root), "", 0, false));
         while (pending.Count > 0)
         {
-            var (directory, relative, depth) = pending.Dequeue();
+            var (directory, relative, depth, inPlugins) = pending.Dequeue();
             if (directories.Count >= MaximumDirectories || files >= MaximumFiles)
             {
                 truncated = true;
@@ -112,9 +118,11 @@ internal sealed class GameFolderLayout
                 var path = relative.Length == 0 ? entry.Name : relative + "/" + entry.Name;
                 if (entry is DirectoryInfo child)
                 {
-                    if (depth < MaximumDepth)
+                    var childInPlugins = inPlugins ||
+                        child.Name.Equals("Plugins", StringComparison.OrdinalIgnoreCase);
+                    if (depth < (childInPlugins ? MaximumPluginDepth : MaximumDepth))
                     {
-                        pending.Enqueue((child, path, depth + 1));
+                        pending.Enqueue((child, path, depth + 1, childInPlugins));
                     }
 
                     continue;
