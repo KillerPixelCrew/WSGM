@@ -10,12 +10,9 @@ internal sealed class DriverCompatibilityPage : Page
 {
     /// <param name="state">Current protection overrides, or null when they could not be read.</param>
     /// <param name="error">Why the state could not be read.</param>
-    /// <param name="kxDevice">The chosen handheld whose KX power path requires both driver settings off.</param>
-    public DriverCompatibilityPage(WindowsProtectionState? state, string? error = null, string? kxDevice = null)
+    public DriverCompatibilityPage(WindowsProtectionState? state, string? error = null)
     {
         ReadError = error ?? string.Empty;
-        KxDevice = kxDevice;
-        var required = kxDevice is null ? string.Empty : $" Required for {kxDevice}'s KX power-limit path.";
         Options =
         [
             new FeatureOption("restore", "Create a Windows restore point",
@@ -28,15 +25,11 @@ internal sealed class DriverCompatibilityPage : Page
                 $"Current override: {Value(state?.MemoryIntegrity)}. Allows drivers blocked by HVCI; a restart is required."
                 + (state?.MemoryIntegrityLocked == true
                     ? " This setting is firmware-locked and cannot be changed here."
-                    : required),
-                kxDevice is not null, null)
-            {
-                IsNew = true, Enabled = kxDevice is null && state is { MemoryIntegrityLocked: false }
-            },
+                    : string.Empty),
+                false, null) { IsNew = true, Enabled = state is { MemoryIntegrityLocked: false } },
             new FeatureOption("blocklist", "Disable vulnerable-driver blocking",
-                $"Current override: {Value(state?.VulnerableDriverBlocklist)}. Allows drivers on Windows' vulnerable-driver blocklist; a restart is required. Certificate checks still apply."
-                + required,
-                kxDevice is not null, null) { IsNew = true, Enabled = kxDevice is null && state is not null },
+                $"Current override: {Value(state?.VulnerableDriverBlocklist)}. Allows drivers on Windows' vulnerable-driver blocklist; a restart is required. Certificate checks still apply.",
+                false, null) { IsNew = true, Enabled = state is not null },
             new FeatureOption("cfg", "Disable system Control Flow Guard",
                 $"Current override: {state?.ControlFlowGuard?.ToString() ?? "Unavailable"}. Changes CFG for the whole system, leaving other exploit protections unchanged. Restart after installation.",
                 false, null) { IsNew = true, Enabled = state?.ControlFlowGuard is not null }
@@ -53,17 +46,14 @@ internal sealed class DriverCompatibilityPage : Page
 
     public IReadOnlyList<FeatureOption> Options { get; }
 
-    /// <summary>The handheld that made the driver settings mandatory, or null.</summary>
-    public string? KxDevice { get; }
-
     public string ReadError { get; }
     public bool HasReadError => ReadError.Length > 0;
 
     public DriverCompatibilityChoices Choices => new()
     {
         CreateRestorePoint = Selected("restore"), DefenderExclusions = Selected("defender"),
-        DisableMemoryIntegrity = KxDevice is not null || Selected("memory"),
-        DisableDriverBlocklist = KxDevice is not null || Selected("blocklist"),
+        DisableMemoryIntegrity = Selected("memory"),
+        DisableDriverBlocklist = Selected("blocklist"),
         DisableControlFlowGuard = Selected("cfg")
     };
 

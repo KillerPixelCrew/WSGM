@@ -6,7 +6,6 @@ using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using Avalonia.Threading;
-using LibHandheld.Contracts;
 using WSGM.Install;
 using WSGM.Setup.Engine;
 
@@ -340,11 +339,7 @@ internal sealed class SetupViewModel : Observable
 
     private async Task ShowCompatibilityAsync()
     {
-        var kxDevice = _hardware?.Chosen is { } chosen
-                       && (chosen.Offer.Definition.HardwareAccess & DeviceHardwareAccess.IntelKx) != 0
-            ? chosen.Name
-            : null;
-        if (_compatibility is not null && _compatibility.KxDevice == kxDevice)
+        if (_compatibility is not null)
         {
             Page = _compatibility;
             return;
@@ -354,14 +349,13 @@ internal sealed class SetupViewModel : Observable
         try
         {
             var state = await Task.Run(_engine!.DriverCompatibility.Read);
-            _compatibility = new DriverCompatibilityPage(state, kxDevice: kxDevice);
+            _compatibility = new DriverCompatibilityPage(state);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             SetupLog.Warn("Reading driver protection settings failed: " + ex.Message);
             _compatibility = new DriverCompatibilityPage(null,
-                "Windows protection settings could not be read: " + ex.Message,
-                kxDevice);
+                "Windows protection settings could not be read: " + ex.Message);
         }
 
         Page = _compatibility;

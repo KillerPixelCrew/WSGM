@@ -332,9 +332,7 @@ internal sealed class SetupEngine : IDisposable
             Directory.Delete(AppStaging, true);
         }
 
-        // Exporting profile choices does not run hardware helpers. Defer the unsigned KX payload until
-        // the user can choose scoped Defender exclusions and starts installation.
-        payload.Extract("App", AppStaging, relative => !IsKxPayload(relative));
+        payload.Extract("App", AppStaging);
         var file = Path.Combine(Path.GetTempPath(), $"wsgm-answers-{Guid.NewGuid():N}.json");
         try
         {
@@ -410,16 +408,6 @@ internal sealed class SetupEngine : IDisposable
         return native;
     }
 
-    /// <summary>Whether the chosen native handheld uses KX, whose driver needs Memory Integrity and the blocklist off.</summary>
-    /// <param name="choices">Selected native device.</param>
-    public bool RequiresIntelKx(InstallChoices choices)
-    {
-        var support = Offers?.Handheld;
-        return choices.HandheldDefinitionId is not null && choices.HandheldDefinitionId == support?.Definition.Id
-                                                        && (support.Definition.HardwareAccess &
-                                                            DeviceHardwareAccess.IntelKx) != 0;
-    }
-
     /// <summary>Whether the controller stack must be installed because it is missing.</summary>
     /// <param name="choices">Chosen native definition whose controller flag determines the stack requirement.</param>
     /// <returns>Whether the stack is required and USB/IP or HidHide is absent; installed versions are not checked here.</returns>
@@ -436,18 +424,6 @@ internal sealed class SetupEngine : IDisposable
     {
         var payload = Payload ?? throw new InvalidOperationException("This setup carries no payload.");
         var controller = RequiredComponents(choices).Contains(SetupComponent.ControllerStack);
-        if (RequiresIntelKx(choices))
-        {
-            // Mandatory for this model: its KX power path cannot load HwRwDrv otherwise.
-            choices = choices with
-            {
-                Compatibility = choices.Compatibility with
-                {
-                    DisableMemoryIntegrity = true, DisableDriverBlocklist = true
-                }
-            };
-        }
-
         List<SetupStep> steps = [];
         if (choices.Compatibility.CreateRestorePoint)
         {
@@ -933,11 +909,6 @@ internal sealed class SetupEngine : IDisposable
         return Fail(step, refusal is null, refusal ?? string.Empty);
     }
 
-    private static bool IsKxPayload(string relative)
-    {
-        return relative.Replace('\\', '/').StartsWith("Resources/Intel/KX/", StringComparison.OrdinalIgnoreCase);
-    }
-
     private bool InstallApplication(SetupStep step, bool controller)
     {
         if (!ReleaseFiles(step, [App, AppPrevious, Plugins]))
@@ -951,10 +922,6 @@ internal sealed class SetupEngine : IDisposable
         if (!Directory.Exists(AppStaging))
         {
             payload.Extract("App", AppStaging);
-        }
-        else
-        {
-            payload.Extract("App", AppStaging, IsKxPayload);
         }
 
         if (controller)
