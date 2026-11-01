@@ -17,7 +17,8 @@
 //
 // Every patch logs `Steam UI patch <id>: <State>[ — <reason>][ (previous state held for N more
 // polls)]` when its state changes. A patch passes when its last state in the session is Verified, or
-// Disabled by its setting. Anything else fails: a final Incompatible, RemoveFailed, AbsentTarget,
+// Disabled: by its setting, or, for the Big Picture-only steam-ui.pages and steam-ui.home-carousel,
+// because Big Picture is closed (WSGM wants those only while it is up). Anything else fails: a final Incompatible, RemoveFailed, AbsentTarget,
 // Degraded, Retrying, Applying or Applied, with the last reason it gave. The patch manager's
 // retry-exhaustion warning ("Steam UI patches still do not [all ]hold after 8 retries; ...") fails
 // the session wherever it appears, since the manager then waits for a reload.

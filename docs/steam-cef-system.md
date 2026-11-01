@@ -1446,11 +1446,11 @@ one module in each.
 
 4. After an authorized `eng\dev-deploy.ps1`, once Steam and Big Picture have fully started, run
    `node eng\check-steam-patch-health.mjs`. It reads only the newest shell session of `wsgm.log`,
-   never CEF, and fails on any Steam UI patch that did not end Verified (or Disabled by its
-   setting), and on retry exhaustion. `--wait <seconds>` re-reads the log while patches still retry.
-   Big Picture-only gates such as `pages` and `home-carousel` wait at AbsentTarget while Big Picture
-   is closed, so run it with Big Picture up. Repeat it on the other branch when that branch is the
-   one installed.
+   never CEF, and fails on any Steam UI patch that did not end Verified (or Disabled, by its setting
+   or because Big Picture is closed), and on retry exhaustion. `--wait <seconds>` re-reads the log
+   while patches still retry. The Big Picture-only `steam-ui.pages` and `steam-ui.home-carousel` end
+   Disabled while Big Picture is closed, which passes; run it once more with Big Picture up to see
+   them Verified. Repeat it on the other branch when that branch is the one installed.
 
 `eng\verify.ps1` runs step 2 and prints a loud SKIPPED when no Steam client is installed; that is
 not a pass. Any failure on either channel is a defect for the task that found it, never an unrelated

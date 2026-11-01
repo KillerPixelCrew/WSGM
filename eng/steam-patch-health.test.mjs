@@ -38,6 +38,27 @@ test("verified and disabled patches pass, including held-state suffixes", () => 
   assert.equal(verdict.passed, true);
 });
 
+test("Big Picture-only patches pass Disabled while Big Picture is closed", () => {
+  // The page host and Home's carousel exist only in Big Picture's own document. WSGM wants them only
+  // while Big Picture is admitted, so on the desktop with Big Picture closed they end Disabled.
+  const verdict = verdictOf(
+    log(
+      start(" --shell --desktop-resident"),
+      patch("steam-ui.bridge", "Verified"),
+      patch("steam-ui.pages", "Verified"),
+      patch("steam-ui.home-carousel", "Verified"),
+      patch("steam-ui.pages", "Disabled"),
+      patch("steam-ui.home-carousel", "Disabled"),
+    ),
+  );
+  assert.deepEqual(states(verdict), {
+    "steam-ui.bridge": ["Verified", true],
+    "steam-ui.home-carousel": ["Disabled", true],
+    "steam-ui.pages": ["Disabled", true],
+  });
+  assert.equal(verdict.passed, true);
+});
+
 test("a patch that was incompatible and later verified passes", () => {
   const verdict = verdictOf(
     log(
