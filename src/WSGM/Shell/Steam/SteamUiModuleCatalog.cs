@@ -355,7 +355,7 @@ internal sealed class SteamUiModuleCatalog
             // Home's carousel, built from the same card reading as the badge so the two never
             // disagree about which card is in the reader. Rides LibraryBadges.Changed for card moves.
             SteamHomeCarouselSurface.Module(
-                () => _switches().HomeCarousel,
+                () => _switches() is { HomeCarousel: true, BigPicture: true },
                 () => new ValueTask<SteamHomeCarouselState?>(HomeCarousel.Build(LibraryBadges.Current,
                     _switches().CarouselShowUninstalled)),
                 _homeCarousel)
@@ -392,7 +392,7 @@ internal sealed class SteamUiModuleCatalog
         // second page owner cannot register the same patch id and take the whole session down with
         // it; each owner contributes routes and the host merges them.
         modules.Add(SteamPageSurface.Module(
-            HostSteamUiEnabled,
+            () => _switches() is { HostSurfaces: true, BigPicture: true },
             () => new ValueTask<SteamPageState?>(ReadPages())));
 
         if (_backends.Artwork is { } artwork)

@@ -17,6 +17,11 @@ namespace WSGM.Shell;
 /// <param name="Glyphs">Whether WSGM presents handheld glyphs at all.</param>
 /// <param name="GlyphProfile">The resolved plugin glyph profile, or null.</param>
 /// <param name="NativeGlyphArtwork">Keeps Valve artwork while still hiding absent controls.</param>
+/// <param name="BigPicture">
+///     Whether Big Picture is up, as the transport gate's admission last saw it. The surfaces that exist only
+///     in Big Picture's own document, its router and Home, are wanted only then: the desktop client's
+///     document has neither, so they could never hold there.
+/// </param>
 internal sealed record SteamUiSurfaceSwitches(
     bool NativeQuickAccess,
     bool HostSurfaces,
@@ -27,17 +32,19 @@ internal sealed record SteamUiSurfaceSwitches(
     bool CarouselShowUninstalled,
     bool Glyphs,
     ImportedGlyphProfile? GlyphProfile,
-    bool NativeGlyphArtwork)
+    bool NativeGlyphArtwork,
+    bool BigPicture)
 {
     /// <summary>Every surface off, which is what a retraction leaves.</summary>
     internal static SteamUiSurfaceSwitches Off { get; } =
-        new(false, false, false, false, false, false, false, false, null, false);
+        new(false, false, false, false, false, false, false, false, null, false, false);
 
     /// <summary>Derives every switch from a configuration and the CEF master state.</summary>
     /// <param name="config">The configuration in force.</param>
     /// <param name="cefMasterEnabled">Whether the session's CEF master switch is on.</param>
     /// <param name="glyphProfile">The active plugin glyph profile, or null.</param>
     /// <param name="nativeArtwork">Whether Valve's own glyph artwork is kept.</param>
+    /// <param name="bigPicture">Whether the transport gate admitted a Big Picture window.</param>
     /// <returns>The switches the host should hold.</returns>
     /// <remarks>
     ///     Every surface follows the master switch: off, nothing WSGM draws in Steam stays. Glyphs
@@ -47,7 +54,8 @@ internal sealed record SteamUiSurfaceSwitches(
         AppConfig config,
         bool cefMasterEnabled,
         ImportedGlyphProfile? glyphProfile,
-        bool nativeArtwork)
+        bool nativeArtwork,
+        bool bigPicture)
     {
         var cef = config.Cef;
         var on = cefMasterEnabled && cef.Enabled;
@@ -62,6 +70,7 @@ internal sealed record SteamUiSurfaceSwitches(
             cef.CarouselShowUninstalled,
             glyphs,
             glyphs ? glyphProfile : null,
-            nativeArtwork);
+            nativeArtwork,
+            bigPicture);
     }
 }

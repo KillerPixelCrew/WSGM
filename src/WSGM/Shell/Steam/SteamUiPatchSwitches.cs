@@ -67,8 +67,21 @@ internal static class SteamUiPatchSwitches
                 _ when pluginPatchIds.Contains(patch.Id) => host,
                 _ => components
             };
-            patches.SetPatchEnabled(patch.Id, enabled);
+            patches.SetPatchEnabled(patch.Id, enabled && (switches.BigPicture || !BigPictureOnly(patch.Id)));
         }
+    }
+
+    /// <summary>Whether a patch can only hold in Big Picture's own document.</summary>
+    /// <param name="patchId">The patch.</param>
+    /// <returns>True for the page host, which claims Big Picture's router, and Home's carousel.</returns>
+    /// <remarks>
+    ///     The desktop client's document has neither Big Picture's router nor its Home, so these patches
+    ///     were wanted there and failed every retry (router not found, homeFound 0) while every other
+    ///     patch verified. They are wanted only while the transport gate admits a Big Picture window.
+    /// </remarks>
+    internal static bool BigPictureOnly(string patchId)
+    {
+        return patchId is SteamPageSurface.PatchId or SteamHomeCarouselSurface.PatchId;
     }
 
     /// <summary>

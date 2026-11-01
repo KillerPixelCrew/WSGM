@@ -605,7 +605,21 @@ internal sealed class SteamUiServices
                 // Observed outside the gate: a process snapshot and a window search are the slow part.
                 var steam = _cefMasterEnabled ? steamProcesses.Observe() : default;
                 var now = Stopwatch.GetTimestamp();
-                _bigPictureReady = admission.Observe(steam, Holds != SteamUiHold.None, now);
+                var bigPicture = admission.Observe(steam, Holds != SteamUiHold.None, now);
+                if (bigPicture != _bigPictureReady)
+                {
+                    _bigPictureReady = bigPicture;
+                    // The Big Picture-only surfaces follow the window: wanted while it is up, retracted
+                    // when it closes, so the desktop client is never asked for a router it does not have.
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (!_state.ShutdownRequested)
+                        {
+                            ApplySurfaces();
+                        }
+                    });
+                }
+
                 bool open;
                 await _cefMasterGate.WaitAsync(cancellationToken).ConfigureAwait(false);
                 try
@@ -773,13 +787,15 @@ internal sealed class SteamUiServices
         var profile = nativeArtwork
             ? _integrations.Device?.PhysicalControlSelectionSnapshot().Profile
             : _integrations.Device?.PhysicalGlyphSelectionSnapshot().Profile;
-        var switches = SteamUiSurfaceSwitches.From(config, _cefMasterEnabled, profile, nativeArtwork);
+        var switches = SteamUiSurfaceSwitches.From(config, _cefMasterEnabled, profile, nativeArtwork,
+            _bigPictureReady);
         Log.Change(
             "steam.ui.switches",
             $"Steam UI surfaces: quickAccess={switches.NativeQuickAccess}, host={switches.HostSurfaces}, "
             + $"wifiIndicator={switches.NetworkIndicator}, downloadSort={switches.DownloadSort}, "
             + $"libraryBadge={switches.LibraryBadge}, homeCarousel={switches.HomeCarousel}, "
-            + $"carouselUninstalled={switches.CarouselShowUninstalled}, glyphs={switches.Glyphs}.");
+            + $"carouselUninstalled={switches.CarouselShowUninstalled}, glyphs={switches.Glyphs}, "
+            + $"bigPicture={switches.BigPicture}.");
         steamUi.Apply(switches);
     }
 
