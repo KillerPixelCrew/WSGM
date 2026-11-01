@@ -115,7 +115,7 @@ public static class Program
         // Elevated one-shot for the uninstaller. The controller comes first: shows every device WSGM
         // hid with HidHide again, before HidHide may be removed and before user data may be deleted,
         // then puts back every machine-level setting WSGM changed (display scaling, UAC,
-        // lock-on-wake). Exit code 3 tells setup the HidHide cleanup could not be verified; the
+        // lock-on-wake) and the extended VRR range. Exit code 3 tells setup the HidHide cleanup could not be verified; the
         // ownership ledger is then kept for another attempt. 3010 is a verified cleanup whose restored
         // OEM keyboard returns only after a restart. Setup reads every other non-zero code as
         // unverified, so a settings step that could not finish is only logged.
@@ -126,6 +126,16 @@ public static class Program
             {
                 Log.Warn("Uninstall restore: some machine settings were not restored; see the lines above.");
             }
+
+            // The extended VRR range's EDID override and Intel state, when WSGM turned it on. A removed
+            // override needs a restart to load the factory EDID.
+            var (vrrRestored, vrrRestart) = await ExtendedVrrUninstall.RestoreAsync(Store).ConfigureAwait(false);
+            if (!vrrRestored)
+            {
+                Log.Warn("Uninstall restore: the extended VRR range was not fully restored; see the lines above.");
+            }
+
+            restartRequired |= vrrRestart;
 
             return !hidHide ? UninstallHidHideUnverifiedExitCode :
                 restartRequired ? SessionProtocolNames.RestartRequired : 0;

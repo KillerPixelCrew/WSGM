@@ -21,6 +21,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     private readonly DeviceCoordinator _coordinator;
     private readonly PhysicalGlyphPlans _glyphs;
     private readonly GpuCoordinator? _gpu;
+    private ExtendedVrrService? _extendedVrr;
     private readonly Lock _sampleGate = new();
     private bool _disposed;
     private int _sampleObservers;
@@ -58,6 +59,16 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
     /// <inheritdoc />
     public event Action? Changed;
+
+    /// <summary>Adds the extended VRR range, created after this bridge with the display pairing.</summary>
+    /// <param name="extendedVrr">The owner Steam's Display page uses too.</param>
+    internal void AttachExtendedVrr(ExtendedVrrService extendedVrr)
+    {
+        ArgumentNullException.ThrowIfNull(extendedVrr);
+        _extendedVrr = extendedVrr;
+        extendedVrr.Changed += OnExtendedVrrChanged;
+        Changed?.Invoke();
+    }
 
     /// <inheritdoc />
     public DeviceOverlaySnapshot Snapshot()
@@ -163,7 +174,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                     DeviceHostRows.ProfileChoices(lighting?.Profiles,
                         DeviceHostRows.LightingProfileEmptyLabel(_coordinator.Profiles.Current.EditsGame))),
                 [DeviceHostRowIds.GlyphSelection] = new(_coordinator.PhysicalGlyphSelection.ToString(),
-                    DeviceHostRows.GlyphChoices())
+                    DeviceHostRows.GlyphChoices()),
+                [DeviceHostRowIds.ExtendedVrr] = new(_extendedVrr?.Status.Enabled == true ? "on" : "off",
+                    [DeviceHostRows.HostChoice("off", "Off"), DeviceHostRows.HostChoice("on", "On")])
             },
             LightingProfile = lighting is { } colors
                 ? DeviceHostRows.LightingProfileView(colors.Profiles, colors.Selected,
@@ -173,6 +186,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 ? (int)Math.Round(celsius)
                 : null,
             PluginSections = CapabilityRowProjection.ProjectSections(declaredSections),
+            ExtendedVrr = _extendedVrr is { } extendedVrr ? DeviceHostRows.ExtendedVrrView(extendedVrr.Status) : null,
             AutoTdpTarget = DeviceHostRows.AutoTdpTargetRow(
                 _coordinator.Power.AutoTdpEnabled,
                 AutoTdpTargetView.Resolve(_coordinator.Profiles.Current.Layers, autoTdpAvailability))
@@ -184,7 +198,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             ? snapshot
             : snapshot with
             {
-                AutoTdp = null, AutoTdpTarget = null, AuthoredProfile = null, LightingProfile = null, Recovery = null
+                AutoTdp = null, AutoTdpTarget = null, AuthoredProfile = null, LightingProfile = null, Recovery = null,
+                ExtendedVrr = null
             };
     }
 
@@ -236,6 +251,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 string.IsNullOrEmpty(value) ? null : value, cancellationToken),
             DeviceHostRowIds.LightingProfile => _coordinator.Lighting.SelectAsync(
                 string.IsNullOrEmpty(value) ? null : value, cancellationToken),
+            DeviceHostRowIds.ExtendedVrr when value is "on" or "off" && _extendedVrr is { } extendedVrr =>
+                extendedVrr.SetEnabledAsync(value == "on", cancellationToken),
             DeviceHostRowIds.GlyphSelection when Enum.TryParse<DeviceGlyphSelection>(value, out var glyphs)
                                                  && Enum.IsDefined(glyphs) =>
                 _coordinator.SetPhysicalGlyphSelectionAsync(glyphs, cancellationToken),
@@ -325,6 +342,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             _gpu.Changed -= OnGpuChanged;
         }
 
+        _extendedVrr?.Changed -= OnExtendedVrrChanged;
         _coordinator.StateChanged -= OnStateChanged;
         _coordinator.Capabilities.Changed -= OnCapabilityViewsChanged;
         _coordinator.ConfigurationChanged -= OnConfigurationChanged;
@@ -448,6 +466,11 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
     // Raised from AutoTDP's own tick loop. The overlay, the one subscriber, marshals its own refresh.
     private void OnAutoTdpStatusChanged(AutoTdpStatus _)
+    {
+        Changed?.Invoke();
+    }
+
+    private void OnExtendedVrrChanged()
     {
         Changed?.Invoke();
     }

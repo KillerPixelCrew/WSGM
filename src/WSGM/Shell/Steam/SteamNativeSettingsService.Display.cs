@@ -86,6 +86,13 @@ internal sealed partial class SteamNativeSettingsService
                 true));
         }
 
+        if (extendedVrr?.Status is { Visible: true } range)
+        {
+            // Beside the VRR switch on both surfaces, through the one owner the overlay's row uses.
+            offer.Quick("vrr", offer.Add(displayRows, ExtendedVrrRow(range),
+                (value, token) => SetExtendedVrrAsync(value.GetBoolean(), token)));
+        }
+
         Section(display, "Display and frame pacing", "display", displayRows);
         if (displayTimeouts is not null)
         {
@@ -128,6 +135,29 @@ internal sealed partial class SteamNativeSettingsService
         }
 
         await AddScaledResolutionSectionAsync(display, offer).ConfigureAwait(false);
+    }
+
+    /// <summary>The extended VRR range's switch: its state, what to do next, or why it cannot change.</summary>
+    /// <param name="status">The owner's status.</param>
+    /// <returns>The row.</returns>
+    internal static SteamSettingsRow ExtendedVrrRow(ExtendedVrrStatus status)
+    {
+        return new SteamSettingsRow("display.extended-vrr", SteamSettingsRowKind.Boolean, ExtendedVrrStatus.Title,
+            status.Detail, status.Enabled, Disabled: !status.CanChange, Icon: "pulse",
+            Summary: status.Enabled ? "28-120 Hz" : "48-120 Hz");
+    }
+
+    private async Task<SteamUiCommandResult> SetExtendedVrrAsync(bool enabled, CancellationToken cancellationToken)
+    {
+        if (extendedVrr is null)
+        {
+            return new SteamUiCommandResult(false, "The extended VRR range is not available.");
+        }
+
+        var status = await extendedVrr.SetEnabledAsync(enabled, cancellationToken).ConfigureAwait(false);
+        return status.Phase is ExtendedVrrPhase.Refused or ExtendedVrrPhase.Hidden
+            ? new SteamUiCommandResult(false, status.Detail)
+            : SteamUiCommandResult.Applied;
     }
 
     /// <summary>The graphics owners' Quick Access groups: one titled section per publisher.</summary>

@@ -344,6 +344,12 @@ public sealed class AppConfig
     /// <summary>Original driver source lists captured before explicit edits.</summary>
     public List<ScaledResolutionBackup> ScaledResolutionBackups { get; set; } = [];
 
+    /// <summary>
+    ///     The Intel variable refresh state saved before WSGM first turned the extended VRR range on, or null.
+    ///     Present until it is restored, so the uninstaller restores it too.
+    /// </summary>
+    public ExtendedVrrIntelState? ExtendedVrrOriginal { get; set; }
+
     /// <summary>Common plugin widget pins in display order; unavailable identities are retained.</summary>
     public List<PluginWidgetPin> PluginWidgetPins { get; set; } = [];
 

@@ -36,6 +36,7 @@ namespace WSGM.Shell;
 /// <param name="displayTimeouts">Borrowed display-timeout owner, or null to omit timeout controls.</param>
 /// <param name="scaledResolutions">Borrowed GPU-scaled resolution owner, or null to omit the source-mode editor.</param>
 /// <param name="powerButton">The power button's short-press choice shared with the overlay, or null.</param>
+/// <param name="extendedVrr">The extended VRR range shared with the overlay, or null without one.</param>
 internal sealed partial class SteamNativeSettingsService(
     NativeQamBrightnessService brightness,
     DisplayResolutionService? resolution,
@@ -49,7 +50,8 @@ internal sealed partial class SteamNativeSettingsService(
     ProfileService profiles,
     DisplayTimeouts? displayTimeouts = null,
     ScaledResolutionService? scaledResolutions = null,
-    PowerButtonSetting? powerButton = null) : ISteamNativeSettingsBackend, ISteamQuickAccessRowsBackend
+    PowerButtonSetting? powerButton = null,
+    ExtendedVrrService? extendedVrr = null) : ISteamNativeSettingsBackend, ISteamQuickAccessRowsBackend
 {
     private readonly SemaphoreSlim _reads = new(1, 1);
     private IReadOnlyDictionary<string, Offered> _offered = new Dictionary<string, Offered>();

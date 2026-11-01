@@ -361,6 +361,27 @@ internal static class DeviceHostRows
         };
     }
 
+    /// <summary>Projects the extended VRR range into the Power page's switch beside variable refresh.</summary>
+    /// <param name="status">The owner's status.</param>
+    /// <returns>The row, or null while the panel does not offer the range.</returns>
+    internal static DescriptorRow? ExtendedVrrView(ExtendedVrrStatus status)
+    {
+        if (!status.Visible)
+        {
+            return null;
+        }
+
+        var health = status.Phase switch
+        {
+            ExtendedVrrPhase.Refused => DescriptorStatus.Unsupported,
+            ExtendedVrrPhase.RestartToApply or ExtendedVrrPhase.RestartToRemove => DescriptorStatus.Warning,
+            ExtendedVrrPhase.Active or ExtendedVrrPhase.Standalone => DescriptorStatus.Available,
+            _ => DescriptorStatus.None
+        };
+        return new DescriptorRow(DeviceHostRowIds.ExtendedVrr, ExtendedVrrStatus.Title, status.Detail,
+            status.Enabled ? "ON" : "OFF", status.CanChange, health) { SectionId = DeviceSections.PowerId };
+    }
+
     /// <summary>Projects AutoTDP's switch and live state into one row.</summary>
     /// <param name="enabled">The persisted setting.</param>
     /// <param name="status">Live state, or null when the service is not running.</param>

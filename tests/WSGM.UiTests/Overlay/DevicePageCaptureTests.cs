@@ -786,5 +786,51 @@ public sealed class DevicePageCaptureTests
         }
     }
 
+    /// <summary>
+    ///     The extended VRR range's switch on the Power page, in its own group after the display rows, with the
+    ///     long restart and refusal descriptions it carries.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData("pending", 980, 640)]
+    [InlineData("pending", 1280, 800)]
+    [InlineData("refused", 980, 640)]
+    public async Task ExtendedVrrRange(string state, int width, int height)
+    {
+        await using var claw = await ClawOverlay.CreateAsync(width, height);
+        var window = claw.Window;
+        var status = state == "refused"
+            ? new ExtendedVrrStatus(ExtendedVrrPhase.Refused,
+                "Another tool's EDID override is in place for this panel. Remove it first (CRU: run reset-all.exe and "
+                + "restart). Nothing was changed.")
+            : new ExtendedVrrStatus(ExtendedVrrPhase.RestartToApply, "Restart Windows to apply.");
+        List<string?> selected = [];
+        claw.Device.SelectHost = (id, value) =>
+        {
+            Assert.Equal(DeviceHostRowIds.ExtendedVrr, id);
+            selected.Add(value);
+            return Task.CompletedTask;
+        };
+        claw.Device.State = claw.Device.State with
+        {
+            ExtendedVrr = DeviceHostRows.ExtendedVrrView(status),
+            HostSelections = new Dictionary<string, DeviceHostSelection>(claw.Device.State.HostSelections)
+            {
+                [DeviceHostRowIds.ExtendedVrr] = new(status.Enabled ? "on" : "off",
+                    [DeviceHostRows.HostChoice("off", "Off"), DeviceHostRows.HostChoice("on", "On")])
+            }
+        };
+        UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.power"));
+        UiFixture.OpenSections(window);
+        Dispatcher.UIThread.RunJobs();
+
+        var group = UiFixture.Tagged<DeviceGroupView>(window, "section.device.plugin.power.display-range");
+        var row = UiFixture.Tagged<DeviceCapabilityControl>(window, DeviceHostRowIds.ExtendedVrr);
+        Assert.True(row.IsEffectivelyVisible);
+        Assert.Contains(row, group.GetVisualDescendants());
+        group.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+        VisualBaseline.Verify(window, $"overlay-device-extended-vrr-{state}-{width}");
+    }
+
     private sealed record Publication(CapabilityDescriptorSet Descriptors, CapabilityState[] States);
 }

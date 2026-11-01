@@ -295,12 +295,15 @@ user to choose it again in Steam), the service `--uninstall` (stop and delete), 
 (a no-op on service installs, kept as the legacy restore), and `--uninstall-restore`. That last step
 first shows every device WSGM hid with HidHide again and takes WSGM's own executable off HidHide's
 allowlist and turns the cloak off (`HidHideOwnedDeltaManager.CleanupForUninstallAsync`), whether or
-not HidHide itself is removed afterwards. It exits 3 when HidHide did not read back clean, keeps the
-ownership ledger, and never retries; setup then names the still-hidden device paths. If the
-installed WSGM executable is missing, restoration fails and setup retains the ledger even when the
-user chooses to delete settings and data. An unreadable ledger is also retained. Setup's summary
-starts WSGM only after a successful install, update or repair; failed runs and uninstall summaries
-only close setup.
+not HidHide itself is removed afterwards, then restores the machine settings WSGM changed, including
+the Atlas 8's extended VRR range when WSGM turned it on (its EDID override goes and the saved Intel
+state returns, reporting a restart; see
+[power and display](power-and-display.md#extended-vrr-range-on-the-acer-predator-atlas-8)). It exits
+3 when HidHide did not read back clean, keeps the ownership ledger, and never retries; setup then
+names the still-hidden device paths. If the installed WSGM executable is missing, restoration fails
+and setup retains the ledger even when the user chooses to delete settings and data. An unreadable
+ledger is also retained. Setup's summary starts WSGM only after a successful install, update or
+repair; failed runs and uninstall summaries only close setup.
 
 The uninstall options: **Keep my settings and data** (on by default) keeps `%LOCALAPPDATA%\WSGM` and
 the logs; **Custom** lists USB/IP and HidHide when setup installed them, each deselectable so it

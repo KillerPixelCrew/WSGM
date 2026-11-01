@@ -21,9 +21,13 @@ namespace WSGM.Shell;
 ///     shrinks the rates offered. Writes run in order, each waiting a bounded time on the owner's lane; one
 ///     that did not answer in time is reported as failed and never sent again. The owner itself puts every
 ///     fixed rate back when it stops, which covers exit, upgrade and a switched-off graphics driver.
+///     <para>
+///         The extended VRR range's Arc Sync policy writes, baseline and Intel frame rate solutions share the same
+///         ordered queue (<see cref="IExtendedVrrDriver" />), so they never interleave with a refresh write.
+///     </para>
 /// </remarks>
 internal sealed class GpuFixedRefreshRate(Func<IReadOnlyList<GpuDriver>> drivers, Func<bool> configured)
-    : IFixedRefreshRateDriver
+    : IFixedRefreshRateDriver, IExtendedVrrDriver
 {
     private static readonly TimeSpan Wait = TimeSpan.FromSeconds(5);
     private readonly Lock _gate = new();
@@ -103,6 +107,46 @@ internal sealed class GpuFixedRefreshRate(Func<IReadOnlyList<GpuDriver>> drivers
 
             return released;
         });
+    }
+
+    /// <inheritdoc />
+    public Task<GpuArcSyncState?> ReadArcSyncAsync(DisplayTargetIdentity target)
+    {
+        return OnDriverAsync<GpuArcSyncState?>(target,
+            (driver, display, token) => driver.ReadArcSyncAsync(display, token));
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> SetBaselineAsync(DisplayTargetIdentity target, GpuArcSyncBaseline? baseline)
+    {
+        return await OnDriverAsync<bool?>(target,
+                   async (driver, display, token) =>
+                       await driver.SetRefreshRateBaselineAsync(display, baseline, token).ConfigureAwait(false))
+               .ConfigureAwait(false) == true;
+    }
+
+    /// <inheritdoc />
+    public Task<GpuDisplayWriteResult?> SetProfileAsync(DisplayTargetIdentity target, GpuArcSyncBaseline profile)
+    {
+        return OnDriverAsync<GpuDisplayWriteResult?>(target,
+            async (driver, display, token) =>
+                await driver.SetArcSyncProfileAsync(display, profile, token).ConfigureAwait(false));
+    }
+
+    /// <inheritdoc />
+    public Task<GpuVrrSolutions?> ReadSolutionsAsync(DisplayTargetIdentity target)
+    {
+        return OnDriverAsync<GpuVrrSolutions?>(target,
+            (driver, display, token) => driver.ReadVrrSolutionsAsync(display, token));
+    }
+
+    /// <inheritdoc />
+    public Task<GpuDisplayWriteResult?> SetSolutionAsync(DisplayTargetIdentity target, GpuVrrSolution solution,
+        bool enabled)
+    {
+        return OnDriverAsync<GpuDisplayWriteResult?>(target,
+            async (driver, display, token) =>
+                await driver.SetVrrSolutionAsync(display, solution, enabled, token).ConfigureAwait(false));
     }
 
     /// <summary>Asks every owner again for the displays already asked about, in the background.</summary>
@@ -203,8 +247,26 @@ internal sealed class GpuFixedRefreshRate(Func<IReadOnlyList<GpuDriver>> drivers
         }
     }
 
+    /// <summary>
+    ///     Runs one call on the owner that answered for the display, finding it first when none did yet, in
+    ///     order behind every other call.
+    /// </summary>
+    /// <returns>The answer, or default when no owner answers for the display or it did not answer in time.</returns>
+    private Task<T?> OnDriverAsync<T>(DisplayTargetIdentity target,
+        Func<GpuDriver, GpuDisplayTarget, CancellationToken, ValueTask<T>> call)
+    {
+        return Enqueue(async () =>
+        {
+            // The pairing's own record is left to its background read, which announces a changed range.
+            var driver = DriverFor(target) ?? (await FindAsync(target).ConfigureAwait(false))?.Driver;
+            return driver is null
+                ? default
+                : await CallAsync(token => call(driver, Route(target), token)).ConfigureAwait(false);
+        });
+    }
+
     /// <summary>Runs one write after the ones before it, whatever they did.</summary>
-    private Task<bool> Enqueue(Func<Task<bool>> work)
+    private Task<T> Enqueue<T>(Func<Task<T>> work)
     {
         lock (_gate)
         {

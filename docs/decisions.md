@@ -218,6 +218,15 @@ the Overlay, in Quick Access and on Steam's Power page. A lower active frame lim
 capped game cannot reach a higher target. Details are in
 [AutoTDP](autotdp-controller.md#the-service).
 
+**The Atlas 8's extended VRR range is WSGM's, opt-in (2026-11-01).** The maintainer asked for the
+Atlas8Tweaks VRR Fix inside WSGM. It is a switch on the overlay's Power page and Steam's Display
+page, off by default, mirroring the script: 28 Hz EDID override, Arc Sync Excellent and LFC off at
+every start, the saved Intel state back when it is switched off or WSGM is uninstalled. WSGM's start
+replaces the script's sign-in task, and a standalone install is shown as managed by that tool until
+the user switches it off in WSGM. With Device Integration off nothing is written and an existing
+override stays. Details in
+[power and display](power-and-display.md#extended-vrr-range-on-the-acer-predator-atlas-8).
+
 **Four display modes became two, and the old Off became Default.** Off, DPI-only and automatic
 profiles all collapse into Default, which is the DPI-only posture. Off was never a neutral choice:
 it left a handheld running the desktop's scaling inside Big Picture, so DPI-unaware games did not

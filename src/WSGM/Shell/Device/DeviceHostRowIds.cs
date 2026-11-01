@@ -10,4 +10,5 @@ internal static class DeviceHostRowIds
     public const string LightingProfile = "device.lighting-profile";
     public const string Retry = "device.retry";
     public const string GlyphSelection = "device.glyph-selection";
+    public const string ExtendedVrr = "device.extended-vrr";
 }

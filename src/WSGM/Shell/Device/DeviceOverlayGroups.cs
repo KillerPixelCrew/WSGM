@@ -28,7 +28,10 @@ internal static class DeviceOverlayGroups
         {
             var first = groups.Count;
             var capabilities = CapabilitiesIn(snapshot, section.SectionId);
-            var hostRows = HostRowsIn(snapshot, section.SectionId);
+            var allHostRows = HostRowsIn(snapshot, section.SectionId);
+            // The extended VRR range belongs with the display rows it changes, not with the saved profiles.
+            var displayRows = allHostRows.Where(row => row.Id == DeviceHostRowIds.ExtendedVrr).ToArray();
+            var hostRows = allHostRows.Except(displayRows).ToArray();
             var power = section.SectionId == DeviceSections.PowerId;
             var prefix = PinPrefix + section.SectionId;
             // The limits are what the Power page is visited for, so they lead even when categorized.
@@ -51,6 +54,12 @@ internal static class DeviceOverlayGroups
                     section.SectionId, Ordered(lead), [], !power || lead.Any(IsFanRow)));
             }
 
+            if (displayRows.Length > 0)
+            {
+                groups.Add(new DeviceOverlayGroup(prefix + ".display-range", "Variable refresh range", section.SectionId,
+                    [], displayRows, !power));
+            }
+
             // Cooling is visited on its own, not on the way to a limit, so the fan category comes first
             // and folds beside Power rather than inside it.
             var categories = power
@@ -70,7 +79,7 @@ internal static class DeviceOverlayGroups
             // Host controls have their own stable pin identity even when the plugin publishes only
             // categorized rows or no capabilities at all. The controller target and glyphs are what the
             // Controller page is visited for, so there they lead; elsewhere they follow the device's rows.
-            if (hostRows.Count > 0)
+            if (hostRows.Length > 0)
             {
                 groups.Insert(section.SectionId == DeviceSections.ControllerId ? first : groups.Count,
                     new DeviceOverlayGroup(prefix + ".configuration",

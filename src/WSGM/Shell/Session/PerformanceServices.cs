@@ -59,6 +59,12 @@ internal sealed class PerformanceServices(
     /// <summary>The refresh-rate pairing that follows the frame limit; null in overlay-test.</summary>
     internal RefreshRatePairingService? RefreshPairing { get; private set; }
 
+    /// <summary>The extended VRR range of the running device's panel, or null without the Intel driver owner.</summary>
+    internal ExtendedVrrService? ExtendedVrr { get; private set; }
+
+    /// <summary>The panel the extended VRR range last checked, so only a different one checks again.</summary>
+    private LibHandheld.Contracts.ExtendedVrrPanel? _extendedVrrPanel;
+
     /// <summary>The display resolutions Steam's Quick Access offers; null in overlay-test.</summary>
     internal DisplayResolutionService? Resolutions { get; private set; }
 
@@ -123,10 +129,82 @@ internal sealed class PerformanceServices(
         }
 
         RefreshPairing = new RefreshRatePairingService(_fixedRefresh);
+        StartExtendedVrr();
         Resolutions = new DisplayResolutionService();
         RefreshPairing.SetStrategy(state.Config.Performance.FrameLimitStrategy);
         Service!.StateChanged += OnPerformanceStateForPairing;
         integrations.AutoTdp?.Apply(IntegrationServices.ShouldRunAutoTdp(state.Config.DeviceIntegration));
+    }
+
+    /// <summary>
+    ///     Creates the extended VRR range over the Intel driver's queue and the running device's panel, and checks it
+    ///     in the background. Device Integration off gives it no panel, so it hides and writes nothing.
+    /// </summary>
+    private void StartExtendedVrr()
+    {
+        if (_fixedRefresh is not { } driver || integrations.Device is not { } coordinator)
+        {
+            return;
+        }
+
+        var store = state.Store;
+        ExtendedVrr = new ExtendedVrrService(() => ExtendedVrrPanel(coordinator), new WindowsExtendedVrrMachine(),
+            driver, () => store.Read().Config?.ExtendedVrrOriginal, saved => store.Update(config =>
+            {
+                config.ExtendedVrrOriginal = saved;
+                return true;
+            }));
+        coordinator.StateChanged += OnDeviceChangedForExtendedVrr;
+        coordinator.ConfigurationChanged += OnDeviceConfigurationChangedForExtendedVrr;
+        if (integrations.DeviceOverlay is DeviceOverlayBridge bridge)
+        {
+            bridge.AttachExtendedVrr(ExtendedVrr);
+        }
+
+        _extendedVrrPanel = ExtendedVrrPanel(coordinator);
+        ExtendedVrr.Recheck();
+    }
+
+    /// <summary>Stops the extended VRR range's background work before the graphics owners stop.</summary>
+    /// <returns>Completion once nothing of it runs.</returns>
+    internal async Task StopExtendedVrrAsync()
+    {
+        if (ExtendedVrr is not { } extendedVrr)
+        {
+            return;
+        }
+
+        if (integrations.Device is { } coordinator)
+        {
+            coordinator.StateChanged -= OnDeviceChangedForExtendedVrr;
+            coordinator.ConfigurationChanged -= OnDeviceConfigurationChangedForExtendedVrr;
+        }
+
+        await extendedVrr.DisposeAsync().ConfigureAwait(false);
+    }
+
+    private static LibHandheld.Contracts.ExtendedVrrPanel? ExtendedVrrPanel(DeviceCoordinator coordinator)
+    {
+        return coordinator.IntegrationEnabled ? coordinator.DeviceDefinition?.ExtendedVrrPanel : null;
+    }
+
+    private void OnDeviceChangedForExtendedVrr(WSGM.Device.Sdk.Lifecycle.DeviceCycleState _)
+    {
+        OnDeviceConfigurationChangedForExtendedVrr();
+    }
+
+    private void OnDeviceConfigurationChangedForExtendedVrr()
+    {
+        if (integrations.Device is not { } coordinator || ExtendedVrr is not { } extendedVrr)
+        {
+            return;
+        }
+
+        var panel = ExtendedVrrPanel(coordinator);
+        if (Interlocked.Exchange(ref _extendedVrrPanel, panel) != panel)
+        {
+            extendedVrr.Recheck();
+        }
     }
 
     /// <summary>Starts the running-application monitor over Steam and the foreground window. Not in overlay-test.</summary>

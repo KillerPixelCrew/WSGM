@@ -765,6 +765,7 @@ public sealed class ShellSession
             PerfSupport = _performance.ReadNativeQamPerfSupport,
             ApplyRefreshRate = _performance.ApplyManualRefreshRate,
             RefreshPairing = _performance.RefreshPairing,
+            ExtendedVrr = _performance.ExtendedVrr,
             // Null when nothing can publish VRR, which is also when the projection omits
             // is_vrr_supported and Valve's row does not render. One fact, one source. The
             // user-facing wrapper persists the state to the per-application layer in force; the
@@ -1083,6 +1084,9 @@ public sealed class ShellSession
         await steps.JoinAsync("Steam Input shim reconcile", _steamInputReconcile).ConfigureAwait(false);
         await steps.JoinAsync("Steam Input management apply",
             _steamUi.SettingsPage?.SteamInputApplyCompletion ?? Task.CompletedTask).ConfigureAwait(false);
+
+        // The extended VRR range's driver calls run on the Intel owner's queue; none is left when it stops.
+        await steps.JoinAsync("Extended VRR range", _performance.StopExtendedVrrAsync()).ConfigureAwait(false);
 
         // 4. Common plugins, then the graphics router, so no graphics channel is open when it goes.
         await _integrations.StopPluginsAsync(steps).ConfigureAwait(false);

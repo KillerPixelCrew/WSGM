@@ -53,13 +53,16 @@ internal sealed record DeviceOverlaySnapshot(
     /// <summary>AutoTDP's frame-rate target slider, or null while AutoTDP is off.</summary>
     public DescriptorRow? AutoTdpTarget { get; init; }
 
+    /// <summary>The extended VRR range switch, or null when the panel does not offer it.</summary>
+    public DescriptorRow? ExtendedVrr { get; init; }
+
     /// <summary>The host-owned rows that are present, in the order a page draws them.</summary>
     public IEnumerable<DescriptorRow> HostRows
     {
         get
         {
             DescriptorRow?[] rows =
-                [AutoTdp, AutoTdpTarget, AuthoredProfile, LightingProfile, Controller, GlyphSelection, Recovery];
+                [AutoTdp, AutoTdpTarget, AuthoredProfile, LightingProfile, Controller, GlyphSelection, Recovery, ExtendedVrr];
             return rows.OfType<DescriptorRow>();
         }
     }

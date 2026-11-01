@@ -1,3 +1,4 @@
+using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
 
@@ -72,6 +73,29 @@ public sealed class DeviceOverlayGroupsTests
             ("section.device.plugin.power.configuration", "Automatic control and saved profiles", false)
         ], groups.Select(group => (group.Id, group.Title, group.OwnFold)));
         Assert.Equal(["scenario", "pl1", "pl2"], groups[0].Capabilities.Select(capability => capability.CapabilityId));
+    }
+
+    [Fact]
+    public void TheExtendedVrrRangeFollowsThePowerPagesDisplayRowsInItsOwnGroup()
+    {
+        var snapshot = Snapshot(Placed("vrr", DeviceSections.PowerId)) with
+        {
+            AutoTdp = new DescriptorRow(DeviceHostRowIds.AutoTdp, "AutoTDP", "", "", true)
+                { SectionId = DeviceSections.PowerId },
+            ExtendedVrr = DeviceHostRows.ExtendedVrrView(new ExtendedVrrStatus(ExtendedVrrPhase.Off, "Off."))
+        };
+
+        var groups = DeviceOverlayGroups.Build(snapshot)
+            .Where(group => group.SectionId == DeviceSections.PowerId).ToArray();
+
+        Assert.Equal(
+        [
+            "section.device.plugin.power.main", "section.device.plugin.power.display-range",
+            "section.device.plugin.power.configuration"
+        ], groups.Select(group => group.Id));
+        Assert.Equal([DeviceHostRowIds.ExtendedVrr], groups[1].HostRows.Select(row => row.Id));
+        Assert.Equal([DeviceHostRowIds.AutoTdp], groups[2].HostRows.Select(row => row.Id));
+        Assert.Null(DeviceHostRows.ExtendedVrrView(ExtendedVrrStatus.Hidden));
     }
 
     [Fact]

@@ -808,6 +808,59 @@ Turning the profile `OFF` collapses the reported range to 120/120, a second conf
 of the profile enum. That is why this capability reports a verified read-back rather than an
 applied-unverified one.
 
+## Extended VRR range on the Acer Predator Atlas 8
+
+The Atlas 8's BOE NS080WUM-LX1 panel advertises variable refresh from 48 Hz, and Intel's low frame
+rate solution (LFC) doubles, triples or quadruples frames below that, which judders. "Extended VRR
+range (28-120 Hz)" lowers the floor to 28 Hz the way the maintainer's
+[Atlas8Tweaks VRR Fix](https://github.com/KillerPixelCrew/Atlas8Tweaks/tree/main/vrr-fix) does, and
+replaces its sign-in task, since WSGM itself starts at sign-in. The panel facts, the floor fields
+and the evidence are in the Acer family's
+[PROVENANCE](../external/libhandheld/src/LibHandheld/Families/Acer/PROVENANCE.md#extended-vrr-range-2026-11-01).
+
+It is opt-in, on the Device > Power page under "Variable refresh range" in the overlay and beside
+the VRR switch on Steam's Display page and in Quick Access's "Display and frame rate". Both draw
+`ExtendedVrrService`'s one status. The row appears only when LibHandheld's definition carries an
+`ExtendedVrrPanel`, exactly one active display reports that panel's EDID, and the Intel driver
+reports Arc Sync for it. An EDID that does not trace back to the validated physical EDID, or an
+override another tool wrote, shows a refusal and changes nothing.
+
+- **On**: the Intel state in force is saved once in `ExtendedVrrOriginal` in `config.json`
+  (measured; the panel's factory state when an extended EDID is already written or loaded). The
+  override is written to the panel's `Device Parameters\EDID_OVERRIDE` key through
+  WindowsDeviceControl, read back, and the row says "Restart Windows to apply" until Windows reports
+  it.
+- **Every start while it is active**: after up to 90 seconds' wait for the Intel driver, WSGM checks
+  that Intel reports the 28 Hz floor, writes Arc Sync Excellent through LibGPUDriverInteract's
+  policy write when the profile is not already Excellent across 28-120 Hz, and turns LFC off through
+  Intel's private VRR escape. The high frame rate solution is left alone. Each write is read back
+  and logged once; one that fails or gets no answer is reported on the row and never resent.
+  Switching the row on again, or the next start, is the retry.
+- **Off**: the override is removed, the saved Arc Sync profile and frame rate solutions are put back
+  and the record cleared. While the extended EDID stays loaded the row says a restart finishes it. A
+  restore that fails keeps the record, so switching it off again retries.
+
+Arc Sync keeps one owner. These writes never go through the user's Arc Sync rows, which would end a
+fixed refresh rate and hand the profile to the user, and they share `GpuFixedRefreshRate`'s ordered
+queue off the UI thread. While the range is active WSGM supplies Excellent across the panel's range
+as the profile a released fixed refresh rate returns to (`SetRefreshRateBaselineAsync`), so a
+refresh write never leaves the panel without its floor. While a fixed rate holds the panel, the
+Excellent write waits for its release; turning the range off supplies the saved profile the same
+way.
+
+A standalone Atlas8Tweaks install (`%ProgramData%\AcerAtlasVrr\config.json`) is recognized: its
+variants, the earlier test build's included, are this feature's own. The row shows it as active and
+managed by that tool, and WSGM writes nothing but the baseline. Switching the row off removes the
+tool's "Acer Atlas 8 VRR Repair" task and folder as well, restores the Intel state it saved, and the
+row says so.
+
+With Device Integration off there is no definition, so the row is hidden and nothing is read or
+written: an override and Intel state already in place stay as they are. The uninstaller's
+`--uninstall-restore` one-shot turns the range off when `ExtendedVrrOriginal` says WSGM turned it
+on, whatever Device Integration is set to, through its own Intel driver session; a removed override
+reports a restart. A standalone install is left in place. The panel's live behavior is the attended
+pass's to confirm with the Atlas8Tweaks `VrrTest` tool.
+
 ## Driver-level VSync is a presentation mode, not a toggle
 
 Intel has no `CTL_3D_FEATURE_VSYNC`. What it has is `CTL_3D_FEATURE_GAMING_FLIP_MODES`, a flag set

@@ -11,6 +11,20 @@ namespace WSGM.Tests.Shell;
 public sealed partial class SteamNativeSettingsServiceTests
 {
     [Fact]
+    public void TheExtendedVrrRowIsTheSameSwitchTheOverlayDraws()
+    {
+        var pending = SteamNativeSettingsService.ExtendedVrrRow(
+            new ExtendedVrrStatus(ExtendedVrrPhase.RestartToApply, "Restart Windows to apply."));
+        var refused = SteamNativeSettingsService.ExtendedVrrRow(
+            new ExtendedVrrStatus(ExtendedVrrPhase.Refused, "Another tool's EDID override is in place."));
+
+        Assert.Equal(("display.extended-vrr", SteamSettingsRowKind.Boolean, ExtendedVrrStatus.Title, true, false),
+            (pending.Key, pending.Kind, pending.Label, pending.Checked, pending.Disabled));
+        Assert.Equal("Restart Windows to apply.", pending.Description);
+        Assert.Equal((false, true), (refused.Checked, refused.Disabled));
+    }
+
+    [Fact]
     public void TdpProjectionUsesTheAuthoritativeDesiredObservedAndProgressState()
     {
         var view = PrimaryLimitView("pl1");

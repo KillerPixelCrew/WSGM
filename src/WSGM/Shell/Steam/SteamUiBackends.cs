@@ -53,6 +53,9 @@ internal sealed record SteamUiBackends
     /// <summary>The refresh-rate owner whose changes republish the refresh rows, or null in overlay-test.</summary>
     internal RefreshRatePairingService? RefreshPairing { get; init; }
 
+    /// <summary>The extended VRR range of the running device's panel, or null without one.</summary>
+    internal ExtendedVrrService? ExtendedVrr { get; init; }
+
     /// <summary>Applies the variable refresh flag, or null when nothing can publish it.</summary>
     internal Func<bool, CancellationToken, Task<bool>>? ApplyVariableRefreshRate { get; init; }
 
