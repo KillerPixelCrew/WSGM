@@ -484,6 +484,7 @@ public sealed partial class OverlayController : IDisposable
         _overlay.AttachSources(_services.Sources);
         AttachNotes(_overlay);
         _overlay.ProgramsHost.ActivateRequested += ActivateProgram;
+        _overlay.HotkeysHost.SendRequested += SendHotkey;
         _overlay.SetPins(Pins.Ids);
         _overlay.PinToggleRequested += OnPinToggleRequested;
         _overlay.WindowPicked += PickWindow;

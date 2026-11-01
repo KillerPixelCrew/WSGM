@@ -26,6 +26,7 @@ namespace WSGM.Overlay;
 /// <param name="Screensavers">Local screensaver sources shared with Steam.</param>
 /// <param name="GameTools">Per-game Game Tools shared with the Steam page, outside overlay-test.</param>
 /// <param name="HybridCores">The session's shared processor core-preference workflow, which Steam's row also uses.</param>
+/// <param name="Hotkeys">The key combinations the Overlay sends to the game in front.</param>
 internal sealed record OverlaySources(
     IDeviceOverlaySource? Device = null,
     PerformanceOverlayBridge? Performance = null,
@@ -49,4 +50,5 @@ internal sealed record OverlaySources(
     BrowserSession? Browser = null,
     ScreensaverService? Screensavers = null,
     IGameToolsSource? GameTools = null,
-    NativeQamHybridCoreService? HybridCores = null);
+    NativeQamHybridCoreService? HybridCores = null,
+    IHotkeysSource? Hotkeys = null);

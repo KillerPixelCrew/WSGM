@@ -349,6 +349,25 @@ underline on the foreground window, minimized at 0.5. Do keep chip positions sta
 Tiles mirror the source's content and handler; the Game Mode / Desktop switch is always first. Do
 pin from the source with X, right-click or touch hold. Don't copy command logic into the tile.
 
+**Keycap.** `src/WSGM/Overlay/Keycaps.cs` (`Keycaps.Create`), styled by `Border.keycap`,
+`Border.keycap.large` and `TextBlock.keycap-joiner` in `CommandDeck.axaml`. `DeckSurfaceBrush` fill,
+`DeckGroupBorderBrush` border of 1 with a 2 bottom edge, radius 4, minimum 26 x 24, padding 7 x 1
+and 12 SemiBold `DeckTextBrush` text. The editor's large cap is minimum 36 x 34, padding 10 x 3
+and 15. Keys join with a `+` in `DeckSecondaryBrush`, and the panel's accessible name is the chord,
+such as "Ctrl+Alt+S". Presentation only, never focusable. Do show every key of a combination in
+press order. Don't make keycaps clickable or use them for controller prompts, which are `GlyphIcon`.
+
+**Hotkey tile.** `src/WSGM/Overlay/HotkeyActionRow.cs` (`HotkeyActionRow`), drawn by `HotkeysView`
+on Tools › Hotkeys and, with the `tile` class, by `HotkeysView.ResolvePin` in the Quick Access grid.
+An ActionButton with the keyboard icon, the hotkey's name, its keycaps as the footer, "Send" as the
+trailing text and the last refusal as its description. States follow ActionButton. Do keep the page
+row and the tile one control, so both send the same way. Don't report a successful send in it.
+
+**Hotkey capture field.** `src/WSGM/Overlay/HotkeyCapture.cs` in a `ShowConfirm` surface. A
+focusable card (`Border.device-group.hotkey-capture`) with a constant 2 px border that turns
+`HcAccentBrush` on focus, showing "Waiting for keys…" or the held keys as large keycaps. Do keep
+Cancel beside it and Esc or B as the way out. Don't put a TextBox in it.
+
 **Confirm dialog.** `OverlaySurfaceStack.ShowConfirm`; Game Tools content in
 `GameToolsView.Confirm`. 620 wide, centered, `DeckSurfaceBrush`, title 20 with a 44px close,
 paragraphs at line height 22, Cancel focused, accept in danger text. Back cancels; focus returns to

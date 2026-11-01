@@ -571,7 +571,8 @@ public sealed class ShellSession
                 Screensavers: _tools.Screensavers,
                 Browser: _tools.Browser,
                 GameTools: _library.GameTools,
-                HybridCores: _hybridCores),
+                HybridCores: _hybridCores,
+                Hotkeys: _tools.Hotkeys),
             _system.Audio,
             _system.AudioProfiles,
             _system.Radios,
@@ -888,6 +889,7 @@ public sealed class ShellSession
         TryApply("session modes", () => _modes?.ApplyConfig(config));
         TryApply("overlay", () => _overlay?.ApplyConfig(config));
         TryApply("programs", () => _tools.Programs?.ConfigurationChanged(config));
+        TryApply("hotkeys", () => _tools.Hotkeys?.ConfigurationChanged(config));
         TryApply("browser", () => _tools.Browser?.ApplyOptions(config.Browser));
         TryApply("screensavers", () => _tools.Screensavers?.ConfigurationChanged());
         TryApply("emulator shortcuts", () => _library.EmulatorTool?.RequestShortcutSync());

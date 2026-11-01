@@ -32,6 +32,10 @@ public class ActionButton : Button
     public static readonly StyledProperty<bool> IsPinnedProperty =
         AvaloniaProperty.Register<ActionButton, bool>(nameof(IsPinned));
 
+    /// <summary>Identifies the name assistive technology reads instead of the title.</summary>
+    public static readonly StyledProperty<string?> AccessibleNameProperty =
+        AvaloniaProperty.Register<ActionButton, string?>(nameof(AccessibleName));
+
     /// <summary>Identifies the physical-controller glyph that takes precedence over the trailing text.</summary>
     internal static readonly StyledProperty<PhysicalGlyphRenderPlan?> TrailingGlyphProperty =
         AvaloniaProperty.Register<ActionButton, PhysicalGlyphRenderPlan?>(nameof(TrailingGlyph));
@@ -39,6 +43,9 @@ public class ActionButton : Button
     private readonly TextBlock _description = new() { TextWrapping = TextWrapping.Wrap, Classes = { "caption" } };
     private readonly PhysicalGlyphImage _glyph = new() { Width = 18, Height = 18 };
     private readonly TextBlock _hint = new() { VerticalAlignment = VerticalAlignment.Center };
+
+    private readonly StackPanel _hints = new()
+        { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
 
     private readonly Path _icon = new()
     {
@@ -69,17 +76,15 @@ public class ActionButton : Button
         Classes.Add("deck-action");
         _labels.Children.Add(_title);
         _labels.Children.Add(_description);
-        var hints = new StackPanel
-            { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
-        hints.Children.Add(_pin);
-        hints.Children.Add(_glyph);
-        hints.Children.Add(_hint);
+        _hints.Children.Add(_pin);
+        _hints.Children.Add(_glyph);
+        _hints.Children.Add(_hint);
         var layout = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 12 };
         layout.Children.Add(_icon);
         Grid.SetColumn(_labels, 1);
         layout.Children.Add(_labels);
-        Grid.SetColumn(hints, 2);
-        layout.Children.Add(hints);
+        Grid.SetColumn(_hints, 2);
+        layout.Children.Add(_hints);
         Content = layout;
         RefreshPresentation();
     }
@@ -113,6 +118,16 @@ public class ActionButton : Button
     {
         get => GetValue(TrailingTextProperty);
         set => SetValue(TrailingTextProperty, value);
+    }
+
+    /// <summary>
+    ///     The automation name when the visible title needs its subject, such as "Edit Lossless Scaling" for a
+    ///     compact "Edit" beside that hotkey; null uses the title.
+    /// </summary>
+    public string? AccessibleName
+    {
+        get => GetValue(AccessibleNameProperty);
+        set => SetValue(AccessibleNameProperty, value);
     }
 
     /// <summary>Whether to display the pin marker; changing it does not persist a pin or invoke a command.</summary>
@@ -150,6 +165,35 @@ public class ActionButton : Button
         }
     }
 
+    /// <summary>
+    ///     An optional control at the trailing edge, before the activation hint, such as a hotkey's keycaps; null
+    ///     removes it. Presentation only, it takes no focus.
+    /// </summary>
+    internal Control? TrailingContent
+    {
+        get;
+        set
+        {
+            if (ReferenceEquals(field, value))
+            {
+                return;
+            }
+
+            if (field is not null)
+            {
+                _hints.Children.Remove(field);
+            }
+
+            field = value;
+            if (value is not null)
+            {
+                value.Focusable = false;
+                value.VerticalAlignment = VerticalAlignment.Center;
+                _hints.Children.Insert(_hints.Children.IndexOf(_hint), value);
+            }
+        }
+    }
+
     /// <summary>Optional physical-controller render plan; null restores the textual activation hint.</summary>
     internal PhysicalGlyphRenderPlan? TrailingGlyph
     {
@@ -157,7 +201,7 @@ public class ActionButton : Button
         set => SetValue(TrailingGlyphProperty, value);
     }
 
-    /// <summary>Copies the visible content of another row: title, description, icon and trailing hint.</summary>
+    /// <summary>Copies the content of another row: title, description, icon, trailing hint and accessible name.</summary>
     /// <param name="source">The row to copy from; its state and callbacks are not copied.</param>
     internal void CopyContentFrom(ActionButton source)
     {
@@ -166,6 +210,7 @@ public class ActionButton : Button
         IconGeometry = source.IconGeometry;
         TrailingText = source.TrailingText;
         TrailingGlyph = source.TrailingGlyph;
+        AccessibleName = source.AccessibleName;
     }
 
     /// <inheritdoc />
@@ -175,6 +220,7 @@ public class ActionButton : Button
         if (change.Property == TitleProperty || change.Property == DescriptionProperty ||
             change.Property == IconGeometryProperty || change.Property == TrailingTextProperty ||
             change.Property == TrailingGlyphProperty || change.Property == IsPinnedProperty ||
+            change.Property == AccessibleNameProperty ||
             change.Property == ForegroundProperty)
         {
             RefreshPresentation();
@@ -194,6 +240,6 @@ public class ActionButton : Button
         _glyph.IsVisible = TrailingGlyph is not null;
         _hint.Text = TrailingText;
         _hint.IsVisible = TrailingGlyph is null && !string.IsNullOrEmpty(TrailingText);
-        AutomationProperties.SetName(this, Title ?? string.Empty);
+        AutomationProperties.SetName(this, AccessibleName ?? Title ?? string.Empty);
     }
 }

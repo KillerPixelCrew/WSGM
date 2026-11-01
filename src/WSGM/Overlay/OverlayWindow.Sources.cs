@@ -25,6 +25,7 @@ public partial class OverlayWindow
         EmulatorManagerHost.Attach(sources.Emulators);
         ViewModel.ShowEmulators = sources.Emulators is not null;
         ProgramsHost.Attach(sources.Programs);
+        HotkeysHost.Attach(sources.Hotkeys);
         RenderPins();
         PanelSteamLaunch.AttachLaunchActions(sources.LaunchActions);
         LibraryTabsHost.Attach(sources.LibraryManager);

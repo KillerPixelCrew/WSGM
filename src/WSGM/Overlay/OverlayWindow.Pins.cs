@@ -28,6 +28,7 @@ public partial class OverlayWindow
     internal void SetPins(IReadOnlyList<string> ids)
     {
         _pins.Set(ids);
+        HotkeysHost.SetPins(ids);
         RenderPins();
     }
 
@@ -43,15 +44,15 @@ public partial class OverlayWindow
     }
 
     /// <summary>
-    ///     Resolves a pin id through the source that owns it: an action row or Tools section, a program, or a
-    ///     Device, performance or graphics group.
+    ///     Resolves a pin id through the source that owns it: an action row or Tools section, a program, a hotkey,
+    ///     or a Device, performance or graphics group.
     /// </summary>
     /// <param name="id">The pin id.</param>
     /// <param name="devices">The pass's snapshot reads for the Device pins.</param>
     /// <returns>The pin, or null for an id no source of this build owns.</returns>
     private QuickAccessPin? ResolvePin(string id, DevicePins.Pass devices)
     {
-        return _pins.Resolve(id) ?? ProgramsHost.ResolvePin(id) ?? devices.Resolve(id);
+        return _pins.Resolve(id) ?? ProgramsHost.ResolvePin(id) ?? HotkeysHost.ResolvePin(id) ?? devices.Resolve(id);
     }
 
     /// <summary>Draws the Quick access root while it shows; it is drawn again whenever it is shown.</summary>
@@ -74,6 +75,7 @@ public partial class OverlayWindow
         Control? restoreFocus = null;
         _pins.SyncMirrors();
         List<Control> valueControls = [];
+        List<Control> tiles = [];
         foreach (var id in ids)
         {
             if (ResolvePin(id, devices) is not { } pin)
@@ -81,9 +83,15 @@ public partial class OverlayWindow
                 continue;
             }
 
-            var drawn = PinnedSectionsGrid.Children.FirstOrDefault(child => Equals(child.Tag, PinTagPrefix + id));
+            var drawn = pin.Tile
+                ? _pins.Mirror(id)
+                : PinnedSectionsGrid.Children.FirstOrDefault(child => Equals(child.Tag, PinTagPrefix + id));
             var row = pin.Draw(drawn);
-            if (!pin.Tile)
+            if (pin.Tile)
+            {
+                tiles.Add(row);
+            }
+            else
             {
                 row.Margin = new Thickness(0);
                 valueControls.Add(row);
@@ -98,7 +106,7 @@ public partial class OverlayWindow
         // Host controls own subscriptions and user selections. Keep them attached across
         // telemetry refreshes; removing a pin is what ends that view's lifetime.
         DeviceGroupRenderer.ReconcileChildren(PinnedSectionsGrid, valueControls);
-        var mirrors = _pins.PlaceGhost(valueControls.Count > 0);
+        var mirrors = _pins.PlaceTiles(tiles, valueControls.Count > 0);
         if (restoreFocus is null && PanelQuickAccess.IsVisible && !AnySubView && focusedKey is not null)
         {
             restoreFocus = FocusSearch.Keyed(PinnedSectionsGrid, focusedKey);

@@ -188,6 +188,7 @@ public sealed class SettingsSaveMergeTests
         };
         fresh.LibraryTabOrder = ["fresh-tab"];
         fresh.QuickAccessPins = ["fresh-pin"];
+        fresh.Hotkeys = [new HotkeyDefinition { Id = "menu", Name = "Menu", Keys = [HotkeyKeys.Insert] }];
         fresh.PreviousShellSnapshotCaptured = true;
         fresh.PreviousShellValue = "explorer.exe";
         fresh.DeviceIntegration.AutoTdpEnabled = true;
@@ -216,6 +217,7 @@ public sealed class SettingsSaveMergeTests
         Assert.False(merged.SteamStorageFormatEnabled);
         Assert.Equal("fresh-tab", Assert.Single(merged.LibraryTabOrder));
         Assert.Equal("fresh-pin", Assert.Single(merged.QuickAccessPins));
+        Assert.Equal("menu", Assert.Single(merged.Hotkeys).Id);
         Assert.True(merged.PreviousShellSnapshotCaptured);
         Assert.Equal("explorer.exe", merged.PreviousShellValue);
         Assert.True(merged.DeviceIntegration.AutoTdpEnabled);

@@ -58,17 +58,22 @@ public sealed partial class OverlayController
 
     /// <summary>
     ///     Closes the sheet and runs an activation once the window has closed and the input lease is
-    ///     released, without restoring focus to the window the sheet came from.
+    ///     released, by default without restoring focus to the window the sheet came from.
     /// </summary>
     /// <param name="window">The open sheet.</param>
     /// <param name="operation">The name failures are logged under.</param>
     /// <param name="activate">The activation; its token ends when the sheet reopens or the session shuts down.</param>
-    private void RunAfterClose(OverlayWindow window, string operation, Func<CancellationToken, Task> activate)
+    /// <param name="restoreFocus">
+    ///     Whether the close still returns focus to the window the sheet came from, for an activation that acts on
+    ///     that window, such as a hotkey sent to the game.
+    /// </param>
+    private void RunAfterClose(OverlayWindow window, string operation, Func<CancellationToken, Task> activate,
+        bool restoreFocus = false)
     {
         _windowReturnCancellation?.Cancel();
         var cancellation = new CancellationTokenSource();
         _windowReturnCancellation = cancellation;
-        _suppressFocusRestore = true;
+        _suppressFocusRestore = !restoreFocus;
         Log.Observe(RunAsync(), operation);
         CloseOverlay(true);
         return;

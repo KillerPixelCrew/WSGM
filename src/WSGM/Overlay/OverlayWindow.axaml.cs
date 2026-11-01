@@ -23,7 +23,7 @@ public partial class OverlayWindow : Window
     private const int DeviceLiveRefresh = 1;
     private const int PerformanceLiveRefresh = 2;
     private const int GraphicsLiveRefresh = 4;
-    private const int ProgramsLiveRefresh = 8;
+    private const int PinSourcesLiveRefresh = 8;
     private const int PluginsLiveRefresh = 16;
 
     private readonly CancellationTokenSource _deviceLifetime = new();
@@ -264,7 +264,7 @@ public partial class OverlayWindow : Window
         PanelPowerActions.Configure(_powerConfirms);
         PanelPowerActions.DismissRequested += () => Dismissed?.Invoke();
         PanelPowerActions.PowerMenuRequested += () => PowerMenuRequested?.Invoke();
-        ProgramsHost.ProgramsChanged += () => QueueLiveRefresh(ProgramsLiveRefresh);
+        ProgramsHost.ProgramsChanged += () => QueueLiveRefresh(PinSourcesLiveRefresh);
         ProgramsHost.EditorRequested += id =>
         {
             if (OpenSection(OverlayPage.Programs))
@@ -283,6 +283,16 @@ public partial class OverlayWindow : Window
                 PinToggleRequested?.Invoke(pin);
             }
         };
+        HotkeysHost.HotkeysChanged += () => QueueLiveRefresh(PinSourcesLiveRefresh);
+        HotkeysHost.PinToggleRequested += pin => PinToggleRequested?.Invoke(pin);
+        HotkeysHost.UnpinRequested += pin =>
+        {
+            if (_pins.Contains(pin))
+            {
+                PinToggleRequested?.Invoke(pin);
+            }
+        };
+        HotkeysHost.CreateHeader = (id, title) => CreateSectionHeader(id, title);
         PanelSystemPlugins.OfferedChanged += () =>
         {
             if (!PanelSystemPlugins.Offered && _navigation.Page == OverlayPage.SystemPlugins)
@@ -398,6 +408,7 @@ public partial class OverlayWindow : Window
         LibraryTabsHost.Attach(null);
         CardManagerHost.Attach(null);
         ProgramsHost.Attach(null);
+        HotkeysHost.Attach(null);
         NotesHost.Attach(null);
         ScreensaversHost.Attach(null);
         EmulatorManagerHost.Attach(null);

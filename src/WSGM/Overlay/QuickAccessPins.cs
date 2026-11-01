@@ -204,19 +204,27 @@ internal sealed class QuickAccessPins
         _mirrored = [.. Ids];
     }
 
-    /// <summary>The mirror of a pinned row, or null when the id is not a row.</summary>
+    /// <summary>The tile drawn in the grid for a pin last render: a row's mirror or another source's tile.</summary>
     /// <param name="id">A pin id.</param>
-    /// <returns>The mirror control in the grid.</returns>
+    /// <returns>The tile, or null when none is drawn for the id.</returns>
     internal Control? Mirror(string id)
     {
         return _mirrorGrid.Children.FirstOrDefault(child => Equals(child.Tag, TagPrefix + id));
     }
 
-    /// <summary>Shows the placeholder tile while no section is pinned and hides an empty grid.</summary>
+    /// <summary>
+    ///     Puts the pinned tiles in the grid in pin order, shows the placeholder tile while no section is pinned
+    ///     and hides an empty grid.
+    /// </summary>
+    /// <param name="tiles">
+    ///     Every tile of this render in pin order: the row mirrors, and the tiles other sources drew, such as a
+    ///     hotkey's.
+    /// </param>
     /// <param name="sectionsPinned">Whether any pinned section is drawn below the grid.</param>
-    /// <returns>The number of row mirrors drawn, without the placeholder.</returns>
-    internal int PlaceGhost(bool sectionsPinned)
+    /// <returns>The number of tiles drawn, without the placeholder.</returns>
+    internal int PlaceTiles(IReadOnlyList<Control> tiles, bool sectionsPinned)
     {
+        DeviceGroupRenderer.ReconcileChildren(_mirrorGrid, tiles);
         // Once sections are present their headers explain pinning. Avoid an empty
         // action row above a front page containing only sections.
         if (!sectionsPinned)

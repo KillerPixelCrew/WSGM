@@ -16,7 +16,7 @@ internal static partial class NativeMethods
     // ---- Low-level keyboard hook (shortcut recording only — see KeyRecorder) ----
     internal const int WhKeyboardLl = 13;
 
-    // ---- Synthetic keyboard input (Steam Big Picture's own Ctrl+1/Ctrl+2 shortcuts) ----
+    // ---- Synthetic keyboard input (Steam's Big Picture shortcuts and the Overlay hotkeys) ----
     internal const uint InputKeyboard = 1;
     internal const uint InputMouse = 0;
     internal const uint MouseEventMove = 0x0001;
@@ -27,7 +27,6 @@ internal static partial class NativeMethods
     internal const short KeyDownState = unchecked((short)0x8000);
 
     internal const uint KeyEventExtendedKey = 0x0001;
-    internal const uint KeyEventScanCode = 0x0008;
 
     /// <summary>MAPVK_VK_TO_VSC: virtual key to scan code.</summary>
     internal const uint MapVkToVsc = 0;
@@ -344,11 +343,8 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll")]
     internal static partial short GetAsyncKeyState(int vKey);
 
-    [LibraryImport("user32.dll", EntryPoint = "MapVirtualKeyExW")]
-    internal static partial uint MapVirtualKeyExW(uint code, uint mapType, nint layout);
-
-    [LibraryImport("user32.dll")]
-    internal static partial nint GetKeyboardLayout(uint threadId);
+    [LibraryImport("user32.dll", EntryPoint = "MapVirtualKeyW")]
+    internal static partial uint MapVirtualKeyW(uint code, uint mapType);
 
     [LibraryImport("user32.dll", SetLastError = true)]
     internal static partial uint SendInput(uint inputCount, [In] InputRecord[] inputs, int inputSize);

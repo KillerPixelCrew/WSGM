@@ -84,6 +84,9 @@ internal enum OverlayPage
     /// <summary>User-configured desktop programs and their shared launch-or-focus actions.</summary>
     Programs,
 
+    /// <summary>Key combinations the Overlay sends to the game in front.</summary>
+    Hotkeys,
+
     /// <summary>Structured game notebooks, ink and screenshot captures.</summary>
     Notes,
 

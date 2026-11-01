@@ -23,7 +23,8 @@ Read docs/overlay-and-input.md, "In-window surfaces", for utility, keyboard, cre
   that owns its controls, handlers and requests; register it in the `SubViews` table rather than adding XAML or
   handlers to the window.
 - Each Quick Access pin source resolves its own ids to a title, availability and control (`QuickAccessPins`,
-  `ProgramsView.ResolvePin`, `DevicePins`). Add a pin kind to its source, not as another id-prefix test in the
+  `ProgramsView.ResolvePin`, `HotkeysView.ResolvePin`, `DevicePins`). A source's own tile is placed in pin order by
+  `QuickAccessPins.PlaceTiles`. Add a pin kind to its source, not as another id-prefix test in the
   window; a pinnable Tools section declares its pin id in its `SubViews` entry.
 - OverlayController owns lifetime and integration sequencing; `OverlayActivation`, `QuickAccessPinStore`,
   `OverlayPowerState`, `OverlayOpenApps` and `OverlaySheetServices` own summon triggers, pins, Windows power state, the
@@ -72,6 +73,8 @@ before rail/home navigation. All four content tools complete their workflows loc
 importer's distinction between staged and immediate artwork. File/folder selection stays inside
 the Overlay. Media initializes only on Play, pauses behind surfaces and releases on leaving the
 page. Headless captures supply explicit session fakes and never start a live media/Steam owner.
+Hotkeys send only through `HotkeysService`, after `RunAfterClose` has closed the sheet and released
+the lease, and only into a game; `Interop/KeyboardInput` is the one key sender.
 A new confirmation uses the centred in-window `ShowConfirm` surface with the safe answer focused
 rather than a navigation level. A keyed card is a bordered panel; tag it by its layout so
 reconciliation keeps its editors without reusing stale grid cells.

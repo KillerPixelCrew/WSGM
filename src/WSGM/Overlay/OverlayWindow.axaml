@@ -196,6 +196,7 @@
             <ov:CardManagerView x:Name="CardManagerHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:GameLibraryView x:Name="GameLibraryHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:ProgramsView x:Name="ProgramsHost" IsVisible="False" HorizontalAlignment="Stretch" />
+            <ov:HotkeysView x:Name="HotkeysHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:NotesView x:Name="NotesHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:BrowserView x:Name="BrowserHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:ScreensaversView x:Name="ScreensaversHost" IsVisible="False" HorizontalAlignment="Stretch" />

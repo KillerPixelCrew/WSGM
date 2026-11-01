@@ -57,6 +57,10 @@ nullable enum can become null. Wrong structural shapes and oversized unparseable
 not turned into invented preferences. `AppConfigRules.Normalize` then enforces the application's
 value rules and reports diagnostics.
 
+For example, `Hotkeys`, the key combinations the Overlay sends to the game in front, drops key codes
+Windows cannot send and every entry left without a key, gives a missing or repeated id a new one and
+clamps the press delay to 0 to 5000 ms, Handheld Companion's range.
+
 The current schema is `AppConfig.CurrentSchemaVersion` (1). Migration from schema 0 changes an
 editor-authored display layout's old rotation value 1 to 0, meaning keep the current rotation. A
 pending desktop-return capture keeps its exact rotation. Migration changes the in-memory document;
@@ -97,6 +101,10 @@ document, save, promote the assets, repair saved references if promotion failed,
 projection within the established scope. Post-save machine/integration work runs outside that lock.
 A reported failure may therefore follow a completed configuration write; it is not evidence that no
 part of the save happened.
+
+The merge copies only the fields Settings edits. Runtime-owned lists, such as `QuickAccessPins`,
+`Programs` and `Hotkeys`, keep the fresh document's value, so a save never reverts what the Overlay
+wrote while the window was open.
 
 ## The service projection
 

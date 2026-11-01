@@ -11,7 +11,7 @@ using WSGM.Overlay;
 namespace WSGM.Shell;
 
 /// <summary>
-///     The overlay's session-lifetime tools: Programs, Notes with its Steam capture, the screensavers
+///     The overlay's session-lifetime tools: Programs, Hotkeys, Notes with its Steam capture, the screensavers
 ///     and the Browser with the running game's title it offers.
 /// </summary>
 /// <param name="state">The session's live state.</param>
@@ -30,6 +30,9 @@ internal sealed class OverlayTools(
     /// <summary>The overlay's Programs page.</summary>
     internal ProgramsService? Programs { get; private set; }
 
+    /// <summary>The overlay's Hotkeys page and pins.</summary>
+    internal HotkeysService? Hotkeys { get; private set; }
+
     /// <summary>The overlay's Notes.</summary>
     internal NotesService? Notes { get; private set; }
 
@@ -43,14 +46,15 @@ internal sealed class OverlayTools(
     internal Task BrowserShutdownCompletion => Browser?.ShutdownCompletion ?? Task.CompletedTask;
 
     /// <summary>
-    ///     Deletes media previews a crash left behind, then creates Programs, the Browser, the screensavers
-    ///     and Notes. No sheet exists yet, so no preview is in use.
+    ///     Deletes media previews a crash left behind, then creates Programs, Hotkeys, the Browser, the
+    ///     screensavers and Notes. No sheet exists yet, so no preview is in use.
     /// </summary>
     internal void Start()
     {
         // A crash can leave media preview files behind. No sheet exists yet, so none is in use.
         OverlayMediaPreview.DeleteStaleFiles(state.Store.Context.Root);
         Programs ??= new ProgramsService(state.Store, state.Config);
+        Hotkeys ??= new HotkeysService(state.Store, state.Config);
         ShellSession.TryStart("browser", StartBrowser);
         Screensavers ??= new ScreensaverService(state.Store.Context, () => state.Config.Screensavers,
             change => state.Config.Screensavers =

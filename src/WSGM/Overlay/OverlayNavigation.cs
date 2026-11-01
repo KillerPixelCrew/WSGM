@@ -225,7 +225,7 @@ internal sealed class OverlayNavigation
                 or OverlayPage.SystemPlugins or OverlayPage.SystemThemes or OverlayPage.SystemArtwork
                 or OverlayPage.SteamGameLibrary or OverlayPage.SystemAnimations
                 or OverlayPage.EmulatorManager
-                or OverlayPage.Programs
+                or OverlayPage.Programs or OverlayPage.Hotkeys
                 or OverlayPage.Notes or OverlayPage.SystemBrowser or OverlayPage.Screensavers
                 or OverlayPage.SystemSounds
                 or OverlayPage.SystemController

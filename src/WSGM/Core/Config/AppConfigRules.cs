@@ -72,6 +72,7 @@ internal static class AppConfigRules
         config.Gestures ??= new GestureConfig();
         config.QuickAccessPins ??= [];
         config.Programs = ProgramDefinition.Normalize(config.Programs);
+        config.Hotkeys = HotkeyDefinition.Normalize(config.Hotkeys);
         config.ScaledResolutions = (config.ScaledResolutions ?? [])
             .Where(entry => entry is { Valid: true }).Distinct().ToList();
         config.ScaledResolutionBackups = (config.ScaledResolutionBackups ?? [])

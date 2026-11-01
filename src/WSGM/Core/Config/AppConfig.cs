@@ -326,6 +326,12 @@ public sealed class AppConfig
     /// <summary>User-approved Programs entries; their pins use program:{stable id} in QuickAccessPins.</summary>
     public List<ProgramDefinition> Programs { get; set; } = [];
 
+    /// <summary>
+    ///     Key combinations the Overlay sends to the game in front, in display order; their pins use
+    ///     hotkey:{stable id} in QuickAccessPins. Not the Overlay's own shortcut, which is <see cref="Hotkey" />.
+    /// </summary>
+    public List<HotkeyDefinition> Hotkeys { get; set; } = [];
+
     /// <summary>Explicit source sizes added to a physical display's driver list.</summary>
     public List<ScaledResolutionAddition> ScaledResolutions { get; set; } = [];
 
