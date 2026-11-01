@@ -1,6 +1,7 @@
 using SkiaSharp;
 using SteamUiToolkit;
 using WSGM.Shell;
+using WSGM.Testing;
 
 namespace WSGM.UiTests.Fakes;
 
@@ -118,7 +119,7 @@ internal sealed class FakeGameToolsSource(IEnumerable<GameToolsState> states, Ga
     /// <returns>The wait, failing after the shared time limit.</returns>
     internal Task NextCommandAsync()
     {
-        return _sent.WaitAsync(WSGM.Testing.AsyncConditions.TimeLimit).ContinueWith(task =>
+        return _sent.WaitAsync(AsyncConditions.TimeLimit).ContinueWith(task =>
         {
             if (!task.Result)
             {
@@ -188,11 +189,11 @@ internal static class GameToolsFixtures
         Game(Hogwarts, "Hogwarts Legacy", Summary("0.9.4", "modified", "Needs repair",
             "OptiScaler 0.9.4 · 2 files changed outside WSGM", null)),
         Game(Starfield, "Starfield", Summary("10.0.0-pre1", "upToDate", "Up to date",
-            "OptiScaler 10.0.0-pre1 · nightly 31 Oct 2026 as dxgi.dll", null) with
-        {
-            Channel = "nightly", ChannelLabel = "Nightly", DefaultChannel = false,
-            VersionLabel = "10.0.0-pre1 · nightly 31 Oct 2026"
-        })
+                "OptiScaler 10.0.0-pre1 · nightly 31 Oct 2026 as dxgi.dll", null) with
+            {
+                Channel = "nightly", ChannelLabel = "Nightly", DefaultChannel = false,
+                VersionLabel = "10.0.0-pre1 · nightly 31 Oct 2026"
+            })
     ], 3, 1);
 
     /// <summary>Alan Wake 2 with nothing installed.</summary>
@@ -368,10 +369,10 @@ internal static class GameToolsFixtures
                     true, null),
                 new GameToolsSetting("menuScale", "Menu scale",
                     "Size of OptiScaler's in-game menu. About 1.2 suits handheld screens.", "auto", null,
-                [
-                    new GameToolsSettingOption("auto", "Automatic"), new GameToolsSettingOption("1.0", "1.0"),
-                    new GameToolsSettingOption("1.2", "1.2"), new GameToolsSettingOption("1.4", "1.4")
-                ], true, null),
+                    [
+                        new GameToolsSettingOption("auto", "Automatic"), new GameToolsSettingOption("1.0", "1.0"),
+                        new GameToolsSettingOption("1.2", "1.2"), new GameToolsSettingOption("1.4", "1.4")
+                    ], true, null),
                 new GameToolsSetting("hideSplash", "Hide the startup message",
                     "Skips the message OptiScaler shows when the game starts.", "off", null,
                     [new GameToolsSettingOption("off", "Off"), new GameToolsSettingOption("on", "On")], true, null)

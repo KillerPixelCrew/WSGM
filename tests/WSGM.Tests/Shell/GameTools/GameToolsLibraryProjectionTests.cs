@@ -34,6 +34,7 @@ public sealed class GameToolsLibraryProjectionTests
                 Record(8, "Retired tool", Installed(directory.Root, "retired") with { ToolId = "dxvk" })
             ]
         };
+
         HostedRelease? Latest(GameToolDefinition _, GameToolChannel channel)
         {
             return channel.Id == "nightly"

@@ -68,7 +68,9 @@ public sealed partial class GameToolsView
         var placeholder = state.Loading && state.Name == state.AppId.ToString(CultureInfo.InvariantCulture);
         return state.Name.Length > 0 && !placeholder
             ? state.Name
-            : _gameName.Length > 0 ? _gameName : state.Name;
+            : _gameName.Length > 0
+                ? _gameName
+                : state.Name;
     }
 
     private void RenderGame()
@@ -165,9 +167,11 @@ public sealed partial class GameToolsView
         // The cached scan's lists keep their identity between publications; Peek re-projects only the tools.
         return shown with { Busy = null, Tools = Array.Empty<GameToolsTool>() }
                == next with { Busy = null, Tools = Array.Empty<GameToolsTool>() }
-               && (shown.Busy is null ? next.Busy is null : next.Busy is not null
-                                                            && shown.Busy with { Bytes = 0, Total = 0 }
-                                                            == next.Busy with { Bytes = 0, Total = 0 })
+               && (shown.Busy is null
+                   ? next.Busy is null
+                   : next.Busy is not null
+                     && shown.Busy with { Bytes = 0, Total = 0 }
+                     == next.Busy with { Bytes = 0, Total = 0 })
                && shown.Tools.SequenceEqual(next.Tools);
     }
 

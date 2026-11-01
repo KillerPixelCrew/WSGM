@@ -14,7 +14,8 @@ namespace WSGM.Core;
 
 /// <summary>Finds, downloads, verifies and caches tool packages through the shared release adapters.</summary>
 /// <remarks>
-///     Latest-release lookups are cached in memory per tool and channel for the session, because GitHub's anonymous API limit is
+///     Latest-release lookups are cached in memory per tool and channel for the session, because GitHub's anonymous API
+///     limit is
 ///     small: an answer for six hours and a failure for ten minutes. An explicit "Check for updates"
 ///     refreshes. Downloads fail closed: a release without a published SHA-256 is refused. Packages are kept
 ///     extracted under <c>&lt;root&gt;\GameTools\packages\&lt;tool&gt;\&lt;release&gt;</c>, keyed by version, asset,

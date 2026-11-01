@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using LibGPUDriverInteract;
@@ -829,7 +830,7 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
                 (tool, channel) => Releases.Cached(tool, channel)?.Release, appId => roots.GetValueOrDefault(appId));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException
-                                       or System.Text.Json.JsonException)
+                                       or JsonException)
         {
             Log.Warn($"Game Tools: reading the game list failed: {ex.Message}");
             library = new GameToolsLibrary(false, "WSGM couldn't read its Game Tools records: " + ex.Message, [], 0,
@@ -1049,8 +1050,10 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
             var release = answer?.Release;
             return new GameToolsChannel(channel.Id, channel.Label, channel.Description, channel == followed,
                 release?.Version, release is null ? null : channel.Display(release.Version, release.Asset.Name),
-                release is null ? null : channel.BuildDate(release.Asset.Name)?.ToString("yyyy-MM-dd",
-                    CultureInfo.InvariantCulture), answer?.Error, false,
+                release is null
+                    ? null
+                    : channel.BuildDate(release.Asset.Name)?.ToString("yyyy-MM-dd",
+                        CultureInfo.InvariantCulture), answer?.Error, false,
                 GameToolStatus.ChangesConfig(tool, manifest, release));
         }).ToArray();
         var proxies = inspection?.Proxies.Select(proxy =>

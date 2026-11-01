@@ -31,7 +31,8 @@ public sealed class GameToolReleasesTests
         {
             requests.Add(request.RequestUri!.AbsolutePath);
             var nightly = request.RequestUri.AbsolutePath.Contains("OptiScaler-nightly", StringComparison.Ordinal);
-            return Json(nightly ? NightlyReleases.Replace("NIGHTLY", Hash('n'), StringComparison.Ordinal)
+            return Json(nightly
+                ? NightlyReleases.Replace("NIGHTLY", Hash('n'), StringComparison.Ordinal)
                 : StableReleases.Replace("STABLE", Hash('s'), StringComparison.Ordinal));
         });
         using var releases = new GameToolReleases(directory.Root, handler);

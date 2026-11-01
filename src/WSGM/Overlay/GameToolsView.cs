@@ -262,8 +262,8 @@ public sealed partial class GameToolsView : ServiceSubView
             }
 
             rows.Children.Add(Tagged(new OverlayMediaRow(name,
-                string.Join(" · ", game.Tools.Select(tool => tool.Detail)),
-                Capsule(appId, _wide ? 120 : 96, _wide ? 56 : 45), null, chips, () => OpenGame(appId, name)),
+                    string.Join(" · ", game.Tools.Select(tool => tool.Detail)),
+                    Capsule(appId, _wide ? 120 : 96, _wide ? 56 : 45), null, chips, () => OpenGame(appId, name)),
                 "tools:" + appId));
         }
 
@@ -305,7 +305,9 @@ public sealed partial class GameToolsView : ServiceSubView
             var tools = summaries.GetValueOrDefault(game.AppId)?.Tools;
             var detail = tools is { Count: > 0 }
                 ? string.Join(", ", tools.Select(tool => tool.ToolName + " " + tool.Version))
-                : game.Shortcut ? "Non-Steam game · no tools" : "No tools";
+                : game.Shortcut
+                    ? "Non-Steam game · no tools"
+                    : "No tools";
             var card = Tagged(new OverlayMediaRow(game.Name, detail, Capsule(game.AppId, 96, 45), null, [],
                 () => OpenGame(chosen.AppId, chosen.Name)), "game:" + game.AppId);
             card.Margin = new Thickness(0, 0, index % 2 == 0 ? 8 : 0, 8);

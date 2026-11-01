@@ -45,7 +45,7 @@ internal sealed record GameToolChannel
         if (!match.Success || match.Groups["version"].Value.Length == 0)
         {
             throw new InvalidDataException("The published " + Label.ToLowerInvariant()
-                                                             + " package does not name its version.");
+                                                            + " package does not name its version.");
         }
 
         return release with { Version = match.Groups["version"].Value };
