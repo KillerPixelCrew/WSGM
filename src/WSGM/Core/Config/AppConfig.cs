@@ -15,6 +15,9 @@ public sealed class AppConfig
     /// </summary>
     public const string DefaultAccentColor = "#FFFF9D3D";
 
+    /// <summary>The Game Mode / Desktop switch's pin, which Quick access always shows first.</summary>
+    public const string DesktopSwitchPin = "home.desktop";
+
     /// <summary>
     ///     Shape of the stored document. Reading migrates an older file in memory and a newer one loads best
     ///     effort; both hold <see cref="CurrentSchemaVersion" /> afterwards, so the next save writes it.
@@ -314,10 +317,11 @@ public sealed class AppConfig
     ///     (a row's <c>Tag</c>: <c>home.steam</c>, <c>system.keep-awake</c>, a device
     ///     capability key, …) in display order. An id the running build cannot resolve
     ///     is kept (a device plugin's row survives the device being unplugged) but not
-    ///     rendered. A new configuration starts with the Game Mode / Desktop switch pinned
-    ///     (<c>home.desktop</c>, labelled "Return to Desktop" or "Back to Game Mode").
+    ///     rendered. The Game Mode / Desktop switch (<see cref="DesktopSwitchPin" />, labelled
+    ///     "Return to Desktop" or "Back to Game Mode") is always pinned: normalization restores it
+    ///     and it cannot be unpinned.
     /// </summary>
-    public List<string> QuickAccessPins { get; set; } = ["home.desktop"];
+    public List<string> QuickAccessPins { get; set; } = [DesktopSwitchPin];
 
     /// <summary>User-approved Programs entries; their pins use program:{stable id} in QuickAccessPins.</summary>
     public List<ProgramDefinition> Programs { get; set; } = [];

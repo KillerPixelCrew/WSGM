@@ -91,7 +91,8 @@ stores stable action and section IDs. A pinned action invokes the same handler a
 Device group such as Fans or Charging has one Pin section action in its heading; X, right-click and
 touch hold inside a group target that group, including its nested editors. Pinned controls use the
 source renderer and keep active drafts through a value refresh. An unavailable section stays
-removable.
+removable. The Game Mode / Desktop switch (`home.desktop`) is always pinned first: configuration
+normalization restores it and a toggle never removes it.
 
 Open apps and tray icons share the bottom rail. `AppSwitcherViewModel` reconciles window chips in
 place, so a refresh does not replace the focused chip. Y cycles to the next window; X on a tray icon

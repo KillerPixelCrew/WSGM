@@ -1186,19 +1186,31 @@ public sealed class ConfigurationTests
 
         AppConfigRules.Normalize(config);
 
-        Assert.Equal(["system.keep-awake", "home.steam"], config.QuickAccessPins);
+        Assert.Equal([AppConfig.DesktopSwitchPin, "system.keep-awake", "home.steam"], config.QuickAccessPins);
     }
 
     [Fact]
-    public void NormalizeRepairsANullPinList()
+    public void NormalizeRepairsANullPinListWithTheDesktopSwitch()
     {
-        Assert.Equal(["home.desktop"], new AppConfig().QuickAccessPins);
+        Assert.Equal([AppConfig.DesktopSwitchPin], new AppConfig().QuickAccessPins);
         var config = new AppConfig { QuickAccessPins = null! };
 
         AppConfigRules.Normalize(config);
 
-        Assert.NotNull(config.QuickAccessPins);
-        Assert.Empty(config.QuickAccessPins);
+        Assert.Equal([AppConfig.DesktopSwitchPin], config.QuickAccessPins);
+    }
+
+    [Fact]
+    public void NormalizeRestoresAnUnpinnedDesktopSwitchFirst()
+    {
+        var emptied = new AppConfig { QuickAccessPins = [] };
+        var moved = new AppConfig { QuickAccessPins = ["home.steam", AppConfig.DesktopSwitchPin] };
+
+        AppConfigRules.Normalize(emptied);
+        AppConfigRules.Normalize(moved);
+
+        Assert.Equal([AppConfig.DesktopSwitchPin], emptied.QuickAccessPins);
+        Assert.Equal([AppConfig.DesktopSwitchPin, "home.steam"], moved.QuickAccessPins);
     }
 
     [Fact]

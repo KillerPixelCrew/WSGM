@@ -79,10 +79,13 @@ internal static class AppConfigRules
             .DistinctBy(entry => (entry.AdapterIdentity, entry.OutputSpecific, entry.DisplayPath, entry.EdidIdentity))
             .ToList();
         config.PluginWidgetPins = PluginWidgetPins.Normalize(config.PluginWidgetPins);
+        // The Game Mode / Desktop switch is always pinned, first; a list saved without it gets it back.
         config.QuickAccessPins =
         [
+            AppConfig.DesktopSwitchPin,
             .. config.QuickAccessPins
-                .Where(static id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal)
+                .Where(static id => !string.IsNullOrWhiteSpace(id) && id != AppConfig.DesktopSwitchPin)
+                .Distinct(StringComparer.Ordinal)
         ];
         config.SavedDisplayScaleEntries ??= [];
         config.GameModeLaunch ??= new GameModeLaunchConfiguration();

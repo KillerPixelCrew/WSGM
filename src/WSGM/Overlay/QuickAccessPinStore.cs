@@ -50,12 +50,17 @@ internal sealed class QuickAccessPinStore
         }
     }
 
-    /// <summary>Pins an unpinned id or unpins a pinned one.</summary>
+    /// <summary>Pins an unpinned id or unpins a pinned one; the Game Mode / Desktop switch stays pinned.</summary>
     /// <param name="id">Stable section or capability pin ID.</param>
     /// <returns>The new list, which <see cref="Save" /> then stores.</returns>
     internal List<string> Toggle(string id)
     {
         List<string> pins = [.. Ids];
+        if (id == AppConfig.DesktopSwitchPin)
+        {
+            return pins;
+        }
+
         if (!pins.Remove(id))
         {
             pins.Add(id);

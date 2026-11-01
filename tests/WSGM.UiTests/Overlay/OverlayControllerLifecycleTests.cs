@@ -37,7 +37,7 @@ public sealed class OverlayControllerLifecycleTests
         {
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             controller.OnPinToggleRequested("home.steam");
-            controller.OnPinToggleRequested("home.desktop");
+            controller.OnPinToggleRequested("system.keep-awake");
             Assert.False(controller.Pins.Writes.IsCompleted);
             // The watcher can still publish the first save while the second is queued.
             controller.ApplyConfig(new AppConfig { QuickAccessPins = ["home.steam"] });
@@ -51,7 +51,7 @@ public sealed class OverlayControllerLifecycleTests
             await controller.Pins.Writes.WaitAsync(TimeSpan.FromSeconds(5));
         }
 
-        Assert.Equal(["home.steam", "home.desktop", "system.standby"],
+        Assert.Equal([AppConfig.DesktopSwitchPin, "home.steam", "system.keep-awake", "system.standby"],
             fixture.Store.Read().RequireConfig().QuickAccessPins);
         Assert.Empty(config.QuickAccessPins);
     }
@@ -74,9 +74,28 @@ public sealed class OverlayControllerLifecycleTests
         using var controller = new OverlayController(config, fixture.Store, blocker, null,
             new SessionModes(config, null), audio, radios, drives, previewOnly: true);
         controller.OnPinToggleRequested("home.steam");
-        controller.OnPinToggleRequested("home.desktop");
+        controller.OnPinToggleRequested("system.keep-awake");
         await controller.Pins.Writes;
-        Assert.Equal(["home.steam"], config.QuickAccessPins);
-        Assert.Equal(["home.steam"], fixture.Store.Read().RequireConfig().QuickAccessPins);
+        Assert.Equal([AppConfig.DesktopSwitchPin, "home.steam"], config.QuickAccessPins);
+        Assert.Equal([AppConfig.DesktopSwitchPin, "home.steam"], fixture.Store.Read().RequireConfig().QuickAccessPins);
+    }
+
+    [AvaloniaFact]
+    public void TheDesktopSwitchCannotBeUnpinned()
+    {
+        using var fixture = new UiFixture();
+        fixture.Store.Update(_ => true);
+        var config = fixture.Store.Read().RequireConfig();
+        using var audio = new AudioManager();
+        using var radios = new RadioManager();
+        using var drives = new RemovableDriveManager();
+        var blocker = new SteamInputBlocker(new SteamInputShim(),
+            () => throw new InvalidOperationException("Pin toggles must not acquire Steam Input."));
+        using var controller = new OverlayController(config, fixture.Store, blocker, null,
+            new SessionModes(config, null), audio, radios, drives, previewOnly: true);
+
+        controller.OnPinToggleRequested(AppConfig.DesktopSwitchPin);
+
+        Assert.Equal([AppConfig.DesktopSwitchPin], controller.Pins.Ids);
     }
 }
