@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Interop;
@@ -13,6 +14,12 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
     private const string FrameLimitProperty = "FramerateLimit";
 
     private const string OverlayEnabledProperty = "EnableOSD";
+
+    // RTSS's NVIDIA Reflex injection: its Reflex frame limiter and the latency markers it adds to games.
+    // Both break OptiScaler's own Reflex and frame generation handling, so WSGM keeps them off globally.
+    // The profile API does not expose them (RTSSHooks64 knows only a few properties such as FramerateLimit),
+    // so they are edited in the global profile file, which RTSS reloads on UpdateProfiles.
+    private static readonly string[] ReflexInjectionKeys = ["ReflexSleep", "ReflexSetLatencyMarker"];
 
     // Levels 1..3 are presets and 4 is Custom. Level 0 clears only WSGM's slot:
     // setting RTSS EnableOSD=0 would also disable other applications' OSD feeders.
@@ -353,6 +360,49 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         var library = Path.Combine(directory, RtssDiscovery.ProfileApiName);
         _api = new RtssProfileApi(library);
         _generation = probe.Generation;
+        DisableReflexInjection(_api, Path.Combine(directory, "Profiles", "Global"));
+    }
+
+    // Once per RTSS process: switches Reflex injection off in the global profile. A refusal is logged and
+    // never retried, and never stops the frame limit or overlay.
+    private static void DisableReflexInjection(RtssProfileApi api, string globalProfile)
+    {
+        try
+        {
+            var (present, changed) = SwitchOffReflexInjection(globalProfile);
+            if (changed.Count > 0)
+            {
+                api.UpdateProfiles();
+            }
+
+            Log.Change("rtss.reflex-injection", changed.Count == 0
+                ? $"RTSS Reflex injection is off in the global profile ({present} of {ReflexInjectionKeys.Length} keys present)."
+                : $"RTSS Reflex injection switched off in the global profile: {string.Join(", ", changed)}.");
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Warn($"RTSS Reflex injection could not be switched off: {ex.Message}");
+        }
+    }
+
+    /// <summary>Sets RTSS's Reflex injection keys in a profile file to 0, changing only keys that exist.</summary>
+    /// <param name="profile">The RTSS profile file, such as <c>Profiles\Global</c>.</param>
+    /// <returns>How many of the keys exist, and the keys that were not 0 and now are.</returns>
+    internal static (int Present, IReadOnlyList<string> Changed) SwitchOffReflexInjection(string profile)
+    {
+        var current = GameToolIni.Read(profile, ReflexInjectionKeys.Select(key => ("Framerate", key)));
+        GameToolIniEdit[] edits =
+        [
+            .. ReflexInjectionKeys
+                .Where(key => current.TryGetValue(GameToolIni.Id("Framerate", key), out var value) && value != "0")
+                .Select(key => new GameToolIniEdit("Framerate", key, "0"))
+        ];
+        if (edits.Length > 0)
+        {
+            GameToolIni.Apply(profile, edits);
+        }
+
+        return (current.Count, [.. edits.Select(edit => edit.Key)]);
     }
 
     private void ReleaseApi()
