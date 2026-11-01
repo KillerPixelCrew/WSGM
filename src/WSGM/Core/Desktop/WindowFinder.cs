@@ -292,7 +292,7 @@ public static class WindowFinder
     ///     Focuses a window while another process holds the foreground and this one has no
     ///     right to take it, by sharing the foreground thread's input state for the call.
     /// </summary>
-    /// <param name="hWnd">Borrowed target window handle; the caller has excluded minimized windows.</param>
+    /// <param name="hWnd">Borrowed target window handle. A minimized window is restored first.</param>
     /// <returns>Whether the window is now the foreground window.</returns>
     /// <remarks>
     ///     Windows refuses <c>SetForegroundWindow</c> from a background process, and in Game Mode
@@ -302,6 +302,13 @@ public static class WindowFinder
     /// </remarks>
     public static bool ForceForeground(nint hWnd)
     {
+        // An exclusive-fullscreen game minimizes while the Overlay holds focus. SW_RESTORE on a
+        // maximized window would drop it to normal size, so only a minimized one is restored.
+        if (NativeMethods.IsIconic(hWnd))
+        {
+            NativeMethods.ShowWindow(hWnd, NativeMethods.SwRestore);
+        }
+
         var foreground = NativeMethods.GetForegroundWindow();
         var foregroundThread = foreground == 0 ? 0 : NativeMethods.GetWindowThreadProcessId(foreground, out _);
         var currentThread = NativeMethods.GetCurrentThreadId();

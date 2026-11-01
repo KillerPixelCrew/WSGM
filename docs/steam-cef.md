@@ -101,6 +101,23 @@ records that manual result only: no independent rendering capture, keyboard/cont
 isolation of the repairing step was performed, and broader game compatibility remains unverified. No
 DLL reinjection was needed in this reported scenario.
 
+### One path raises games, 2026-11-01
+
+A Reddit report from an Acer Atlas showed the same symptom in LEGO Batman: Legacy of the Dark
+Knight: Quick Access and the main menu were audible but never appeared over the game. Big Picture
+draws its in-game menus in the game's overlay window only while Steam considers that game focused,
+and otherwise opens them in its own main window, which sits behind the game. A plain Windows focus
+call does not change Steam's view.
+
+Two paths still brought a game forward with Windows calls alone: launched-window focus, which raises
+a window that opened behind Big Picture, and the Overlay's close refocus. Both now go through
+`Shell\Desktop\GameWindowReturn`, the switcher's return: Steam's `RaiseWindowForGame` for the
+window's process, then `WindowFinder.ForceForeground` on the exact HWND. Both steps always run. A
+desktop app or non-Steam window has no overlay to raise, and a game's overlay may not exist yet one
+second after its window appears, so Steam's raise finds nothing and the exact-window focus still
+brings the window forward as before. With CEF off only the focus runs. This was built and tested
+offline; it has not yet been confirmed with the reported game.
+
 ## September 2026 client beta audit, 2026-09-11
 
 The Steam Client Beta of 2026-09-09 renumbered the webpack registry. On the first start with it

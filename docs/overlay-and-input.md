@@ -535,10 +535,15 @@ force foreground focus.
 
 On close the sheet refocuses the window that was foreground when it opened (`_restoreFocusTo`,
 captured in `ShowOverlay`), because an exclusive-fullscreen game sits minimized after the sheet took
-focus. The refocus fires only in game mode (no Explorer in the session) and only when no overlay
-action redirected focus. Every focus-redirecting action sets `_suppressFocusRestore`: Next-app
-cycling via `PickWindow`, picking an Open apps chip, activating a tray icon. That suppression is
-load-bearing, because the app the user just chose has to stay foreground.
+focus. The refocus goes through the same `GameWindowReturn` as an Open apps pick, so Steam treats
+the game as focused again and opens Quick Access over it rather than behind it; a desktop window has
+no overlay to raise and is only focused. `GameWindowReturn` is the one way WSGM brings a game window
+forward: launched-window focus uses it too. Reopening the sheet or shutting down cancels a refocus
+still waiting on Steam. The refocus fires only in game mode (no Explorer in the session) and only
+when no overlay action redirected focus. Every focus-redirecting action sets
+`_suppressFocusRestore`: Next-app cycling via `PickWindow`, picking an Open apps chip, activating a
+tray icon. That suppression is load-bearing, because the app the user just chose has to stay
+foreground.
 
 A close that is cancelled because the sheet is re-shown inside the 150 ms deferral must clear both
 fields. A latched suppression would silently disable the refocus for the rest of that sheet's life,

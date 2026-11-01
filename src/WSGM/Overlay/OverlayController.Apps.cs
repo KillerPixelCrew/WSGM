@@ -57,6 +57,33 @@ public sealed partial class OverlayController
     }
 
     /// <summary>
+    ///     Returns the window the sheet opened over to the front through the shared game return, so Steam
+    ///     treats the game as focused again and opens its menus over it.
+    /// </summary>
+    /// <param name="gameReturn">The session's game-window return.</param>
+    /// <param name="window">The window that was foreground when the sheet opened.</param>
+    /// <returns>Completion of the logged attempt; a reopened sheet or shutdown ends it before the focus.</returns>
+    internal async Task RestoreFocusAsync(GameWindowReturn gameReturn, nint window)
+    {
+        using var cancellation = new CancellationTokenSource();
+        _focusRestoreCancellation = cancellation;
+        try
+        {
+            await gameReturn.ReturnAsync(window, cancellation.Token);
+        }
+        catch (OperationCanceledException)
+        {
+        } // The sheet reopened or the session is shutting down.
+        finally
+        {
+            if (ReferenceEquals(_focusRestoreCancellation, cancellation))
+            {
+                _focusRestoreCancellation = null;
+            }
+        }
+    }
+
+    /// <summary>
     ///     Closes the sheet and runs an activation once the window has closed and the input lease is
     ///     released, by default without restoring focus to the window the sheet came from.
     /// </summary>

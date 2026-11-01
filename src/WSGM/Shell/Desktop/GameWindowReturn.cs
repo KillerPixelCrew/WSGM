@@ -6,7 +6,18 @@ using WSGM.Interop;
 
 namespace WSGM.Shell;
 
-/// <summary>Returns to a selected HWND after the switcher has released its surface and input.</summary>
+/// <summary>
+///     The one way WSGM brings a game window forward: Steam's raise for the window's process, then
+///     focus of the exact HWND. The Open apps switcher, the Overlay's close refocus and launched-window
+///     focus all return through it.
+/// </summary>
+/// <remarks>
+///     Big Picture draws its in-game menus in the game's overlay window only while Steam considers
+///     that game focused, and otherwise in its own main window behind the game. A plain Windows focus
+///     call leaves Steam's view unchanged, so Quick Access is audible but hidden. Steam's raise
+///     updates it. Call it on the UI thread: the focus step runs on the caller's context and its input
+///     attachment needs a message queue.
+/// </remarks>
 /// <param name="raiseSteamGame">
 ///     Requests Steam activation for the selected process; true reports call completion, not
 ///     overlay recovery.
@@ -28,22 +39,31 @@ internal sealed class GameWindowReturn(
     /// <param name="raiseSteamGame">Borrowed Steam activation operation.</param>
     /// <param name="lifetime">Owning session cancellation.</param>
     internal GameWindowReturn(Func<uint, CancellationToken, Task<bool>> raiseSteamGame, CancellationToken lifetime)
-        : this(raiseSteamGame, ReadProcessId, IsConsole, Focus, Log.Info, lifetime)
+        : this(raiseSteamGame, ReadProcessId, IsConsole, WindowFinder.ForceForeground, Log.Info, lifetime)
     {
     }
 
+    /// <summary>Returns to a window owned by whichever process owns it now.</summary>
+    /// <param name="hwnd">Exact window to bring forward.</param>
+    /// <param name="cancellationToken">Cancels waiting or prevents the later focus attempt.</param>
+    /// <returns>Whether the window became foreground; false when it no longer exists.</returns>
+    internal Task<bool> ReturnAsync(nint hwnd, CancellationToken cancellationToken)
+    {
+        return ReturnAsync(hwnd, hwnd == 0 ? 0 : readProcessId(hwnd), cancellationToken);
+    }
+
     /// <summary>Revalidates window ownership around Steam activation, then focuses the selected HWND.</summary>
-    /// <param name="hwnd">Exact window chosen by the switcher.</param>
-    /// <param name="processId">Process identity captured with the selection.</param>
+    /// <param name="hwnd">Exact window to bring forward.</param>
+    /// <param name="processId">Process identity captured with the window.</param>
     /// <param name="cancellationToken">
     ///     Cancels waiting or prevents the later focus attempt; an accepted activation may already
     ///     have taken effect.
     /// </param>
     /// <returns>
-    ///     Completion of the attempt, including a no-op for a stale selection. Outcomes are logged; Steam overlay
-    ///     recovery is not verified.
+    ///     Whether the exact window became foreground; false for a stale selection or a refused focus. Outcomes are
+    ///     logged; Steam overlay recovery is not verified.
     /// </returns>
-    internal async Task ReturnAsync(nint hwnd, uint processId, CancellationToken cancellationToken)
+    internal async Task<bool> ReturnAsync(nint hwnd, uint processId, CancellationToken cancellationToken)
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lifetime);
         cancellationToken = linked.Token;
@@ -51,7 +71,7 @@ internal sealed class GameWindowReturn(
         if (hwnd == 0 || processId == 0 || readProcessId(hwnd) != processId)
         {
             log("Game return: selected window no longer belongs to the selected process.");
-            return;
+            return false;
         }
 
         var steamCompleted = false;
@@ -78,12 +98,19 @@ internal sealed class GameWindowReturn(
         if (readProcessId(hwnd) != processId)
         {
             log("Game return: selected window disappeared or changed owner during Steam activation.");
-            return;
+            return false;
         }
 
+        // Both steps always run, in this order. Steam's raise makes Steam treat the game as focused, so
+        // Big Picture opens its menus over the game. It raises nothing for a window without a Steam
+        // overlay: a desktop app, a non-Steam window, or a game whose overlay is not ready yet, such as
+        // one second after its window appears. Even when it completes it does not prove which window
+        // Windows put in front, and Steam may pick a mod loader's console. The exact-window focus
+        // therefore follows either way, as it did before Steam's raise existed.
         var foreground = focus(hwnd);
         log($"Game return: pid={processId}, hwnd=0x{hwnd:X}, Steam call completed={steamCompleted}, "
             + $"foreground verified={foreground}. Overlay recovery remains unverified.");
+        return foreground;
     }
 
     private static uint ReadProcessId(nint hwnd)
@@ -103,11 +130,5 @@ internal sealed class GameWindowReturn(
         var length = NativeMethods.RealGetWindowClassW(hwnd, buffer, (uint)buffer.Length);
         string name = new(buffer, 0, (int)length);
         return name is "ConsoleWindowClass" or "CASCADIA_HOSTING_WINDOW_CLASS";
-    }
-
-    private static bool Focus(nint hwnd)
-    {
-        WindowFinder.BringToForeground(hwnd);
-        return NativeMethods.GetForegroundWindow() == hwnd;
     }
 }

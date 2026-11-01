@@ -1,3 +1,5 @@
+using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using WSGM.Core;
@@ -9,20 +11,22 @@ namespace WSGM.Shell;
 ///     The session's Windows-facing services, built and disposed on the UI thread: audio and radios
 ///     for Steam's surfaces and the sheet's pills, the keep-awake and screen-off mute, brightness, the
 ///     Modern Standby guard, the controller display wake, the update monitor, the Game Mode volume
-///     buttons and launched-window focus, and the guide chord mirror that follows the managed controller.
+///     buttons and launched-window focus, the shared game-window return, and the guide chord mirror that
+///     follows the managed controller.
 /// </summary>
 /// <param name="state">The session's live state.</param>
-internal sealed class SystemServices(SessionState state)
+/// <param name="raiseSteamGame">Steam's raise for a game process, which the game-window return borrows.</param>
+internal sealed class SystemServices(SessionState state, Func<uint, CancellationToken, Task<bool>> raiseSteamGame)
 {
     private ControllerManager? _controllerStatusSource;
     private ControllerDisplayWake? _controllerWake;
-    private PowerButtonWakeSignals? _powerButtonWake;
 
     // Field-rooted for the session lifetime: it owns a native power-setting
     // registration and the "did WSGM mute this?" flag.
     private DisplayOffMuteService? _displayMute;
 
     private LaunchedWindowFocus? _launchedWindows;
+    private PowerButtonWakeSignals? _powerButtonWake;
     private ModernStandbyGuard? _standbyGuard;
     private UpdateMonitor? _updates;
     private VolumeButtonService? _volumeButtons;
@@ -37,6 +41,12 @@ internal sealed class SystemServices(SessionState state)
     ///     disagree with the sheet about which device is default.
     /// </remarks>
     internal AudioManager? Audio { get; private set; }
+
+    /// <summary>
+    ///     The one path that brings a game window forward, shared by the Overlay's switcher and close refocus and
+    ///     by launched-window focus.
+    /// </summary>
+    internal GameWindowReturn GameReturn { get; } = new(raiseSteamGame, state.ShutdownToken);
 
     /// <summary>Serializes profile and live advanced-format writes against the session audio manager.</summary>
     internal AudioProfileService? AudioProfiles { get; private set; }
@@ -163,7 +173,8 @@ internal sealed class SystemServices(SessionState state)
         ShellSession.TryStart("volume buttons", () => _volumeButtons = new VolumeButtonService(messageWindow, Audio!));
         ShellSession.TryStart("launched window focus", () => _launchedWindows = new LaunchedWindowFocus(messageWindow,
             () => performance.RunningApplications?.Current is { } target
-                  && (target.SteamAppId is not null || target.State == RunningApplicationTargetState.Ambiguous)));
+                  && (target.SteamAppId is not null || target.State == RunningApplicationTargetState.Ambiguous),
+            GameReturn));
         // Reads the flag on every look rather than capturing it, so a runtime config reload takes
         // effect without the guard being rebuilt; the config is replaced wholesale on reload.
         ShellSession.TryStart("modern standby guard", () =>

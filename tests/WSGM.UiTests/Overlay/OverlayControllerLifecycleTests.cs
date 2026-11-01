@@ -98,4 +98,56 @@ public sealed class OverlayControllerLifecycleTests
 
         Assert.Equal([AppConfig.DesktopSwitchPin], controller.Pins.Ids);
     }
+
+    [AvaloniaFact]
+    public async Task CloseRefocusAsksSteamToRaiseTheGameBeforeFocusingIt()
+    {
+        using var fixture = new UiFixture();
+        fixture.Store.Update(_ => true);
+        var config = fixture.Store.Read().RequireConfig();
+        using var audio = new AudioManager();
+        using var radios = new RadioManager();
+        using var drives = new RemovableDriveManager();
+        var blocker = new SteamInputBlocker(new SteamInputShim(),
+            () => throw new InvalidOperationException("A close refocus must not acquire Steam Input."));
+        using var controller = new OverlayController(config, fixture.Store, blocker, null,
+            new SessionModes(config, null), audio, radios, drives, previewOnly: true);
+        List<string> steps = [];
+        var gameReturn = new GameWindowReturn((pid, _) =>
+        {
+            steps.Add($"raise {pid}");
+            return Task.FromResult(true);
+        }, _ => 42, _ => false, hwnd =>
+        {
+            steps.Add($"focus {hwnd}");
+            return true;
+        }, _ => { });
+
+        await controller.RestoreFocusAsync(gameReturn, 30);
+
+        Assert.Equal(["raise 42", "focus 30"], steps);
+    }
+
+    [AvaloniaFact]
+    public async Task DisposingDuringSteamRaiseCancelsTheCloseRefocus()
+    {
+        using var fixture = new UiFixture();
+        fixture.Store.Update(_ => true);
+        var config = fixture.Store.Read().RequireConfig();
+        using var audio = new AudioManager();
+        using var radios = new RadioManager();
+        using var drives = new RemovableDriveManager();
+        var blocker = new SteamInputBlocker(new SteamInputShim(),
+            () => throw new InvalidOperationException("A close refocus must not acquire Steam Input."));
+        using var controller = new OverlayController(config, fixture.Store, blocker, null,
+            new SessionModes(config, null), audio, radios, drives, previewOnly: true);
+        TaskCompletionSource<bool> steam = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var gameReturn = new GameWindowReturn((_, token) => steam.Task.WaitAsync(token), _ => 42, _ => false,
+            _ => throw new InvalidOperationException("A cancelled refocus must not focus."), _ => { });
+
+        var refocus = controller.RestoreFocusAsync(gameReturn, 30);
+        controller.Dispose();
+        await refocus.WaitAsync(TimeSpan.FromSeconds(5));
+        steam.SetResult(true);
+    }
 }

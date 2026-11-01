@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Interop;
@@ -24,12 +25,17 @@ namespace WSGM.Shell;
 ///         attempted once: a refused attempt makes Windows flash the window, and that flash must not
 ///         start another attempt.
 ///     </para>
+///     <para>
+///         The raise goes through <see cref="GameWindowReturn" />, so Steam treats a launched game as
+///         focused and Big Picture opens its menus over it rather than behind it.
+///     </para>
 /// </remarks>
 internal sealed class LaunchedWindowFocus : IDisposable
 {
     /// <summary>Lets a new window finish appearing and take focus on its own first.</summary>
     private static readonly TimeSpan SettleDelay = TimeSpan.FromSeconds(1);
 
+    private readonly GameWindowReturn _gameReturn;
     private readonly Func<bool> _steamAppRunning;
     private readonly MessageWindow _window;
     private bool _active;
@@ -39,10 +45,12 @@ internal sealed class LaunchedWindowFocus : IDisposable
     /// <summary>Creates the inactive handler on the Avalonia UI thread.</summary>
     /// <param name="window">The process message window carrying the Game Mode shell hook.</param>
     /// <param name="steamAppRunning">Whether Steam currently reports at least one running app.</param>
-    internal LaunchedWindowFocus(MessageWindow window, Func<bool> steamAppRunning)
+    /// <param name="gameReturn">The session's shared path that brings a game window forward.</param>
+    internal LaunchedWindowFocus(MessageWindow window, Func<bool> steamAppRunning, GameWindowReturn gameReturn)
     {
         _window = window;
         _steamAppRunning = steamAppRunning;
+        _gameReturn = gameReturn;
         _window.ShellHookReceived += OnShellHook;
     }
 
@@ -109,7 +117,7 @@ internal sealed class LaunchedWindowFocus : IDisposable
         try
         {
             // The continuation returns to the UI thread, whose message queue the input
-            // attachment in ForceForeground needs.
+            // attachment in the game return's focus step needs.
             await Task.Delay(SettleDelay);
             if (_disposed || !_active || window == _lastAttempt)
             {
@@ -154,15 +162,31 @@ internal sealed class LaunchedWindowFocus : IDisposable
             }
 
             _lastAttempt = window;
-            var raised = WindowFinder.ForceForeground(window);
-            Log.Info($"Launched window: {Describe(window, processId)} opened behind "
-                     + $"{(foreground == 0 ? "no foreground window" : "Big Picture")}; "
-                     + $"raised, foreground verified={raised}.");
+            await RaiseAsync(_gameReturn, window, processId, foreground);
         }
+        catch (OperationCanceledException)
+        {
+        } // Session shutdown ends the raise.
         catch (Exception ex)
         {
             Log.Warn($"Launched window focus failed: {ex.Message}");
         }
+    }
+
+    /// <summary>Raises a window that passed the checks through the shared game return and logs the result.</summary>
+    /// <param name="gameReturn">The session's game-window return.</param>
+    /// <param name="window">The launched window.</param>
+    /// <param name="processId">Its owning process.</param>
+    /// <param name="foreground">The foreground window it opened behind, or zero.</param>
+    /// <returns>Whether the window became foreground.</returns>
+    internal static async Task<bool> RaiseAsync(GameWindowReturn gameReturn, nint window, uint processId,
+        nint foreground)
+    {
+        var raised = await gameReturn.ReturnAsync(window, processId, CancellationToken.None);
+        Log.Info($"Launched window: {Describe(window, processId)} opened behind "
+                 + $"{(foreground == 0 ? "no foreground window" : "Big Picture")}; "
+                 + $"raised, foreground verified={raised}.");
+        return raised;
     }
 
     private static string Describe(nint window, uint processId)

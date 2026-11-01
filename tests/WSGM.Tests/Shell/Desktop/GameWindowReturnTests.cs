@@ -26,7 +26,7 @@ public sealed class GameWindowReturnTests
         var work = subject.ReturnAsync(30, 42, CancellationToken.None);
         Assert.Equal(20, foreground);
         steam.SetResult(true);
-        await work;
+        Assert.True(await work);
         Assert.Equal(30, foreground);
         Assert.Contains(log, line => line.Contains("foreground verified=True", StringComparison.Ordinal));
     }
@@ -45,7 +45,7 @@ public sealed class GameWindowReturnTests
                 focused = hwnd;
                 return true;
             }, _ => { });
-        await subject.ReturnAsync(30, 42, CancellationToken.None);
+        Assert.True(await subject.ReturnAsync(30, 42, CancellationToken.None));
         Assert.Equal(30, focused);
     }
 
@@ -82,7 +82,7 @@ public sealed class GameWindowReturnTests
             owner = 99;
             return Task.FromResult(true);
         }, _ => owner, _ => false, _ => throw new InvalidOperationException("Must not focus"), _ => { });
-        await subject.ReturnAsync(30, 42, CancellationToken.None);
+        Assert.False(await subject.ReturnAsync(30, 42, CancellationToken.None));
         Assert.Equal(replacedDuringRaise, raised);
     }
 
@@ -112,9 +112,36 @@ public sealed class GameWindowReturnTests
                 attempts++;
                 return false;
             }, log.Add);
-        await subject.ReturnAsync(30, 42, CancellationToken.None);
+        Assert.False(await subject.ReturnAsync(30, 42, CancellationToken.None));
         Assert.Equal(1, attempts);
         Assert.Contains(log, line => line.Contains("foreground verified=False", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ReturningWithoutCapturedProcessUsesTheWindowsCurrentOwner()
+    {
+        List<string> steps = [];
+        var subject = new GameWindowReturn((pid, _) =>
+        {
+            steps.Add($"raise {pid}");
+            return Task.FromResult(false); // A desktop app has no Steam overlay to raise.
+        }, _ => 42, _ => false, hwnd =>
+        {
+            steps.Add($"focus {hwnd}");
+            return true;
+        }, _ => { });
+
+        Assert.True(await subject.ReturnAsync(30, CancellationToken.None));
+        Assert.Equal(["raise 42", "focus 30"], steps);
+    }
+
+    [Fact]
+    public async Task ClosedWindowIsNeitherRaisedNorFocused()
+    {
+        var subject = new GameWindowReturn((_, _) => throw new InvalidOperationException("Must not raise"),
+            _ => 0, _ => false, _ => throw new InvalidOperationException("Must not focus"), _ => { });
+
+        Assert.False(await subject.ReturnAsync(30, CancellationToken.None));
     }
 
     [Fact]

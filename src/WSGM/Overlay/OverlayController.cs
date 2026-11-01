@@ -88,6 +88,10 @@ public sealed partial class OverlayController : IDisposable
     private AppConfig _config;
     private bool _dialogPriorNavigation;
     private bool _disposed;
+
+    /// <summary>The close refocus still in Steam's raise; reopening the sheet or shutting down cancels it.</summary>
+    private CancellationTokenSource? _focusRestoreCancellation;
+
     private CancellationTokenSource? _keyboardRequestCancellation;
 
     // The last claim end, which window activation waits for so the game gets its controller back first.
@@ -212,6 +216,10 @@ public sealed partial class OverlayController : IDisposable
     /// </summary>
     internal Action<SessionPowerAction>? RequestPowerAction { get; set; }
 
+    /// <summary>
+    ///     The session's one path that brings a game window forward, used by Open apps picks and the close
+    ///     refocus; null on the overlay test and preview surfaces, which then restore no focus on close.
+    /// </summary>
     internal GameWindowReturn? GameReturn { get; set; }
 
     /// <summary>
@@ -248,6 +256,7 @@ public sealed partial class OverlayController : IDisposable
         _disposed = true;
         _keyboardRequestCancellation?.Cancel();
         _windowReturnCancellation?.Cancel();
+        _focusRestoreCancellation?.Cancel();
         _overlay?.ReleaseProgramsPresentation();
         DisposeNotes();
         _overlay?.Surfaces.CloseAll();
@@ -426,6 +435,7 @@ public sealed partial class OverlayController : IDisposable
         }
 
         _windowReturnCancellation?.Cancel();
+        _focusRestoreCancellation?.Cancel();
         _keyboardRequestCancellation?.Cancel();
         OverlayShown?.Invoke();
         if (_overlay is null)
@@ -611,10 +621,11 @@ public sealed partial class OverlayController : IDisposable
         _overlayViewModel = null;
         // Game mode only: call back the window that was focused before the
         // panel opened (exclusive-fullscreen games sit minimized by now).
-        if (!_suppressFocusRestore && _restoreFocusTo != 0 && !ExplorerControl.IsDesktopShellRunning())
+        if (!_suppressFocusRestore && _restoreFocusTo != 0 && !ExplorerControl.IsDesktopShellRunning()
+            && GameReturn is { } gameReturn)
         {
             Log.Info("Restoring previously focused window.");
-            WindowFinder.BringToForeground(_restoreFocusTo);
+            Log.Observe(RestoreFocusAsync(gameReturn, _restoreFocusTo), "Overlay focus restore");
         }
 
         _restoreFocusTo = 0;

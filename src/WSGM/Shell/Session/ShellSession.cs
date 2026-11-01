@@ -40,7 +40,6 @@ public sealed class ShellSession
     // The one owner of the display-off timeouts: the overlay's Power page and the rows WSGM adds to
     // Steam's Screensaver settings both edit through it, and it hears Steam's screensaver timeout.
     private readonly DisplayTimeouts _displayTimeouts;
-    private PowerButtonSetting? _powerButtonSetting;
 
     private readonly GameModeEntryBackend _entryBackend;
     private readonly NativeQamHybridCoreService _hybridCores;
@@ -80,6 +79,7 @@ public sealed class ShellSession
     private SessionModes? _modes;
     private SteamMonitor? _monitor;
     private OverlayController? _overlay;
+    private PowerButtonSetting? _powerButtonSetting;
     private SettingsActivation? _settingsActivation;
     private SettingsSurface? _settingsSurface;
 
@@ -138,7 +138,9 @@ public sealed class ShellSession
         _storage = new StorageServices(_state, _steamUi, () => _library!.LibraryManager);
         _library = new LibraryServices(_state, _steamUi);
         _tools = new OverlayTools(_state, _steamUi, _library, _performance);
-        _system = new SystemServices(_state);
+        _system = new SystemServices(_state, async (processId, token) =>
+            _state.Config.Cef.Enabled && _steamUi.Transport is { } transport
+                                      && await SteamGameWindowActivation.RaiseAsync(transport, processId, token));
         _devicePower = new DevicePowerQueue(_integrations, _state);
         _desktopActions = new DesktopLifecycleActions(_state, _integrations, _devicePower, () => _modes);
         _powerEvents = new SessionPowerEvents(_state, _devicePower, _steamUi, _performance, _integrations,
@@ -591,11 +593,7 @@ public sealed class ShellSession
         if (!_state.OverlayTestOnly)
         {
             overlay.RequestPowerAction = PowerActions.Request;
-            overlay.GameReturn = new GameWindowReturn(async (processId, token) =>
-                    _state.Config.Cef.Enabled && _steamUi.Transport is { } transport
-                                              && await SteamGameWindowActivation.RaiseAsync(transport, processId,
-                                                  token),
-                _state.ShutdownToken);
+            overlay.GameReturn = _system.GameReturn;
         }
 
         // The one Settings window of this process, for the tray, the sheet and a desktop Settings launch

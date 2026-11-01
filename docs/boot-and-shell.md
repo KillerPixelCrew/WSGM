@@ -582,8 +582,11 @@ later, so a window that activates itself is left alone. It is raised when it pas
 strip's switchable filter, does not refuse activation, is not minimized and not Steam's own, a Steam
 window or nothing holds the foreground, and Steam reports a running app. The running-app condition
 keeps startup applications from covering Big Picture at boot; it needs Steam integration, so with
-CEF off nothing is raised. `WindowFinder.ForceForeground` attaches to the foreground thread's input
-for the call, because a background process cannot take the foreground otherwise.
+CEF off nothing is raised. The raise goes through `GameWindowReturn`, the Overlay's game-return
+path: Steam's raise for the window's process first, so Big Picture opens its menus over the game
+instead of behind it, then `WindowFinder.ForceForeground`, which attaches to the foreground thread's
+input for the call because a background process cannot take the foreground otherwise. A window
+without a ready Steam overlay is still focused by the second step.
 
 Each window is attempted once. A refused attempt makes Windows flash the window, and that flash must
 not start another attempt. `Launched window:` log lines record each raise with its verified result,
