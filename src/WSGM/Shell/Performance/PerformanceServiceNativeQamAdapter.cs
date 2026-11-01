@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
@@ -14,6 +16,17 @@ internal sealed class PerformanceServiceNativeQamAdapter :
     ISteamPerformanceBackend,
     ISteamFrameLimitBackend
 {
+    /// <summary>
+    ///     Fields Valve's own setters restate in every delta, which no WSGM control changes. The
+    ///     overlay-level selector sends <c>force_hdr_wide_gammut_for_sdr</c> with each write (22 warnings
+    ///     in one tester's log, 2026-11-01, each beside an overlay level that applied). Any other
+    ///     unmodelled field is still named.
+    /// </summary>
+    private static readonly HashSet<string> ValveRestatedFields = new(StringComparer.Ordinal)
+    {
+        "force_hdr_wide_gammut_for_sdr"
+    };
+
     private readonly ProfileService _profiles;
     private readonly PerformanceService _service;
 
@@ -143,13 +156,14 @@ internal sealed class PerformanceServiceNativeQamAdapter :
         string correlationId,
         CancellationToken cancellationToken)
     {
-        if (delta.Unsupported.Count > 0)
+        var unsupported = Unmodelled(delta);
+        if (unsupported.Count > 0)
         {
             // Named, because the alternative is a control the user operates that quietly does
             // nothing and cannot be diagnosed from a pasted log.
             Log.Warn(
                 "Native QAM performance delta carried fields with no WSGM backend: "
-                + string.Join(", ", delta.Unsupported));
+                + string.Join(", ", unsupported));
         }
 
         if (delta.SteamAppId is { } requestedAppId
@@ -221,6 +235,14 @@ internal sealed class PerformanceServiceNativeQamAdapter :
         }
 
         return new SteamUiCommandResult(failure is null, failure);
+    }
+
+    /// <summary>The fields of a delta worth naming in the log: unmodelled, and not ones Valve always restates.</summary>
+    /// <param name="delta">The decoded delta.</param>
+    /// <returns>The field names, in delta order.</returns>
+    internal static IReadOnlyList<string> Unmodelled(SteamPerformanceDelta delta)
+    {
+        return [.. delta.Unsupported.Where(field => !ValveRestatedFields.Contains(field))];
     }
 
     /// <summary>Switches variable refresh through the device capability.</summary>

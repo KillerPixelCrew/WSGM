@@ -186,4 +186,14 @@ public sealed class NativeQamPerformanceAdapterTests
         Assert.Contains("stale AppID 41", result.Error);
         Assert.False(service.Current.ApplicationProfileEnabled);
     }
+
+    [Fact]
+    public void AFieldValveRestatesWithEveryWriteIsNotNamedButANewOneIs()
+    {
+        // Valve's overlay-level selector sends force_hdr_wide_gammut_for_sdr with each write it makes.
+        SteamPerformanceDelta delta = new([new SteamPerformanceChange(SteamPerformanceSetting.OverlayLevel, 1)],
+            false, null, ["force_hdr_wide_gammut_for_sdr", "some_new_field"]);
+
+        Assert.Equal(["some_new_field"], PerformanceServiceNativeQamAdapter.Unmodelled(delta));
+    }
 }

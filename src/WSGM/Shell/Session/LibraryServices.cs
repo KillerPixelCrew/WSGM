@@ -220,7 +220,10 @@ internal sealed class LibraryServices(SessionState state, SteamUiServices steamU
             Availability.Start();
         });
 
-        LaunchActions ??= new LaunchActionService(state.Store, () => steamUi.Client,
+        // Steam is asked only while the transport is open: a suspend or a closed Big Picture holds it, and
+        // every read then failed with a warning (25 in one tester's log, 2026-11-01).
+        LaunchActions ??= new LaunchActionService(state.Store,
+            () => steamUi.Readiness.IsReady ? steamUi.Client : null,
             () => state.Config.SteamInputManagementEnabled);
         // Steam's running AppID is extra evidence only; the exact process-path check stays authoritative.
         GameTools ??= new GameToolsService(state.Store.Context, () => steamUi.Client,
