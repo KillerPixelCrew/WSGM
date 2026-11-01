@@ -115,6 +115,10 @@ capability availability cancels the pending edit. Device submissions recheck the
 and its descriptor and cycle generation, so a removed or replaced capability cannot receive an old
 draft.
 
+Status chips are a `Border.badge` with a neutral, `accent`, `community`, `info`, `good`, `warn`,
+`bad` or `action` (solid accent, for the one status that asks for action) tone, styled once in
+`Themes\Shared.axaml` for Settings and the Overlay alike.
+
 Shared controls live under `Controls\`: `TabStrip` (the destination bar), `ActionButton` (commands)
 and `Icons` (stroke-style `StreamGeometry`). Stroke icons use `Fill={x:Null}` so their interior
 detail stays visible.

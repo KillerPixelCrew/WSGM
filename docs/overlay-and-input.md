@@ -294,6 +294,11 @@ selectors and confirmation flows. Radio scanning ends when the panel is detached
 Bluetooth pairing ceremony is declined before its subscription is removed. Utility panels create no
 native windows and acquire no navigation, input capture or lease of their own.
 
+A confirmation opens through `ShowConfirm`: the same utility surface centred in the window rather
+than anchored below its invoker, so the whole question and both answers stay visible at the 980 ×
+640 floor. The safe answer is focused first and Back cancels. Game Tools asks this way before an
+install into a game with anti-cheat, a takeover, a configuration-replacing update and Remove.
+
 ### Keyboard and credentials
 
 `OverlaySurfaceStack.RequestText` opens `KeyboardPanel` for an internal text field. The keyboard

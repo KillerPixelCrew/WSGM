@@ -38,7 +38,11 @@ internal sealed class OverlayProgress : StackPanel, IOverlayRefreshable
     /// <param name="tag">The element's stable semantic key within its level.</param>
     /// <param name="state">The state to show, or null to start hidden.</param>
     /// <param name="cancelTag">The Cancel row's stable key; null uses <c>{tag}.cancel</c>.</param>
-    internal OverlayProgress(string tag, OverlayProgressState? state, string? cancelTag = null)
+    /// <param name="inline">
+    ///     Places Cancel as a compact command beside the caption and bar, for a progress panel inside a card;
+    ///     false stacks it as a full-width row below them.
+    /// </param>
+    internal OverlayProgress(string tag, OverlayProgressState? state, string? cancelTag = null, bool inline = false)
     {
         Tag = tag;
         Spacing = 6;
@@ -50,9 +54,29 @@ internal sealed class OverlayProgress : StackPanel, IOverlayRefreshable
         };
         _bar = NewBar();
         _cancel = new OverlayActionButton { Tag = cancelTag ?? tag + ".cancel", IconGeometry = Icons.Close };
-        Children.Add(_text);
-        Children.Add(_bar);
-        Children.Add(_cancel);
+        if (inline)
+        {
+            var meter = new StackPanel { Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+            meter.Children.Add(_text);
+            meter.Children.Add(_bar);
+            // Beside a meter the command is its label alone, like the card's other commands.
+            _cancel.IconGeometry = null;
+            _cancel.MinWidth = 120;
+            _cancel.VerticalAlignment = VerticalAlignment.Center;
+            _cancel.HorizontalAlignment = HorizontalAlignment.Right;
+            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 16 };
+            row.Children.Add(meter);
+            Grid.SetColumn(_cancel, 1);
+            row.Children.Add(_cancel);
+            Children.Add(row);
+        }
+        else
+        {
+            Children.Add(_text);
+            Children.Add(_bar);
+            Children.Add(_cancel);
+        }
+
         Apply(state);
     }
 

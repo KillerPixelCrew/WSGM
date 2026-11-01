@@ -27,8 +27,8 @@ internal sealed record GameToolDefinition
     /// <summary>The warning shown for games with anti-cheat.</summary>
     public string AntiCheatWarning { get; init; } = "";
 
-    /// <summary>Where packages come from.</summary>
-    public GameToolSource Source { get; init; } = new();
+    /// <summary>The release channels, the default first.</summary>
+    public GameToolChannel[] Channels { get; init; } = [];
 
     /// <summary>Game architectures the tool supports.</summary>
     public string[] Architectures { get; init; } = [];
@@ -66,8 +66,27 @@ internal sealed record GameToolDefinition
     /// <summary>Settings mapped onto configuration keys.</summary>
     public GameToolSetting[] Settings { get; init; } = [];
 
+    /// <summary>The channel a game uses until the user chooses another.</summary>
+    internal GameToolChannel DefaultChannel => Channels[0];
+
     /// <summary>The primary configuration file, or an empty string when the tool has none.</summary>
     internal string PrimaryConfig => ConfigFiles.FirstOrDefault() ?? "";
+
+    /// <summary>Finds a channel by id.</summary>
+    /// <param name="id">The channel id.</param>
+    /// <returns>The channel, or null when the tool has no such channel.</returns>
+    internal GameToolChannel? Channel(string? id)
+    {
+        return Channels.FirstOrDefault(channel => channel.Id == id);
+    }
+
+    /// <summary>The channel a manifest was installed from; an unknown or empty id is the default channel.</summary>
+    /// <param name="id">The recorded channel id.</param>
+    /// <returns>The channel.</returns>
+    internal GameToolChannel ChannelOrDefault(string? id)
+    {
+        return Channel(id) ?? DefaultChannel;
+    }
 
     /// <summary>Whether a relative path is a configuration file.</summary>
     /// <param name="relativePath">A path relative to the target directory with forward slashes.</param>

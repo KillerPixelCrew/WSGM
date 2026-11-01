@@ -2,9 +2,10 @@
 
 Game Tools installs, updates, configures and removes third-party per-game modifications in a game's
 own folder, from Steam's game menu or from the Overlay. The first delivery ships one tool,
-OptiScaler. This guide covers the owners, how a game's program is found, the tool catalog, the
-install transaction and its manifest, conflicts, revalidation and the policies around third-party
-code. The product decisions behind it are in [decisions.md](decisions.md#steam).
+OptiScaler, from a stable and a nightly release channel. This guide covers the owners, how a game's
+program is found, the tool catalog and its channels, the game list, the install transaction and its
+manifest, conflicts, revalidation and the policies around third-party code. The product decisions
+behind it are in [decisions.md](decisions.md#steam).
 
 ## Owners
 
@@ -23,9 +24,10 @@ code. The product decisions behind it are in [decisions.md](decisions.md#steam).
 | Running check                | `Core/GameTools/GameRunningCheck.cs`                                                  | Whether the game is closed, failing closed, from the `IGameProcessProbe` answers the session supplies       |
 | Durable state                | `Core/GameTools/GameToolStore.cs`                                                     | `game-tools.json`: remembered programs, identities and per-tool manifests                                   |
 | Service                      | `Shell/GameTools/GameToolsService.cs`                                                 | Steam and process answers, scans, state for both surfaces, one mutation at a time, progress                 |
+| Game list                    | `Shell/GameTools/GameToolsLibraryProjection.cs`                                       | Every game with tools and each tool's version, load name and status, from the store and cached releases     |
 | Steam page                   | `Shell/GameTools/SteamGameToolsSurface.cs`, `Core/SteamUiAssets/Source/game-tools.ts` | The routed Big Picture page, its publication and commands                                                   |
 | Steam entry                  | `Shell/Library/SteamGameContextMenuBackend.cs`                                        | The game menu's "Game Tools…" item                                                                          |
-| Overlay page                 | `Overlay/` Game Tools view, through `OverlaySources.GameTools`                        | The same page in the Overlay, calling the service directly                                                  |
+| Overlay page                 | `Overlay/GameToolsView*.cs`, through `OverlaySources.GameTools`                       | The game list, game page, program chooser and confirmations in the Overlay, calling the service directly    |
 
 Release lookup, download and extraction come from the shared `Core/Downloads` utility, which the
 emulator owner also uses: `DownloadClient` (HTTPS only), `HostedReleases` (GitHub and Forgejo
@@ -43,14 +45,18 @@ second HTTP or archive path.
 3. The page (`registerSteamPage`, template `game-tools`, gate `gameTools`) also sends `open` on
    mount with the AppID from the route, so direct navigation and Back into the page work the same
    way.
-4. State is published as `wsgm.game-tools` whenever the service raises `Changed`. Commands are
-   `open`, `refresh`, `checkUpdates`, `cancel`, `chooseRuntime`, `install`, `update`, `repair`,
-   `configure` and `remove`, each carrying the AppID it acts on.
+4. State is published as `wsgm.game-tools` whenever the service raises `Changed`, and the game list
+   as `wsgm.game-tools.library` (see [The game list](#the-game-list)). Commands are `open`,
+   `refresh`, `checkUpdates`, `cancel`, `chooseRuntime`, `install` (with an optional `channel`),
+   `update`, `switchChannel` (`appId`, `toolId`, `channel`, optional `replaceConfig`), `repair`,
+   `configure` and `remove`, each carrying the AppID it acts on, and `refreshLibrary` without a
+   payload.
 
 The Overlay reaches the same service through `OverlaySources.GameTools` (null in overlay-test). It
 calls `ReadAsync(appId)` when a page opens and `Peek(appId)` on `Changed`, which re-renders from the
-cached scan without walking the folder again. Both surfaces get the same `GameToolsState` records,
-the same actions and the same refusals.
+cached scan without walking the folder again, and `PeekLibrary()` for the game list. Both surfaces
+get the same `GameToolsState` and `GameToolsLibrary` records, the same actions and the same
+refusals.
 
 Mutating commands return as soon as they are admitted, because the Steam bridge must answer
 promptly. The work runs in the background and its outcome lands in the game's state as `notice` or
@@ -58,6 +64,27 @@ promptly. The work runs in the background and its outcome lands in the game's st
 change runs at a time across all games; a command for another game is refused while one runs.
 Download and extraction can be cancelled; once game files are being written the transaction
 completes or rolls back.
+
+### Progress
+
+`busy` names the game, the tool (`toolId`), the operation and a stable `phase` id. Install, replace,
+update, a channel switch and repair pass through the four steps both pages draw:
+
+| `phase`    | Step              | Cancellable |
+| ---------- | ----------------- | ----------- |
+| `download` | Download          | Yes         |
+| `verify`   | Check the package | Yes         |
+| `copy`     | Back up and copy  | No          |
+| `settings` | Apply settings    | No          |
+
+`starting` comes before the first step, `rescan` after the last while the folder is read again,
+`settings` alone is a configure and `remove` a removal. `detail` is the phase as one line, such as
+"Downloading OptiScaler 0.9.4 from GitHub"; `bytes` and `total` count the download; `cancellable`
+says whether `cancel` still stops the work; `channel` and `version` name what is being installed
+once the release is known. Only byte progress is throttled; a new phase is published at once.
+
+A configure's notice names what it saved and where, such as "Menu scale saved to OptiScaler.ini." It
+makes no claim about when the game picks the value up, because that is not documented here.
 
 ## Finding the game's program
 
@@ -96,6 +123,37 @@ exact, so a game below one of them still works. Anything under `WindowsApps` is 
 packaged games can't be modified. The tool is installed beside the chosen program, so the choice
 cannot change while a tool is installed there.
 
+## The game list
+
+`GameToolsLibraryProjection` builds `GameToolsLibrary` from `game-tools.json` and the cached release
+answers; it never walks a folder or contacts the network. `IGameToolsSource.PeekLibrary()` returns
+the cached list and starts the first read; `ReadLibraryAsync()` awaits a read. The service reads it
+again after every scan (which includes every operation's closing rescan) and after every release
+lookup, one read at a time, and raises `Changed`. Steam receives it as `wsgm.game-tools.library`;
+`refreshLibrary` asks for a fresh read.
+
+| Field                             | Meaning                                                                                      |
+| --------------------------------- | -------------------------------------------------------------------------------------------- |
+| `loading`, `error`                | Before the first read; why the store could not be read                                       |
+| `games[]`                         | Games with at least one installed tool, by name: `appId`, `name`, `isShortcut`, `tools[]`    |
+| `withTools`, `updates`            | The "With tools" and "Updates" counts; "All" is the Steam library's own count                |
+| `tools[].toolId`, `toolName`      | The tool                                                                                     |
+| `tools[].version`, `versionLabel` | The installed release's version, and the same with channel and build date for a dated build  |
+| `tools[].channel`, `channelLabel` | The channel the installation follows; `defaultChannel` is true when no channel tag is needed |
+| `tools[].proxyName`               | The load name                                                                                |
+| `tools[].status`, `statusLabel`   | See below; the label is the chip's text, such as "Update to 0.9.5" or "New build 1 Nov"      |
+| `tools[].detail`                  | The row's line, such as "OptiScaler 0.9.4 as dxgi.dll"                                       |
+| `tools[].latestVersion`           | The channel's latest version when an update is available                                     |
+| `tools[].changedFiles`            | How many owned files are missing or changed                                                  |
+
+The status is `interrupted` for a `Pending` or `Failed` manifest, `folderUnavailable` when the
+target folder is missing, `modified` when an owned file is missing or its size or write time changed
+(the quick revalidation of the manifest's own files, nothing else), `updateAvailable` only when the
+channel's latest release is already cached and newer by the update rule, and `upToDate` otherwise.
+The folder comes from this session's scan of the game when there was one, else from the root the
+manifest recorded at its last write, so a game moved to another library reads as unavailable until
+its page is opened and the rebase runs.
+
 ## Scans that inform the user
 
 `UpscalerScan` lists standalone DLSS, DLSS frame generation and ray reconstruction, FidelityFX and
@@ -122,7 +180,7 @@ catalog load rather than being skipped.
 | `name`, `description`, `homepage`, `license` | Shown on the tool card                                                                                                  |
 | `notice`                                     | The affiliation statement shown beside the tool                                                                         |
 | `antiCheatWarning`                           | Shown, and acknowledged, when anti-cheat was found                                                                      |
-| `source`                                     | Provider, API base, repository, asset pattern, channel and package type                                                 |
+| `channels`                                   | Release channels, the default first: id, label, description, source and an optional version rule (see below)            |
 | `architectures`                              | Supported program architectures; anything else is incompatible with a reason                                            |
 | `primaryFile`, `identity`                    | The tool's own binary, its `OriginalFilename`, veto tokens and the other mods recognised by their version fields        |
 | `proxy`                                      | Offered install names with hints and a default; detection names and patterns used to find copies installed outside WSGM |
@@ -139,11 +197,45 @@ Patterns use DOS wildcards. A pattern containing `/` matches the relative path o
 pattern matches the file name or the relative path. A future tool such as DXVK, dgVoodoo2, ReShade
 or ReScaleFrame is a new entry, plus whatever its install mode needs that the current model lacks.
 
+## Release channels
+
+A tool lists one or more channels. Each has a `source` (provider, HTTPS API base, `owner/name`
+repository, asset pattern, hosted channel filter and package type) and is validated as strictly as
+the tool: unique ids matching `^[a-z][a-z0-9-]*$`, a label, a supported provider, a well-formed
+repository, `7z` or `zip`, a compiling asset pattern and an HTTPS base. A channel whose release tags
+are not versions sets `versionPattern`, a pattern over the asset name with a `version` group and an
+optional eight-digit `build` date group; the catalog load fails when it has no `version` group.
+
+OptiScaler has two:
+
+| Channel   | Source                                                | Version from                                                                         |
+| --------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `stable`  | `optiscaler/OptiScaler`, prereleases skipped          | The release tag (`v0.9.4` is `0.9.4`)                                                |
+| `nightly` | `optiscaler/OptiScaler-nightly`, prereleases accepted | The asset: `OptiScaler_v10.0.0-pre1_20261031.7z` is `10.0.0-pre1`, built 31 Oct 2026 |
+
+The main repository's `nightly` tag carries no assets and only links to the nightly repository. A
+nightly release is tagged `nightly-YYYYMMDD` with one `OptiScaler_v<version>_<YYYYMMDD>.7z` asset
+and a GitHub-published digest, so the same fail-closed digest check applies. A dated build is shown
+as its version, channel and date, such as "10.0.0-pre1 · nightly 31 Oct 2026"; the date comes from
+the asset name only.
+
+The channel is chosen per game and tool. Before installation the page's draft carries it, stable by
+default, and `install` sends it; the manifest records it (`channel`, empty meaning the default) and
+every later update and repair follows it. Update detection is the usual rule, so a new nightly of
+the same number but another release identity offers an update. Moving an installed tool to another
+channel is always the user's explicit `switchChannel`, never an update: it installs that channel's
+latest release through the same transaction even when it is older, such as nightly 10.x back to
+stable 0.9.4, and it needs `replaceConfig` when the family changes. `tools[].channels[]` gives each
+channel's `latestVersion`, `latestLabel`, `buildDate` (`yyyy-MM-dd`), `latestError`,
+`checkingLatest`, `current` and `changesConfig`, so a page can label "Switch to nightly 10.0.0-pre1"
+and know whether it needs the confirmation.
+
 ## Releases, downloads and versions
 
-- The latest release is looked up through the shared hosted-source adapter and kept in memory for 6
-  hours, because GitHub's anonymous API limit is small. "Check for updates" forces a lookup. Lookups
-  set `tools[].checkingLatest`, not `busy`.
+- The latest release of each channel is looked up through the shared hosted-source adapter and kept
+  in memory for 6 hours per channel, because GitHub's anonymous API limit is small. "Check for
+  updates" forces a lookup of every channel and reports the outcome of the channel the game follows.
+  Lookups set `tools[].checkingLatest` and the channel's `checkingLatest`, not `busy`.
 - Downloads fail closed. The asset's published digest is matched by exact asset name, normalised to
   64 hex characters, and a missing, malformed or mismatched digest refuses the download. Transient
   failures get at most three attempts, one and two seconds apart; a hash mismatch gets one more
@@ -151,14 +243,14 @@ or ReScaleFrame is a new entry, plus whatever its install mode needs that the cu
 - Packages are extracted once into `<data>\GameTools\packages\<tool>\<release>-<hash>`, keyed by
   version, asset, hash and URL, staged beside it and promoted by a move. Stale stage directories are
   swept. Extraction uses SharpCompress with the shared traversal and link checks. A single top-level
-  folder becomes the payload root.
+  folder becomes the payload root; the nightly package has several and keeps its root.
 - The payload is validated before anything touches a game: required files present, the primary file
   a PE of the game's architecture with the tool's identity, and the family's extra directories.
 - The family comes from the first numeric token (`0.9.x` is `v09`; `0.10.x` or `10.x` is `v10`).
   Versions compare as integer tuples. An installed copy newer than the latest stable is reported as
   newer and never offered an older stable. An equal number with a different release identity is a
-  rebuild and counts as an update. An update that crosses families changes the INI format, so it
-  needs the user to confirm replacing the configuration (`replaceConfig`).
+  rebuild and counts as an update. An update or channel switch that crosses families changes the INI
+  format, so it needs the user to confirm replacing the configuration (`replaceConfig`).
 
 ## The install transaction
 
@@ -274,16 +366,26 @@ generation. WSGM installs the stable `.7z` release of
   has a hint. The suggested name is the first free one, wrapping round the list.
 - **Excluded from the package:** `setup_windows.bat`, `setup_linux.sh` and the `!! *` marker files.
 - **Replaceable with backup:** `libxess*.dll`, `libxell.dll`, `amd_fidelityfx_*.dll`, `fakenvapi.*`,
-  `dlssg_to_fsr3_amd_is_better.dll`, `nvngx.dll`, `nvapi64.dll`, and the `D3D12_Optiscaler` and
-  `Licenses` folders.
+  `dlssg_to_fsr3_amd_is_better.dll`, `nvngx.dll`, `nvapi64.dll`, and the `D3D12_Optiscaler`,
+  `Licenses` and `OptiScaler` folders.
+- **v10 layout:** from 10.x (the nightlies) every bundled upscaler, frame-generation and helper file
+  sits in the `OptiScaler` subfolder, including `D3D12_OptiScaler` and
+  `Streamlined_fetcher_windows.bat`; only OptiScaler itself, `OptiScaler.ini`, the setup scripts and
+  `Licenses` stay in the root, and `fakenvapi.dll` is no longer bundled. The `v10` family requires
+  the `OptiScaler` folder in the payload. Moving from 0.9.x removes the root files the old version
+  owned, restoring the game's originals from their backups, and Remove deletes the subfolder's owned
+  files and the directories WSGM created. "Replace existing installation" takes over a manual v10
+  install's `OptiScaler` folder. Streamline files a user fetches into `OptiScaler/streamline` are
+  not WSGM's and stay.
 - **Configuration:** `OptiScaler.ini` is owned configuration: kept on update within a family, always
   removed on uninstall. WSGM edits existing keys only, in the first matching section, and never
   creates a section or key. A missing key means the setting does not exist in that version and is
   shown as unavailable. Encoding, BOM, line endings, indentation and inline comments are preserved,
   nothing is written when no value changed, and a ReadOnly flag is restored afterwards.
-- **Settings:** DLSS inputs on AMD and Intel (`[Spoofing] Dxgi`, `auto` or `false`, noted as not
-  needed on NVIDIA), menu scale (`[Menu] Scale`, Auto or 0.8 to 1.6) and hide startup message
-  (`[Menu] DisableSplash`). The GPU vendor comes from LibGPUDriverInteract.
+- **Settings:** DLSS inputs on AMD and Intel (`[Spoofing] Dxgi`, Automatic (`auto`) or Off
+  (`false`), noted as not needed on NVIDIA), menu scale (`[Menu] Scale`, Automatic or 0.8 to 1.6)
+  and hide the startup message (`[Menu] DisableSplash`). The keys exist in both the 0.9 and the v10
+  files. The GPU vendor comes from LibGPUDriverInteract.
 - **Runtime logs removed on uninstall:** `OptiScaler.log`, `fakenvapi.log`, `dlssg_to_fsr3.log` and
   `OptiScaler/OptiScaler.log`.
 
@@ -299,6 +401,43 @@ Third-party DLLs in a game folder can get an online account banned. Every tool c
 warning "Do not use with online games. Anti-cheat may ban accounts." when anti-cheat was found, and
 install is refused until the user acknowledges it. The scan is a heuristic, so the absence of a
 warning is not a promise that a game is safe.
+
+## The Overlay page
+
+Steam › Game Tools in the Overlay (`Overlay/GameToolsView*.cs`) opens the game whose Steam page is
+on screen, as the cog menu does, and otherwise shows the game list. Back from a game returns to the
+list.
+
+- **Game list.** Search, then the All, With tools and Updates filter with their counts. "With tools"
+  lists `GameToolsLibrary` rows: capsule art, the tool, version and load name, a channel tag for a
+  non-default channel and the status chip. "All games" is a two-column card grid of the Steam
+  library, paged with Load more. Capsules come from `SteamArtwork.FindCapsuleFile`: the game's
+  custom Wide artwork, else the header Steam cached locally; nothing is downloaded and each image is
+  read only once its card is on screen.
+- **Game page.** A game card with art, name, install folder and the facts for program, upscalers,
+  anti-cheat and GPU, with "Change program…"; it shrinks to one line once a tool is installed or
+  working. Anti-cheat shows an error banner; availability (`running`, `folderUnavailable`,
+  `notInstalled`, `steamUnavailable`) shows the service's reason and locks the controls. One card
+  per catalog tool: icon, name, status and channel tags, the latest version, the description or what
+  is installed, one primary action (Install, Update, Switch to another channel, Repair or Replace
+  existing installation…), the Release channel, Load as and settings rows (a draft before
+  installation, saved at once after it), Check for updates and Repair, "Remove <tool>…" apart and
+  marked destructive, and the license, homepage and affiliation notice.
+- **Installing.** The card shows the four steps from `busy.phase`, the byte bar and Cancel while
+  `cancellable`, and says what cancelling does. The settings stay visible and locked. A download
+  tick updates the bar in place; a new phase redraws the card. Back leaves while the work continues.
+- **Program chooser.** A nested level lists the resolver's candidates as radio rows with the file,
+  its role, architecture, folder and reasons, offers "Browse for the program…" through the in-window
+  file picker and explains a truncated scan.
+- **Confirmations** use the in-window surface, centred (`OverlaySurfaceStack.ShowConfirm`), with
+  Cancel focused: installing into a game with anti-cheat, replacing an existing installation, an
+  update or channel switch that replaces the configuration, and Remove, which says how many files
+  are deleted and restored.
+
+Drafts (channel, load name, settings) live in the view until the game is left, and keyed cards keep
+their editors through publications. `tests/WSGM.UiTests/Overlay/GameToolsViewTests.cs` captures the
+list, a game without tools, an installed tool with an update, installing, the program chooser, the
+anti-cheat confirmation and the nightly draft at 1280 × 800 and 980 × 640 from explicit fakes.
 
 ## Logging
 
@@ -322,8 +461,8 @@ No line is written per file scanned or copied.
   manifest and conflict model are meant to take them without changing the transaction.
 - Deferred OptiScaler options: FPS overlay and limit (WSGM covers both), FSR4 INT8, frame-generation
   input and output, interpolation count and ASI plugins.
-- Only the stable channel is installed. A move from 0.9.x to 10.x is a family change the user
-  confirms.
+- Stable and nightly are the only channels. A move between 0.9.x and 10.x, by update or by channel
+  switch, is a family change the user confirms. Nightlies are untested upstream builds.
 - 32-bit and Arm64 games are incompatible.
 - The running check covers the program and the executables at the top of its folder and the install
   root; a game started from a deeper launcher path is caught by Steam's running AppID.

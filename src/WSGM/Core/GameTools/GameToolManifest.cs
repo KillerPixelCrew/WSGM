@@ -12,6 +12,9 @@ internal sealed record GameToolManifest
     /// <summary>A unique id for this installation, naming its backup folder.</summary>
     public string InstallId { get; init; } = "";
 
+    /// <summary>The release channel the installation follows; empty is the tool's default channel.</summary>
+    public string Channel { get; init; } = "";
+
     /// <summary>The installed product version.</summary>
     public string Version { get; init; } = "";
 
@@ -82,7 +85,8 @@ internal sealed record GameToolManifest
     public GameToolManifest? Previous { get; init; }
 
     /// <summary>
-    ///     The transaction kind: <c>install</c>, <c>replaceExisting</c>, <c>update</c>, <c>repair</c> or <c>configure</c>.
+    ///     The transaction kind: <c>install</c>, <c>replaceExisting</c>, <c>update</c>, <c>switchChannel</c>,
+    ///     <c>repair</c> or <c>configure</c>.
     /// </summary>
     public string Operation { get; init; } = "";
 }

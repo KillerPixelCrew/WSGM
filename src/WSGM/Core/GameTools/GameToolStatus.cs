@@ -20,26 +20,25 @@ internal static class GameToolStatus
     /// <param name="runtimeArchitecture">The chosen runtime's architecture, or null when the user must choose.</param>
     /// <param name="manifest">The installed manifest, or null.</param>
     /// <param name="inspection">The target directory's inspection, or null when it couldn't be inspected.</param>
-    /// <param name="latest">The latest known release, or null.</param>
+    /// <param name="latest">The latest known release of <paramref name="channel" />, or null.</param>
+    /// <param name="channel">The channel the installation follows, or the default one before installation.</param>
     /// <param name="upscalers">Standalone upscaler libraries the game ships.</param>
     /// <returns>The evaluation.</returns>
+    /// <remarks>
+    ///     An installed tool with more than one channel also offers <c>switchChannel</c>; moving to another channel
+    ///     is always the user's explicit choice, never an update.
+    /// </remarks>
     internal static GameToolEvaluation Evaluate(GameToolDefinition tool, string availability, string? reason,
         string? runtimeArchitecture, GameToolManifest? manifest, GameToolInspection? inspection, HostedRelease? latest,
-        IReadOnlyList<GameUpscalerFile> upscalers)
+        GameToolChannel channel, IReadOnlyList<GameUpscalerFile> upscalers)
     {
         var folderReady = HasFolder(availability);
         var incompatible = runtimeArchitecture is null
             ? "Choose the game's program first."
             : GameToolInstaller.Incompatible(tool, runtimeArchitecture);
-        var relation = manifest is null
-            ? GameToolVersionRelation.Unknown
-            : GameToolVersions.Relate(tool,
-                manifest.ReleaseVersion.Length > 0 ? manifest.ReleaseVersion : manifest.Version, manifest.ReleaseId,
-                latest?.Version, latest?.Id);
-        var latestFamily = latest is null ? "" : GameToolVersions.Family(tool, latest.Version);
-        var changesConfig = manifest is not null && relation == GameToolVersionRelation.UpdateAvailable
-                                                 && manifest.Family.Length > 0 && latestFamily.Length > 0
-                                                 && manifest.Family != latestFamily;
+        var relation = Relation(tool, manifest, latest);
+        var changesConfig = relation == GameToolVersionRelation.UpdateAvailable
+                            && ChangesConfig(tool, manifest, latest);
         List<GameToolIssue> conflicts = [];
         List<string> warnings = [];
         List<string> actions = [];
@@ -76,13 +75,21 @@ internal static class GameToolStatus
                 status = relation == GameToolVersionRelation.UpdateAvailable ? "updateAvailable" : "installed";
                 statusText = relation switch
                 {
-                    GameToolVersionRelation.UpdateAvailable => "Version " + latest!.Version + " is available.",
-                    GameToolVersionRelation.NewerThanLatest => "Newer than the latest stable release.",
+                    GameToolVersionRelation.UpdateAvailable => "Version "
+                                                               + channel.Display(latest!.Version, latest.Asset.Name)
+                                                               + " is available.",
+                    GameToolVersionRelation.NewerThanLatest => "Newer than the latest "
+                                                               + channel.Label.ToLowerInvariant() + " release.",
                     _ => "Installed as " + manifest.ProxyName + "."
                 };
                 if (relation == GameToolVersionRelation.UpdateAvailable)
                 {
                     actions.Add("update");
+                }
+
+                if (tool.Channels.Length > 1)
+                {
+                    actions.Add("switchChannel");
                 }
 
                 actions.AddRange(["configure", "repair", "remove"]);
@@ -141,6 +148,32 @@ internal static class GameToolStatus
         var canEdit = actions.Contains("install") || actions.Contains("configure");
         return new GameToolEvaluation(status, statusText, incompatible, actions, conflicts, warnings, changesConfig,
             canEdit || (manifest is not null && folderReady), canEdit);
+    }
+
+    /// <summary>How an installation relates to a channel's latest release.</summary>
+    /// <param name="tool">The tool.</param>
+    /// <param name="manifest">The installed manifest, or null.</param>
+    /// <param name="latest">The channel's latest release, or null when unknown.</param>
+    /// <returns>Unknown without an installation or a known release.</returns>
+    internal static GameToolVersionRelation Relation(GameToolDefinition tool, GameToolManifest? manifest,
+        HostedRelease? latest)
+    {
+        return manifest is null
+            ? GameToolVersionRelation.Unknown
+            : GameToolVersions.Relate(tool,
+                manifest.ReleaseVersion.Length > 0 ? manifest.ReleaseVersion : manifest.Version, manifest.ReleaseId,
+                latest?.Version, latest?.Id);
+    }
+
+    /// <summary>Whether installing a release replaces the installation's configuration format.</summary>
+    /// <param name="tool">The tool.</param>
+    /// <param name="manifest">The installed manifest, or null.</param>
+    /// <param name="latest">The release that would be installed, or null.</param>
+    /// <returns>True when both families are known and differ; the user must then confirm <c>replaceConfig</c>.</returns>
+    internal static bool ChangesConfig(GameToolDefinition tool, GameToolManifest? manifest, HostedRelease? latest)
+    {
+        var family = latest is null ? "" : GameToolVersions.Family(tool, latest.Version);
+        return manifest is { Family.Length: > 0 } && family.Length > 0 && manifest.Family != family;
     }
 
     /// <summary>Whether the game has a folder to work in, even while it runs.</summary>
@@ -265,7 +298,7 @@ internal static class GameToolStatus
     {
         return role switch
         {
-            GameRuntimeRole.Game => "Game",
+            GameRuntimeRole.Game => "Likely the game",
             GameRuntimeRole.Launcher => "Launcher or settings",
             GameRuntimeRole.Helper => "Installer or helper",
             _ => "Program"

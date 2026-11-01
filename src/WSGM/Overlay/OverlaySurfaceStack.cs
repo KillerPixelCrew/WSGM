@@ -199,6 +199,18 @@ internal sealed class OverlaySurfaceStack
         Show(content, SurfaceKind.Utility, title, preferredFocus);
     }
 
+    /// <summary>
+    ///     Shows a confirmation as a utility surface centred in the window, so its whole question and both answers
+    ///     stay visible however low the control that asked sits.
+    /// </summary>
+    /// <param name="content">The question and its answers; the stack scrolls it only when the window is too short.</param>
+    /// <param name="title">The question's heading and the close button's accessible name.</param>
+    /// <param name="preferredFocus">The safe answer, focused first.</param>
+    internal void ShowConfirm(Control content, string title, InputElement preferredFocus)
+    {
+        Show(content, SurfaceKind.Utility, title, preferredFocus, true);
+    }
+
     /// <summary>Pushes the controller-accessible local picker and resolves its first completion.</summary>
     /// <param name="folder">True for directory selection, false for file selection.</param>
     /// <param name="extensions">Allowed file extensions; empty permits all file types.</param>
@@ -327,7 +339,8 @@ internal sealed class OverlaySurfaceStack
         return button;
     }
 
-    private void Show(Control content, SurfaceKind kind, string title, InputElement? preferredFocus)
+    private void Show(Control content, SurfaceKind kind, string title, InputElement? preferredFocus,
+        bool centered = false)
     {
         var settlingClose = _closeTimer is not null;
         if (settlingClose)
@@ -393,7 +406,7 @@ internal sealed class OverlaySurfaceStack
             (invokingControl as Control)?.TranslatePoint(new Point(0, (invokingControl as Control)?.Bounds.Height ?? 0),
                 _root);
         var picker = content is OverlayFilePicker;
-        var top = kind == SurfaceKind.Utility && !picker
+        var top = kind == SurfaceKind.Utility && !picker && !centered
             ? Math.Clamp((anchor?.Y ?? 72) + 12, 16, Math.Max(16, _root.Bounds.Height - 260))
             : 16;
         var container = new Border
@@ -403,10 +416,10 @@ internal sealed class OverlaySurfaceStack
             Margin = kind == SurfaceKind.Keyboard ? default : new Thickness(16, top, 16, 16),
             CornerRadius = kind == SurfaceKind.Keyboard ? default : new CornerRadius(6),
             BorderThickness = new Thickness(1),
-            HorizontalAlignment = picker ? HorizontalAlignment.Center :
+            HorizontalAlignment = picker || centered ? HorizontalAlignment.Center :
                 kind == SurfaceKind.Keyboard ? HorizontalAlignment.Stretch :
                 kind == SurfaceKind.Power ? HorizontalAlignment.Center : HorizontalAlignment.Right,
-            VerticalAlignment = picker ? VerticalAlignment.Center
+            VerticalAlignment = picker || centered ? VerticalAlignment.Center
                 : kind == SurfaceKind.Keyboard ? VerticalAlignment.Bottom
                 : kind == SurfaceKind.Utility ? VerticalAlignment.Top : VerticalAlignment.Center,
             MaxWidth = picker ? Math.Min(1000, _root.Bounds.Width - 32) :

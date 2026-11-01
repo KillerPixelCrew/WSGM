@@ -325,6 +325,40 @@ internal static class SteamArtwork
         }
     }
 
+    /// <summary>
+    ///     The landscape capsule a library row shows for a game: its custom Wide artwork when it has one, otherwise
+    ///     the header Steam cached for a store title. Local file I/O only; nothing is downloaded.
+    /// </summary>
+    /// <param name="appId">The Steam app id (signed shortcut ids accepted).</param>
+    /// <returns>The image file, or null when neither exists.</returns>
+    public static string? FindCapsuleFile(long appId)
+    {
+        if (FindCustomArtFile(appId, ArtworkAsset.Wide) is { } custom)
+        {
+            return custom;
+        }
+
+        try
+        {
+            var normalized = SteamApps.NormalizeAppId(appId);
+            if (Steam.InstallDirectory is not { } steamRoot || SteamApps.IsShortcutAppId(normalized))
+            {
+                return null;
+            }
+
+            var id = normalized.ToString(CultureInfo.InvariantCulture);
+            var cache = Path.Combine(steamRoot, "appcache", "librarycache");
+            // Current clients keep a folder per app; older ones kept flat <id>_header.jpg files.
+            return new[] { Path.Combine(cache, id, "header.jpg"), Path.Combine(cache, id + "_header.jpg") }
+                .FirstOrDefault(File.Exists);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Artwork: capsule lookup failed: {ex.Message}");
+            return null;
+        }
+    }
+
     private static ArtworkResult Interpret(SteamClientWriteResult result, string okMessage)
     {
         switch (result.Outcome)

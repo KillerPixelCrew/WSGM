@@ -5,4 +5,5 @@ namespace WSGM.Shell;
 /// <summary>Source-generated camel-case serialization of the Game Tools state.</summary>
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(GameToolsState))]
+[JsonSerializable(typeof(GameToolsLibrary))]
 internal sealed partial class GameToolsJsonContext : JsonSerializerContext;

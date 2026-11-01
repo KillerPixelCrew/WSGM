@@ -17,6 +17,14 @@ internal static class GameToolVersions
         return match.Success ? match.Value : "";
     }
 
+    /// <summary>The installed version as the user reads it: the release's version, else the binary's number.</summary>
+    /// <param name="manifest">The installed manifest.</param>
+    /// <returns>Such as <c>0.9.4</c> or <c>10.0.0-pre1</c>.</returns>
+    internal static string Installed(GameToolManifest manifest)
+    {
+        return manifest.ReleaseVersion.Length > 0 ? manifest.ReleaseVersion : NumericToken(manifest.Version);
+    }
+
     /// <summary>Parses the numeric token into integers, treating missing parts as zero when compared.</summary>
     /// <param name="version">The version text.</param>
     /// <returns>The integer parts, empty when there is no numeric token.</returns>

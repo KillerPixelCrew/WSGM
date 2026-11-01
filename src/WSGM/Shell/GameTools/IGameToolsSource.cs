@@ -17,6 +17,15 @@ internal interface IGameToolsSource : IChangeSource
     /// <returns>The state; a loading placeholder before the first scan.</returns>
     GameToolsState Peek(uint appId);
 
+    /// <summary>The cached game list without reading anything; it starts the first read when none ran yet.</summary>
+    /// <returns>The list, <see cref="GameToolsLibrary.Loading" /> before the first read finishes.</returns>
+    GameToolsLibrary PeekLibrary();
+
+    /// <summary>Reads the game list from the store and the cached release answers.</summary>
+    /// <param name="cancellationToken">Cancels waiting; the read itself finishes and is cached.</param>
+    /// <returns>The list; later changes arrive through Changed and <see cref="PeekLibrary" />.</returns>
+    Task<GameToolsLibrary> ReadLibraryAsync(CancellationToken cancellationToken = default);
+
     /// <summary>Opens a game's page: scans it unless a scan just finished, and returns its state.</summary>
     /// <param name="appId">The game.</param>
     /// <param name="cancellationToken">Cancels waiting for the scan.</param>
@@ -55,6 +64,16 @@ internal interface IGameToolsSource : IChangeSource
     /// <param name="cancellationToken">The request's cancellation.</param>
     /// <returns>Whether the work was admitted.</returns>
     Task<SteamUiCommandResult> UpdateAsync(uint appId, string toolId, bool replaceConfig,
+        CancellationToken cancellationToken);
+
+    /// <summary>Installs the latest release of another channel, whether it is newer or older than the installed one.</summary>
+    /// <param name="appId">The game.</param>
+    /// <param name="toolId">The tool.</param>
+    /// <param name="channel">The channel to follow from now on.</param>
+    /// <param name="replaceConfig">Confirms taking the new stock configuration file when the format changes.</param>
+    /// <param name="cancellationToken">The request's cancellation.</param>
+    /// <returns>Whether the work was admitted.</returns>
+    Task<SteamUiCommandResult> SwitchChannelAsync(uint appId, string toolId, string channel, bool replaceConfig,
         CancellationToken cancellationToken);
 
     /// <summary>Restores missing or changed files of the installed version.</summary>

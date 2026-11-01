@@ -75,26 +75,39 @@ internal sealed class GameToolInstaller(string userRoot)
                 DescribeExisting(tool, path, owned.Contains(option.Name)), option.Suggest));
         }
 
+        var (missing, modified) = manifest is { State: GameToolManifestState.Installed }
+            ? CheckOwned(targetDirectory, manifest)
+            : ([], []);
+        return new GameToolInspection(unmanaged, proxies, missing, modified);
+    }
+
+    /// <summary>
+    ///     The quick revalidation of the files a manifest owns: which are missing, and which binaries changed size
+    ///     or write time. One file lookup per owned file; nothing is hashed and no folder is walked.
+    /// </summary>
+    /// <param name="targetDirectory">The absolute target directory.</param>
+    /// <param name="manifest">The installed manifest.</param>
+    /// <returns>The missing and the modified relative paths.</returns>
+    internal static (List<string> Missing, List<string> Modified) CheckOwned(string targetDirectory,
+        GameToolManifest manifest)
+    {
         List<string> missing = [];
         List<string> modified = [];
-        if (manifest is { State: GameToolManifestState.Installed })
+        foreach (var file in manifest.Files)
         {
-            foreach (var file in manifest.Files)
+            var info = new FileInfo(Path.Combine(targetDirectory, file.RelativePath));
+            if (!info.Exists)
             {
-                var info = new FileInfo(Path.Combine(targetDirectory, file.RelativePath));
-                if (!info.Exists)
-                {
-                    missing.Add(file.RelativePath);
-                }
-                else if (file.Kind == GameToolFileKind.Binary
-                         && (info.Length != file.Size || info.LastWriteTimeUtc != file.LastWriteUtc))
-                {
-                    modified.Add(file.RelativePath);
-                }
+                missing.Add(file.RelativePath);
+            }
+            else if (file.Kind == GameToolFileKind.Binary
+                     && (info.Length != file.Size || info.LastWriteTimeUtc != file.LastWriteUtc))
+            {
+                modified.Add(file.RelativePath);
             }
         }
 
-        return new GameToolInspection(unmanaged, proxies, missing, modified);
+        return (missing, modified);
     }
 
     /// <summary>
@@ -178,7 +191,10 @@ internal sealed class GameToolInstaller(string userRoot)
     /// <param name="ensureClosed">
     ///     Rechecks right before the first game-file write that the game is closed; returns why not, or null.
     /// </param>
-    /// <param name="phase">Receives the current phase text.</param>
+    /// <param name="phase">
+    ///     Receives the current <see cref="GameToolPhase" /> id: <see cref="GameToolPhase.Copy" /> while planning,
+    ///     backing up and copying, then <see cref="GameToolPhase.Settings" />.
+    /// </param>
     /// <param name="cancellationToken">Cancels planning; once files are being written the transaction completes or rolls back.</param>
     /// <param name="inspection">
     ///     The caller's inspection of the target directory with <paramref name="current" />, reused instead of
@@ -213,7 +229,7 @@ internal sealed class GameToolInstaller(string userRoot)
                                         " and re-apply your settings.");
         }
 
-        phase("Checking the game folder");
+        phase(GameToolPhase.Copy);
         var directory = target.TargetDirectory;
         var proxy = tool.Proxy.Options.First(option =>
             option.Name.Equals(request.ProxyName, StringComparison.OrdinalIgnoreCase)).Name;
@@ -304,7 +320,8 @@ internal sealed class GameToolInstaller(string userRoot)
             Journal = journal,
             JournalDirectories = [.. plan.Directories],
             Previous = previous,
-            Operation = request.Operation
+            Operation = request.Operation,
+            Channel = request.Channel ?? (current is { Channel.Length: > 0 } ? current.Channel : tool.DefaultChannel.Id)
         };
 
         // Persist BEFORE touching the game: after a crash, this journal is the only way back.
@@ -312,12 +329,11 @@ internal sealed class GameToolInstaller(string userRoot)
         try
         {
             RequireClosed(ensureClosed);
-            phase("Copying files");
             await Task.Run(() => Execute(directory, plan, journal), CancellationToken.None).ConfigureAwait(false);
+            phase(GameToolPhase.Settings);
             if (configIndex < 0 && (configWritten || request.Settings.Count > 0))
             {
                 // Only a kept file the user asked to change is edited in place.
-                phase("Applying settings");
                 unavailable = ApplySettings(tool, directory, settings);
             }
 
@@ -349,11 +365,15 @@ internal sealed class GameToolInstaller(string userRoot)
             };
             Persist(target.AppId, installed);
             GameToolStorage.DeleteTree(temporary);
+            var channel = tool.ChannelOrDefault(installed.Channel);
+            var shown = channel.Display(GameToolVersions.Installed(installed), installed.AssetName);
             var notice = request.Operation switch
             {
-                "update" => tool.Name + " updated to " + GameToolVersions.NumericToken(package.Version) + ".",
+                "update" => tool.Name + " updated to " + shown + ".",
+                "switchChannel" => tool.Name + " switched to " + channel.Label.ToLowerInvariant() + " "
+                                   + GameToolVersions.Installed(installed) + ".",
                 "repair" => tool.Name + " repaired.",
-                _ => tool.Name + " " + GameToolVersions.NumericToken(package.Version) + " installed as " + proxy + "."
+                _ => tool.Name + " " + shown + " installed as " + proxy + "."
             };
             if (unavailable.Count > 0)
             {
@@ -485,9 +505,7 @@ internal sealed class GameToolInstaller(string userRoot)
 
             manifest = manifest with { Settings = merged, UpdatedUtc = DateTime.UtcNow };
             Persist(target.AppId, manifest);
-            notices.Add(unavailable.Count > 0
-                ? "Settings saved. Not available in this version: " + string.Join(", ", unavailable) + "."
-                : "Settings saved.");
+            notices.Add(SavedNotice(tool, settings.Keys, unavailable));
             Log.Info($"Game Tools: configured {tool.Id} for {target.AppId}.");
         }
 
@@ -1115,6 +1133,38 @@ internal sealed class GameToolInstaller(string userRoot)
         }
 
         return merged;
+    }
+
+    /// <summary>What a configure saved: the changed settings by label and the file they were written to.</summary>
+    /// <param name="tool">The tool.</param>
+    /// <param name="changed">The ids the user changed.</param>
+    /// <param name="unavailable">Labels of settings the installed version's file has no key for.</param>
+    /// <returns>Such as "Menu scale saved to OptiScaler.ini."; it claims no timing the catalog does not document.</returns>
+    internal static string SavedNotice(GameToolDefinition tool, IEnumerable<string> changed,
+        IReadOnlyCollection<string> unavailable)
+    {
+        var saved = tool.Settings.Where(setting => changed.Contains(setting.Id, StringComparer.Ordinal))
+            .Select(setting => setting.Label).Where(label => !unavailable.Contains(label)).ToArray();
+        var names = saved.Length switch
+        {
+            0 => "",
+            1 => saved[0],
+            _ => string.Join(", ", saved[..^1]) + " and " + Lower(saved[^1])
+        };
+        var notice = names.Length > 0 ? names + " saved to " + tool.PrimaryConfig + "." : "";
+        if (unavailable.Count > 0)
+        {
+            notice = (notice + " Not available in this version: " + string.Join(", ", unavailable) + ".").TrimStart();
+        }
+
+        return notice;
+
+        static string Lower(string label)
+        {
+            return label.Length > 1 && char.IsUpper(label[0]) && !char.IsUpper(label[1])
+                ? char.ToLowerInvariant(label[0]) + label[1..]
+                : label;
+        }
     }
 
     private static List<string> ApplySettings(GameToolDefinition tool, string directory,

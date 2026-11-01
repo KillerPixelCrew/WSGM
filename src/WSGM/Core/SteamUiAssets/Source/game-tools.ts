@@ -52,7 +52,7 @@ const gameToolsProgress = (ui, busy, onCancel: () => void) => {
     done: busy.bytes,
     total: busy.total,
     detail: [
-      busy.phase,
+      busy.detail ?? busy.phase,
       amount,
       busy.cancellable ? "" : "Game files are being written; this can't be cancelled now.",
     ].filter(Boolean).join(" · "),

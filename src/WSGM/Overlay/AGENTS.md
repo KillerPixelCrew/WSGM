@@ -72,3 +72,6 @@ before rail/home navigation. All four content tools complete their workflows loc
 importer's distinction between staged and immediate artwork. File/folder selection stays inside
 the Overlay. Media initializes only on Play, pauses behind surfaces and releases on leaving the
 page. Headless captures supply explicit session fakes and never start a live media/Steam owner.
+A new confirmation uses the centred in-window `ShowConfirm` surface with the safe answer focused
+rather than a navigation level. A keyed card is a bordered panel; tag it by its layout so
+reconciliation keeps its editors without reusing stale grid cells.

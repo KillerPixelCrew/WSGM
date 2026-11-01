@@ -7,16 +7,37 @@
       "description": "Swaps a game's DLSS, FSR or XeSS upscaler for another one and can add frame generation. Open its in-game menu with the Insert key.",
       "homepage": "https://github.com/optiscaler/OptiScaler",
       "license": "GPL-3.0",
-      "notice": "WSGM is not affiliated with OptiScaler; report problems to WSGM.",
+      "notice": "WSGM is not affiliated with OptiScaler. Report problems to WSGM.",
       "antiCheatWarning": "Do not use with online games. Anti-cheat may ban accounts.",
-      "source": {
-        "provider": "GitHub",
-        "baseUrl": "https://api.github.com/",
-        "repository": "optiscaler/OptiScaler",
-        "assetPattern": "(?i)^optiscaler_.*[.]7z$",
-        "channel": "stable",
-        "packageType": "7z"
-      },
+      "channels": [
+        {
+          "id": "stable",
+          "label": "Stable",
+          "description": "",
+          "source": {
+            "provider": "GitHub",
+            "baseUrl": "https://api.github.com/",
+            "repository": "optiscaler/OptiScaler",
+            "assetPattern": "(?i)^optiscaler_.*[.]7z$",
+            "channel": "stable",
+            "packageType": "7z"
+          }
+        },
+        {
+          "id": "nightly",
+          "label": "Nightly",
+          "description": "Daily test builds of the next version; may be unstable",
+          "source": {
+            "provider": "GitHub",
+            "baseUrl": "https://api.github.com/",
+            "repository": "optiscaler/OptiScaler-nightly",
+            "assetPattern": "(?i)^optiscaler_v.*[.]7z$",
+            "channel": "prerelease",
+            "packageType": "7z"
+          },
+          "versionPattern": "(?i)^optiscaler_v(?<version>[0-9]+(?:[.][0-9]+)*(?:-[a-z0-9.]+)?)_(?<build>[0-9]{8})[.]7z$"
+        }
+      ],
       "architectures": ["x64"],
       "primaryFile": "OptiScaler.dll",
       "identity": {
@@ -86,7 +107,8 @@
         "nvngx.dll",
         "nvapi64.dll",
         "D3D12_Optiscaler/*",
-        "Licenses/*"
+        "Licenses/*",
+        "OptiScaler/*"
       ],
       "legacyFiles": [
         "OptiScaler.ini",
@@ -120,7 +142,7 @@
           "key": "Dxgi",
           "default": "on",
           "options": [
-            { "value": "on", "label": "On", "ini": "auto" },
+            { "value": "on", "label": "Automatic", "ini": "auto" },
             { "value": "off", "label": "Off", "ini": "false" }
           ],
           "vendorNotes": { "nvidia": "Not needed on NVIDIA graphics." }
@@ -133,7 +155,7 @@
           "key": "Scale",
           "default": "auto",
           "options": [
-            { "value": "auto", "label": "Auto", "ini": "auto" },
+            { "value": "auto", "label": "Automatic", "ini": "auto" },
             { "value": "0.8", "label": "0.8", "ini": "0.8" },
             { "value": "0.9", "label": "0.9", "ini": "0.9" },
             { "value": "1.0", "label": "1.0", "ini": "1.0" },
@@ -147,7 +169,7 @@
         },
         {
           "id": "hideSplash",
-          "label": "Hide startup message",
+          "label": "Hide the startup message",
           "description": "Skips the message OptiScaler shows when the game starts.",
           "section": "Menu",
           "key": "DisableSplash",

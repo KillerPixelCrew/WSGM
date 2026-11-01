@@ -14,7 +14,7 @@ namespace WSGM.Core;
 
 /// <summary>Finds, downloads, verifies and caches tool packages through the shared release adapters.</summary>
 /// <remarks>
-///     Latest-release lookups are cached in memory for the session, because GitHub's anonymous API limit is
+///     Latest-release lookups are cached in memory per tool and channel for the session, because GitHub's anonymous API limit is
 ///     small: an answer for six hours and a failure for ten minutes. An explicit "Check for updates"
 ///     refreshes. Downloads fail closed: a release without a published SHA-256 is refused. Packages are kept
 ///     extracted under <c>&lt;root&gt;\GameTools\packages\&lt;tool&gt;\&lt;release&gt;</c>, keyed by version, asset,
@@ -51,36 +51,41 @@ internal sealed class GameToolReleases : IDisposable
         _client.Dispose();
     }
 
-    /// <summary>The cached latest release without contacting the network.</summary>
+    /// <summary>The cached latest release of one channel without contacting the network.</summary>
     /// <param name="tool">The tool.</param>
+    /// <param name="channel">The channel.</param>
     /// <returns>The cached answer, or null when none has been looked up.</returns>
-    internal GameToolLatest? Cached(GameToolDefinition tool)
+    internal GameToolLatest? Cached(GameToolDefinition tool, GameToolChannel channel)
     {
         lock (_latestGate)
         {
-            return _latest.GetValueOrDefault(tool.Id);
+            return _latest.GetValueOrDefault(Key(tool, channel));
         }
     }
 
-    /// <summary>Whether opening a page should look the release up: nothing is known, or a failure has aged out.</summary>
+    /// <summary>Whether opening a page should look a channel up: nothing is known, or a failure has aged out.</summary>
     /// <param name="tool">The tool.</param>
+    /// <param name="channel">The channel.</param>
     /// <returns>True when an unforced lookup is due.</returns>
     /// <remarks>A known release is kept for the session on page opens; installs and updates apply its lifetime.</remarks>
-    internal bool LookupDue(GameToolDefinition tool)
+    internal bool LookupDue(GameToolDefinition tool, GameToolChannel channel)
     {
-        return Cached(tool) is not { } cached
+        return Cached(tool, channel) is not { } cached
                || (cached.Release is null && DateTime.UtcNow - cached.CheckedUtc >= FailureLifetime);
     }
 
-    /// <summary>Looks up the latest release, reusing a recent answer or failure unless forced.</summary>
+    /// <summary>Looks up a channel's latest release, reusing a recent answer or failure unless forced.</summary>
     /// <param name="tool">The tool.</param>
+    /// <param name="channel">The channel; every channel keeps its own answer and lifetime.</param>
     /// <param name="force">Whether to bypass the cache.</param>
     /// <param name="cancellationToken">Cancels the lookup.</param>
-    /// <returns>The answer; a failure is carried in it rather than thrown.</returns>
-    internal async Task<GameToolLatest> LatestAsync(GameToolDefinition tool, bool force,
+    /// <returns>
+    ///     The answer, with the version the channel's rule reads; a failure is carried in it rather than thrown.
+    /// </returns>
+    internal async Task<GameToolLatest> LatestAsync(GameToolDefinition tool, GameToolChannel channel, bool force,
         CancellationToken cancellationToken)
     {
-        if (!force && Cached(tool) is { } cached
+        if (!force && Cached(tool, channel) is { } cached
                    && DateTime.UtcNow - cached.CheckedUtc < (cached.Release is null ? FailureLifetime : LatestLifetime))
         {
             return cached;
@@ -89,20 +94,20 @@ internal sealed class GameToolReleases : IDisposable
         GameToolLatest answer;
         try
         {
-            var release = await _releases.FindAsync(tool.Source.Hosted(), tool.Architectures[0], cancellationToken)
-                .ConfigureAwait(false);
-            answer = new GameToolLatest(release, null, DateTime.UtcNow);
+            var release = await _releases.FindAsync(channel.Source.Hosted(), tool.Architectures[0],
+                cancellationToken).ConfigureAwait(false);
+            answer = new GameToolLatest(channel.Normalize(release), null, DateTime.UtcNow);
         }
         catch (Exception ex) when (ex is HttpRequestException or InvalidDataException or JsonException
                                        or TimeoutException or IOException or KeyNotFoundException)
         {
-            Log.Warn($"Game Tools: release lookup for {tool.Id} failed: {ex.Message}");
-            answer = new GameToolLatest(null, ReleaseError(ex, tool.Source.Provider), DateTime.UtcNow);
+            Log.Warn($"Game Tools: release lookup for {tool.Id} ({channel.Id}) failed: {ex.Message}");
+            answer = new GameToolLatest(null, ReleaseError(ex, channel.Source.Provider), DateTime.UtcNow);
         }
 
         lock (_latestGate)
         {
-            _latest[tool.Id] = answer;
+            _latest[Key(tool, channel)] = answer;
         }
 
         return answer;
@@ -110,23 +115,27 @@ internal sealed class GameToolReleases : IDisposable
 
     /// <summary>Returns a verified package for a release, downloading it once.</summary>
     /// <param name="tool">The tool.</param>
+    /// <param name="channel">The channel the release belongs to, for its package type.</param>
     /// <param name="release">The release.</param>
-    /// <param name="progress">Receives the phase text, the bytes copied and the expected total.</param>
+    /// <param name="progress">
+    ///     Receives the <see cref="GameToolPhase" /> id (<see cref="GameToolPhase.Download" /> or
+    ///     <see cref="GameToolPhase.Verify" />), the bytes copied and the expected total.
+    /// </param>
     /// <param name="cancellationToken">Cancels the download and extraction.</param>
     /// <returns>The package.</returns>
-    internal async Task<GameToolPackage> PrepareAsync(GameToolDefinition tool, HostedRelease release,
-        Action<string, long, long> progress, CancellationToken cancellationToken)
+    internal async Task<GameToolPackage> PrepareAsync(GameToolDefinition tool, GameToolChannel channel,
+        HostedRelease release, Action<string, long, long> progress, CancellationToken cancellationToken)
     {
         SweepStages(tool);
         var sha = UpdateChecker.ParseHash(release.Asset.Sha256)
                   ?? throw new InvalidDataException(
                       "The publisher didn't provide a checksum for this download, so WSGM won't install it.");
         release = release with { Asset = release.Asset with { Sha256 = sha } };
-        if (!Path.GetExtension(release.Asset.Name).TrimStart('.').Equals(tool.Source.PackageType,
+        if (!Path.GetExtension(release.Asset.Name).TrimStart('.').Equals(channel.Source.PackageType,
                 StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidDataException("The published package is not the expected ." + tool.Source.PackageType
-                + " archive.");
+            throw new InvalidDataException("The published package is not the expected ."
+                                           + channel.Source.PackageType + " archive.");
         }
 
         var identity = string.Join('|', release.Version, release.Asset.Name, sha, release.Asset.Url);
@@ -135,6 +144,7 @@ internal sealed class GameToolReleases : IDisposable
         if (File.Exists(Path.Combine(directory, IdentityFile))
             && File.ReadAllText(Path.Combine(directory, IdentityFile)) == identity && Directory.Exists(payload))
         {
+            progress(GameToolPhase.Verify, 0, 0);
             try
             {
                 return Validate(tool, release, Unwrap(payload)) with { Hashes = ReadHashes(directory) };
@@ -151,9 +161,9 @@ internal sealed class GameToolReleases : IDisposable
         {
             var archive = Path.Combine(stage, release.Asset.Name);
             await DownloadAsync(release.Asset, archive,
-                    copied => progress("Downloading " + tool.Name, copied, release.Asset.Size), cancellationToken)
+                    copied => progress(GameToolPhase.Download, copied, release.Asset.Size), cancellationToken)
                 .ConfigureAwait(false);
-            progress("Extracting", 0, 0);
+            progress(GameToolPhase.Verify, 0, 0);
             var extracted = Path.Combine(stage, "payload");
             await Task.Run(() => PackageArchive.Extract(archive, extracted, cancellationToken), cancellationToken)
                 .ConfigureAwait(false);
@@ -299,6 +309,11 @@ internal sealed class GameToolReleases : IDisposable
             TimeoutException or IOException => true,
             _ => false
         };
+    }
+
+    private static string Key(GameToolDefinition tool, GameToolChannel channel)
+    {
+        return tool.Id + "/" + channel.Id;
     }
 
     private static string ReleaseError(Exception ex, string provider)

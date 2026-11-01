@@ -72,13 +72,13 @@ internal sealed record GameToolCatalog
                                                                       || tool.Proxy.Options.Any(option =>
                                                                           !DownloadClient.IsSafeAssetName(option.Name))
                                                                       || tool.Identity.OriginalFilename.Length == 0
-                                                                      || !HostedReleases.Providers.Contains(tool.Source
-                                                                          .Provider)
                                                                       || tool.RequiresUpscaler.Any(requirement =>
                                                                           requirement.Family.Length == 0
                                                                           || requirement.Label.Length == 0)
-                                                                      || tool.Source.PackageType is not ("7z" or "zip")
-                                                                      || tool.Source.AssetPattern.Length == 0
+                                                                      || tool.Channels.Length == 0
+                                                                      || tool.Channels.Select(channel => channel.Id)
+                                                                          .Distinct(StringComparer.Ordinal).Count()
+                                                                      != tool.Channels.Length
                                                                       || tool.Payload.Required.Length == 0
                                                                       || tool.ConfigFiles.Any(name =>
                                                                           !SafeRelative(name))
@@ -108,7 +108,46 @@ internal sealed record GameToolCatalog
             throw new InvalidDataException("Invalid Game Tools definition: " + tool.Id);
         }
 
-        DownloadClient.Https(tool.Source.BaseUrl);
+        foreach (var channel in tool.Channels)
+        {
+            Validate(tool, channel);
+        }
+    }
+
+    // Every channel is held to the same rules: a supported HTTPS provider, an explicit asset selection and
+    // package type, and a version rule that names its version group.
+    private static void Validate(GameToolDefinition tool, GameToolChannel channel)
+    {
+        var source = channel.Source;
+        var invalid = !Regex.IsMatch(channel.Id, "^[a-z][a-z0-9-]*$") || channel.Label.Length == 0
+                                                                      || !HostedReleases.Providers.Contains(
+                                                                          source.Provider)
+                                                                      || !Regex.IsMatch(source.Repository,
+                                                                          "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+                                                                      || source.PackageType is not ("7z" or "zip")
+                                                                      || source.AssetPattern.Length == 0
+                                                                      || source.Channel.Length == 0;
+        try
+        {
+            _ = new Regex(source.AssetPattern, RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+            if (channel.VersionPattern.Length > 0)
+            {
+                var version = new Regex(channel.VersionPattern, RegexOptions.CultureInvariant,
+                    TimeSpan.FromSeconds(1));
+                invalid |= !version.GetGroupNames().Contains("version", StringComparer.Ordinal);
+            }
+        }
+        catch (ArgumentException)
+        {
+            invalid = true;
+        }
+
+        if (invalid)
+        {
+            throw new InvalidDataException("Invalid Game Tools channel: " + tool.Id + "/" + channel.Id);
+        }
+
+        DownloadClient.Https(source.BaseUrl);
     }
 
     private static bool SafeRelative(string path)

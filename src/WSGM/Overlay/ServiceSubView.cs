@@ -267,6 +267,17 @@ public abstract class ServiceSubView : OverlaySubView
                         continue;
                     }
 
+                    // A keyed card is a border around a panel: keep it and reconcile its body, so the editors and
+                    // previews inside it survive a publication the way a bare panel's do.
+                    if (Key(fresh) is not null && existing is Border card && fresh is Border nextCard
+                        && card.Child is Panel cardBody && nextCard.Child is Panel nextCardBody
+                        && cardBody.GetType() == nextCardBody.GetType())
+                    {
+                        card.Classes.Replace(nextCard.Classes);
+                        Reconcile(cardBody, nextCardBody);
+                        continue;
+                    }
+
                     if (existing.IsKeyboardFocusWithin && (existing is Slider or TextBox ||
                                                            existing.GetLogicalDescendants().OfType<Slider>().Any()))
                     {

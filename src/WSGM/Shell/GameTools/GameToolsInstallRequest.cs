@@ -9,10 +9,12 @@ namespace WSGM.Shell;
 /// <param name="Settings">Setting values by id; omitted ids use their defaults.</param>
 /// <param name="AcknowledgeRisk">Whether the user accepted the anti-cheat warning.</param>
 /// <param name="ReplaceExisting">Back up and replace an installation made outside WSGM.</param>
+/// <param name="Channel">The release channel to install from, or null for the tool's default channel.</param>
 internal sealed record GameToolsInstallRequest(
     uint AppId,
     string ToolId,
     string? ProxyName,
     IReadOnlyDictionary<string, string> Settings,
     bool AcknowledgeRisk,
-    bool ReplaceExisting);
+    bool ReplaceExisting,
+    string? Channel = null);

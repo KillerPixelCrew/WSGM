@@ -15,10 +15,17 @@ namespace WSGM.Shell;
 ///     <c>unavailable</c>.
 /// </param>
 /// <param name="StatusText">A short user-facing status line.</param>
-/// <param name="InstalledVersion">The installed product version, or null.</param>
-/// <param name="LatestVersion">The latest stable release tag, or null when unknown.</param>
-/// <param name="LatestError">Why the latest release is unknown, or null.</param>
-/// <param name="CheckingLatest">Whether a release lookup is running.</param>
+/// <param name="InstalledVersion">The installed release's version, such as <c>0.9.4</c>, or null.</param>
+/// <param name="InstalledLabel">
+///     The installed version as the user reads it, with the channel and build date for a dated build such as
+///     <c>10.0.0-pre1 · nightly 31 Oct 2026</c>; null when not installed.
+/// </param>
+/// <param name="Channel">The channel the installation follows, or the default channel before installation.</param>
+/// <param name="Channels">Every release channel with its latest release, the default first.</param>
+/// <param name="LatestVersion">The latest release of <paramref name="Channel" />, or null when unknown.</param>
+/// <param name="LatestLabel">That release as the user reads it, or null when unknown.</param>
+/// <param name="LatestError">Why the latest release of <paramref name="Channel" /> is unknown, or null.</param>
+/// <param name="CheckingLatest">Whether a release lookup of any channel is running.</param>
 /// <param name="UpdateChangesConfig">Whether the available update changes the configuration format.</param>
 /// <param name="ProxyName">The installed proxy name, or the suggested one when not installed.</param>
 /// <param name="ProxyIntro">The text introducing the file name choice: before installation, or for a rename.</param>
@@ -41,7 +48,11 @@ internal sealed record GameToolsTool(
     string Status,
     string StatusText,
     string? InstalledVersion,
+    string? InstalledLabel,
+    string Channel,
+    IReadOnlyList<GameToolsChannel> Channels,
     string? LatestVersion,
+    string? LatestLabel,
     string? LatestError,
     bool CheckingLatest,
     bool UpdateChangesConfig,

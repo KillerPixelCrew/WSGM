@@ -68,6 +68,9 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     private GameToolsBusy? _busy;
     private bool _disposed;
     private long _lastProgress;
+    private GameToolsLibrary? _library;
+    private bool _libraryDirty;
+    private Task<GameToolsLibrary>? _libraryRead;
     private Task? _operation;
     private CancellationTokenSource? _operationCancellation;
     private uint _viewedAppId;
@@ -149,9 +152,7 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
                     Loading = loading,
                     Error = messages.Error,
                     Notice = messages.Notice,
-                    Tools = _checking.Count == 0
-                        ? state.Tools
-                        : [.. state.Tools.Select(tool => tool with { CheckingLatest = _checking.Contains(tool.Id) })]
+                    Tools = _checking.Count == 0 ? state.Tools : [.. state.Tools.Select(WithChecking)]
                 };
             }
 
@@ -160,6 +161,37 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
                 Busy = busy, Loading = true, Error = messages.Error, Notice = messages.Notice
             };
         }
+    }
+
+    /// <inheritdoc />
+    public GameToolsLibrary PeekLibrary()
+    {
+        lock (_sync)
+        {
+            if (_library is null && !_disposed)
+            {
+                QueueLibraryLocked();
+            }
+
+            return _library ?? GameToolsLibrary.Pending;
+        }
+    }
+
+    /// <inheritdoc />
+    public Task<GameToolsLibrary> ReadLibraryAsync(CancellationToken cancellationToken = default)
+    {
+        Task<GameToolsLibrary> pending;
+        lock (_sync)
+        {
+            if (_disposed)
+            {
+                return Task.FromResult(_library ?? GameToolsLibrary.Pending);
+            }
+
+            pending = _libraryRead ??= Task.Run(BuildLibrary, CancellationToken.None);
+        }
+
+        return pending.WaitAsync(cancellationToken);
     }
 
     /// <inheritdoc />
@@ -280,7 +312,10 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     {
         cancellationToken.ThrowIfCancellationRequested();
         return Start(request.AppId, request.ToolId, request.ReplaceExisting ? "replaceExisting" : "install",
-            tool => GameToolAdmission.Settings(tool, request.Settings),
+            tool => GameToolAdmission.Settings(tool, request.Settings)
+                    ?? (request.Channel is { } channel && tool.Channel(channel) is null
+                        ? "Unknown release channel."
+                        : null),
             (tool, context, token) => InstallCoreAsync(tool, request, context, token));
     }
 
@@ -290,9 +325,32 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     {
         cancellationToken.ThrowIfCancellationRequested();
         return Start(appId, toolId, "update", null, (tool, context, token) => ReinstallCoreAsync(tool, appId, "update",
-            (_, releaseToken) => LatestReleaseAsync(tool, releaseToken), "Updating " + tool.Name, replaceConfig,
-            context,
-            token));
+            async (manifest, releaseToken) =>
+            {
+                var channel = tool.ChannelOrDefault(manifest.Channel);
+                return (await LatestReleaseAsync(tool, channel, releaseToken).ConfigureAwait(false), channel);
+            }, replaceConfig, context, token));
+    }
+
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> SwitchChannelAsync(uint appId, string toolId, string channel,
+        bool replaceConfig, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Start(appId, toolId, "switchChannel",
+            tool => tool.Channel(channel) is null ? "Unknown release channel." : null,
+            (tool, context, token) => ReinstallCoreAsync(tool, appId, "switchChannel", async (manifest, releaseToken) =>
+            {
+                var target = tool.Channel(channel)!;
+                if (tool.ChannelOrDefault(manifest.Channel) == target)
+                {
+                    throw new GameToolException(tool.Name + " already follows the " + target.Label.ToLowerInvariant()
+                                                + " channel. Use Update instead.");
+                }
+
+                // The other channel's latest release is installed whether it is newer or older.
+                return (await LatestReleaseAsync(tool, target, releaseToken).ConfigureAwait(false), target);
+            }, replaceConfig, context, token));
     }
 
     /// <inheritdoc />
@@ -300,8 +358,8 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     {
         cancellationToken.ThrowIfCancellationRequested();
         return Start(appId, toolId, "repair", null, (tool, context, token) => ReinstallCoreAsync(tool, appId, "repair",
-            (manifest, _) => Task.FromResult(GameToolReleases.FromManifest(manifest)), "Repairing " + tool.Name, false,
-            context, token));
+            (manifest, _) => Task.FromResult((GameToolReleases.FromManifest(manifest),
+                tool.ChannelOrDefault(manifest.Channel))), false, context, token));
     }
 
     /// <inheritdoc />
@@ -315,7 +373,7 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
             {
                 var (target, manifest) = await InstalledAsync(tool, appId).ConfigureAwait(false);
                 await RequireClosedAsync(target).ConfigureAwait(false);
-                context.Phase("Saving settings", false);
+                context.Phase(GameToolPhase.Settings, false);
                 var outcome = await Task.Run(() => _installer.Configure(tool, target, manifest, proxyName, settings,
                     () => _running.ClosedMessage(target)), CancellationToken.None).ConfigureAwait(false);
                 return outcome.Notice;
@@ -330,7 +388,7 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         {
             var (target, manifest) = await InstalledAsync(tool, appId).ConfigureAwait(false);
             await RequireClosedAsync(target).ConfigureAwait(false);
-            context.Phase("Removing " + tool.Name, false);
+            context.Phase(GameToolPhase.Remove, false);
             var outcome = await Task.Run(() => _installer.Remove(tool, target, manifest), CancellationToken.None)
                 .ConfigureAwait(false);
             return outcome.Notice;
@@ -395,6 +453,23 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         return new ValueTask<GameToolsState?>(appId == 0 ? null : Peek(appId));
     }
 
+    /// <summary>The Steam library publication: every game with tools, read without a folder walk.</summary>
+    /// <returns>The cached list; the first call starts its read.</returns>
+    internal ValueTask<GameToolsLibrary?> ReadLibraryStateAsync()
+    {
+        return new ValueTask<GameToolsLibrary?>(PeekLibrary());
+    }
+
+    /// <summary>Reads the game list again, for a page that opens it.</summary>
+    /// <param name="cancellationToken">The bridge request's cancellation.</param>
+    /// <returns>Applied; the list follows through <see cref="Changed" />.</returns>
+    internal Task<SteamUiCommandResult> RefreshLibraryAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        QueueLibrary();
+        return Task.FromResult(SteamUiCommandResult.Applied);
+    }
+
     private async Task<string> InstallCoreAsync(GameToolDefinition tool, GameToolsInstallRequest request,
         OperationContext context, CancellationToken token)
     {
@@ -403,16 +478,20 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         var target = GameToolAdmission.RequireInstallable(tool, appId, scan.InstallFolder, scan.Availability,
             scan.Reason, scan.Record, scan.Resolution, scan.AntiCheat, request.AcknowledgeRisk);
         await RequireClosedAsync(target).ConfigureAwait(false);
-        var release = await LatestReleaseAsync(tool, token).ConfigureAwait(false);
-        var package = await Releases.PrepareAsync(tool, release, context.Progress, token).ConfigureAwait(false);
-        context.Phase("Installing " + tool.Name, false);
+        var channel = tool.ChannelOrDefault(request.Channel);
+        var release = await LatestReleaseAsync(tool, channel, token).ConfigureAwait(false);
+        context.Release(channel, release);
+        var package = await Releases.PrepareAsync(tool, channel, release, context.Progress, token)
+            .ConfigureAwait(false);
+        context.Phase(GameToolPhase.Copy, false);
 
         // Inspected after the download, right before planning, so the install sees the folder as it is now.
         var inspection = await Task.Run(() => GameToolInstaller.Inspect(tool, target.TargetDirectory, null), token)
             .ConfigureAwait(false);
         var proxy = request.ProxyName ?? GameToolInstaller.SuggestProxy(inspection.Proxies, tool.Proxy.Default);
         var outcome = await _installer.InstallAsync(tool, target, package,
-                new GameToolRequest(request.ReplaceExisting ? "replaceExisting" : "install", proxy, request.Settings),
+                new GameToolRequest(request.ReplaceExisting ? "replaceExisting" : "install", proxy, request.Settings,
+                    Channel: channel.Id),
                 null, () => _running.ClosedMessage(target), phase => context.Phase(phase, false), token, inspection)
             .ConfigureAwait(false);
         GameToolStorage.RememberIdentity(_userRoot, appId, scan.IsShortcut, scan.Name);
@@ -420,29 +499,31 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     }
 
     private async Task<string> ReinstallCoreAsync(GameToolDefinition tool, uint appId, string operation,
-        Func<GameToolManifest, CancellationToken, Task<HostedRelease>> release, string phase, bool replaceConfig,
-        OperationContext context, CancellationToken token)
+        Func<GameToolManifest, CancellationToken, Task<(HostedRelease Release, GameToolChannel Channel)>> release,
+        bool replaceConfig, OperationContext context, CancellationToken token)
     {
         var (target, manifest) = await InstalledAsync(tool, appId).ConfigureAwait(false);
         GameToolAdmission.RequireCompleted(manifest);
         await RequireClosedAsync(target).ConfigureAwait(false);
-        var package = await Releases.PrepareAsync(tool, await release(manifest, token).ConfigureAwait(false),
-            context.Progress, token).ConfigureAwait(false);
-        context.Phase(phase, false);
+        var (chosen, channel) = await release(manifest, token).ConfigureAwait(false);
+        context.Release(channel, chosen);
+        var package = await Releases.PrepareAsync(tool, channel, chosen, context.Progress, token)
+            .ConfigureAwait(false);
+        context.Phase(GameToolPhase.Copy, false);
         var outcome = await _installer.InstallAsync(tool, target, package,
                 new GameToolRequest(operation, manifest.ProxyName,
-                    new Dictionary<string, string>(StringComparer.Ordinal),
-                    replaceConfig),
-                manifest, () => _running.ClosedMessage(target), text => context.Phase(text, false), token)
+                    new Dictionary<string, string>(StringComparer.Ordinal), replaceConfig, channel.Id),
+                manifest, () => _running.ClosedMessage(target), phase => context.Phase(phase, false), token)
             .ConfigureAwait(false);
         return outcome.Notice;
     }
 
-    private async Task<HostedRelease> LatestReleaseAsync(GameToolDefinition tool, CancellationToken token)
+    private async Task<HostedRelease> LatestReleaseAsync(GameToolDefinition tool, GameToolChannel channel,
+        CancellationToken token)
     {
-        var latest = await Releases.LatestAsync(tool, false, token).ConfigureAwait(false);
-        return latest.Release ??
-               throw new GameToolException(latest.Error ?? "No release of " + tool.Name + " is available.");
+        var latest = await Releases.LatestAsync(tool, channel, false, token).ConfigureAwait(false);
+        return latest.Release ?? throw new GameToolException(latest.Error ?? "No "
+            + channel.Label.ToLowerInvariant() + " release of " + tool.Name + " is available.");
     }
 
     // Configure, remove and the reinstalls act on the manifest's own target, so the cached walk is reused.
@@ -498,9 +579,10 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
 
             var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
             _operationCancellation = cancellation;
-            _busy = new GameToolsBusy(appId, operation, "Starting", 0, 0, true);
+            _busy = new GameToolsBusy(appId, tool.Id, operation, GameToolPhase.Starting,
+                GameToolsPhases.Detail(GameToolPhase.Starting, operation, tool.Name, null, null), 0, 0, true);
             _messages[appId] = (null, null);
-            var context = new OperationContext(this);
+            var context = new OperationContext(this, tool, operation);
             _operation = Task.Run(() => RunAsync(appId, tool.Id, operation, context,
                 token => body(tool, context, token), cancellation));
             _operation.ObserveFaults();
@@ -550,7 +632,7 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
             {
                 // The tool's files changed, not the game's programs: the walk is reused and only the record,
                 // the inspection and the upscaler filter are read again.
-                context.Phase("Checking the game folder", false);
+                context.Phase(GameToolPhase.Rescan, false);
                 await ScanAsync(appId, CancellationToken.None, true).ConfigureAwait(false);
             }
         }
@@ -632,46 +714,141 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     {
         foreach (var tool in Catalog.Tools)
         {
-            if (!force && !Releases.LookupDue(tool))
+            foreach (var channel in tool.Channels)
             {
-                continue;
+                StartLatestLookup(appId, tool, channel, force);
             }
+        }
+    }
 
+    // Every channel has its own lookup and cache. A forced check reports the outcome of the channel the game's
+    // tool follows; the other channels' answers only update their rows.
+    private void StartLatestLookup(uint appId, GameToolDefinition tool, GameToolChannel channel, bool force)
+    {
+        if (!force && !Releases.LookupDue(tool, channel))
+        {
+            return;
+        }
+
+        var key = CheckingKey(tool.Id, channel.Id);
+        lock (_sync)
+        {
+            if (_disposed || !_checking.Add(key))
+            {
+                return;
+            }
+        }
+
+        Changed?.Invoke();
+        Task.Run(async () =>
+        {
+            try
+            {
+                var latest = await Releases.LatestAsync(tool, channel, force, _lifetime.Token).ConfigureAwait(false);
+                if (force && FollowedChannel(appId, tool) == channel)
+                {
+                    SetMessage(appId, latest.Error, latest.Error is null ? "Checked for updates." : null);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // The session is stopping.
+            }
+            finally
+            {
+                lock (_sync)
+                {
+                    _checking.Remove(key);
+                }
+
+                RecomposeOpenGames();
+                QueueLibrary();
+                Changed?.Invoke();
+            }
+        }).ObserveFaults();
+    }
+
+    private GameToolChannel FollowedChannel(uint appId, GameToolDefinition tool)
+    {
+        lock (_sync)
+        {
+            return tool.ChannelOrDefault(_scans.GetValueOrDefault(appId)?.Record?.Manifest(tool.Id)?.Channel);
+        }
+    }
+
+    private static string CheckingKey(string toolId, string channelId)
+    {
+        return toolId + "/" + channelId;
+    }
+
+    // Peek's live lookup flags: per channel, and for the tool while any of its channels is looked up.
+    private GameToolsTool WithChecking(GameToolsTool tool)
+    {
+        var channels = tool.Channels.Select(channel =>
+            channel with { CheckingLatest = _checking.Contains(CheckingKey(tool.Id, channel.Id)) }).ToArray();
+        return tool with { CheckingLatest = channels.Any(channel => channel.CheckingLatest), Channels = channels };
+    }
+
+    private void QueueLibrary()
+    {
+        lock (_sync)
+        {
+            if (!_disposed)
+            {
+                QueueLibraryLocked();
+            }
+        }
+    }
+
+    // One read runs at a time; a change while it runs reads once more afterwards.
+    private void QueueLibraryLocked()
+    {
+        if (_libraryRead is { IsCompleted: false })
+        {
+            _libraryDirty = true;
+            return;
+        }
+
+        _libraryRead = Task.Run(BuildLibrary, CancellationToken.None);
+    }
+
+    private GameToolsLibrary BuildLibrary()
+    {
+        GameToolsLibrary library;
+        try
+        {
+            var store = GameToolStorage.ReadLocked(_userRoot);
+            Dictionary<uint, string> roots;
             lock (_sync)
             {
-                if (_disposed || !_checking.Add(tool.Id))
-                {
-                    continue;
-                }
+                roots = _scans.Where(scan => scan.Value.InstallFolder.Length > 0)
+                    .ToDictionary(scan => scan.Key, scan => scan.Value.InstallFolder);
             }
 
-            Changed?.Invoke();
-            Task.Run(async () =>
-            {
-                try
-                {
-                    var latest = await Releases.LatestAsync(tool, force, _lifetime.Token).ConfigureAwait(false);
-                    if (force)
-                    {
-                        SetMessage(appId, latest.Error, latest.Error is null ? "Checked for updates." : null);
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                    // The session is stopping.
-                }
-                finally
-                {
-                    lock (_sync)
-                    {
-                        _checking.Remove(tool.Id);
-                    }
-
-                    RecomposeOpenGames();
-                    Changed?.Invoke();
-                }
-            }).ObserveFaults();
+            library = GameToolsLibraryProjection.Build(store, Catalog,
+                (tool, channel) => Releases.Cached(tool, channel)?.Release, appId => roots.GetValueOrDefault(appId));
         }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException
+                                       or System.Text.Json.JsonException)
+        {
+            Log.Warn($"Game Tools: reading the game list failed: {ex.Message}");
+            library = new GameToolsLibrary(false, "WSGM couldn't read its Game Tools records: " + ex.Message, [], 0,
+                0);
+        }
+
+        lock (_sync)
+        {
+            _library = library;
+            _libraryRead = null;
+            if (_libraryDirty && !_disposed)
+            {
+                _libraryDirty = false;
+                _libraryRead = Task.Run(BuildLibrary, CancellationToken.None);
+            }
+        }
+
+        Changed?.Invoke();
+        return library;
     }
 
     // A release answer changes only the release-derived fields. Only the games a page shows are composed
@@ -794,6 +971,12 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
                 // An operation that scanned first replaces this with its own outcome when it finishes.
                 _messages[appId] = (_messages.GetValueOrDefault(appId).Error, recovered);
             }
+
+            // Recovery, a rebase or the finished operation may have changed the store the game list reads.
+            if (!_disposed)
+            {
+                QueueLibraryLocked();
+            }
         }
 
         return scan;
@@ -844,7 +1027,8 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     private GameToolsTool ToolState(GameToolDefinition tool, GameToolsScan scan)
     {
         var manifest = scan.Record?.Manifest(tool.Id);
-        var latest = Releases.Cached(tool);
+        var followed = tool.ChannelOrDefault(manifest?.Channel);
+        var latest = Releases.Cached(tool, followed);
         var chosen = scan.Resolution?.Chosen;
         var targetDirectory = manifest is not null && scan.HasFolder
             ? GameToolPaths.Resolve(scan.InstallFolder, manifest.TargetDirectory)
@@ -858,7 +1042,17 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
             ? GameToolInstaller.ReadSettings(tool, targetDirectory)
             : null;
         var evaluation = GameToolStatus.Evaluate(tool, scan.Availability, scan.Reason, chosen?.Architecture, manifest,
-            inspection, latest?.Release, scan.Upscalers);
+            inspection, latest?.Release, followed, scan.Upscalers);
+        var channels = tool.Channels.Select(channel =>
+        {
+            var answer = channel == followed ? latest : Releases.Cached(tool, channel);
+            var release = answer?.Release;
+            return new GameToolsChannel(channel.Id, channel.Label, channel.Description, channel == followed,
+                release?.Version, release is null ? null : channel.Display(release.Version, release.Asset.Name),
+                release is null ? null : channel.BuildDate(release.Asset.Name)?.ToString("yyyy-MM-dd",
+                    CultureInfo.InvariantCulture), answer?.Error, false,
+                GameToolStatus.ChangesConfig(tool, manifest, release));
+        }).ToArray();
         var proxies = inspection?.Proxies.Select(proxy =>
                           new GameToolsProxyOption(proxy.Name, proxy.Hint, proxy.Available, proxy.Conflict)).ToArray()
                       ??
@@ -881,8 +1075,11 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
             ? ""
             : GameToolPaths.RelativeDirectory(scan.InstallFolder, targetDirectory);
         return new GameToolsTool(tool.Id, tool.Name, tool.Description, tool.Homepage, tool.License, tool.Notice,
-            evaluation.IncompatibleReason, evaluation.Status, evaluation.StatusText, manifest?.Version,
-            latest?.Release?.Version, latest?.Error, false, evaluation.UpdateChangesConfig, proxyName,
+            evaluation.IncompatibleReason, evaluation.Status, evaluation.StatusText,
+            manifest is null ? null : GameToolVersions.Installed(manifest),
+            manifest is null ? null : followed.Display(GameToolVersions.Installed(manifest), manifest.AssetName),
+            followed.Id, channels, latest?.Release?.Version, channels.First(channel => channel.Current).LatestLabel,
+            latest?.Error, false, evaluation.UpdateChangesConfig, proxyName,
             manifest is null ? tool.Proxy.Intro : tool.Proxy.RenameIntro, proxies, settings, evaluation.ShowOptions,
             evaluation.CanEditOptions,
             [
@@ -956,7 +1153,8 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         }
     }
 
-    private void Report(string phase, long bytes, long total, bool cancellable)
+    private void Report(string phase, string detail, long bytes, long total, bool cancellable,
+        (string Channel, string Version)? release = null)
     {
         bool raise;
         lock (_sync)
@@ -967,8 +1165,13 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
             }
 
             var now = Environment.TickCount64;
-            raise = _busy.Phase != phase || _busy.Cancellable != cancellable || now - _lastProgress >= ProgressInterval;
-            _busy = _busy with { Phase = phase, Bytes = bytes, Total = total, Cancellable = cancellable };
+            raise = _busy.Phase != phase || _busy.Cancellable != cancellable || release is not null
+                    || now - _lastProgress >= ProgressInterval;
+            _busy = _busy with
+            {
+                Phase = phase, Detail = detail, Bytes = bytes, Total = total, Cancellable = cancellable,
+                Channel = release?.Channel ?? _busy.Channel, Version = release?.Version ?? _busy.Version
+            };
             if (raise)
             {
                 _lastProgress = now;
@@ -999,23 +1202,45 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     }
 
     /// <summary>Progress reporting handed to one operation.</summary>
-    private sealed class OperationContext(GameToolsService owner)
+    /// <param name="owner">The service publishing the progress.</param>
+    /// <param name="tool">The tool the operation changes.</param>
+    /// <param name="operation">The operation id.</param>
+    private sealed class OperationContext(GameToolsService owner, GameToolDefinition tool, string operation)
     {
+        private string? _provider;
+        private string? _version;
+
+        /// <summary>Records the release being installed, so the phase lines and the busy state can name it.</summary>
+        /// <param name="channel">The channel it comes from.</param>
+        /// <param name="release">The release.</param>
+        internal void Release(GameToolChannel channel, HostedRelease release)
+        {
+            _version = channel.Display(release.Version, release.Asset.Name);
+            _provider = release.Provider.Length > 0 ? release.Provider : channel.Source.Provider;
+            owner.Report(GameToolPhase.Download, Detail(GameToolPhase.Download), 0, release.Asset.Size, true,
+                (channel.Id, _version));
+        }
+
         /// <summary>Reports download and extraction progress; still cancellable.</summary>
-        /// <param name="phase">The phase text.</param>
+        /// <param name="phase">The <see cref="GameToolPhase" /> id.</param>
         /// <param name="bytes">Bytes copied.</param>
         /// <param name="total">The expected total.</param>
         internal void Progress(string phase, long bytes, long total)
         {
-            owner.Report(phase, bytes, total, true);
+            owner.Report(phase, Detail(phase), bytes, total, true);
         }
 
         /// <summary>Reports a phase without byte progress.</summary>
-        /// <param name="phase">The phase text.</param>
+        /// <param name="phase">The <see cref="GameToolPhase" /> id.</param>
         /// <param name="cancellable">Whether cancel can still stop the work.</param>
         internal void Phase(string phase, bool cancellable)
         {
-            owner.Report(phase, 0, 0, cancellable);
+            owner.Report(phase, Detail(phase), 0, 0, cancellable);
+        }
+
+        private string Detail(string phase)
+        {
+            return GameToolsPhases.Detail(phase, operation, tool.Name, _version, _provider);
         }
     }
 }

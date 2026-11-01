@@ -15,7 +15,7 @@ internal sealed record GameToolSource
     /// <summary>A pattern that selects exactly one asset per release.</summary>
     public string AssetPattern { get; init; } = "";
 
-    /// <summary>The release channel; <c>stable</c> skips prereleases.</summary>
+    /// <summary>The hosted channel filter; <c>stable</c> skips prereleases and any other value accepts them.</summary>
     public string Channel { get; init; } = "stable";
 
     /// <summary>The archive type the selected asset must have.</summary>

@@ -13,6 +13,9 @@ internal static class SteamGameToolsSurface
     /// <summary>The state and command namespace.</summary>
     internal const string PatchId = "wsgm.game-tools";
 
+    /// <summary>The game list's state: every game with tools, published beside the page state.</summary>
+    internal const string LibraryId = "wsgm.game-tools.library";
+
     /// <summary>The name the page's gate registers under.</summary>
     internal const string GateName = "gameTools";
 
@@ -49,13 +52,16 @@ internal static class SteamGameToolsSurface
         return new SteamUiModule(Template, [Patch],
             [
                 SteamUiModuleBuilder.Publication(PatchId, enabled, service.ReadStateAsync,
-                    GameToolsJsonContext.Default.GameToolsState)
+                    GameToolsJsonContext.Default.GameToolsState),
+                SteamUiModuleBuilder.Publication(LibraryId, enabled, service.ReadLibraryStateAsync,
+                    GameToolsJsonContext.Default.GameToolsLibrary)
             ],
             [
                 SteamUiModuleBuilder.Command<uint>(PatchId, "open", TryAppId, service.OpenAsync,
                     "A valid game AppID is required."),
                 SteamUiModuleBuilder.Command<uint>(PatchId, "refresh", TryAppId, service.RefreshAsync,
                     "A valid game AppID is required."),
+                SteamUiModuleBuilder.Command(PatchId, "refreshLibrary", service.RefreshLibraryAsync),
                 SteamUiModuleBuilder.Command<uint>(PatchId, "checkUpdates", TryAppId, service.CheckUpdatesAsync,
                     "A valid game AppID is required."),
                 SteamUiModuleBuilder.Command<uint>(PatchId, "cancel", TryAppId, service.CancelAsync,
@@ -69,6 +75,10 @@ internal static class SteamGameToolsSurface
                     TryUpdate,
                     (value, token) => service.UpdateAsync(value.AppId, value.ToolId, value.ReplaceConfig, token),
                     "The update request is invalid."),
+                SteamUiModuleBuilder.Command<(uint AppId, string ToolId, string Channel, bool ReplaceConfig)>(PatchId,
+                    "switchChannel", TrySwitch,
+                    (value, token) => service.SwitchChannelAsync(value.AppId, value.ToolId, value.Channel,
+                        value.ReplaceConfig, token), "The channel request is invalid."),
                 SteamUiModuleBuilder.Command<(uint AppId, string ToolId)>(PatchId, "repair", TryTool,
                     (value, token) => service.RepairAsync(value.AppId, value.ToolId, token),
                     "The repair request is invalid."),
@@ -148,18 +158,39 @@ internal static class SteamGameToolsSurface
     private static bool TryInstall(JsonElement payload, out GameToolsInstallRequest value)
     {
         value = null!;
-        if (!Only(payload, "appId", "toolId", "proxyName", "settings", "acknowledgeRisk", "replaceExisting")
+        if (!Only(payload, "appId", "toolId", "proxyName", "settings", "acknowledgeRisk", "replaceExisting",
+                "channel")
             || !AppId(payload, out var appId)
             || !SteamUiPayload.TryReadNonBlankString(payload, "toolId", out var toolId)
             || !OptionalName(payload, "proxyName", out var proxyName)
             || !Settings(payload, out var settings)
             || !OptionalBoolean(payload, "acknowledgeRisk", out var acknowledge)
-            || !OptionalBoolean(payload, "replaceExisting", out var replace))
+            || !OptionalBoolean(payload, "replaceExisting", out var replace)
+            || !OptionalName(payload, "channel", out var channel))
         {
             return false;
         }
 
-        value = new GameToolsInstallRequest(appId, toolId, proxyName, settings, acknowledge, replace);
+        value = new GameToolsInstallRequest(appId, toolId, proxyName, settings, acknowledge, replace, channel);
+        return true;
+    }
+
+    private static bool TrySwitch(JsonElement payload,
+        out (uint AppId, string ToolId, string Channel, bool ReplaceConfig) value)
+    {
+        value = default;
+        if (!Only(payload, "appId", "toolId", "channel", "replaceConfig") || !AppId(payload, out var appId)
+                                                                          || !SteamUiPayload.TryReadNonBlankString(
+                                                                              payload, "toolId", out var toolId)
+                                                                          || !SteamUiPayload.TryReadNonBlankString(
+                                                                              payload, "channel", out var channel)
+                                                                          || !OptionalBoolean(payload,
+                                                                              "replaceConfig", out var replaceConfig))
+        {
+            return false;
+        }
+
+        value = (appId, toolId, channel, replaceConfig);
         return true;
     }
 
