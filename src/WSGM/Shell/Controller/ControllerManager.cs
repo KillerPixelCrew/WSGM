@@ -477,12 +477,20 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// </remarks>
     internal Task<bool> PressSteamButtonAsync(bool quickAccess, CancellationToken cancellationToken)
     {
-        var buttons = !quickAccess
+        return Forwarding.PulseAsync(SteamButtons(quickAccess, Snapshot().Target), cancellationToken);
+    }
+
+    /// <summary>The buttons that open Steam's menu or Quick Access on a virtual target.</summary>
+    /// <param name="quickAccess">Quick Access rather than the Steam menu.</param>
+    /// <param name="target">The virtual target, or null when none is chosen.</param>
+    /// <returns>Guide for the menu; Quick Access on the Deck target, otherwise Guide + A, for Quick Access.</returns>
+    internal static CanonicalButtons SteamButtons(bool quickAccess, ManagedControllerTarget? target)
+    {
+        return !quickAccess
             ? CanonicalButtons.Guide
-            : Snapshot().Target is ManagedControllerTarget.SteamDeckComposite
+            : target is ManagedControllerTarget.SteamDeckComposite
                 ? CanonicalButtons.QuickAccess
                 : CanonicalButtons.Guide | CanonicalButtons.A;
-        return Forwarding.PulseAsync(buttons, cancellationToken);
     }
 
     /// <summary>Lets go of the controller: WSGM's virtual pad goes, and the physical one comes back.</summary>

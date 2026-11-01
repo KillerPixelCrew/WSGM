@@ -43,6 +43,72 @@ public sealed class DeviceOemActionRouterTests
     }
 
     [Theory]
+    [InlineData("guide", OemAction.ToggleSteamOverlay, ManagedControllerTarget.SteamDeckComposite, false)]
+    [InlineData("guide", OemAction.ToggleSteamOverlay, ManagedControllerTarget.Xbox360, false)]
+    [InlineData("guide", OemAction.ToggleSteamOverlay, ManagedControllerTarget.DualShock4, false)]
+    [InlineData("qam", OemAction.ToggleSteamQuickAccess, ManagedControllerTarget.SteamDeckComposite, false)]
+    [InlineData("qam", OemAction.ToggleSteamQuickAccess, ManagedControllerTarget.Xbox360, true)]
+    [InlineData("guide", OemAction.ToggleSteamQuickAccess, ManagedControllerTarget.SteamDeckComposite, true)]
+    [InlineData("guide", OemAction.ToggleSteamQuickAccess, ManagedControllerTarget.DualShock4, true)]
+    [InlineData("qam", OemAction.ToggleSteamOverlay, ManagedControllerTarget.Xbox360, true)]
+    [InlineData("m1", OemAction.ToggleSteamOverlay, ManagedControllerTarget.SteamDeckComposite, true)]
+    public async Task ASteamActionPulsesOnlyWhatTheControlDoesNotAlreadyCarry(
+        string id,
+        OemAction action,
+        ManagedControllerTarget target,
+        bool pulsed)
+    {
+        var pulses = new List<OemAction>();
+        using var router = new DeviceOemActionRouter();
+        router.OnControls(AcerButtonSource.Controls);
+        router.ConfigureActions(Actions(_ => Task.FromResult(true)) with
+        {
+            ToggleSteamOverlayAsync = _ =>
+            {
+                pulses.Add(OemAction.ToggleSteamOverlay);
+                return Task.FromResult(true);
+            },
+            ToggleSteamQuickAccessAsync = _ =>
+            {
+                pulses.Add(OemAction.ToggleSteamQuickAccess);
+                return Task.FromResult(true);
+            }
+        });
+        router.UpdateConfiguration([new DeviceOemAssignment { ControlId = id, Action = action }], true, target);
+
+        router.OnEvent(Event(OemControlEdge.Pressed, "atlas-front", id));
+        await router.Completion;
+
+        OemAction[] expected = pulsed ? [action] : [];
+        Assert.Equal(expected, pulses);
+    }
+
+    [Fact]
+    public async Task AGuideControlStillPulsesWithoutAVirtualPad()
+    {
+        var pulses = 0;
+        using var router = new DeviceOemActionRouter();
+        router.OnControls(
+            [Control(OemControlPlacement.Front, false) with { ControllerButton = CanonicalButtons.Guide }]);
+        router.ConfigureActions(Actions(_ => Task.FromResult(true)) with
+        {
+            ToggleSteamOverlayAsync = _ =>
+            {
+                pulses++;
+                return Task.FromResult(true);
+            }
+        });
+        router.UpdateConfiguration(
+            [new DeviceOemAssignment { ControlId = "armoury-crate", Action = OemAction.ToggleSteamOverlay }],
+            false, ManagedControllerTarget.Xbox360);
+
+        router.OnEvent(Event(OemControlEdge.Pressed, "one", "armoury-crate"));
+        await router.Completion;
+
+        Assert.Equal(1, pulses);
+    }
+
+    [Theory]
     [InlineData("rc73ya")]
     [InlineData("rc73xa")]
     public async Task NativeXboxAllyCompanionMetadataOpensTheOverlay(string modelId)
