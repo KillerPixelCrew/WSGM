@@ -1,12 +1,16 @@
 using System;
 using System.IO;
 using System.Net.Http;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
-/// <summary>The HTTPS-only client WSGM's package and release owners download through.</summary>
+/// <summary>
+///     The HTTPS-only client WSGM's package and release owners download through, and the log upload posts
+///     through.
+/// </summary>
 /// <remarks>
 ///     <para>
 ///         Every request must use HTTPS. A timeout before response headers arrive is reported as a
@@ -79,19 +83,55 @@ internal sealed class DownloadClient : IDisposable
     /// <exception cref="InvalidDataException">The URL is not HTTPS.</exception>
     /// <exception cref="TimeoutException">The headers did not arrive in time.</exception>
     /// <exception cref="HttpRequestException">The request failed or returned a non-success status.</exception>
-    internal async Task<HttpResponseMessage> OpenAsync(string url, CancellationToken cancellationToken)
+    internal Task<HttpResponseMessage> OpenAsync(string url, CancellationToken cancellationToken)
     {
-        var uri = Https(url);
+        return SendAsync(new HttpRequestMessage(HttpMethod.Get, Https(url)), cancellationToken);
+    }
+
+    /// <summary>Posts a text body and returns once the headers of a successful response arrived.</summary>
+    /// <param name="url">The HTTPS URL.</param>
+    /// <param name="body">The body, sent as UTF-8 plain text.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The response, owned by the caller.</returns>
+    /// <exception cref="InvalidDataException">The URL is not HTTPS.</exception>
+    /// <exception cref="TimeoutException">The headers did not arrive in time.</exception>
+    /// <exception cref="HttpRequestException">The request failed or returned a non-success status.</exception>
+    internal Task<HttpResponseMessage> PostTextAsync(string url, string body, CancellationToken cancellationToken)
+    {
+        HttpRequestMessage request = new(HttpMethod.Post, Https(url))
+        {
+            Content = new StringContent(body, Encoding.UTF8, "text/plain")
+        };
+        request.Headers.Accept.ParseAdd("text/plain");
+        return SendAsync(request, cancellationToken);
+    }
+
+    /// <summary>Deletes a resource.</summary>
+    /// <param name="url">The HTTPS URL.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>A task completing once a successful response arrived.</returns>
+    /// <exception cref="InvalidDataException">The URL is not HTTPS.</exception>
+    /// <exception cref="TimeoutException">The headers did not arrive in time.</exception>
+    /// <exception cref="HttpRequestException">The request failed or returned a non-success status.</exception>
+    internal async Task DeleteAsync(string url, CancellationToken cancellationToken)
+    {
+        using var response = await SendAsync(new HttpRequestMessage(HttpMethod.Delete, Https(url)), cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        using var owned = request;
         HttpResponseMessage response;
         try
         {
-            response = await _http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+            response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new TimeoutException($"The request to {uri.Host} timed out before response headers arrived.",
-                exception);
+            throw new TimeoutException(
+                $"The request to {request.RequestUri!.Host} timed out before response headers arrived.", exception);
         }
 
         try

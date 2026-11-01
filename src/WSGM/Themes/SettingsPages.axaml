@@ -59,4 +59,9 @@
   <Style Selector="Border.setting-row ToggleSwitch, Border.setting-row CheckBox">
     <Setter Property="FontSize" Value="12" />
   </Style>
+
+  <!-- A caption that reports a failure where it happened. -->
+  <Style Selector="TextBlock.caption.problem">
+    <Setter Property="Foreground" Value="{StaticResource HcDangerBrush}" />
+  </Style>
 </Styles>

@@ -44,6 +44,11 @@ public static class Log
     /// <summary>Gets the lowest level currently reaching the file.</summary>
     public static LogLevel MinimumLevel => _minimum;
 
+    /// <summary>Gets the live file and its one rotated archive, or null when logging is not initialized.</summary>
+    internal static (string Live, string Archive)? Files => _path is { } path
+        ? (path, Path.Combine(Path.GetDirectoryName(path)!, $"{_name}.old.log"))
+        : null;
+
     /// <summary>Initializes the named log file for the current process.</summary>
     /// <param name="name">The log file name without its extension.</param>
     /// <param name="root">The explicit directory containing the log file.</param>

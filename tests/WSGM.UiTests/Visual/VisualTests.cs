@@ -109,7 +109,7 @@ public sealed class VisualTests
     public void PowerButton(string name, int width, int height)
     {
         using UiFixture fixture = new();
-        var window = fixture.Overlay(width, height, 1.0);
+        var window = fixture.Overlay(width, height);
         UiFixture.Click(window, UiFixture.Tab(window, 3));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerActions));
         var model = Assert.IsType<OverlayViewModel>(window.DataContext);
@@ -139,17 +139,47 @@ public sealed class VisualTests
         UiFixture.Click(window, UiFixture.Tab(window, page));
         if (page == 0)
         {
-            var model = Assert.IsType<SettingsViewModel>(window.DataContext);
-            var updateStatus = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(),
-                text => text.IsEffectivelyVisible && text.Text == model.UpdateStatusText);
-            // Freeze only sample version data; the production caption and layout still render normally.
-            updateStatus.Bind(TextBlock.TextProperty,
-                new Binding { Source = "WSGM 2.1.0 is current. Not checked yet.", Mode = BindingMode.OneWay });
-            Dispatcher.UIThread.RunJobs();
+            FreezeUpdateStatus(window);
         }
 
         Assert.Equal(width, window.ClientSize.Width);
         Assert.Equal(height, window.ClientSize.Height);
+        VisualBaseline.Verify(window, name);
+    }
+
+    // System > Diagnostics with the log upload asking for confirmation, and after a two-part upload, both
+    // scrolled into view at the Settings floor and at a larger window.
+    [AvaloniaTheory]
+    [InlineData("settings-system-log-confirm-1024", false, 1024, 700)]
+    [InlineData("settings-system-log-confirm-1280", false, 1280, 800)]
+    [InlineData("settings-system-log-uploaded-1024", true, 1024, 700)]
+    [InlineData("settings-system-log-uploaded-1280", true, 1280, 800)]
+    public async Task SettingsLogUpload(string name, bool uploaded, int width, int height)
+    {
+        using UiFixture fixture = new();
+        fixture.LogFiles =
+        [
+            new LogUploadFile("wsgm.log", @"X:\wsgm.log", 1_258_291, false),
+            new LogUploadFile("wsgm.old.log", @"X:\wsgm.old.log", 5_242_880, true)
+        ];
+        fixture.UploadLogs = (_, _) => Task.FromResult<IReadOnlyList<LogUploadLink>>(
+        [
+            new LogUploadLink("wsgm.log", 1, "https://paste.rs/Xk2"),
+            new LogUploadLink("wsgm.old.log", 1, "https://paste.rs/b7Q")
+        ]);
+        var window = fixture.Settings(width, height);
+        FreezeUpdateStatus(window);
+        var model = Assert.IsType<SettingsViewModel>(window.DataContext);
+        model.Clipboard = _ => Task.CompletedTask;
+        await model.PrepareLogUploadAsync();
+        if (uploaded)
+        {
+            await model.UploadLogAsync();
+        }
+
+        Dispatcher.UIThread.RunJobs();
+        window.GetVisualDescendants().OfType<Border>().Single(border => border.Name == "LogRow").BringIntoView();
+        Dispatcher.UIThread.RunJobs();
         VisualBaseline.Verify(window, name);
     }
 
@@ -177,6 +207,17 @@ public sealed class VisualTests
 
         UiFixture.Click(window, UiFixture.Tab(window, 9));
         VisualBaseline.Verify(window, name);
+    }
+
+    // Freeze only sample version data; the production caption and layout still render normally.
+    private static void FreezeUpdateStatus(Window window)
+    {
+        var model = Assert.IsType<SettingsViewModel>(window.DataContext);
+        var updateStatus = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(),
+            text => text.IsEffectivelyVisible && text.Text == model.UpdateStatusText);
+        updateStatus.Bind(TextBlock.TextProperty,
+            new Binding { Source = "WSGM 2.1.0 is current. Not checked yet.", Mode = BindingMode.OneWay });
+        Dispatcher.UIThread.RunJobs();
     }
 
     private static PluginPackageRowState[] PluginRows()

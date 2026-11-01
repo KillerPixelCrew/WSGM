@@ -125,3 +125,36 @@ correlate the failure, without copying game arguments or session credentials int
 primitive only with explicit temporary paths. Lifecycle flow and its early recovery paths are in
 [boot and shell](boot-and-shell.md); setup and launcher behavior is covered by [setup](setup.md),
 [elevation](elevation.md) and [packaged-game launcher](packaged-game-launcher.md).
+
+## Uploading the log
+
+`Settings → System → Diagnostics → Upload log` sends `wsgm.log`, and `wsgm.old.log` as a separate
+part when it exists, to [paste.rs](https://paste.rs/) with no account or key. A tester then pastes
+links into a report instead of finding and attaching files. One confirmation names both files with
+their sizes and says what stays in them: game names, the device model, file paths below the user
+folder and hardware details. It also says that anyone with the link can read it.
+
+[`LogUploader`](../src/WSGM/Core/Infrastructure/LogUploader.cs) reads each file once with
+`FileShare.ReadWrite | FileShare.Delete` while WSGM keeps writing it, and
+[`LogMask`](../src/WSGM/Core/Infrastructure/LogMask.cs) masks the text before the first request. The
+user folder becomes `%USERPROFILE%` in any case and with either slash, a doubled JSON backslash
+included, unless the folder name only starts a longer one (`chris2`, `chris-old`). The user name,
+and the folder's own name when it differs, become `<user>` as a whole word, which covers every path
+segment; a name under three characters is masked only as a path segment. One regular expression
+replaces everything in a single pass, so `<user>` is never matched again. Nothing else is masked:
+the log is the diagnosis source.
+
+paste.rs answers a POST of the raw body with the paste's link: 201 when it kept everything, 206 when
+the body reached its size limit and only the start was kept. Its page publishes no number for the
+limit, so WSGM assumes none. A file goes up whole. After a 206 the uploader reads the cut-short
+paste back, whose length is the limit, deletes it, and sends the file again in pieces below that
+size. It splits on line boundaries in order, and only a single line longer than a piece is split
+between characters. If the paste cannot be read back, the piece size halves instead. Every piece
+starts with a `== WSGM wsgm.log, part N ==` header. Pieces go up one at a time. An upload that fails
+or is cancelled, including by closing Settings, deletes the pieces it already sent and says whether
+that worked. The failure names its real reason: no connection, a timeout, the HTTP status (429 means
+paste.rs is rate limiting) or an answer that is not a link.
+
+On success the links, one per line, are shown and copied to the clipboard, and "Copy again" copies
+them once more. The log records one line for the outcome, with the part count and bytes sent, never
+the text or a link.

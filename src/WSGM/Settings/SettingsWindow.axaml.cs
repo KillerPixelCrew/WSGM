@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Media;
 using WSGM.Controls;
 using WSGM.Core;
@@ -87,6 +88,9 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         DataContext = _viewModel;
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        _viewModel.Clipboard = text => Clipboard is { } clipboard
+            ? clipboard.SetTextAsync(text)
+            : throw new InvalidOperationException("this window has no clipboard");
 
         // The one page table: it drives the tab strip, the visibility toggle and
         // the focus landing alike (the XAML hosts the same pages in this order).
@@ -167,6 +171,8 @@ public partial class SettingsWindow : Window
             _viewModel.StopInventoryDiscovery();
             _viewModel.StopDisplayDiscovery();
             _viewModel.StopUpdateWork();
+            _viewModel.StopLogUpload();
+            _viewModel.Clipboard = null;
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
             _services.StopInput();
             WindowFinder.ExcludeOwnWindow(_switchableHwnd);

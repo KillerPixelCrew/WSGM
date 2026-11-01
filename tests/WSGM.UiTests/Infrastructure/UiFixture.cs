@@ -78,6 +78,16 @@ internal sealed class UiFixture : IDisposable
     /// </summary>
     internal IReadOnlyList<PluginActionOption> PluginActions { get; set; } = [];
 
+    /// <summary>The log files Settings would upload. None unless a test says otherwise.</summary>
+    internal IReadOnlyList<LogUploadFile> LogFiles { get; set; } = [];
+
+    /// <summary>Answers a log upload; never a live request.</summary>
+    internal Func<IReadOnlyList<LogUploadFile>, CancellationToken, Task<IReadOnlyList<LogUploadLink>>> UploadLogs
+    {
+        get;
+        set;
+    } = (_, _) => throw new InvalidOperationException("Unexpected log upload.");
+
     private OverlayWindow.SessionState Session { get; } = new();
 
     public void Dispose()
@@ -142,7 +152,9 @@ internal sealed class UiFixture : IDisposable
             RepairAvailable = () => true,
             // A fixed observation: the real reader describes whatever this machine has plugged in,
             // which would put the local endpoint count into every settings baseline.
-            ReadAudio = _ => Audio
+            ReadAudio = _ => Audio,
+            ListLogs = () => LogFiles,
+            UploadLogs = (files, _, cancellationToken) => UploadLogs(files, cancellationToken)
         };
         var model = new SettingsViewModel(ConfigJson.Clone(Saved, ConfigJsonContext.Default.AppConfig),
             services, store: Store);

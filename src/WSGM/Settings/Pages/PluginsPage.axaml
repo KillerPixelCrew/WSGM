@@ -34,9 +34,6 @@
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
-    <Style Selector="TextBlock.caption.problem">
-      <Setter Property="Foreground" Value="{StaticResource HcDangerBrush}" />
-    </Style>
   </UserControl.Styles>
   <!-- One scrolling page: plugins first, then the device plugin's own settings. The two short fixed-height
        lists this replaces hid most of each card. -->
