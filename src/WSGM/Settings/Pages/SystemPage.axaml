@@ -170,7 +170,7 @@
             <Border Classes="section-header">
               <TextBlock Text="DIAGNOSTICS" />
             </Border>
-            <!-- Upload: confirm what is sent, upload in the background, then the links, already copied.
+            <!-- Upload: confirm what is sent, upload in the background, then the link, already copied.
                  The Cancel button serves both the confirmation and the running upload. -->
             <Border x:Name="LogRow" Classes="setting-row alt">
               <StackPanel Spacing="6">
@@ -191,13 +191,13 @@
                            Classes="caption" TextWrapping="Wrap" />
                 <TextBlock Text="{Binding LogUploadStatusText}" IsVisible="{Binding HasLogUploadStatus}"
                            Classes="caption" Classes.problem="{Binding LogUploadProblem}" TextWrapping="Wrap" />
-                <SelectableTextBlock Text="{Binding LogUploadLinksText}" IsVisible="{Binding HasLogUploadLinks}"
+                <SelectableTextBlock Text="{Binding LogUploadLink}" IsVisible="{Binding HasLogUploadLink}"
                                      FontSize="12" TextWrapping="Wrap" />
                 <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasLogUploadActions}">
                   <Button x:Name="ConfirmLogUploadButton" Classes="primary" Content="Upload"
                           Command="{Binding ConfirmLogUploadCommand}" IsVisible="{Binding LogUploadConfirmPending}" />
-                  <Button x:Name="CopyLogLinksButton" Content="Copy again" Command="{Binding CopyLogLinksCommand}"
-                          IsVisible="{Binding CanCopyLogLinks}" />
+                  <Button x:Name="CopyLogLinkButton" Content="Copy again" Command="{Binding CopyLogLinkCommand}"
+                          IsVisible="{Binding CanCopyLogLink}" />
                   <Button x:Name="CancelLogUploadButton" Content="Cancel" Command="{Binding CancelLogUploadCommand}"
                           IsVisible="{Binding CanCancelLogUpload}" />
                 </StackPanel>

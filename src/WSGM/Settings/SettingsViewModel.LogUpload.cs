@@ -10,13 +10,12 @@ namespace WSGM.Settings;
 
 public sealed partial class SettingsViewModel
 {
-    // Ends a running upload when the window closes: an upload nobody can see finish leaves links nobody can copy.
+    // Ends a running upload when the window closes: an upload nobody can see finish leaves a link nobody can copy.
     private readonly CancellationTokenSource _logUploadLifetime = new();
     private CancellationTokenSource? _logUpload;
     private IReadOnlyList<LogUploadFile> _logUploadFiles = [];
-    private int _logUploadParts;
 
-    /// <summary>Gets or sets the window's clipboard, which the links are copied to; null where there is none.</summary>
+    /// <summary>Gets or sets the window's clipboard, which the link is copied to; null where there is none.</summary>
     internal Func<string, Task>? Clipboard { get; set; }
 
     /// <summary>Lists the log files and asks for confirmation before uploading them.</summary>
@@ -28,8 +27,8 @@ public sealed partial class SettingsViewModel
     /// <summary>Withdraws the confirmation, or stops a running upload.</summary>
     public RelayCommand CancelLogUploadCommand => field ??= new RelayCommand(CancelLogUpload);
 
-    /// <summary>Copies the links again.</summary>
-    public AsyncRelayCommand CopyLogLinksCommand => field ??= new AsyncRelayCommand(CopyLogLinksAsync);
+    /// <summary>Copies the link again.</summary>
+    public AsyncRelayCommand CopyLogLinkCommand => field ??= new AsyncRelayCommand(CopyLogLinkAsync);
 
     /// <summary>Gets what the upload sends and what stays in it, while it waits for confirmation.</summary>
     public string LogUploadConfirmText
@@ -87,31 +86,31 @@ public sealed partial class SettingsViewModel
         private set => SetFieldIfChanged(ref field, value, nameof(LogUploadProblem));
     }
 
-    /// <summary>Gets the uploaded links, one per line, exactly as they are copied.</summary>
-    public string LogUploadLinksText
+    /// <summary>Gets the link that shows the uploaded files, exactly as it is copied.</summary>
+    public string LogUploadLink
     {
         get;
         private set
         {
-            if (SetFieldIfChanged(ref field, value, nameof(LogUploadLinksText)))
+            if (SetFieldIfChanged(ref field, value, nameof(LogUploadLink)))
             {
-                Raise(nameof(HasLogUploadLinks));
+                Raise(nameof(HasLogUploadLink));
                 RaiseLogUploadActions();
             }
         }
     } = "";
 
-    /// <summary>Gets whether an upload finished with links.</summary>
-    public bool HasLogUploadLinks => LogUploadLinksText.Length > 0;
+    /// <summary>Gets whether an upload finished with a link.</summary>
+    public bool HasLogUploadLink => LogUploadLink.Length > 0;
 
     /// <summary>Gets whether the confirmation or a running upload can be cancelled.</summary>
     public bool CanCancelLogUpload => LogUploadConfirmPending || LogUploadBusy;
 
-    /// <summary>Gets whether the finished upload's links can be copied again.</summary>
-    public bool CanCopyLogLinks => HasLogUploadLinks && !LogUploadBusy && !LogUploadConfirmPending;
+    /// <summary>Gets whether the finished upload's link can be copied again.</summary>
+    public bool CanCopyLogLink => HasLogUploadLink && !LogUploadBusy && !LogUploadConfirmPending;
 
     /// <summary>Gets whether the row shows any upload action.</summary>
-    public bool HasLogUploadActions => CanCancelLogUpload || CanCopyLogLinks;
+    public bool HasLogUploadActions => CanCancelLogUpload || CanCopyLogLink;
 
     /// <summary>Stops a running upload; called once when the window closes.</summary>
     internal void StopLogUpload()
@@ -122,7 +121,7 @@ public sealed partial class SettingsViewModel
     private void RaiseLogUploadActions()
     {
         Raise(nameof(CanCancelLogUpload));
-        Raise(nameof(CanCopyLogLinks));
+        Raise(nameof(CanCopyLogLink));
         Raise(nameof(HasLogUploadActions));
     }
 
@@ -164,7 +163,7 @@ public sealed partial class SettingsViewModel
         LogUploadConfirmPending = true;
     }
 
-    /// <summary>Uploads the confirmed files and copies their links, or shows why it did not finish.</summary>
+    /// <summary>Uploads the confirmed files and copies their link, or shows why it did not finish.</summary>
     /// <returns>A task completing once the outcome shows.</returns>
     internal async Task UploadLogAsync()
     {
@@ -176,7 +175,7 @@ public sealed partial class SettingsViewModel
         LogUploadConfirmPending = false;
         LogUploadBusy = true;
         LogUploadProblem = false;
-        LogUploadLinksText = "";
+        LogUploadLink = "";
         LogUploadStatusText = "Uploading…";
         using var upload = CancellationTokenSource.CreateLinkedTokenSource(_logUploadLifetime.Token);
         _logUpload = upload;
@@ -185,15 +184,15 @@ public sealed partial class SettingsViewModel
             // A report queued behind the upload's end must not replace its outcome.
             if (ReferenceEquals(_logUpload, upload))
             {
-                LogUploadStatusText = $"Uploading {step.FileName}, part {step.Piece}…";
+                LogUploadStatusText = $"Uploading {step.FileName}…";
             }
         });
-        IReadOnlyList<LogUploadLink>? links = null;
+        string? link = null;
         string? failure = null;
         var cancelled = false;
         try
         {
-            links = await _services.UploadLogs(_logUploadFiles, progress, upload.Token);
+            link = await _services.UploadLogs(_logUploadFiles, progress, upload.Token);
         }
         catch (LogUploadException exception)
         {
@@ -211,16 +210,15 @@ public sealed partial class SettingsViewModel
             LogUploadBusy = false;
         }
 
-        if (links is null)
+        if (link is null)
         {
             LogUploadProblem = !cancelled;
             LogUploadStatusText = failure ?? "The upload failed.";
             return;
         }
 
-        _logUploadParts = links.Count;
-        LogUploadLinksText = string.Join(Environment.NewLine, links.Select(link => link.Url));
-        await CopyLogLinksAsync();
+        LogUploadLink = link;
+        await CopyLogLinkAsync();
     }
 
     /// <summary>Stops a running upload, or withdraws the confirmation.</summary>
@@ -236,36 +234,34 @@ public sealed partial class SettingsViewModel
         LogUploadConfirmPending = false;
     }
 
-    /// <summary>Copies the links to the window's clipboard and says whether that worked.</summary>
+    /// <summary>Copies the link to the window's clipboard and says whether that worked.</summary>
     /// <returns>A task completing once the copy finished.</returns>
-    internal async Task CopyLogLinksAsync()
+    internal async Task CopyLogLinkAsync()
     {
-        if (!HasLogUploadLinks)
+        if (!HasLogUploadLink)
         {
             return;
         }
 
-        var uploaded = _logUploadParts == 1 ? "Uploaded." : $"Uploaded in {_logUploadParts} parts.";
         if (Clipboard is not { } clipboard)
         {
             LogUploadProblem = true;
-            LogUploadStatusText = $"{uploaded} No clipboard is available here, so copy the links below.";
+            LogUploadStatusText = "Uploaded. No clipboard is available here, so copy the link below.";
             return;
         }
 
         try
         {
-            await clipboard(LogUploadLinksText);
+            await clipboard(LogUploadLink);
             LogUploadProblem = false;
-            var paste = _logUploadParts == 1 ? "the link" : "all the links";
-            LogUploadStatusText = $"{uploaded} Copied to clipboard. Paste {paste} into your report.";
+            LogUploadStatusText = "Uploaded. Copied to clipboard. Paste the link into your report.";
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            _services.Report("Log upload: copying the links failed", exception);
+            _services.Report("Log upload: copying the link failed", exception);
             LogUploadProblem = true;
             LogUploadStatusText =
-                $"{uploaded} Could not copy to the clipboard ({exception.Message}), so copy the links below.";
+                $"Uploaded. Could not copy to the clipboard ({exception.Message}), so copy the link below.";
         }
     }
 
@@ -275,9 +271,10 @@ public sealed partial class SettingsViewModel
             file.Previous
                 ? $"{file.Name}, the previous session ({DescribeSize(file.Bytes)})"
                 : $"{file.Name} ({DescribeSize(file.Bytes)})"));
-        return $"Upload {named} to paste.rs? Your Windows user folder is replaced with {LogMask.ProfileToken} and "
-               + $"your user name with {LogMask.UserToken}. Still included: game names, the device model, file paths "
-               + "below your user folder and hardware details. Anyone with the link can read it.";
+        return $"Upload {named} to filebin.net? Your Windows user folder is replaced with {LogMask.ProfileToken} "
+               + $"and your user name with {LogMask.UserToken}. Still included: game names, the device model, file "
+               + "paths below your user folder and hardware details. The link expires after about a week, and anyone "
+               + "with it can read the log until then.";
     }
 
     private static string DescribeSize(long bytes)

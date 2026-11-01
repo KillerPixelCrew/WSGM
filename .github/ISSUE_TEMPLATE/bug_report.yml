@@ -74,7 +74,7 @@ body:
         in Explorer (it lives in `%LOCALAPPDATA%\WSGM`). Drag the file into this field, or paste the
         link from Settings > Upload log.
         If the bug involves game mode, reproduce it first so the log contains it.
-      placeholder: Drag & drop wsgm.log here, or paste the links from Upload log.
+      placeholder: Drag & drop wsgm.log here, or paste the link from Upload log.
     validations:
       required: false
   - type: textarea

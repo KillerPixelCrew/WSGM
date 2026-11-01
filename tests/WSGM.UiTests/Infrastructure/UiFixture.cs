@@ -82,11 +82,8 @@ internal sealed class UiFixture : IDisposable
     internal IReadOnlyList<LogUploadFile> LogFiles { get; set; } = [];
 
     /// <summary>Answers a log upload; never a live request.</summary>
-    internal Func<IReadOnlyList<LogUploadFile>, CancellationToken, Task<IReadOnlyList<LogUploadLink>>> UploadLogs
-    {
-        get;
-        set;
-    } = (_, _) => throw new InvalidOperationException("Unexpected log upload.");
+    internal Func<IReadOnlyList<LogUploadFile>, CancellationToken, Task<string>> UploadLogs { get; set; } =
+        (_, _) => throw new InvalidOperationException("Unexpected log upload.");
 
     private OverlayWindow.SessionState Session { get; } = new();
 

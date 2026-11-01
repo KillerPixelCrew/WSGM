@@ -10,15 +10,17 @@ using WSGM.UiTests.Infrastructure;
 
 namespace WSGM.UiTests.Settings;
 
-/// <summary>The Upload log row driven by keyboard: confirm, upload, then the links with focus on Copy again.</summary>
+/// <summary>The Upload log row driven by keyboard: confirm, upload, then the link with focus on Copy again.</summary>
 public sealed class SettingsLogUploadTests
 {
+    private const string Link = "https://filebin.net/wsgm-0123456789abcdef0123456789abcdef";
+
     [AvaloniaFact]
-    public async Task TheRowWalksFromConfirmationToCopiedLinksWithFocusOnTheNextAction()
+    public async Task TheRowWalksFromConfirmationToTheCopiedLinkWithFocusOnTheNextAction()
     {
         using UiFixture fixture = new();
         fixture.LogFiles = [new LogUploadFile("wsgm.log", @"X:\wsgm.log", 2048, false)];
-        TaskCompletionSource<IReadOnlyList<LogUploadLink>> answer = new();
+        TaskCompletionSource<string> answer = new();
         fixture.UploadLogs = (_, _) => answer.Task;
         var window = fixture.Settings();
         var model = Assert.IsType<SettingsViewModel>(window.DataContext);
@@ -47,13 +49,13 @@ public sealed class SettingsLogUploadTests
         Assert.True(Named("CancelLogUploadButton").IsFocused);
         Assert.False(Named("UploadLogButton").IsEffectivelyEnabled);
 
-        answer.SetResult([new LogUploadLink("wsgm.log", 1, "https://paste.rs/Xk2")]);
-        await AsyncConditions.WaitForAsync(() => !model.LogUploadBusy && model.HasLogUploadLinks);
+        answer.SetResult(Link);
+        await AsyncConditions.WaitForAsync(() => !model.LogUploadBusy && model.HasLogUploadLink);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal(["https://paste.rs/Xk2"], copied);
+        Assert.Equal([Link], copied);
         Assert.Equal("Uploaded. Copied to clipboard. Paste the link into your report.", model.LogUploadStatusText);
-        Assert.True(Named("CopyLogLinksButton").IsFocused);
+        Assert.True(Named("CopyLogLinkButton").IsFocused);
         Assert.False(Named("CancelLogUploadButton").IsEffectivelyVisible);
     }
 
@@ -67,7 +69,7 @@ public sealed class SettingsLogUploadTests
         {
             observed = cancellationToken;
             return Task.Delay(Timeout.Infinite, cancellationToken)
-                .ContinueWith<IReadOnlyList<LogUploadLink>>(
+                .ContinueWith<string>(
                     _ => throw new LogUploadException("Upload cancelled.", true),
                     TaskScheduler.Default);
         };

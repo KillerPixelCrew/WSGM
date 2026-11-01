@@ -88,22 +88,21 @@ internal sealed class DownloadClient : IDisposable
         return SendAsync(new HttpRequestMessage(HttpMethod.Get, Https(url)), cancellationToken);
     }
 
-    /// <summary>Posts a text body and returns once the headers of a successful response arrived.</summary>
+    /// <summary>Posts a text body and returns once the response headers arrived, whatever their status.</summary>
     /// <param name="url">The HTTPS URL.</param>
     /// <param name="body">The body, sent as UTF-8 plain text.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
-    /// <returns>The response, owned by the caller.</returns>
+    /// <returns>The response, owned by the caller, who reads a refusal's own explanation from its body.</returns>
     /// <exception cref="InvalidDataException">The URL is not HTTPS.</exception>
     /// <exception cref="TimeoutException">The headers did not arrive in time.</exception>
-    /// <exception cref="HttpRequestException">The request failed or returned a non-success status.</exception>
+    /// <exception cref="HttpRequestException">The request failed before any response.</exception>
     internal Task<HttpResponseMessage> PostTextAsync(string url, string body, CancellationToken cancellationToken)
     {
         HttpRequestMessage request = new(HttpMethod.Post, Https(url))
         {
             Content = new StringContent(body, Encoding.UTF8, "text/plain")
         };
-        request.Headers.Accept.ParseAdd("text/plain");
-        return SendAsync(request, cancellationToken);
+        return SendAsync(request, cancellationToken, false);
     }
 
     /// <summary>Deletes a resource.</summary>
@@ -119,7 +118,8 @@ internal sealed class DownloadClient : IDisposable
             .ConfigureAwait(false);
     }
 
-    private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken,
+        bool requireSuccess = true)
     {
         using var owned = request;
         HttpResponseMessage response;
@@ -136,7 +136,11 @@ internal sealed class DownloadClient : IDisposable
 
         try
         {
-            response.EnsureSuccessStatusCode();
+            if (requireSuccess)
+            {
+                response.EnsureSuccessStatusCode();
+            }
+
             return response;
         }
         catch

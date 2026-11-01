@@ -4,8 +4,8 @@ namespace WSGM.Core;
 
 /// <summary>A log upload that did not finish, with the reason in words the user can act on.</summary>
 /// <remarks>
-///     The message also says what happened to the pieces already uploaded: an unfinished upload removes them, so
-///     nothing the user did not get a complete set of links for stays readable.
+///     The message also says what happened to anything already uploaded: an unfinished upload removes its bin, so
+///     nothing the user did not get a link for stays readable.
 /// </remarks>
 internal sealed class LogUploadException : Exception
 {

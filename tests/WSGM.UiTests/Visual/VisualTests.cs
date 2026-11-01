@@ -147,7 +147,7 @@ public sealed class VisualTests
         VisualBaseline.Verify(window, name);
     }
 
-    // System > Diagnostics with the log upload asking for confirmation, and after a two-part upload, both
+    // System > Diagnostics with the log upload asking for confirmation, and after both files went up, both
     // scrolled into view at the Settings floor and at a larger window.
     [AvaloniaTheory]
     [InlineData("settings-system-log-confirm-1024", false, 1024, 700)]
@@ -162,11 +162,7 @@ public sealed class VisualTests
             new LogUploadFile("wsgm.log", @"X:\wsgm.log", 1_258_291, false),
             new LogUploadFile("wsgm.old.log", @"X:\wsgm.old.log", 5_242_880, true)
         ];
-        fixture.UploadLogs = (_, _) => Task.FromResult<IReadOnlyList<LogUploadLink>>(
-        [
-            new LogUploadLink("wsgm.log", 1, "https://paste.rs/Xk2"),
-            new LogUploadLink("wsgm.old.log", 1, "https://paste.rs/b7Q")
-        ]);
+        fixture.UploadLogs = (_, _) => Task.FromResult("https://filebin.net/wsgm-0123456789abcdef0123456789abcdef");
         var window = fixture.Settings(width, height);
         FreezeUpdateStatus(window);
         var model = Assert.IsType<SettingsViewModel>(window.DataContext);

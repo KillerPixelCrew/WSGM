@@ -324,12 +324,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         /// <summary>Lists the log files an upload sends, on a worker; none unless the composer supplies them.</summary>
         internal Func<IReadOnlyList<LogUploadFile>> ListLogs { get; init; } = () => [];
 
-        /// <summary>Masks and uploads the listed log files on a worker, answering with every paste's link.</summary>
+        /// <summary>Masks and uploads the listed log files on a worker, answering with the link that shows them.</summary>
         /// <remarks>Throws <see cref="LogUploadException" /> with the user-facing reason; unavailable unless supplied.</remarks>
-        internal Func<IReadOnlyList<LogUploadFile>, IProgress<LogUploadProgress>, CancellationToken,
-            Task<IReadOnlyList<LogUploadLink>>> UploadLogs { get; init; } = (_, _, _) =>
-            Task.FromException<IReadOnlyList<LogUploadLink>>(
-                new LogUploadException("Uploading the log is not available here."));
+        internal Func<IReadOnlyList<LogUploadFile>, IProgress<LogUploadProgress>, CancellationToken, Task<string>>
+            UploadLogs { get; init; } = (_, _, _) =>
+            Task.FromException<string>(new LogUploadException("Uploading the log is not available here."));
 
         /// <summary>Composes production delegates around the caller's persistence and shim owners.</summary>
         /// <param name="store">Borrowed configuration store.</param>

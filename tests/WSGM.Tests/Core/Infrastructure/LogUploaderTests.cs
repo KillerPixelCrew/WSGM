@@ -1,12 +1,15 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using WSGM.Core;
 
 namespace WSGM.Tests.Core;
 
-/// <summary>Uploading masked logs to a fake paste.rs: whole, in line-boundary pieces after a 206, or not at all.</summary>
+/// <summary>Uploading masked logs whole into one filebin.net bin, against a fake filebin.</summary>
 public sealed class LogUploaderTests : IDisposable
 {
+    private const string Bin = "wsgm-0123456789abcdef0123456789abcdef";
+
     private readonly string _directory =
         Path.Combine(Path.GetTempPath(), "wsgm-log-upload-" + Guid.NewGuid().ToString("N"));
 
@@ -21,99 +24,44 @@ public sealed class LogUploaderTests : IDisposable
     }
 
     [Fact]
-    public async Task ASmallLogGoesUpWholeAndMasked()
+    public async Task BothLogsGoUpWholeAndMaskedIntoOneBin()
     {
-        var log = Write("wsgm.log", @"started from C:\Users\chris\AppData\Local\WSGM by chris" + "\r\n");
-        PasteServer server = new(1024);
+        var live = Write("wsgm.log", @"started from C:\Users\chris\AppData\Local\WSGM by chris" + "\r\n");
+        var previous = Write("wsgm.old.log", "before\n");
+        Filebin server = new();
 
-        var links = await Upload(server, [log]);
+        var link = await Upload(server, LogUploader.Find(live, previous));
 
-        var link = Assert.Single(links);
-        Assert.Equal(new LogUploadLink("wsgm.log", 1, "https://paste.rs/p1"), link);
-        Assert.Equal("== WSGM wsgm.log, part 1 ==" + Environment.NewLine
-                                                   + @"started from %USERPROFILE%\AppData\Local\WSGM by <user>" +
-                                                   "\r\n", server.Text("p1"));
+        Assert.Equal($"https://filebin.net/{Bin}", link);
+        Assert.Equal([$"/{Bin}/wsgm.log", $"/{Bin}/wsgm.old.log"], server.Files.Keys);
+        Assert.Equal(@"started from %USERPROFILE%\AppData\Local\WSGM by <user>" + "\r\n",
+            server.Text($"/{Bin}/wsgm.log"));
+        Assert.Equal("before\n", server.Text($"/{Bin}/wsgm.old.log"));
+        Assert.All(server.ContentTypes, type => Assert.Equal("text/plain", type));
         Assert.Empty(server.Deleted);
     }
 
     [Fact]
-    public async Task ALogOverTheLimitIsSentAgainInOrderedLinePiecesBelowIt()
+    public async Task ALargeLogGoesUpInOneRequestWithoutASizeLimit()
     {
-        var lines = Enumerable.Range(1, 200).Select(index => $"2026-11-01 12:00:00.000 [info ] line {index}\r\n")
-            .ToArray();
-        var log = Write("wsgm.log", string.Concat(lines));
-        PasteServer server = new(1000);
+        var text = string.Concat(Enumerable.Range(1, 200_000).Select(index => $"line {index}\n"));
+        var log = Write("wsgm.log", text);
+        Filebin server = new();
 
-        var links = await Upload(server, [log]);
+        await Upload(server, [log]);
 
-        // The whole file came back cut short, was read back for its length and deleted.
-        Assert.Equal(["p1"], server.Deleted);
-        Assert.Equal(links.Count, server.Pastes.Count);
-        Assert.True(links.Count > 1);
-        Assert.Equal(Enumerable.Range(1, links.Count), links.Select(link => link.Piece));
-        var bodies = links.Select(link => server.Text(link.Url[(link.Url.LastIndexOf('/') + 1)..])).ToArray();
-        Assert.All(bodies, body => Assert.True(Encoding.UTF8.GetByteCount(body) < 1000));
-        var pieces = bodies.Select((body, index) =>
-        {
-            var header = $"== WSGM wsgm.log, part {index + 1} ==" + Environment.NewLine;
-            Assert.StartsWith(header, body, StringComparison.Ordinal);
-            return body[header.Length..];
-        }).ToArray();
-        Assert.All(pieces, piece => Assert.EndsWith("\r\n", piece, StringComparison.Ordinal));
-        Assert.Equal(string.Concat(lines), string.Concat(pieces));
+        Assert.Equal(1, server.Posts);
+        Assert.Equal(text, server.Text($"/{Bin}/wsgm.log"));
     }
 
     [Fact]
-    public async Task APieceIsHalvedWhenTheCutShortPasteCannotBeReadBack()
+    public void EachUploadGetsANewUnguessableBin()
     {
-        var log = Write("wsgm.log", string.Concat(Enumerable.Range(1, 100).Select(index => $"line {index:000}\n")));
-        PasteServer server = new(300) { ReadBack = false };
+        var first = LogUploader.NewBin();
+        var second = LogUploader.NewBin();
 
-        var links = await Upload(server, [log]);
-
-        Assert.True(server.Deleted.Count >= 1);
-        Assert.Equal(links.Count, server.Pastes.Count);
-        Assert.Equal(File.ReadAllText(log), string.Concat(links.Select(link =>
-        {
-            var body = server.Text(link.Url[(link.Url.LastIndexOf('/') + 1)..]);
-            return body[(body.IndexOf('\n') + 1)..];
-        })));
-    }
-
-    [Fact]
-    public async Task ALineLongerThanAPieceContinuesInTheNextWithoutSplittingACharacter()
-    {
-        var line = string.Concat(Enumerable.Repeat("ab\U0001F600", 40));
-
-        var first = LogUploader.Take(line, 0, 9);
-
-        Assert.Equal(6, first);
-        Assert.Equal("ab\U0001F600ab", line[..first]);
-        Assert.Equal(first + 4, LogUploader.Take(line, first, 7));
-    }
-
-    [Fact]
-    public void WholeLinesFillAPieceUpToItsSize()
-    {
-        Assert.Equal(5, LogUploader.Take("abc\r\nd\nefgh\n", 0, 6));
-        Assert.Equal(7, LogUploader.Take("abc\r\nd\nefgh\n", 0, 7));
-        Assert.Equal(12, LogUploader.Take("abc\r\nd\nefgh\n", 0, 12));
-    }
-
-    [Fact]
-    public async Task ThePreviousSessionIsASeparatePartAfterTheLiveLog()
-    {
-        var live = Write("wsgm.log", "now\n");
-        var previous = Write("wsgm.old.log", "before\n");
-        PasteServer server = new(1024);
-
-        var files = LogUploader.Find(live, previous);
-        var links = await Upload(server, files);
-
-        Assert.Equal([false, true], files.Select(file => file.Previous));
-        Assert.Equal(["wsgm.log", "wsgm.old.log"], links.Select(link => link.FileName));
-        Assert.StartsWith("== WSGM wsgm.old.log (previous session), part 1 ==", server.Text("p2"),
-            StringComparison.Ordinal);
+        Assert.Matches("^wsgm-[0-9a-f]{32}$", first);
+        Assert.NotEqual(first, second);
     }
 
     [Fact]
@@ -134,74 +82,91 @@ public sealed class LogUploaderTests : IDisposable
             FileShare.ReadWrite | FileShare.Delete);
         writer.Write("second\n"u8);
         writer.Flush();
-        PasteServer server = new(1024);
+        Filebin server = new();
 
         await Upload(server, [log]);
 
-        Assert.EndsWith("first\nsecond\n", server.Text("p1"), StringComparison.Ordinal);
+        Assert.Equal("first\nsecond\n", server.Text($"/{Bin}/wsgm.log"));
     }
 
     [Theory]
-    [InlineData(HttpStatusCode.TooManyRequests, "limiting uploads right now (HTTP 429)")]
-    [InlineData(HttpStatusCode.ServiceUnavailable, "refused the upload with HTTP 503")]
-    [InlineData(HttpStatusCode.OK, "answered HTTP 200")]
-    public async Task ARefusedPieceFailsWithItsStatusAndRemovesThePiecesAlreadyUploaded(HttpStatusCode status,
+    [InlineData(HttpStatusCode.TooManyRequests, "", "filebin.net is limiting uploads right now (HTTP 429).")]
+    [InlineData(HttpStatusCode.RequestEntityTooLarge, "File too large\nmore detail",
+        "filebin.net refused wsgm.old.log with HTTP 413 (RequestEntityTooLarge): File too large.")]
+    [InlineData(HttpStatusCode.ServiceUnavailable, "<html><body>busy</body></html>",
+        "filebin.net refused wsgm.old.log with HTTP 503 (ServiceUnavailable).")]
+    public async Task ARefusedFileFailsWithFilebinsReasonAndRemovesTheBin(HttpStatusCode status, string body,
         string reason)
     {
         var live = Write("wsgm.log", "now\n");
         var previous = Write("wsgm.old.log", "before\n");
-        PasteServer server = new(1024) { Refuse = post => post == 2 ? status : null };
+        Filebin server = new() { Refuse = post => post == 2 ? (status, body) : null };
 
         var failure = await Assert.ThrowsAsync<LogUploadException>(() => Upload(server, [live, previous]));
 
         Assert.False(failure.Cancelled);
-        Assert.Contains(reason, failure.Message, StringComparison.Ordinal);
-        Assert.Contains("The 1 part(s) already uploaded were removed.", failure.Message, StringComparison.Ordinal);
-        Assert.Equal(["p1"], server.Deleted);
-        Assert.Empty(server.Pastes);
+        Assert.StartsWith(reason, failure.Message, StringComparison.Ordinal);
+        Assert.EndsWith(" The partial upload was removed.", failure.Message, StringComparison.Ordinal);
+        Assert.Equal([$"/{Bin}"], server.Deleted);
+        Assert.Empty(server.Files);
     }
 
     [Fact]
-    public async Task ANetworkFailureSaysPasteRsCouldNotBeReached()
+    public async Task AFileFilebinKeptOnlyPartOfFails()
     {
-        var log = Write("wsgm.log", "now\n");
-        PasteServer server = new(1024) { Unreachable = true };
+        var log = Write("wsgm.log", "0123456789\n");
+        Filebin server = new() { KeepBytes = 4 };
 
         var failure = await Assert.ThrowsAsync<LogUploadException>(() => Upload(server, [log]));
 
-        Assert.StartsWith("Could not reach paste.rs: ", failure.Message, StringComparison.Ordinal);
+        Assert.Equal("filebin.net kept 4 of the 11 bytes of wsgm.log. The partial upload was removed.",
+            failure.Message);
     }
 
     [Fact]
-    public async Task AnAnswerThatIsNotALinkFails()
+    public async Task ABinThatCannotBeRemovedSaysItExpiresOnItsOwn()
     {
         var log = Write("wsgm.log", "now\n");
-        PasteServer server = new(1024) { Answer = "<html>busy</html>" };
+        Filebin server = new() { Refuse = _ => (HttpStatusCode.InternalServerError, ""), RefuseDelete = true };
 
         var failure = await Assert.ThrowsAsync<LogUploadException>(() => Upload(server, [log]));
 
-        Assert.Equal("paste.rs answered with something other than a link.", failure.Message);
+        Assert.EndsWith(" The partial upload could not be removed; filebin.net deletes it in about a week.",
+            failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ANetworkFailureSaysFilebinCouldNotBeReached()
+    {
+        var log = Write("wsgm.log", "now\n");
+        Filebin server = new() { Unreachable = true };
+
+        var failure = await Assert.ThrowsAsync<LogUploadException>(() => Upload(server, [log]));
+
+        Assert.StartsWith("Could not reach filebin.net: No such host is known.", failure.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task AMissingFileFailsBeforeAnythingIsSent()
     {
-        PasteServer server = new(1024);
+        Filebin server = new();
 
         var failure = await Assert.ThrowsAsync<LogUploadException>(() =>
             Upload(server, [Path.Combine(_directory, "wsgm.log")]));
 
         Assert.StartsWith("Could not read wsgm.log: ", failure.Message, StringComparison.Ordinal);
         Assert.Equal(0, server.Posts);
+        Assert.Empty(server.Deleted);
     }
 
     [Fact]
-    public async Task CancellingRemovesThePiecesAlreadyUploaded()
+    public async Task CancellingRemovesTheBin()
     {
         var live = Write("wsgm.log", "now\n");
         var previous = Write("wsgm.old.log", "before\n");
         using CancellationTokenSource cancel = new();
-        PasteServer server = new(1024)
+        Filebin server = new()
         {
             BeforePost = post =>
             {
@@ -216,21 +181,21 @@ public sealed class LogUploaderTests : IDisposable
             Upload(server, [live, previous], cancel.Token));
 
         Assert.True(failure.Cancelled);
-        Assert.Equal("Upload cancelled. The 1 part(s) already uploaded were removed.", failure.Message);
-        Assert.Empty(server.Pastes);
+        Assert.Equal("Upload cancelled. The partial upload was removed.", failure.Message);
+        Assert.Empty(server.Files);
     }
 
     [Fact]
-    public async Task TheProgressNamesEachPieceAsItIsSent()
+    public async Task TheProgressNamesEachFileAsItIsSent()
     {
         var live = Write("wsgm.log", "now\n");
         var previous = Write("wsgm.old.log", "before\n");
-        PasteServer server = new(1024);
+        Filebin server = new();
         List<LogUploadProgress> steps = [];
 
         await Upload(server, [live, previous], progress: new Recorder(steps));
 
-        Assert.Equal([new LogUploadProgress("wsgm.log", 1), new LogUploadProgress("wsgm.old.log", 1)], steps);
+        Assert.Equal([new LogUploadProgress("wsgm.log"), new LogUploadProgress("wsgm.old.log")], steps);
     }
 
     private string Write(string name, string text)
@@ -240,7 +205,7 @@ public sealed class LogUploaderTests : IDisposable
         return path;
     }
 
-    private static Task<IReadOnlyList<LogUploadLink>> Upload(PasteServer server, IEnumerable<string> paths,
+    private static Task<string> Upload(Filebin server, IEnumerable<string> paths,
         CancellationToken cancellationToken = default, IProgress<LogUploadProgress>? progress = null)
     {
         return Upload(server, paths.Select(path =>
@@ -248,12 +213,11 @@ public sealed class LogUploaderTests : IDisposable
             .ToArray(), cancellationToken, progress);
     }
 
-    private static async Task<IReadOnlyList<LogUploadLink>> Upload(PasteServer server,
-        IReadOnlyList<LogUploadFile> files, CancellationToken cancellationToken = default,
-        IProgress<LogUploadProgress>? progress = null)
+    private static async Task<string> Upload(Filebin server, IReadOnlyList<LogUploadFile> files,
+        CancellationToken cancellationToken = default, IProgress<LogUploadProgress>? progress = null)
     {
         using DownloadClient client = new(server);
-        return await new LogUploader(client, new LogMask(@"C:\Users\chris", "chris"))
+        return await new LogUploader(client, new LogMask(@"C:\Users\chris", "chris"), Bin)
             .UploadAsync(files, progress, cancellationToken);
     }
 
@@ -266,21 +230,22 @@ public sealed class LogUploaderTests : IDisposable
         }
     }
 
-    /// <summary>paste.rs as its page describes it: 201 for a whole paste, 206 when the body reached the limit.</summary>
-    private sealed class PasteServer(int limit) : HttpMessageHandler
+    /// <summary>filebin.net as probed: 201 with JSON for a stored file, 200 for a deleted bin.</summary>
+    private sealed class Filebin : HttpMessageHandler
     {
-        internal Dictionary<string, byte[]> Pastes { get; } = [];
+        internal Dictionary<string, byte[]> Files { get; } = [];
         internal List<string> Deleted { get; } = [];
+        internal List<string?> ContentTypes { get; } = [];
         internal int Posts { get; private set; }
-        internal bool ReadBack { get; init; } = true;
         internal bool Unreachable { get; init; }
-        internal string? Answer { get; init; }
-        internal Func<int, HttpStatusCode?> Refuse { get; init; } = _ => null;
+        internal bool RefuseDelete { get; init; }
+        internal int? KeepBytes { get; init; }
+        internal Func<int, (HttpStatusCode Status, string Body)?> Refuse { get; init; } = _ => null;
         internal Action<int> BeforePost { get; init; } = _ => { };
 
-        internal string Text(string id)
+        internal string Text(string path)
         {
-            return Encoding.UTF8.GetString(Pastes[id]);
+            return Encoding.UTF8.GetString(Files[path]);
         }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
@@ -291,37 +256,44 @@ public sealed class LogUploaderTests : IDisposable
                 throw new HttpRequestException("No such host is known.");
             }
 
-            var id = request.RequestUri!.AbsolutePath.Trim('/');
-            if (request.Method == HttpMethod.Post)
-            {
-                Assert.Equal("https://paste.rs/", request.RequestUri.AbsoluteUri);
-                BeforePost(++Posts);
-                cancellationToken.ThrowIfCancellationRequested();
-                if (Refuse(Posts) is { } refused)
-                {
-                    return new HttpResponseMessage(refused) { Content = new StringContent("https://paste.rs/x") };
-                }
-
-                var body = await request.Content!.ReadAsByteArrayAsync(cancellationToken);
-                var name = "p" + Posts;
-                Pastes[name] = body[..Math.Min(body.Length, limit)];
-                return new HttpResponseMessage(body.Length >= limit
-                    ? HttpStatusCode.PartialContent
-                    : HttpStatusCode.Created)
-                {
-                    Content = new StringContent(Answer ?? $"https://paste.rs/{name}\n")
-                };
-            }
-
+            Assert.Equal("filebin.net", request.RequestUri!.Host);
+            Assert.Equal("https", request.RequestUri.Scheme);
+            var path = request.RequestUri.AbsolutePath;
             if (request.Method == HttpMethod.Delete)
             {
-                Deleted.Add(id);
-                return new HttpResponseMessage(Pastes.Remove(id) ? HttpStatusCode.OK : HttpStatusCode.NotFound);
+                Deleted.Add(path);
+                if (RefuseDelete)
+                {
+                    return new HttpResponseMessage(HttpStatusCode.InternalServerError);
+                }
+
+                foreach (var file in Files.Keys.Where(key => key.StartsWith(path + "/", StringComparison.Ordinal))
+                             .ToArray())
+                {
+                    Files.Remove(file);
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.OK);
             }
 
-            return ReadBack && Pastes.TryGetValue(id, out var stored)
-                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(stored) }
-                : new HttpResponseMessage(HttpStatusCode.NotFound);
+            Assert.Equal(HttpMethod.Post, request.Method);
+            BeforePost(++Posts);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (Refuse(Posts) is { } refused)
+            {
+                return new HttpResponseMessage(refused.Status) { Content = new StringContent(refused.Body) };
+            }
+
+            ContentTypes.Add(request.Content!.Headers.ContentType?.MediaType);
+            var body = await request.Content.ReadAsByteArrayAsync(cancellationToken);
+            Files[path] = body;
+            var bin = path.Split('/')[1];
+            var answer = JsonSerializer.Serialize(new
+            {
+                bin = new { id = bin, readonly_ = false, expired_at = "2026-11-08T12:00:00Z" },
+                file = new { filename = path.Split('/')[2], bytes = KeepBytes ?? body.Length, md5 = "x" }
+            });
+            return new HttpResponseMessage(HttpStatusCode.Created) { Content = new StringContent(answer) };
         }
     }
 }

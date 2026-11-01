@@ -69,8 +69,8 @@ public partial class SystemPage : UserControl
 
         var target = model.CanCancelLogUpload
             ? CancelLogUploadButton
-            : model.CanCopyLogLinks
-                ? CopyLogLinksButton
+            : model.CanCopyLogLink
+                ? CopyLogLinkButton
                 : UploadLogButton;
         target.Focus(NavigationMethod.Directional);
     }
