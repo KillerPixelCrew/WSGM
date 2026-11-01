@@ -436,11 +436,41 @@ Managed PCSX2 versions use the upstream `portable.txt` data-directory binding, s
 builds retain the same configuration, BIOS, memory-card and save directory without moving user
 files.
 
-Installed and Available separate registered installations from the supported catalogue. Both
-surfaces show update/setup status, search by emulator or system, grouped installation details and
-core filters for search matches, missing files and absent metadata. System defaults lists native
-emulator/core editors by console family; changing them leaves existing ROM libraries and overrides
-alone. Y checks for updates in the Overlay and Steam page.
+The page has five views behind one segmented track, the same on both surfaces, and a detail page per
+emulator. `EmulatorPageProjection` builds everything both surfaces show from state the backend
+already holds, and `/wsgm/emulators` publishes it as `wsgm.emulators`:
+
+- **Installed** is a card grid. Each card shows the version and channel (or "your own
+  installation"), the cores and systems or the systems it runs, and its status chips
+  (`installed[].chips`): Update to X, a setup chip (BIOS, firmware, keys or runtime missing, or
+  Needs setup), External, and otherwise Up to date, Not checked, Check failed or X skipped. A banner
+  lists the waiting updates (`updatesSummary`) with Update all (`updateAllEmulators`), which applies
+  them one at a time through the ordinary update transaction. A failed update is recorded and the
+  next still runs; Stop ends the run before the next update. `updateAll` carries the run's progress
+  and then its outcome, worded as a partial failure when one update failed, until other work starts.
+- **Get emulators** lists the whole catalogue (`catalog`) with search, console-family filters
+  (`families`: Nintendo, PlayStation, Sega, Xbox, Arcade, Other systems, from each system's family)
+  and what each needs after installing, taken from its required prerequisites. Install uses the
+  first channel; the detail page offers the other channels, Use my installation and the runtimes.
+- **RetroArch cores** lists the installed cores with Needs attention (declared files missing, named)
+  before Ready, a search, paging and Update installed cores.
+- **System defaults** shows each system the library uses with its game and source counts
+  (`systems[].summary`, counted from the ROM sources and import records) and its emulator and core
+  choices; other systems are folded below. A system with games and no emulator that names it links
+  to Get emulators searched for that system.
+- **BIOS and firmware** shows the shared folder with "N of M files found" (`biosSummary`) and a
+  checklist per system. Regional alternatives count once: any present dump satisfies the system.
+
+The detail page has the update (Update to X, Release notes, Skip version), the setup checklist
+(`installed[].setup`, read from each prerequisite's native path and the required runtimes, with
+Choose file and Recheck), In Steam (the shortcut switch, launch mode and the library's use of it),
+then Repair and, apart, Remove or Forget. Remove asks in the in-window confirm with Cancel focused
+and names what is deleted and what stays. Install, update and repair show their steps (find,
+download with its byte progress, extract, startup check) and Stop inside the emulator's own card,
+from the progress channel's `operation`, `targetId`, `phase`, `bytes` and `total`. The card icon is
+the icon the shortcut sync applied to the emulator's Steam shortcut from SteamGridDB; an emulator
+without a shortcut or icon shows the emulator glyph. LB/RB switch views and Y checks for updates in
+the Overlay.
 
 Installing or registering an emulator also publishes its own interface as a managed Steam shortcut.
 Existing installations default to this on upgrade. Each installation's detail page, in Overlay and

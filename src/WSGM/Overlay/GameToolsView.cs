@@ -369,37 +369,6 @@ public sealed partial class GameToolsView : ServiceSubView
         });
     }
 
-    /// <summary>A status chip in one of the shared badge tones.</summary>
-    /// <param name="text">The chip's text.</param>
-    /// <param name="tone"><c>good</c>, <c>warn</c>, <c>bad</c>, <c>info</c>, <c>action</c> or empty for neutral.</param>
-    /// <returns>The chip.</returns>
-    private static Border Chip(string text, string tone)
-    {
-        var chip = new Border
-        {
-            Classes = { "badge" },
-            Child = new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center },
-            VerticalAlignment = VerticalAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Left
-        };
-        if (tone.Length > 0)
-        {
-            chip.Classes.Add(tone);
-        }
-
-        return chip;
-    }
-
-    /// <summary>An attention message in the shared InfoBar.</summary>
-    private static FAInfoBar Banner(string tag, FAInfoBarSeverity severity, string? title, string message)
-    {
-        return new FAInfoBar
-        {
-            Tag = tag, IsOpen = true, IsClosable = false, IsIconVisible = true, Severity = severity,
-            Title = title ?? "", Message = message, HorizontalAlignment = HorizontalAlignment.Stretch
-        };
-    }
-
     /// <summary>Runs one service command off the UI thread; the refusal, if any, is shown as a toast.</summary>
     /// <param name="operation">The command.</param>
     /// <param name="what">What it was, for the log.</param>

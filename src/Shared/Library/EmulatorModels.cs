@@ -313,6 +313,18 @@ public sealed record EmulatorSnapshot : EmulatorStore
 
     /// <summary>Current user-facing operation result or progress.</summary>
     public string Status { get; init; } = "";
+
+    /// <summary>
+    ///     The running install transaction's step: <c>find</c>, <c>download</c>, <c>extract</c> or <c>check</c>; empty
+    ///     for other work and while idle.
+    /// </summary>
+    public string Phase { get; init; } = "";
+
+    /// <summary>Bytes of the install transaction's package downloaded so far, or zero outside the download step.</summary>
+    public long Bytes { get; init; }
+
+    /// <summary>The package's published size, or zero when the release does not state it.</summary>
+    public long Total { get; init; }
 }
 
 /// <summary>EmulatorStore used by emulator management and fresh managed launch resolution.</summary>

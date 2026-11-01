@@ -33,6 +33,13 @@ internal interface IEmulatorBackend : IChangeSource
         CancellationToken cancellationToken);
 
     Task<SteamUiCommandResult> UpdateEmulatorAsync(string installationId, CancellationToken cancellationToken);
+
+    /// <summary>
+    ///     Applies every pending update in order through the update transaction, one at a time; refused while
+    ///     another operation runs or when nothing is waiting.
+    /// </summary>
+    Task<SteamUiCommandResult> UpdateAllEmulatorsAsync(CancellationToken cancellationToken);
+
     Task<SteamUiCommandResult> RepairEmulatorAsync(string installationId, CancellationToken cancellationToken);
 
     Task<SteamUiCommandResult> UseExternalEmulatorAsync(string definitionId, string executable,

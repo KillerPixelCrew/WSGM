@@ -50,9 +50,12 @@ internal sealed class GameLibraryEmulators(EmulatorService? service)
         return Service?.ReadStore() ?? new EmulatorStore();
     }
 
-    /// <summary>Counts emulator dependencies again: the sources that select each installation and the imported titles.</summary>
+    /// <summary>
+    ///     Counts what the emulator manager shows of the library again: the sources and imported titles using each
+    ///     installation and each system, and the Steam shortcut of each installation's interface.
+    /// </summary>
     /// <param name="settings">The library's settings in force.</param>
-    /// <param name="imports">The import records the titles are counted from.</param>
+    /// <param name="imports">The import records the titles and shortcuts are read from.</param>
     internal void UpdateDependencies(GameLibraryConfig settings, ImportStateStore imports)
     {
         if (Service is null)
@@ -61,7 +64,41 @@ internal sealed class GameLibraryEmulators(EmulatorService? service)
         }
 
         var store = ReadStore();
+        Service.UpdateLibraryUsage(new EmulatorLibraryUsage(Dependencies(settings, imports, store),
+            SystemUsage(settings, imports), imports.ShortcutAppIds(EmulatorShortcutSync.Source)));
+    }
 
+    /// <summary>The sources and imported titles of each system: its configured sources and those its titles came from.</summary>
+    private static EmulatorSystemUsage[] SystemUsage(GameLibraryConfig settings, ImportStateStore imports)
+    {
+        var titles = imports.CountSystemTitles();
+        var configured = settings.RomSources.Select(source => (source.SystemId, Key: source.Id))
+            .Concat(settings.ManualSources.Where(source => source.RomPath is not null)
+                .Select(source => (source.SystemId, Key: "manual:" + source.Id)))
+            .Where(source => source.SystemId.Length > 0 && source.SystemId != RomProfiles.Automatic.Id)
+            .GroupBy(source => EmulatorStorage.NormalizeSystemId(source.SystemId), StringComparer.Ordinal)
+            .ToDictionary(group => group.Key,
+                group => group.Select(source => source.Key).ToHashSet(StringComparer.Ordinal),
+                StringComparer.Ordinal);
+        return
+        [
+            .. configured.Keys.Concat(titles?.Keys.ToArray() ?? []).Distinct(StringComparer.Ordinal).Select(system =>
+            {
+                var sources = configured.GetValueOrDefault(system) ?? new HashSet<string>(StringComparer.Ordinal);
+                if (titles?.TryGetValue(system, out var counted) == true)
+                {
+                    sources.UnionWith(counted.Sources);
+                }
+
+                return new EmulatorSystemUsage(system, sources.Count,
+                    titles is null ? null : titles.GetValueOrDefault(system).Titles);
+            })
+        ];
+    }
+
+    private static EmulatorDependencyCount[] Dependencies(GameLibraryConfig settings, ImportStateStore imports,
+        EmulatorStore store)
+    {
         string Selected(string systemId, string installationId)
         {
             return installationId.Length > 0
@@ -76,9 +113,11 @@ internal sealed class GameLibraryEmulators(EmulatorService? service)
             .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
         var titles = imports.CountEmulatorDependencies(store);
 
-        Service.UpdateDependencies(store.Installations.Select(installation => new EmulatorDependencyCount(
-            installation.Id, sources.GetValueOrDefault(installation.Id),
-            titles?.GetValueOrDefault(installation.Id))).ToArray());
+        return
+        [
+            .. store.Installations.Select(installation => new EmulatorDependencyCount(installation.Id,
+                sources.GetValueOrDefault(installation.Id), titles?.GetValueOrDefault(installation.Id)))
+        ];
     }
 
     /// <summary>The emulator, core and arguments a ROM's source gives it when the title has no override.</summary>

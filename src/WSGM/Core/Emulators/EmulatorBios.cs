@@ -247,7 +247,7 @@ public sealed partial class EmulatorManager
             return new EmulatorBiosSystem(system.Id, system.Name, status,
                 installed.Select(item => item.Name).Distinct().ToArray(), files,
                 installed.SelectMany(item => item.ConfiguredPrerequisites.Select(pair => item.Name + " · "
-                    + pair.Key + " → " + pair.Value)).ToArray());
+                    + pair.Key + " → " + pair.Value)).ToArray()) { Any = system.Any };
         }).ToArray();
         lock (_stateLock)
         {

@@ -104,9 +104,11 @@ snapshot returns to Avalonia.
 The session remembers each destination's selected section across tab switches and window reopen.
 Rail selection and keyboard/controller focus are independent: moving focus to a peer does not change
 the selected controls. Right from a rail row selects that section and enters its controls. LT/RT and
-LB/RB switch destinations with wrap. An open utility, keyboard or power surface confines input to
-itself; see "In-window surfaces" below. Re-summoning an open sheet returns to the selected section.
-An ordinary focus or activation change leaves the current page intact.
+LB/RB switch destinations with wrap. The one exception is Tools › Emulators: while it is open, LB/RB
+switch its five views (`GamepadNavigation.ShoulderTabs`) and LT/RT still switch destinations. An
+open utility, keyboard or power surface confines input to itself; see "In-window surfaces" below.
+Re-summoning an open sheet returns to the selected section. An ordinary focus or activation change
+leaves the current page intact.
 
 B, Escape and the header Back button share one route. From primary controls, Back focuses the
 selected rail row; from that rail, Back returns to Quick access; at home, Back dismisses the sheet.

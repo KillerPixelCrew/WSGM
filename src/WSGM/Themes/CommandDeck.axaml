@@ -42,6 +42,10 @@
     <Setter Property="FocusAdorner" Value="{x:Null}" />
     <Setter Property="Background" Value="{StaticResource DeckGroupBrush}" />
   </Style>
+  <!-- A row that is the body of a card: no fill of its own at rest, the card's hover and focus when used. -->
+  <Style Selector="Button.deck-action.flat">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
   <Style Selector="Button.deck-action.section-pin">
     <Setter Property="Width" Value="36" />
     <Setter Property="Height" Value="36" />
@@ -79,6 +83,32 @@
   </Style>
   <Style Selector="Button.deck-action:disabled">
     <Setter Property="Opacity" Value="0.5" />
+  </Style>
+  <!-- A page's view switcher (OverlaySubView.ViewTabs): segments on an inset track, the selected one filled. -->
+  <Style Selector="Border.deck-segments">
+    <Setter Property="Background" Value="{StaticResource DeckGroupBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource DeckGroupBorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{StaticResource DeckGroupRadius}" />
+    <Setter Property="Padding" Value="3" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
+  </Style>
+  <Style Selector="Button.deck-action.segment">
+    <Setter Property="MinHeight" Value="{StaticResource DeckControlHeight}" />
+    <Setter Property="Padding" Value="12,2" />
+    <Setter Property="Margin" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{StaticResource DeckSecondaryBrush}" />
+  </Style>
+  <Style Selector="Button.deck-action.segment:pointerover">
+    <Setter Property="Background" Value="{StaticResource DeckHoverBrush}" />
+  </Style>
+  <Style Selector="Button.deck-action.segment.selected">
+    <Setter Property="Background" Value="{StaticResource DeckPressedBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource DeckTextBrush}" />
+  </Style>
+  <Style Selector="Button.deck-action.segment:focus-visible">
+    <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
   </Style>
   <Style Selector="Window.command-deck">
     <Setter Property="Foreground" Value="{StaticResource DeckTextBrush}" />

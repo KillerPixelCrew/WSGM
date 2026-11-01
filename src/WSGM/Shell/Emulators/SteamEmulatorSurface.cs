@@ -46,6 +46,7 @@ internal static class SteamEmulatorSurface
                     "The emulator release is invalid."),
                 SteamUiModuleBuilder.Command<string>(PatchId, "updateEmulator", TryReadInstallation,
                     backend.UpdateEmulatorAsync, "The emulator installation is invalid."),
+                SteamUiModuleBuilder.Command(PatchId, "updateAllEmulators", backend.UpdateAllEmulatorsAsync),
                 SteamUiModuleBuilder.Command<string>(PatchId, "repairEmulator", TryReadInstallation,
                     backend.RepairEmulatorAsync, "The emulator installation is invalid."),
                 SteamUiModuleBuilder.Command<ExternalRequest>(PatchId, "useExternalEmulator", TryReadExternal,

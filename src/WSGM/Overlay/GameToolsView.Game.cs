@@ -14,10 +14,10 @@ namespace WSGM.Overlay;
 
 public sealed partial class GameToolsView
 {
+    private readonly Dictionary<string, Dictionary<string, bool>> _draftAddons = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _draftChannel = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _draftProxy = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Dictionary<string, string>> _draftSettings = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, Dictionary<string, bool>> _draftAddons = new(StringComparer.Ordinal);
     private uint _appId;
     private string _gameName = "";
 
@@ -398,12 +398,6 @@ public sealed partial class GameToolsView
             "steamUnavailable" => "Steam unavailable",
             _ => null
         };
-    }
-
-    /// <summary>A bordered card around a panel, keyed so its editors survive publications.</summary>
-    private static Border Card(Panel content, string tag)
-    {
-        return new Border { Child = content, Classes = { "device-group" }, Tag = tag };
     }
 
     private static string VendorLabel(string vendor)

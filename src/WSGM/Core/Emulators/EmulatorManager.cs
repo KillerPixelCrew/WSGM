@@ -34,8 +34,11 @@ public sealed partial class EmulatorManager : IDisposable
     private EmulatorCatalog _catalog = new();
     private EmulatorDefinition[] _definitionViews = [];
     private volatile bool _disposed;
+    private long _downloadTotal;
+    private long _downloaded;
     private bool _initialized;
     private bool _initializing = true;
+    private string _phase = "";
     private EmulatorStore _state = new();
     private string _status = "";
 
@@ -201,6 +204,9 @@ public sealed partial class EmulatorManager : IDisposable
                 Initialized = _initialized,
                 Busy = _active is not null || _initializing,
                 Status = _status,
+                Phase = _phase,
+                Bytes = _downloaded,
+                Total = _downloadTotal,
                 SystemPreferences = _state.SystemPreferences
             };
         }
@@ -467,7 +473,7 @@ public sealed partial class EmulatorManager : IDisposable
             .FirstOrDefault(item => item.Managed && item.DefinitionId == definition.Id && item.Channel == channel);
         var id = previous?.Id ?? definition.Id + "-" + Guid.NewGuid().ToString("N");
         var architecture = previous?.Architecture ?? Architecture(definition);
-        SetStatus("Finding " + definition.Name + " (" + channel + ")");
+        SetStatus("Finding " + definition.Name + " (" + channel + ")", "find");
         var release = repair && previous is not null
             ? new EmulatorRelease(previous.Version, previous.ReleaseId, "", previous.Source,
                 new ReleaseAsset(previous.PackageName,
@@ -490,12 +496,13 @@ public sealed partial class EmulatorManager : IDisposable
         try
         {
             Directory.CreateDirectory(downloads);
-            SetStatus("Downloading " + definition.Name + " " + release.Version);
+            SetStatus("Downloading " + definition.Name + " " + release.Version, "download");
             var hash = repair && previous is not null
                 ? await _packages.RestoreArchiveAsync(previous, release.Asset.Name, archive, release.Asset.Url,
                     release.Asset.Sha256, cancellationToken).ConfigureAwait(false)
-                : await _client.DownloadAsync(release.Asset, archive, cancellationToken).ConfigureAwait(false);
-            SetStatus("Extracting " + definition.Name);
+                : await _client.DownloadAsync(release.Asset, archive, cancellationToken,
+                    bytes => Downloaded(bytes, release.Asset.Size)).ConfigureAwait(false);
+            SetStatus("Extracting " + definition.Name, "extract");
             await Task.Run(() => PackageArchive.Extract(archive, program, cancellationToken), cancellationToken)
                 .ConfigureAwait(false);
             if (release.ExtractDirectory.Length > 0)
@@ -606,7 +613,7 @@ public sealed partial class EmulatorManager : IDisposable
                 var published = false;
                 try
                 {
-                    SetStatus("Checking " + definition.Name + " startup before activation");
+                    SetStatus("Checking " + definition.Name + " startup before activation", "check");
                     var runtimes = EmulatorStorage.MissingRuntimePrerequisites(candidate);
                     if (runtimes.Length > 0)
                     {
@@ -823,6 +830,9 @@ public sealed partial class EmulatorManager : IDisposable
             lock (_stateLock)
             {
                 _active = null;
+                _phase = "";
+                _downloaded = 0;
+                _downloadTotal = 0;
             }
 
             _operations.Release();
@@ -830,11 +840,53 @@ public sealed partial class EmulatorManager : IDisposable
         }
     }
 
+    /// <summary>Publishes the operation's status line; a running install keeps its step.</summary>
+    /// <param name="status">The user-facing line.</param>
     internal void SetStatus(string status)
     {
         lock (_stateLock)
         {
             _status = status;
+        }
+
+        NotifyChanged();
+    }
+
+    /// <summary>Publishes an install transaction's status line together with the step it starts.</summary>
+    /// <param name="status">The user-facing line.</param>
+    /// <param name="phase">The step: <c>find</c>, <c>download</c>, <c>extract</c> or <c>check</c>.</param>
+    private void SetStatus(string status, string phase)
+    {
+        lock (_stateLock)
+        {
+            _status = status;
+            _phase = phase;
+            _downloaded = 0;
+            _downloadTotal = 0;
+        }
+
+        NotifyChanged();
+    }
+
+    /// <summary>
+    ///     Publishes the package download's progress at most once per percent, or once per MiB when the release
+    ///     states no size, so the copy loop stays cheap.
+    /// </summary>
+    /// <param name="bytes">Bytes copied so far.</param>
+    /// <param name="total">The published size, or zero.</param>
+    private void Downloaded(long bytes, long total)
+    {
+        lock (_stateLock)
+        {
+            var step = total > 0 ? Math.Max(1, total / 100) : 1024 * 1024;
+            if (bytes / step == _downloaded / step && _downloaded > 0)
+            {
+                _downloaded = bytes;
+                return;
+            }
+
+            _downloaded = bytes;
+            _downloadTotal = total;
         }
 
         NotifyChanged();

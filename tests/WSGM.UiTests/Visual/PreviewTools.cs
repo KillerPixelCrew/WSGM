@@ -213,14 +213,13 @@ public static class PreviewTools
 
             if (scenario == "emulators-install")
             {
-                Click("Available 2");
-                Click("Eden");
+                Click("Get emulators");
+                Click("RPCS3");
             }
 
             if (scenario == "emulators-cores")
             {
-                Click("RetroArch (all cores)");
-                Click("Installed cores (3)");
+                Click("RetroArch cores");
             }
 
             if (scenario == "emulators-defaults")
@@ -230,7 +229,7 @@ public static class PreviewTools
 
             if (scenario == "emulators-bios")
             {
-                Click("BIOS & firmware");
+                Click("BIOS and firmware");
             }
 
             if (scenario == "themes-browse" || scenario == "movies-browse")

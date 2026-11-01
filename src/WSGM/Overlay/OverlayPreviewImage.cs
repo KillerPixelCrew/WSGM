@@ -18,6 +18,7 @@ namespace WSGM.Overlay;
 internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
 {
     private static readonly SemaphoreSlim Downloads = new(4);
+    private readonly Control? _placeholder;
     private readonly Func<CancellationToken, Task<byte[]>>? _read;
     private readonly string? _source;
     private readonly Stretch _stretch;
@@ -68,6 +69,23 @@ internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
         Stretch stretch = Stretch.Uniform) : this(key, height, stretch)
     {
         _read = read;
+    }
+
+    /// <summary>
+    ///     What shows while the image loads and when there is none to show, such as an icon tile; null keeps the
+    ///     "Loading preview" and "Preview unavailable" text.
+    /// </summary>
+    internal Control? Placeholder
+    {
+        get => _placeholder;
+        init
+        {
+            _placeholder = value;
+            if (value is not null)
+            {
+                Child = value;
+            }
+        }
     }
 
     /// <inheritdoc />
@@ -194,6 +212,12 @@ internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
         {
             if (!token.IsCancellationRequested)
             {
+                if (_placeholder is not null)
+                {
+                    Child = _placeholder;
+                    return;
+                }
+
                 Child = new TextBlock { Text = "Preview unavailable", TextWrapping = TextWrapping.Wrap };
                 ToolTip.SetTip(this, ex.Message);
             }

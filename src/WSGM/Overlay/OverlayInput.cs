@@ -60,6 +60,10 @@ internal static class OverlayInput
             direction => window.Surfaces.HasActive
                 ? window.Surfaces.NavigateDirection(direction)
                 : window.NavigateWorkspace(direction),
-            true, () => window.Surfaces.NavigationRoot);
+            true, () => window.Surfaces.NavigationRoot)
+        {
+            // LB/RB switch the Emulators page's views while it is open; the triggers still switch destinations.
+            ShoulderTabs = next => !window.Surfaces.HasActive && window.EmulatorManagerHost.SelectAdjacentView(next)
+        };
     }
 }

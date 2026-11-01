@@ -125,6 +125,12 @@ internal sealed class GamepadNavigation : IDisposable
     /// </summary>
     internal bool IsEnabled { get; set; } = true;
 
+    /// <summary>
+    ///     Optional page-level tabs on the shoulder buttons alone, asked before the tab switch: true for RB, false for
+    ///     LB. It returns whether the page took the press; the triggers keep switching tabs.
+    /// </summary>
+    internal Func<bool, bool>? ShoulderTabs { get; init; }
+
     /// <summary>Detaches controller navigation from the window and input service.</summary>
     public void Dispose()
     {
@@ -212,7 +218,10 @@ internal sealed class GamepadNavigation : IDisposable
             if (Environment.TickCount64 >= _suppressTabPadUntil)
             {
                 _suppressTabKeyboardUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
-                _tabPrevious();
+                if (!buttons.HasFlag(GamepadButtons.LeftShoulder) || ShoulderTabs?.Invoke(false) != true)
+                {
+                    _tabPrevious();
+                }
             }
 
             return;
@@ -224,7 +233,10 @@ internal sealed class GamepadNavigation : IDisposable
             if (Environment.TickCount64 >= _suppressTabPadUntil)
             {
                 _suppressTabKeyboardUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
-                _tabNext();
+                if (!buttons.HasFlag(GamepadButtons.RightShoulder) || ShoulderTabs?.Invoke(true) != true)
+                {
+                    _tabNext();
+                }
             }
 
             return;

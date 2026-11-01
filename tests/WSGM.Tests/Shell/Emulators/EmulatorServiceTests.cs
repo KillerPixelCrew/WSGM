@@ -109,6 +109,32 @@ public sealed class EmulatorServiceTests
         }
     }
 
+    [Fact]
+    public async Task UpdateAllIsRefusedWhenNothingWaitsAndWhileAnotherOperationRuns()
+    {
+        using var directory = new TemporaryDirectory();
+        using var handler = new WaitingRelease();
+        using var manager = new EmulatorManager(new UserDataContext(directory.Root, "unused-config"), handler);
+        await manager.Initialization.WaitAsync(AsyncConditions.TimeLimit);
+        using var backend = new EmulatorService(manager, _ => { });
+
+        var idle = await backend.UpdateAllEmulatorsAsync(CancellationToken.None);
+        Assert.False(idle.Succeeded);
+        Assert.Equal("No update is waiting. Check for updates to look again.", idle.Error);
+
+        Assert.True((await backend.InstallEmulatorAsync("duckstation", "latest", CancellationToken.None)).Succeeded);
+        await handler.Entered.Task.WaitAsync(AsyncConditions.TimeLimit);
+        var progress = backend.ReadProgressState();
+        Assert.True(progress.Busy);
+        Assert.Equal(("install", "duckstation"), (progress.Operation, progress.TargetId));
+        Assert.False((await backend.StartOperation("update all", _ => Task.CompletedTask, CancellationToken.None,
+            "updateAll")).Succeeded);
+
+        await backend.CancelAsync(CancellationToken.None);
+        await backend.OperationCompletion.WaitAsync(AsyncConditions.TimeLimit);
+        Assert.Equal(("", ""), (backend.ReadProgressState().Operation, backend.ReadProgressState().TargetId));
+    }
+
     private sealed class WaitingRelease : HttpMessageHandler
     {
         internal TaskCompletionSource<CancellationToken> Entered { get; } =

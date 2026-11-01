@@ -19,7 +19,6 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
     private EmulatorBiosState? _bios;
     private long _catalogRevision;
     private EmulatorCoreStatus[] _coreStatus = [];
-    private EmulatorDependencyCount[] _dependencies = [];
     private bool _disposed;
     private Task? _operation;
     private CancellationTokenSource? _operationCancellation;
@@ -27,10 +26,15 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
     private EmulatorProgressState _progress = new(false, "");
     private long _progressRevision;
     private RomEmulatorState? _romState;
+    private string _runningOperation = "";
+    private string _runningTarget = "";
+    private IReadOnlyDictionary<string, EmulatorSetupItem[]> _setup = new Dictionary<string, EmulatorSetupItem[]>();
     private string _shortcutStatus = "";
     private EmulatorShortcutSync? _shortcuts;
     private EmulatorSnapshot _snapshot = new();
     private IReadOnlyList<RomSystemProfile>? _systems;
+    private EmulatorUpdateAllState? _updateAll;
+    private EmulatorLibraryUsage _usage = EmulatorLibraryUsage.Empty;
 
     internal EmulatorService(EmulatorManager manager, Action<string> openUrl)
     {
@@ -91,16 +95,9 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
         lock (_gate)
         {
             var romState = ReadRomStateCore();
-            return _pageState ??= new EmulatorPageState(_snapshot, _systems!, romState.Choices, _dependencies,
-                EmulatorPackages.HostArchitecture)
-            {
-                Bios = _manager.ReadBiosState(),
-                ShortcutStatus = _shortcutStatus,
-                CoreStatus = _coreStatus,
-                Installed = _snapshot.Installations.Select(item => new EmulatorListItem(item.Id,
-                    EmulatorPresentation.Detail(item), EmulatorPresentation.Badge(_snapshot, item),
-                    EmulatorPresentation.HasUpdate(_snapshot, item))).ToArray()
-            };
+            return _pageState ??= EmulatorPageProjection.Create(_snapshot, _systems!, romState,
+                _manager.ReadBiosState(), _usage, _setup, _coreStatus, _updateAll, _shortcutStatus,
+                EmulatorPackages.HostArchitecture);
         }
     }
 
@@ -126,7 +123,8 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
 
     public Task<SteamUiCommandResult> RefreshEmulatorsAsync(CancellationToken cancellationToken)
     {
-        return StartOperation("release refresh", token => _manager.RefreshAsync(token), cancellationToken);
+        return StartOperation("release refresh", token => _manager.RefreshAsync(token), cancellationToken,
+            "refresh");
     }
 
     public Task<SteamUiCommandResult> SetBiosFolderAsync(string path, CancellationToken cancellationToken)
@@ -154,19 +152,34 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
         CancellationToken cancellationToken)
     {
         return StartOperation("install " + definitionId + "/" + channel,
-            token => _manager.InstallAsync(definitionId, channel, token), cancellationToken);
+            token => _manager.InstallAsync(definitionId, channel, token), cancellationToken, "install", definitionId);
     }
 
     public Task<SteamUiCommandResult> UpdateEmulatorAsync(string installationId, CancellationToken cancellationToken)
     {
         return StartOperation("update " + installationId,
-            token => _manager.UpdateAsync(installationId, token), cancellationToken);
+            token => _manager.UpdateAsync(installationId, token), cancellationToken, "update", installationId);
+    }
+
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> UpdateAllEmulatorsAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var updates = EmulatorPageProjection.PendingUpdates(_manager.GetSnapshot());
+        if (updates.Length == 0)
+        {
+            return Task.FromResult(new SteamUiCommandResult(false,
+                "No update is waiting. Check for updates to look again."));
+        }
+
+        return StartOperation("update all", token => UpdateAllAsync(updates, token), cancellationToken,
+            "updateAll");
     }
 
     public Task<SteamUiCommandResult> RepairEmulatorAsync(string installationId, CancellationToken cancellationToken)
     {
         return StartOperation("repair " + installationId,
-            token => _manager.RepairAsync(installationId, token), cancellationToken);
+            token => _manager.RepairAsync(installationId, token), cancellationToken, "repair", installationId);
     }
 
     public Task<SteamUiCommandResult> UseExternalEmulatorAsync(string definitionId, string executable,
@@ -317,17 +330,29 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
         return _romState ??= RomEmulatorProjection.Create(_snapshot, _systems);
     }
 
-    internal void UpdateDependencies(IReadOnlyList<EmulatorDependencyCount> dependencies)
+    /// <summary>
+    ///     Takes the Game Library's counts: the sources and titles using each installation and each system, and the
+    ///     Steam shortcut of each installation's interface.
+    /// </summary>
+    /// <param name="usage">The counts, read from the library's settings and import records.</param>
+    internal void UpdateLibraryUsage(EmulatorLibraryUsage usage)
     {
-        var current = dependencies.OrderBy(item => item.InstallationId, StringComparer.Ordinal).ToArray();
+        var current = new EmulatorLibraryUsage(
+            [.. usage.Dependencies.OrderBy(item => item.InstallationId, StringComparer.Ordinal)],
+            [.. usage.Systems.OrderBy(item => item.SystemId, StringComparer.Ordinal)],
+            new Dictionary<string, uint>(usage.ShortcutAppIds, StringComparer.Ordinal));
         lock (_gate)
         {
-            if (_dependencies.SequenceEqual(current))
+            if (_usage.Dependencies.SequenceEqual(current.Dependencies)
+                && _usage.Systems.SequenceEqual(current.Systems)
+                && _usage.ShortcutAppIds.Count == current.ShortcutAppIds.Count
+                && _usage.ShortcutAppIds.All(pair =>
+                    current.ShortcutAppIds.TryGetValue(pair.Key, out var appId) && appId == pair.Value))
             {
                 return;
             }
 
-            _dependencies = current;
+            _usage = current;
             _pageState = null;
             Interlocked.Increment(ref _catalogRevision);
         }
@@ -357,8 +382,16 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
             if (!ReferenceEquals(_snapshot.Installations, snapshot.Installations) || !ReferenceEquals(_bios, bios))
             {
                 _coreStatus = snapshot.Installations.SelectMany(item => item.Cores.Select(core =>
-                    new EmulatorCoreStatus(item.Id, core.Id,
-                        core.RequiredFiles.Any(path => !File.Exists(path) && !Directory.Exists(path))))).ToArray();
+                {
+                    string[] missing =
+                    [
+                        .. core.RequiredFiles.Where(path => !File.Exists(path) && !Directory.Exists(path))
+                            .Select(Path.GetFileName).OfType<string>()
+                    ];
+                    return new EmulatorCoreStatus(item.Id, core.Id, missing.Length > 0) { MissingFiles = missing };
+                })).ToArray();
+                _setup = snapshot.Installations.ToDictionary(item => item.Id, EmulatorPageProjection.ReadSetup,
+                    StringComparer.Ordinal);
             }
 
             if (!ReferenceEquals(_snapshot.Definitions, snapshot.Definitions)
@@ -374,19 +407,85 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
                 Interlocked.Increment(ref _catalogRevision);
             }
 
-            var progress = new EmulatorProgressState(snapshot.Busy, snapshot.Status);
-            if (_progress != progress)
-            {
-                _progress = progress;
-                Interlocked.Increment(ref _progressRevision);
-            }
+            UpdateProgress(snapshot);
         }
 
         Changed?.Invoke();
     }
 
+    /// <summary>
+    ///     Republishes the progress channel from the manager's snapshot and the admitted operation, which stays busy
+    ///     between the updates of an Update all run.
+    /// </summary>
+    /// <remarks>The caller holds <see cref="_gate" />.</remarks>
+    private void UpdateProgress(EmulatorSnapshot snapshot)
+    {
+        var running = _runningOperation.Length > 0;
+        var progress = new EmulatorProgressState(snapshot.Busy || running, snapshot.Status)
+        {
+            Operation = running ? _runningOperation : "",
+            TargetId = running ? _runningTarget : "",
+            Phase = snapshot.Phase,
+            Bytes = snapshot.Bytes,
+            Total = snapshot.Total
+        };
+        if (_progress != progress)
+        {
+            _progress = progress;
+            Interlocked.Increment(ref _progressRevision);
+        }
+    }
+
+    private void SetRunning(string operation, string target)
+    {
+        var snapshot = ReadState();
+        lock (_gate)
+        {
+            _runningOperation = operation;
+            _runningTarget = target;
+            UpdateProgress(snapshot);
+        }
+
+        Changed?.Invoke();
+    }
+
+    private void SetUpdateAll(EmulatorUpdateAllState? state)
+    {
+        lock (_gate)
+        {
+            _updateAll = state;
+            _pageState = null;
+            Interlocked.Increment(ref _catalogRevision);
+        }
+
+        Changed?.Invoke();
+    }
+
+    private async Task UpdateAllAsync(IReadOnlyList<EmulatorPendingUpdate> updates, CancellationToken token)
+    {
+        var result = await EmulatorUpdateSequence.RunAsync(updates, (next, stepToken) =>
+        {
+            SetRunning("updateAll", next.InstallationId);
+            return _manager.UpdateAsync(next.InstallationId, stepToken);
+        }, SetUpdateAll, token).ConfigureAwait(false);
+        SetRunning("updateAll", "");
+        // The status line carries the whole run, so a failed update is never followed by a bare success line.
+        _manager.SetStatus(result.Outcome);
+        if (result.Failed.Count > 0)
+        {
+            Log.Warn("Emulator update all: " + result.Outcome);
+        }
+    }
+
+    /// <summary>Admits one long operation as the session's owned work, refusing while another runs.</summary>
+    /// <param name="name">What it is, for the log.</param>
+    /// <param name="operation">The work, given the session-owned token.</param>
+    /// <param name="token">The request's token; it only cancels admission.</param>
+    /// <param name="kind">The progress channel's operation, such as <c>install</c>.</param>
+    /// <param name="target">The definition or installation it works on.</param>
+    /// <returns>Applied once admitted, or the refusal.</returns>
     internal Task<SteamUiCommandResult> StartOperation(string name, Func<CancellationToken, Task> operation,
-        CancellationToken token)
+        CancellationToken token, string kind = "", string target = "")
     {
         token.ThrowIfCancellationRequested();
         lock (_gate)
@@ -407,11 +506,24 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
             var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
             _operationCancellation = cancellation;
             var ownedToken = cancellation.Token;
+            _runningOperation = kind.Length > 0 ? kind : "operation";
+            _runningTarget = target;
+            if (_updateAll is not null)
+            {
+                // The last Update all result stays until other work starts.
+                _updateAll = null;
+                _pageState = null;
+                Interlocked.Increment(ref _catalogRevision);
+            }
+
+            UpdateProgress(_manager.GetSnapshot());
             // Always enter the completion wrapper, even if Cancel wins before this worker starts.
             _operation = Task.Run(() => CompleteOperationAsync(name, () => operation(ownedToken), cancellation));
             _operation.ObserveFaults();
-            return Task.FromResult(SteamUiCommandResult.Applied);
         }
+
+        Changed?.Invoke();
+        return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
     private async Task CompleteOperationAsync(string name, Func<Task> operation, CancellationTokenSource cancellation)
@@ -431,15 +543,21 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
         }
         finally
         {
+            var snapshot = ReadState();
             lock (_gate)
             {
                 if (ReferenceEquals(_operationCancellation, cancellation))
                 {
                     _operationCancellation = null;
                 }
+
+                _runningOperation = "";
+                _runningTarget = "";
+                UpdateProgress(snapshot);
             }
 
             cancellation.Dispose();
+            Changed?.Invoke();
         }
     }
 

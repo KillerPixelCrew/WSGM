@@ -54,6 +54,53 @@ internal sealed class EmulatorOverlaySource : IEmulatorBackend
 
     internal List<string> Commands { get; } = [];
 
+    /// <summary>The running work's kind, target and step, beside the snapshot's busy state and status line.</summary>
+    internal EmulatorProgressState? Progress { get; set; }
+
+    /// <summary>The Game Library's counts and shortcut ids the page shows.</summary>
+    internal EmulatorLibraryUsage Usage
+    {
+        get;
+        set
+        {
+            field = value;
+            Invalidate();
+        }
+    } = EmulatorLibraryUsage.Empty;
+
+    /// <summary>Each installation's setup checklist, as the service reads it from disk.</summary>
+    internal Dictionary<string, EmulatorSetupItem[]> Setup
+    {
+        get;
+        set
+        {
+            field = value;
+            Invalidate();
+        }
+    } = new();
+
+    /// <summary>Each installed core's missing files.</summary>
+    internal EmulatorCoreStatus[] CoreStatus
+    {
+        get;
+        set
+        {
+            field = value;
+            Invalidate();
+        }
+    } = [];
+
+    /// <summary>The last Update all run.</summary>
+    internal EmulatorUpdateAllState? UpdateAll
+    {
+        get;
+        set
+        {
+            field = value;
+            Invalidate();
+        }
+    }
+
     internal TaskCompletionSource<string> CommandCompleted { get; } =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -74,7 +121,7 @@ internal sealed class EmulatorOverlaySource : IEmulatorBackend
 
     public EmulatorProgressState ReadProgressState()
     {
-        return new EmulatorProgressState(State.Busy, State.Status);
+        return Progress ?? new EmulatorProgressState(State.Busy, State.Status);
     }
 
     public EmulatorPageState ReadPageState()
@@ -85,14 +132,9 @@ internal sealed class EmulatorOverlaySource : IEmulatorBackend
         }
 
         var systems = RomProfiles.ForInstallations(State.Installations);
-        return _page = new EmulatorPageState(State with { Busy = false, Status = "" }, systems,
-            RomEmulatorProjection.Create(State, systems).Choices, [], "x64")
-        {
-            Bios = Bios,
-            Installed = State.Installations.Select(item => new EmulatorListItem(item.Id,
-                EmulatorPresentation.Detail(item), EmulatorPresentation.Badge(State, item),
-                EmulatorPresentation.HasUpdate(State, item))).ToArray()
-        };
+        // The production projection, so both surfaces' contract is what the captures show.
+        return _page = EmulatorPageProjection.Create(State with { Busy = false, Status = "" }, systems,
+            RomEmulatorProjection.Create(State, systems), Bios, Usage, Setup, CoreStatus, UpdateAll, "", "x64");
     }
 
     public event Action? Changed;
@@ -143,6 +185,11 @@ internal sealed class EmulatorOverlaySource : IEmulatorBackend
     public Task<SteamUiCommandResult> UpdateEmulatorAsync(string installationId, CancellationToken cancellationToken)
     {
         return Command("UpdateEmulatorAsync", cancellationToken);
+    }
+
+    public Task<SteamUiCommandResult> UpdateAllEmulatorsAsync(CancellationToken cancellationToken)
+    {
+        return Command("UpdateAllEmulatorsAsync", cancellationToken);
     }
 
     public Task<SteamUiCommandResult> RepairEmulatorAsync(string installationId, CancellationToken cancellationToken)
@@ -196,6 +243,12 @@ internal sealed class EmulatorOverlaySource : IEmulatorBackend
         CancellationToken cancellationToken)
     {
         return Command("SetPreferredEmulatorAsync", cancellationToken);
+    }
+
+    private void Invalidate()
+    {
+        _page = null;
+        CatalogRevision++;
     }
 
     /// <summary>Publishes a new snapshot, as the manager does after a change.</summary>

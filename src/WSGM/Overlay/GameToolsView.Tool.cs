@@ -407,7 +407,7 @@ public sealed partial class GameToolsView
 
     private static WrapPanel Steps(string phase)
     {
-        var active = phase switch
+        return StepChips(InstallSteps, phase switch
         {
             GameToolPhase.Download => 0,
             GameToolPhase.Verify => 1,
@@ -415,38 +415,7 @@ public sealed partial class GameToolsView
             GameToolPhase.Settings => 3,
             GameToolPhase.Rescan => 4,
             _ => -1
-        };
-        var steps = new WrapPanel { Orientation = Orientation.Horizontal };
-        for (var index = 0; index < InstallSteps.Length; index++)
-        {
-            var done = index < active;
-            var dot = Chip(done ? "✓" : (index + 1).ToString(CultureInfo.InvariantCulture),
-                done ? "good" : index == active ? "action" : "");
-            dot.Width = 24;
-            dot.Height = 24;
-            dot.CornerRadius = new CornerRadius(12);
-            dot.Padding = default;
-            if (dot.Child is TextBlock number)
-            {
-                number.HorizontalAlignment = HorizontalAlignment.Center;
-            }
-
-            var step = new StackPanel
-            {
-                Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 0, 22, 4)
-            };
-            step.Children.Add(dot);
-            var label = new TextBlock { Text = InstallSteps[index], VerticalAlignment = VerticalAlignment.Center };
-            if (index != active)
-            {
-                label.Classes.Add("caption");
-            }
-
-            step.Children.Add(label);
-            steps.Children.Add(step);
-        }
-
-        return steps;
+        });
     }
 
     // ---- Value rows: release channel, load name and the tool's settings ----

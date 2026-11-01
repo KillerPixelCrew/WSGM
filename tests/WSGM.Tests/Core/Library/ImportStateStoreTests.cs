@@ -472,4 +472,45 @@ public sealed class ImportStateStoreTests
         Assert.Equal("epic", kept.Group);
         Assert.Equal([3u], kept.AppIds);
     }
+
+    [Fact]
+    public void SystemTitlesCountEachSystemsRomsAndTheSourcesTheyCameFrom()
+    {
+        using TemporaryDirectory temporary = new();
+        var store = new ImportStateStore(temporary.GetPath("library-import.json"));
+        Assert.Null(store.CountSystemTitles());
+        store.SetActiveAccount(7);
+        foreach (var (key, source, sourceKey, system) in new[]
+                 {
+                     ("a", "roms-1", "a", "psx"), ("b", "roms-1", "b", "psx"), ("c", "roms-2", "c", "psx"),
+                     ("d", "manual", "manual-1", "Genesis"), ("e", "roms-1", "e", "ps2")
+                 })
+        {
+            store.SaveApplied(new ImportedEntry
+            {
+                AccountId = 7, Source = "rom", Key = key, Name = key, AppId = 40u + key[0],
+                Mode = nameof(ImportMode.SteamIntegration),
+                Content = new ManagedContentRecord
+                {
+                    Id = key, SourceId = source, SourceKey = sourceKey, SourceKind = LibrarySourceKind.Rom,
+                    SystemId = system
+                }
+            });
+        }
+
+        store.SaveApplied(new ImportedEntry
+        {
+            AccountId = 7, Source = "wsgm-emulators", Key = "pcsx2", Name = "PCSX2", AppId = 99,
+            Mode = nameof(ImportMode.SteamIntegration)
+        });
+
+        var counts = store.CountSystemTitles()!;
+        Assert.Equal(3, counts["psx"].Titles);
+        Assert.Equal(["roms-1", "roms-2"], counts["psx"].Sources.Order());
+        Assert.Equal(1, counts["megadrive"].Titles);
+        Assert.Equal(["manual:manual-1"], counts["megadrive"].Sources);
+        Assert.Equal(1, counts["ps2"].Titles);
+        Assert.Equal(99u, store.ShortcutAppIds("wsgm-emulators")["pcsx2"]);
+        Assert.Single(store.ShortcutAppIds("wsgm-emulators"));
+    }
 }

@@ -251,6 +251,15 @@ selected one is `primary`. Do keep labels to one or two words. Don't use it for 
 values. Mockup direction: a true segmented control with an inset track for Release channel, which
 the code shows as a ComboBox.
 
+**View tabs.** `OverlaySubView.ViewTabs` (`OverlaySubView.Tools.cs`), styled by
+`Border.deck-segments` and `Button.deck-action.segment` in `CommandDeck.axaml`. An inset track
+(`DeckGroupBrush`, 1px `DeckGroupBorderBrush`, radius 6, padding 3) of 36px segments, padding 12 x
+2, transparent at rest in `DeckSecondaryBrush`; the selected segment is filled `DeckPressedBrush`
+with `DeckTextBrush` text, focus is the accent border. It wraps when the pane is narrow, and each
+segment is keyed `{tag}:{id}`. Tools › Emulators switches its five views with it and with LB/RB. Do
+use it for a page's views, up to five, and keep focus on the chosen segment after switching. Don't
+use it for values; use a dropdown or the segmented tabs above.
+
 **Filter chips.** `GameToolsView.Toolbar` (`src/WSGM/Overlay/GameToolsView.cs`) with `CommandStrip`.
 Labels carry counts ("All 9", "Updates 1"); the active filter is `primary`. Do keep counts live.
 Don't use `Border.badge` as a filter; badges take no focus.
@@ -288,26 +297,29 @@ tooltip say "Pin Fans" or "Unpin Fans". Do pin whole groups. Don't add pins to s
 override" in 12 SemiBold accent, "Use global" button 32 tall. Focus returns to the row after reset.
 Do mark every per-game value. Don't recolor the editor.
 
-**Card.** `Border.device-group` (`CommandDeck.axaml`), `GameToolsView.Game.Card`. `DeckGroupBrush`,
-1px `DeckGroupBorderBrush`, radius 6, padding 12, natural height. Tool cards add a 44px tile
+**Card.** `Border.device-group` (`CommandDeck.axaml`), `OverlaySubView.Card`. `DeckGroupBrush`, 1px
+`DeckGroupBorderBrush`, radius 6, padding 12, natural height. Tool cards add a 44px tile
 (`HcBadgeBrush`, radius 8, accent icon). Do keep one subject and its primary action per card. Don't
-nest cards or add colored side borders. Mockup direction: radius 8, padding 14 to 16.
+nest cards or add colored side borders. Mockup direction: radius 8, padding 14 to 16. A row that is
+the whole body of a card (a catalogue card or a core row) takes the `flat` class
+(`Button.deck-action.flat`): no fill at rest, the deck hover and focus fills when used.
 
-**Chip.** `Border.badge` with tone classes (`src/WSGM/Themes/Shared.axaml`); `GameToolsView.Chip`
-and `StatusChip`. Radius 10, padding 8 x 2, 11.5 SemiBold. Do pair tone with a word and use `action`
-at most once per row. Don't make chips clickable. Mockup direction: 24px tall, radius 12.
+**Chip.** `Border.badge` with tone classes (`src/WSGM/Themes/Shared.axaml`); `OverlaySubView.Chip`
+and `GameToolsView.StatusChip`. Radius 10, padding 8 x 2, 11.5 SemiBold. Do pair tone with a word
+and use `action` at most once per row. Don't make chips clickable. Mockup direction: 24px tall,
+radius 12.
 
-**Banner.** FluentAvalonia `FAInfoBar` via `GameToolsView.Banner`, not closable, icon shown.
+**Banner.** FluentAvalonia `FAInfoBar` via `OverlaySubView.Banner`, not closable, icon shown.
 Severities Success, Warning, Error, Informational. Anti-cheat is an Error banner on the game page,
 then a confirm before installing. Do place it where the failure happened and use the service's text.
 Don't stack banners for one event or hide partial failure behind success. Mockup direction: a titled
 anti-cheat callout.
 
 **Progress.** `src/WSGM/Overlay/OverlayProgress.cs` (`OverlayProgress`, `inline` for Cancel beside
-the meter) and `GameToolsView.Steps`. Steps: 24px chips, done `good` with a check, current `action`,
-pending neutral with caption labels, 22 apart. Bar 6px accent on `DeckSurfaceBrush`. Cancel 120 wide
-while safe. Do explain what Cancel does. Don't block navigation. Mockup direction: inner panel and
-an 8px bar.
+the meter) and `OverlaySubView.StepChips`. Steps: 24px chips, done `good` with a check, current
+`action`, pending neutral with caption labels, 22 apart. Bar 6px accent on `DeckSurfaceBrush`.
+Cancel 120 wide while safe. Do explain what Cancel does. Don't block navigation. Mockup direction:
+inner panel and an 8px bar.
 
 **Page header.** `OverlaySubView.NewStack` and the Game Tools header (`Fact` for labelled facts). Do
 keep the breadcrumb true to Back. Don't make breadcrumb segments focusable.
@@ -316,7 +328,8 @@ keep the breadcrumb true to Back. Don't make breadcrumb segments focusable.
 (`src/WSGM/Overlay/PagedRows.cs`), which focuses the first added item. Do page long lists and keep
 the user's place. Don't put two commands in one row.
 
-**Media row.** `src/WSGM/Overlay/OverlayMediaRow.cs` with `OverlayPreviewImage`. Capsule art 120x56
+**Media row.** `src/WSGM/Overlay/OverlayMediaRow.cs` with `OverlayPreviewImage`, whose `Placeholder`
+shows a fallback such as an icon tile while loading and when there is no image. Capsule art 120x56
 or 96x45, title, detail, chips at the right; art is kept across refresh. Do show the status that
 matters on the row. Don't preload or cache all art.
 

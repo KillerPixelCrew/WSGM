@@ -340,6 +340,69 @@ public sealed class ImportStateStore
         }
     }
 
+    /// <summary>
+    ///     Counts the imported ROM titles of each system and the sources they came from, without copying content or
+    ///     starting a disk read.
+    /// </summary>
+    /// <returns>Per canonical system, its title count and source ids; null while the records are unread.</returns>
+    internal Dictionary<string, (int Titles, HashSet<string> Sources)>? CountSystemTitles()
+    {
+        lock (_gate)
+        {
+            if (_state is null)
+            {
+                return null;
+            }
+
+            Dictionary<string, (int Titles, HashSet<string> Sources)> counts = new(StringComparer.Ordinal);
+            foreach (var entry in _state.Entries)
+            {
+                if (entry.Content is not { SourceKind: LibrarySourceKind.Rom } content)
+                {
+                    continue;
+                }
+
+                var system = EmulatorStorage.NormalizeSystemId(content.SystemId);
+                if (!counts.TryGetValue(system, out var count))
+                {
+                    count = (0, new HashSet<string>(StringComparer.Ordinal));
+                }
+
+                count.Sources.Add(content.SourceId == "manual" ? "manual:" + content.SourceKey : content.SourceId);
+                counts[system] = (count.Titles + 1, count.Sources);
+            }
+
+            return counts;
+        }
+    }
+
+    /// <summary>The confirmed Steam shortcut of each entry one source created, without starting a disk read.</summary>
+    /// <param name="source">The source, such as the emulator manager's.</param>
+    /// <returns>App ids by entry key; empty while the records are unread.</returns>
+    internal Dictionary<string, uint> ShortcutAppIds(string source)
+    {
+        lock (_gate)
+        {
+            Dictionary<string, uint> appIds = new(StringComparer.Ordinal);
+            if (_state is null)
+            {
+                return appIds;
+            }
+
+            var names = LibraryNames(_state);
+            foreach (var entry in _state.Entries.Where(entry => entry.Source == source))
+            {
+                // The projection resolves the active account's shortcut id, as Entries() does.
+                if (Project(entry, names) is { AppId: > 0 } projected)
+                {
+                    appIds.TryAdd(projected.Key, projected.AppId);
+                }
+            }
+
+            return appIds;
+        }
+    }
+
     /// <summary>Every choice the user has made.</summary>
     /// <exception cref="ImportStateException">The records could not be read.</exception>
     /// <returns>Choices read from disk for this call; modifying them does not persist changes.</returns>
