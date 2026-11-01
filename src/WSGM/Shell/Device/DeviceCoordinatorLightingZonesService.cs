@@ -60,7 +60,14 @@ internal sealed class DeviceCoordinatorLightingZonesService(DeviceCoordinator? c
     /// <summary>Projects every independently writable lighting zone.</summary>
     /// <param name="views">Current device capability views; a zone id more than one view claims is dropped.</param>
     /// <param name="presets">The matched model's fan curve preset shapes, which the overlay row projection needs.</param>
-    /// <returns>The zones, sharing the overlay's values, status and profile overrides.</returns>
+    /// <returns>
+    ///     The zones in the descriptors' sort order, as the Overlay's RGB page and the Steam settings page list
+    ///     them, sharing the overlay's values, status and profile overrides.
+    /// </returns>
+    /// <remarks>
+    ///     The capability snapshot is keyed by id, so its order is alphabetical; the sort order carries the order
+    ///     the device published its zones in.
+    /// </remarks>
     internal static IReadOnlyList<SteamLightingZoneState> Project(
         IReadOnlyList<DeviceCapabilityView> views,
         FanCurvePresetTable presets)
@@ -71,6 +78,7 @@ internal sealed class DeviceCoordinatorLightingZonesService(DeviceCoordinator? c
             .. views
                 .Where(candidate => candidate.Descriptor.Role is CapabilityRole.LightingZoneColor
                                     && !string.IsNullOrWhiteSpace(candidate.Descriptor.InstanceId))
+                .OrderBy(candidate => candidate.Descriptor.SortOrder)
                 .GroupBy(candidate => candidate.Descriptor.InstanceId!, StringComparer.Ordinal)
                 .Where(group => group.Count() == 1)
                 .Select(group =>

@@ -17,6 +17,7 @@ using WSGM.Shell;
 using WSGM.UiTests.Fakes;
 using WSGM.UiTests.Infrastructure;
 using WSGM.UiTests.Visual;
+using P = LibHandheld.Contracts;
 
 namespace WSGM.UiTests.Overlay;
 
@@ -392,6 +393,90 @@ public sealed class DevicePageCaptureTests
         Assert.Contains(list.GetVisualDescendants().OfType<Control>(),
             control => control is DeviceCapabilityControl or DeviceSettingRow);
         VisualBaseline.Verify(window, $"device-unplaced-{section}-1280x800");
+    }
+
+    /// <summary>
+    ///     The Atlas lighting publication on the RGB page, from views in the capability snapshot's alphabetical
+    ///     order: the zones keep the order the device published them in, all segments, left ring, right ring.
+    /// </summary>
+    [AvaloniaFact]
+    public void AtlasLightingZonesInPublishedOrder()
+    {
+        string[] order =
+        [
+            "main", "left.top-left", "left.top-right", "left.bottom-left", "left.bottom-right",
+            "right.top-left", "right.top-right", "right.bottom-left", "right.bottom-right"
+        ];
+        string[] labels =
+        [
+            "All ring segments", "Left ring: top left", "Left ring: top right", "Left ring: bottom left",
+            "Left ring: bottom right", "Right ring: top left", "Right ring: top right", "Right ring: bottom left",
+            "Right ring: bottom right"
+        ];
+        var published = HandheldUiProjection.Descriptors(new P.CapabilityDescriptorSet
+        {
+            Descriptors =
+            [
+                new P.CapabilityDescriptor
+                {
+                    CapabilityId = CapabilityIds.LightingBrightness,
+                    Role = P.CapabilityRole.LightingBrightness,
+                    ValueKind = P.CapabilityValueKind.Integer,
+                    Display = new P.CapabilityDisplay
+                        { Key = P.DisplayKey.Brightness },
+                    Minimum = 0, Maximum = 100, Step = 1, Unit = P.CapabilityUnit.Percent,
+                    SupportsRead = true, SupportsWrite = true,
+                    Persistence = P.CapabilityPersistence.Volatile
+                },
+                .. order.Select((zone, index) => new P.CapabilityDescriptor
+                {
+                    CapabilityId = CapabilityIds.LightingColor, InstanceId = zone,
+                    Role = P.CapabilityRole.LightingZoneColor,
+                    ValueKind = P.CapabilityValueKind.Color,
+                    Display = new P.CapabilityDisplay
+                        { Key = P.DisplayKey.Custom, CustomText = labels[index] },
+                    SupportsRead = true, SupportsWrite = true,
+                    Persistence = P.CapabilityPersistence.Volatile
+                })
+            ]
+        });
+        var sections = DeviceSectionLayout.IncludePredefined(published.Sections);
+        var ids = sections.Select(section => section.SectionId).ToHashSet();
+        var rows = published.Descriptors
+            .OrderBy(descriptor => descriptor.CapabilityId, StringComparer.Ordinal)
+            .ThenBy(descriptor => descriptor.InstanceId, StringComparer.Ordinal)
+            .Select(descriptor => CapabilityRowProjection.ToDeviceRow(new DeviceCapabilityView(descriptor,
+                new CapabilityProjection
+                {
+                    State = new CapabilityState
+                    {
+                        CapabilityId = descriptor.CapabilityId, InstanceId = descriptor.InstanceId, Available = true,
+                        ObservedValue = descriptor.ValueKind is CapabilityValueKind.Color
+                            ? CapabilityValue.Color(0xFF2020)
+                            : CapabilityValue.Integer(50),
+                        Quality = HardwareStateQuality.Verified, ObservedAt = DateTimeOffset.UnixEpoch
+                    }
+                }, null), ids, FanCurvePresetTable.HandheldCompanion))
+            .ToArray();
+        using FakeDevice device = new();
+        device.State = new DeviceOverlaySnapshot(true, "Acer Predator Atlas 8", "Device integration active", null,
+            rows) { PluginSections = CapabilityRowProjection.ProjectSections(sections) };
+        using UiFixture fixture = new();
+        var window = fixture.Overlay();
+        window.AttachDeviceBridge(device);
+        UiFixture.Click(window, UiFixture.Tab(window, 2));
+        UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.rgb"));
+        UiFixture.OpenSections(window);
+        ScrollToTop(window);
+        var zones = window.GetVisualDescendants().OfType<DeviceCapabilityControl>()
+            .Where(row => row.IsEffectivelyVisible && row.Tag is string tag
+                                                   && tag.StartsWith(CapabilityIds.LightingColor + "#",
+                                                       StringComparison.Ordinal))
+            .OrderBy(row => row.TranslatePoint(default, window)!.Value.Y)
+            .Select(row => ((string)row.Tag!)[(CapabilityIds.LightingColor.Length + 1)..])
+            .ToArray();
+        Assert.Equal(order, zones);
+        VisualBaseline.Verify(window, "atlas-rgb-1280x800");
     }
 
     /// <summary>A saved device pin whose group the device no longer publishes.</summary>
