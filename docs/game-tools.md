@@ -42,9 +42,10 @@ second HTTP or archive path.
 2. Activating it calls `GameToolsService.OpenAsync(appId)`, which makes the game the Steam
    publication's game and starts a scan, then answers with the route `/wsgm/game-tools/<appId>`. The
    toolkit's gate navigates there.
-3. The page (`registerSteamPage`, template `game-tools`, gate `gameTools`) also sends `open` on
-   mount with the AppID from the route, so direct navigation and Back into the page work the same
-   way.
+3. The page (`registerSteamPage`, template `game-tools`, gate `gameTools`, route
+   `/wsgm/game-tools/:appid?`) also sends `open` on mount with the AppID from the route, so direct
+   navigation and Back into the page work the same way. Without an AppID the same route is the game
+   list (see [The Steam page](#the-steam-page)).
 4. State is published as `wsgm.game-tools` whenever the service raises `Changed`, and the game list
    as `wsgm.game-tools.library` (see [The game list](#the-game-list)). Commands are `open`,
    `refresh`, `checkUpdates`, `cancel`, `chooseRuntime`, `install` (with an optional `channel`),
@@ -401,6 +402,50 @@ Third-party DLLs in a game folder can get an online account banned. Every tool c
 warning "Do not use with online games. Anti-cheat may ban accounts." when anti-cheat was found, and
 install is refused until the user acknowledges it. The scan is a heuristic, so the absence of a
 warning is not a promise that a game is safe.
+
+## The Steam page
+
+`Core/SteamUiAssets/Source/game-tools.ts` draws the same task as the Overlay over the same state,
+commands and wording, with Steam's own fields and the toolkit UI kit. The page follows
+`wsgm.game-tools.library` while its gate holds; the frame keeps only the page's own refusals, and
+the game's `error` and `notice` are drawn under the hero because they belong to the game they were
+published for.
+
+- **Entry.** The cog menu's "Game Tools…" opens `/wsgm/game-tools/<appId>`. The game page's "All
+  games" action opens `/wsgm/game-tools`, the list; a row there opens the game's route, so Back
+  returns to the list. No other Steam entry point leads to the list.
+- **Game list.** A hero, then search and the All, With tools and Updates filter chips with their
+  counts (All is the library's own count). "With tools" lists the `GameToolsLibrary` rows as select
+  rows with the header art, the tool, version and load name, a channel tag for a non-default channel
+  and the status tag (success, update, danger by status); "All games" is a grid of rows from
+  `readSteamLibraryGames`, the same games and shortcuts `SteamLibraryData.ReadGamesAsync` lists to
+  the Overlay, 48 at a time with Load More. The list asks for `refreshLibrary` when it opens. Empty,
+  no match, reading and Steam-unreadable (with Try again) are told apart.
+- **Game page.** `renderSteamUiHero` with the library hero art Steam's own game page uses
+  (`steamAppHeroImages`, tried source by source), the "Game Tools" eyebrow and the game's name, and
+  the purpose line until a tool is installed or working. Under it the error or success banner, the
+  availability reason with its title, and the anti-cheat banner. The main column holds each tool:
+  `renderSteamUiItemHeading` with the status and channel tags, the latest release and the summary;
+  warnings, conflicts and changed files; one primary action (Install, Replace existing
+  installation…, Switch to another channel, Update or Repair); Release channel, Load as and settings
+  as Steam's dropdowns and toggles (a draft before installation, saved at once after it); Check for
+  updates and Repair; "Remove <tool>…" set apart under a rule; the license line. "Scan the folder
+  again" and "All games" close the column. The "This game" side panel shows the program with "Change
+  program…", the upscalers as tags, anti-cheat, GPU and the folder. A game without a folder shows
+  each tool as unavailable with the service's reason.
+- **Installing.** The tool's progress is the kit's: the four steps from `busy.phase`, the phase
+  line, the bytes, Cancel while `cancellable`, and the line that says what cancelling does. The
+  settings stay drawn and locked.
+- **Program chooser.** A level with Back on B: the question, the remembered-program and
+  installed-tool notices, the candidates as select rows with the "In use" and role tags,
+  architecture and folder, and the reasons, the large-folder note, "Browse for the program…" through
+  Steam's file picker and "Back to the game".
+- **Confirmations** are Steam's confirm modal with Cancel focused (`focusCancel`), worded as the
+  Overlay's: installing into a game with anti-cheat, replacing an existing installation, an update
+  or channel switch that replaces the configuration, and Remove.
+
+Drafts live until the game's route is left. `eng/check-ui-kit.mjs` in the toolkit covers the kit
+elements; no live Big Picture pass of this page has been recorded.
 
 ## The Overlay page
 

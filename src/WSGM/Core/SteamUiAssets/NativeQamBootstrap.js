@@ -3106,6 +3106,77 @@
       );
     };
   };
+  // Steam's own artwork and game list for a host page, read from the stores Steam's library draws
+  // from. Each answers what Steam holds now and nothing when a store is not there; none of them
+  // fetches, and an image list is tried in order by `renderSteamUiArt`.
+  /**
+   * Reads one app's overview from Steam's app store.
+   * @param appId The Steam AppID or shortcut id.
+   * @returns The overview, or null when Steam has none or its store is unavailable.
+   */
+  const steamAppOverview = (appId) => {
+    try {
+      return window.appStore?.GetAppOverviewByAppID(appId) ?? null;
+    } catch {
+      return null;
+    }
+  };
+  /**
+   * Lists one app's images of a kind the way Steam's game page tries them: a custom image first, then
+   * Steam's cached and published copies.
+   * @param appId The Steam AppID or shortcut id.
+   * @param kind `hero` for the library hero, `header` for the wide header capsule.
+   * @returns The image URLs, best first; empty when Steam has none or its stores are unavailable.
+   */
+  const steamAppImages = (appId, kind) => {
+    const overview = steamAppOverview(appId);
+    if (!overview) return [];
+    try {
+      const store = window.appDetailsStore;
+      const images =
+        kind === "hero"
+          ? store?.GetHeroImages?.(overview)?.rgHeroImages
+          : store?.GetHeaderImages?.(overview);
+      return Array.isArray(images)
+        ? images.filter((image) => typeof image === "string" && image.length > 0)
+        : [];
+    } catch {
+      return [];
+    }
+  };
+  /** One app's library hero art, best first. */
+  const steamAppHeroImages = (appId) => steamAppImages(appId, "hero");
+  /** One app's wide header capsule, best first. */
+  const steamAppHeaderImages = (appId) => steamAppImages(appId, "header");
+  /**
+   * Reads the games in the Steam library, with the non-Steam shortcuts, by name: the same list the
+   * toolkit's `SteamLibraryData.ReadGamesAsync` answers the host with.
+   * @returns The games, or null when Steam's collection store is unavailable (not an empty library).
+   */
+  const readSteamLibraryGames = () => {
+    try {
+      const store = window.collectionStore;
+      if (!store || typeof store.GetCollection !== "function") return null;
+      const typed = store.GetCollection("type-games");
+      const games = (typed && (typed.allApps || typed.visibleApps)) || [];
+      const ids = new Set(games.map((app) => app.appid >>> 0));
+      const every = store.allAppsCollection;
+      const all = (every && (every.allApps || every.visibleApps)) || games;
+      const seen = new Set();
+      const out = [];
+      for (const app of all) {
+        const appId = app.appid >>> 0;
+        const shortcut =
+          typeof app.BIsShortcut === "function" ? !!app.BIsShortcut() : appId >= 2147483648;
+        if ((!ids.has(appId) && !shortcut) || seen.has(appId)) continue;
+        seen.add(appId);
+        out.push({ appId, name: app.display_name || String(appId), shortcut });
+      }
+      return out.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    } catch {
+      return null;
+    }
+  };
   // @fragment module-resolver.ts
   /**
    * Captures Steam's webpack runtime and exposes unique source-fingerprint resolution.
@@ -6990,7 +7061,7 @@
 .steam-ui-kit-choice>div{width:100%!important;min-width:0;max-width:100%;box-sizing:border-box;--field-negative-horizontal-margin:0px}
 .steam-ui-kit-select-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;width:100%;min-width:0;text-align:left;box-sizing:border-box}
 .steam-ui-kit-select-row-title{min-width:0;overflow-wrap:anywhere}
-.steam-ui-kit-select-row-detail{grid-column:1 / -1;min-width:0;font-size:13px;color:#8b929a;white-space:normal;overflow-wrap:anywhere}
+.steam-ui-kit-select-row-detail{grid-column:1 / -1;min-width:0;font-size:13px;color:#8b929a;white-space:pre-line;overflow-wrap:anywhere}
 .steam-ui-kit-select-row-detail.error{color:#ff6d6d}
 .steam-ui-kit-picker{display:flex;flex-direction:column;gap:12px;min-width:0;width:900px;max-width:100%;box-sizing:border-box}
 .steam-ui-kit-picker-body{display:grid;grid-template-columns:minmax(140px,1fr) minmax(0,2fr);gap:16px;min-height:0;height:clamp(200px,90vh - 310px,520px)}
@@ -7020,6 +7091,62 @@
 .steam-ui-kit-modal-title{margin:0 0 12px;font-size:24px;line-height:1.25;color:#fff}
 .steam-ui-kit-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
 .steam-ui-kit-modal-wide{width:min(1000px,calc(100vw - 64px))!important;max-width:calc(100vw - 64px)!important;min-width:0!important;box-sizing:border-box;padding:clamp(16px,3vw,32px)!important}
+.steam-ui-kit-list .DialogButton{width:100%;min-width:0;max-width:100%;height:auto;padding:10px 14px;box-sizing:border-box;margin:0}
+.steam-ui-kit-list.columns{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,360px),1fr));gap:8px}
+.steam-ui-kit-select-row.media{grid-template-columns:auto minmax(0,1fr) auto}
+.steam-ui-kit-select-row-media{grid-row:1 / span 2;align-self:center;width:120px;aspect-ratio:460 / 215;border-radius:3px;overflow:hidden;background:#10151c}
+.steam-ui-kit-select-row-media img{width:100%;height:100%;object-fit:cover;display:block}
+.steam-ui-kit-select-row.media .steam-ui-kit-select-row-detail{grid-column:2 / -1}
+.steam-ui-kit-select-row>.steam-ui-kit-tags{justify-content:flex-end}
+.DialogButton.steam-ui-kit-selected{box-shadow:inset 3px 0 0 #1a9fff}
+.DialogButton.gpfocus .steam-ui-kit-select-row-detail,.DialogButton:focus-visible .steam-ui-kit-select-row-detail{color:#3d4450}
+.DialogButton.gpfocus .steam-ui-kit-select-row-detail.error,.DialogButton:focus-visible .steam-ui-kit-select-row-detail.error{color:#b3261e}
+.steam-ui-kit-chips .DialogButton.steam-ui-kit-selected{box-shadow:inset 0 -3px 0 #1a9fff}
+.steam-ui-kit-tags{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
+.steam-ui-kit-tag{display:inline-flex;align-items:center;height:22px;max-width:100%;padding:0 8px;border-radius:2px;box-sizing:border-box;background:#2a3039;color:#b8bcbf;font-size:11px;line-height:22px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.steam-ui-kit-tag.info{color:#dcdedf}
+.steam-ui-kit-tag.success{background:#1e3324;color:#b9f0c6}
+.steam-ui-kit-tag.update{background:#3b3020;color:#ffd28c}
+.steam-ui-kit-tag.danger{background:#3b2326;color:#ffd8d4}
+.steam-ui-kit-card-tags{padding:6px 10px 0}
+.steam-ui-kit-hero-band{position:relative;display:flex;align-items:flex-end;min-height:168px;min-width:0;padding:24px 40px 22px;box-sizing:border-box;background:#1b232d;border-bottom:1px solid #23262e;overflow:hidden;flex-shrink:0}
+.steam-ui-kit-hero-band.compact{min-height:132px;padding-bottom:18px}
+.steam-ui-kit-hero-band-art{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center 30%;display:block}
+.steam-ui-kit-hero-band-scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(14,20,27,.1) 0%,rgba(14,20,27,.55) 55%,rgba(14,20,27,.92) 100%)}
+.steam-ui-kit-hero-band-text{position:relative;width:100%;min-width:0;max-width:var(--steam-ui-kit-page-width,100%);margin-inline:auto}
+.steam-ui-kit-hero-band-eyebrow{font-size:11px;line-height:1.4;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#b8bcbf;margin-bottom:2px}
+.steam-ui-kit-hero-band-title{margin:0;font-size:34px;line-height:1.15;font-weight:700;color:#fff;overflow-wrap:anywhere;text-shadow:0 1px 6px rgba(0,0,0,.45)}
+.steam-ui-kit-hero-band-detail{margin-top:4px;max-width:760px;font-size:14px;line-height:1.5;color:#b8bcbf;overflow-wrap:anywhere}
+.steam-ui-kit-item-heading{display:flex;flex-direction:column;gap:8px;min-width:0}
+.steam-ui-kit-item-heading-line{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;min-width:0}
+.steam-ui-kit-item-heading-title{margin:0;font-size:24px;line-height:1.2;font-weight:700;color:#fff;overflow-wrap:anywhere}
+.steam-ui-kit-item-heading-fact{font-size:14px;color:#8b929a;overflow-wrap:anywhere}
+.steam-ui-kit-item-heading-summary{font-size:14px;line-height:1.5;color:#b8bcbf;overflow-wrap:anywhere}
+.steam-ui-kit-side{display:flex;flex-direction:column;gap:14px;width:340px;flex:0 0 340px;max-width:100%;min-width:0;padding:18px;border-radius:4px;box-sizing:border-box;background:#171d25}
+.steam-ui-kit-side-label{font-size:11px;line-height:1.4;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#8b929a}
+.steam-ui-kit-side-section{display:flex;flex-direction:column;gap:4px;min-width:0}
+.steam-ui-kit-side-value{font-size:15px;line-height:1.35;font-weight:600;color:#dcdedf;overflow-wrap:anywhere}
+.steam-ui-kit-side-detail{font-size:12px;line-height:16px;color:#b8bcbf;overflow-wrap:anywhere}
+.steam-ui-kit-side-detail.error{color:#ff6d6d}
+.steam-ui-kit-side-section>.steam-ui-kit-tags{margin-top:2px}
+.steam-ui-kit-side-rule{height:1px;flex:0 0 auto;background:#23262e}
+.steam-ui-kit-side-note{font-size:12px;line-height:1.4;color:#8b929a;overflow-wrap:anywhere}
+.steam-ui-kit-side .DialogButton{align-self:flex-start;width:auto;min-width:0;max-width:100%;min-height:36px;margin-top:8px;padding:8px 18px;box-sizing:border-box;font-size:13px;line-height:1.4;white-space:normal;overflow-wrap:anywhere}
+@media(max-width:760px){.steam-ui-kit-side{width:100%;flex-basis:auto}}
+.steam-ui-kit-banner-text{display:flex;align-items:flex-start;gap:8px;min-width:0;line-height:1.45;overflow-wrap:anywhere}
+.steam-ui-kit-banner-text svg{flex:0 0 auto;width:16px;height:16px;margin-top:2px}
+.steam-ui-kit-banner-title{display:block;font-weight:700;color:#fff}
+.steam-ui-kit-banner.success{background:#1e3324;color:#b9f0c6}
+.steam-ui-kit-banner.success .steam-ui-kit-banner-title{color:#b9f0c6}
+.steam-ui-kit-progress-steps{display:flex;flex-wrap:wrap;gap:6px 22px;min-width:0;margin:0 0 4px;padding:0;list-style:none}
+.steam-ui-kit-progress-step{display:inline-flex;align-items:center;gap:8px;font-size:14px;color:#8b929a}
+.steam-ui-kit-progress-step.done{color:#dcdedf}
+.steam-ui-kit-progress-step.current{color:#fff;font-weight:600}
+.steam-ui-kit-progress-dot{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;flex:0 0 auto;border-radius:50%;box-sizing:border-box;background:#2a3039;color:#b8bcbf;font-size:12px;font-weight:700}
+.steam-ui-kit-progress-step.done .steam-ui-kit-progress-dot{background:#1e3324;color:#b9f0c6}
+.steam-ui-kit-progress-step.current .steam-ui-kit-progress-dot{background:#1a9fff;color:#0e141b}
+.steam-ui-kit-progress-dot svg{width:14px;height:14px}
+.steam-ui-kit-progress-note{font-size:13px;line-height:1.45;color:#b8bcbf;overflow-wrap:anywhere}
 `;
   // One stylesheet element and one icon renderer per React, so a root re-rendering on every host
   // publication hands React the same style element and the same caret elements each time rather
@@ -7076,19 +7203,37 @@
   };
   /**
    * Arranges a selectable item as a title, trailing status and separate supporting line.
+   *
+   * A selected row carries Steam's inset accent bar, which stays when focus leaves. The detail turns
+   * dark while the row has focus, because Steam draws a focused button white. A status that has its
+   * own colour belongs in `renderSteamUiTag`, whose fill keeps it legible on either ground.
    * @param ui Resolved native Steam button.
    * @param props Stable key, label/detail/status, whether the detail is why the item cannot be used,
-   * selected state and one activation callback.
+   * selected state, an optional leading picture (such as `renderSteamUiArt`), whether the row can be
+   * used and one activation callback.
    * @returns One native focus target with structured content instead of concatenated button text.
    */
   const renderSteamUiSelectRow = (ui, props) => {
     const h = ui.react.createElement;
     return h(
       ui.dialogButton,
-      { key: props.key, "aria-pressed": !!props.selected, onClick: props.onClick },
+      {
+        key: props.key,
+        className: props.selected ? "steam-ui-kit-selected" : undefined,
+        "aria-pressed": !!props.selected,
+        disabled: props.disabled ? true : undefined,
+        "aria-disabled": props.disabled ? true : undefined,
+        onOKActionDescription: props.description,
+        onClick: () => {
+          if (!props.disabled) props.onClick();
+        },
+      },
       h(
         "div",
-        { className: "steam-ui-kit-select-row" },
+        { className: `steam-ui-kit-select-row${props.media ? " media" : ""}` },
+        ...(props.media
+          ? [h("span", { key: "media", className: "steam-ui-kit-select-row-media" }, props.media)]
+          : []),
         h("span", { className: "steam-ui-kit-select-row-title" }, props.title),
         props.status ?? null,
         props.detail
@@ -7412,7 +7557,7 @@
   /**
    * Creates one activatable gallery card using Steam controller focus.
    * @param ui Steam's resolved React and native control components.
-   * @param props Optional image/stats/badge, title, metadata and activation callback.
+   * @param props Optional image/stats/badge, title, status tags, metadata and activation callback.
    * @returns A single focus target containing the card content.
    */
   const renderSteamUiCard = (ui, props) => {
@@ -7452,6 +7597,9 @@
           : null,
       ),
       h("div", { className: "steam-ui-kit-card-title" }, props.title),
+      ...(props.tags?.length
+        ? [renderSteamUiTags(ui.react, props.tags, "steam-ui-kit-card-tags")]
+        : []),
       ...(props.meta ?? []).map((line, index) =>
         h("div", { key: index, className: "steam-ui-kit-card-meta" }, line),
       ),
@@ -7564,9 +7712,14 @@
   /**
    * Creates the progress of one long operation: its phase, how far it got, a cancel while it runs and
    * its outcome once it ended.
+   *
+   * An operation made of named steps lists them first: the ones done are checked, the current one is
+   * marked, and a `step` past the last means every step is done. `count` replaces the "3 of 4" text
+   * where the amount is not a count, such as bytes. `note` says what cancelling does, or why it can't.
    * @param ui Steam's resolved React and button.
-   * @param props The phase, counts (a bar without a total moves without measuring), detail, cancel
-   * and the outcome that replaces the bar once the operation ended.
+   * @param props The phase, counts (a bar without a total moves without measuring), the count's own
+   * text, the steps and the current one, detail, the explanatory note, cancel and the outcome that
+   * replaces the bar once the operation ended.
    * @returns The progress element.
    */
   const renderSteamUiProgress = (ui, props) => {
@@ -7576,21 +7729,58 @@
       ? Math.max(0, Math.min(props.done, total || Number.MAX_SAFE_INTEGER))
       : 0;
     const ended = !!props.outcome?.text;
+    const steps = (props.steps ?? []).filter((step) => typeof step === "string" && step.length > 0);
+    const current = Number.isInteger(props.step) ? props.step : -1;
+    const count =
+      typeof props.count === "string" ? props.count : total ? `${done} of ${total}` : "";
     return h(
       "div",
-      { className: "steam-ui-kit-progress", role: "status", "aria-busy": ended ? undefined : true },
+      {
+        className: "steam-ui-kit-progress",
+        role: "status",
+        "aria-busy": ended ? undefined : true,
+      },
+      ...(steps.length
+        ? [
+            h(
+              "ol",
+              {
+                key: "steps",
+                className: "steam-ui-kit-progress-steps",
+                "aria-label": "Steps",
+              },
+              ...steps.map((label, index) => {
+                const state = index < current ? "done" : index === current ? "current" : "";
+                return h(
+                  "li",
+                  {
+                    key: label,
+                    className: `steam-ui-kit-progress-step${state ? ` ${state}` : ""}`,
+                    "aria-current": state === "current" ? "step" : undefined,
+                  },
+                  h(
+                    "span",
+                    { className: "steam-ui-kit-progress-dot", "aria-hidden": "true" },
+                    state === "done" ? renderSteamUiIcon(ui.react, "check", 14) : String(index + 1),
+                  ),
+                  label,
+                );
+              }),
+            ),
+          ]
+        : []),
       h(
         "div",
         { className: "steam-ui-kit-progress-head" },
         h("span", { className: "steam-ui-kit-progress-phase" }, props.phase),
-        total
-          ? h("span", { className: "steam-ui-kit-progress-count" }, `${done} of ${total}`)
-          : null,
+        count ? h("span", { className: "steam-ui-kit-progress-count" }, count) : null,
       ),
       ended
         ? h(
             "div",
-            { className: `steam-ui-kit-progress-outcome${props.outcome?.error ? " error" : ""}` },
+            {
+              className: `steam-ui-kit-progress-outcome${props.outcome?.error ? " error" : ""}`,
+            },
             props.outcome?.text,
           )
         : h(
@@ -7620,6 +7810,9 @@
             props.cancelling ? "Cancelling…" : (props.cancelLabel ?? "Cancel"),
           )
         : null,
+      ...(!ended && props.note
+        ? [h("div", { key: "note", className: "steam-ui-kit-progress-note" }, props.note)]
+        : []),
     );
   };
   // A section of Steam's settings rows over the shared drafts: an edit shows at once, a commit sends
@@ -7658,17 +7851,40 @@
   const renderSteamUiFields = (ui, props) =>
     ui.react.createElement(SteamUiFields, { ...props, key: props.key, ui });
   /**
-   * Creates a dismissible notice or error.
+   * Creates a dismissible notice, success or error.
+   *
+   * A notice is information, a success says a change was saved and what follows from it (with the
+   * check glyph), and an error is an alert. An optional title leads the message in bold.
    * @param ui Steam's resolved React and native control components.
-   * @param props Message, error flag and callback that clears the owning state.
+   * @param props Message, optional title, the tone (error wins over success) and callback that clears
+   * the owning state.
    * @returns The banner; dismissal is delegated to the caller.
    */
   const renderSteamUiBanner = (ui, props) => {
     const h = ui.react.createElement;
+    const tone = props.error ? " error" : props.success ? " success" : "";
+    const rich = !!props.title || (!props.error && !!props.success);
     return h(
       "div",
-      { className: `steam-ui-kit-banner${props.error ? " error" : ""}` },
-      h("span", null, props.text),
+      {
+        className: `steam-ui-kit-banner${tone}`,
+        role: props.error ? "alert" : "status",
+      },
+      rich
+        ? h(
+            "span",
+            { className: "steam-ui-kit-banner-text" },
+            !props.error && props.success ? renderSteamUiIcon(ui.react, "check", 16) : null,
+            h(
+              "span",
+              null,
+              props.title
+                ? h("span", { className: "steam-ui-kit-banner-title" }, props.title)
+                : null,
+              props.text,
+            ),
+          )
+        : h("span", { className: "steam-ui-kit-banner-text" }, props.text),
       props.onDismiss
         ? h(ui.smallButton ?? ui.dialogButton, { onClick: props.onDismiss }, "Dismiss")
         : null,
@@ -7706,7 +7922,8 @@
   /**
    * Creates a wrapping row of native buttons.
    * @param ui Steam's resolved React and native control components.
-   * @param chips Labels, click handlers and optional controller action descriptions.
+   * @param chips Labels, click handlers, optional controller action descriptions and, for a chip row
+   * that is a filter, which chip is the current one (marked with Steam's accent bar and `aria-pressed`).
    * @returns The controller-navigable chip row.
    */
   const renderSteamUiChips = (ui, chips) => {
@@ -7719,6 +7936,8 @@
           ui.dialogButton,
           {
             key: `${index}:${chip.label}`,
+            className: chip.selected ? "steam-ui-kit-selected" : undefined,
+            "aria-pressed": chip.selected === undefined ? undefined : !!chip.selected,
             onClick: chip.onClick,
             onOKActionDescription: chip.description,
           },
@@ -7741,6 +7960,201 @@
       title ? react.createElement("div", { className: "steam-ui-kit-box-title" }, title) : null,
       ...children,
     );
+  /** The tones a tag can take; anything else is neutral. */
+  const SteamUiTagTones = Object.freeze(["neutral", "info", "success", "update", "danger"]);
+  /**
+   * Creates a status tag: a short uppercase label on its own fill, legible on a dark page and inside a
+   * focused (white) row alike.
+   * @param react Steam's React instance used by the consuming root.
+   * @param props The words and the tone: neutral (the default), info, success, update or danger.
+   * @returns The tag; it is text, never a focus target.
+   */
+  const renderSteamUiTag = (react, props) => {
+    const tone = SteamUiTagTones.includes(props.tone) && props.tone !== "neutral" ? props.tone : "";
+    return react.createElement(
+      "span",
+      { key: props.key, className: `steam-ui-kit-tag${tone ? ` ${tone}` : ""}` },
+      props.text,
+    );
+  };
+  /**
+   * Creates a wrapping row of tags, skipping empty ones.
+   * @param react Steam's React instance used by the consuming root.
+   * @param tags The tags in display order.
+   * @param className An extra class for where the row sits, such as a card's.
+   * @returns The row, or null when no tag has words.
+   */
+  const renderSteamUiTags = (react, tags, className) => {
+    const shown = (tags ?? []).filter(
+      (tag) => !!tag && typeof tag.text === "string" && tag.text.length > 0,
+    );
+    if (!shown.length) return null;
+    return react.createElement(
+      "span",
+      { key: "tags", className: ["steam-ui-kit-tags", className].filter(Boolean).join(" ") },
+      ...shown.map((tag, index) =>
+        renderSteamUiTag(react, { ...tag, key: tag.key ?? `${index}:${tag.text}` }),
+      ),
+    );
+  };
+  // A picture that tries each source in turn, the way Steam's own artwork does: a custom image first,
+  // then the cached copy, then the CDN. A changed list starts again from its first source.
+  function SteamUiArt(props) {
+    const react = props.react;
+    const images = (props.images ?? []).filter(
+      (image) => typeof image === "string" && image.length > 0,
+    );
+    const list = images.join("\n");
+    const [failed, setFailed] = react.useState({ list: "", count: 0 });
+    const index = failed.list === list ? failed.count : 0;
+    const source = images[index];
+    if (!source) return props.fallback ?? null;
+    return react.createElement("img", {
+      key: source,
+      src: source,
+      alt: "",
+      className: props.className,
+      loading: props.lazy ? "lazy" : undefined,
+      draggable: false,
+      onError: () => setFailed({ list, count: index + 1 }),
+    });
+  }
+  /**
+   * Creates a decorative picture from a list of sources tried in order, such as the hero or header
+   * lists `steamAppHeroImages` and `steamAppHeaderImages` return.
+   * @param react Steam's React instance used by the consuming root.
+   * @param props The sources, the image's class, what to draw once every source failed (nothing by
+   * default) and whether it loads only near the viewport.
+   * @returns The picture element.
+   */
+  const renderSteamUiArt = (react, props) => react.createElement(SteamUiArt, { ...props, react });
+  /**
+   * Creates a page's hero band under Steam's header: the library art over the hero ground, a scrim that
+   * keeps the words legible, an optional eyebrow naming the page, the title and an optional purpose
+   * line. Without a purpose line the band is the compact height. It takes no focus.
+   * @param ui Steam's resolved React.
+   * @param props The title, the eyebrow, the purpose line and the art's sources.
+   * @returns The band.
+   */
+  const renderSteamUiHero = (ui, props) => {
+    const h = ui.react.createElement;
+    const images = props.images ?? [];
+    return h(
+      "header",
+      { key: props.key, className: `steam-ui-kit-hero-band${props.detail ? "" : " compact"}` },
+      images.length
+        ? renderSteamUiArt(ui.react, { images, className: "steam-ui-kit-hero-band-art" })
+        : null,
+      images.length ? h("div", { className: "steam-ui-kit-hero-band-scrim" }) : null,
+      h(
+        "div",
+        { className: "steam-ui-kit-hero-band-text" },
+        props.eyebrow
+          ? h("div", { className: "steam-ui-kit-hero-band-eyebrow" }, props.eyebrow)
+          : null,
+        h("h1", { className: "steam-ui-kit-hero-band-title" }, props.title),
+        props.detail
+          ? h("div", { className: "steam-ui-kit-hero-band-detail" }, props.detail)
+          : null,
+      ),
+    );
+  };
+  /**
+   * Creates an item's heading in a page's main column: its name, its status tags and a short fact on
+   * one wrapping line, then a summary of what it is or what is installed.
+   * @param ui Steam's resolved React.
+   * @param props The name, tags, the fact (such as the latest version) and the summary.
+   * @returns The heading; it takes no focus.
+   */
+  const renderSteamUiItemHeading = (ui, props) => {
+    const h = ui.react.createElement;
+    return h(
+      "div",
+      { key: props.key, className: "steam-ui-kit-item-heading" },
+      h(
+        "div",
+        { className: "steam-ui-kit-item-heading-line" },
+        h("h2", { className: "steam-ui-kit-item-heading-title" }, props.title),
+        renderSteamUiTags(ui.react, props.tags ?? []),
+        props.fact ? h("span", { className: "steam-ui-kit-item-heading-fact" }, props.fact) : null,
+      ),
+      props.summary
+        ? h("div", { className: "steam-ui-kit-item-heading-summary" }, props.summary)
+        : null,
+    );
+  };
+  /**
+   * Creates a side panel beside a page's main column: an eyebrow naming it, then sections of an
+   * eyebrow label, a value, a supporting line or tags, with a hairline between sections that ask for
+   * one, and a closing note. A panel carries at most one action, on the section it changes. It stacks
+   * below the main column on a narrow page.
+   * @param ui Steam's resolved React, Focusable and button.
+   * @param props The panel's label, its sections and the note.
+   * @returns The panel, a column for controller navigation.
+   */
+  const renderSteamUiSidePanel = (ui, props) => {
+    const h = ui.react.createElement;
+    const sections = (props.sections ?? []).filter((section) => !!section);
+    const children = [
+      h("div", { key: "label", className: "steam-ui-kit-side-label" }, props.label),
+    ];
+    for (const section of sections) {
+      if (section.rule)
+        children.push(
+          h("div", { key: `${section.key}-rule`, className: "steam-ui-kit-side-rule" }),
+        );
+      const action = section.action && ui.dialogButton ? section.action : null;
+      // Only a section with an action is a navigation node; the rest are text.
+      children.push(
+        h(
+          action ? (ui.focusable ?? "div") : "div",
+          action
+            ? {
+                key: section.key,
+                className: "steam-ui-kit-side-section",
+                "flow-children": "column",
+              }
+            : { key: section.key, className: "steam-ui-kit-side-section" },
+          section.label ? h("div", { className: "steam-ui-kit-side-label" }, section.label) : null,
+          section.value ? h("div", { className: "steam-ui-kit-side-value" }, section.value) : null,
+          renderSteamUiTags(ui.react, section.tags ?? []),
+          section.detail
+            ? h(
+                "div",
+                { className: `steam-ui-kit-side-detail${section.error ? " error" : ""}` },
+                section.detail,
+              )
+            : null,
+          action
+            ? h(
+                ui.dialogButton,
+                {
+                  disabled: !!action.disabled,
+                  "aria-disabled": !!action.disabled,
+                  onClick: () => {
+                    if (!action.disabled) action.onClick();
+                  },
+                },
+                action.label,
+              )
+            : null,
+        ),
+      );
+    }
+    if (props.note)
+      children.push(h("div", { key: "note", className: "steam-ui-kit-side-note" }, props.note));
+    return h(
+      ui.focusable ?? "div",
+      {
+        key: props.key,
+        className: "steam-ui-kit-side",
+        "flow-children": "column",
+        role: "complementary",
+        "aria-label": props.label,
+      },
+      ...children,
+    );
+  };
   /**
    * Creates a selected image with controller-selectable thumbnails.
    * @param ui Steam's resolved React and native control components.
@@ -7882,19 +8296,30 @@
    * Opens a confirmation; Cancel and Back invoke no action. It is Steam's own confirm modal where the
    * client has one, and the kit's modal with the same title, words and buttons where it does not.
    * @param ui Steam's resolved React and native control components.
+   *
+   * Text separated by a blank line is drawn as paragraphs, the way Steam's own notices keep their line
+   * breaks. `focusCancel` puts the controller on Cancel when the dialog opens, for a question whose safe
+   * answer is no, such as installing into a game with anti-cheat.
+   * @param ui Steam's resolved React and native control components.
    * @param props Title, explanation, confirm label, whether the action destroys something (the
-   * default, which Steam draws as a warning) and the callback invoked on confirmation.
+   * default, which Steam draws as a warning), whether Cancel takes the initial focus and the callback
+   * invoked on confirmation.
    * @returns Whether the modal could be shown; a thrown confirmation callback is not swallowed.
    */
   const showSteamUiConfirm = (ui, props) => {
     const h = ui.react.createElement;
+    const multiline = props.text.includes("\n");
     if (ui.confirmModal && ui.showModal) {
       ui.showModal(
         h(ui.confirmModal, {
           strTitle: props.title,
-          strDescription: props.text,
+          strDescription: multiline
+            ? h("span", { style: { whiteSpace: "pre-line" } }, props.text)
+            : props.text,
           strOKButtonText: props.confirmLabel,
           bDestructiveWarning: props.destructive !== false,
+          // Steam's own dialog row focuses its secondary (Cancel) button when asked to.
+          focusButton: props.focusCancel ? "secondary" : undefined,
           onOK: props.onConfirm,
           onCancel: () => {},
         }),
@@ -7910,11 +8335,18 @@
         h(
           "div",
           { className: "steam-ui-kit-modal-body" },
-          h("p", null, props.text),
+          ...props.text
+            .split(/\n{2,}/u)
+            .filter((paragraph) => paragraph.length > 0)
+            .map((paragraph, index) => h("p", { key: index }, paragraph)),
           h(
             ui.focusable,
             { "flow-children": "row", className: "steam-ui-kit-modal-actions" },
-            h(ui.dialogButton, { onClick: close }, "Cancel"),
+            h(
+              ui.dialogButton,
+              { onClick: close, autoFocus: props.focusCancel ? true : undefined },
+              "Cancel",
+            ),
             h(
               ui.dialogButtonPrimary ?? ui.dialogButton,
               {
@@ -19213,48 +19645,225 @@
       : `${Math.round(bytes / (1024 * 1024))} MB`;
   }
   // @fragment consumer/game-tools.ts
-  // Game Tools presentation for one game. Folder reading, program detection, downloads, the install
+  // Game Tools presentation: the list of games with tools (`/wsgm/game-tools`) and one game's page
+  // (`/wsgm/game-tools/<appId>`). Folder reading, program detection, downloads, the install
   // transaction and every refusal belong to GameToolsService; this page draws its published state and
-  // sends its exact commands, each carrying the AppID from the route.
+  // sends its exact commands, each carrying the AppID from the route. The Overlay's GameToolsView is
+  // the same task over the same state, actions and wording.
   const GameToolsPatchId = "wsgm.game-tools";
-  // The page's own layout: where the kit's elements go, not how they look.
+  const GameToolsLibraryId = "wsgm.game-tools.library";
+  const GameToolsRoute = "/wsgm/game-tools";
+  const GameToolsSteps = ["Download", "Check the package", "Back up and copy", "Apply settings"];
+  const GameToolsStepOf = { download: 0, verify: 1, copy: 2, settings: 3, rescan: 4 };
+  // How many games the list mounts before Load More, as the Overlay's list does.
+  const GameToolsChunk = 48;
+  const GameToolsPurpose =
+    "WSGM backs up every file it replaces and removes everything again on request.";
+  // The page's own layout: where the kit's elements go, not how they look. The root scrolls, so the
+  // hero, banners and both columns move together under Steam's header.
   const gameToolsStyles = `
-#wsgm-game-tools { overflow-wrap: anywhere; }
-#wsgm-game-tools .wsgm-game-tools-list { display: flex; flex-direction: column; gap: 8px; }
-#wsgm-game-tools .wsgm-game-tools-list .DialogButton { width: 100%; min-width: 0; height: auto; padding: 10px 14px; }
-#wsgm-game-tools .wsgm-game-tools-tag { font-size: 12px; font-weight: 600; white-space: nowrap; color: #8b929a; }
-#wsgm-game-tools .wsgm-game-tools-tag[data-current="true"] { color: #a3dca3; }
-#wsgm-game-tools .wsgm-game-tools-warnings { display: flex; flex-direction: column; gap: 8px; }
+#wsgm-game-tools { overflow-wrap: anywhere; --steam-ui-kit-page-width: 1360px; }
+#wsgm-game-tools .wsgm-game-tools-root { flex: 1 1 auto; min-height: 0; max-height: calc(100vh - var(--basicui-header-height, 40px)); overflow-y: auto; overflow-x: hidden; padding: 0 0 72px; gap: 0; }
+#wsgm-game-tools .wsgm-game-tools-banners { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: calc(var(--steam-ui-kit-page-width) + 80px); min-width: 0; box-sizing: border-box; margin-inline: auto; padding: 16px 40px 0; }
+#wsgm-game-tools .wsgm-game-tools-body { display: flex; align-items: flex-start; gap: 28px; width: 100%; max-width: calc(var(--steam-ui-kit-page-width) + 80px); min-width: 0; box-sizing: border-box; margin-inline: auto; padding: 24px 40px 0; }
+#wsgm-game-tools .wsgm-game-tools-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+#wsgm-game-tools .wsgm-game-tools-tool { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+#wsgm-game-tools .wsgm-game-tools-tool + .wsgm-game-tools-tool { margin-top: 16px; }
+#wsgm-game-tools .wsgm-game-tools-remove { padding-top: 14px; border-top: 1px solid hsla(0, 0%, 100%, 0.1); }
+#wsgm-game-tools .wsgm-game-tools-notes { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+#wsgm-game-tools .wsgm-game-tools-section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+#wsgm-game-tools .wsgm-game-tools-browse { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
+#wsgm-game-tools .steam-ui-kit-toolbar { flex-wrap: wrap; }
+@media (max-width: 760px) {
+  #wsgm-game-tools .wsgm-game-tools-body { flex-direction: column; align-items: stretch; padding: 16px 20px 0; }
+  #wsgm-game-tools .wsgm-game-tools-banners { padding: 12px 20px 0; }
+}
 `;
-  const gameToolsOperations = {
-    install: "Installing",
-    replaceExisting: "Replacing the existing installation",
-    update: "Updating",
-    repair: "Repairing",
-    configure: "Saving settings",
-    remove: "Removing",
+  // The game list publication, followed while the page's gate holds.
+  let gameToolsLibrary = null;
+  let gameToolsLibraryEnd = null;
+  const gameToolsLibraryStore = createLocalStore();
+  const gameToolsMonths = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+  /** "3 files" or "1 file". */
+  const gameToolsCount = (count, noun) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+  /** The channel's latest release, short: "1 Nov build" for a dated build, else its version. */
+  const gameToolsShortLatest = (channel) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(channel?.buildDate ?? "");
+    if (match) {
+      const month = gameToolsMonths[Number(match[2]) - 1];
+      if (month) return `${Number(match[3])} ${month} build`;
+    }
+    return channel?.latestVersion ?? "";
   };
+  /** The running operation as a tag: "Installing 0.9.3", "Saving settings". */
+  const gameToolsWorking = (busy) => {
+    const verb =
+      {
+        install: "Installing",
+        replaceExisting: "Installing",
+        update: "Updating to",
+        switchChannel: "Switching to",
+        repair: "Repairing",
+        configure: "Saving settings",
+        remove: "Removing",
+      }[busy.operation] ?? "Working";
+    return busy.version && busy.operation !== "configure" && busy.operation !== "remove"
+      ? `${verb} ${busy.version}`
+      : verb;
+  };
+  /** The game's name: the scan's, or Steam's while the scan still carries the AppID as its name. */
+  const gameToolsName = (state, appId) => {
+    const steam = steamAppOverview(appId)?.display_name ?? "";
+    if (!state) return steam || `Game ${appId}`;
+    const placeholder = state.loading && state.name === String(state.appId);
+    return state.name && !placeholder ? state.name : steam || state.name || `Game ${appId}`;
+  };
+  /** The distinct upscaler technologies, each with its major and minor version when the name has none. */
+  const gameToolsUpscalers = (state) => {
+    const labels = (state.upscalers ?? []).map((upscaler) => {
+      const parts = String(upscaler.version ?? "").split(".");
+      return /\d/u.test(upscaler.technology) || parts.length < 2 || !parts[0]
+        ? upscaler.technology
+        : `${upscaler.technology} ${parts[0]}.${parts[1]}`;
+    });
+    return [...new Set(labels)];
+  };
+  const gameToolsVendor = (vendor) =>
+    ({ amd: "AMD", intel: "Intel", nvidia: "NVIDIA" })[vendor] ?? vendor;
+  const gameToolsAvailabilityTitle = (availability) =>
+    ({
+      running: "The game is running",
+      folderUnavailable: "Folder unavailable",
+      notInstalled: "Not installed",
+      steamUnavailable: "Steam unavailable",
+    })[availability];
+  /** The anti-cheat warning without the sentence the banner's title already says. */
+  const gameToolsAntiCheatMessage = (state) => {
+    const warning = state.antiCheatWarning ?? "";
+    const prefix = `Anti-cheat found: ${(state.antiCheat ?? []).join(", ")}.`;
+    return warning.startsWith(prefix) ? warning.slice(prefix.length).trim() : warning;
+  };
+  /** Where a candidate sits: the folder root, a subfolder, or a folder outside the game's. */
+  const gameToolsLocation = (relativePath) => {
+    const slash = Math.max(relativePath.lastIndexOf("/"), relativePath.lastIndexOf("\\"));
+    if (slash < 0) return "in the folder root";
+    const folder = relativePath.slice(0, slash).replace(/\//gu, "\\");
+    return /^(?:[A-Za-z]:[\\/]|\\\\)/u.test(relativePath) ? folder : `${folder}\\`;
+  };
+  /** A list row's status tag, in the tone the Overlay's chip has. */
+  const gameToolsSummaryTag = (tool) => ({
+    text: tool.statusLabel,
+    tone:
+      {
+        upToDate: "success",
+        updateAvailable: "update",
+        modified: "update",
+        interrupted: "danger",
+      }[tool.status] ?? "neutral",
+  });
   /**
-   * Keeps a field description's separate facts on separate lines; a long path still wraps.
-   * @param react Steam's React instance.
-   * @param lines The facts in display order; empty ones are dropped.
-   * @returns The description element, or undefined when nothing is left.
+   * The channel a tool's page shows: the user's draft while that channel is still offered, otherwise
+   * the one the tool follows.
    */
-  const gameToolsLines = (react, lines) => {
-    const text = lines.filter(Boolean).join("\n");
-    return text
-      ? react.createElement("span", { style: { whiteSpace: "pre-line" } }, text)
-      : undefined;
+  const gameToolsChannel = (tool, draft) => {
+    const channels = tool.channels ?? [];
+    return (
+      channels.find((channel) => channel.id === draft?.channel) ??
+      channels.find((channel) => channel.current) ??
+      channels[0] ?? {
+        id: tool.channel,
+        label: tool.channel,
+        description: "",
+        current: true,
+        latestVersion: tool.latestVersion,
+        latestLabel: tool.latestLabel,
+        latestError: tool.latestError,
+        checkingLatest: tool.checkingLatest,
+        changesConfig: false,
+      }
+    );
+  };
+  /** The load name a tool's page shows: the draft while not installed and still offered. */
+  const gameToolsProxy = (tool, draft) =>
+    !tool.installedVersion &&
+    draft?.proxyName &&
+    (tool.proxyOptions ?? []).some((option) => option.name === draft.proxyName && option.available)
+      ? draft.proxyName
+      : tool.proxyName;
+  /** What is installed, or what the tool does: the heading's summary line. */
+  const gameToolsSummary = (tool, working) => {
+    if (!tool.installedVersion || working) return tool.description;
+    const files = tool.files ?? { owned: 0, replaced: 0 };
+    const parts = [];
+    if (tool.installedLabel && tool.installedLabel !== tool.installedVersion)
+      parts.push(tool.installedLabel);
+    const from = files.targetDirectory
+      ? ` from ${files.targetDirectory.replace(/\//gu, "\\")}`
+      : "";
+    parts.push(`${parts.length ? "loaded as" : "Loaded as"} ${tool.proxyName}${from}`);
+    parts.push(`${gameToolsCount(files.owned, "file")} owned by WSGM`);
+    if (files.replaced > 0) parts.push(`${gameToolsCount(files.replaced, "game file")} backed up`);
+    return parts.join(" · ");
+  };
+  /** The status tags of a tool's heading. */
+  const gameToolsTags = (tool, channel, working, busy) => {
+    const tags = [];
+    if (working) {
+      tags.push({ text: gameToolsWorking(busy), tone: "info" });
+    } else if (tool.status === "notInstalled") {
+      tags.push({ text: "Not installed" });
+    } else if (tool.status === "installed" || tool.status === "updateAvailable") {
+      tags.push({ text: `Installed ${tool.installedVersion}`, tone: "success" });
+      if (tool.status === "updateAvailable") {
+        const current = (tool.channels ?? []).find((item) => item.current) ?? channel;
+        tags.push({ text: `Update ${gameToolsShortLatest(current)} available`, tone: "update" });
+      }
+    } else if (tool.status === "modified") {
+      tags.push({
+        text: (tool.actions ?? []).includes("repair") ? "Needs repair" : "Interrupted",
+        tone: "update",
+      });
+    } else if (tool.status === "conflict") {
+      tags.push({ text: "Installed outside WSGM", tone: "update" });
+    } else {
+      tags.push({ text: "Unavailable" });
+    }
+    const shown =
+      tool.installedVersion && !working
+        ? ((tool.channels ?? []).find((item) => item.current) ?? channel)
+        : channel;
+    if (shown && tool.channels?.[0] && shown.id !== tool.channels[0].id)
+      tags.push({ text: shown.label, tone: "info" });
+    return tags;
   };
   /**
-   * The running operation through the kit's progress: its phase, a bar counted in bytes while the size
-   * is known, and Cancel while nothing in the game folder has been written yet.
+   * The running operation through the kit's progress: the four steps of an install, the phase, a bar
+   * counted in bytes while the size is known, Cancel while nothing in the game folder has been written
+   * yet, and what cancelling does.
    * @param ui Resolved components.
    * @param busy The published busy record.
    * @param onCancel Sends the cancel command.
    * @returns The progress block.
    */
   const gameToolsProgress = (ui, busy, onCancel) => {
+    const installs = ["install", "replaceExisting", "update", "switchChannel", "repair"].includes(
+      busy.operation,
+    );
+    const noun =
+      { update: "update", switchChannel: "switch", repair: "repair" }[busy.operation] ?? "install";
     const amount =
       busy.bytes > 0
         ? busy.total > 0
@@ -19262,254 +19871,247 @@
           : wsgmFormatBytes(busy.bytes)
         : "";
     return renderSteamUiProgress(ui, {
-      phase: `${gameToolsOperations[busy.operation] ?? "Working"}…`,
+      phase: `${busy.detail || "Working"}…`,
       done: busy.bytes,
       total: busy.total,
-      detail: [
-        busy.detail ?? busy.phase,
-        amount,
-        busy.cancellable ? "" : "Game files are being written; this can't be cancelled now.",
-      ]
-        .filter(Boolean)
-        .join(" · "),
+      count: amount,
+      steps: installs ? GameToolsSteps : null,
+      step: GameToolsStepOf[busy.phase] ?? -1,
+      note: !installs
+        ? "WSGM finishes this on its own. Leaving this page doesn't stop it."
+        : busy.cancellable
+          ? `Nothing in the game folder has changed yet, so cancelling now leaves the game as it was. Once files are being copied, the ${noun} finishes or is rolled back.`
+          : `Files are being written. The ${noun} finishes or is rolled back on its own, and leaving this page doesn't stop it.`,
       onCancel: busy.cancellable ? onCancel : null,
       cancelLabel: "Cancel",
     });
   };
   /**
-   * Every program in the game folder, best first, each with what WSGM read from it.
-   * @param props Resolved components, the published state, whether a change is allowed and the choose callback.
-   * @returns A focusable list of select rows.
+   * One tool for this game: its heading, notes, the running work or the one primary action, release
+   * channel, load name and settings as Steam's own fields, the supporting actions, Remove set apart
+   * and the license line.
+   * @param props Resolved components, published state, the tool, its draft, the game's name, whether
+   * the game is idle, whether a command is being sent, and the command, draft and confirm callbacks.
+   * @returns The tool's column content.
    */
-  function GameToolsCandidates({ ui, state, disabled, onChoose }) {
-    const h = ui.react.createElement;
-    const candidates = state.candidates ?? [];
-    if (candidates.length === 0) {
-      return renderSteamUiEmpty(ui, {
-        text: "No programs found in the game's folder. Use Browse to choose one.",
-      });
-    }
-    return h(
-      ui.focusable,
-      { className: "wsgm-game-tools-list", "flow-children": "column" },
-      ...candidates.map((candidate) => {
-        const role = candidate.roleLabel || "Program";
-        return renderSteamUiSelectRow(ui, {
-          key: candidate.relativePath,
-          title: candidate.fileName,
-          selected: !!candidate.chosen,
-          status: h(
-            "span",
-            {
-              className: "wsgm-game-tools-tag",
-              "data-current": candidate.chosen ? "true" : "false",
-            },
-            candidate.chosen ? "In use" : role,
-          ),
-          detail: [
-            candidate.relativePath,
-            [role, candidate.architectureLabel || "Unknown architecture"].join(" · "),
-            ...(candidate.reasons ?? []),
-          ].join("\n"),
-          onClick: () => {
-            if (!disabled) onChoose(candidate.relativePath);
-          },
-        });
-      }),
-    );
-  }
-  /**
-   * The program choice: a heading, the large-folder note, every candidate and Browse, with Back when it
-   * is a level of its own.
-   * @param props Resolved components, published state, whether changes are allowed, the heading and the
-   * choose, browse and optional back callbacks.
-   * @returns The chooser's elements.
-   */
-  function GameToolsChooser({
-    ui,
-    state,
-    locked,
-    page,
-    title,
-    detail,
-    onChoose,
-    onBrowse,
-    onBack,
-  }) {
+  function GameToolsTool({ ui, state, tool, draft, game, idle, act, setDraft, confirm }) {
     const react = ui.react;
     const h = react.createElement;
-    const actions = [{ id: "browse", label: "Browse…", disabled: locked, onClick: onBrowse }];
-    if (onBack) actions.push({ id: "back", label: "Back", onClick: onBack });
-    return h(
-      react.Fragment,
-      null,
-      renderSteamUiHeader(ui, { page, title, detail }),
-      state.scanTruncated
-        ? renderSteamUiEmpty(ui, {
-            text: "The folder is large, so this list may be incomplete. Use Browse if the program is missing.",
-          })
-        : null,
-      h(GameToolsCandidates, { ui, state, disabled: locked, onChoose }),
-      renderSteamUiActions(ui, actions, { compact: true }),
-    );
-  }
-  /**
-   * One tool: its status, versions, conflicts, primary action, proxy name, settings and Remove.
-   * @param props Resolved components, published state, the tool, the local draft, whether changes are
-   * allowed and the command, draft and confirm callbacks.
-   * @returns The tool's settings section and its actions.
-   */
-  function GameToolsTool({ ui, state, tool, draft, locked, act, setDraft, confirm }) {
-    const react = ui.react;
-    const h = react.createElement;
-    const actions = tool.actions ?? [];
-    const installing = actions.includes("install");
-    // Before an install the choices are a draft that goes out with Install; afterwards each change is
-    // sent on its own and the row shows what the host published until it answers.
-    const proxyName = installing ? (draft.proxyName ?? tool.proxyName) : tool.proxyName;
-    const settingValue = (setting) =>
-      installing && draft.settings?.[setting.id] !== undefined
-        ? draft.settings[setting.id]
-        : setting.value;
     const appId = state.appId;
     const toolId = tool.id;
-    const install = (replaceExisting) => {
-      const payload = { appId, toolId, replaceExisting };
-      if (draft.proxyName && draft.proxyName !== tool.proxyName)
-        payload.proxyName = draft.proxyName;
+    const busy = state.busy;
+    const working = busy?.toolId === toolId;
+    const installed = !!tool.installedVersion;
+    const actions = tool.actions ?? [];
+    const channel = gameToolsChannel(tool, draft);
+    const proxyName = gameToolsProxy(tool, draft);
+    const antiCheat = state.antiCheat ?? [];
+    const installPayload = (replaceExisting, acknowledgeRisk) => {
+      const payload = { appId, toolId, replaceExisting, acknowledgeRisk };
+      if (proxyName !== tool.proxyName) payload.proxyName = proxyName;
       if (draft.settings && Object.keys(draft.settings).length) payload.settings = draft.settings;
-      // The host's anti-cheat text names what it found; showing it is the acknowledgement it asks for.
-      const warning = state.antiCheatWarning ?? "";
-      if (warning) payload.acknowledgeRisk = true;
-      const run = () => void act("install", payload);
-      if (replaceExisting) {
-        confirm({
-          title: `Replace the existing ${tool.name}?`,
-          text: `WSGM backs up the files of the ${tool.name} installed outside WSGM, removes them and installs its own as ${proxyName}. Removing it later restores them.${warning ? `\n\n${warning}` : ""}`,
-          confirmLabel: "Replace",
-          onConfirm: run,
-        });
-      } else if (warning) {
-        confirm({
-          title: `Install ${tool.name} anyway?`,
-          text: warning,
-          confirmLabel: "Install anyway",
-          onConfirm: run,
-        });
-      } else {
-        run();
-      }
+      if (tool.channels?.[0] && channel.id !== tool.channels[0].id) payload.channel = channel.id;
+      return payload;
     };
+    const install = () => {
+      if (!antiCheat.length) {
+        void act("install", installPayload(false, false));
+        return;
+      }
+      confirm({
+        title: `Install ${tool.name} for ${game} anyway?`,
+        text: [
+          `${antiCheat.join(", ")}${antiCheat.length === 1 ? " was" : " were"} found in this game's folder. Third-party files in a game folder can get an online account banned.`,
+          `Only continue if you play this game offline. You can remove ${tool.name} again from this page.`,
+        ].join("\n\n"),
+        confirmLabel: "Install anyway",
+        onConfirm: () => void act("install", installPayload(false, true)),
+      });
+    };
+    const replace = () =>
+      confirm({
+        title: `Replace the existing ${tool.name} installation?`,
+        text: [
+          `WSGM backs up the ${tool.name} files that were installed in ${game} outside WSGM, removes them and installs its own copy. Removing it later restores the backed-up files.`,
+          antiCheat.length
+            ? `${antiCheat.join(", ")} was found in this game's folder. Only continue if you play this game offline.`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+        confirmLabel: "Replace",
+        onConfirm: () => void act("install", installPayload(true, antiCheat.length > 0)),
+      });
     const update = () => {
       if (!tool.updateChangesConfig) {
         void act("update", { appId, toolId });
         return;
       }
       confirm({
-        title: `Update ${tool.name}?`,
-        text: `${tool.latestVersion ?? "The new version"} uses a different settings file. WSGM replaces the settings file with the new one, so settings changed in the tool's own menu are reset.`,
+        title: `Update ${tool.name} and replace its settings file?`,
+        text: [
+          `This version changes the format of ${tool.name}'s settings file. WSGM replaces it in ${game} with the new default and applies the settings on this page again.`,
+          `Changes made in ${tool.name}'s own in-game menu are lost.`,
+        ].join("\n\n"),
         confirmLabel: "Update",
         onConfirm: () => void act("update", { appId, toolId, replaceConfig: true }),
       });
     };
-    const remove = () =>
+    const switchChannel = () => {
+      const target = channel.id;
+      if (!channel.changesConfig) {
+        void act("switchChannel", { appId, toolId, channel: target });
+        return;
+      }
       confirm({
-        title: `Remove ${tool.name} from ${state.name}?`,
-        text: `WSGM deletes the files it installed, including its settings file, and restores the game files it replaced. Files the game changed since are left in place.`,
+        title: `Switch ${tool.name} to ${channel.label.toLowerCase()} ${channel.latestVersion}?`,
+        text: [
+          `${channel.label} ${channel.latestVersion} uses a different settings file format. WSGM replaces ${tool.name}'s settings file in ${game} with the new default and applies the settings on this page again.`,
+          `Changes made in ${tool.name}'s own in-game menu are lost.`,
+        ].join("\n\n"),
+        confirmLabel: "Switch",
+        onConfirm: () =>
+          void act("switchChannel", { appId, toolId, channel: target, replaceConfig: true }),
+      });
+    };
+    const remove = () => {
+      const files = tool.files ?? { owned: 0, replaced: 0 };
+      confirm({
+        title: `Remove ${tool.name} from ${game}?`,
+        text: [
+          `WSGM deletes the ${gameToolsCount(files.owned, "file")} it added to ${game}, including ${tool.name}'s settings file, and the logs ${tool.name} wrote.`,
+          files.replaced > 0
+            ? `It restores the ${gameToolsCount(files.replaced, "game file")} it backed up. Files that changed after installation are left in place and named afterwards.`
+            : "No game file was replaced, so nothing needs restoring. Files that changed after installation are left in place and named afterwards.",
+        ].join("\n\n"),
         confirmLabel: "Remove",
         onConfirm: () => void act("remove", { appId, toolId }),
       });
-    const buttons = [];
-    if (installing)
-      buttons.push({
-        id: "install",
-        label: "Install",
-        primary: true,
-        onClick: () => install(false),
-      });
-    if (actions.includes("replaceExisting"))
-      buttons.push({
-        id: "replaceExisting",
-        label: "Replace existing installation…",
-        primary: true,
-        onClick: () => install(true),
-      });
-    if (actions.includes("update"))
-      buttons.push({
-        id: "update",
-        label: tool.latestVersion ? `Update to ${tool.latestVersion}` : "Update",
-        primary: true,
-        onClick: update,
-      });
-    if (actions.includes("repair"))
-      buttons.push({
-        id: "repair",
-        label: "Repair",
-        primary: tool.status === "modified",
-        onClick: () => void act("repair", { appId, toolId }),
-      });
-    if (actions.includes("remove"))
-      buttons.push({ id: "remove", label: "Remove…", onClick: remove });
-    for (const button of buttons) button.disabled = locked;
-    const versions = [
-      tool.installedVersion ? `Installed ${tool.installedVersion}` : null,
-      tool.checkingLatest
-        ? "Checking for the latest release…"
-        : tool.latestVersion
-          ? `Latest ${tool.latestVersion}`
-          : tool.latestError || "Latest release not checked yet",
-    ]
-      .filter(Boolean)
-      .join(" · ");
-    const rows = [
-      {
-        key: "status",
-        kind: "note",
-        label: "Status",
-        text: "",
-        description: gameToolsLines(react, [tool.incompatibleReason ?? tool.statusText, versions]),
-        accent: tool.status === "conflict" || tool.status === "modified",
-      },
-    ];
+    };
+    // The one primary action, worded as the Overlay words it.
+    let primary = null;
+    const otherChannel =
+      installed && (tool.channels ?? []).find((item) => item.current)?.id !== channel.id;
+    const version = channel.latestVersion ? ` ${channel.latestVersion}` : "";
+    if (actions.includes("replaceExisting")) {
+      primary = { label: "Replace existing installation…", run: replace };
+    } else if (tool.status === "notInstalled") {
+      const named =
+        tool.channels?.[0] && channel.id !== tool.channels[0].id
+          ? ` ${channel.label.toLowerCase()}`
+          : "";
+      primary = {
+        label: `Install ${tool.name}${named}${version}`,
+        run: actions.includes("install") ? install : null,
+      };
+    } else if (otherChannel) {
+      primary = {
+        label: `Switch to ${channel.label.toLowerCase()}${version}`,
+        run: actions.includes("switchChannel") && channel.latestVersion ? switchChannel : null,
+      };
+    } else if (actions.includes("update")) {
+      const current = (tool.channels ?? []).find((item) => item.current) ?? channel;
+      primary = {
+        label: `Update to ${current.buildDate ? `the ${gameToolsShortLatest(current)}` : tool.latestVersion}`,
+        run: update,
+      };
+    } else if (tool.status === "modified" && actions.includes("repair")) {
+      primary = { label: "Repair", run: () => void act("repair", { appId, toolId }) };
+    }
+    const latest = channel.checkingLatest
+      ? "Checking for the latest release…"
+      : channel.latestLabel
+        ? `Latest ${channel.latestLabel}`
+        : (channel.latestError ?? "");
+    // Warnings, conflicts and the reason a tool can't be installed.
+    const notes = [];
+    if (tool.incompatibleReason && tool.status === "notInstalled") {
+      notes.push(renderSteamUiBanner(ui, { text: tool.incompatibleReason }));
+    }
+    if (tool.status === "modified") notes.push(renderSteamUiBanner(ui, { text: tool.statusText }));
+    const changed = [...(tool.files?.missing ?? []), ...(tool.files?.modified ?? [])];
+    if (changed.length)
+      notes.push(
+        h("div", { className: "steam-ui-kit-muted" }, `Missing or changed: ${changed.join(", ")}`),
+      );
     for (const conflict of tool.conflicts ?? []) {
+      notes.push(
+        h(
+          "div",
+          { className: "steam-ui-kit-muted" },
+          `${conflict.kindLabel}: ${conflict.path}. ${conflict.message}`,
+        ),
+      );
+    }
+    for (const warning of tool.warnings ?? [])
+      notes.push(renderSteamUiBanner(ui, { text: warning }));
+    // The value rows. Before installation they are a draft that goes out with Install; afterwards each
+    // change is sent on its own, and the row shows what the host published until it answers.
+    const editable = idle && !!tool.canEditOptions;
+    const applyNow = installed && actions.includes("configure");
+    const rows = [];
+    if ((tool.channels ?? []).length > 1 && (tool.showOptions || installed)) {
       rows.push({
-        key: `conflict-${conflict.path}`,
-        kind: "note",
-        label: conflict.kindLabel || "Conflict",
-        text: "",
-        description: gameToolsLines(react, [conflict.message, conflict.path]),
-        accent: true,
+        key: "channel",
+        kind: "choice",
+        label: "Release channel",
+        description: channel.description || undefined,
+        text: channel.id,
+        choices: tool.channels.map((item) => ({ value: item.id, label: item.label })),
+        // The channel is a draft for the primary action, so it locks with the commands that would use it.
+        disabled: !(idle && (tool.canEditOptions || actions.includes("switchChannel"))),
       });
     }
-    // Proxy names another file already uses stay listed, with the reason, so the user sees why the
-    // suggested one differs; choosing one says why it can't be used instead of sending it.
-    const proxyOption = (tool.proxyOptions ?? []).find((option) => option.name === proxyName);
-    const editable = !locked && !!tool.canEditOptions;
-    if ((tool.proxyOptions ?? []).length && tool.showOptions) {
+    if (tool.showOptions) {
+      const options = tool.proxyOptions ?? [];
+      const hint = options.find((option) => option.name === proxyName)?.hint ?? "";
+      const taken = options
+        .filter((option) => !option.available && option.name !== proxyName)
+        .map(
+          (option) =>
+            `${option.name}${option.conflict ? ` (${option.conflict.replace(/\.$/u, "")})` : ""}`,
+        );
       rows.push({
         key: "proxy",
         kind: "choice",
         label: "Load as",
-        description: proxyOption?.conflict ?? proxyOption?.hint ?? "",
+        description:
+          [
+            installed ? "Choosing another name renames the installed file." : hint,
+            taken.length ? `Not offered: ${taken.join(", ")}.` : "",
+          ]
+            .filter(Boolean)
+            .join(" ") || undefined,
         text: proxyName,
-        choices: tool.proxyOptions.map((option) => ({
-          value: option.name,
-          label:
-            option.available || option.name === tool.proxyName
-              ? option.name
-              : `${option.name} (in use)`,
-        })),
+        choices: options
+          .filter((option) => option.available || option.name === proxyName)
+          .map((option) => ({ value: option.name, label: option.name })),
         disabled: !editable,
-        layout: "below",
       });
-    }
-    if (tool.showOptions) {
       for (const setting of tool.settings ?? []) {
-        const value = settingValue(setting);
-        const choices = (setting.options ?? []).map((option) => ({
-          value: option.value,
-          label: option.label,
-        }));
+        const value = applyNow ? setting.value : (draft.settings?.[setting.id] ?? setting.value);
+        const options = setting.options ?? [];
+        const description =
+          [setting.description, setting.note].filter(Boolean).join(" ") || undefined;
+        const disabled = !(editable && setting.available);
+        // A plain Off/On choice is Steam's toggle; any other choice, such as Automatic or Off, stays a dropdown.
+        const toggle =
+          options.length === 2 &&
+          options.some((option) => option.value === "on" && option.label === "On") &&
+          options.some((option) => option.value === "off" && option.label === "Off") &&
+          (value === "on" || value === "off");
+        if (toggle) {
+          rows.push({
+            key: `setting-${setting.id}`,
+            kind: "boolean",
+            label: setting.label,
+            description,
+            checked: value === "on",
+            disabled,
+          });
+          continue;
+        }
+        const choices = options.map((option) => ({ value: option.value, label: option.label }));
         // The file holds a value no option names; show it as is instead of claiming a default.
         if (!choices.some((choice) => choice.value === value)) {
           choices.unshift({
@@ -19521,213 +20123,344 @@
           key: `setting-${setting.id}`,
           kind: "choice",
           label: setting.label,
-          description: [setting.description, setting.note].filter(Boolean).join(" "),
+          description,
           text: value,
           choices,
-          disabled: !editable || !setting.available,
-          layout: "below",
+          disabled,
         });
       }
     }
-    const files = tool.files;
-    if (
-      files &&
-      (files.owned > 0 || files.replaced > 0 || files.missing?.length || files.modified?.length)
-    ) {
-      const lines = [
-        `${files.owned} files added${files.replaced ? `, ${files.replaced} game files backed up and replaced` : ""}`,
-        files.targetDirectory ? `In ${files.targetDirectory}` : "In the game's folder",
-        files.missing?.length ? `Missing: ${files.missing.join(", ")}` : null,
-        files.modified?.length ? `Changed: ${files.modified.join(", ")}` : null,
-      ].filter(Boolean);
-      rows.push({
-        key: "files",
-        kind: "note",
-        label: "Files",
-        text: "",
-        description: gameToolsLines(react, lines),
-        accent: !!(files.missing?.length || files.modified?.length),
-      });
-    }
-    rows.push({
-      key: "about",
-      kind: "note",
-      label: "About",
-      text: tool.license ?? "",
-      description: gameToolsLines(react, [tool.description, tool.homepage, tool.notice]),
-    });
     const change = (row, value) => {
-      if (locked || value === undefined || value === null) return;
+      if (!idle || value === undefined || value === null) return;
+      if (row.key === "channel") {
+        if (value !== channel.id) setDraft({ ...draft, channel: value });
+        return;
+      }
       if (row.key === "proxy") {
-        const option = (tool.proxyOptions ?? []).find((entry) => entry.name === value);
-        if (option && !option.available && option.name !== tool.proxyName) {
-          act.refuse(option.conflict ?? `${option.name} is already used by another file.`);
-          return;
-        }
-        if (installing) setDraft({ ...draft, proxyName: value });
-        else if (value !== tool.proxyName)
-          void act("configure", { appId, toolId, proxyName: value });
+        if (value === proxyName) return;
+        if (installed) void act("configure", { appId, toolId, proxyName: value });
+        else setDraft({ ...draft, proxyName: value });
         return;
       }
       const setting = (tool.settings ?? []).find((entry) => `setting-${entry.id}` === row.key);
-      if (!setting || value === "") return;
-      if (installing)
-        setDraft({ ...draft, settings: { ...(draft.settings ?? {}), [setting.id]: value } });
-      else if (value !== setting.value)
-        void act("configure", { appId, toolId, settings: { [setting.id]: value } });
+      if (!setting) return;
+      const chosen = row.kind === "boolean" ? (value ? "on" : "off") : value;
+      const shown = applyNow ? setting.value : (draft.settings?.[setting.id] ?? setting.value);
+      if (chosen === "" || chosen === shown) return;
+      if (applyNow) void act("configure", { appId, toolId, settings: { [setting.id]: chosen } });
+      else setDraft({ ...draft, settings: { ...(draft.settings ?? {}), [setting.id]: chosen } });
     };
+    const secondary = [];
+    if (!working) {
+      const checking = !!tool.checkingLatest;
+      if (installed || !channel.latestVersion) {
+        secondary.push({
+          id: "check-updates",
+          label: checking ? "Checking…" : "Check for updates",
+          disabled: !idle || checking,
+          onClick: () => void act("checkUpdates", { appId }),
+        });
+      }
+      if (actions.includes("repair") && tool.status !== "modified") {
+        secondary.push({
+          id: "repair",
+          label: "Repair",
+          disabled: !idle,
+          onClick: () => void act("repair", { appId, toolId }),
+        });
+      }
+    }
+    const removable = !working && actions.includes("remove");
+    const homepage = String(tool.homepage ?? "").replace(/^https:\/\//iu, "");
+    const about = [tool.license, homepage, tool.notice].filter(Boolean).join(" · ");
     return h(
-      react.Fragment,
-      { key: `tool-${tool.id}` },
-      renderSteamUiHeader(ui, { title: tool.name, detail: versions }),
-      (tool.warnings ?? []).length
+      ui.focusable,
+      { key: `tool-${toolId}`, className: "wsgm-game-tools-tool", "flow-children": "column" },
+      renderSteamUiItemHeading(ui, {
+        title: tool.name,
+        tags: gameToolsTags(tool, channel, working, busy),
+        fact: working ? "" : latest,
+        summary: gameToolsSummary(tool, working),
+      }),
+      notes.length
         ? h(
             "div",
-            { className: "wsgm-game-tools-warnings" },
-            ...tool.warnings.map((warning, index) =>
-              h("div", { key: index }, renderSteamUiBanner(ui, { text: warning })),
+            { className: "wsgm-game-tools-notes" },
+            ...notes.map((note, index) => h("div", { key: index }, note)),
+          )
+        : null,
+      working ? gameToolsProgress(ui, busy, () => void act("cancel", { appId })) : null,
+      !working && primary
+        ? renderSteamUiActions(
+            ui,
+            [
+              {
+                id: "primary",
+                label: primary.label,
+                primary: true,
+                disabled: !idle || !primary.run,
+                onClick: () => primary.run?.(),
+              },
+            ],
+            { compact: true },
+          )
+        : null,
+      rows.length
+        ? h(
+            ui.settingsSection,
+            null,
+            ...rows.map((row) => renderSteamSettingRow(ui, row, undefined, change, () => {})),
+          )
+        : null,
+      secondary.length ? renderSteamUiActions(ui, secondary, { compact: true }) : null,
+      removable
+        ? h(
+            "div",
+            { className: "wsgm-game-tools-remove" },
+            renderSteamUiActions(
+              ui,
+              [{ id: "remove", label: `Remove ${tool.name}…`, disabled: !idle, onClick: remove }],
+              {
+                compact: true,
+              },
             ),
           )
         : null,
-      buttons.length ? renderSteamUiActions(ui, buttons, { compact: true }) : null,
-      h(
-        ui.settingsSection,
-        null,
-        ...rows.map((row) => renderSteamSettingRow(ui, row, undefined, change, () => {})),
-      ),
+      about ? h("div", { className: "steam-ui-kit-muted" }, about) : null,
     );
   }
   /**
-   * The game's program: what WSGM will install beside, why, and the ways to change it.
-   * @param props Resolved components, published state, whether changes are allowed and the change/browse/choose callbacks.
-   * @returns The program section; when WSGM needs a choice, the candidate list is the content.
+   * A tool whose game has no folder to work in: its name, why, and the license line.
+   * @param props Resolved components and the tool.
+   * @returns The tool's column content.
    */
-  function GameToolsProgram({ ui, state, locked, onChange, onBrowse, onChoose }) {
-    const react = ui.react;
-    const h = react.createElement;
+  function GameToolsUnavailableTool({ ui, tool }) {
+    const h = ui.react.createElement;
+    const homepage = String(tool.homepage ?? "").replace(/^https:\/\//iu, "");
+    const about = [tool.license, homepage, tool.notice].filter(Boolean).join(" · ");
+    return h(
+      "div",
+      { className: "wsgm-game-tools-tool" },
+      renderSteamUiItemHeading(ui, {
+        title: tool.name,
+        tags: [{ text: "Unavailable" }],
+        summary: tool.statusText,
+      }),
+      about ? h("div", { className: "steam-ui-kit-muted" }, about) : null,
+    );
+  }
+  /**
+   * The "This game" panel: the program with Change program…, the upscalers and anti-cheat found in
+   * the folder, the GPU, and the folder itself.
+   * @param props Resolved components, published state, whether the program may change now and the
+   * change callback.
+   * @returns The side panel.
+   */
+  function GameToolsGamePanel({ ui, state, canChange, onChange }) {
     const runtime = state.runtime;
-    if (!runtime) {
-      return h(GameToolsChooser, {
-        ui,
-        state,
-        locked,
-        title: "Choose the program the game runs",
-        detail: state.rememberedMissing
-          ? "The program you chose earlier is gone, maybe after an update. Choose it again."
-          : "WSGM couldn't tell which program starts the game. Tools install beside the one you choose.",
-        onChoose,
-        onBrowse,
-      });
-    }
-    const row = {
-      key: "program",
-      kind: "action",
-      label: runtime.fileName,
-      description: gameToolsLines(react, [
-        runtime.relativePath,
-        [state.engineLabel, runtime.architectureLabel || "Unknown architecture"]
-          .filter(Boolean)
-          .join(" · "),
-        runtime.confidenceLabel,
-      ]),
-      buttonLabel: "Change…",
-      disabled: locked,
-    };
-    return h(
-      ui.settingsSection,
-      { label: "Game program" },
-      renderSteamSettingRow(ui, row, undefined, () => {}, onChange),
-    );
+    const hasFolder = state.availability === "ready" || state.availability === "running";
+    const upscalers = gameToolsUpscalers(state);
+    const antiCheat = state.antiCheat ?? [];
+    const vendors = state.gpuVendors ?? [];
+    const sections = hasFolder
+      ? [
+          {
+            key: "program",
+            label: "Program",
+            value: runtime?.fileName ?? (state.loading ? "Looking…" : "Not chosen"),
+            detail: runtime
+              ? [runtime.architectureLabel, runtime.confidenceLabel].filter(Boolean).join(" · ")
+              : state.rememberedMissing
+                ? "The program chosen earlier is gone"
+                : state.loading
+                  ? ""
+                  : "Several programs could be the game",
+            error: !runtime && !state.loading,
+            action: {
+              label: runtime ? "Change program…" : "Choose the program…",
+              disabled: !canChange,
+              onClick: onChange,
+            },
+          },
+          upscalers.length
+            ? {
+                key: "upscalers",
+                label: "Upscalers in the folder",
+                tags: upscalers.map((text) => ({ text })),
+                rule: true,
+              }
+            : {
+                key: "upscalers",
+                label: "Upscalers in the folder",
+                value: "None found",
+                detail: "The game may still have one built in",
+                rule: true,
+              },
+          {
+            key: "anticheat",
+            label: "Anti-cheat",
+            value: antiCheat.length ? antiCheat.join(", ") : "None found",
+          },
+          vendors.length
+            ? { key: "gpu", label: "GPU", value: vendors.map(gameToolsVendor).join(", ") }
+            : null,
+        ]
+      : [];
+    return renderSteamUiSidePanel(ui, {
+      key: "game",
+      label: "This game",
+      sections,
+      note:
+        state.installFolder ||
+        (state.isShortcut ? "Non-Steam shortcut" : "Install folder not reported."),
+    });
   }
   /**
-   * What the folder scan found that bears on the tools: upscaler libraries and anti-cheat.
-   * @param props Resolved components and published state.
-   * @returns The detection section.
+   * The program chooser: every program in the game folder, best first, with what WSGM read from it,
+   * and Browse for one the scan missed.
+   * @param props Resolved components, published state, the game's name, whether the game is idle and
+   * the choose, browse and back callbacks.
+   * @returns The chooser level's content.
    */
-  function GameToolsDetected({ ui, state }) {
+  function GameToolsChooser({ ui, state, game, idle, onChoose, onBrowse, onBack }) {
     const react = ui.react;
     const h = react.createElement;
-    const upscalers = state.upscalers ?? [];
-    const rows = upscalers.length
-      ? upscalers.map((upscaler) => ({
-          key: `upscaler-${upscaler.relativePath}`,
-          kind: "note",
-          label: upscaler.technology,
-          text: upscaler.version ?? "",
-          description: upscaler.relativePath,
-        }))
-      : [
-          {
-            key: "upscaler-none",
-            kind: "note",
-            label: "Upscalers",
-            text: "",
-            description:
-              "No standalone upscaler library found. The game may still have one built in.",
-          },
-        ];
+    const candidates = state.candidates ?? [];
+    const several = !state.runtime || state.runtime.confidence === "needsChoice";
+    const installed = (state.tools ?? []).find((tool) => tool.installedVersion);
+    const banners = [];
+    if (state.rememberedMissing) {
+      banners.push(
+        renderSteamUiBanner(ui, {
+          text: "The program you chose earlier is gone, maybe after a game update. Choose it again.",
+        }),
+      );
+    }
+    if (installed) {
+      banners.push(
+        renderSteamUiBanner(ui, {
+          text: `${installed.name} is installed beside the current program, so only a program in the same folder can be chosen until you remove it.`,
+        }),
+      );
+    }
     return h(
-      ui.settingsSection,
-      { label: "Detected in the game folder" },
-      ...rows.map((row) =>
-        renderSteamSettingRow(
+      react.Fragment,
+      null,
+      renderSteamUiHeader(ui, {
+        page: true,
+        title: `Which program does ${game} run?`,
+        detail: `Tools are installed beside the program the game starts. ${several ? "Several programs in its folder could be it, so pick the game itself, not its launcher. " : "Pick the game itself, not its launcher. "}WSGM remembers your choice.`,
+      }),
+      ...banners.map((banner, index) => h("div", { key: `banner-${index}` }, banner)),
+      candidates.length
+        ? h(
+            ui.focusable,
+            { key: "candidates", className: "steam-ui-kit-list", "flow-children": "column" },
+            ...candidates.map((candidate) => {
+              const path = candidate.relativePath;
+              return renderSteamUiSelectRow(ui, {
+                key: path,
+                title: candidate.fileName,
+                selected: !!candidate.chosen,
+                status: renderSteamUiTags(react, [
+                  candidate.chosen ? { text: "In use", tone: "info" } : null,
+                  {
+                    text: candidate.roleLabel || "Program",
+                    tone: candidate.role === "game" ? "success" : "neutral",
+                  },
+                ]),
+                detail: [
+                  [candidate.architectureLabel, gameToolsLocation(path)]
+                    .filter(Boolean)
+                    .join(" · "),
+                  (candidate.reasons ?? []).join(" · "),
+                ]
+                  .filter(Boolean)
+                  .join("\n"),
+                disabled: !idle,
+                description: candidate.chosen ? "Back to the game" : "Use this program",
+                onClick: () => (candidate.chosen ? onBack() : onChoose(path)),
+              });
+            }),
+          )
+        : renderSteamUiEmpty(ui, {
+            kind: state.loading ? "loading" : "empty",
+            text: state.loading
+              ? "Looking for programs in the game folder…"
+              : "No programs were found in the game folder. Use Browse to choose it.",
+          }),
+      state.scanTruncated
+        ? renderSteamUiBanner(ui, {
+            text: "This folder is too large to list completely, so the game's program may be missing here. Use Browse to choose it.",
+          })
+        : null,
+      h(
+        ui.focusable,
+        { className: "wsgm-game-tools-browse", "flow-children": "row" },
+        renderSteamUiActions(
           ui,
-          row,
-          undefined,
-          () => {},
-          () => {},
+          [{ id: "browse", label: "Browse for the program…", disabled: !idle, onClick: onBrowse }],
+          { compact: true },
+        ),
+        h(
+          "span",
+          { className: "steam-ui-kit-muted" },
+          "Use Browse when the game's program is not listed.",
         ),
       ),
+      renderSteamUiActions(ui, [{ id: "back", label: "Back to the game", onClick: onBack }], {
+        compact: true,
+      }),
     );
   }
   /**
-   * Renders the Game Tools page for the game in the route, with a nested program list.
-   * @param context Registered page accessors for Steam components, latest state and publication refusal.
-   * @param page The routed page descriptor carrying the AppID parameter.
-   * @returns The page React tree, including loading, unavailable and refusal states.
+   * One game's Game Tools page: the hero, the host's messages, each tool in the main column and the
+   * "This game" panel, with the program chooser as a level of its own.
+   * @param props The frame's context, the AppID from the route and the published state.
+   * @returns The page's content.
    */
-  function GameToolsPage({ context, page }) {
+  function GameToolsGame({ context, appId, published }) {
     const react = context.react();
     const h = react.createElement;
     const ui = context.ui();
-    const published = context.state();
-    const routeAppId = Number(page?.params?.appid ?? 0);
-    // Where the user is: the page itself or the full program list opened by Change.
+    // Where the user is: the page itself or the program chooser opened by Change program.
     const [level, setLevel] = react.useState("page");
     const [drafts, setDrafts] = react.useState({});
     const [sending, setSending] = react.useState(false);
     const lifetime = react.useRef(null);
     react.useEffect(() => {
       lifetime.current = new AbortController();
+      // Direct navigation and Back into the page both land here; the host publishes this game.
+      context.report(null);
+      void request(GameToolsPatchId, "open", { appId }).catch(() => undefined);
       return () => lifetime.current?.abort();
     }, []);
-    react.useEffect(() => {
-      // Direct navigation and Back/forward into the page both land here; the host publishes this game.
-      setLevel("page");
-      setDrafts({});
-      context.report(null);
-      if (routeAppId > 0)
-        void request(GameToolsPatchId, "open", { appId: routeAppId }).catch(() => undefined);
-    }, [routeAppId]);
-    const state =
-      published && routeAppId > 0 && Number(published.appId) === routeAppId ? published : null;
-    // A tool that got installed or removed leaves no draft behind for the next install.
-    react.useEffect(() => {
-      if (!state) return;
-      const installable = new Set(
-        (state.tools ?? [])
-          .filter((tool) => (tool.actions ?? []).includes("install"))
-          .map((tool) => tool.id),
+    // Drafts (channel, load name, settings) live until the game is left, as the Overlay's do; an
+    // installed tool reads its load name and settings from the host, not from a draft.
+    const state = published && Number(published.appId) === appId ? published : null;
+    const game = gameToolsName(state, appId);
+    const hero = (compact) =>
+      renderSteamUiHero(ui, {
+        key: "hero",
+        eyebrow: "Game Tools",
+        title: game,
+        detail: compact ? undefined : `Add upscaler mods to ${game}. ${GameToolsPurpose}`,
+        images: steamAppHeroImages(appId),
+      });
+    const root = (...children) =>
+      renderSteamUiPane(ui, { key: "game", className: "wsgm-game-tools-root" }, ...children);
+    if (!state) {
+      return root(
+        hero(false),
+        h(
+          "div",
+          { className: "wsgm-game-tools-body" },
+          renderSteamUiEmpty(ui, { kind: "loading", text: "Reading this game…" }),
+        ),
       );
-      if (Object.keys(drafts).some((id) => !installable.has(id))) {
-        setDrafts(Object.fromEntries(Object.entries(drafts).filter(([id]) => installable.has(id))));
-      }
-    }, [state]);
-    if (routeAppId <= 0)
-      return renderSteamUiEmpty(ui, { kind: "error", text: "No game was supplied." });
-    if (!state) return renderSteamUiEmpty(ui, { kind: "loading", text: "Reading this game…" });
+    }
     const busy = state.busy;
-    const locked = !!busy || sending;
+    const idle = !busy && !state.loading && !sending;
     /**
      * Sends one command for this game; a synchronous refusal is the frame's banner, and the outcome of
      * admitted background work arrives later as the published notice or error.
@@ -19745,18 +20478,18 @@
         if (!lifetime.current?.signal.aborted) setSending(false);
       }
     };
-    act.refuse = (message) => context.report(message);
+    // Every Game Tools question has a safe answer of no, so Cancel takes the controller first.
     const confirm = (props) => {
-      if (!showSteamUiConfirm(ui, props))
+      if (!showSteamUiConfirm(ui, { ...props, focusCancel: true }))
         context.report("Steam's confirmation dialog is unavailable.");
     };
     const choose = async (path) => {
-      const result = await act("chooseRuntime", { appId: routeAppId, path });
+      const result = await act("chooseRuntime", { appId, path });
       if (result !== undefined && !lifetime.current?.signal.aborted) setLevel("page");
     };
     const browse = async () => {
       const path = await showSteamFilePicker(ui, {
-        title: `Choose the program ${state.name} runs`,
+        title: `Choose the program ${game} runs`,
         mode: "file",
         extensions: [".exe"],
         start: state.installFolder || undefined,
@@ -19764,120 +20497,346 @@
       });
       if (path && !lifetime.current?.signal.aborted) await choose(path);
     };
-    const refresh = () => void act("refresh", { appId: routeAppId });
-    // The frame's banner carries this page's refusals and the host's error or notice; these say what
-    // the game folder allows.
-    const banners = [];
-    if (state.availability !== "ready" && state.reason) {
-      banners.push(
-        renderSteamUiBanner(ui, { text: state.reason, error: state.availability !== "running" }),
-      );
-    }
-    if (state.antiCheatWarning) {
-      banners.push(renderSteamUiBanner(ui, { text: state.antiCheatWarning, error: true }));
-    }
-    const banner = banners.length
-      ? h(
-          "div",
-          { className: "steam-ui-kit-page-banner" },
-          ...banners.map((element, index) => h("div", { key: index }, element)),
-        )
-      : null;
-    const header = renderSteamUiHeader(ui, {
-      page: true,
-      title: state.name || `Game ${routeAppId}`,
-      detail: [
-        state.loading ? "Scanning the game folder…" : state.engineLabel,
-        state.installFolder || (state.isShortcut ? "Non-Steam shortcut" : ""),
-      ]
-        .filter(Boolean)
-        .join(" · "),
-    });
-    const pageActions = renderSteamUiActions(
-      ui,
-      [
-        { id: "refresh", label: "Refresh", disabled: locked || state.loading, onClick: refresh },
-        {
-          id: "checkUpdates",
-          label: "Check for updates",
-          disabled: locked || (state.tools ?? []).some((tool) => tool.checkingLatest),
-          onClick: () => void act("checkUpdates", { appId: routeAppId }),
-        },
-      ],
-      { compact: true },
-    );
-    const progress = busy
-      ? gameToolsProgress(ui, busy, () => void act("cancel", { appId: routeAppId }))
-      : null;
-    if (level === "programs" && state.availability === "ready") {
-      return h(
-        react.Fragment,
-        null,
-        banner,
+    const hasFolder = state.availability === "ready" || state.availability === "running";
+    const compact = !!busy || (state.tools ?? []).some((tool) => tool.installedVersion);
+    if (level === "programs" && hasFolder) {
+      return root(
+        hero(true),
         renderSteamUiLevel(
           ui,
-          { bounded: true, onBack: () => setLevel("page") },
-          h(GameToolsChooser, {
-            ui,
-            state,
-            locked,
-            page: true,
-            title: "Choose the game's program",
-            detail: `${state.name} · Tools install beside the program you choose.`,
-            onChoose: (path) => void choose(path),
-            onBrowse: () => void browse(),
-            onBack: () => setLevel("page"),
-          }),
+          { className: "wsgm-game-tools-body", onBack: () => setLevel("page") },
+          h(
+            "div",
+            { className: "wsgm-game-tools-main" },
+            h(GameToolsChooser, {
+              ui,
+              state,
+              game,
+              idle,
+              onChoose: (path) => void choose(path),
+              onBrowse: () => void browse(),
+              onBack: () => setLevel("page"),
+            }),
+          ),
         ),
       );
     }
-    // Before the first scan finishes every field is a placeholder; say so instead of drawing it.
-    const scanned = !(state.loading && !state.installFolder && (state.tools ?? []).length === 0);
-    const ready = state.availability === "ready" || state.availability === "running";
-    const content = [];
-    if (!scanned) {
-      content.push(renderSteamUiEmpty(ui, { kind: "loading", text: "Scanning the game folder…" }));
-    } else if (ready) {
-      content.push(
-        h(GameToolsProgram, {
-          key: "program",
-          ui,
-          state,
-          locked: locked || state.availability !== "ready",
-          onChange: () => setLevel("programs"),
-          onBrowse: () => void browse(),
-          onChoose: (path) => void choose(path),
+    // The host's messages and what the game folder allows, under the hero.
+    const banners = [];
+    if (state.error) banners.push(renderSteamUiBanner(ui, { text: state.error, error: true }));
+    else if (state.notice && !busy)
+      banners.push(renderSteamUiBanner(ui, { text: state.notice, success: true }));
+    if (state.availability !== "ready" && state.reason) {
+      banners.push(
+        renderSteamUiBanner(ui, {
+          title: gameToolsAvailabilityTitle(state.availability),
+          text: state.reason,
         }),
-        ...(state.tools ?? []).map((tool) =>
+      );
+    }
+    const scanning = state.loading && (state.tools ?? []).length === 0;
+    if (hasFolder && !scanning && (state.antiCheat ?? []).length) {
+      banners.push(
+        renderSteamUiBanner(ui, {
+          title: `${state.antiCheat.join(", ")} found in this game's folder`,
+          text: gameToolsAntiCheatMessage(state),
+          error: true,
+        }),
+      );
+    }
+    const main = [];
+    let progressShown = false;
+    if (scanning) {
+      main.push(renderSteamUiProgress(ui, { phase: "Scanning the game folder…" }));
+      progressShown = true;
+    } else {
+      for (const tool of state.tools ?? []) {
+        if (!hasFolder) {
+          main.push(h(GameToolsUnavailableTool, { key: `tool-${tool.id}`, ui, tool }));
+          continue;
+        }
+        progressShown ||= busy?.toolId === tool.id;
+        main.push(
           h(GameToolsTool, {
             key: `tool-${tool.id}`,
             ui,
             state,
             tool,
-            draft: drafts[tool.id] ?? {},
-            locked,
+            game,
+            idle,
             act,
             confirm,
+            draft: drafts[tool.id] ?? {},
             setDraft: (next) => setDrafts({ ...drafts, [tool.id]: next }),
           }),
-        ),
-        // Supporting evidence follows the tools so each primary action stays near the top.
-        h(GameToolsDetected, { key: "detected", ui, state }),
-      );
+        );
+      }
     }
-    return h(
-      react.Fragment,
-      null,
-      banner,
-      renderSteamUiPane(
+    // The folder scan, or work for a tool this page doesn't draw.
+    if (!progressShown && busy)
+      main.push(gameToolsProgress(ui, busy, () => void act("cancel", { appId })));
+    else if (!progressShown && state.loading)
+      main.push(renderSteamUiProgress(ui, { phase: "Scanning the game folder…" }));
+    main.push(
+      renderSteamUiActions(
         ui,
-        { key: "page", bounded: true },
-        header,
-        pageActions,
-        progress,
-        ...content,
+        [
+          {
+            id: "refresh",
+            label: "Scan the folder again",
+            disabled: !idle,
+            onClick: () => void act("refresh", { appId }),
+          },
+          {
+            id: "games",
+            label: "All games",
+            onClick: () => navigateSteamRoute(GameToolsRoute, steamInteractionWindow()),
+          },
+        ],
+        { compact: true },
       ),
     );
+    return root(
+      hero(compact),
+      banners.length
+        ? h(
+            "div",
+            { className: "wsgm-game-tools-banners" },
+            ...banners.map((banner, index) => h("div", { key: index }, banner)),
+          )
+        : null,
+      h(
+        ui.focusable,
+        { className: "wsgm-game-tools-body", "flow-children": "row" },
+        h(ui.focusable, { className: "wsgm-game-tools-main", "flow-children": "column" }, ...main),
+        h(GameToolsGamePanel, {
+          ui,
+          state,
+          canChange: hasFolder && idle,
+          onChange: () => setLevel("programs"),
+        }),
+      ),
+    );
+  }
+  /**
+   * The game list: games with tools from the host's list, then every game in the Steam library, with
+   * search and the All, With tools and Updates filters.
+   * @param props The frame's context.
+   * @returns The list's content.
+   */
+  function GameToolsList({ context }) {
+    const react = context.react();
+    const h = react.createElement;
+    const ui = context.ui();
+    react.useSyncExternalStore(
+      gameToolsLibraryStore.subscribe,
+      gameToolsLibraryStore.revision,
+      gameToolsLibraryStore.revision,
+    );
+    const library = gameToolsLibrary;
+    const [filter, setFilter] = react.useState("all");
+    const [query, setQuery] = react.useState("");
+    const [shown, setShown] = react.useState(GameToolsChunk);
+    const [games, setGames] = react.useState(() => readSteamLibraryGames());
+    react.useEffect(() => {
+      context.report(null);
+      void request(GameToolsPatchId, "refreshLibrary", {}).catch(() => undefined);
+    }, []);
+    const matches = (name) => name.toLowerCase().includes(query.trim().toLowerCase());
+    const steamNames = new Map((games ?? []).map((game) => [game.appId, game]));
+    const open = (appId) =>
+      navigateSteamRoute(`${GameToolsRoute}/${appId}`, steamInteractionWindow());
+    const art = (appId) =>
+      renderSteamUiArt(react, { images: steamAppHeaderImages(appId), lazy: true });
+    const setFilterTo = (next) => {
+      setFilter(next);
+      setShown(GameToolsChunk);
+    };
+    const toolbar = renderSteamUiToolbar(
+      ui,
+      renderSteamUiTool(
+        ui,
+        null,
+        h(ui.textField, {
+          label: "Search games",
+          value: query,
+          onChange: (event) => {
+            setQuery(event?.target?.value ?? "");
+            setShown(GameToolsChunk);
+          },
+        }),
+        true,
+      ),
+      renderSteamUiTool(
+        ui,
+        "Show",
+        renderSteamUiChips(ui, [
+          {
+            label: games ? `All ${games.length}` : "All",
+            selected: filter === "all",
+            onClick: () => setFilterTo("all"),
+          },
+          {
+            label: `With tools ${library?.withTools ?? 0}`,
+            selected: filter === "tools",
+            onClick: () => setFilterTo("tools"),
+          },
+          {
+            label: `Updates ${library?.updates ?? 0}`,
+            selected: filter === "updates",
+            onClick: () => setFilterTo("updates"),
+          },
+        ]),
+      ),
+    );
+    const content = [toolbar];
+    if (library?.error) content.push(renderSteamUiBanner(ui, { text: library.error, error: true }));
+    // Games with tools, from the host's list.
+    const listed = library?.games ?? [];
+    if (!library || library.loading || listed.length || filter !== "all") {
+      const rows = listed
+        .filter((game) => matches(steamNames.get(game.appId)?.name ?? game.name))
+        .filter(
+          (game) =>
+            filter !== "updates" ||
+            (game.tools ?? []).some((tool) => tool.status === "updateAvailable"),
+        );
+      const section = [renderSteamUiHeader(ui, { title: "With tools" })];
+      if (!library || library.loading) {
+        section.push(
+          renderSteamUiEmpty(ui, { kind: "loading", text: "Reading the games that have tools…" }),
+        );
+      } else if (!rows.length) {
+        section.push(
+          renderSteamUiEmpty(ui, {
+            kind: listed.length && query.trim() ? "noMatch" : "empty",
+            text: !listed.length
+              ? "No game has a tool yet. Choose a game below to add one."
+              : filter === "updates" && !query.trim()
+                ? "No update is known yet. Open a game and use Check for updates to look again."
+                : "No game with tools matches the search.",
+          }),
+        );
+      } else {
+        section.push(
+          h(
+            ui.focusable,
+            { key: "with-tools", className: "steam-ui-kit-list", "flow-children": "column" },
+            ...rows.map((game) => {
+              const tags = [];
+              for (const tool of game.tools ?? []) {
+                if (!tool.defaultChannel) tags.push({ text: tool.channelLabel, tone: "info" });
+                tags.push(gameToolsSummaryTag(tool));
+              }
+              return renderSteamUiSelectRow(ui, {
+                key: `tools-${game.appId}`,
+                title: steamNames.get(game.appId)?.name ?? game.name,
+                status: renderSteamUiTags(react, tags),
+                detail: (game.tools ?? []).map((tool) => tool.detail).join(" · "),
+                media: art(game.appId),
+                description: "Open",
+                onClick: () => open(game.appId),
+              });
+            }),
+          ),
+        );
+      }
+      content.push(
+        h("div", { key: "with-tools", className: "wsgm-game-tools-section" }, ...section),
+      );
+    }
+    // Every game in the Steam library.
+    if (filter === "all") {
+      const section = [renderSteamUiHeader(ui, { title: "All games" })];
+      if (!games) {
+        section.push(
+          renderSteamUiEmpty(ui, {
+            kind: "error",
+            text: "Steam could not list the games.",
+            action: { label: "Try again", onClick: () => setGames(readSteamLibraryGames()) },
+          }),
+        );
+      } else {
+        const found = games.filter((game) => matches(game.name));
+        const summaries = new Map(listed.map((game) => [game.appId, game]));
+        if (!found.length) {
+          section.push(
+            renderSteamUiEmpty(ui, {
+              kind: games.length ? "noMatch" : "empty",
+              text: games.length
+                ? "No games match the search."
+                : "Your Steam library has no games.",
+            }),
+          );
+        } else {
+          section.push(
+            h(
+              ui.focusable,
+              { key: "all-games", className: "steam-ui-kit-list columns", "flow-children": "grid" },
+              ...found.slice(0, shown).map((game) => {
+                const tools = summaries.get(game.appId)?.tools ?? [];
+                return renderSteamUiSelectRow(ui, {
+                  key: `game-${game.appId}`,
+                  title: game.name,
+                  detail: tools.length
+                    ? tools.map((tool) => `${tool.toolName} ${tool.version}`).join(", ")
+                    : game.shortcut
+                      ? "Non-Steam game · no tools"
+                      : "No tools",
+                  media: art(game.appId),
+                  description: "Open",
+                  onClick: () => open(game.appId),
+                });
+              }),
+            ),
+          );
+          if (found.length > shown) {
+            section.push(
+              renderSteamUiMore(ui, {
+                label: `Load More (${shown} of ${found.length})`,
+                onClick: () => setShown(shown + GameToolsChunk),
+              }),
+            );
+          }
+        }
+      }
+      content.push(
+        h("div", { key: "all-games", className: "wsgm-game-tools-section" }, ...section),
+      );
+    }
+    return renderSteamUiPane(
+      ui,
+      { key: "list", className: "wsgm-game-tools-root" },
+      renderSteamUiHero(ui, {
+        key: "hero",
+        title: "Game Tools",
+        detail: `Add upscaler mods such as OptiScaler to a game's own folder. ${GameToolsPurpose}`,
+      }),
+      h(
+        "div",
+        { className: "wsgm-game-tools-body" },
+        h("div", { className: "wsgm-game-tools-main" }, ...content),
+      ),
+    );
+  }
+  /**
+   * Renders the Game Tools page: the game list without an AppID, one game's page with one.
+   * @param context Registered page accessors for Steam components, latest state and publication refusal.
+   * @param page The routed page descriptor carrying the optional AppID parameter.
+   * @returns The page React tree, including loading, unavailable and refusal states.
+   */
+  function GameToolsPage({ context, page }) {
+    const h = context.react().createElement;
+    const ui = context.ui();
+    const raw = page?.params?.appid;
+    if (raw === undefined || raw === null || raw === "")
+      return h(GameToolsList, { key: "list", context });
+    const appId = Number(raw);
+    if (!Number.isInteger(appId) || appId <= 0 || appId > 0xffffffff) {
+      return renderSteamUiEmpty(ui, { kind: "error", text: "No game was supplied." });
+    }
+    // Keyed by the game, so another game's page starts without this one's drafts or level.
+    return h(GameToolsGame, { key: `game-${appId}`, context, appId, published: context.state() });
   }
   const gameToolsPage = registerSteamPage({
     template: "game-tools",
@@ -19889,9 +20848,32 @@
     loading: "Reading this game…",
     // The page asks for its game itself and draws until the host publishes it.
     waitForState: false,
-    // The host's message stays until the next command.
+    // The host's error and notice belong to the game they were published for, so the page draws them
+    // under its hero; the frame keeps only the page's own refusals.
+    banner: false,
     dismiss: null,
-    status: () => ({ appId: gameToolsPage.state()?.appId ?? 0 }),
+    // The game list publication is followed while the gate holds.
+    prepare: () => {
+      try {
+        gameToolsLibraryEnd = subscribe(GameToolsLibraryId, (next) => {
+          gameToolsLibrary = next ?? null;
+          gameToolsLibraryStore.changed();
+        });
+      } catch {
+        gameToolsLibraryEnd = null;
+      }
+      return null;
+    },
+    release: () => {
+      endSubscription(gameToolsLibraryEnd);
+      gameToolsLibraryEnd = null;
+      gameToolsLibrary = null;
+      gameToolsLibraryStore.changed();
+    },
+    status: () => ({
+      appId: gameToolsPage.state()?.appId ?? 0,
+      libraryGames: gameToolsLibrary?.games?.length ?? 0,
+    }),
     Page: GameToolsPage,
   });
   // @fragment consumer/launch-actions.ts

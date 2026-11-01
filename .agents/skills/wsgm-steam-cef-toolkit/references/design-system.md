@@ -10,7 +10,7 @@ component as a live preview. The sibling
 Sources, read on 2026-11-01: Big Picture values from the installed client's `steamui/css/sp.css`
 (2026-10-14 build, the gamepad stylesheet `library.js` loads; Steam defines no `--gp*` values on
 disk, so these are its literals and `:root` scales); kit values from `SteamUiKitStyles` in
-`external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiAssets/Source/ui-kit.ts` (toolkit 7331677); the
+`external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiAssets/Source/ui-kit.ts` (toolkit caa72ec); the
 approved direction from `_mockup/game-tools/project/SteamGame.dc.html` and `SteamInstalled.dc.html`.
 Where a mockup differs from Steam, Steam wins. The "WSGM Steam" design system artifact carries the
 same content with live previews.
@@ -78,48 +78,49 @@ text is `danger-text`.
 
 ### Kit (`ui-kit.ts`)
 
-| Token                 | Value                    | Use                                                     |
-| --------------------- | ------------------------ | ------------------------------------------------------- |
-| `text-description`    | `#c6d4df`                | Page paragraphs, progress outcome; 12.2:1               |
-| `text-heading`        | `rgba(255,255,255,.6)`   | Section title while folded (Steam's QAM title uses .7)  |
-| `text-sub`            | `rgba(255,255,255,.75)`  | Sub heading                                             |
-| `text-detail`         | `rgba(255,255,255,.55)`  | Heading detail line, card meta, page header detail      |
-| `text-byline`         | `rgb(124,142,163)`       | Byline, acquire facts, `steam-ui-kit-muted`; 5.5:1      |
-| `text-on-badge`       | `#000000`                | Badge text                                              |
-| `surface-tabs`        | `#1b2838`                | Tab header row on a kit page                            |
-| `surface-media`       | `#10151c`                | Behind card shots and the gallery                       |
-| `surface-box`         | `rgba(27,40,56,.9)`      | Detail aside box                                        |
-| `group-fill`          | `rgba(255,255,255,.045)` | Group block, wrapped Valve sections, progress box       |
-| `group-border`        | `rgba(255,255,255,.07)`  | Group and progress border                               |
-| `focus-fill`          | `rgba(255,255,255,.08)`  | Focused or hovered section heading                      |
-| `card-fill`           | `#acb2c924`              | Card at rest                                            |
-| `card-fill-focus`     | `#acb2c947`              | Focused or hovered card                                 |
-| `focus-ring`          | `#ffffff`                | 2px outline on a focused card or thumbnail              |
-| `line-nested`         | `rgba(255,255,255,.12)`  | Nested rows' left rule                                  |
-| `line-dashed`         | `rgba(255,255,255,.2)`   | Large empty panel border                                |
-| `empty-fill`          | `rgba(255,255,255,.025)` | Large empty panel fill                                  |
-| `track-fill`          | `rgba(255,255,255,.12)`  | Progress and meter track                                |
-| `info-fill`           | `rgba(26,159,255,.18)`   | Notice banner                                           |
-| `info-fill-soft`      | `rgba(26,159,255,.14)`   | Notice status line                                      |
-| `danger-fill`         | `rgba(194,70,62,.25)`    | Error banner and status line                            |
-| `danger-text`         | `#ff6d6d`                | Error text everywhere in the kit; 6.8:1                 |
-| `danger-text-soft`    | `#ffd8d4`                | Error status line text                                  |
-| `badge-success`       | `#5cb85c`                | Success card badge                                      |
-| `badge-warn`          | `#fca904`                | Warn card badge, `steam-ui-kit-highlight`               |
-| `placeholder-from/to` | `#26374a` / `#10151c`    | Card placeholder gradient (135deg)                      |
-| `success-text-soft`   | `#a3dca3`                | Page-local "In use" text in game-tools and card-manager |
+| Token                 | Value                    | Use                                                    |
+| --------------------- | ------------------------ | ------------------------------------------------------ |
+| `text-description`    | `#c6d4df`                | Page paragraphs, progress outcome; 12.2:1              |
+| `text-heading`        | `rgba(255,255,255,.6)`   | Section title while folded (Steam's QAM title uses .7) |
+| `text-sub`            | `rgba(255,255,255,.75)`  | Sub heading                                            |
+| `text-detail`         | `rgba(255,255,255,.55)`  | Heading detail line, card meta, page header detail     |
+| `text-byline`         | `rgb(124,142,163)`       | Byline, acquire facts, `steam-ui-kit-muted`; 5.5:1     |
+| `text-on-badge`       | `#000000`                | Badge text                                             |
+| `surface-tabs`        | `#1b2838`                | Tab header row on a kit page                           |
+| `surface-media`       | `#10151c`                | Behind card shots and the gallery                      |
+| `surface-box`         | `rgba(27,40,56,.9)`      | Detail aside box                                       |
+| `group-fill`          | `rgba(255,255,255,.045)` | Group block, wrapped Valve sections, progress box      |
+| `group-border`        | `rgba(255,255,255,.07)`  | Group and progress border                              |
+| `focus-fill`          | `rgba(255,255,255,.08)`  | Focused or hovered section heading                     |
+| `card-fill`           | `#acb2c924`              | Card at rest                                           |
+| `card-fill-focus`     | `#acb2c947`              | Focused or hovered card                                |
+| `focus-ring`          | `#ffffff`                | 2px outline on a focused card or thumbnail             |
+| `line-nested`         | `rgba(255,255,255,.12)`  | Nested rows' left rule                                 |
+| `line-dashed`         | `rgba(255,255,255,.2)`   | Large empty panel border                               |
+| `empty-fill`          | `rgba(255,255,255,.025)` | Large empty panel fill                                 |
+| `track-fill`          | `rgba(255,255,255,.12)`  | Progress and meter track                               |
+| `info-fill`           | `rgba(26,159,255,.18)`   | Notice banner                                          |
+| `info-fill-soft`      | `rgba(26,159,255,.14)`   | Notice status line                                     |
+| `danger-fill`         | `rgba(194,70,62,.25)`    | Error banner and status line                           |
+| `danger-text`         | `#ff6d6d`                | Error text everywhere in the kit; 6.8:1                |
+| `danger-text-soft`    | `#ffd8d4`                | Error status line text                                 |
+| `badge-success`       | `#5cb85c`                | Success card badge                                     |
+| `badge-warn`          | `#fca904`                | Warn card badge, `steam-ui-kit-highlight`              |
+| `placeholder-from/to` | `#26374a` / `#10151c`    | Card placeholder gradient (135deg)                     |
+| `success-text-soft`   | `#a3dca3`                | Page-local "In use" text in card-manager               |
+| `surface-hero`        | `#1b232d`                | Hero band ground under the library art                 |
+| `hero-scrim`          | `#0e141b` at .1 → .92    | Gradient over hero art that keeps the title legible    |
+| `line-subtle`         | `#23262e`                | Hero rule, side-panel hairline                         |
+| `tag-fill`            | `#2a3039`                | Neutral and info tags, a step to come                  |
+| `success-fill`        | `#1e3324`                | Success tag and banner, a step done                    |
+| `success-text`        | `#b9f0c6`                | Text on `success-fill`; 10.5:1                         |
+| `update-fill`         | `#3b3020`                | Update tag                                             |
+| `update-text`         | `#ffd28c`                | Text on `update-fill`; 9.1:1                           |
+| `danger-tag-fill`     | `#3b2326`                | Danger tag: `danger-fill` made opaque over the page    |
+| `focus-detail`        | `#3d4450`                | Select-row detail on a focused (white) row; 10:1       |
+| `focus-error`         | `#b3261e`                | Select-row error on a focused row; 6.5:1               |
 
-### Proposed (approved mockups)
-
-| Token          | Value     | Use                                    |
-| -------------- | --------- | -------------------------------------- |
-| `surface-hero` | `#1b232d` | Hero band ground under the library art |
-| `line-subtle`  | `#23262e` | Hero rule, side-panel hairline         |
-| `tag-fill`     | `#2a3039` | Neutral and info tags                  |
-| `success-fill` | `#1e3324` | Success tag and banner                 |
-| `success-text` | `#b9f0c6` | Text on `success-fill`; 10.5:1         |
-| `update-fill`  | `#3b3020` | Update tag                             |
-| `update-text`  | `#ffd28c` | Text on `update-fill`; 9.1:1           |
+Every tag fill is opaque, so a tag reads the same on the page and inside a white focused row.
 
 ## Type
 
@@ -128,31 +129,31 @@ redistributable. Steam's stack is `"Motiva Sans", "Twemoji", "Noto Sans", Helvet
 the monospace face is Roboto Mono. Inside Steam, inherit the client's font and never load another.
 Outside Steam (mockups, previews) the stack falls back to Noto Sans.
 
-| Style                     | Size / line | Weight | Source and use                                   |
-| ------------------------- | ----------- | ------ | ------------------------------------------------ |
-| `bp-body`                 | 16 / 20     | 400    | Steam base: field labels, button labels, inputs  |
-| `bp-field-description`    | 12 / 16     | 400    | FieldDescription, 4px under the label            |
-| `bp-caps`                 | 12 / 22     | 700    | Tabs, hint bar; uppercase, 0.5px                 |
-| `bp-qam-section`          | 16 / 22     | 600    | QAM section title; uppercase, 0.5px, white 70%   |
-| `bp-subheading`           | 18 / 22     | 400    | Dialog sub header, dropdown menu header          |
-| `bp-heading`              | 22 / 28     | 700    | Modal title, QAM title, Settings page title      |
-| `bp-heading-large`        | 28 / 34     | 700    | Steam large heading                              |
-| `bp-notch`                | 10 / 10     | 700    | Slider notch labels; uppercase, 0.5px            |
-| `kit-section-title`       | 12 / 1.4    | 700    | `renderSteamUiHeader`; uppercase, 0.09em         |
-| `kit-sub-title`           | 13 / 1.4    | 600    | Sub heading                                      |
-| `kit-page-title`          | 28 / 1.2    | 700    | Page header h1                                   |
-| `kit-detail-title`        | 30 / 1.2    | 700    | Detail heading h2                                |
-| `kit-modal-title`         | 24 / 1.25   | 700    | Kit modal title                                  |
-| `kit-empty-title`         | 22 / 1.25   | 700    | Large empty panel title                          |
-| `kit-box-title`           | 16 / 1.3    | 600    | Aside box title                                  |
-| `kit-card-title`          | 15 / 1.3    | 600    | Card title, progress phase                       |
-| `kit-body`                | 14 / 1.5    | 400    | Page text, banners, status lines, empty text     |
-| `kit-caption`             | 13 / 1.4    | 400    | Select-row detail, progress count, chips, byline |
-| `kit-meta`                | 11 / 1.4    | 400    | Card meta; badges at 700                         |
-| `page-hero` (proposed)    | 34 / 1.15   | 700    | Hero title                                       |
-| `item-heading` (proposed) | 24 / 1.2    | 700    | Tool heading                                     |
-| `eyebrow` (proposed)      | 11 / 1.4    | 700    | Side-panel labels; uppercase, 0.08em             |
-| `tag` (proposed)          | 11 / 22     | 700    | Tags; uppercase words, 0.06em                    |
+| Style                  | Size / line | Weight | Source and use                                    |
+| ---------------------- | ----------- | ------ | ------------------------------------------------- |
+| `bp-body`              | 16 / 20     | 400    | Steam base: field labels, button labels, inputs   |
+| `bp-field-description` | 12 / 16     | 400    | FieldDescription, 4px under the label             |
+| `bp-caps`              | 12 / 22     | 700    | Tabs, hint bar; uppercase, 0.5px                  |
+| `bp-qam-section`       | 16 / 22     | 600    | QAM section title; uppercase, 0.5px, white 70%    |
+| `bp-subheading`        | 18 / 22     | 400    | Dialog sub header, dropdown menu header           |
+| `bp-heading`           | 22 / 28     | 700    | Modal title, QAM title, Settings page title       |
+| `bp-heading-large`     | 28 / 34     | 700    | Steam large heading                               |
+| `bp-notch`             | 10 / 10     | 700    | Slider notch labels; uppercase, 0.5px             |
+| `kit-section-title`    | 12 / 1.4    | 700    | `renderSteamUiHeader`; uppercase, 0.09em          |
+| `kit-sub-title`        | 13 / 1.4    | 600    | Sub heading                                       |
+| `kit-page-title`       | 28 / 1.2    | 700    | Page header h1                                    |
+| `kit-detail-title`     | 30 / 1.2    | 700    | Detail heading h2                                 |
+| `kit-modal-title`      | 24 / 1.25   | 700    | Kit modal title                                   |
+| `kit-empty-title`      | 22 / 1.25   | 700    | Large empty panel title                           |
+| `kit-box-title`        | 16 / 1.3    | 600    | Aside box title                                   |
+| `kit-card-title`       | 15 / 1.3    | 600    | Card title, progress phase                        |
+| `kit-body`             | 14 / 1.5    | 400    | Page text, banners, status lines, empty text      |
+| `kit-caption`          | 13 / 1.4    | 400    | Select-row detail, progress count, chips, byline  |
+| `kit-meta`             | 11 / 1.4    | 400    | Card meta; badges at 700                          |
+| `page-hero`            | 34 / 1.15   | 700    | Hero title                                        |
+| `item-heading`         | 24 / 1.2    | 700    | Item heading, such as a tool's name               |
+| `eyebrow`              | 11 / 1.4    | 700    | Hero eyebrow, side-panel labels; uppercase, .08em |
+| `tag`                  | 11 / 22     | 700    | Tags; uppercase words, 0.06em                     |
 
 ## Spacing, radius, elevation and size
 
@@ -189,7 +190,8 @@ over 0.5s, toggles slide in 0.2s, modals and menus slide in over 0.5s with
 Sizes: header 40px; footer at least 40px; DialogButton about 40px; field control minimum 250px
 (270px in QAM); QAM visible width 348px with 300px content and a 48px tab strip; modal 660px; wide
 modal cap 1000px; bounded content 960px; detail aside 300px; card column minimum 240px; detail
-stacks below 760px. Proposed: side panel 340px, hero 168px (132px without a purpose line).
+stacks below 760px; side panel 340px; hero 168px (132px without a purpose line); select-row picture
+120px at the header capsule's 460:215.
 
 ## Focus and selection
 
@@ -198,10 +200,11 @@ styles its own. Buttons, dropdowns, tabs and inputs turn white with dark text. R
 `field-fill-focus`, their label turns white and the rule under them hides. Kit headings get
 `focus-fill`; kit cards and thumbnails get `card-fill-focus` and a 2px `focus-ring` outline.
 
-Selection is separate and stays when focus leaves: an inset 3px `accent` bar, `aria-pressed`, or a
-status tag. Text inside a focused white control must stay dark. Today the kit keeps a select row's
-detail `text-muted` (about 3.2:1 on white) and pages colour status text for a dark ground (`#a3dca3`
-is about 1.5:1 on white); the kit should darken both under `.gpfocus`.
+Selection is separate and stays when focus leaves: an inset 3px `accent` bar
+(`steam-ui-kit-selected`, on a select row and a filter chip), `aria-pressed`, or a status tag. Text
+inside a focused white control must stay dark: under `.gpfocus` a select row's detail turns
+`focus-detail` and its error `focus-error`, and a coloured status is a tag, whose opaque fill keeps
+its own contrast on white.
 
 ## Iconography
 
@@ -255,10 +258,13 @@ everything but the content:
 | Content | the page's `Page`, usually in `renderSteamUiPane` (12px 4px 72px) or a bounded 960px column |
 | Footer  | Steam's hint bar with the actions the focused element declares                              |
 
-The approved Game Tools composition: a hero band with library art and the title (proposed); a main
-column (`flex: 1; min-width: 0`) with the tool heading and tags, a summary, the compact primary
-action row and native field rows; a 340px "This game" side panel (proposed) 28px to the right; 24px
-40px page padding. The side panel stacks below 760px. A nested level is `renderSteamUiLevel` or
+The Game Tools composition (`game-tools.ts`): `renderSteamUiHero` with the library art, the "Game
+Tools" eyebrow and the game's name; the host's messages as banners under it; a main column
+(`flex: 1; min-width: 0`) with `renderSteamUiItemHeading` (name, tags, latest version, summary), the
+compact primary action row, native field rows, the supporting actions and Remove set apart; the
+340px "This game" `renderSteamUiSidePanel` 28px to the right; 24px 40px page padding, bounded at
+`--steam-ui-kit-page-width` (1360px) with the hero's text aligned to it. The root scrolls under
+Steam's header. The side panel stacks below 760px. A nested level is `renderSteamUiLevel` or
 `renderSteamUiDetail`: it takes focus and B returns to the level before it.
 
 ### Modals and confirm dialogs
@@ -266,9 +272,12 @@ action row and native field rows; a 340px "This game" side panel (proposed) 28px
 Steam's gamepad dialog: `surface-page` with a 2px `surface-control` border, 660px wide, padding
 `calc(12px + 2.25vh) 2.8vw`, over `overlay-dim` with a 3px blur; the title is `bp-heading`; it
 slides in over 0.5s. `showSteamUiConfirm` uses Steam's own confirm modal with `bDestructiveWarning`
-on by default, so the confirm button focuses `destructive`. Cancel and B do nothing. Without a
-native confirm the kit's modal draws the same title (`kit-modal-title`), text and buttons: 12px body
-gaps, actions right-aligned 8px apart, Cancel then the primary.
+on by default, so the confirm button focuses `destructive`. Cancel and B do nothing. `focusCancel`
+passes Steam's `focusButton: "secondary"`, so Cancel takes the controller first for a question whose
+safe answer is no; text split by a blank line keeps its paragraphs (`white-space: pre-line`, as
+Steam's own notices do). Without a native confirm the kit's modal draws the same title
+(`kit-modal-title`), a paragraph each and buttons: 12px body gaps, actions right-aligned 8px apart,
+Cancel then the primary.
 
 `showSteamUiPrompt` asks for one line with Steam's TextField and sends only a trimmed nonempty
 value. `renderSteamUiSheet` is a scrolling body (at most `min(70vh, 100vh - 160px)`) with a note, an
@@ -307,10 +316,14 @@ focused, disabled, long value. Do use it in boxes, toolbars, tables and side pan
 label. Don't put a full DropDownField beside another label.
 
 **Select row.** Kit:
-`renderSteamUiSelectRow(ui, { key, title, detail, error, status, selected, onClick })`. One
-DialogButton holding a `minmax(0,1fr) auto` grid: title, trailing status, detail in 13px
-`text-muted` or `danger-text`. States: default, focused, selected, error, disabled. Do use it for
-candidates, sources and managed items. Don't append loose spans to a button.
+`renderSteamUiSelectRow(ui, { key, title, detail, error, status, selected, media, disabled, description, onClick })`.
+One DialogButton holding a `minmax(0,1fr) auto` grid (`auto minmax(0,1fr) auto` with `media`, a
+120px picture spanning both lines): title, trailing status, detail in 13px `text-muted` or
+`danger-text` that keeps its line breaks. In a `steam-ui-kit-list` the row is full width (10px 14px,
+height by content); `steam-ui-kit-list columns` is a grid of rows, `minmax(min(100%,360px),1fr)`.
+States: default, focused (detail `focus-detail`, error `focus-error`), selected (accent bar), error,
+disabled (refuses its activation). Do use it for candidates, sources, games and managed items, with
+status in tags. Don't append loose spans to a button or colour status text.
 
 **Section header.** Kit:
 `renderSteamUiHeader(ui, { title, icon, detail, collapsed, onToggle, sub, page })`.
@@ -327,7 +340,8 @@ body.
 
 **Actions.** Kit: `renderSteamUiActions(ui, actions, { compact })`, `renderSteamUiChips`,
 `renderSteamUiMore`. Grid: two columns, 8px gaps, 36px buttons; a label over 18 characters or an odd
-last button spans both. Compact: wrapping row, 8px 18px padding. Chips: 32px. An action with `pick`
+last button spans both. Compact: wrapping row, 8px 18px padding. Chips: 32px; as a filter the
+current chip carries a 3px `accent` bar along its foot and `aria-pressed`. An action with `pick`
 opens `showSteamFilePicker`. States per button. Do use the grid in QAM and compact on pages. Don't
 build button rows by hand.
 
@@ -354,31 +368,67 @@ selects), empty. Do release video on unmount. Don't autoplay sound.
 panel, 40px 24px, dashed `line-dashed`, 6px radius, 22px title, one primary action. Do tell empty
 from no match and loading from unavailable. Don't hand-build the large panel.
 
-**Banner and status.** Kit: `renderSteamUiBanner(ui, { text, error, onDismiss })`,
-`renderSteamUiStatus(ui, lines)`. Banner 10px 14px on `info-fill` or `danger-fill`; status lines 8px
-12px on `info-fill-soft` or `danger-fill`, Dismiss as a small button. States: notice, error,
-dismissible. Do keep the service's refusal text. Don't hide a partial failure behind a notice.
+**Banner and status.** Kit: `renderSteamUiBanner(ui, { text, title, error, success, onDismiss })`,
+`renderSteamUiStatus(ui, lines)`. Banner 10px 14px on `info-fill`, `danger-fill` (an alert) or
+`success-fill` with `success-text` and the 16px `check` glyph (a status, for a saved change with a
+next step); an optional bold title leads the text. Status lines 8px 12px on `info-fill-soft` or
+`danger-fill`, Dismiss as a small button. States: notice, success, error, titled, dismissible. Do
+keep the service's refusal text. Don't hide a partial failure behind a notice.
 
-**Progress and meter.** Kit: `renderSteamUiProgress(ui, props)` (`phase`, `done`, `total`, `detail`,
-`onCancel`, `cancelLabel`, `cancelling`, `outcome`),
-`renderSteamUiMeter(react, { value, max, usage, label })`. A `group-fill` box: phase, "9 of 14", a
-6px `track-fill` track with an `accent` bar, detail, Cancel, outcome. States: determinate,
-indeterminate (sliding bar), cancelling, ended. Do show the same phase text as the Overlay. Don't
-use the meter for an operation.
+**Progress and meter.** Kit: `renderSteamUiProgress(ui, props)` (`phase`, `done`, `total`, `count`,
+`steps`, `step`, `detail`, `note`, `onCancel`, `cancelLabel`, `cancelling`, `outcome`),
+`renderSteamUiMeter(react, { value, max, usage, label })`. A `group-fill` box: the steps (22px
+numbered dots on `tag-fill`, the current one on `accent` with dark text, the done ones checked on
+`success-fill`), phase, "9 of 14" or the caller's `count` such as "12 MB of 31 MB", a 6px
+`track-fill` track with an `accent` bar, detail, Cancel, then the note on what cancelling does.
+States: determinate, indeterminate (sliding bar), stepped, cancelling, ended. Do show the same phase
+and step text as the Overlay. Don't use the meter for an operation.
 
-**Tags and badges.** Kit badge: `renderSteamUiCard({ badge: { text, warn } })`, an 11px bold pill on
-`badge-success` or `badge-warn`. There is no kit tag outside cards today; see Proposals. Do keep
-badge words to one or two. Don't put a badge where no image sits behind it.
+**Tags and badges.** Kit tag: `renderSteamUiTag(react, { text, tone })` and
+`renderSteamUiTags(react, tags)`: 22px, 0 8px, `radius-control`, `tag` type. Tones: neutral
+(`tag-fill`, `text-secondary`), info (`tag-fill`, `text-body`), success (`success-fill`,
+`success-text`), update (`update-fill`, `update-text`), danger (`danger-tag-fill`,
+`danger-text-soft`). A row of tags wraps and skips empty ones; cards (`tags`), select rows (as
+`status`), the item heading and the side panel take them. Kit badge:
+`renderSteamUiCard({ badge: { text, warn } })`, an 11px bold pill on `badge-success` or
+`badge-warn`, over a card's image only. Do keep words to one to four. Don't colour status text by
+hand; card-manager's `.wsgm-cards-state`, emulators' `.wsgm-emu-badge` and sounds'
+`.wsgm-sounds-active` still do and belong on the tag.
 
 **Page header.** Kit: `renderSteamUiHeader(ui, { title, detail, page: true })`. `kit-page-title`
 with a 14px wrapping detail in `text-detail`; not focusable. Do state the page's purpose and scope.
 Don't repeat the route name as a second heading.
 
-**Side panel and detail.** Kit flow: `renderSteamUiDetail`, `renderSteamUiBox`; `renderSteamUiItem`,
+**Detail.** Kit flow: `renderSteamUiDetail`, `renderSteamUiBox`; `renderSteamUiItem`,
 `renderSteamUiAcquire` and `steamUiAcquireLabel` in `ui-flows.ts`. Main column and a 300px aside of
 `surface-box` boxes, 32px apart, Back on B and at the aside's foot; the acquire box says Install,
 Update or Reinstall and "Working…" while busy; removal confirms first. States: loading, error, no
-description, busy. Do keep Back reachable. The "This game" panel is a proposal.
+description, busy. Do keep Back reachable.
+
+**Side panel.** Kit: `renderSteamUiSidePanel(ui, { label, sections, note })`, each section
+`{ key, label, value, detail, error, tags, rule, action }`. 340px on `surface-side`, `radius-group`,
+18px padding, 14px gaps; `eyebrow` labels in `text-muted`, 15px semibold values, 12/16 details in
+`text-secondary` (`danger-text` when `error`), wrapping tags, a `line-subtle` hairline above a
+section with `rule`, a 12px note in `text-muted`. Only a section with an action is a navigation
+node; its button is the compact size and refuses while disabled. A column for the controller; stacks
+below 760px. Do carry at most one action. Don't put a primary action in it.
+
+**Hero band.** Kit: `renderSteamUiHero(ui, { title, eyebrow, detail, images })`. Under Steam's
+header: the art (tried source by source with `renderSteamUiArt`, cover, 30% from the top) under the
+`hero-scrim` gradient, on `surface-hero` without art; an `eyebrow`, the `page-hero` title and a
+`kit-body` purpose line in `text-secondary`, 24px 40px 22px padding, 168px tall (132px compact
+without a purpose line), a `line-subtle` rule. The text aligns with `--steam-ui-kit-page-width` when
+a page sets it. No focus. Do name the item or page in the title. Don't repeat it below.
+
+**Item heading.** Kit: `renderSteamUiItemHeading(ui, { title, tags, fact, summary })`. The
+`item-heading` name, tags and a 14px `text-muted` fact on one wrapping line 8px 12px apart, then a
+`kit-body` summary in `text-secondary`. No focus.
+
+**Art.** Kit: `renderSteamUiArt(react, { images, className, fallback, lazy })` tries each source in
+turn, as Steam's own artwork does, and draws `fallback` once every one failed. The sources come from
+`steamAppHeroImages(appId)` or `steamAppHeaderImages(appId)` (`library-capsule.ts`), which read
+Steam's `appDetailsStore` the way its game page does; `readSteamLibraryGames()` lists the library
+the way the host's `SteamLibraryData.ReadGamesAsync` does.
 
 **Collection.** Kit flow: `renderSteamUiCollection(ui, props)` with the `SteamUiBrowse` commands.
 Toolbar, status, grid or list, loading, error with "Try again", empty, no match, "Load More (24 of
@@ -390,15 +440,18 @@ its own `id`. Don't fetch before the collection shows.
 rows in a settings section with the selected one marked and failures on their own row. Do show
 failures without opening the item.
 
-**Candidate list.** WSGM composition: `GameToolsCandidates` and `GameToolsChooser` in
-`src/WSGM/Core/SteamUiAssets/Source/game-tools.ts`, from `renderSteamUiSelectRow`,
-`renderSteamUiHeader({ page })`, `renderSteamUiEmpty` and compact actions ("Browse…", "Back"). Rows
-show the file name, "In use" or the role, and path, role, architecture and reasons. Do keep the best
-candidate first. Don't keep the page-local tag colour and full-width row; both belong in the kit.
+**Candidate list.** WSGM composition: `GameToolsChooser` in
+`src/WSGM/Core/SteamUiAssets/Source/game-tools.ts`, a `steam-ui-kit-list` of
+`renderSteamUiSelectRow` under `renderSteamUiHeader({ page })`, with `renderSteamUiEmpty`, notice
+banners and compact actions ("Browse for the program…", "Back to the game"). Rows show the file
+name, the "In use" and role tags (success for the game), architecture and folder, then the reasons;
+the chosen one carries the accent bar. Do keep the best candidate first.
 
 **Confirm modal.** Native with a kit fallback:
-`showSteamUiConfirm(ui, { title, text, confirmLabel, destructive, onConfirm })`. Do name the item
-and the consequence and repeat the verb on the button. Don't confirm navigation or harmless choices.
+`showSteamUiConfirm(ui, { title, text, confirmLabel, destructive, focusCancel, onConfirm })`. Do
+name the item and the consequence and repeat the verb on the button; focus Cancel when the safe
+answer is no (Game Tools focuses Cancel on every question, as the Overlay does). Don't confirm
+navigation or harmless choices.
 
 **Tabs.** Native: `ui.tabs` through `registerSteamPage({ tabs })`. Rest `bp-caps` `text-body`,
 selected `button-fill` pill, focused white with `shadow-tab-focus`, count badge on `accent`. Do keep
@@ -406,30 +459,17 @@ titles to one or two words with counts in the title. Don't draw tabs from button
 
 ## Proposals
 
-None of these exist in `ui-kit.ts` yet. Build each once in the kit, cover it in
+The hero band, tags, side panel, item heading, success banner and the full-width list row are in the
+kit now (see Components). What is left is proposed: build each once in the kit, cover it in
 `eng/check-ui-kit.mjs` and the toolkit reference, and move page-local copies onto it.
 
-- **`renderSteamUiHero(ui, { title, detail, image })`.** Hero band under Steam's header: library art
-  over `surface-hero`, `page-hero` title at the bottom left, 40px side and 22px bottom padding (18px
-  compact), a `kit-body` purpose line in `text-secondary`, a `line-subtle` rule. No focus. It
-  replaces the Game Library page's own 30px header and crumb.
-- **`renderSteamUiTag(react, { text, tone })`.** 22px, 0 8px, `radius-control`, `tag` type. Tones:
-  neutral (`tag-fill`, `text-secondary`), info (`tag-fill`, `text-body`), success (`success-fill`,
-  `success-text`), update (`update-fill`, `update-text`), danger (`danger-fill`,
-  `danger-text-soft`). It replaces `.wsgm-game-tools-tag`, `.wsgm-cards-state`, `.wsgm-emu-badge`
-  and `.wsgm-sounds-active`, which use three greens and two ambers today.
-- **`renderSteamUiSidePanel(ui, { label, sections, note })`.** 340px on `surface-side`,
-  `radius-group`, 18px padding, 14px gaps; `eyebrow` labels in `text-muted`, 15px semibold values,
-  wrapping tag rows, a `line-subtle` hairline, a 12px note in `text-muted` (the mockup's `#6b737c`
-  is 3.5:1 and is not used). One action. Stacks below 760px.
-- **`renderSteamUiItemHeading(ui, { title, tags, fact, summary })`.** `item-heading` name, tags and
-  a 14px `text-muted` fact 12px apart, then a `kit-body` summary in `text-secondary`.
-- **Banner `success` tone.** `success-fill`, `success-text`, the 16px `check` glyph,
-  `role="status"`, for a saved change with a next step.
-- **Rich list row.** Make `.DialogButton { width: 100%; height: auto; padding: 10px 14px }` the
-  `steam-ui-kit-list` default (five pages repeat it), with an optional meter line.
 - **Fact row.** A 12px `text-muted` label with its value and a `line-subtle` rule, replacing
   `.wsgm-emu-fact` and `.wsgm-import-fact`.
+- **List row meter.** An optional meter line under a list row's detail, for a capacity per row.
+- **Move the remaining page-local copies.** The Game Library page's own 30px header and crumb onto
+  the hero band; `.wsgm-cards-state`, `.wsgm-emu-badge` and `.wsgm-sounds-active` (three greens and
+  two ambers) onto the tag; the card-manager and library-tab-manager full-width row rules onto
+  `steam-ui-kit-list`, which now carries them.
 
 ### Reconciling the mockups
 
@@ -444,6 +484,10 @@ None of these exist in `ui-kit.ts` yet. Build each once in the kit, cover it in
 | Description 13px `#8b929a`     | 12/16 `text-secondary`                                         |
 | Row 60px with a `#23262e` rule | 12px block padding, `line-separator`; focus `field-fill-focus` |
 | Figtree                        | Motiva Sans and its fallback stack                             |
+| Crumb "Game › Game Tools"      | Hero eyebrow "Game Tools" over the game's name                 |
+| Tag "Update 0.9.3"             | The Overlay's words: "Update 0.9.3 available"                  |
+| Side note `#6b737c`            | `text-muted`; the mockup's grey is 3.5:1                       |
+| Remove in the action row       | Its own row under a rule, after the supporting actions         |
 
 ## Guidelines
 

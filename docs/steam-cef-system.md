@@ -815,23 +815,24 @@ installed. Each is gated on CEF itself, not on native Quick Access, and each rep
 backend raises `Changed`. The host subscribes to both page backends for that reason: their commands
 answer at once and finish in the background.
 
-| Patch id                     | Backend                             | Republished on                               | On config reload         |
-| ---------------------------- | ----------------------------------- | -------------------------------------------- | ------------------------ |
-| `steam-ui.pages`             | `SteamUiModuleCatalog.ReadPages`    | the host's page set                          | nothing                  |
-| `steam-ui.extensions-tab`    | `SteamExtensionsTabBackend`         | plugin changes, `GameLibraryService.Changed` | nothing                  |
-| `steam-ui.game-context-menu` | `SteamGameContextMenuBackend`       | plugin changes                               | nothing                  |
-| `steam-ui.power-menu`        | `SteamPowerMenuBackend`             | its `Changed`, when the session mode changes | nothing                  |
-| `wsgm.artwork-browser`       | `SteamArtworkBrowserSource`         | its `Changed`                                | `ConfigurationChanged()` |
-| `wsgm.library-import`        | `GameLibraryService`                | its `Changed`, its artwork stage's `Changed` | reads `AppConfig` live   |
-| `wsgm.game-tools`            | `GameToolsService.ReadStateAsync`   | its `Changed`                                | nothing                  |
-| `wsgm.cards`                 | `LibraryManagerService`             | its `Changed`                                | `ConfigurationChanged()` |
-| `wsgm.library-tabs`          | `LibraryManagerService`             | its `Changed`                                | `ConfigurationChanged()` |
-| `steam-ui.file-picker`       | toolkit `SteamFilePickerSurface`    | nothing: commands only                       | nothing                  |
-| `wsgm.settings`              | `WsgmSteamSettingsService`          | its `Changed`, plugin changes                | `ConfigurationChanged()` |
-| `wsgm.graphics`              | `SteamGraphicsService`              | `GpuCoordinator.Changed`, its own writes     | nothing                  |
-| `wsgm.themes`                | `ThemeService`                      | its `Changed`                                | `ConfigurationChanged()` |
-| `steam-ui.theme-styles`      | `ThemeService.ReadStyles`           | its `Changed`, under its own styles revision | `ConfigurationChanged()` |
-| `steam-ui.navigation-panel`  | `WsgmSteamSettingsService.ReadMenu` | graphics packages starting and stopping      | nothing                  |
+| Patch id                     | Backend                                  | Republished on                               | On config reload         |
+| ---------------------------- | ---------------------------------------- | -------------------------------------------- | ------------------------ |
+| `steam-ui.pages`             | `SteamUiModuleCatalog.ReadPages`         | the host's page set                          | nothing                  |
+| `steam-ui.extensions-tab`    | `SteamExtensionsTabBackend`              | plugin changes, `GameLibraryService.Changed` | nothing                  |
+| `steam-ui.game-context-menu` | `SteamGameContextMenuBackend`            | plugin changes                               | nothing                  |
+| `steam-ui.power-menu`        | `SteamPowerMenuBackend`                  | its `Changed`, when the session mode changes | nothing                  |
+| `wsgm.artwork-browser`       | `SteamArtworkBrowserSource`              | its `Changed`                                | `ConfigurationChanged()` |
+| `wsgm.library-import`        | `GameLibraryService`                     | its `Changed`, its artwork stage's `Changed` | reads `AppConfig` live   |
+| `wsgm.game-tools`            | `GameToolsService.ReadStateAsync`        | its `Changed`                                | nothing                  |
+| `wsgm.game-tools.library`    | `GameToolsService.ReadLibraryStateAsync` | its `Changed`                                | nothing                  |
+| `wsgm.cards`                 | `LibraryManagerService`                  | its `Changed`                                | `ConfigurationChanged()` |
+| `wsgm.library-tabs`          | `LibraryManagerService`                  | its `Changed`                                | `ConfigurationChanged()` |
+| `steam-ui.file-picker`       | toolkit `SteamFilePickerSurface`         | nothing: commands only                       | nothing                  |
+| `wsgm.settings`              | `WsgmSteamSettingsService`               | its `Changed`, plugin changes                | `ConfigurationChanged()` |
+| `wsgm.graphics`              | `SteamGraphicsService`                   | `GpuCoordinator.Changed`, its own writes     | nothing                  |
+| `wsgm.themes`                | `ThemeService`                           | its `Changed`                                | `ConfigurationChanged()` |
+| `steam-ui.theme-styles`      | `ThemeService.ReadStyles`                | its `Changed`, under its own styles revision | `ConfigurationChanged()` |
+| `steam-ui.navigation-panel`  | `WsgmSteamSettingsService.ReadMenu`      | graphics packages starting and stopping      | nothing                  |
 
 QAM Performance has one folding group per GPU publisher, named for its vendor, such as Intel GPU: a
 titled Quick Access row section no layout section names, kept folded under `settings.<page id>`.
@@ -1442,10 +1443,10 @@ running client and recorded in [steam-cef.md](steam-cef.md).
   Cards use the host's existing horizontal inset: adding another card margin squeezed native fields
   below their minimum width and let sliders and dropdowns overflow. Both host pages are served on
   host-owned routes: `wsgm.artwork-browser` and `wsgm.library-import`. "Game Tools…" answers with
-  the route `/wsgm/game-tools/<appId>` of the host's `wsgm.game-tools` page; see
-  [Game Tools](game-tools.md). Regression checks cover those seams; live visual acceptance remains
-  open. Completing a live 1:1 comparison of the artwork page with Decky SteamGridDB remains an
-  acceptance task.
+  the route `/wsgm/game-tools/<appId>` of the host's `wsgm.game-tools` page, whose route without an
+  AppID is the game list; see [Game Tools](game-tools.md). Regression checks cover those seams; live
+  visual acceptance remains open. Completing a live 1:1 comparison of the artwork page with Decky
+  SteamGridDB remains an acceptance task.
 
 Project MCP file output follows the client's advertised workspace roots. A client without roots can
 save captures in the temporary directory and copy them into the checkout.

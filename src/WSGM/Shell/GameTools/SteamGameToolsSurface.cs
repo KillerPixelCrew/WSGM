@@ -19,8 +19,11 @@ internal static class SteamGameToolsSurface
     /// <summary>The name the page's gate registers under.</summary>
     internal const string GateName = "gameTools";
 
-    /// <summary>The Steam router pattern registered by this surface.</summary>
-    internal const string Route = "/wsgm/game-tools/:appid";
+    /// <summary>
+    ///     The Steam router pattern registered by this surface: one game's page with an AppID, the game list
+    ///     without one.
+    /// </summary>
+    internal const string Route = "/wsgm/game-tools/:appid?";
 
     /// <summary>The page template the frontend registers.</summary>
     internal const string Template = "game-tools";

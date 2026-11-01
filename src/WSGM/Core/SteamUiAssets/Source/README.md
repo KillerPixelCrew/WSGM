@@ -48,10 +48,12 @@ bindings: the content drawn with Steam's fields, the kit and the toolkit's `ui-f
 - `library-tab-manager.ts`, the Library Tab Manager page: the custom tabs, the strip order and
   Steam-tab hiding, and the tab editor with its filter levels and pickers, over the same service.
 - `emulators.ts`, `notes.ts` and `browser.ts`: Emulator Manager, Notes and the browser handoff.
-- `game-tools.ts`, the Game Tools page for one game (`/wsgm/game-tools/:appid`, opened from the
-  game's cog menu): its program, detected upscalers and anti-cheat, and each tool's install, update,
-  repair, settings and removal with progress, over `GameToolsService`. Every command carries the
-  route's AppID; background results arrive as the published notice or error.
+- `game-tools.ts`, the Game Tools page (`/wsgm/game-tools/:appid?`): without an AppID the list of
+  games with tools and the Steam library, from `wsgm.game-tools.library`; with one, opened from the
+  game's cog menu, the game's hero, its program, detected upscalers and anti-cheat, and each tool's
+  install, channel, update, repair, settings and removal with progress, over `GameToolsService`.
+  Every command carries the route's AppID; background results arrive as the published notice or
+  error.
 
 A page sends its commands through the frame's `context.act`, which shows a refusal in the page's
 banner, and its settings rows through `renderSteamUiFields` over `context.send`, which shows a
