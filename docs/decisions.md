@@ -419,6 +419,15 @@ writes are never retried automatically. Crash recovery handles unfinished sessio
 records are evidence, not runtime drivers. Production support comes from a native LibHandheld
 contribution. AllyXLab was retired on 2026-09-25, once the wizard covered it.
 
+**Intel power limits can go through IPF (2026-11-01).** Where Intel's Innovation Platform Framework
+is installed, the power-limit path offers IPF beside the firmware path and PawnIO. WSGM opens IPF's
+elevated client session and requests PL1/PL2; IPF applies them through its own Intel-signed driver,
+so no driver blocklist or Memory Integrity change is needed, and closing the session releases the
+request. IPF stays running on this path and off on PawnIO (and on the Atlas firmware path), where it
+fought the limits. On the Atlas this held 45 W sustained under OCCT where the firmware path fell to
+35 W, so its PL1 maximum is 45 W when IPF is offered. IPF arbitrates and the lowest request wins, so
+the path never exceeds what Intel's own policy asks for. Evidence is in the Atlas `PROVENANCE.md`.
+
 **KX is removed again; the Atlas firmware path holds Manual (2026-11-01).** KX and its HwRwDrv
 driver are gone from LibHandheld, setup and the WSGM payload, and setup no longer forces Memory
 Integrity or the driver blocklist off for any model. Intel handhelds keep the choice between their

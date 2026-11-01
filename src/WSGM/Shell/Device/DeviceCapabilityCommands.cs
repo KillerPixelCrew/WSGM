@@ -15,6 +15,8 @@ namespace WSGM.Shell;
 /// </remarks>
 internal sealed class DeviceCapabilityCommands
 {
+    // Covers starting ipfsvc, its elevated listener and the IPF session open (about 20 s at most).
+    private static readonly TimeSpan PowerPathTimeout = TimeSpan.FromSeconds(30);
     private readonly DeviceCapabilityRouter _capabilities;
     private readonly DeviceChargeLimitController _chargeLimits;
     private readonly Func<bool> _closed;
@@ -175,6 +177,14 @@ internal sealed class DeviceCapabilityCommands
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+        // Switching the power-limit path can start Intel's IPF service and open its session, which takes
+        // longer than the 5 s the Overlay and Quick Access give an ordinary write.
+        if (FindDescriptor(capabilityId, instanceId)?.Role == CapabilityRole.PowerBackend
+            && timeout < PowerPathTimeout)
+        {
+            timeout = PowerPathTimeout;
+        }
+
         var user = origin is CapabilityCommandOrigin.User;
         if (user)
         {
