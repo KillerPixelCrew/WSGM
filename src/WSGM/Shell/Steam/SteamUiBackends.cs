@@ -50,6 +50,9 @@ internal sealed record SteamUiBackends
     /// <summary>Applies a manually chosen refresh rate, or null.</summary>
     internal Func<int, bool>? ApplyRefreshRate { get; init; }
 
+    /// <summary>The refresh-rate owner whose changes republish the refresh rows, or null in overlay-test.</summary>
+    internal RefreshRatePairingService? RefreshPairing { get; init; }
+
     /// <summary>Applies the variable refresh flag, or null when nothing can publish it.</summary>
     internal Func<bool, CancellationToken, Task<bool>>? ApplyVariableRefreshRate { get; init; }
 

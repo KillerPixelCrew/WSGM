@@ -764,6 +764,7 @@ public sealed class ShellSession
             DeviceCoordinator = _integrations.Device,
             PerfSupport = _performance.ReadNativeQamPerfSupport,
             ApplyRefreshRate = _performance.ApplyManualRefreshRate,
+            RefreshPairing = _performance.RefreshPairing,
             // Null when nothing can publish VRR, which is also when the projection omits
             // is_vrr_supported and Valve's row does not render. One fact, one source. The
             // user-facing wrapper persists the state to the per-application layer in force; the

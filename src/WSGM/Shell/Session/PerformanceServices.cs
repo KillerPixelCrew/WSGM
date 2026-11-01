@@ -467,11 +467,11 @@ internal sealed class PerformanceServices(
     ///         re-applying the same mode on each would put a driver round trip behind every one of them.
     ///     </para>
     /// </remarks>
-    /// <summary>Rediscovers the refresh rates once a native GPU owner that can hold a rate has started.</summary>
+    /// <summary>Asks the native GPU owners again for a refresh range once one more of them has started.</summary>
     /// <remarks>
-    ///     The pairing reads the display before the graphics drivers finish starting, and its discovery is
-    ///     cached until the display changes. Only a rise in the number of running owners asks again; a
-    ///     pause across a suspend keeps the range already found.
+    ///     The pairing reads the display before the graphics drivers finish starting. Only a rise in the
+    ///     number of running owners asks again, in the background; a different answer rediscovers the rates.
+    ///     A pause across a suspend keeps the range already found.
     /// </remarks>
     private void OnGraphicsChangedForPairing()
     {
@@ -485,7 +485,7 @@ internal sealed class PerformanceServices(
         _fixedRefreshAvailable = available;
         if (available > previous)
         {
-            RefreshPairing?.Invalidate();
+            fixedRefresh.Refresh();
         }
     }
 

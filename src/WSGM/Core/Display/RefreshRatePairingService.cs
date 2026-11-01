@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using WindowsDeviceControl;
 
 namespace WSGM.Core;
@@ -88,12 +89,33 @@ internal sealed class RefreshRatePairingService
     )
     {
         _driver = driver;
+        if (driver is not null)
+        {
+            // The driver answers from what it last read and reads again in the background; a different
+            // answer is a different set of rates, discovered again and published.
+            driver.RangeChanged += () =>
+            {
+                Invalidate();
+                Changed?.Invoke();
+            };
+        }
+
         _readAcceptedRates = readAcceptedRates;
         _readAdvertisedRates = readAdvertisedRates;
         _readOperatingPoint = readOperatingPoint ?? throw new ArgumentNullException(nameof(readOperatingPoint));
         _restoreTarget = restoreTarget ?? throw new ArgumentNullException(nameof(restoreTarget));
         _readTargetRate = readTargetRate ?? throw new ArgumentNullException(nameof(readTargetRate));
     }
+
+    /// <summary>
+    ///     Raised, on whichever thread finished the work, when what the refresh rows show may have changed: a
+    ///     manual write was answered, a driver write or release completed, or the driver's range moved.
+    /// </summary>
+    /// <remarks>
+    ///     Raised even when the display already ran at the rate, so Valve's row, which shows the value the
+    ///     user dragged to until it hears otherwise, snaps back to the rate in force.
+    /// </remarks>
+    internal event Action? Changed;
 
     /// <summary>Gets the cached display revision, discovering it only after invalidation.</summary>
     internal long OperatingPointRevision
@@ -285,6 +307,18 @@ internal sealed class RefreshRatePairingService
     ///     manual write is user-owned, so no original is captured and the pairing never restores it.
     /// </remarks>
     internal bool TryApplyManual(int refreshHz, int capFps)
+    {
+        try
+        {
+            return ApplyManual(refreshHz, capFps);
+        }
+        finally
+        {
+            Changed?.Invoke();
+        }
+    }
+
+    private bool ApplyManual(int refreshHz, int capFps)
     {
         FrameLimitStrategy strategy;
         lock (_gate)
@@ -510,7 +544,7 @@ internal sealed class RefreshRatePairingService
 
     /// <summary>Hands a rate the driver holds back to the driver's own profile.</summary>
     /// <param name="pairedOnly">Only a rate the pairing set; a manual one is the user's.</param>
-    /// <returns>Whether nothing this service fixed is left fixed.</returns>
+    /// <returns>True: there was nothing to release, or the release is under way and publishes when it ends.</returns>
     private bool ReleaseFixed(bool pairedOnly)
     {
         (DisplayTargetIdentity Target, int Rate, bool Paired) held;
@@ -524,33 +558,65 @@ internal sealed class RefreshRatePairingService
             held = current;
         }
 
-        var released = _driver?.Release(held.Target) ?? true;
-        Log.Info($"Refresh rate {held.Rate} Hz released to the graphics driver's profile: "
-                 + (released ? "done." : "the driver refused; it stays until the next change."));
-        if (released)
+        if (_driver is not { } driver)
         {
-            lock (_gate)
-            {
-                if (_fixed == held)
-                {
-                    _fixed = null;
-                }
-            }
+            return true;
         }
 
-        return released;
+        WhenDone(driver.ReleaseAsync(held.Target), released =>
+        {
+            Log.Info($"Refresh rate {held.Rate} Hz released to the graphics driver's profile: "
+                     + (released ? "done." : "the driver refused; it stays until the next change."));
+            if (released)
+            {
+                lock (_gate)
+                {
+                    if (_fixed == held)
+                    {
+                        _fixed = null;
+                    }
+                }
+            }
+        });
+        return true;
+    }
+
+    /// <summary>Finishes a driver write where it completes, then says the refresh rows may have changed.</summary>
+    /// <param name="write">The write; one that faulted or was cancelled counts as refused.</param>
+    /// <param name="finish">Records the outcome.</param>
+    /// <remarks>A write that already completed finishes on the caller's thread, before this returns.</remarks>
+    private void WhenDone(Task<bool> write, Action<bool> finish)
+    {
+        void Complete(Task<bool> done)
+        {
+            finish(done.Status == TaskStatus.RanToCompletion && done.Result);
+            Changed?.Invoke();
+        }
+
+        if (write.IsCompleted)
+        {
+            Complete(write);
+            return;
+        }
+
+        _ = write.ContinueWith(Complete, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     /// <summary>Writes a rate to the display the caller's revision describes.</summary>
     /// <param name="rate">The rate to apply.</param>
     /// <param name="expectedRevision">The revision the caller chose the rate against.</param>
     /// <param name="captureOriginal">Whether the pairing owns the write, so it records what to restore.</param>
-    /// <returns>Whether the write landed; false when the display changed since the caller looked.</returns>
+    /// <returns>
+    ///     Whether the write landed, or for a driver-held rate whether it was sent; false when the display
+    ///     changed since the caller looked.
+    /// </returns>
     /// <remarks>
     ///     The one forced re-read before the write: the caller read the display once at its start, and
     ///     a change since then, notified or not, fails the revision check here. A driver-held rate is
-    ///     written through the driver; a Windows mode below that rate is raised to the highest listed one
-    ///     first, since the panel cannot run faster than its mode.
+    ///     written through the driver, off the caller's thread, and recorded once the driver answered; a
+    ///     Windows mode below that rate is raised to the highest listed one first, since the panel cannot
+    ///     run faster than its mode.
     /// </remarks>
     private bool ApplyRate(int rate, long expectedRevision, bool captureOriginal)
     {
@@ -595,18 +661,22 @@ internal sealed class RefreshRatePairingService
             _ = _restoreTarget(point.Target, top);
         }
 
-        if (!fixedRate.Apply(point.Target, rate))
+        var target = point.Target;
+        WhenDone(fixedRate.ApplyAsync(target, rate), applied =>
         {
-            return false;
-        }
+            if (!applied)
+            {
+                Log.Warn($"Refresh rate {rate} Hz was not applied by the graphics driver; nothing is retried.");
+                return;
+            }
 
-        lock (_gate)
-        {
-            // A manual write takes over a rate the pairing set, and the pairing keeps one the user set
-            // only until its own next write.
-            _fixed = (point.Target, rate, captureOriginal);
-        }
-
+            lock (_gate)
+            {
+                // A manual write takes over a rate the pairing set, and the pairing keeps one the user set
+                // only until its own next write.
+                _fixed = (target, rate, captureOriginal);
+            }
+        });
         return true;
     }
 

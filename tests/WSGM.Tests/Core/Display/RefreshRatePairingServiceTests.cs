@@ -429,6 +429,81 @@ public sealed class RefreshRatePairingServiceTests
         Assert.Equal(before, after);
     }
 
+    [Fact]
+    public void AManualRateThatChangesNothingStillAsksForAPublication()
+    {
+        // Valve's row shows the value the user dragged to until a publication says otherwise; a rate
+        // that snaps to the one in force changes no display state and would leave it there.
+        Harness harness = new();
+        var changes = 0;
+        harness.Service.Changed += () => changes++;
+
+        Assert.True(harness.Service.TryApplyManual(119, 0));
+
+        Assert.Equal(1, changes);
+        Assert.Equal(120, harness.Service.CurrentRefreshRate());
+    }
+
+    [Fact]
+    public void ARefusedManualRateAlsoAsksForAPublication()
+    {
+        Harness harness = new();
+        harness.Service.SetStrategy(FrameLimitStrategy.FrameDoubling);
+        var changes = 0;
+        harness.Service.Changed += () => changes++;
+
+        Assert.False(harness.Service.TryApplyManual(60, 30));
+
+        Assert.Equal(1, changes);
+    }
+
+    [Fact]
+    public void ADriverWriteReturnsAtOnceAndPublishesWhenTheDriverAnswers()
+    {
+        var driver = new FakeFixedRefreshDriver(48, 120) { Pending = new TaskCompletionSource<bool>() };
+        Harness harness = new(driver);
+        var changes = 0;
+        harness.Service.Changed += () => changes++;
+
+        Assert.True(harness.Service.TryApplyManual(72, 0));
+        Assert.Equal(120, harness.Service.CurrentRefreshRate());
+        Assert.Equal(1, changes);
+
+        driver.Pending.SetResult(true);
+
+        Assert.Equal(72, harness.Service.CurrentRefreshRate());
+        Assert.Equal(2, changes);
+    }
+
+    [Fact]
+    public void ADriverWriteThatFailsIsNotRecordedAndNotRetried()
+    {
+        var driver = new FakeFixedRefreshDriver(48, 120) { Pending = new TaskCompletionSource<bool>() };
+        Harness harness = new(driver);
+        harness.Service.TryApplyManual(72, 0);
+
+        driver.Pending.SetResult(false);
+
+        Assert.Equal([72], driver.Applied);
+        Assert.Equal(120, harness.Service.CurrentRefreshRate());
+    }
+
+    [Fact]
+    public void ADriverRangeThatMovesIsDiscoveredAgainAndPublished()
+    {
+        var driver = new FakeFixedRefreshDriver(48, 120);
+        Harness harness = new(driver);
+        _ = harness.Service.AcceptedRates();
+        var changes = 0;
+        harness.Service.Changed += () => changes++;
+
+        driver.Move();
+        _ = harness.Service.AcceptedRates();
+
+        Assert.Equal(1, changes);
+        Assert.Equal(2, harness.AcceptedReads);
+    }
+
     [Theory]
     [InlineData(54, 60)]
     [InlineData(53, 48)]
@@ -514,23 +589,33 @@ public sealed class RefreshRatePairingServiceTests
 
         public int Releases { get; private set; }
 
+        /// <summary>When set, writes stay unanswered until the test completes it.</summary>
+        public TaskCompletionSource<bool>? Pending { get; set; }
+
+        public event Action? RangeChanged;
+
         public DriverRefreshRange ReadRange(DisplayTargetIdentity target)
         {
             return new DriverRefreshRange(minimum, maximum, _fixed);
         }
 
-        public bool Apply(DisplayTargetIdentity target, int refreshHz)
+        public Task<bool> ApplyAsync(DisplayTargetIdentity target, int refreshHz)
         {
             Applied.Add(refreshHz);
             _fixed = refreshHz;
-            return true;
+            return Pending?.Task ?? Task.FromResult(true);
         }
 
-        public bool Release(DisplayTargetIdentity target)
+        public Task<bool> ReleaseAsync(DisplayTargetIdentity target)
         {
             Releases++;
             _fixed = null;
-            return true;
+            return Task.FromResult(true);
+        }
+
+        public void Move()
+        {
+            RangeChanged?.Invoke();
         }
     }
 
