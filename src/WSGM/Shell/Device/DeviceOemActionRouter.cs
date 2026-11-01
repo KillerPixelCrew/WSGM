@@ -24,6 +24,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
 {
     private static readonly TimeSpan DeduplicationWindow = TimeSpan.FromSeconds(30);
     private readonly Dictionary<string, OemControlDescriptor> _controls = new(StringComparer.Ordinal);
+    private HashSet<string> _powerControls = new(StringComparer.Ordinal);
     private readonly HashSet<Task> _dispatches = [];
     private readonly Lock _gate = new();
 
@@ -138,8 +139,13 @@ internal sealed class DeviceOemActionRouter : IDisposable
 
     internal void OnControls(IReadOnlyList<OemControlDescriptor> controls)
     {
+        // The power button is not an assignable control; PowerButtonCoordinator handles it.
+        var power = controls.Where(control => control.Placement == OemControlPlacement.Power)
+            .Select(control => control.ControlId).ToHashSet(StringComparer.Ordinal);
+        controls = [.. controls.Where(control => control.Placement != OemControlPlacement.Power)];
         lock (_gate)
         {
+            _powerControls = power;
             if (controls.Any(control => !ValidControl(control))
                 || controls.Select(control => control.ControlId)
                     .Distinct(StringComparer.Ordinal).Count() != controls.Count)
@@ -184,6 +190,11 @@ internal sealed class DeviceOemActionRouter : IDisposable
                     ReleaseSecondaryButtonUnderGate();
                 }
 
+                return;
+            }
+
+            if (_powerControls.Contains(input.ControlId))
+            {
                 return;
             }
 

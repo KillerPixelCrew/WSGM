@@ -126,7 +126,8 @@ public partial class OverlayWindow : Window
         Surfaces = new OverlaySurfaceStack(this, SurfaceRoot, DeckContent, () => DefaultFocusTarget, CoverMedia,
             _powerConfirms.Reset);
         PowerEditors = new OverlayPowerEditors(viewModel, PanelPowerWake.KeepAwakeHost,
-            PanelPowerWake.KeepAwakeDetail, PanelPowerTimeouts.PowerTimeoutEditors);
+            PanelPowerWake.KeepAwakeDetail, PanelPowerTimeouts.PowerTimeoutEditors, PanelPowerActions.PowerButtonSection,
+            PanelPowerActions.PowerButtonHost);
         WindowsPolicies = new WindowsPolicyRows(PanelSystemTools.UacPolicyHost, PanelPowerWake.LockOnWakePolicyHost);
         _profileScope = new HeaderProfileScope(HeaderProfile, ProfileContext, ManageProfiles, _deviceLifetime.Token);
         // Two subtrees bind different objects than the window (compiled bindings:

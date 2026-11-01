@@ -166,6 +166,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _modules.PanelFolds.Changed += QueueStatePublication;
         LibraryBadges.Changed += OnLibraryBadgesChanged;
         _backends.DisplayTimeouts?.Changed += QueueStatePublication;
+        _backends.PowerButton?.Changed += QueueStatePublication;
         // One subscription for every device row: the power sliders, the device controls and AutoTDP
         // all project the same capability views and coordinator configuration.
         _backends.DeviceCoordinator?.Capabilities.Changed += OnCapabilitiesChanged;
@@ -221,6 +222,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _modules.PanelFolds.Changed -= QueueStatePublication;
         LibraryBadges.Changed -= OnLibraryBadgesChanged;
         _backends.DisplayTimeouts?.Changed -= QueueStatePublication;
+        _backends.PowerButton?.Changed -= QueueStatePublication;
         _backends.DeviceCoordinator?.Capabilities.Changed -= OnCapabilitiesChanged;
         _backends.DeviceCoordinator?.ConfigurationChanged -= QueueStatePublication;
         _backends.DeviceCoordinator?.Power.AutoTdp.StatusChanged -= OnAutoTdpStatusChanged;

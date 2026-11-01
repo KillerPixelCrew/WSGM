@@ -78,6 +78,25 @@ internal sealed partial class SteamNativeSettingsService
             }
         }
 
+        if (powerButton is { Available: true } button)
+        {
+            List<SteamSettingsRow> rows = [];
+            offer.Add(rows, new SteamSettingsRow("power.button-short-press", SteamSettingsRowKind.Choice, "Short press",
+                    "What a short press of the power button does. Hold it to open the power menu.",
+                    Text: button.Current.ToString(),
+                    Choices:
+                    [
+                        .. Enum.GetValues<PowerButtonShortPress>().Select(value =>
+                            new SteamSettingsChoice(value.ToString(), PowerButtonSetting.Label(value)))
+                    ]),
+                async (value, token) =>
+                    Enum.TryParse<PowerButtonShortPress>(value.GetString(), out var choice)
+                    && await button.SelectAsync(choice, token).ConfigureAwait(false)
+                        ? SteamUiCommandResult.Applied
+                        : new SteamUiCommandResult(false, "The power button choice was not saved."));
+            Section(power, "Power button", "power-button", rows);
+        }
+
         List<SteamSettingsRow> cpu = [];
         if (cpuBoost is not null
             && ChoiceRow("power.cpu-boost", "CPU boost mode", "turbo", await boostRead.ConfigureAwait(false))

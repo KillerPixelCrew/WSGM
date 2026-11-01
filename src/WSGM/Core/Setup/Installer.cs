@@ -83,6 +83,12 @@ public static class Installer
                 Log.Warn($"Uninstall restore: UAC failed: {ex.Message}");
                 complete = false;
             }
+
+            // Windows handles the power button again, and its slide-to-shut-down screen is no longer redirected.
+            if (PowerButtonTakeover.IsRecorded(config))
+            {
+                complete &= PowerButtonTakeover.Restore(store);
+            }
         }
 
         try

@@ -460,18 +460,35 @@ closes, the original controller comes back; nobody is stranded on a hidden pad. 
 entries are still never touched. Evidence is in
 [device integration](device-integration.md#wsgm-owns-the-cloak).
 
+**WSGM handles the power button where the device can read both edges (2026-11-01).** #21 asked for
+SteamOS's behaviour: a short press sleeps, a hold opens the power menu. It was closed as a dead end
+after #116 found the Claw 8's button to be an ACPI fixed-feature button that Windows reports with a
+press edge only. The Atlas 8 proved other models differ: its Intel HID Event Filter exposes a
+Portable Device Control collection with press and release as they happen, while Windows' own path
+sees a short press only after release and drops some quick taps, which is why the stock Atlas seemed
+to react only to a hold. The button is therefore a LibHandheld `Power` control published by a source
+that reads both edges, not a remappable OEM control, and WSGM takes Windows' power-button action and
+slide-to-shut-down screen over only while that control is published, restoring both when it goes,
+when WSGM stops and from every recovery path. A hold opens Steam's power menu in Game Mode and the
+overlay's on the desktop; the short press is the user's choice on both Power pages. Sleep on a
+Modern Standby machine enters standby through the display, because every Windows sleep call
+hibernates there, and Steam suspend runs Steam's own flow with its PC suspend suppressed before WSGM
+sleeps. Models whose button cannot be read keep Windows' handling. Mechanism in
+[power and display](power-and-display.md#the-power-button).
+
 ## User interface
 
 **Only the boot movie is replaceable (2026-09-28).** Issue #43 asked for a toolkit primitive to play
 SteamOS's suspend animation on Windows. The Windows client turned out to honour
 `config\uioverrides\movies` through its generic override route, so no primitive is needed and #45 is
 file, catalog and choice work. The suspend movies are overridable too, but they play only in Steam's
-own suspend flow, and nothing on Windows drives it: the power button delivers one press edge and no
-release (#116), so WSGM sleeps Windows directly (#21). #45 therefore offers the boot movie alone,
-under the name the bundle asks for on Windows, `bigpicture_startup.webm`, not Animation Changer's
-`deck_startup.webm`. The movie is copied, not linked. Content and choice are kept apart so a shuffle
-and a return to Steam's own never touch the downloads, and the choice is applied before Steam starts
-because the client caches the lookup for the life of the document.
+own suspend flow, which nothing on Windows drove then: the Claw 8's power button delivers one press
+edge and no release (#116). The power button's Steam suspend choice (Devices and plugins) now drives
+it on a model whose button WSGM can read. #45 offers the boot movie alone, under the name the bundle
+asks for on Windows, `bigpicture_startup.webm`, not Animation Changer's `deck_startup.webm`. The
+movie is copied, not linked. Content and choice are kept apart so a shuffle and a return to Steam's
+own never touch the downloads, and the choice is applied before Steam starts because the client
+caches the lookup for the life of the document.
 
 **A Windows power profile is offered only when there is a choice (2026-09-28).** A machine whose
 Windows installation has one power plan showed a dropdown with one entry in the overlay's Power page

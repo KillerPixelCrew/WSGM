@@ -1104,8 +1104,11 @@ hook, live on 2026-09-28). Everywhere but SteamOS the movie it asks for is
 evidence.
 
 Only the boot movie is offered. Steam's suspend movies are overridable the same way, but they play
-only in Steam's own suspend flow, and nothing on Windows drives it: the power button delivers one
-press edge and no release (#116), so WSGM sleeps Windows directly (#21).
+only in Steam's own suspend flow. The Claw 8's power button delivers one press edge and no release
+(#116), so nothing drove that flow when the offer was decided. The power button's Steam suspend
+choice now runs it on a model whose button WSGM can read (see
+[power and display](power-and-display.md#steams-suspend-flow-and-power-menu)); offering the suspend
+movies is a separate decision.
 
 `Core\Animations\` keeps content and choice apart, as Animation Changer does: `AnimationLibrary`
 holds the downloads under `downloads\{id}.webm` with their listings in `downloads.json`, and any

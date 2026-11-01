@@ -425,4 +425,13 @@ public sealed class AppConfig
 
     /// <summary>Pre-existing DC CONSOLELOCK policy value; <c>-1</c> means absent.</summary>
     public int PreviousConsoleLockPolicyDc { get; set; } = -1;
+
+    /// <summary>
+    ///     Each power plan's power-button action before WSGM set it to "Do nothing" to handle the button
+    ///     itself. Non-empty means the takeover may still be in force and must be restored.
+    /// </summary>
+    public List<PowerSchemeButtonAction> PreviousPowerButtonActions { get; set; } = [];
+
+    /// <summary>Whether WSGM registered its redirect of SlideToShutDown.exe and still has to remove it.</summary>
+    public bool PowerButtonSlideBlocked { get; set; }
 }
