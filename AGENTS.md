@@ -96,6 +96,13 @@ The validation budget below overrides older gate recipes in skills and documenta
 - Choose one useful batch from the diff: warning-free Release compilation, relevant tests and
   affected asset/UI checks. Reuse successful results while their inputs are unchanged. Committing,
   pushing or a documentation-only edit does not invalidate code checks.
+- Every feature's closing batch also checks that Steam's UI still takes WSGM's patches, whether or
+  not the feature touched Steam code: eng/check-steam-fingerprints.mjs against the installed client
+  and the latest snapshot of the other channel (Stable and Beta are both supported), plus
+  `npm run steam-assets:claims`. After an authorized deployment, once Steam has fully started,
+  confirm from wsgm.log that every patch reached Verified. A missing or ambiguous fingerprint, an
+  Incompatible patch or one that never verifies is a defect to fix in the same task; never set it
+  aside as unrelated or pre-existing. That is how silent Steam UI changes get caught.
 - Do not automatically run eng/verify.ps1 for an initial feature, follow-up, PR or push. The full
   gate needs an explicit request, or a change to shared validation infrastructure that requires it.
   Name that concrete reason before starting; "there is a PR" or "broad impact" alone is insufficient.
