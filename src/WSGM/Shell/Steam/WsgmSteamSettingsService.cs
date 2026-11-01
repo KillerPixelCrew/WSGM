@@ -35,6 +35,7 @@ internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
     private const string StartModeKey = "startup.mode";
     private const string ShimStateKey = "steamInput.shim";
     private const string SteamGridDbKeyKey = "artwork.steamGridDbKey";
+    private const string BuildNoticeKey = "steamClient.buildNotice";
 
     /// <summary>The longest key Settings accepts, which this page accepts too.</summary>
     private const int MaximumKeyLength = 128;
@@ -95,6 +96,8 @@ internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
     ];
 
     private readonly Action<AppConfig> _applySteamInput;
+
+    private readonly SteamClientBuildNotice? _buildNotice;
     private readonly Func<Action<AppConfig>, bool, AppConfig> _commit;
     private readonly Func<AppConfig> _config;
 
@@ -131,6 +134,7 @@ internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
     /// <param name="pluginSettings">Every running plugin's declared settings.</param>
     /// <param name="configurePlugin">Changes one running plugin's setting, or null without plugins.</param>
     /// <param name="detectedGraphics">Reads the matching built-in graphics drivers.</param>
+    /// <param name="buildNotice">The unchecked Steam client build notice, shown above the integration rows.</param>
     internal WsgmSteamSettingsService(
         Func<AppConfig> config,
         Func<Action<AppConfig>, bool, AppConfig> commit,
@@ -140,7 +144,8 @@ internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
         Func<IReadOnlyList<CommonPluginSettingsView>>? pluginSettings = null,
         Func<string, string, JsonElement, long, CancellationToken, Task<SteamUiCommandResult>>? configurePlugin =
             null,
-        Func<IReadOnlyList<BuiltinGpuDriver>>? detectedGraphics = null)
+        Func<IReadOnlyList<BuiltinGpuDriver>>? detectedGraphics = null,
+        SteamClientBuildNotice? buildNotice = null)
     {
         _config = config;
         _commit = commit;
@@ -150,6 +155,11 @@ internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
         _pluginSettings = pluginSettings ?? (() => []);
         _configurePlugin = configurePlugin;
         _detectedGraphics = detectedGraphics ?? BuiltinGpuDrivers.Detect;
+        _buildNotice = buildNotice;
+        if (buildNotice is not null)
+        {
+            buildNotice.Changed += ConfigurationChanged;
+        }
     }
 
     /// <summary>Completes when every Steam Input apply this page started has finished.</summary>
@@ -188,6 +198,19 @@ internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
                 ? CommitAsync(config => found.Write(config, value.GetBoolean()), found.Boot, found.SteamInput,
                     cancellationToken)
                 : Invalid();
+        }
+
+        if (key == BuildNoticeKey)
+        {
+            // The notice's one action: dismiss it for this build. A notice already dismissed elsewhere
+            // answers the same, since the row is gone either way.
+            if (value.ValueKind != JsonValueKind.True)
+            {
+                return Invalid();
+            }
+
+            _buildNotice?.Dismiss();
+            return Task.FromResult(SteamUiCommandResult.Applied);
         }
 
         if (key == SteamGridDbKeyKey)
@@ -280,6 +303,7 @@ internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
         [
             new SteamSettingsPage("steam", "Integration",
             [
+                .. BuildNoticeSection(),
                 new SteamSettingsSection(null, [Row("cef.enabled", config)]),
                 new SteamSettingsSection("Library",
                 [
@@ -336,6 +360,21 @@ internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
             ], PageGlyphs.Artwork),
             new SteamSettingsPage("plugins", "Plugins", PluginSections(config), PageGlyphs.Plugins)
         ], revision);
+    }
+
+    /// <summary>The unchecked Steam client build notice, first on the page while it stands.</summary>
+    private IEnumerable<SteamSettingsSection> BuildNoticeSection()
+    {
+        if (_buildNotice?.Text is not { } text)
+        {
+            yield break;
+        }
+
+        yield return new SteamSettingsSection("Steam update",
+        [
+            new SteamSettingsRow(BuildNoticeKey, SteamSettingsRowKind.Action, "Steam build not checked yet", text,
+                ButtonLabel: "Dismiss")
+        ]);
     }
 
     private static SteamSettingsRow Row(string key, AppConfig config)

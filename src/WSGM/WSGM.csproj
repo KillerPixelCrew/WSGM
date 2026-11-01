@@ -43,6 +43,8 @@
                       LogicalName="WSGM.Core.Emulators.retrobios-LICENSE.txt"/>
     <EmbeddedResource Include="Core\GameTools\game-tools.json"
                       LogicalName="WSGM.Core.GameTools.game-tools.json"/>
+    <EmbeddedResource Include="Core\Steam\steam-client-builds.json"
+                      LogicalName="WSGM.Core.Steam.steam-client-builds.json"/>
   </ItemGroup>
   <ItemGroup>
     <!-- The Steam Input Lease submodule's binding is the single managed ABI source. Both

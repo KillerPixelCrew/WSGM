@@ -47,6 +47,37 @@ public sealed class WsgmSteamSettingsServiceTests
     }
 
     [Fact]
+    public async Task AnUncheckedSteamBuildLeadsTheIntegrationPageUntilDismissed()
+    {
+        Harness harness = new();
+        SteamClientBuild build = new("publicbeta", "1799999999", null);
+        harness.BuildNotice = new SteamClientBuildNotice(() => build, [], () => harness.Stored,
+            (change, _) =>
+            {
+                change(harness.Stored);
+                return harness.Stored;
+            });
+        var service = harness.Create();
+        var changed = 0;
+        service.Changed += () => changed++;
+        Assert.DoesNotContain(service.ReadState().Pages[0].Sections, section => section.Title == "Steam update");
+
+        harness.BuildNotice.Evaluate();
+        var notice = service.ReadState().Pages[0].Sections[0];
+        Assert.Equal("Steam update", notice.Title);
+        var row = Assert.Single(notice.Rows);
+        Assert.Equal((SteamSettingsRowKind.Action, "Dismiss"), (row.Kind, row.ButtonLabel));
+        Assert.Equal(SteamClientBuildNotice.Describe(build), row.Description);
+        Assert.Equal(1, changed);
+
+        Assert.False((await service.SetAsync(row.Key, Json("\"yes\""), CancellationToken.None)).Succeeded);
+        Assert.True((await service.SetAsync(row.Key, Json("true"), CancellationToken.None)).Succeeded);
+        Assert.Equal(build.Key, harness.Stored.DismissedSteamClientBuild);
+        Assert.DoesNotContain(service.ReadState().Pages[0].Sections, section => section.Title == "Steam update");
+        Assert.Equal(2, changed);
+    }
+
+    [Fact]
     public async Task TheSteamGridDbKeyIsSetFromSteamWithoutEverBeingPublished()
     {
         // Issue #250: the Game Library inside Steam says SteamGridDB needs a key, and this page is
@@ -400,6 +431,8 @@ public sealed class WsgmSteamSettingsServiceTests
         internal readonly List<bool> Boots = [];
         internal readonly List<(string Id, string Key, string Value, long Revision)> PluginWrites = [];
         internal readonly List<AppConfig> SteamInputApplied = [];
+
+        internal SteamClientBuildNotice? BuildNotice;
         internal IReadOnlyList<BuiltinGpuDriver> Graphics = BuiltinGpuDrivers.All;
         internal List<InstalledCommonPlugin> Installed = [];
         internal List<CommonPluginSettingsView> Running = [];
@@ -427,7 +460,8 @@ public sealed class WsgmSteamSettingsServiceTests
                     PluginWrites.Add((id, key, value.GetRawText(), revision));
                     return Task.FromResult(SteamUiCommandResult.Applied);
                 },
-                () => Graphics);
+                () => Graphics,
+                BuildNotice);
         }
     }
 }

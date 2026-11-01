@@ -44,8 +44,18 @@ try {
     npm run steam-assets:claims
     if ($LASTEXITCODE -ne 0) { throw "Steam UI emitted-asset checks failed" }
 
-    node --test eng/steam-fingerprints.test.mjs
-    if ($LASTEXITCODE -ne 0) { throw "Steam fingerprint reader checks failed" }
+    node --test eng/steam-fingerprints.test.mjs eng/steam-clients.test.mjs eng/steam-patch-health.test.mjs
+    if ($LASTEXITCODE -ne 0) { throw "Steam fingerprint, client and patch-health reader checks failed" }
+
+    # The shipped fingerprints against the installed Steam client and the newest snapshot of the
+    # other channel (docs/steam-cef-system.md, "Checking both Steam channels"). Both Stable and Beta
+    # are supported, and a Steam update that moves a module is a defect, never an unrelated result.
+    # Without an installed client nothing was checked, which is said loudly and is not a pass.
+    node eng/check-steam-fingerprints.mjs --other-channel
+    if ($LASTEXITCODE -eq 2) {
+        Write-Warning "SKIPPED: no installed Steam client, so the Steam fingerprint check did not run. This is not a pass."
+    }
+    elseif ($LASTEXITCODE -ne 0) { throw "A Steam fingerprint does not match exactly one module on a supported channel" }
 
     & "$PSScriptRoot\check-agent-guidance.ps1"
 

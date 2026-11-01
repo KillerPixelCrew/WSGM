@@ -144,5 +144,8 @@ public sealed partial class OverlayController
         // the previous window on close. An explicit refocus-on-dismiss once yanked
         // Steam over an app the user had deliberately cycled to.
         overlay.Dismissed += CloseOverlay;
+        // The notice's text clears through its Changed event, on this sheet and the Steam page alike.
+        overlay.SteamBuildNoticeDismissed += () =>
+            Log.Observe(Task.Run(() => BuildNotice?.Dismiss()), "Steam client build notice dismissal");
     }
 }

@@ -315,8 +315,16 @@ public partial class OverlayWindow : Window
         OnScreenKeyboardRequested?.Invoke();
     }
 
+    private void OnSteamBuildNoticeDismiss(object? sender, RoutedEventArgs e)
+    {
+        SteamBuildNoticeDismissed?.Invoke();
+    }
+
     /// <summary>Raised when the overlay is dismissed without another action.</summary>
     public event Action? Dismissed;
+
+    /// <summary>Raised when the user dismisses the Steam client build notice.</summary>
+    public event Action? SteamBuildNoticeDismissed;
 
     /// <summary>Raised when the user picks an Open apps chip (or cycles with Y).</summary>
     public event Action<AppSwitcherEntry>? WindowPicked;

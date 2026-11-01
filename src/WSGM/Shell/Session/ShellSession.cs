@@ -590,6 +590,7 @@ public sealed class ShellSession
             _powerButtonSetting);
         overlay.ShowOnScreenKeyboard = _commands.ShowOnScreenKeyboardAsync;
         overlay.SteamClient = _steamUi.Client;
+        overlay.BuildNotice = _steamUi.BuildNotice;
         if (!_state.OverlayTestOnly)
         {
             overlay.RequestPowerAction = PowerActions.Request;

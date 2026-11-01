@@ -82,6 +82,22 @@ public sealed class OverlayViewModel : ObservableObject
     /// <summary>Gets whether a warning should be rendered.</summary>
     public bool HasWarning => _warningText.Length > 0;
 
+    /// <summary>Gets or sets the notice for a Steam client build this WSGM was not checked with, or empty.</summary>
+    public string SteamBuildNoticeText
+    {
+        get;
+        set
+        {
+            if (SetFieldIfChanged(ref field, value, nameof(SteamBuildNoticeText)))
+            {
+                Raise(nameof(HasSteamBuildNotice));
+            }
+        }
+    } = "";
+
+    /// <summary>Gets whether the Steam client build notice should be rendered.</summary>
+    public bool HasSteamBuildNotice => SteamBuildNoticeText.Length > 0;
+
     /// <summary>Gets or sets the controller glyph family used by the overlay.</summary>
     public GlyphStyle GlyphStyle
     {

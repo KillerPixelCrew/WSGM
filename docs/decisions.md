@@ -229,6 +229,21 @@ settings, with copying the current desktop optional. See [power and display](pow
 
 ## Steam
 
+**WSGM supports both Steam clients, Stable and Beta (2026-11-01).** Support for the Beta was dropped
+for a while; then the screensaver shipped on the Beta and moved to Stable unannounced, which broke
+WSGM there. Valve moves features between the channels without notice, so following only one leaves
+the other to break silently. Every gate and fingerprint must resolve on both channels, or degrade
+explicitly on one with a logged reason. Each feature's closing batch checks the installed client and
+the newest snapshot of the other channel, and any mismatch is a defect to fix in that task. See
+[Checking both Steam channels](steam-cef-system.md#checking-both-steam-channels).
+
+**An unchecked Steam build is reported, never acted on (2026-11-01).** WSGM ships the list of Steam
+client builds it was checked with. When the running client is not on it, WSGM logs one warning and
+shows a dismissible notice in the Overlay and on its Steam settings page asking the user to report
+anything that misbehaves. No feature is gated, disabled or degraded on that comparison: the
+fingerprints and gates decide what works, and the notice only tells the user who to tell. It is
+dismissed per build, so it returns only when Steam updates again.
+
 **WSGM's own settings can be changed from Steam (2026-09-24).** A WSGM row in Steam's main menu
 opens a page with a limited set of WSGM's global settings: which Steam features WSGM injects, how it
 starts, Steam Input, the artwork providers (the SteamGridDB key and the Screenscraper switch, which

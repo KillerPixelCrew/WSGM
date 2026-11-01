@@ -154,6 +154,12 @@ Picture window exists. After that, only a window missing for 3 s, a new steamweb
 process or a hold withdraws the admission: a window recreated across a display change or a wake no
 longer detaches every socket and forces a complete reapply.
 
+The same admission decides the two surfaces that exist only in Big Picture's own document:
+`steam-ui.pages`, which claims its router, and `steam-ui.home-carousel` on Home. They are wanted
+only while Big Picture is admitted (`SteamUiPatchSwitches.BigPictureOnly`), so with Big Picture
+closed on the desktop they read Disabled instead of failing every retry. Every other patch also
+holds in the desktop client's document.
+
 Desktop mode permits discovery on the master switch. In both modes WSGM constructs the toolkit
 transport with `requireMainWindow: true`: discovery must find exactly one validated, shaped
 MainWindow before it attaches to any target, including SharedJSContext. A login popup is not a
@@ -528,8 +534,9 @@ dropdown and toggle fields, panel section and row, the localizer), then register
 shared `React.useMemo` claim so that when the Quick Access tab array passes through a memo, two
 panels are replaced by wrappers. The Performance panel is found by export identity through
 `#QuickAccess_Tab_Perf_Common_Settings`, `#QuickAccess_Tab_Perf_BatteryTimeRemaining` and
-`TS.ON_FRAME`; the Quick Settings panel by source containing
-`#QuickAccess_Tab_Settings_Section_Other_Title` and `#QuickAccess_ReorderControllers_Button`.
+`.ON_FRAME?` (Stable and Beta spell the platform flag's read differently before it); the Quick
+Settings panel by source containing `#QuickAccess_Tab_Settings_Section_Other_Title` and
+`#QuickAccess_ReorderControllers_Button`.
 
 The wrappers draw WSGM's rows in the toolkit UI kit's groups after Valve's Performance tree: blocks
 with a fill and border under a heading that carries the section's glyph. Most rows are
@@ -1390,17 +1397,99 @@ only after the log-confirmed startup preflight below; inspect output rather than
 and do not treat `qam-harness.mjs status` as pure observation. Neither the harness nor the MCP
 relaxes the fingerprint rule.
 
-`node eng\check-steam-fingerprints.mjs [<Steam directory>]` answers whether a Steam update moved a
-fingerprint without attaching to Steam. It reads every token conjunction out of the shipped asset,
-including those a local helper forwards to the resolver, which it reads at the helper's call sites.
-It parses the scripts the installed client can load into their module factories without executing
-them: the entry scripts `steamui/index.html` names and every chunk their webpack runtime maps to a
-file. Steam leaves earlier builds' chunks in `steamui`, so the other files there are ignored. It
-prints each conjunction's match count and where it is used, and exits non-zero when one matches no
-module or several. A unique match on disk proves uniqueness in that installed bundle, not that its
-factory is already registered or initialized in the current live context. It is not part of
-`eng\verify.ps1`, because its answer depends on the client installed rather than on the change being
-verified.
+`node eng\check-steam-fingerprints.mjs` answers whether a Steam update moved a fingerprint without
+attaching to Steam. It reads every token conjunction out of the shipped asset, including those a
+local helper forwards to the resolver, which it reads at the helper's call sites. It parses the
+scripts a client can load into their module factories without executing them: the entry scripts
+`steamui/index.html` names and every chunk their webpack runtime maps to a file. Steam leaves
+earlier builds' chunks in `steamui`, so the other files there are ignored. It prints each
+conjunction's match count and where it is used, and exits non-zero when one matches no module or
+several. A unique match on disk proves uniqueness in that bundle, not that its factory is already
+registered or initialized in the current live context. It says nothing about export shapes either,
+which `uniqueFunction` and `exported` resolve in the page.
+
+### Checking both Steam channels
+
+WSGM supports Steam's Stable and Beta clients ([decision](decisions.md#steam)). One machine has one
+client installed, so the other channel is checked from a snapshot of its files under
+`artifacts\steam-channel-<yyyymmdd>\<stable|beta>`: the client's whole `steamui` folder beside the
+`package` files that say which build it is (`package\beta` on the Beta, and the channel's
+`steam_client_*win64.manifest` and `.installed`). The check takes a Steam directory or such a
+snapshot, or a snapshot extracted from Valve's package with one `active-source\<version>` folder
+(the 20261012 snapshots), and checks each client on its own: every fingerprint must match exactly
+one module in each.
+
+1. Before switching Steam to the other branch, once the current client has finished updating,
+   snapshot it: copy `<Steam>\steamui` and the channel's `package` files above into a new
+   `artifacts\steam-channel-<today>\<stable|beta>`. Never copy a half-updated client: wait until
+   `package\beta` and the steamui timestamps show the finished install.
+2. Check the installed client and the newest snapshot of the other channel with one command:
+
+   ```
+   node eng\check-steam-fingerprints.mjs --other-channel
+   ```
+
+   Name clients to check others, for example
+   `node eng\check-steam-fingerprints.mjs artifacts\steam-channel-20261101\beta`. Each client ends
+   with an `identity` line: its channel, client version and sp.js content hash, and whether it is in
+   the checked-builds list.
+
+3. Fix every `MISSING` or `AMBIGUOUS` fingerprint until both clients pass, keeping each fingerprint
+   strict and literal. Then record them:
+
+   ```
+   node eng\check-steam-fingerprints.mjs --other-channel --record
+   ```
+
+   `--record` adds each passing client to `src\WSGM\Core\Steam\steam-client-builds.json` and leaves
+   out one with a failure. Commit the list with the fix.
+
+4. After an authorized `eng\dev-deploy.ps1`, once Steam and Big Picture have fully started, run
+   `node eng\check-steam-patch-health.mjs`. It reads only the newest shell session of `wsgm.log`,
+   never CEF, and fails on any Steam UI patch that did not end Verified (or Disabled by its
+   setting), and on retry exhaustion. `--wait <seconds>` re-reads the log while patches still retry.
+   Big Picture-only gates such as `pages` and `home-carousel` wait at AbsentTarget while Big Picture
+   is closed, so run it with Big Picture up. Repeat it on the other branch when that branch is the
+   one installed.
+
+`eng\verify.ps1` runs step 2 and prints a loud SKIPPED when no Steam client is installed; that is
+not a pass. Any failure on either channel is a defect for the task that found it, never an unrelated
+or pre-existing result.
+
+Checked so far (2026-11-01):
+
+| Channel | Client version | sp.js contenthash      | Result                                                                                               |
+| ------- | -------------- | ---------------------- | ---------------------------------------------------------------------------------------------------- |
+| Stable  | 1792618285     | `3708f234683c51cc73a9` | passes; the build a tester's log showed on Stable from 2026-10-20                                    |
+| Beta    | 1793235415     | `7039b9918d21fc46ca79` | passes after the performance-tab fingerprint change below                                            |
+| Stable  | 1788652215     | `345243716f189df3b9cb` | superseded (2026-09-06): has no screensaver and two virtual-keyboard modules, so 4 fingerprints fail |
+| Beta    | 1791686101     | `e7127fced03e54d45c6e` | superseded (2026-10-11); passes                                                                      |
+
+The 2026-10-29 Beta reads the performance tab's platform flag through a hook,
+`(0,<module>.<hook>)(!0).ON_FRAME?`, where Stable reads a constant, `<module>.TS.ON_FRAME?`. The
+panel factory's fingerprint and its root export's tokens now use `.ON_FRAME?`, which both spell the
+same.
+
+The Home carousel finds Big Picture's Home through the router's `/library/home` route, which draws
+the Home memo on both channels. The desktop library routes `/library/home` too, to a plain function
+component; the gate now counts that route as `desktopRoutes` and waits instead of calling the client
+incompatible. A tester's Stable log showed the old verdict, Incompatible with `homeFound:0`, in
+desktop mode, which blocked the carousel until the next switch change.
+
+### Unchecked Steam client builds
+
+`SteamClientBuildNotice` (Shell) compares the running client with the checked-builds list once the
+Steam UI transport opens, so a Steam that updated itself while starting is read after the update.
+`SteamClientBuild.Read` reads the channel from `package\beta` (absent or empty is `stable`), the
+client version from that channel's `package\steam_client_*win64.manifest` and the sp.js content hash
+from `steamui\library.js`, without touching Steam. An unchecked build writes one warning per build
+and session,
+`Steam client build <version> (<channel>, sp.js <hash>) hasn't been checked with this WSGM version.`,
+and an unreadable one an info line. The notice asks the user to report problems at the issue tracker
+with a log from Settings > System > Upload log. It leads the Overlay's controls pane as an
+informational bar and the Integration page of WSGM's Steam settings as a Dismiss row. Dismissing
+either stores the build in `AppConfig.DismissedSteamClientBuild` and clears both. Nothing is gated
+on it.
 
 ### Required startup evidence before attended debugging
 

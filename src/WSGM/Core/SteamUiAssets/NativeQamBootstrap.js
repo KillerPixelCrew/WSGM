@@ -10252,7 +10252,14 @@
     const local = createLocalStore();
     let lastOutcome = "never rendered";
     let lastReport = "";
-    let lastSearch = { roots: 0, visited: 0, homeRoutes: 0, page: "", mounted: 0 };
+    let lastSearch = {
+      roots: 0,
+      visited: 0,
+      homeRoutes: 0,
+      desktopRoutes: 0,
+      page: "",
+      mounted: 0,
+    };
     let cached = null;
     const carouselChecks = new WeakMap();
     const carouselCache = new Map();
@@ -10547,7 +10554,14 @@
     const findHome = (react) => {
       let found = null;
       const roots = reactRootFibers();
-      const search = { roots: roots.length, visited: 0, homeRoutes: 0, page: "", mounted: 0 };
+      const search = {
+        roots: roots.length,
+        visited: 0,
+        homeRoutes: 0,
+        desktopRoutes: 0,
+        page: "",
+        mounted: 0,
+      };
       const walk = walkFibers(roots, MaximumNodesVisited, (node) => {
         // A Fragment's fiber holds its children array as the props themselves.
         const props = node.memoizedProps;
@@ -10557,13 +10571,17 @@
           (child) => react.isValidElement(child) && child.props?.path === KnownRoute,
         );
         if (!route) return;
-        search.homeRoutes++;
         const type = route.props?.children?.type;
-        search.page = !type
-          ? "none"
-          : typeof type === "function"
-            ? "function"
-            : String(type.$$typeof);
+        // The desktop library routes /library/home too, to a plain function component that wraps
+        // its own Home; Big Picture's route draws the Home memo. The desktop route says nothing
+        // about Big Picture's Home, so it is reported but not counted (stable 1792618285 and the
+        // 2026-10-29 beta both have the two lists, read offline).
+        if (typeof type === "function") {
+          search.desktopRoutes++;
+          return;
+        }
+        search.homeRoutes++;
+        search.page = !type ? "none" : String(type.$$typeof);
         if (isHome(type)) found = type;
         return !!found;
       });
@@ -10610,9 +10628,9 @@
       if (!home) {
         const where =
           `roots=${search.roots} visited=${search.visited} homeRoutes=${search.homeRoutes} ` +
-          `page=${search.page || "-"}`;
+          `desktopRoutes=${search.desktopRoutes} page=${search.page || "-"}`;
         return search.homeRoutes === 0
-          ? gateNotReady(`the router is not mounted (${where})`, facts)
+          ? gateNotReady(`Big Picture's router is not mounted (${where})`, facts)
           : gateIncompatible(`the /library/home route does not draw Home (${where})`, facts);
       }
       const descriptor = Object.getOwnPropertyDescriptor(home, "type");
@@ -15224,6 +15242,9 @@
             })
           : note("frameLimitSwitch", "Steam ToggleField was not resolved");
         const slider = controlRuntime.react.createElement(controlRuntime.slider, {
+          // A notch list of another length is another slider: Steam's keeps its notch in its own
+          // state, and reading it against a shorter list indexes past the end.
+          key: refreshMode ? `refresh:${state.refreshRates.join(",")}` : "cap",
           // Live-verified 2026-08-30: these are tokens the client actually carries.
           // "#QuickAccess_Tab_Perf_FramerateLimit" appears nowhere in the bundle, so the row it was
           // written against fell back to English on every localized client.
@@ -15815,9 +15836,17 @@
       const drawn = new Set();
       for (const [kind, key, tab, component, publication, ownRows] of bespoke) {
         if (tab !== placement || !component || !acceptedStates.get(publication)) continue;
+        // Valve's refresh slider keeps its notch index in its own state and reads it against the
+        // notch list of the next render, so a list that changed length (48-120 Hz down to 120 Hz
+        // after a resume, 2026-11-01) indexed past its end and threw inside Quick Settings. Keyed on
+        // its bounds, a new range mounts a new slider instead.
+        const rowKey =
+          kind === "valveRefreshRate" ? `${key}:${acceptedStates.get(publication)}` : key;
         rows.push([
           kind,
-          ownRows ? h(component, { key }) : h(controlRuntime.row, { key }, h(component)),
+          ownRows
+            ? h(component, { key: rowKey })
+            : h(controlRuntime.row, { key: rowKey }, h(component)),
         ]);
         // Valve's components report nothing and count as drawn while they are mounted.
         if (kind.startsWith("valve") || drawnKinds.has(kind)) drawn.add(kind);
@@ -15938,11 +15967,14 @@
         ...sections(trailing),
       );
     };
-    // The performance panel's factory, by tokens only it carries.
+    // The performance panel's factory, by tokens only it carries. Its root branches on the platform's
+    // ON_FRAME flag, which Stable reads from a constant (`<module>.TS.ON_FRAME?`) and the Beta of
+    // 2026-10-29 from a hook's result (`(0,<module>.<hook>)(!0).ON_FRAME?`); the member access and its
+    // conditional are what both spell the same, checked offline against both channels.
     const PerformanceRootTokens = [
       "#QuickAccess_Tab_Perf_Common_Settings",
       "#QuickAccess_Tab_Perf_BatteryTimeRemaining",
-      "TS.ON_FRAME",
+      ".ON_FRAME?",
     ];
     // Valve's own components, from the perf-components module, selected by the localization token each
     // draws, never by a minified export name. Live-probed 2026-08-30 that each token matches exactly
@@ -15966,7 +15998,7 @@
           "React, fields, layout or localization runtime was not a unique match",
         );
       const performanceRoot = uniqueFunction(runtime(performanceFactory[0]), [
-        "TS.ON_FRAME",
+        ".ON_FRAME?",
         "return",
       ]);
       if (!performanceRoot)
@@ -16213,16 +16245,28 @@
         return result;
       };
     };
+    // The refresh bounds of a performance state, as a key that changes whenever the notch list does.
+    const refreshBounds = (value) => {
+      const limits = value.limits ?? {};
+      return [
+        "refresh",
+        limits.display_refresh_manual_hz_min,
+        limits.display_refresh_manual_hz_max,
+        limits.display_external_refresh_manual_hz_min,
+        limits.display_external_refresh_manual_hz_max,
+      ].join(":");
+    };
     // The publications the host draws from, under the names the controls read them by.
     const Publications = [
       ["rows", RowsPatchId, normalizeRowsState],
       ["layout", LayoutPatchId, normalizeQuickAccessLayout],
       ["folds", SteamFoldsPatchId, (value) => panelFolds.normalize(value)],
-      // Valve's components read the performance store; only whether a state arrived matters here.
+      // Valve's components read the performance store. What matters here is whether a state arrived,
+      // and the refresh bounds Valve's refresh row is keyed on.
       [
         "performance",
         PerformancePatchId,
-        (value) => (value && typeof value === "object" ? true : null),
+        (value) => (value && typeof value === "object" ? refreshBounds(value) : null),
       ],
       ["frameLimit", FrameLimitPatchId, normalizeFrameLimitState],
       ["lightingZones", LightingZonesPatchId, normalizeLightingZonesState],

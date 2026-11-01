@@ -87,7 +87,8 @@ Module scans and resolution belong to `SteamUiModuleResolver` in the toolkit. WS
 their fingerprints and choose exports by shape; they use the same resolver source as probes and
 gates. Module ids and export names are per client build and never appear in code: the September 2026
 beta renumbered every module. `eng/check-steam-fingerprints.mjs` checks every fingerprint against
-the installed client's bundle.
+the installed client's bundle and, with `--other-channel`, the newest snapshot of the other Steam
+channel: Stable and Beta are both supported.
 
 A healthy cold start orders evidence as:
 

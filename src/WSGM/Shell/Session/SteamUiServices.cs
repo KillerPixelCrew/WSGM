@@ -117,11 +117,16 @@ internal sealed class SteamUiServices
                 Transport.SubscribeAsync(SteamUiTargetRole.MainWindow).AsTask()
             ];
             Client = new SteamClient(Transport);
+            BuildNotice = new SteamClientBuildNotice(() => SteamClientBuild.Read(Steam.InstallDirectory),
+                SteamClientBuilds.Checked, () => state.Config, state.CommitSetting);
         }
 
         TabBootSync = new LibraryTabBootSync(libraryManager, Readiness, () => state.ShutdownRequested,
             state.ShutdownToken);
     }
+
+    /// <summary>The notice for a Steam client build this WSGM was not checked with, or null in overlay-test.</summary>
+    internal SteamClientBuildNotice? BuildNotice { get; }
 
     /// <summary>The session's one Steam UI transport, or null in overlay-test.</summary>
     internal PersistentSteamUiTransport? Transport { get; private set; }
@@ -261,6 +266,11 @@ internal sealed class SteamUiServices
         if (!wasReady && Readiness.IsReady)
         {
             _becameReady();
+            // Steam's UI is up, so a client that updated itself while starting is read after the update.
+            if (BuildNotice is { } notice)
+            {
+                Log.Observe(Task.Run(notice.Evaluate), "Steam client build check");
+            }
         }
 
         Log.Change("steam-ui-transport-gate", DescribeTransportGate(open, master, inGameMode, holds));
@@ -595,7 +605,21 @@ internal sealed class SteamUiServices
                 // Observed outside the gate: a process snapshot and a window search are the slow part.
                 var steam = _cefMasterEnabled ? steamProcesses.Observe() : default;
                 var now = Stopwatch.GetTimestamp();
-                _bigPictureReady = admission.Observe(steam, Holds != SteamUiHold.None, now);
+                var bigPicture = admission.Observe(steam, Holds != SteamUiHold.None, now);
+                if (bigPicture != _bigPictureReady)
+                {
+                    _bigPictureReady = bigPicture;
+                    // The Big Picture-only surfaces follow the window: wanted while it is up, retracted
+                    // when it closes, so the desktop client is never asked for a router it does not have.
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (!_state.ShutdownRequested)
+                        {
+                            ApplySurfaces();
+                        }
+                    });
+                }
+
                 bool open;
                 await _cefMasterGate.WaitAsync(cancellationToken).ConfigureAwait(false);
                 try
@@ -763,13 +787,15 @@ internal sealed class SteamUiServices
         var profile = nativeArtwork
             ? _integrations.Device?.PhysicalControlSelectionSnapshot().Profile
             : _integrations.Device?.PhysicalGlyphSelectionSnapshot().Profile;
-        var switches = SteamUiSurfaceSwitches.From(config, _cefMasterEnabled, profile, nativeArtwork);
+        var switches = SteamUiSurfaceSwitches.From(config, _cefMasterEnabled, profile, nativeArtwork,
+            _bigPictureReady);
         Log.Change(
             "steam.ui.switches",
             $"Steam UI surfaces: quickAccess={switches.NativeQuickAccess}, host={switches.HostSurfaces}, "
             + $"wifiIndicator={switches.NetworkIndicator}, downloadSort={switches.DownloadSort}, "
             + $"libraryBadge={switches.LibraryBadge}, homeCarousel={switches.HomeCarousel}, "
-            + $"carouselUninstalled={switches.CarouselShowUninstalled}, glyphs={switches.Glyphs}.");
+            + $"carouselUninstalled={switches.CarouselShowUninstalled}, glyphs={switches.Glyphs}, "
+            + $"bigPicture={switches.BigPicture}.");
         steamUi.Apply(switches);
     }
 
@@ -907,7 +933,8 @@ internal sealed class SteamUiServices
             () => PluginSource?.ReadSettings() ?? [],
             (id, key, value, revision, token) => PluginSource is { } source
                 ? source.ConfigureAsync(id, key, value, revision, token)
-                : Task.FromResult(new SteamUiCommandResult(false, "Plugins are not available.")));
+                : Task.FromResult(new SteamUiCommandResult(false, "Plugins are not available.")),
+            buildNotice: BuildNotice);
     }
 
     /// <summary>

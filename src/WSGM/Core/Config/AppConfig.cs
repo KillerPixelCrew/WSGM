@@ -36,6 +36,12 @@ public sealed class AppConfig
     /// <summary>Whether the user accepted the initial Steam CEF plugin trust warning.</summary>
     public bool SteamCefPluginWarningAccepted { get; set; }
 
+    /// <summary>
+    ///     The unchecked Steam client build (<see cref="SteamClientBuild.Key" />) whose notice the user
+    ///     dismissed, so it does not return on every start; a later build shows it again.
+    /// </summary>
+    public string? DismissedSteamClientBuild { get; set; }
+
     /// <summary>Optional device-plugin platform, ownership, and desired-state settings.</summary>
     public DeviceIntegrationConfig DeviceIntegration { get; set; } = new();
 

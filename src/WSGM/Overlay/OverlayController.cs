@@ -228,6 +228,19 @@ public sealed partial class OverlayController : IDisposable
     /// </summary>
     internal SteamClient? SteamClient { get; set; }
 
+    /// <summary>The Steam client build notice the sheet shows above every destination, or null.</summary>
+    /// <remarks>Set once by the session before the sheet first opens.</remarks>
+    internal SteamClientBuildNotice? BuildNotice
+    {
+        get;
+        set
+        {
+            field?.Changed -= OnBuildNoticeChanged;
+            field = value;
+            field?.Changed += OnBuildNoticeChanged;
+        }
+    }
+
     /// <summary>
     ///     The shared removable-storage format manager backing the Tools
     ///     tab's Format SD Card / Add Steam Library flow. Created on first use and
@@ -303,6 +316,12 @@ public sealed partial class OverlayController : IDisposable
         // here would leave the still-open window rendering disposed bitmaps for
         // the 150 ms grace.
         CloseOverlay();
+    }
+
+    // The notice changes on a worker; the sheet's view model changes on the UI thread.
+    private void OnBuildNoticeChanged()
+    {
+        Dispatcher.UIThread.Post(() => _overlayViewModel?.SteamBuildNoticeText = BuildNotice?.Text ?? "");
     }
 
     /// <summary>Sets a non-fatal warning to show the next time the overlay opens.</summary>
@@ -582,6 +601,7 @@ public sealed partial class OverlayController : IDisposable
     private void RefreshSessionState(OverlayViewModel vm, bool explorerRunning)
     {
         vm.WarningText = _pendingWarning;
+        vm.SteamBuildNoticeText = BuildNotice?.Text ?? "";
         vm.ExplorerRunning = explorerRunning;
         vm.HomeAppAlive = _monitor?.IsAlive ?? false;
         _powerState.Refresh(vm);

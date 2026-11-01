@@ -373,6 +373,8 @@ if ($NoRestart) {
     return
 }
 
+# The deployment ends before Steam has started, so the patch check is the step after it, not part of it.
+$patchHealthReminder = 'Once Steam and Big Picture have fully started, run node eng\check-steam-patch-health.mjs: every Steam UI patch must reach Verified.'
 Write-Host "== Starting WSGM $WsgmArguments ==" -ForegroundColor Cyan
 Start-Process -FilePath (Join-Path $appDirectory 'WSGM.exe') -ArgumentList $WsgmArguments
 # Shell mode holds Local\WSGM.Shell once it is up. The elevated shell's mutex refuses this unelevated
@@ -399,12 +401,14 @@ if ($WsgmArguments -contains '--desktop-resident') {
     # The resident owns Explorer readiness and the subsequent Desktop Steam start. Do not race it
     # with a second launch that requests Big Picture while Desktop First is settling.
     Write-Host 'Deployed. WSGM owns the Desktop startup and Steam launch.' -ForegroundColor Green
+    Write-Host $patchHealthReminder -ForegroundColor Yellow
     return
 }
 if ($WsgmArguments -contains '--shell') {
     # The shell mutex precedes asynchronous device admission. Its launch sequence starts Steam
     # after controller ownership and HidHide, so launching it here races physical-pad cloaking.
     Write-Host 'Deployed. WSGM owns Game Mode startup and Steam launch.' -ForegroundColor Green
+    Write-Host $patchHealthReminder -ForegroundColor Yellow
     return
 }
 # Straight into Big Picture, the way WSGM cold-starts Steam itself (Steam.LaunchBigPicture). Starting
@@ -413,3 +417,4 @@ if ($WsgmArguments -contains '--shell') {
 # half-built UI.
 Start-Process -FilePath $steamExe -ArgumentList 'steam://open/bigpicture'
 Write-Host 'Deployed.' -ForegroundColor Green
+Write-Host $patchHealthReminder -ForegroundColor Yellow

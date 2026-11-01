@@ -100,8 +100,16 @@ necessary, keeping the code readable and maintainable by a human.
   Never execute the webpack registry, instantiate unknown exports, or spoof broad platform state
   such as `TS.IS_STEAMOS` or `force_deck_perf_tab`. Use the toolkit's `SteamUiModuleResolver` for
   matching and module resolution. Features provide fingerprints; they must not implement registry
-  scans or expose raw webpack require. After a Steam update, `node eng/check-steam-fingerprints.mjs`
-  counts every fingerprint's matches in the installed bundle without attaching to Steam.
+  scans or expose raw webpack require. `node eng/check-steam-fingerprints.mjs` counts every
+  fingerprint's matches in a client's bundle without attaching to Steam; a fingerprint must match
+  exactly one module on Stable and on Beta, or degrade explicitly on one with a logged reason
+  ([Checking both Steam channels](../../../docs/steam-cef-system.md#checking-both-steam-channels)).
+- Every feature's closing batch runs `node eng/check-steam-fingerprints.mjs --other-channel` (the
+  installed client and the newest snapshot of the other channel; Stable and Beta are both supported)
+  and `npm run steam-assets:claims`, whether or not the feature touched Steam code, and after an
+  authorized deployment `node eng/check-steam-patch-health.mjs` once Steam has fully started. A
+  MISSING or ambiguous fingerprint, or a patch that ends Incompatible or never reaches Verified, is
+  a defect to fix in the same task, never dismissed as unrelated or pre-existing.
 - React has one `useMemo`; a surface that needs its results registers a transform on the toolkit's
   shared claim (`interceptMemo`) instead of wrapping it.
 - Keep the bridge vocabulary closed and derived from registered modules. Maintain camelCase wire

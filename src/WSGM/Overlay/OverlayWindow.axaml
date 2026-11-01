@@ -171,6 +171,15 @@
                          is visible on every one. -->
             <fa:FAInfoBar IsOpen="{Binding HasWarning}" Title="WSGM" Message="{Binding WarningText}" Severity="Warning"
                           IsClosable="False" Margin="0,0,0,4" />
+            <!-- A Steam client build this WSGM was not checked with: information only, dismissed per build. -->
+            <fa:FAInfoBar x:Name="SteamBuildNotice" IsOpen="{Binding HasSteamBuildNotice}" Title="Steam updated"
+                          Message="{Binding SteamBuildNoticeText}" Severity="Informational" IsClosable="False"
+                          Margin="0,0,0,4">
+              <fa:FAInfoBar.ActionButton>
+                <Button Content="Dismiss" Click="OnSteamBuildNoticeDismiss"
+                        AutomationProperties.Name="Dismiss the Steam update notice" />
+              </fa:FAInfoBar.ActionButton>
+            </fa:FAInfoBar>
 
             <!-- Quick access combines action cards, complete pinned sections and widgets.
                          Section headers own pinning; their controls keep normal editing behavior. -->
