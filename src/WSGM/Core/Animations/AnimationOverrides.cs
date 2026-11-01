@@ -39,9 +39,11 @@ namespace WSGM.Core;
 ///         plays as Steam plays it.
 ///     </para>
 ///     <para>
-///         Steam's suspend movies are overridable the same way, but nothing on Windows drives Steam's
-///         suspend flow: the power button delivers one press edge and no release (#116), so WSGM
-///         sleeps Windows directly (#21) and Steam never plays them. Only the boot movie is offered.
+///         Steam's suspend movies are overridable the same way, but they play only in Steam's own suspend
+///         flow. When this was decided nothing on Windows drove it (the Claw 8's power button delivers
+///         one press edge, #116). The power button's Steam suspend choice now runs it on a model whose
+///         button WSGM can read; offering those movies is a separate decision. Only the boot movie is
+///         offered.
 ///     </para>
 /// </remarks>
 public static class AnimationOverrides

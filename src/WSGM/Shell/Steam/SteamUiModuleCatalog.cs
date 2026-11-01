@@ -155,7 +155,7 @@ internal sealed class SteamUiModuleCatalog
         NativeSettings = new SteamNativeSettingsService(backends.Brightness, backends.Resolution, _performance,
             backends.PowerProfiles, backends.CpuBoost, backends.HybridCores, AudioFormat,
             backends.Graphics, deviceCoordinator, backends.Profiles, backends.DisplayTimeouts,
-            backends.ScaledResolutions);
+            backends.ScaledResolutions, backends.PowerButton);
         Network = backends.Radios is { } radios
             ? new NativeQamNetworkService(
                 radios,

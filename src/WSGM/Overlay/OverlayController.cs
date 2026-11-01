@@ -159,7 +159,7 @@ public sealed partial class OverlayController : IDisposable
         RemovableDriveManager? drives = null,
         SdFormatManager? formats = null,
         DisplayTimeouts? displayTimeouts = null, MessageWindow? activationWindow = null,
-        WindowsPowerPolicy? power = null)
+        WindowsPowerPolicy? power = null, PowerButtonSetting? powerButton = null)
     {
         // A preview writes nothing, so a set of its own never needs the session's lock.
         power ??= WindowsPowerPolicy.OverWindows();
@@ -167,7 +167,7 @@ public sealed partial class OverlayController : IDisposable
             power, powerPresets, powerAssignments, previewOnly);
         _store = store;
         _steamInput = steamInput ?? throw new ArgumentNullException(nameof(steamInput));
-        _powerState = new OverlayPowerState(power, keepAwake, displayTimeouts, previewOnly);
+        _powerState = new OverlayPowerState(power, keepAwake, displayTimeouts, previewOnly, powerButton);
         _sessionAudio = audio ?? throw new ArgumentNullException(nameof(audio));
         _audioProfiles = audioProfiles;
         _sessionRadios = radios ?? throw new ArgumentNullException(nameof(radios));

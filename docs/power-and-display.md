@@ -520,6 +520,92 @@ These are the remote test surface; keep their shape.
 | `Mute on display off: downloads inactive, waiting 10 s before unmute.` / `downloads remained inactive for 10 s, restoring audio.` | Restore grace started, elapsed.                                                          |
 | `Mute on display off: user input while muted, restoring …`                                                                        | The input net fired.                                                                     |
 
+## The power button
+
+On a model whose definition can read both edges of the power button, WSGM handles it: a short press
+runs the configured action and a hold opens a power menu, Steam's in Game Mode and the overlay's on
+the desktop. Elsewhere, including with Device Integration off, Windows keeps the button.
+
+### Where the press comes from
+
+Windows itself only learns of a power-button press late. On the Atlas 8 the button reaches Windows
+through Microsoft's Button Converter, which reports a short press after release, as a press and
+release together, drops some quick taps and reports a hold only after about two seconds; Windows
+runs its action 0.6 to 0.9 s after release. The Intel HID Event Filter's Portable Device Control
+collection under it (`HID\INTC816`, usage 0x0D, button 0x81) reports both edges as they happen and
+opens for shared reading. LibHandheld's `IntelPdcPowerButtonService` reads it and publishes a
+control with the `Power` placement, only while its reader runs. The Claw 8's button is an ACPI
+fixed-feature button with a press edge only (#116), so it gets no such control and Windows keeps it.
+Evidence is in the Acer provenance (2026-11-01).
+
+### Taking the button over
+
+`Shell\Power\PowerButtonCoordinator` sees the `Power` control arrive and takes Windows' handling
+over through `Core\Power\PowerButtonTakeover`. That saves each power plan's power-button action to
+the configuration first (`PreviousPowerButtonActions`), then sets every plan to Do nothing. Windows
+also starts its own slide-to-shut-down screen when the button is held on a touch-screen PC, whatever
+the action says, so an Image File Execution Options redirect for `SlideToShutDown.exe` starts
+`WSGM.exe --slide-blocked` instead, which `Program.Main` answers by exiting before any other work. A
+redirect another program registered is never overwritten or removed.
+
+The control leaving, the device stopping or WSGM exiting restores the saved actions and removes the
+redirect, so the sign-in screen and a machine without WSGM behave as Windows does. A suspend keeps
+the takeover, because the press that wakes the machine must not run Windows' action. Restore-shell,
+panic recovery, the next session start and uninstall restore a takeover a crash left behind. Restore
+writes every saved value once and keeps the record when any step fails.
+
+### What a press does
+
+A hold of one second opens the power menu while the button is still down. A shorter press acts on
+release, because suspending with the button held left Windows thinking it was held through the sleep
+and it offered slide-to-shut-down after the wake. A press while the display is off, or within 1.5 s
+of the display lighting or the system resuming, belongs to that wake and does nothing. A short press
+while the overlay's power menu is open closes the menu.
+
+The short press is chosen on the overlay's Power > Power page and on Steam's Power settings page,
+through the one `PowerButtonSetting` owner, and stored in `DeviceIntegration.PowerButtonShortPress`:
+
+| Choice        | Effect                                                                                                             |
+| ------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Sleep         | Modern Standby, entered as below.                                                                                  |
+| Steam suspend | In Game Mode, Steam's own suspend flow with its PC suspend suppressed, then Modern Standby; elsewhere plain Sleep. |
+| Hibernate     | Hibernation.                                                                                                       |
+| Shut down     | `shutdown /s /t 0`.                                                                                                |
+| Restart       | `shutdown /r /t 0`.                                                                                                |
+| Do nothing    | Only the hold does something.                                                                                      |
+
+### Entering Modern Standby
+
+A Modern Standby (S0 low power idle) machine has no S3. `SetSuspendState(false)` and
+`NtInitiatePowerAction(PowerActionSleep)` both hibernate it (Kernel-Power 187, then a firmware
+boot), and an injected Sleep key does nothing. Turning the display off with `SC_MONITORPOWER` enters
+Modern Standby (Kernel-Power 506, reason SC_MONITORPOWER). `PowerActions.EnterStandby` therefore
+uses that on such a machine and the classic suspend everywhere else; the overlay's Standby action
+and the power button share it. All measured on the Atlas 8 on 2026-11-01.
+
+### Steam's suspend flow and power menu
+
+Steam's Big Picture sleep manager (`window.SuspendResumeStore`) can run its suspend flow without the
+PC suspend: `InitiateSleep(true)` prepares the games, shows the suspend screen and stops. WSGM then
+enters Modern Standby itself, and after the resume, once the Steam UI transport is open again, calls
+`InitiateResume()` so Steam resumes its games and shows its resume screen. A flow that times out is
+reset the same way. Any outcome but Completed falls back to plain Sleep. The power menu is
+`window.SteamUIStore.OpenPowerMenu(null)`, the call Steam's own show-power-menu notification makes;
+`steam://longpowerpress`, SteamOS's hook, is accepted by the Windows client but does nothing. When
+Steam cannot be reached the hold opens the overlay's power menu instead. The toolkit commands are
+`SteamPowerCommands`; both were mapped offline from the 2026-11-01 client.
+
+### Log lines
+
+| Line                                                                              | Meaning                                 |
+| --------------------------------------------------------------------------------- | --------------------------------------- |
+| `Power button: Windows' own handling is off in N power plan(s).`                  | Takeover applied.                       |
+| `Power button: Windows handles it again, because …` / `… handling restored.`      | Takeover ending, and restored.          |
+| `Power button: short press, <choice>.` / `long press, …`                          | A press and what it did.                |
+| `Power button: press ignored, it is part of a wake.`                              | The wake guard.                         |
+| `Power button: Steam's suspend screen did not run (<result>); sleeping directly.` | Steam suspend fell back to plain Sleep. |
+| `Power: standby (Modern Standby)`                                                 | Standby entered through the display.    |
+
 ## Keep-awake wake lock
 
 `Shell\Power\KeepAwakeService.cs` holds Windows Device Control's `WindowsPowerRequest` directly, one

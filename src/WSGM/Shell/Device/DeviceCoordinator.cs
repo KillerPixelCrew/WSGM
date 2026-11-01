@@ -53,6 +53,10 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         _loadRuntime;
 
     private readonly DeviceOemActionRouter _oemActions = new();
+
+    /// <summary>The power button, on a model whose definition can read both of its edges.</summary>
+    internal PowerButtonCoordinator PowerButton { get; }
+
     private readonly IDisposable _ownerMutex;
 
     private readonly Func<TimeSpan, CancellationToken, Task> _restartDelay;
@@ -137,6 +141,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     {
         _config = config;
         _store = store;
+        PowerButton = new PowerButtonCoordinator(store);
         Profiles = profiles;
         _sessionId = sessionId;
         _ownerMutex = ownerMutex;
@@ -687,6 +692,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         await _chargeLimits.StopAsync().ConfigureAwait(false);
         var state = await client.SuspendAsync(deadline, cancellationToken).ConfigureAwait(false);
         _oemActions.Reset();
+        PowerButton.Reset();
         SetState(state.State);
     }
 
@@ -877,6 +883,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         try
         {
             _oemActions.Dispose();
+            PowerButton.Dispose();
         }
         finally
         {
@@ -977,7 +984,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         lock (_backgroundGate)
         {
             background =
-                [.. _backgroundTasks, Power.AssignmentLoop, _oemActions.Completion];
+                [.. _backgroundTasks, Power.AssignmentLoop, _oemActions.Completion, PowerButton.Completion];
         }
 
         var backgroundStopped =
@@ -1216,6 +1223,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             Capabilities.Attach(client);
             Lighting.UpdateDesiredContext();
             _oemActions.Attach(client);
+            PowerButton.Attach(client);
             UpdateOemConfiguration();
             var controllerManagement = OwnsPhysicalController(
                 _config.DeviceIntegration.ControllerManagementEnabled,
@@ -1816,6 +1824,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         _hapticSink.Withdraw();
         Capabilities.Detach();
         _oemActions.Detach();
+        PowerButton.Detach();
     }
 
     /// <summary>
@@ -2158,6 +2167,28 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         return await ApplyControllerSelectionUnderGateAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>What a short press of the power button does.</summary>
+    internal PowerButtonShortPress PowerButtonShortPress => _config.DeviceIntegration.PowerButtonShortPress;
+
+    /// <summary>Saves and applies what a short press of the power button does.</summary>
+    /// <param name="value">The chosen action.</param>
+    /// <param name="token">Cancels transition admission or configuration persistence.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The value is not a defined action.</exception>
+    internal async Task SetPowerButtonShortPressAsync(PowerButtonShortPress value, CancellationToken token)
+    {
+        if (!Enum.IsDefined(value))
+        {
+            throw new ArgumentOutOfRangeException(nameof(value));
+        }
+
+        using var transition = await EnterTransitionAsync(token).ConfigureAwait(false);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        await PersistConfigurationAsync(config => config.DeviceIntegration.PowerButtonShortPress = value, token)
+            .ConfigureAwait(false);
+        PowerButton.UpdateConfiguration(value);
+        Log.Info($"Power button: short press set to {value}.");
+    }
+
     /// <summary>Persists one configuration change and announces it to configuration consumers.</summary>
     /// <remarks>Called with the transition gate held, so concurrent surfaces cannot interleave.</remarks>
     private async Task<AppConfig> PersistConfigurationAsync(
@@ -2183,6 +2214,14 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         _oemActions.ConfigureActions(actions);
+    }
+
+    /// <summary>Attaches what a power-button press may do in this session.</summary>
+    /// <param name="services">Borrowed callbacks owned by the shell.</param>
+    internal void ConfigurePowerButton(PowerButtonServices services)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        PowerButton.ConfigureActions(services);
     }
 
     /// <summary>The command route the coordinator's parts write through, with the five-second command budget.</summary>
@@ -2240,6 +2279,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
     private void UpdateOemConfiguration()
     {
+        PowerButton.UpdateConfiguration(_config.DeviceIntegration.PowerButtonShortPress);
         _oemActions.UpdateConfiguration(
             _config.DeviceIntegration.OemAssignments,
             ControllerManagementEnabled,

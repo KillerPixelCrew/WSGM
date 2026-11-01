@@ -104,6 +104,26 @@ public sealed class VisualTests
     }
 
     [AvaloniaTheory]
+    [InlineData("overlay-power-button-980", 980, 640)]
+    [InlineData("overlay-power-button-1280", 1280, 800)]
+    public void PowerButton(string name, int width, int height)
+    {
+        using UiFixture fixture = new();
+        var window = fixture.Overlay(width, height, 1.0);
+        UiFixture.Click(window, UiFixture.Tab(window, 3));
+        UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerActions));
+        var model = Assert.IsType<OverlayViewModel>(window.DataContext);
+        model.PowerButtonAvailable = true;
+        model.PowerButtonShortPress = PowerButtonShortPress.SteamSuspend;
+        Dispatcher.UIThread.RunJobs();
+        var section = window.PanelPowerActions.PowerButtonSection;
+        Assert.True(section.IsVisible);
+        section.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+        VisualBaseline.Verify(window, name);
+    }
+
+    [AvaloniaTheory]
     [InlineData("settings-system-1024", 0, 1024, 700)]
     [InlineData("settings-system-1280", 0, 1280, 800)]
     [InlineData("settings-quick-access-1024", 5, 1024, 700)]

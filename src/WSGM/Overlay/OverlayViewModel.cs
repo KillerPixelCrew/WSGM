@@ -137,6 +137,20 @@ public sealed class OverlayViewModel : ObservableObject
     /// </summary>
     public bool ShowKeepAwake { get; init; }
 
+    /// <summary>Whether this model's power button is handled, so its short-press choice is offered.</summary>
+    public bool PowerButtonAvailable
+    {
+        get;
+        set => SetFieldIfChanged(ref field, value, nameof(PowerButtonAvailable));
+    }
+
+    /// <summary>What a short press of the power button does.</summary>
+    public PowerButtonShortPress PowerButtonShortPress
+    {
+        get;
+        set => SetFieldIfChanged(ref field, value, nameof(PowerButtonShortPress));
+    }
+
     /// <summary>The user's manual wake mode (the row cycles it).</summary>
     public ManualWakeMode KeepAwakeManualMode
     {

@@ -39,6 +39,9 @@ public sealed class DeviceIntegrationConfig
     /// <summary>Manual reviewed glyph profile when <see cref="GlyphSelection" /> is manual.</summary>
     public string? ManualGlyphProfileId { get; set; }
 
+    /// <summary>What a short press of the power button does, on a model whose power button WSGM can read.</summary>
+    public PowerButtonShortPress PowerButtonShortPress { get; set; } = PowerButtonShortPress.Sleep;
+
     /// <summary>Allowlisted assignments for logical OEM controls.</summary>
     public List<DeviceOemAssignment> OemAssignments { get; set; } = [];
 

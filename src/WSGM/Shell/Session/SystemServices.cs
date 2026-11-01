@@ -16,6 +16,7 @@ internal sealed class SystemServices(SessionState state)
 {
     private ControllerManager? _controllerStatusSource;
     private ControllerDisplayWake? _controllerWake;
+    private PowerButtonWakeSignals? _powerButtonWake;
 
     // Field-rooted for the session lifetime: it owns a native power-setting
     // registration and the "did WSGM mute this?" flag.
@@ -172,6 +173,8 @@ internal sealed class SystemServices(SessionState state)
             ShellSession.TryStart("controller display wake",
                 () => _controllerWake =
                     new ControllerDisplayWake(messageWindow, wakeCoordinator.Controllers.Forwarding));
+            ShellSession.TryStart("power button wake guard",
+                () => _powerButtonWake = new PowerButtonWakeSignals(messageWindow, wakeCoordinator.PowerButton));
         }
 
         // Reads the flag on every wakeup, like the standby guard, so a config reload needs no rebuild.
@@ -293,6 +296,7 @@ internal sealed class SystemServices(SessionState state)
     internal void DisposeShellServices(ShutdownSteps steps)
     {
         steps.DisposeOwner("controller display wake", ref _controllerWake);
+        steps.DisposeOwner("power button wake guard", ref _powerButtonWake);
         steps.DisposeOwner("Modern Standby guard", ref _standbyGuard);
         steps.DisposeOwner("screen-off mute", ref _displayMute);
         steps.DisposeOwner("update monitor", ref _updates);

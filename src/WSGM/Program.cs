@@ -39,6 +39,14 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        // Windows starts this in place of SlideToShutDown.exe while WSGM handles the power button
+        // (PowerButtonTakeover). It must do nothing at all, before any other start-up work.
+        if (args.Length > 0 && string.Equals(args[0], PowerButtonTakeover.SlideBlockedFlag,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return 0;
+        }
+
         // Roslyn implements an async Main through a separate synchronous entry point and does not
         // carry STAThread onto that synthesized method. Keep the real process entry point
         // synchronous so normal startup and Avalonia begin on the Windows STA thread; command-only
@@ -308,6 +316,7 @@ public static class Program
         // would be left with an elevated Explorer (breaks UWP); see docs\elevation.md.
         ExplorerControl.StartExplorerAndVerify(Store.Context);
         GameModeReturnRecovery.RestoreBestEffort(Store);
+        PowerButtonTakeover.RestoreBestEffort(Store);
 
         // No Steam Input lease release here: a lease is pipe-backed, so a crashed shell's ends
         // when Windows closes its handles, and a live shell releases its own on the way out.
@@ -843,6 +852,7 @@ public static class Program
 
             RestoreDisplayScalesBestEffort();
             GameModeReturnRecovery.RestoreBestEffort(Store);
+            PowerButtonTakeover.RestoreBestEffort(Store);
         }
 
         // This process's own lease only: a crashing Settings process cannot release a still-running

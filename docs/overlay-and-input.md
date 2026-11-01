@@ -346,9 +346,11 @@ touching the machine.
 `OverlayController.ShowPowerMenu` opens the menu from the desktop or from an existing overlay. A new
 desktop power surface acquires no Steam Input lease. Cancelling that standalone menu closes its
 containing overlay; a menu opened from an existing overlay returns to that deck. `TogglePowerMenu`
-treats a repeated request as cancellation. These entry points install no physical power-button
-capture and change no Windows power-button policy; that integration belongs to the separate
-hardware-button work.
+treats a repeated request as cancellation. A hold of the handheld's power button on the desktop
+opens the menu through `TogglePowerMenu`, and a short press while it is open closes it; the button
+capture and Windows' power-button policy belong to `Shell\Power\PowerButtonCoordinator`, described
+in [power and display](power-and-display.md#the-power-button). The Power > Power page also carries
+the power button's short-press choice, shown only while the button is handled.
 
 ### Closure and validation
 

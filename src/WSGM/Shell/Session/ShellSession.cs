@@ -40,6 +40,7 @@ public sealed class ShellSession
     // The one owner of the display-off timeouts: the overlay's Power page and the rows WSGM adds to
     // Steam's Screensaver settings both edit through it, and it hears Steam's screensaver timeout.
     private readonly DisplayTimeouts _displayTimeouts;
+    private PowerButtonSetting? _powerButtonSetting;
 
     private readonly GameModeEntryBackend _entryBackend;
     private readonly NativeQamHybridCoreService _hybridCores;
@@ -534,6 +535,7 @@ public sealed class ShellSession
 
         _integrations.StartGraphicsOverlay();
         _tools.Start();
+        _powerButtonSetting = new PowerButtonSetting(_integrations.Device);
         var overlay = _overlay = new OverlayController(
             _state.Config,
             _state.Store,
@@ -582,7 +584,8 @@ public sealed class ShellSession
             _storage.Formats,
             _displayTimeouts,
             _messageWindow,
-            _power);
+            _power,
+            _powerButtonSetting);
         overlay.ShowOnScreenKeyboard = _commands.ShowOnScreenKeyboardAsync;
         overlay.SteamClient = _steamUi.Client;
         if (!_state.OverlayTestOnly)
@@ -698,6 +701,7 @@ public sealed class ShellSession
     private void WireSessionEvents(SessionModes modes, SteamMonitor monitor)
     {
         _integrations.Device?.ConfigureOemActions(_commands.OemActions());
+        _integrations.Device?.ConfigurePowerButton(_commands.PowerButtonActions());
         if (!_state.OverlayTestOnly)
         {
             _storage.StartBadge();
@@ -776,6 +780,7 @@ public sealed class ShellSession
             Resolution = _performance.Resolutions,
             Storage = _storage.SteamStorage,
             DisplayTimeouts = _displayTimeouts,
+            PowerButton = _powerButtonSetting,
             PluginSteamUi = _steamUi.PluginSource,
             Artwork = _library.ArtworkPage,
             LibraryImport = _library.GameLibrary,

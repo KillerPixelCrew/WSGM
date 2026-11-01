@@ -32,4 +32,8 @@
                   IconGeometry="{x:Static c:Icons.Power}"
                   Title="Shut down"
                   Description="Turn off this device" />
+  <StackPanel x:Name="PowerButtonSection" Spacing="8" IsVisible="False">
+    <TextBlock Text="POWER BUTTON" Classes="eyebrow" Margin="2,8,2,2" />
+    <StackPanel x:Name="PowerButtonHost" Spacing="8" />
+  </StackPanel>
 </StackPanel>

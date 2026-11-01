@@ -42,6 +42,8 @@ internal static class WsgmSharedSettings
             (config, value) => config.DeviceIntegration.Enabled = (bool)value),
         new("DeviceIntegration.AutoTdpEnabled", config => config.DeviceIntegration.AutoTdpEnabled,
             (config, value) => config.DeviceIntegration.AutoTdpEnabled = (bool)value),
+        new("DeviceIntegration.PowerButtonShortPress", config => config.DeviceIntegration.PowerButtonShortPress,
+            (config, value) => config.DeviceIntegration.PowerButtonShortPress = (PowerButtonShortPress)value),
         new("Profiles.Global.ControllerTarget",
             config => config.Profiles.Global.ControllerTarget ?? ProfileFields.DefaultControllerTarget,
             (config, value) => config.Profiles.Global.ControllerTarget = (ManagedControllerTarget)value),

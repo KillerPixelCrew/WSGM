@@ -7,6 +7,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using WSGM.Controls;
 using WSGM.Core;
+using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
@@ -25,6 +26,8 @@ internal sealed class OverlayPowerEditors
     private readonly Dictionary<PowerTimeoutKind, ComboBox> _timeoutEditors = [];
     private readonly OverlayViewModel? _viewModel;
     private readonly ComboBox _wakeEditor;
+    private readonly ComboBox _powerButtonEditor;
+    private readonly Panel _powerButtonSection;
     private bool _refreshing;
 
     /// <summary>Builds the editors into their pages and follows the view model.</summary>
@@ -32,9 +35,19 @@ internal sealed class OverlayPowerEditors
     /// <param name="keepAwakeHost">The Wake page panel that receives the Keep awake row.</param>
     /// <param name="keepAwakeDetail">The Wake page caption that describes the current hold.</param>
     /// <param name="timeoutHost">The Idle timeouts page panel that receives one row per timeout.</param>
+    /// <param name="powerButtonSection">The Power page section shown only while the power button is handled.</param>
+    /// <param name="powerButtonHost">The panel in that section that receives the short-press row.</param>
     internal OverlayPowerEditors(OverlayViewModel? viewModel, Panel keepAwakeHost, TextBlock keepAwakeDetail,
-        Panel timeoutHost)
+        Panel timeoutHost, Panel powerButtonSection, Panel powerButtonHost)
     {
+        _powerButtonSection = powerButtonSection;
+        _powerButtonEditor = new ComboBox { MinWidth = 180, HorizontalAlignment = HorizontalAlignment.Stretch };
+        _powerButtonEditor.ItemsSource = Enum.GetValues<PowerButtonShortPress>()
+            .Select(value => new PowerButtonChoice(value, PowerButtonSetting.Label(value))).ToArray();
+        Observe<PowerButtonChoice>(_powerButtonEditor, selected => PowerButtonSelected?.Invoke(selected.Value));
+        powerButtonHost.Children.Add(new DeviceSettingRow("power.button.short-press", "Short press",
+            "Hold the button to open the power menu", _powerButtonEditor, _ => { }));
+
         _viewModel = viewModel;
         _keepAwakeDetail = keepAwakeDetail;
         _wakeEditor = new ComboBox { MinWidth = 180, HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -82,6 +95,9 @@ internal sealed class OverlayPowerEditors
     /// <summary>Raised with the manual wake hold the user chose.</summary>
     internal event Action<ManualWakeMode>? KeepAwakeSelected;
 
+    /// <summary>Raised with the short-press action the user picked for the power button.</summary>
+    internal event Action<PowerButtonShortPress>? PowerButtonSelected;
+
     /// <summary>Raised with the timeout and its new value in seconds when the user picks one.</summary>
     internal event Action<PowerTimeoutKind, int>? PowerTimeoutSelected;
 
@@ -119,6 +135,13 @@ internal sealed class OverlayPowerEditors
             }
 
             _keepAwakeDetail.Text = vm.KeepAwakeDescription;
+            _powerButtonSection.IsVisible = vm.PowerButtonAvailable;
+            if (_powerButtonEditor is { IsDropDownOpen: false })
+            {
+                _powerButtonEditor.SelectedItem = _powerButtonEditor.Items.OfType<PowerButtonChoice>()
+                    .FirstOrDefault(choice => choice.Value == vm.PowerButtonShortPress);
+            }
+
             foreach (var (kind, row) in _hibernateRows)
             {
                 // A machine that cannot hibernate reads no value; its timeout would do nothing.
@@ -166,7 +189,8 @@ internal sealed class OverlayPowerEditors
     private void OnStateChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(OverlayViewModel.KeepAwakeManualMode)
-            or nameof(OverlayViewModel.KeepAwakeDescription) or nameof(OverlayViewModel.PowerTimeoutValues))
+            or nameof(OverlayViewModel.KeepAwakeDescription) or nameof(OverlayViewModel.PowerTimeoutValues)
+            or nameof(OverlayViewModel.PowerButtonAvailable) or nameof(OverlayViewModel.PowerButtonShortPress))
         {
             Refresh();
         }
@@ -180,6 +204,14 @@ internal sealed class OverlayPowerEditors
     }
 
     private sealed record WakeChoice(ManualWakeMode Mode, string Label)
+    {
+        public override string ToString()
+        {
+            return Label;
+        }
+    }
+
+    private sealed record PowerButtonChoice(PowerButtonShortPress Value, string Label)
     {
         public override string ToString()
         {

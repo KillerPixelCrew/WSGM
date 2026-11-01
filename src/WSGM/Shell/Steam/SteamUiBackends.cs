@@ -74,6 +74,9 @@ internal sealed record SteamUiBackends
     /// <summary>The display-off timeouts shared with the overlay, or null.</summary>
     internal DisplayTimeouts? DisplayTimeouts { get; init; }
 
+    /// <summary>The power button's short-press choice, shared with the overlay.</summary>
+    internal PowerButtonSetting? PowerButton { get; init; }
+
     /// <summary>The common-plugin projection rendered through host-owned Steam surfaces, or null.</summary>
     internal CommonPluginSteamUiSource? PluginSteamUi { get; init; }
 

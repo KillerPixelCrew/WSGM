@@ -82,6 +82,53 @@ internal sealed class SessionCommands(
         };
     }
 
+    /// <summary>Builds what the device's power button does in this session.</summary>
+    /// <returns>The power-button services.</returns>
+    internal PowerButtonServices PowerButtonActions()
+    {
+        return new PowerButtonServices
+        {
+            InGameMode = () => state.InGameMode,
+            OpenSteamPowerMenuAsync = async cancellationToken =>
+                SteamReachable() is { } transport
+                && await SteamPowerCommands.OpenPowerMenuAsync(transport, cancellationToken).ConfigureAwait(false),
+            ToggleDesktopPowerMenuAsync = cancellationToken => RunUiActionAsync(() =>
+            {
+                overlay()?.TogglePowerMenu();
+                return overlay() is not null;
+            }, cancellationToken),
+            CloseDesktopPowerMenuAsync = cancellationToken => RunUiActionAsync(() =>
+            {
+                if (overlay() is not { PowerMenuOpen: true } open)
+                {
+                    return false;
+                }
+
+                open.TogglePowerMenu();
+                return true;
+            }, cancellationToken),
+            RunSteamSuspendFlowAsync = async cancellationToken =>
+                SteamReachable() is { } transport
+                    ? await SteamPowerCommands.RunSuspendFlowAsync(transport, SteamPowerCommands.DefaultSuspendBudget,
+                        cancellationToken).ConfigureAwait(false)
+                    : SteamSuspendFlowResult.Unavailable,
+            NotifySteamResumedAsync = cancellationToken => steamUi.Readiness.RunWhenReadyAsync(
+                "Steam resume after a power-button sleep",
+                token => SteamReachable() is { } transport
+                    ? SteamPowerCommands.NotifyResumedAsync(transport, token)
+                    : Task.FromResult(false),
+                cancellationToken),
+            EnterStandby = PowerActions.EnterStandby,
+            RequestPowerAction = PowerActions.Request
+        };
+    }
+
+    /// <summary>The Steam UI transport when Steam integration is on and Steam is running, otherwise null.</summary>
+    private PersistentSteamUiTransport? SteamReachable()
+    {
+        return state.Config.Cef.Enabled && monitor()?.IsAlive == true ? steamUi.Transport : null;
+    }
+
     /// <summary>Toggles WSGM's overlay, from an OEM button or from Steam.</summary>
     /// <param name="cancellationToken">Cancels the request before it reaches the UI thread.</param>
     /// <returns>Whether an overlay existed to toggle.</returns>

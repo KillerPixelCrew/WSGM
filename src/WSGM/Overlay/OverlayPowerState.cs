@@ -24,6 +24,7 @@ internal sealed class OverlayPowerState : IDisposable
 {
     private readonly DisplayTimeouts? _displayTimeouts;
     private readonly KeepAwakeService? _keepAwake;
+    private readonly PowerButtonSetting? _powerButton;
     private readonly WindowsPowerPolicy _power;
     private readonly bool _previewOnly;
     private bool _disposed;
@@ -40,9 +41,16 @@ internal sealed class OverlayPowerState : IDisposable
     /// <param name="keepAwake">The session's Keep awake owner, or null on a surface without one.</param>
     /// <param name="displayTimeouts">The display timeouts shared with Steam's Screensaver settings, or null.</param>
     /// <param name="previewOnly">Whether this surface is a preview that never changes the machine.</param>
+    /// <param name="powerButton">The power button's short-press choice shared with Steam, or null.</param>
     internal OverlayPowerState(WindowsPowerPolicy power, KeepAwakeService? keepAwake,
-        DisplayTimeouts? displayTimeouts, bool previewOnly)
+        DisplayTimeouts? displayTimeouts, bool previewOnly, PowerButtonSetting? powerButton = null)
     {
+        _powerButton = powerButton;
+        if (_powerButton is not null)
+        {
+            _powerButton.Changed += OnPowerButtonChanged;
+        }
+
         _power = power;
         _keepAwake = keepAwake;
         _displayTimeouts = displayTimeouts;
@@ -62,6 +70,11 @@ internal sealed class OverlayPowerState : IDisposable
     public void Dispose()
     {
         _disposed = true;
+        if (_powerButton is not null)
+        {
+            _powerButton.Changed -= OnPowerButtonChanged;
+        }
+
         if (_displayTimeouts is not null)
         {
             _displayTimeouts.Changed -= OnDisplayTimeoutsChanged;
@@ -87,6 +100,28 @@ internal sealed class OverlayPowerState : IDisposable
             // the view model then emits no property notification of its own.
             vm.KeepAwakeManualMode = _keepAwake?.ManualMode ?? ManualWakeMode.Off;
             overlay.PowerEditors.Refresh();
+        };
+        overlay.PowerEditors.PowerButtonSelected += async value =>
+        {
+            if (_previewOnly || _powerButton is null)
+            {
+                return;
+            }
+
+            try
+            {
+                await _powerButton.SelectAsync(value, CancellationToken.None);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Log.Error("The power button choice could not be saved", ex);
+            }
+
+            if (ReferenceEquals(_viewModel, vm))
+            {
+                RefreshPowerButton(vm);
+                overlay.PowerEditors.Refresh();
+            }
         };
         overlay.PowerEditors.PowerTimeoutSelected += async (kind, seconds) =>
         {
@@ -164,7 +199,25 @@ internal sealed class OverlayPowerState : IDisposable
     {
         vm.KeepAwakeManualMode = _keepAwake?.ManualMode ?? ManualWakeMode.Off;
         vm.KeepAwakeDownloadActive = _keepAwake?.DownloadHold ?? false;
+        RefreshPowerButton(vm);
         RefreshPowerTimeouts(vm);
+    }
+
+    private void RefreshPowerButton(OverlayViewModel vm)
+    {
+        vm.PowerButtonAvailable = _powerButton?.Available == true;
+        vm.PowerButtonShortPress = _powerButton?.Current ?? PowerButtonShortPress.Sleep;
+    }
+
+    private void OnPowerButtonChanged()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!_disposed && _viewModel is { } vm)
+            {
+                RefreshPowerButton(vm);
+            }
+        });
     }
 
     /// <summary>Reads the idle timeouts again once the Windows energy plan changed and settled.</summary>

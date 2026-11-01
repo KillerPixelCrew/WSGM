@@ -45,6 +45,13 @@ lifecycle transition release held controller, keyboard and mouse edges. Model-sp
 tables are never automatically re-sent. Do not add ASUS ATKACPI INIT or WDOG IDs. Preserve Claw 0x50
 then 0x51 power writes 200 ms apart and its measured firmware chord state machine.
 
+The system power button is a `Power` placement OEM control, never a remappable one. Publish it only
+from a source that reads both edges and only while that source reads; WSGM takes Windows' button
+handling over exactly while it is published. A model whose button Windows reports with a press edge
+only (the Claw 8's ACPI fixed-feature button) publishes none. A family opts into the shared Intel
+HID Event Filter reader by adding `IntelPdcPowerButtonService` to its services, after attended
+evidence in its provenance.
+
 Read [source contribution](references/authoring-and-packaging.md) and
 [host integration](references/host-and-debugging.md) for the remaining boundary rules. Follow the
 root manual-first validation policy. No static fixture, source review or build establishes hardware
