@@ -7,6 +7,7 @@ using Avalonia.Threading;
 using WSGM.Controls;
 using WSGM.Input;
 using WSGM.Overlay;
+using WSGM.Shell;
 using WSGM.UiTests.Fakes;
 using WSGM.UiTests.Infrastructure;
 
@@ -37,6 +38,101 @@ public static class PreviewTools
     {
         Directory.CreateDirectory(directory);
         Export(directory, width, height, StorageScenarios);
+    }
+
+    /// <summary>
+    ///     Exports the artwork game searches: the Game Library's "Fix match" while it runs, with every
+    ///     provider's reason, and with matches, and the artwork page's game search with its reasons.
+    /// </summary>
+    public static void ExportMatchCases(string directory, int width, int height)
+    {
+        Directory.CreateDirectory(directory);
+        const string keyDetail = "Needs an API key. Get a free one at "
+                                 + "https://www.steamgriddb.com/profile/preferences/api and add it in WSGM Settings "
+                                 + "under Artwork.";
+        foreach (var scenario in new[]
+                 {
+                     "importer-match-searching", "importer-match-reasons", "importer-match-found",
+                     "artwork-filters-reasons"
+                 })
+        {
+            using var fixture = new UiFixture();
+            var library = new FakeLibrarySource();
+            var artwork = new FakeArtworkSource();
+            var window = Create(fixture, width, height, library);
+            UiFixture.Named<ArtworkView>(window, "ArtworkHost").AttachSession(artwork);
+            if (scenario.StartsWith("artwork", StringComparison.Ordinal))
+            {
+                UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SystemArtwork.ToString()));
+                Dispatcher.UIThread.RunJobs();
+                Click("Example game");
+                artwork.State = artwork.State with
+                {
+                    GameSearchProviders =
+                    [
+                        new ArtworkMatchProvider("steamgriddb", "SteamGridDB", "setup", keyDetail, 0),
+                        new ArtworkMatchProvider("screenscraper", "Screenscraper.fr", "none", "No game by that name.",
+                            0)
+                    ]
+                };
+                Click("Filters");
+            }
+            else
+            {
+                UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SteamGameLibrary.ToString()));
+                Dispatcher.UIThread.RunJobs();
+                Click("Review (3)");
+                Click("New game");
+                Click("Staged artwork");
+                Click("Search game match");
+                library.State = library.State with
+                {
+                    MatchSearch = scenario switch
+                    {
+                        "importer-match-searching" => new GameLibraryMatchSearchState("new-one",
+                            "The Blood of Dawnwalker", true, [], []),
+                        "importer-match-reasons" => new GameLibraryMatchSearchState("new-one",
+                            "The Blood of Dawnwalker", false, [],
+                            [
+                                new ArtworkMatchProvider("steamgriddb", "SteamGridDB", "setup", keyDetail, 0),
+                                new ArtworkMatchProvider("screenscraper", "Screenscraper.fr", "failed",
+                                    "Screenscraper is not responding. Try again later.", 0)
+                            ]),
+                        _ => new GameLibraryMatchSearchState("new-one", "The Blood of Dawnwalker", false,
+                            [
+                                new GameLibraryMatchAnswer("steamgriddb", "SteamGridDB", "1",
+                                    "The Blood of Dawnwalker", true),
+                                new GameLibraryMatchAnswer("steamgriddb", "SteamGridDB", "2",
+                                    "The Blood of Dawnwalker: Prologue", false)
+                            ],
+                            [
+                                new ArtworkMatchProvider("steamgriddb", "SteamGridDB", "found", "", 2),
+                                new ArtworkMatchProvider("screenscraper", "Screenscraper.fr", "none",
+                                    "No game by that name.", 0)
+                            ])
+                    }
+                };
+                library.Publish();
+            }
+
+            Dispatcher.UIThread.RunJobs();
+            window.FocusManager!.Focus(null);
+            window.MouseMove(new Point(-20, -20));
+            using var image = window.CaptureRenderedFrame() ??
+                              throw new InvalidOperationException("No match preview was rendered.");
+            image.Save(Path.Combine(directory, $"{scenario}-{width}x{height}.png"), new PngBitmapEncoderOptions());
+            window.Close();
+            continue;
+
+            void Click(string title)
+            {
+                var button = FocusSearch.First<ActionButton>(window,
+                                 button => button.Title == title && button.IsEffectivelyVisible)
+                             ?? throw new InvalidOperationException("Preview action is missing: " + title);
+                UiFixture.Click(window, button);
+                Dispatcher.UIThread.RunJobs();
+            }
+        }
     }
 
     internal static OverlayWindow Create(UiFixture fixture, int width = 1280, int height = 800,

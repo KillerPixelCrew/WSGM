@@ -19,9 +19,15 @@ public sealed partial class SystemToolsPage : StackPanel
     /// <summary>Raised when the user requests Task Manager.</summary>
     internal event Action? TaskManagerRequested;
 
-    private void OnSettings(object? sender, RoutedEventArgs e)
+    /// <summary>Asks for the Settings window as this page's own row does, for a view that offers the same step.</summary>
+    internal void RequestSettings()
     {
         SettingsRequested?.Invoke();
+    }
+
+    private void OnSettings(object? sender, RoutedEventArgs e)
+    {
+        RequestSettings();
     }
 
     private void OnTaskManager(object? sender, RoutedEventArgs e)

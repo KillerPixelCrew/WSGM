@@ -136,9 +136,12 @@ public sealed class SettingsSaveMergeTests
         foreach (var field in WsgmSharedSettings.All)
         {
             var current = field.Read(fresh);
-            var changed = current is bool boolean
-                ? !boolean
-                : Enum.GetValues(current.GetType()).Cast<object>().First(item => !item.Equals(current));
+            var changed = current switch
+            {
+                bool boolean => !boolean,
+                string text => text + "-runtime",
+                _ => Enum.GetValues(current.GetType()).Cast<object>().First(item => !item.Equals(current))
+            };
             field.Write(fresh, changed);
         }
 

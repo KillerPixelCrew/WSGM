@@ -37,6 +37,57 @@ const artworkFilterOptions = (tab: string) => ({
 const readableFilter = (value: string) =>
   value.replace("image/", "").replaceAll("_", " ").replace("x", "×");
 
+// Where an artwork provider that needs a key is set up inside Steam: WSGM's settings page.
+const ArtworkSettingsRoute = "/wsgm/settings/artwork";
+
+/**
+ * Draws what a finished game search heard from each provider that matched nothing: it needs a key
+ * (with the way to add one), is off, did not answer, or knows no such game. The artwork page's game
+ * search and the Game Library's "Fix match" publish the same per-provider list.
+ * @param ui Steam's resolved components.
+ * @param providers The host's per-provider outcomes, in provider order.
+ * @param leave Closes what the search is drawn in, such as a modal, before the settings page opens.
+ * @returns The status lines and setup buttons, or null when every provider found games.
+ */
+const renderArtworkProviderOutcomes = (
+  ui: any,
+  providers: any[] | null | undefined,
+  leave?: () => void,
+) => {
+  const h = ui.react.createElement;
+  const silent = (Array.isArray(providers) ? providers : []).filter(
+    (provider: any) => provider.status !== "found",
+  );
+  if (!silent.length) return null;
+  return h(
+    ui.react.Fragment,
+    null,
+    renderSteamUiStatus(
+      ui,
+      silent.map((provider: any) => ({
+        key: `provider:${provider.provider}`,
+        text: `${provider.name}: ${provider.detail}`,
+        error: provider.status === "failed",
+      })),
+    ),
+    ...silent
+      .filter((provider: any) => provider.status === "setup")
+      .map((provider: any) =>
+        h(
+          ui.dialogButton,
+          {
+            key: `setup:${provider.provider}`,
+            onClick: () => {
+              leave?.();
+              navigateSteamRoute(ArtworkSettingsRoute, steamInteractionWindow());
+            },
+          },
+          `Add a ${provider.name} key`,
+        ),
+      ),
+  );
+};
+
 // Sends one artwork command; a refusal shows in the page's banner and resolves undefined.
 const artworkAct = (command: string, payload: any = {}) => artworkBrowserPage.act(command, payload);
 
@@ -238,6 +289,12 @@ function ArtworkFilterModal({ ui, tab, label, initialFilter, closeModal }) {
           )
         : null,
     ),
+    state?.gameSearching ? renderSteamUiStatus(ui, ["Searching every provider…"]) : null,
+    state?.gameSearchError
+      ? renderSteamUiStatus(ui, [{ key: "search", text: String(state.gameSearchError), error: true }])
+      : null,
+    state && !state.gameSearching ? renderArtworkProviderOutcomes(ui, state.gameSearchProviders, closeModal)
+      : null,
     matches.length
       ? h(
           Focusable,

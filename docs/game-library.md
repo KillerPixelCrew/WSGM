@@ -40,7 +40,10 @@ Steam page; the Overlay uses focusable command and choice rows within its own na
   may already have, or a title the user deleted from Steam; those are ticked one at a time.
 - **One title's artwork** (Y on a card): every candidate for each artwork type, grouped by provider,
   with "Fix match" to search again under any name. Its results list SteamGridDB's and
-  Screenscraper's games together, grouped by provider, and the user picks one.
+  Screenscraper's games together, grouped by provider, and the user picks one. A provider that found
+  nothing says why beside the results: SteamGridDB needs a key (with a button to WSGM's Artwork
+  settings in Steam, or Settings from the overlay), Screenscraper is not responding, or it knows no
+  game by that name.
 - **All artwork:** every selected title as a row, one column per artwork type. The D-pad moves
   between cells and LT/RT cycle an image, so a whole library is dressed without opening titles one
   by one. Bulk actions fill every title from the Store or SteamGridDB first, fill only empty slots,
@@ -248,10 +251,17 @@ There are two rules for asking the providers, one for each question:
   Screenscraper, a ROM database, is asked only when SteamGridDB does not know the title, or its game
   there has no images. The match is that provider's first exact result for the title's name, else
   its first result. A provider that could not be asked (a rejected key, a spent quota, no
-  connection) stops the match there and marks the title failed with the provider's reason; it never
-  falls through to a provider that might pin a wrong game.
+  connection) gives way to the next one; when none answers, the title is marked failed with the
+  provider's reason rather than as having no artwork.
 - **"Fix match"**, with the user choosing, searches every ready provider at once and lists their
-  games together, the way the artwork page does. The game the user picks is kept as a choice.
+  games together, the way the artwork page does. The game the user picks is kept as a choice. The
+  command only starts the search and answers at once: a provider can take its whole request timeout
+  (Screenscraper's is 20 seconds, behind whatever request already holds its one slot), far longer
+  than the 5 seconds the Steam bridge waits for a command. The search runs in the background and is
+  published as the state's `matchSearch`, which both surfaces draw: "Searching" while it runs, then
+  the matches and one outcome per provider (`found`, `none`, `failed`, `setup` for a missing key,
+  `off`). A newer search replaces one still running, and picking a game or the automatic match
+  closes it.
 
 A title's artwork status is ready, not found (every provider was asked and none had images), failed
 (with the reason), or unavailable (no provider is set up, with what to do). Entering or correcting a
@@ -264,9 +274,12 @@ time, backing off on a 429, and Screenscraper one, since a free account, registe
 allowed one thread. A page a provider answered is remembered for the session, checked both before
 and behind the gate, and a failure is remembered for half a minute so the lookups queued behind it
 do not each wait out the timeout. The background gathering waits behind every request a person is
-waiting on, so the artwork page and "Fix match" are answered first. Screenscraper's media URLs carry
-the request's credentials; the user's account is taken out of every URL before it is shown, stored
-or logged, and put back only for the download, which goes through the same gate.
+waiting on, so the artwork page and "Fix match" are answered first; a request already in flight
+still finishes or times out first. Nothing retries a request: when Screenscraper does not answer,
+each distinct lookup (one per title, and the user's search) costs its own 20 second timeout, one
+after another, and says "Screenscraper is not responding" rather than "no artwork". Screenscraper's
+media URLs carry the request's credentials; the user's account is taken out of every URL before it
+is shown, stored or logged, and put back only for the download, which goes through the same gate.
 
 Each title starts on the first candidate from the provider Settings prefers, per artwork type. A
 title Steam already has starts on "keep current" and changes nothing until the user picks an image.

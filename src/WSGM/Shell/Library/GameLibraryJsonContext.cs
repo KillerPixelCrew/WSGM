@@ -15,5 +15,4 @@ namespace WSGM.Shell;
 [JsonSerializable(typeof(GameLibraryRouteAnswer))]
 [JsonSerializable(typeof(GameLibraryAcknowledgeAnswer))]
 [JsonSerializable(typeof(GameLibraryOptionsAnswer))]
-[JsonSerializable(typeof(GameLibraryMatchesAnswer))]
 internal sealed partial class GameLibraryJsonContext : JsonSerializerContext;

@@ -21,9 +21,6 @@ public sealed partial class GameLibraryView
     private string _folderPath = "";
     private bool _grid = true;
     private string _group = "";
-    private string? _matchEntry;
-    private string? _matchError;
-    private GameLibraryMatchesAnswer? _matches;
     private string _search = "";
     private int _shown = 48;
     private string _sourceId = "";
@@ -274,28 +271,48 @@ public sealed partial class GameLibraryView
 
     private void RenderMatch(string id)
     {
-        if (_service?.ReadState().Entries.FirstOrDefault(entry => entry.Id == id) is not { } entry)
+        if (ReadMatch(id) is not { } shown)
         {
             Back();
             return;
         }
 
+        var entry = shown.Entry;
+        var search = shown.Search;
         var body = NewStack("Artwork game match");
         body.Children.Add(Caption(entry.MatchName.Length == 0 ? "Automatic match" : entry.MatchName));
-        body.Children.Add(Tagged(Row("Search", entry.Name, Icons.ListLines, () => EditText("Find artwork game",
-            entry.Name, 0,
-            query => _ = RunSafelyAsync(SearchAsync(query), "match search"))), "match.search"));
+        body.Children.Add(Tagged(Row("Search", search?.Query ?? entry.Name, Icons.ListLines,
+            () => EditText("Find artwork game", search?.Query ?? entry.Name, 0,
+                query => Run(token => _service!.SearchMatchAsync(id, query, token)))), "match.search"));
         body.Children.Add(Tagged(
             Row("Use automatic match", "Discard the fixed match", Icons.Restart,
                 () => Run(token => _service!.SetMatchAsync(id, "", "", "", token))), "match.auto"));
-        if (_matchEntry == id)
+        if (search is not null)
         {
-            if (_matchError is not null)
+            if (search.Searching)
             {
-                body.Children.Add(Caption(_matchError));
+                body.Children.Add(Caption($"Searching every provider for “{search.Query}”…"));
             }
 
-            foreach (var match in _matches?.Matches ?? [])
+            if (search.Error is not null)
+            {
+                body.Children.Add(Caption(search.Error));
+            }
+
+            // Each provider that found nothing says why, where the results would be: a provider that
+            // needs a key, is off, did not answer, or knows no such game.
+            foreach (var provider in search.Providers.Where(provider => provider.Status != "found"))
+            {
+                body.Children.Add(Caption($"{provider.Name}: {provider.Detail}"));
+                if (provider.Status == "setup" && SettingsRequested is not null)
+                {
+                    body.Children.Add(Tagged(Row("Open WSGM Settings",
+                        "Add the " + provider.Name + " key under Artwork",
+                        Icons.Gear, () => SettingsRequested?.Invoke()), "match.setup:" + provider.Provider));
+                }
+            }
+
+            foreach (var match in search.Matches)
             {
                 var chosen = match;
                 body.Children.Add(Tagged(Row(match.Name, match.ProviderName + (match.Exact ? " · Exact" : ""),
@@ -306,25 +323,20 @@ public sealed partial class GameLibraryView
             }
         }
 
-        // Only the title's name and match come from the library; the search results are the view's own.
-        SetLiveContent(body, entry, () => _service?.ReadState().Entries.FirstOrDefault(item => item.Id == id),
-            static (a, b) => a.Name == b.Name && a.MatchName == b.MatchName, null);
-        return;
+        // The title's name and match and its search come from the library, so a search that finishes
+        // while this level is open redraws it.
+        SetLiveContent(body, shown, () => ReadMatch(id),
+            static (a, b) => a.Entry.Name == b.Entry.Name && a.Entry.MatchName == b.Entry.MatchName
+                                                          && Equals(a.Search, b.Search), null);
+    }
 
-        async Task SearchAsync(string query)
-        {
-            var generation = NavigationGeneration;
-            var result = await _service!.SearchMatchAsync(id, query, CancellationToken.None);
-            if (generation != NavigationGeneration)
-            {
-                return;
-            }
-
-            _matchEntry = id;
-            _matchError = result.Command.Error;
-            _matches = result.Matches;
-            RenderMatch(id);
-        }
+    /// <summary>One title and the "Fix match" search published for it, or null when it is no longer listed.</summary>
+    private MatchShown? ReadMatch(string id)
+    {
+        var state = _service?.ReadState();
+        return state?.Entries.FirstOrDefault(entry => entry.Id == id) is { } entry
+            ? new MatchShown(entry, state.MatchSearch?.Id == id ? state.MatchSearch : null)
+            : null;
     }
 
     private void RenderAllArtwork()
@@ -391,4 +403,7 @@ public sealed partial class GameLibraryView
             state.Loading || state.SelectedCount == 0 ? null : () => Run(_service.ApplyAsync)), "apply"));
         SetLibraryContent(body, state, SameSelectedArtwork);
     }
+
+    /// <summary>What the match level draws: the title and its search.</summary>
+    private sealed record MatchShown(GameLibraryEntry Entry, GameLibraryMatchSearchState? Search);
 }

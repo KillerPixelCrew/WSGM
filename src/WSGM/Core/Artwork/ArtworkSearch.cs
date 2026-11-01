@@ -44,8 +44,8 @@ internal static class ArtworkSearch
     /// <param name="term">The search term.</param>
     /// <param name="config">The loaded configuration.</param>
     /// <param name="cancellationToken">Cancels the search.</param>
-    /// <returns>Matches from every provider that answered, exact matches first.</returns>
-    public static Task<IReadOnlyList<ArtworkGameMatch>> SearchGamesAsync(
+    /// <returns>Matches from every provider that answered, exact matches first, with each provider's outcome.</returns>
+    public static Task<ArtworkGameSearch> SearchGamesAsync(
         string term, ArtworkConfig config, CancellationToken cancellationToken = default)
     {
         return SearchGamesAsync(term, config, cancellationToken, Providers);
@@ -56,19 +56,28 @@ internal static class ArtworkSearch
     /// <param name="config">The loaded configuration.</param>
     /// <param name="cancellationToken">Cancels the search.</param>
     /// <param name="providers">Ordered provider set used for this request.</param>
-    internal static async Task<IReadOnlyList<ArtworkGameMatch>> SearchGamesAsync(
+    /// <remarks>
+    ///     A provider that is not ready is not asked, and its outcome says why; one that failed keeps
+    ///     its failure. Neither reads as a provider that knows no such game.
+    /// </remarks>
+    internal static async Task<ArtworkGameSearch> SearchGamesAsync(
         string term, ArtworkConfig config, CancellationToken cancellationToken,
         IReadOnlyList<IArtworkProvider> providers)
     {
         ArgumentNullException.ThrowIfNull(config);
         if (string.IsNullOrWhiteSpace(term))
         {
-            return [];
+            return ArtworkGameSearch.Empty;
         }
 
-        var ready = providers.Where(p => p.GetStatus(config).IsReady).ToArray();
-        var results = await Task.WhenAll(ready.Select(async provider =>
+        var statuses = providers.Select(provider => provider.GetStatus(config)).ToArray();
+        var results = await Task.WhenAll(providers.Select(async (provider, index) =>
         {
+            if (!statuses[index].IsReady)
+            {
+                return (Matches: [], Failure: null);
+            }
+
             var (matches, failure) = await TrySearchAsync(provider, term, config, cancellationToken)
                 .ConfigureAwait(false);
             if (failure is not null)
@@ -76,18 +85,24 @@ internal static class ArtworkSearch
                 Log.Warn($"Artwork provider {provider.Id} title search failed: {failure.Message}");
             }
 
-            return matches;
+            return (Matches: matches, Failure: failure);
         })).ConfigureAwait(false);
 
         // Exact matches first, then provider declaration order, then the provider's own ranking.
-        return
+        IReadOnlyList<ArtworkGameMatch> merged =
         [
             .. results
-                .SelectMany((matches, index) => matches.Select(match => (match, index)))
+                .SelectMany((result, index) => result.Matches.Select(match => (match, index)))
                 .OrderByDescending(pair => pair.match.Exact)
                 .ThenBy(pair => pair.index)
                 .Select(pair => pair.match)
         ];
+        IReadOnlyList<ArtworkProviderOutcome> outcomes =
+        [
+            .. providers.Select((provider, index) => new ArtworkProviderOutcome(
+                provider.DisplayName, statuses[index], results[index].Failure?.Message, provider.Id))
+        ];
+        return new ArtworkGameSearch(merged, outcomes);
     }
 
     /// <summary>Matches imported content using its source's provider and explicit ROM system first.</summary>

@@ -480,6 +480,13 @@ internal sealed class ScreenscraperProvider : IArtworkProvider
             Log.Warn($"Screenscraper returned unparseable JSON: {ex.Message}");
             throw new ScreenscraperException("Screenscraper returned a response WSGM could not read.");
         }
+        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        {
+            // HttpClient's own deadline: the site took the connection and never answered, which is
+            // what an overloaded Screenscraper does. Said as such, so it does not read as no network.
+            Log.Warn($"Screenscraper request failed: {ex.Message}");
+            throw new ScreenscraperException("Screenscraper is not responding. Try again later.");
+        }
         catch (Exception ex)
         {
             Log.Warn($"Screenscraper request failed: {ex.Message}");

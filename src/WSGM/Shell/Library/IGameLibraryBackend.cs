@@ -245,12 +245,15 @@ public interface IGameLibraryBackend
     /// </returns>
     Task<SteamUiCommandResult> ArtworkOptionsAsync(string id, string asset, CancellationToken cancellationToken);
 
-    /// <summary>Searches every artwork provider for the right game, answering with the matches.</summary>
+    /// <summary>Starts a search of every artwork provider for the right game, replacing one that runs.</summary>
     /// <param name="id">Stable review entry identifier from GameLibraryEntry.Id.</param>
-    /// <param name="query">Title search text sent to the artwork providers.</param>
-    /// <param name="cancellationToken">Cancels the provider search.</param>
-    /// <returns>Provider matches and any refusal or provider failure detail.</returns>
-    Task<GameLibraryMatchSearch> SearchMatchAsync(string id, string query, CancellationToken cancellationToken);
+    /// <param name="query">Title search text sent to the artwork providers; blank searches the title's name.</param>
+    /// <param name="cancellationToken">Cancels admission only; the search itself runs in the background.</param>
+    /// <returns>
+    ///     Whether the search was admitted. Its progress, matches and each provider's outcome are
+    ///     published as <see cref="GameLibraryState.MatchSearch" />.
+    /// </returns>
+    Task<SteamUiCommandResult> SearchMatchAsync(string id, string query, CancellationToken cancellationToken);
 
     /// <summary>Matches an entry to a provider's game, or back to the automatic match with an empty id.</summary>
     /// <param name="id">Stable review entry identifier from GameLibraryEntry.Id.</param>

@@ -69,7 +69,7 @@ internal sealed class SteamGridDbProvider : IArtworkProvider
             ? ArtworkProviderStatus.Ready
             : new ArtworkProviderStatus(
                 ArtworkProviderReadiness.MissingCredentials,
-                $"No API key. Get a free one at {KeyPageUrl} and set it in Settings.");
+                $"Needs an API key. Get a free one at {KeyPageUrl} and add it in WSGM Settings under Artwork.");
     }
 
     /// <inheritdoc />

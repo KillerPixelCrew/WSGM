@@ -41,6 +41,8 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 
     private Dictionary<string, ArtworkCandidate> _candidates = new(StringComparer.Ordinal);
     private int _disposeStarted;
+    private CancellationTokenSource? _gameSearch;
+    private long _gameSearchGeneration;
     private long _generation;
     private CancellationTokenSource? _load;
     private Dictionary<string, ArtworkGameMatch> _matches = new(StringComparer.Ordinal);
@@ -98,6 +100,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         lock (_gate)
         {
             _load?.Cancel();
+            _gameSearch?.Cancel();
             _state = null;
         }
     }
@@ -339,11 +342,41 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    ///     Answers once the search is admitted: a provider can take its whole request timeout, longer
+    ///     than the bridge waits. The page draws <see cref="SteamArtworkBrowserState.GameSearching" />
+    ///     until the matches and each provider's reason arrive. A new search replaces the one running.
+    /// </remarks>
     public Task<SteamUiCommandResult> SearchGamesAsync(
         string term, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        _ = SearchGamesObservedAsync(term, _shutdown.Token);
+        CancellationToken token;
+        long generation;
+        lock (_gate)
+        {
+            if (_state is null)
+            {
+                return Refuse("No artwork page is open.");
+            }
+
+            _gameSearch?.Cancel();
+            _gameSearch?.Dispose();
+            _gameSearch = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
+            token = _gameSearch.Token;
+            generation = ++_gameSearchGeneration;
+            _state = _state with
+            {
+                GameMatches = [],
+                GameSearching = true,
+                GameSearchProviders = [],
+                GameSearchError = null,
+                Revision = ++_revision
+            };
+        }
+
+        Changed?.Invoke();
+        _ = SearchGamesObservedAsync(term, generation, token);
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
@@ -585,11 +618,12 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         return (_load.Token, ++_generation);
     }
 
-    private async Task SearchGamesCoreAsync(string term, CancellationToken cancellationToken)
+    private async Task SearchGamesCoreAsync(string term, long generation, CancellationToken cancellationToken)
     {
         var config = _readConfiguration();
-        var matches = await ArtworkSearch.SearchGamesAsync(term, config, cancellationToken, _providers)
+        var search = await ArtworkSearch.SearchGamesAsync(term, config, cancellationToken, _providers)
             .ConfigureAwait(false);
+        var matches = search.Matches;
         var mapped = new List<SteamArtworkBrowserGame>(matches.Count);
         var lookup = new Dictionary<string, ArtworkGameMatch>(StringComparer.Ordinal);
         foreach (var match in matches)
@@ -604,7 +638,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 
         lock (_gate)
         {
-            if (_state is null)
+            if (_state is null || generation != _gameSearchGeneration)
             {
                 return;
             }
@@ -613,7 +647,8 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
             _state = _state with
             {
                 GameMatches = mapped,
-                Notice = mapped.Count == 0 ? "No matching games were found." : null,
+                GameSearching = false,
+                GameSearchProviders = ArtworkMatchProvider.Of(search),
                 Revision = ++_revision
             };
         }
@@ -621,11 +656,11 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         Changed?.Invoke();
     }
 
-    private async Task SearchGamesObservedAsync(string term, CancellationToken cancellationToken)
+    private async Task SearchGamesObservedAsync(string term, long generation, CancellationToken cancellationToken)
     {
         try
         {
-            await SearchGamesCoreAsync(term, cancellationToken).ConfigureAwait(false);
+            await SearchGamesCoreAsync(term, generation, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -635,9 +670,14 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
             Log.Warn($"Steam artwork page: game search failed: {ex.Message}");
             lock (_gate)
             {
-                if (_state is not null)
+                if (_state is not null && generation == _gameSearchGeneration)
                 {
-                    _state = _state with { Error = ex.Message, Revision = ++_revision };
+                    _state = _state with
+                    {
+                        GameSearching = false,
+                        GameSearchError = $"The search could not be run: {ex.Message}",
+                        Revision = ++_revision
+                    };
                 }
             }
 
@@ -703,11 +743,13 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
             }
 
             var name = games.FirstOrDefault(game => game.AppId == appId)?.Name ?? fallback;
+            IReadOnlyList<string> unmatched = [];
             if (selected is null && SteamApps.IsShortcutAppId(appId) && page == 0)
             {
-                selected = (await ArtworkSearch.SearchGamesAsync(name, config, cancellationToken, _providers)
-                        .ConfigureAwait(false))
-                    .FirstOrDefault();
+                var search = await ArtworkSearch.SearchGamesAsync(name, config, cancellationToken, _providers)
+                    .ConfigureAwait(false);
+                selected = search.Matches.FirstOrDefault();
+                unmatched = search.Reasons;
                 if (selected is not null)
                 {
                     lock (_gate)
@@ -725,7 +767,8 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
                 }
                 else
                 {
-                    Log.Info($"Steam artwork page: no ready provider matched \"{name}\" (app {appId}).");
+                    Log.Info($"Steam artwork page: no provider matched \"{name}\" (app {appId}): "
+                             + string.Join(" ", unmatched));
                 }
             }
 
@@ -748,7 +791,9 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
                         Loading = false,
                         HasMore = false,
                         Page = page,
-                        Notice = null,
+                        // Each provider's reason is its own status line: one needs a key, one did
+                        // not answer, one knows no such game.
+                        Notice = unmatched.Count == 0 ? null : string.Join("  ", unmatched),
                         Error = $"No artwork provider found a game called \"{name}\". "
                                 + "Find it by name in the Filter panel's Game search.",
                         Revision = ++_revision

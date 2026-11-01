@@ -19,6 +19,12 @@ namespace WSGM.Shell;
 /// <param name="Notice">Non-error status text, or null.</param>
 /// <param name="Error">Current refusal or failure text, or null; takes visual precedence over Notice.</param>
 /// <param name="Revision">Monotonic observation revision for publication deduplication.</param>
+/// <param name="GameSearching">Whether the Filter panel's game search is still asking the providers.</param>
+/// <param name="GameSearchProviders">
+///     After a game search, what each provider said: matches found, or why none (it needs a key, is off,
+///     did not answer, or knows no such game). Null before any search.
+/// </param>
+/// <param name="GameSearchError">Why the game search itself could not run, or null.</param>
 internal sealed record SteamArtworkBrowserState(
     uint AppId,
     string AppName,
@@ -35,4 +41,7 @@ internal sealed record SteamArtworkBrowserState(
     bool HasMore = false,
     string? Notice = null,
     string? Error = null,
-    long Revision = 0);
+    long Revision = 0,
+    bool GameSearching = false,
+    IReadOnlyList<ArtworkMatchProvider>? GameSearchProviders = null,
+    string? GameSearchError = null);

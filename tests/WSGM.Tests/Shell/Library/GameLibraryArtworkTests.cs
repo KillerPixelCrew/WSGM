@@ -209,9 +209,9 @@ public sealed class GameLibraryArtworkTests
         FakeProviders providers = new() { Merged = [SgdbGame, RomGame] };
         using GameLibraryArtwork stage = new(providers);
 
-        var matches = await stage.SearchAsync("Moonlit", CancellationToken.None);
+        var search = await stage.SearchAsync("Moonlit", CancellationToken.None);
 
-        Assert.Equal([SgdbGame, RomGame], matches);
+        Assert.Equal([SgdbGame, RomGame], search.Matches);
     }
 
     private sealed class FakeProviders : IGameLibraryArtworkProviders
@@ -276,9 +276,9 @@ public sealed class GameLibraryArtworkTests
             return Task.FromResult<ArtworkGameMatch?>(null);
         }
 
-        public Task<IReadOnlyList<ArtworkGameMatch>> SearchAsync(string term, CancellationToken cancellationToken)
+        public Task<ArtworkGameSearch> SearchAsync(string term, CancellationToken cancellationToken)
         {
-            return Task.FromResult(Merged);
+            return Task.FromResult(new ArtworkGameSearch(Merged, []));
         }
 
         public Task<ArtworkSearchResult> FetchAsync(

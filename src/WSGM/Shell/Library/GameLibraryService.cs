@@ -64,6 +64,10 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
     private string? _launcher;
 
+    // The open "Fix match" search and the source that cancels it; both guarded by Gate.
+    private GameLibraryMatchSearchState? _matchSearch;
+    private CancellationTokenSource? _matchWork;
+
     // One of the GameLibraryPhases values, published as it is.
     private int _progress;
     private int _progressTotal;
@@ -933,41 +937,52 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
     /// <inheritdoc />
     /// <remarks>
-    ///     Every provider is searched at once and the results are listed together, as the artwork page
-    ///     does, so a title only Screenscraper knows can be matched even when SteamGridDB returns
-    ///     guesses. Only the automatic match asks the providers one after another.
+    ///     <para>
+    ///         Every provider is searched at once and the results are listed together, as the artwork
+    ///         page does, so a title only Screenscraper knows can be matched even when SteamGridDB returns
+    ///         guesses. Only the automatic match asks the providers one after another.
+    ///     </para>
+    ///     <para>
+    ///         The command answers once the search is admitted. A provider may take its whole request
+    ///         timeout, behind the background gathering already in its gate, and the Steam bridge would
+    ///         give up long before; the search's progress and every provider's outcome are published as
+    ///         <see cref="GameLibraryState.MatchSearch" /> instead. A new search replaces the one running.
+    ///     </para>
     /// </remarks>
-    public async Task<GameLibraryMatchSearch> SearchMatchAsync(
+    public Task<SteamUiCommandResult> SearchMatchAsync(
         string id, string query, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (_artwork is null)
+        if (_artwork is not { } artwork)
         {
-            return new GameLibraryMatchSearch(
-                new SteamUiCommandResult(false, "No artwork provider is available in this session."));
+            return Refuse("No artwork provider is available in this session.");
         }
 
         string term;
+        CancellationTokenSource work;
         lock (Gate)
         {
+            if (_disposed)
+            {
+                return Task.FromResult(ShuttingDown);
+            }
+
             if (!Entries.TryGetValue(id, out var entry))
             {
-                return new GameLibraryMatchSearch(Unlisted);
+                return Task.FromResult(Unlisted);
             }
 
             term = query.Trim().Length > 0 ? query.Trim() : entry.Plan.Name;
+            // The replaced search disposes its own source when it ends; only cancelling it is ours.
+            _matchWork?.Cancel();
+            work = _matchWork = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
+            _matchSearch = new GameLibraryMatchSearchState(id, term, true, [], []);
+            Publish();
         }
 
-        var matches = await _artwork.SearchAsync(term, cancellationToken).ConfigureAwait(false);
-        return new GameLibraryMatchSearch(SteamUiCommandResult.Applied, new GameLibraryMatchesAnswer(
-        [
-            .. matches.Select(match => new GameLibraryMatchAnswer(
-                match.ProviderId,
-                ArtworkSearch.Find(match.ProviderId)?.DisplayName ?? match.ProviderId,
-                match.Id,
-                match.Name,
-                match.Exact))
-        ]));
+        Notify();
+        _ = SearchMatchInBackgroundAsync(artwork, id, term, work);
+        return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
     /// <inheritdoc />
@@ -983,6 +998,13 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         return EditEntry(id, true, entry =>
         {
             entry.Match = gameId.Length == 0 ? null : new ArtworkGameMatch(provider, gameId, name, true);
+            // The search served its purpose: the user picked, or went back to the automatic match.
+            if (_matchSearch?.Id == entry.Id)
+            {
+                _matchWork?.Cancel();
+                _matchWork = null;
+                _matchSearch = null;
+            }
 
             // The provider images picked for the old match belong to a different game; the source's
             // own images do not.
@@ -1057,21 +1079,24 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             }
 
             _published = GameLibraryProjection.BuildState(
-                ReadSettings(),
-                _scanner.Sources(),
-                _scanner.Availability,
-                _scanner.Counts,
-                Entries.Values,
-                _artwork,
-                _storage.Tracked,
-                Phase,
-                _progress,
-                _progressTotal,
-                _launcher,
-                Busy,
-                _notes,
-                _error,
-                _revision);
+                    ReadSettings(),
+                    _scanner.Sources(),
+                    _scanner.Availability,
+                    _scanner.Counts,
+                    Entries.Values,
+                    _artwork,
+                    _storage.Tracked,
+                    Phase,
+                    _progress,
+                    _progressTotal,
+                    _launcher,
+                    Busy,
+                    _notes,
+                    _error,
+                    _revision) with
+                {
+                    MatchSearch = _matchSearch
+                };
             _publishedRevision = _revision;
             return _published;
         }
@@ -1098,6 +1123,67 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 entry.Game.Multiplayer.ToString(),
                 entry.Game.MultiplayerEvidence,
                 [.. entry.Game.Notes, .. GameLibraryProjection.ContentNotes(entry.Game.Content)]);
+        }
+    }
+
+    /// <summary>Runs one admitted match search and publishes its outcome, unless a newer one replaced it.</summary>
+    private async Task SearchMatchInBackgroundAsync(
+        GameLibraryArtwork artwork, string id, string term, CancellationTokenSource work)
+    {
+        try
+        {
+            GameLibraryMatchSearchState finished;
+            try
+            {
+                var search = await artwork.SearchAsync(term, work.Token).ConfigureAwait(false);
+                var names = search.Outcomes.ToDictionary(
+                    outcome => outcome.ProviderId, outcome => outcome.ProviderName, StringComparer.Ordinal);
+                finished = new GameLibraryMatchSearchState(id, term, false,
+                [
+                    .. search.Matches.Select(match => new GameLibraryMatchAnswer(
+                        match.ProviderId,
+                        names.GetValueOrDefault(match.ProviderId, match.ProviderId),
+                        match.Id,
+                        match.Name,
+                        match.Exact))
+                ], ArtworkMatchProvider.Of(search));
+            }
+            catch (OperationCanceledException) when (work.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Log.Warn($"Game Library match search for \"{term}\" failed: {ex.Message}");
+                finished = new GameLibraryMatchSearchState(id, term, false, [], [],
+                    $"The search could not be run: {ex.Message}");
+            }
+
+            lock (Gate)
+            {
+                if (_disposed || !ReferenceEquals(_matchWork, work))
+                {
+                    return;
+                }
+
+                _matchSearch = finished;
+                Publish();
+            }
+
+            Notify();
+        }
+        finally
+        {
+            // Never left where a later Cancel could reach it after disposal.
+            lock (Gate)
+            {
+                if (ReferenceEquals(_matchWork, work))
+                {
+                    _matchWork = null;
+                }
+            }
+
+            work.Dispose();
         }
     }
 

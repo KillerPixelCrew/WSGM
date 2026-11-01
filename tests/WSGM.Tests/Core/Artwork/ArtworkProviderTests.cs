@@ -51,6 +51,45 @@ public sealed class ArtworkProviderTests
     }
 
     [Fact]
+    public async Task ATitleSearchSaysWhyEachProviderFoundNothing()
+    {
+        // Issue #250: a provider that needs a key, one that did not answer and one that knows no such
+        // game all left the "Fix match" list empty, and the page could only say no provider knew it.
+        MatchProvider keyless = new("steamgriddb",
+            status: new ArtworkProviderStatus(ArtworkProviderReadiness.MissingCredentials, "Needs an API key."));
+        MatchProvider failing = new("screenscraper", false);
+        MatchProvider empty = new("third", empty: true);
+        MatchProvider found = new("fourth");
+
+        var search = await ArtworkSearch.SearchGamesAsync("Dawnwalker", new ArtworkConfig(), CancellationToken.None,
+            [keyless, failing, empty, found]);
+
+        Assert.Equal(0, keyless.Searches);
+        Assert.Equal([found.Id], search.Matches.Select(match => match.ProviderId));
+        Assert.Equal(["steamgriddb", "screenscraper", "third", "fourth"],
+            search.Outcomes.Select(outcome => outcome.ProviderId));
+        Assert.Equal(
+        [
+            "steamgriddb: Needs an API key.",
+            "screenscraper: Provider refused.",
+            "third: " + ArtworkGameSearch.NoMatch
+        ], search.Reasons);
+    }
+
+    [Fact]
+    public async Task AScreenscraperTimeoutSaysTheSiteIsNotResponding()
+    {
+        // HttpClient reports its own deadline as a cancellation with a TimeoutException inside: the
+        // site took the request and never answered, which is what the issue #250 log shows.
+        ScreenscraperProvider provider = new(new TimingOutHandler(), new ArtworkRequestGate(1, 0));
+
+        var failure = await Assert.ThrowsAsync<ScreenscraperException>(() =>
+            provider.SearchGamesAsync("Dawnwalker", new ArtworkConfig(), CancellationToken.None));
+
+        Assert.Equal("Screenscraper is not responding. Try again later.", failure.Message);
+    }
+
+    [Fact]
     public void SteamGridDbIsNotReadyWithoutItsKeyAndSaysWhy()
     {
         SteamGridDbProvider provider = new();
@@ -249,7 +288,21 @@ public sealed class ArtworkProviderTests
         Assert.Equal(format, ImageHeader.Format(bytes));
     }
 
-    private sealed class MatchProvider(string id, bool? paused = null, bool empty = false) : IArtworkProvider
+    private sealed class TimingOutHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            return Task.FromException<HttpResponseMessage>(
+                new TaskCanceledException("net_http_request_timedout, 20", new TimeoutException()));
+        }
+    }
+
+    private sealed class MatchProvider(
+        string id,
+        bool? paused = null,
+        bool empty = false,
+        ArtworkProviderStatus? status = null) : IArtworkProvider
     {
         internal int Searches { get; private set; }
         public string Id => id;
@@ -257,7 +310,7 @@ public sealed class ArtworkProviderTests
 
         public ArtworkProviderStatus GetStatus(ArtworkConfig config)
         {
-            return ArtworkProviderStatus.Ready;
+            return status ?? ArtworkProviderStatus.Ready;
         }
 
         public Task<IReadOnlyList<ArtworkGameMatch>> SearchGamesAsync(string term, ArtworkConfig config,

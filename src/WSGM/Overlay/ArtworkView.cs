@@ -41,6 +41,9 @@ public sealed class ArtworkView : ServiceSubView
     /// <summary>Requests return to the importer that opened this artwork workflow; the host owns navigation.</summary>
     internal event Action? ReturnRequested;
 
+    /// <summary>Raised when the user asks for WSGM Settings, such as to add an artwork provider's key.</summary>
+    internal event Action? SettingsRequested;
+
     /// <summary>Creates a surface-local browser from the shared artwork owner.</summary>
     /// <param name="source">Borrowed durable owner, or null to dispose and detach this view's browser.</param>
     internal void Attach(ArtworkBrowser? source)
@@ -294,6 +297,28 @@ public sealed class ArtworkView : ServiceSubView
         body.Children.Add(Tagged(
             Row("Use Steam game", "Clear the manual provider match", Icons.Restart,
                 () => Run(token => _source.SelectGameAsync(null, token))), "match.reset"));
+        if (state.GameSearching)
+        {
+            body.Children.Add(Caption("Searching every provider\u2026"));
+        }
+
+        if (state.GameSearchError is { } searchError)
+        {
+            body.Children.Add(Caption(searchError));
+        }
+
+        // Each provider that matched nothing says why beside the results: it needs a key, is off,
+        // did not answer, or knows no such game.
+        foreach (var provider in (state.GameSearchProviders ?? []).Where(provider => provider.Status != "found"))
+        {
+            body.Children.Add(Caption($"{provider.Name}: {provider.Detail}"));
+            if (provider.Status == "setup" && SettingsRequested is not null)
+            {
+                body.Children.Add(Tagged(Row("Open WSGM Settings", "Add the " + provider.Name + " key under Artwork",
+                    Icons.Gear, () => SettingsRequested?.Invoke()), "match.setup:" + provider.Provider));
+            }
+        }
+
         foreach (var match in state.GameMatches)
         {
             var id = match.Id;

@@ -960,6 +960,11 @@ Everything is Steam's own UI, found by fingerprints checked against the live cli
   confirm modal.
 - WSGM's mark and the sidebar icons are single-colour glyphs drawn the way Valve draws its own.
 
+- The Artwork page holds the SteamGridDB key, a password field that only says whether a key is set,
+  and the Screenscraper switch. The Game Library's "Fix match" and the artwork page's game search
+  link to it (`/wsgm/settings/artwork`) when SteamGridDB has no key. Both fields are shared with
+  WSGM Settings, so an open Settings window keeps a key entered here.
+
 The reusable parts are in the toolkit, which documents each fingerprint in its reference: the
 navigation panel surface and `settings.ts`. WSGM's side is `WsgmSteamSettingsService`, which decides
 what is on the page and saves changes, `SteamWsgmSettingsSurface`, and the thin `wsgm-settings.ts`.
@@ -1261,7 +1266,12 @@ SteamGridDB still leads.
 The picker must keep two states apart, which is why the provider contract carries readiness at all:
 a source that was never asked and a source that was asked and had nothing both produce an empty
 grid. Every refusal is named on screen, a rate limit, a missing credential, a provider switched off,
-so an empty result never silently reads as "this game has no artwork".
+so an empty result never silently reads as "this game has no artwork". A title search answers the
+same way: `ArtworkSearch.SearchGamesAsync` returns every provider's outcome with the matches
+(`ArtworkGameSearch`), and the game search on the artwork page and the Game Library's "Fix match"
+show, per provider, that it needs a key, is off, did not answer, or knows no game by that name. Both
+searches run after their command has answered, because a provider can take longer than the bridge
+waits.
 
 The providers differ in exactly the ways that shaped the contract. SteamGridDB takes a free personal
 key and can be addressed by Steam app id, and without that key it is not ready. Screenscraper issues

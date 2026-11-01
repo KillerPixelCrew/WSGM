@@ -234,8 +234,8 @@ internal sealed class GameLibraryArtwork : IDisposable
     /// <summary>Searches every ready provider for games, for the user fixing a wrong match.</summary>
     /// <param name="query">What to search for.</param>
     /// <param name="cancellationToken">Cancels the search.</param>
-    /// <returns>Every provider's matches together, exact ones first.</returns>
-    internal Task<IReadOnlyList<ArtworkGameMatch>> SearchAsync(string query, CancellationToken cancellationToken)
+    /// <returns>Every provider's matches together, exact ones first, with what each provider said.</returns>
+    internal Task<ArtworkGameSearch> SearchAsync(string query, CancellationToken cancellationToken)
     {
         return _providers.SearchAsync(query, cancellationToken);
     }

@@ -47,6 +47,35 @@ public sealed class WsgmSteamSettingsServiceTests
     }
 
     [Fact]
+    public async Task TheSteamGridDbKeyIsSetFromSteamWithoutEverBeingPublished()
+    {
+        // Issue #250: the Game Library inside Steam says SteamGridDB needs a key, and this page is
+        // where that sends the user without leaving game mode.
+        Harness harness = new();
+        var service = harness.Create();
+        Assert.Equal((SteamSettingsRowKind.Secret, "Not set"),
+            (Row(service.ReadState(), "artwork.steamGridDbKey").Kind,
+                Row(service.ReadState(), "artwork.steamGridDbKey").Text));
+
+        var saved = await service.SetAsync("artwork.steamGridDbKey", Json("\"  abc123  \""), CancellationToken.None);
+        var tooLong = await service.SetAsync("artwork.steamGridDbKey", Json($"\"{new string('k', 129)}\""),
+            CancellationToken.None);
+        var wrongShape = await service.SetAsync("artwork.steamGridDbKey", Json("true"), CancellationToken.None);
+
+        Assert.True(saved.Succeeded);
+        Assert.False(tooLong.Succeeded);
+        Assert.False(wrongShape.Succeeded);
+        Assert.Equal("abc123", harness.Stored.Artwork.SteamGridDbApiKey);
+        var row = Row(service.ReadState(), "artwork.steamGridDbKey");
+        Assert.Equal("Set", row.Text);
+        Assert.DoesNotContain("abc123", JsonSerializer.Serialize(service.ReadState()), StringComparison.Ordinal);
+
+        Assert.True((await service.SetAsync("artwork.screenscraper", Json("false"), CancellationToken.None))
+            .Succeeded);
+        Assert.False(harness.Stored.Artwork.ScreenscraperEnabled);
+    }
+
+    [Fact]
     public async Task AKeyThePageDoesNotOfferIsRefused()
     {
         Harness harness = new();

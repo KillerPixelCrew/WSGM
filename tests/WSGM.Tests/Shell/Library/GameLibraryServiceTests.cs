@@ -107,6 +107,93 @@ public sealed class GameLibraryServiceTests
     }
 
     [Fact]
+    public async Task FixingAMatchAnswersAtOnceAndPublishesWhatEachProviderSaid()
+    {
+        // Issue #250: the command waited for Screenscraper's 20 s request behind the background
+        // gathering, the bridge gave up after 5 s, and the page said no provider knew the name.
+        using Harness harness = new();
+        HeldSearches providers = new();
+        using GameLibraryArtwork artwork = new(providers);
+        using var source = harness.Create([Game(name: "Dawnwalker")], artwork: artwork);
+        var entry = Assert.Single((await ScannedAsync(source)).Entries);
+
+        var admitted = await source.SearchMatchAsync(entry.Id, " The Blood of Dawnwalker ", CancellationToken.None);
+
+        Assert.True(admitted.Succeeded);
+        var running = Assert.IsType<GameLibraryMatchSearchState>(source.ReadState().MatchSearch);
+        Assert.Equal((entry.Id, "The Blood of Dawnwalker", true), (running.Id, running.Query, running.Searching));
+        Assert.Empty(running.Matches);
+
+        providers.Answer("The Blood of Dawnwalker", new ArtworkGameSearch(
+            [new ArtworkGameMatch("screenscraper", "7", "The Blood of Dawnwalker", true)],
+            [
+                new ArtworkProviderOutcome("SteamGridDB",
+                    new ArtworkProviderStatus(ArtworkProviderReadiness.MissingCredentials, "Needs an API key."),
+                    null, "steamgriddb"),
+                new ArtworkProviderOutcome("Screenscraper.fr", ArtworkProviderStatus.Ready, null, "screenscraper")
+            ]));
+        await AsyncConditions.WaitForAsync(() => source.ReadState().MatchSearch?.Searching == false);
+
+        var finished = source.ReadState().MatchSearch!;
+        var match = Assert.Single(finished.Matches);
+        Assert.Equal(("screenscraper", "Screenscraper.fr", "7"), (match.Provider, match.ProviderName, match.Id));
+        Assert.Equal(
+        [
+            new ArtworkMatchProvider("steamgriddb", "SteamGridDB", "setup", "Needs an API key.", 0),
+            new ArtworkMatchProvider("screenscraper", "Screenscraper.fr", "found", "", 1)
+        ], finished.Providers);
+    }
+
+    [Fact]
+    public async Task AProviderThatDidNotAnswerIsAFailureRatherThanNoMatch()
+    {
+        using Harness harness = new();
+        HeldSearches providers = new();
+        using GameLibraryArtwork artwork = new(providers);
+        using var source = harness.Create([Game()], artwork: artwork);
+        var entry = Assert.Single((await ScannedAsync(source)).Entries);
+
+        await source.SearchMatchAsync(entry.Id, "", CancellationToken.None);
+        providers.Answer("Moonlit", new ArtworkGameSearch([],
+        [
+            new ArtworkProviderOutcome("Screenscraper.fr", ArtworkProviderStatus.Ready,
+                "Screenscraper is not responding. Try again later.", "screenscraper"),
+            new ArtworkProviderOutcome("SteamGridDB", ArtworkProviderStatus.Ready, null, "steamgriddb")
+        ]));
+        await AsyncConditions.WaitForAsync(() => source.ReadState().MatchSearch?.Searching == false);
+
+        Assert.Equal(
+            [("failed", "Screenscraper is not responding. Try again later."), ("none", ArtworkGameSearch.NoMatch)],
+            source.ReadState().MatchSearch!.Providers.Select(provider => (provider.Status, provider.Detail)));
+    }
+
+    [Fact]
+    public async Task ANewerMatchSearchReplacesTheOneStillRunningAndPickingAGameClosesIt()
+    {
+        using Harness harness = new();
+        HeldSearches providers = new();
+        using GameLibraryArtwork artwork = new(providers);
+        using var source = harness.Create([Game()], artwork: artwork);
+        var entry = Assert.Single((await ScannedAsync(source)).Entries);
+
+        await source.SearchMatchAsync(entry.Id, "first", CancellationToken.None);
+        var first = providers.Token("first");
+        await source.SearchMatchAsync(entry.Id, "second", CancellationToken.None);
+
+        Assert.True(first.IsCancellationRequested);
+        providers.Answer("second", new ArtworkGameSearch([new ArtworkGameMatch("steamgriddb", "2", "Second", true)],
+            [new ArtworkProviderOutcome("SteamGridDB", ArtworkProviderStatus.Ready, null, "steamgriddb")]));
+        await AsyncConditions.WaitForAsync(() => source.ReadState().MatchSearch?.Searching == false);
+        // The replaced search's late answer changes nothing.
+        providers.Answer("first", ArtworkGameSearch.Empty);
+        Assert.Equal("second", source.ReadState().MatchSearch!.Query);
+
+        Assert.True((await source.SetMatchAsync(entry.Id, "steamgriddb", "2", "Second", CancellationToken.None))
+            .Succeeded);
+        Assert.Null(source.ReadState().MatchSearch);
+    }
+
+    [Fact]
     public async Task ArtworkOpeningFailuresReturnARefusal()
     {
         using Harness harness = new();
@@ -1212,7 +1299,8 @@ public sealed class GameLibraryServiceTests
                 Task<IReadOnlyList<ArtworkResult>>>? applyArtwork = null,
             Func<uint, string, CancellationToken, Task<SteamUiCommandResult>>? openArtwork = null,
             GameLibraryConfig? settings = null,
-            Action<Action<GameLibraryConfig>>? updateSettings = null)
+            Action<Action<GameLibraryConfig>>? updateSettings = null,
+            GameLibraryArtwork? artwork = null)
         {
             SteamShortcutWriter writer = new(
                 (name, fields, _) =>
@@ -1284,7 +1372,70 @@ public sealed class GameLibraryServiceTests
 
                         return settings;
                     },
-                folder => new FakeSource(folder.Id, [], LibrarySourceKind.Folder), syncCollection: SyncCollection);
+                folder => new FakeSource(folder.Id, [], LibrarySourceKind.Folder), artwork,
+                SyncCollection);
+        }
+    }
+
+    /// <summary>Artwork providers whose title searches wait until the test answers them.</summary>
+    private sealed class HeldSearches : IGameLibraryArtworkProviders
+    {
+        private readonly Dictionary<string, (TaskCompletionSource<ArtworkGameSearch> Answer, CancellationToken Token)>
+            _searches = [];
+
+        public string? Unavailable()
+        {
+            return null;
+        }
+
+        public string Signature()
+        {
+            return "";
+        }
+
+        public string? PauseReason(string providerId)
+        {
+            return null;
+        }
+
+        public Task<ArtworkGameMatch?> FindMatchAsync(GameLibraryArtworkRequest request,
+            IReadOnlyCollection<string> skip, CancellationToken cancellationToken)
+        {
+            return Task.FromResult<ArtworkGameMatch?>(null);
+        }
+
+        public Task<ArtworkGameSearch> SearchAsync(string term, CancellationToken cancellationToken)
+        {
+            TaskCompletionSource<ArtworkGameSearch> answer = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            lock (_searches)
+            {
+                _searches[term] = (answer, cancellationToken);
+            }
+
+            // Like a provider that never observes the cancellation: only its answer ends it.
+            return answer.Task;
+        }
+
+        public Task<ArtworkSearchResult> FetchAsync(ArtworkAsset asset, ArtworkGameMatch match,
+            CancellationToken cancellationToken)
+        {
+            return Task.FromResult(new ArtworkSearchResult([], []));
+        }
+
+        internal CancellationToken Token(string term)
+        {
+            lock (_searches)
+            {
+                return _searches[term].Token;
+            }
+        }
+
+        internal void Answer(string term, ArtworkGameSearch search)
+        {
+            lock (_searches)
+            {
+                _searches[term].Answer.SetResult(search);
+            }
         }
     }
 

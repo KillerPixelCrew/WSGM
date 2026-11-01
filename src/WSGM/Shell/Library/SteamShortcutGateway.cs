@@ -105,6 +105,7 @@ internal sealed class SteamShortcutGateway(SteamClient steam, ImportStateStore i
         if (!await LibraryTabManager.WaitForLibraryAsync(steam, cancellationToken, false)
                 .ConfigureAwait(false))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             throw new InvalidOperationException("Steam's library is not ready. Shortcut changes remain pending.");
         }
 
@@ -120,6 +121,9 @@ internal sealed class SteamShortcutGateway(SteamClient steam, ImportStateStore i
             var listed = await steam.Apps.ListShortcutsAsync(cancellationToken).ConfigureAwait(false);
             if (listed is not { Succeeded: true, Value: { } shortcuts })
             {
+                // The client answers a cancelled read instead of throwing. A scan replaced by a newer one
+                // stopped reading; Steam did not become unreachable.
+                cancellationToken.ThrowIfCancellationRequested();
                 throw new InvalidOperationException(listed.Dispatch == SteamUiDispatch.Answered
                     ? $"Steam's library could not be read ({listed.Error}). Nothing was changed; try again."
                     : "Steam is not reachable, so its library could not be read. Nothing was changed.");
@@ -165,6 +169,7 @@ internal sealed class SteamShortcutGateway(SteamClient steam, ImportStateStore i
             var read = await steam.Apps.ReadDetailsAsync(appId, cancellationToken).ConfigureAwait(false);
             if (read.Dispatch != SteamUiDispatch.Answered)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 throw new InvalidOperationException(
                     "Steam is not reachable, so the save stopped. Nothing else was changed.");
             }
@@ -217,6 +222,8 @@ internal sealed class SteamShortcutGateway(SteamClient steam, ImportStateStore i
         var read = await steam.Apps.ReadAccountIdAsync(cancellationToken).ConfigureAwait(false);
         if (!read.Succeeded || read.Value == 0)
         {
+            // A cancelled read learned nothing about the account.
+            cancellationToken.ThrowIfCancellationRequested();
             importState.SetActiveAccount(null);
             throw new InvalidOperationException(
                 "Steam's signed-in account could not be confirmed. Shortcut changes remain pending.");

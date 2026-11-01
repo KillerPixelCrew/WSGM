@@ -48,7 +48,11 @@ internal static class WsgmSharedSettings
             config => config.Profiles.Global.ControllerTarget ?? ProfileFields.DefaultControllerTarget,
             (config, value) => config.Profiles.Global.ControllerTarget = (ManagedControllerTarget)value),
         new("DeviceIntegration.GlyphSelection", config => config.DeviceIntegration.GlyphSelection,
-            (config, value) => config.DeviceIntegration.GlyphSelection = (DeviceGlyphSelection)value)
+            (config, value) => config.DeviceIntegration.GlyphSelection = (DeviceGlyphSelection)value),
+        new("Artwork.SteamGridDbApiKey", config => config.Artwork.SteamGridDbApiKey,
+            (config, value) => config.Artwork.SteamGridDbApiKey = (string)value),
+        new("Artwork.ScreenscraperEnabled", config => config.Artwork.ScreenscraperEnabled,
+            (config, value) => config.Artwork.ScreenscraperEnabled = (bool)value)
     ];
 
     /// <summary>Finds the shared-field accessor for an exact configuration key.</summary>

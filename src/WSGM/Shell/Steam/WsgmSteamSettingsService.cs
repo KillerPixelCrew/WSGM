@@ -34,6 +34,10 @@ internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
     private const string PluginSettingPrefix = "plugins.setting:";
     private const string StartModeKey = "startup.mode";
     private const string ShimStateKey = "steamInput.shim";
+    private const string SteamGridDbKeyKey = "artwork.steamGridDbKey";
+
+    /// <summary>The longest key Settings accepts, which this page accepts too.</summary>
+    private const int MaximumKeyLength = 128;
 
     private static readonly SettingToggle[] Toggles =
     [
@@ -84,7 +88,10 @@ internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
         new("steamInput.management", "Steam Input management",
             "Puts a small WSGM file next to Steam so WSGM can take the controller for its own panels. "
             + "Off leaves Steam's folder alone.",
-            WsgmSharedSettings.Get("SteamInputManagementEnabled"), SteamInput: true)
+            WsgmSharedSettings.Get("SteamInputManagementEnabled"), SteamInput: true),
+        new("artwork.screenscraper", "Search Screenscraper.fr",
+            "A ROM database, so it answers for retro titles and rarely for PC ones.",
+            WsgmSharedSettings.Get("Artwork.ScreenscraperEnabled"))
     ];
 
     private readonly Action<AppConfig> _applySteamInput;
@@ -181,6 +188,19 @@ internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
                 ? CommitAsync(config => found.Write(config, value.GetBoolean()), found.Boot, found.SteamInput,
                     cancellationToken)
                 : Invalid();
+        }
+
+        if (key == SteamGridDbKeyKey)
+        {
+            // Empty clears the key; the field is a password box, so only a typed value arrives.
+            if (value.ValueKind != JsonValueKind.String
+                || value.GetString()!.Trim() is not { Length: <= MaximumKeyLength } apiKey)
+            {
+                return Invalid();
+            }
+
+            return CommitAsync(config => WsgmSharedSettings.Get("Artwork.SteamGridDbApiKey").Write(config, apiKey),
+                false, false, cancellationToken);
         }
 
         if (key == StartModeKey)
@@ -300,6 +320,20 @@ internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
                         Text: _shimStatus())
                 ])
             ], PageGlyphs.SteamInput),
+            // The artwork providers the Game Library and the artwork page search. The key is here as
+            // well as in Settings because the page that needs it says so inside Steam.
+            new SteamSettingsPage("artwork", "Artwork",
+            [
+                new SteamSettingsSection(null,
+                [
+                    new SteamSettingsRow(SteamGridDbKeyKey, SteamSettingsRowKind.Secret, "SteamGridDB key",
+                        $"Your own free key from {SteamGridDbProvider.KeyPageUrl}. Without one SteamGridDB is "
+                        + "not searched.",
+                        Text: config.Artwork.SteamGridDbApiKey.Trim().Length > 0 ? "Set" : "Not set",
+                        MaximumLength: MaximumKeyLength),
+                    Row("artwork.screenscraper", config)
+                ])
+            ], PageGlyphs.Artwork),
             new SteamSettingsPage("plugins", "Plugins", PluginSections(config), PageGlyphs.Plugins)
         ], revision);
     }
@@ -672,6 +706,10 @@ internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
         internal const string SteamInput =
             "M7 7h10a5 5 0 0 1 4.8 6.4l-1.3 4.4A2.5 2.5 0 0 1 16.3 19L14 16h-4l-2.3 3a2.5 2.5 0 0 1-4.2-1.2"
             + "l-1.3-4.4A5 5 0 0 1 7 7ZM7 10v1.5H5.5V13H7v1.5h1.5V13H10v-1.5H8.5V10ZM16 10.5a1 1 0 1 0 0 2a1 1 0 1 0 0-2Z";
+
+        /// <summary>A framed picture, a mountain under a sun, for the artwork providers.</summary>
+        internal const string Artwork =
+            "M3 4h18v16H3ZM5 6v9.6l4-4.6 3.5 4 2.5-2.8 4 4.4V6ZM16 8a1.5 1.5 0 1 0 0 3a1.5 1.5 0 1 0 0-3Z";
 
         /// <summary>Four blocks, for the plugins that extend WSGM.</summary>
         internal const string Plugins = "M4 4h7v7H4ZM13 4h7v7h-7ZM4 13h7v7H4ZM13 13h7v7h-7Z";

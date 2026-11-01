@@ -231,12 +231,13 @@ settings, with copying the current desktop optional. See [power and display](pow
 
 **WSGM's own settings can be changed from Steam (2026-09-24).** A WSGM row in Steam's main menu
 opens a page with a limited set of WSGM's global settings: which Steam features WSGM injects, how it
-starts, Steam Input, and the installed plugins' settings. It is a second place to reach settings
-that configure WSGM itself, not a second owner: each change is one field written through the config
-store, applied by the shell's reload exactly as a save from WSGM Settings, and an open Settings
-window keeps any shared field it did not change itself rather than writing back what it loaded.
-Everything on the page is Steam's own UI; an element Steam does not have would go into the toolkit,
-reusable and in Steam's exact style. See
+starts, Steam Input, the artwork providers (the SteamGridDB key and the Screenscraper switch, which
+the Game Library and artwork page point to when a search needs them), and the installed plugins'
+settings. It is a second place to reach settings that configure WSGM itself, not a second owner:
+each change is one field written through the config store, applied by the shell's reload exactly as
+a save from WSGM Settings, and an open Settings window keeps any shared field it did not change
+itself rather than writing back what it loaded. Everything on the page is Steam's own UI; an element
+Steam does not have would go into the toolkit, reusable and in Steam's exact style. See
 [WSGM's settings page in Steam](steam-cef-system.md#wsgms-settings-page-in-steam).
 
 **Themes are CSS Loader's themes, from CSS Loader's store (2026-09-28).** WSGM restyles Big Picture

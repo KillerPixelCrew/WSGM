@@ -35,6 +35,9 @@ public sealed partial class GameLibraryView : ServiceSubView
     /// <remarks>The overlay controller carries this out: it opens the page, closes the sheet and focuses Steam.</remarks>
     internal event Action<uint, string>? ArtworkRequested;
 
+    /// <summary>Raised when the user asks for WSGM Settings, such as to add an artwork provider's key.</summary>
+    internal event Action? SettingsRequested;
+
     /// <summary>Attaches the view to the session's library, or detaches it with null.</summary>
     /// <param name="service">The library, or null when the overlay closes or the session has none.</param>
     internal void Attach(IGameLibraryOverlaySource? service)

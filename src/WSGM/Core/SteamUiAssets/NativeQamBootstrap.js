@@ -16611,6 +16611,51 @@
   });
   const readableFilter = (value) =>
     value.replace("image/", "").replaceAll("_", " ").replace("x", "×");
+  // Where an artwork provider that needs a key is set up inside Steam: WSGM's settings page.
+  const ArtworkSettingsRoute = "/wsgm/settings/artwork";
+  /**
+   * Draws what a finished game search heard from each provider that matched nothing: it needs a key
+   * (with the way to add one), is off, did not answer, or knows no such game. The artwork page's game
+   * search and the Game Library's "Fix match" publish the same per-provider list.
+   * @param ui Steam's resolved components.
+   * @param providers The host's per-provider outcomes, in provider order.
+   * @param leave Closes what the search is drawn in, such as a modal, before the settings page opens.
+   * @returns The status lines and setup buttons, or null when every provider found games.
+   */
+  const renderArtworkProviderOutcomes = (ui, providers, leave) => {
+    const h = ui.react.createElement;
+    const silent = (Array.isArray(providers) ? providers : []).filter(
+      (provider) => provider.status !== "found",
+    );
+    if (!silent.length) return null;
+    return h(
+      ui.react.Fragment,
+      null,
+      renderSteamUiStatus(
+        ui,
+        silent.map((provider) => ({
+          key: `provider:${provider.provider}`,
+          text: `${provider.name}: ${provider.detail}`,
+          error: provider.status === "failed",
+        })),
+      ),
+      ...silent
+        .filter((provider) => provider.status === "setup")
+        .map((provider) =>
+          h(
+            ui.dialogButton,
+            {
+              key: `setup:${provider.provider}`,
+              onClick: () => {
+                leave?.();
+                navigateSteamRoute(ArtworkSettingsRoute, steamInteractionWindow());
+              },
+            },
+            `Add a ${provider.name} key`,
+          ),
+        ),
+    );
+  };
   // Sends one artwork command; a refusal shows in the page's banner and resolves undefined.
   const artworkAct = (command, payload = {}) => artworkBrowserPage.act(command, payload);
   // The file-pick action that applies a local image to one slot; cancelling sends nothing.
@@ -16812,6 +16857,15 @@
             )
           : null,
       ),
+      state?.gameSearching ? renderSteamUiStatus(ui, ["Searching every provider…"]) : null,
+      state?.gameSearchError
+        ? renderSteamUiStatus(ui, [
+            { key: "search", text: String(state.gameSearchError), error: true },
+          ])
+        : null,
+      state && !state.gameSearching
+        ? renderArtworkProviderOutcomes(ui, state.gameSearchProviders, closeModal)
+        : null,
       matches.length
         ? h(
             Focusable,
@@ -22581,10 +22635,13 @@
     const react = importUi.react;
     const h = react.createElement;
     const ui = importUi;
+    const imported = useImportState();
     const [answer, setAnswer] = react.useState(null);
     const [search, setSearch] = react.useState(entry.matchName || entry.name);
-    const [matches, setMatches] = react.useState(null);
-    const [searching, setSearching] = react.useState(false);
+    // The host runs the search and publishes it: a provider can take longer than a command may wait.
+    const matchSearch = imported?.matchSearch?.id === entry.id ? imported.matchSearch : null;
+    const searching = !!matchSearch?.searching;
+    const matches = matchSearch?.matches ?? [];
     const slot = (entry.artwork ?? []).find((candidate) => candidate.asset === asset);
     const slotKey = `${slot?.kind}:${slot?.index}:${slot?.count}:${entry.artworkStatus}`;
     react.useEffect(() => {
@@ -22680,15 +22737,9 @@
       );
     });
     // Fixing a match searches every provider at once and lists them together, the way the artwork
-    // page does; the automatic match still asks SteamGridDB first.
-    const runSearch = () => {
-      setSearching(true);
-      void importAct("searchMatch", { id: entry.id, query: search }).then((next) => {
-        setSearching(false);
-        setMatches(next?.matches ?? []);
-      });
-    };
-    const byProvider = (matches ?? []).reduce((groups, match) => {
+    // page does; the automatic match still asks SteamGridDB first. The command only starts it.
+    const runSearch = () => void importAct("searchMatch", { id: entry.id, query: search });
+    const byProvider = matches.reduce((groups, match) => {
       const group = groups.find((candidate) => candidate.name === match.providerName);
       if (group) group.items.push(match);
       else groups.push({ name: match.providerName, items: [match] });
@@ -22732,9 +22783,17 @@
       h(
         "div",
         { className: "wsgm-import-matches" },
-        matches && matches.length === 0
-          ? h("div", { className: "wsgm-import-muted" }, "No provider knows that name.")
+        searching
+          ? h(
+              "div",
+              { className: "wsgm-import-muted" },
+              `Searching every provider for “${matchSearch.query}”…`,
+            )
           : null,
+        matchSearch?.error
+          ? renderSteamUiStatus(ui, [{ key: "search", text: matchSearch.error, error: true }])
+          : null,
+        matchSearch && !searching ? renderArtworkProviderOutcomes(ui, matchSearch.providers) : null,
         ...byProvider.flatMap((group) => [
           h("div", { key: `head:${group.name}`, className: "wsgm-import-eyebrow" }, group.name),
           ...group.items.map((match) =>
@@ -22743,7 +22802,6 @@
               {
                 key: `${match.provider}:${match.id}`,
                 onClick: () => {
-                  setMatches(null);
                   void importAct("setMatch", {
                     id: entry.id,
                     provider: match.provider,

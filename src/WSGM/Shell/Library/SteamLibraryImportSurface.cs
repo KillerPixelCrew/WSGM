@@ -111,8 +111,7 @@ internal static partial class SteamLibraryImportSurface
                     (request, token) => backend.ArtworkOptionsAsync(request.Id, request.Asset, token),
                     "The artwork payload is invalid."),
                 SteamUiModuleBuilder.Command<QueryRequest>(PatchId, "searchMatch", TryReadQuery,
-                    async (request, token) => MatchesAnswer(
-                        await backend.SearchMatchAsync(request.Id, request.Query, token)),
+                    (request, token) => backend.SearchMatchAsync(request.Id, request.Query, token),
                     "The search payload is invalid."),
                 SteamUiModuleBuilder.Command<MatchRequest>(PatchId, "setMatch", TryReadMatch,
                     (request, token) => backend.SetMatchAsync(
@@ -129,18 +128,6 @@ internal static partial class SteamLibraryImportSurface
             ? new SteamUiCommandResult(true, null, JsonSerializer.SerializeToElement(
                 new GameLibraryAcknowledgeAnswer(true), GameLibraryJsonContext.Default.GameLibraryAcknowledgeAnswer))
             : cycle.Command;
-    }
-
-    /// <summary>The page's answer to a match search: the matches as its payload.</summary>
-    private static SteamUiCommandResult MatchesAnswer(GameLibraryMatchSearch search)
-    {
-        return search.Matches is { } matches
-            ? search.Command with
-            {
-                Payload = JsonSerializer.SerializeToElement(
-                    matches, GameLibraryJsonContext.Default.GameLibraryMatchesAnswer)
-            }
-            : search.Command;
     }
 
     private static bool TryReadId(JsonElement payload, out string value)

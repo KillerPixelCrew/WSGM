@@ -33,8 +33,8 @@ internal interface IGameLibraryArtworkProviders
     /// <summary>Every ready provider's matches together, for the user fixing a match.</summary>
     /// <param name="term">Title search text.</param>
     /// <param name="cancellationToken">Cancels provider searches.</param>
-    /// <returns>Combined matches from ready providers; an empty result means none matched.</returns>
-    Task<IReadOnlyList<ArtworkGameMatch>> SearchAsync(string term, CancellationToken cancellationToken);
+    /// <returns>Combined matches from ready providers, with what each provider said.</returns>
+    Task<ArtworkGameSearch> SearchAsync(string term, CancellationToken cancellationToken);
 
     /// <summary>One artwork type for one provider's game, static images only.</summary>
     /// <param name="asset">Artwork slot to fetch.</param>

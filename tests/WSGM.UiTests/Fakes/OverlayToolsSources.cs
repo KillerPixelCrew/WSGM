@@ -1014,10 +1014,10 @@ internal sealed class FakeLibrarySource : IGameLibraryOverlaySource
         return Command("ArtworkOptionsAsync");
     }
 
-    public async Task<GameLibraryMatchSearch> SearchMatchAsync(string id, string query,
+    public Task<SteamUiCommandResult> SearchMatchAsync(string id, string query,
         CancellationToken cancellationToken)
     {
-        return new GameLibraryMatchSearch(await Command("SearchMatchAsync"), new GameLibraryMatchesAnswer([]));
+        return Command("SearchMatchAsync");
     }
 
     public Task<SteamUiCommandResult> SetMatchAsync(string id, string provider, string gameId, string name,

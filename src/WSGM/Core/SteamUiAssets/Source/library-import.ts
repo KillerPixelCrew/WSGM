@@ -1388,10 +1388,13 @@ function ImportTitleArtwork({ entry, asset, onAsset, onBack, status }: any) {
   const react = importUi.react;
   const h = react.createElement;
   const ui = importUi;
+  const imported = useImportState();
   const [answer, setAnswer] = react.useState(null as any);
   const [search, setSearch] = react.useState(entry.matchName || entry.name);
-  const [matches, setMatches] = react.useState(null as any);
-  const [searching, setSearching] = react.useState(false);
+  // The host runs the search and publishes it: a provider can take longer than a command may wait.
+  const matchSearch = imported?.matchSearch?.id === entry.id ? imported.matchSearch : null;
+  const searching = !!matchSearch?.searching;
+  const matches: any[] = matchSearch?.matches ?? [];
   const slot = (entry.artwork ?? []).find((candidate: any) => candidate.asset === asset);
   const slotKey = `${slot?.kind}:${slot?.index}:${slot?.count}:${entry.artworkStatus}`;
   react.useEffect(() => {
@@ -1486,15 +1489,9 @@ function ImportTitleArtwork({ entry, asset, onAsset, onBack, status }: any) {
   });
 
   // Fixing a match searches every provider at once and lists them together, the way the artwork
-  // page does; the automatic match still asks SteamGridDB first.
-  const runSearch = () => {
-    setSearching(true);
-    void importAct("searchMatch", { id: entry.id, query: search }).then((next: any) => {
-      setSearching(false);
-      setMatches(next?.matches ?? []);
-    });
-  };
-  const byProvider = (matches ?? []).reduce((groups: any[], match: any) => {
+  // page does; the automatic match still asks SteamGridDB first. The command only starts it.
+  const runSearch = () => void importAct("searchMatch", { id: entry.id, query: search });
+  const byProvider = matches.reduce((groups: any[], match: any) => {
     const group = groups.find((candidate) => candidate.name === match.providerName);
     if (group) group.items.push(match);
     else groups.push({ name: match.providerName, items: [match] });
@@ -1539,9 +1536,13 @@ function ImportTitleArtwork({ entry, asset, onAsset, onBack, status }: any) {
     h(
       "div",
       { className: "wsgm-import-matches" },
-      matches && matches.length === 0
-        ? h("div", { className: "wsgm-import-muted" }, "No provider knows that name.")
+      searching
+        ? h("div", { className: "wsgm-import-muted" }, `Searching every provider for “${matchSearch.query}”…`)
         : null,
+      matchSearch?.error
+        ? renderSteamUiStatus(ui, [{ key: "search", text: matchSearch.error, error: true }])
+        : null,
+      matchSearch && !searching ? renderArtworkProviderOutcomes(ui, matchSearch.providers) : null,
       ...byProvider.flatMap((group: any) => [
         h("div", { key: `head:${group.name}`, className: "wsgm-import-eyebrow" }, group.name),
         ...group.items.map((match: any) =>
@@ -1550,7 +1551,6 @@ function ImportTitleArtwork({ entry, asset, onAsset, onBack, status }: any) {
             {
               key: `${match.provider}:${match.id}`,
               onClick: () => {
-                setMatches(null);
                 void importAct("setMatch", {
                   id: entry.id,
                   provider: match.provider,

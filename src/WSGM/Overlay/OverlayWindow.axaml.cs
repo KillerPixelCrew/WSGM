@@ -126,7 +126,8 @@ public partial class OverlayWindow : Window
         Surfaces = new OverlaySurfaceStack(this, SurfaceRoot, DeckContent, () => DefaultFocusTarget, CoverMedia,
             _powerConfirms.Reset);
         PowerEditors = new OverlayPowerEditors(viewModel, PanelPowerWake.KeepAwakeHost,
-            PanelPowerWake.KeepAwakeDetail, PanelPowerTimeouts.PowerTimeoutEditors, PanelPowerActions.PowerButtonSection,
+            PanelPowerWake.KeepAwakeDetail, PanelPowerTimeouts.PowerTimeoutEditors,
+            PanelPowerActions.PowerButtonSection,
             PanelPowerActions.PowerButtonHost);
         WindowsPolicies = new WindowsPolicyRows(PanelSystemTools.UacPolicyHost, PanelPowerWake.LockOnWakePolicyHost);
         _profileScope = new HeaderProfileScope(HeaderProfile, ProfileContext, ManageProfiles, _deviceLifetime.Token);
@@ -201,6 +202,8 @@ public partial class OverlayWindow : Window
 
         GameLibraryHost.ArtworkRequested += OpenImportedArtwork;
         GameLibraryHost.EmulatorsRequested += OpenEmulators;
+        GameLibraryHost.SettingsRequested += PanelSystemTools.RequestSettings;
+        ArtworkHost.SettingsRequested += PanelSystemTools.RequestSettings;
 
         KeyDown += OnKeyDown;
         Opened += OnOpened;

@@ -32,6 +32,12 @@ internal static class Program
             return;
         }
 
+        if (args.Length > 4 && args[4] == "match-cases")
+        {
+            PreviewTools.ExportMatchCases(output, width, height);
+            return;
+        }
+
         if (args.Length > 4 && args[4] == "artwork-home-cases")
         {
             PreviewArtworkHome.Export(output, width, height);

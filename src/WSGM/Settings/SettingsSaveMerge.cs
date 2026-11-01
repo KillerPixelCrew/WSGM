@@ -84,8 +84,6 @@ internal static class SettingsSaveMerge
             }
         }
 
-        config.Artwork.SteamGridDbApiKey = values.Artwork.SteamGridDbApiKey;
-        config.Artwork.ScreenscraperEnabled = values.Artwork.ScreenscraperEnabled;
         config.Artwork.ScreenscraperUser = values.Artwork.ScreenscraperUser;
         config.Artwork.ScreenscraperUserPassword = values.Artwork.ScreenscraperUserPassword;
         config.Artwork.TabOrder = values.Artwork.TabOrder;

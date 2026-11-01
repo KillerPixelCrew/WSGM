@@ -45,7 +45,7 @@ internal sealed class ArtworkSearchProviders(Func<ArtworkConfig> config) : IGame
     }
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<ArtworkGameMatch>> SearchAsync(string term, CancellationToken cancellationToken)
+    public Task<ArtworkGameSearch> SearchAsync(string term, CancellationToken cancellationToken)
     {
         return ArtworkSearch.SearchGamesAsync(term, config(), cancellationToken);
     }

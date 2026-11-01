@@ -24,6 +24,7 @@ namespace WSGM.Shell;
 /// <param name="StorageLibraries">Every card library known or connected, with its immediate actions.</param>
 /// <param name="Shortcuts">Every tracked non-Steam shortcut, WSGM's and the user's, by location and name.</param>
 /// <param name="StorageChecked">Whether the tracker has checked Steam's shortcuts at least once.</param>
+/// <param name="MatchSearch">The last "Fix match" search, running or finished, or null.</param>
 public sealed record GameLibraryState(
     IReadOnlyList<GameLibrarySource> Sources,
     IReadOnlyList<string> Reading,
@@ -44,4 +45,5 @@ public sealed record GameLibraryState(
     IReadOnlyList<ManualShortcutConfig>? ManualSources = null,
     IReadOnlyList<GameLibraryStorage>? StorageLibraries = null,
     IReadOnlyList<ShortcutStatus>? Shortcuts = null,
-    bool StorageChecked = false);
+    bool StorageChecked = false,
+    GameLibraryMatchSearchState? MatchSearch = null);
