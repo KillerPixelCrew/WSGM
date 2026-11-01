@@ -58,15 +58,15 @@ normally; a Steam client or launch wrapper that remains is a setup refusal, neve
 Details in [setup](setup.md#the-exit-events-are-a-cross-version-contract).
 
 **One config file, one lock.** Config lives at `%LOCALAPPDATA%\WSGM\config.json`
-(`Core\ConfigStore`, System.Text.Json source generation; a new scalar property needs no context
-change). `Program` builds one `UserDataContext` (data root and mutex name) and one `ConfigStore`
-over it, and passes them to everything that reads or writes per-user state; nothing derives the root
-from the logger or the environment on its own. The registry snapshots inside the config belong to
-the install lifecycle and feature code never clobbers them. `ConfigStore.Transaction()` is the
-single cross-process writer scope: the Settings save holds it across the config write and the
-splash-asset promotion, while the multi-megabyte image copies happen outside it (sidecars are
-per-transaction unique). A writer is never nested; a second writer or a read on the writer's thread
-is refused rather than stacking 2 s timeouts.
+(`Core\Config\ConfigStore`, System.Text.Json source generation; a new scalar property needs no
+context change). `Program` builds one `UserDataContext` (data root and mutex name) and one
+`ConfigStore` over it, and passes them to everything that reads or writes per-user state; nothing
+derives the root from the logger or the environment on its own. The registry snapshots inside the
+config belong to the install lifecycle and feature code never clobbers them.
+`ConfigStore.Transaction()` is the single cross-process writer scope: the Settings save holds it
+across the config write and the splash-asset promotion, while the multi-megabyte image copies happen
+outside it (sidecars are per-transaction unique). A writer is never nested; a second writer or a
+read on the writer's thread is refused rather than stacking 2 s timeouts.
 
 **Config schema.** `AppConfig.SchemaVersion` is 1; a 2.0 file has none and reads as 0. Reading
 migrates an older file in memory, rewriting only stored values whose meaning changed (2.0's
@@ -146,7 +146,7 @@ Picture and borderless fullscreen report it.
 cancel surface, so an entry that has anything to wait for must show it. Its Big Picture timeout
 starts when Steam is actually asked, not when the cover goes up: the reference machine waits for a
 TV behind an HDMI switch, and a timeout measured from the cover would fire in the middle of exactly
-the wait the cover exists for. `Shell\SplashPolicy.cs` is that rule.
+the wait the cover exists for. `Shell\Boot\SplashPolicy.cs` is that rule.
 
 **Desktop recovery is a single transition (2026-09-13).** Normal return and failed Game Mode entry
 share ordered, independently guarded cleanup. They restore a responsive Explorer before optional IR
@@ -213,10 +213,19 @@ Performance section and Steam's Performance tab and needs no device plugin.
 
 **AutoTDP has its own target frame rate (2026-10-29).** AutoTDP used to take its deadline from the
 active RTSS frame limit, so it could not run without one, and its Quick Access switch vanished
-whenever no limit was active. It now aims for its own per-game target, a slider under the switch
-on the Overlay, in Quick Access and on Steam's Power page. A lower active frame limit wins, because
-a capped game cannot reach a higher target. Details are in
+whenever no limit was active. It now aims for its own per-game target, a slider under the switch on
+the Overlay, in Quick Access and on Steam's Power page. A lower active frame limit wins, because a
+capped game cannot reach a higher target. Details are in
 [AutoTDP](autotdp-controller.md#the-service).
+
+**The Atlas 8's extended VRR range is WSGM's, opt-in (2026-11-01).** The maintainer asked for the
+Atlas8Tweaks VRR Fix inside WSGM. It is a switch on the overlay's Power page and Steam's Display
+page, off by default, mirroring the script: 28 Hz EDID override, Arc Sync Excellent and LFC off at
+every start, the saved Intel state back when it is switched off or WSGM is uninstalled. WSGM's start
+replaces the script's sign-in task, and a standalone install is shown as managed by that tool until
+the user switches it off in WSGM. With Device Integration off nothing is written and an existing
+override stays. Details in
+[power and display](power-and-display.md#extended-vrr-range-on-the-acer-predator-atlas-8).
 
 **Four display modes became two, and the old Off became Default.** Off, DPI-only and automatic
 profiles all collapse into Default, which is the DPI-only posture. Off was never a neutral choice:
@@ -229,14 +238,30 @@ settings, with copying the current desktop optional. See [power and display](pow
 
 ## Steam
 
+**WSGM supports both Steam clients, Stable and Beta (2026-11-01).** Support for the Beta was dropped
+for a while; then the screensaver shipped on the Beta and moved to Stable unannounced, which broke
+WSGM there. Valve moves features between the channels without notice, so following only one leaves
+the other to break silently. Every gate and fingerprint must resolve on both channels, or degrade
+explicitly on one with a logged reason. Each feature's closing batch checks the installed client and
+the newest snapshot of the other channel, and any mismatch is a defect to fix in that task. See
+[Checking both Steam channels](steam-cef-system.md#checking-both-steam-channels).
+
+**An unchecked Steam build is reported, never acted on (2026-11-01).** WSGM ships the list of Steam
+client builds it was checked with. When the running client is not on it, WSGM logs one warning and
+shows a dismissible notice in the Overlay and on its Steam settings page asking the user to report
+anything that misbehaves. No feature is gated, disabled or degraded on that comparison: the
+fingerprints and gates decide what works, and the notice only tells the user who to tell. It is
+dismissed per build, so it returns only when Steam updates again.
+
 **WSGM's own settings can be changed from Steam (2026-09-24).** A WSGM row in Steam's main menu
 opens a page with a limited set of WSGM's global settings: which Steam features WSGM injects, how it
-starts, Steam Input, and the installed plugins' settings. It is a second place to reach settings
-that configure WSGM itself, not a second owner: each change is one field written through the config
-store, applied by the shell's reload exactly as a save from WSGM Settings, and an open Settings
-window keeps any shared field it did not change itself rather than writing back what it loaded.
-Everything on the page is Steam's own UI; an element Steam does not have would go into the toolkit,
-reusable and in Steam's exact style. See
+starts, Steam Input, the artwork providers (the SteamGridDB key and the Screenscraper switch, which
+the Game Library and artwork page point to when a search needs them), and the installed plugins'
+settings. It is a second place to reach settings that configure WSGM itself, not a second owner:
+each change is one field written through the config store, applied by the shell's reload exactly as
+a save from WSGM Settings, and an open Settings window keeps any shared field it did not change
+itself rather than writing back what it loaded. Everything on the page is Steam's own UI; an element
+Steam does not have would go into the toolkit, reusable and in Steam's exact style. See
 [WSGM's settings page in Steam](steam-cef-system.md#wsgms-settings-page-in-steam).
 
 **Themes are CSS Loader's themes, from CSS Loader's store (2026-09-28).** WSGM restyles Big Picture
@@ -315,6 +340,18 @@ as an ordinary unticked choice. A drive letter never identifies a card; a card i
 or Steam marker content id read through its volume GUID, and a literal path is bound per shortcut to
 the card it was found on. Repair library and Use this card are immediate commands rather than staged
 Apply actions. See [shortcut availability](game-library.md#shortcut-availability).
+
+**Game Tools is a routed page backed by one WSGM-owned manifest (2026-10-30).** Issue #218 adds
+per-game tools, starting with OptiScaler. The game menu's "Game Tools…" opens a routed Big Picture
+page rather than a nested menu, because a tool needs the detected program, upscalers, anti-cheat,
+versions, a proxy name and settings in one view; the Overlay has the same page over the same
+service. OptiScaler is downloaded from its upstream GitHub release when the user installs it, with
+its published digest required, and WSGM never redistributes it. WSGM states it is not affiliated
+with OptiScaler. Every change is a journaled transaction recorded in WSGM's own `game-tools.json`:
+WSGM removes only files it wrote and whose hash still matches, restores what it backed up, and
+refuses any file it cannot classify, including another mod or a copy of the tool installed outside
+WSGM, which only an explicit, confirmed replacement may take over. Install waits for an explicit
+acknowledgement when anti-cheat is found. See [Game Tools](game-tools.md).
 
 **WSGM writes Steam shortcuts through the running client (2026-09-22).** This reverses the rule
 recorded after the September 2026 launcher trials, when CEF shortcut-management calls destabilized a
@@ -407,6 +444,32 @@ writes are never retried automatically. Crash recovery handles unfinished sessio
 records are evidence, not runtime drivers. Production support comes from a native LibHandheld
 contribution. AllyXLab was retired on 2026-09-25, once the wizard covered it.
 
+**Intel power limits can go through IPF (2026-11-01).** Where Intel's Innovation Platform Framework
+is installed, the power-limit path offers IPF beside the firmware path and PawnIO. WSGM opens IPF's
+elevated client session and requests PL1/PL2; IPF applies them through its own Intel-signed driver,
+so no driver blocklist or Memory Integrity change is needed, and closing the session releases the
+request. IPF stays running on this path and off on PawnIO (and on the Atlas firmware path), where it
+fought the limits. On the Atlas this held 45 W sustained under OCCT where the firmware path fell to
+35 W, but 45 W kept the APU at its temperature limit, so the Atlas PL1 maximum stays the firmware's
+40 W on every path and it has no Extreme Power preset. IPF arbitrates and the lowest request wins,
+so the path never exceeds what Intel's own policy asks for. Evidence is in the Atlas
+`PROVENANCE.md`.
+
+**KX is removed again; the Atlas firmware path holds Manual (2026-11-01).** KX and its HwRwDrv
+driver are gone from LibHandheld, setup and the WSGM payload, and setup no longer forces Memory
+Integrity or the driver blocklist off for any model. Intel handhelds keep the choice between their
+firmware path (Atlas EC, Claw WMI) and PawnIO MSR 0x610; a model without a firmware path has only
+PawnIO and shows no choice. PawnIO cannot write the MCHBAR mirror, so on the Atlas every limit write
+on every path selects Manual again, the firmware path rewrites the Manual profile and selects Manual
+every three seconds while Manual is held, and Intel's IPF service stays off on both paths while WSGM
+owns the limits. The Claw keeps IPF off only on PawnIO. Evidence is in the Atlas `PROVENANCE.md`.
+
+**Intel power limits have selectable paths (2026-10-31).** Every Intel handheld offers its firmware
+path where it has one and PawnIO MSR 0x610, in both the Overlay and Steam Quick Access, stored
+globally. On the Atlas the firmware path lagged in games and Intel's IPF service kept lowering
+MCHBAR PL1 to 35 W, so the PawnIO path disables and stops IPF while selected and restores it
+afterwards. This entry briefly brought KX back as a third path; the entry above removes it again.
+
 **Device Lab and KX are removed (2026-10-28).** Device Lab, its tests, publishing scripts and skill
 were deleted from the repository. Hardware evidence is gathered in attended sessions and recorded in
 the family `PROVENANCE.md` beside the LibHandheld code it supports. Handheld Companion's KX helper
@@ -433,18 +496,35 @@ closes, the original controller comes back; nobody is stranded on a hidden pad. 
 entries are still never touched. Evidence is in
 [device integration](device-integration.md#wsgm-owns-the-cloak).
 
+**WSGM handles the power button where the device can read both edges (2026-11-01).** #21 asked for
+SteamOS's behaviour: a short press sleeps, a hold opens the power menu. It was closed as a dead end
+after #116 found the Claw 8's button to be an ACPI fixed-feature button that Windows reports with a
+press edge only. The Atlas 8 proved other models differ: its Intel HID Event Filter exposes a
+Portable Device Control collection with press and release as they happen, while Windows' own path
+sees a short press only after release and drops some quick taps, which is why the stock Atlas seemed
+to react only to a hold. The button is therefore a LibHandheld `Power` control published by a source
+that reads both edges, not a remappable OEM control, and WSGM takes Windows' power-button action and
+slide-to-shut-down screen over only while that control is published, restoring both when it goes,
+when WSGM stops and from every recovery path. A hold opens Steam's power menu in Game Mode and the
+overlay's on the desktop; the short press is the user's choice on both Power pages. Sleep on a
+Modern Standby machine enters standby through the display, because every Windows sleep call
+hibernates there, and Steam suspend runs Steam's own flow with its PC suspend suppressed before WSGM
+sleeps. Models whose button cannot be read keep Windows' handling. Mechanism in
+[power and display](power-and-display.md#the-power-button).
+
 ## User interface
 
 **Only the boot movie is replaceable (2026-09-28).** Issue #43 asked for a toolkit primitive to play
 SteamOS's suspend animation on Windows. The Windows client turned out to honour
 `config\uioverrides\movies` through its generic override route, so no primitive is needed and #45 is
 file, catalog and choice work. The suspend movies are overridable too, but they play only in Steam's
-own suspend flow, and nothing on Windows drives it: the power button delivers one press edge and no
-release (#116), so WSGM sleeps Windows directly (#21). #45 therefore offers the boot movie alone,
-under the name the bundle asks for on Windows, `bigpicture_startup.webm`, not Animation Changer's
-`deck_startup.webm`. The movie is copied, not linked. Content and choice are kept apart so a shuffle
-and a return to Steam's own never touch the downloads, and the choice is applied before Steam starts
-because the client caches the lookup for the life of the document.
+own suspend flow, which nothing on Windows drove then: the Claw 8's power button delivers one press
+edge and no release (#116). The power button's Steam suspend choice (Devices and plugins) now drives
+it on a model whose button WSGM can read. #45 offers the boot movie alone, under the name the bundle
+asks for on Windows, `bigpicture_startup.webm`, not Animation Changer's `deck_startup.webm`. The
+movie is copied, not linked. Content and choice are kept apart so a shuffle and a return to Steam's
+own never touch the downloads, and the choice is applied before Steam starts because the client
+caches the lookup for the life of the document.
 
 **A Windows power profile is offered only when there is a choice (2026-09-28).** A machine whose
 Windows installation has one power plan showed a dropdown with one entry in the overlay's Power page
@@ -466,7 +546,7 @@ are in `src\Avalonia.LiveBackdrop\README.md` and `docs\overlay-and-input.md`.
 **RTSS starts with WSGM and stays running (2026-10-03).** Enabled integration probes immediately,
 starts only the verified executable when it is absent, and restarts a discovered or started process
 after its exit. The session poll remains active without a performance UI. There is no restart
-cooldown; one in-flight launch guard includes the 10 s initialization settle. Disabled integration
-never launches or writes, and WSGM never kills RTSS. An unresolved game executable holds only the
-frame limit; the overlay level applies through the global profile meanwhile. Details are in
-[RTSS integration](rtss.md#wsgm-starts-rtss).
+cooldown; the one-at-a-time session refresh owns the launch and its 10 s initialization settle.
+Disabled integration never launches or writes, and WSGM never kills RTSS. An unresolved game
+executable holds only the frame limit; the overlay level applies through the global profile
+meanwhile. Details are in [RTSS integration](rtss.md#wsgm-starts-rtss).

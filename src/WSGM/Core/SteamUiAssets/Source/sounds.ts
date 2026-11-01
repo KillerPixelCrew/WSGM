@@ -2,17 +2,10 @@
 const SoundsPatchId = "wsgm.sounds";
 const SoundsRoute = "/wsgm/sounds";
 
-let soundsUi: any = null;
-
-const soundsAct = wsgmPageAct(SoundsPatchId);
-
 const soundsTabs = [
   { id: "installed", title: "Installed" },
   { id: "browse", title: "Browse" },
 ];
-
-// The store's pages: the next page asks the store again, as the overlay pages through it.
-const soundsBrowse = (page: number, search: string) => void soundsAct("browse", { page, search });
 
 const soundsPackLine = (pack) =>
   [pack.author ? `By ${pack.author}` : "", pack.version].filter(Boolean).join(" · ");
@@ -30,8 +23,8 @@ const soundsCard = (ui, item, open) => {
     key: item.id,
     image: item.imageUrl,
     stats: [
-      { glyph: renderSteamUiGlyph(react, "download"), text: String(item.downloads ?? 0) },
-      { glyph: renderSteamUiGlyph(react, "star"), text: String(item.stars ?? 0) },
+      { glyph: renderSteamUiIcon(react, "download", 13), text: String(item.downloads ?? 0) },
+      { glyph: renderSteamUiIcon(react, "star", 13), text: String(item.stars ?? 0) },
     ],
     badge,
     title: item.name,
@@ -43,180 +36,139 @@ const soundsCard = (ui, item, open) => {
   });
 };
 
-function SoundsListing({ state, item, onBack }: any) {
-  const ui = soundsUi;
-  const react = ui.react;
-  const h = react.createElement;
+function SoundsListing({ context, state, item, onBack }: any) {
+  const ui = context.ui();
+  const h = ui.react.createElement;
   const installed = item.installedVersion != null;
-  const label = !installed
-    ? "Install"
-    : item.installedVersion === item.version
-      ? "Reinstall"
-      : "Update";
-  return renderSteamUiDetail(ui, {
+  const label = steamUiAcquireLabel(installed, item.installedVersion === item.version);
+  return renderSteamUiItem(ui, {
     title: item.name,
     badge: item.version,
     media: item.imageUrl
       ? h("img", { className: "wsgm-sounds-shot", src: item.imageUrl, alt: "" })
       : null,
-    main: [
-      h(
-        "div",
-        { className: "steam-ui-kit-muted" },
-        [item.author ? `By ${item.author}` : "", item.updated ? `Last Updated ${item.updated}` : ""]
-          .filter(Boolean)
-          .join(" · "),
-      ),
-      h(
-        "p",
-        { className: "steam-ui-kit-muted" },
-        installed
-          ? `Installed: ${item.installedVersion}. Choose it under Installed or on Settings > Customization.`
-          : "An Audio Loader pack from DeckThemes. Sounds it does not cover keep Steam's own.",
-      ),
-    ],
-    aside: [
-      renderSteamUiBox(
-        react,
-        `${label} ${item.name}`,
-        h("div", { className: "steam-ui-kit-muted" }, `${item.downloads ?? 0} Downloads`),
-        h(
-          ui.dialogButtonPrimary,
-          { disabled: !!state.busy, onClick: () => void soundsAct("install", { id: item.id }) },
-          state.busy ? "Working…" : label,
+    byline: [item.author ? `By ${item.author}` : "", item.updated ? `Last Updated ${item.updated}` : ""]
+      .filter(Boolean)
+      .join(" · "),
+    sections: [
+      {
+        title: installed ? "In your library" : "About",
+        content: h(
+          "p",
+          { className: "steam-ui-kit-muted" },
+          installed
+            ? `Installed: ${item.installedVersion}. Choose it under Installed or on Settings > Customization.`
+            : "An Audio Loader pack from DeckThemes. Sounds it does not cover keep Steam's own.",
         ),
-        h("div", { className: "steam-ui-kit-muted" }, "Downloads into WSGM's sound library."),
-      ),
+      },
     ],
+    acquire: {
+      title: `${label} ${item.name}`,
+      meta: `${item.downloads ?? 0} Downloads`,
+      label,
+      busy: !!state.busy,
+      onAcquire: () => void context.act("install", { id: item.id }),
+      note: "Downloads into WSGM's sound library.",
+    },
     onBack,
   });
 }
 
-function SoundsPack({ state, pack, onBack }: any) {
-  const ui = soundsUi;
+function SoundsPack({ context, state, pack, onBack }: any) {
+  const ui = context.ui();
   const react = ui.react;
   const h = react.createElement;
   const selected = state.selected === pack.id;
   const usable = !pack.error;
   const back = () => {
-    void soundsAct("stopPreview");
+    void context.act("stopPreview");
     onBack();
   };
   const list = (title: string, items: string[]) =>
     items.length
-      ? h(
-          react.Fragment,
-          null,
-          h("h3", null, title),
-          h("div", { className: "steam-ui-kit-muted wsgm-sounds-list" }, items.join(", ")),
-        )
+      ? {
+          title,
+          content: h("div", { className: "steam-ui-kit-muted wsgm-sounds-list" }, items.join(", ")),
+        }
       : null;
-  return renderSteamUiDetail(ui, {
+  return renderSteamUiItem(ui, {
     title: pack.name,
     badge: pack.version,
-    main: [
-      h("div", { className: "steam-ui-kit-muted" }, soundsPackLine(pack)),
-      h("h3", null, "Description"),
-      h(
-        "p",
-        { className: pack.description ? "" : "steam-ui-kit-muted" },
-        pack.error || pack.description || "No description provided.",
-      ),
-      pack.source ? h("div", { className: "steam-ui-kit-muted" }, `Source: ${pack.source}`) : null,
+    byline: soundsPackLine(pack),
+    description: pack.description ?? "",
+    error: pack.error ?? null,
+    sections: [
+      pack.source
+        ? { title: "Source", content: h("div", { className: "steam-ui-kit-muted" }, pack.source) }
+        : null,
       pack.compatibility
-        ? h(
-            react.Fragment,
-            null,
-            h("h3", null, "Client compatibility"),
-            h("p", null, pack.compatibility),
-          )
+        ? { title: "Client compatibility", content: h("p", null, pack.compatibility) }
         : null,
       list("Replaced", pack.mapped ?? []),
       list("Steam's own sound", pack.defaults ?? []),
       list("Problems", pack.problems ?? []),
       usable && (pack.assets ?? []).length
-        ? h(
-            react.Fragment,
-            null,
-            h("h3", null, "Preview"),
-            renderSteamUiChips(ui, [
+        ? {
+            title: "Preview",
+            content: renderSteamUiChips(ui, [
               ...pack.assets.map((asset) => ({
                 label: asset,
                 description: "Play",
-                onClick: () => void soundsAct("preview", { id: pack.id, asset }),
+                onClick: () => void context.act("preview", { id: pack.id, asset }),
               })),
-              { label: "Stop", onClick: () => void soundsAct("stopPreview") },
+              { label: "Stop", onClick: () => void context.act("stopPreview") },
             ]),
-          )
+          }
         : null,
     ],
+    acquire: usable
+      ? {
+          title: selected ? "Playing in Steam" : "Use in Steam",
+          label: selected ? "Selected" : "Use these sounds",
+          disabled: selected,
+          busy: !!state.busy,
+          onAcquire: () => void context.act("select", { id: pack.id }),
+          note: "Sounds the pack does not cover keep Steam's own.",
+        }
+      : null,
     aside: [
-      usable
-        ? renderSteamUiBox(
-            react,
-            selected ? "Playing in Steam" : "Use in Steam",
-            h(
-              ui.dialogButtonPrimary,
-              {
-                disabled: selected || !!state.busy,
-                onClick: () => void soundsAct("select", { id: pack.id }),
-              },
-              selected ? "Selected" : "Use these sounds",
-            ),
-            h(
-              "div",
-              { className: "steam-ui-kit-muted" },
-              "Sounds the pack does not cover keep Steam's own.",
-            ),
-          )
-        : null,
       pack.storeId
         ? h(
             ui.dialogButton,
             {
+              key: "update",
               disabled: !!state.busy,
-              onClick: () => void soundsAct("install", { id: pack.storeId }),
+              onClick: () => void context.act("install", { id: pack.storeId }),
             },
             "Update from DeckThemes",
           )
         : null,
-      h(
-        ui.dialogButton,
-        {
-          disabled: !!state.busy,
-          onClick: () =>
-            showSteamUiConfirm(ui, {
-              title: "Remove Sound Pack",
-              text: selected
-                ? `Remove ${pack.name}? Steam's own sounds play again.`
-                : `Remove ${pack.name} from WSGM's sound library?`,
-              confirmLabel: "Remove",
-              onConfirm: () => void soundsAct("delete", { id: pack.id }).then(back),
-            }),
-        },
-        "Remove",
-      ),
     ],
+    remove: {
+      label: "Remove",
+      title: "Remove Sound Pack",
+      text: selected
+        ? `Remove ${pack.name}? Steam's own sounds play again.`
+        : `Remove ${pack.name} from WSGM's sound library?`,
+      disabled: !!state.busy,
+      // Back to the list once the pack is gone; a refusal stays on this pack and says why.
+      onRemove: () =>
+        void context.send("delete", { id: pack.id }).then(back, (error) => context.report(error)),
+    },
     onBack: back,
   });
 }
 
-function SoundsInstalled({ state }: any) {
-  const ui = soundsUi;
+function SoundsInstalled({ context, state }: any) {
+  const ui = context.ui();
   const react = ui.react;
   const h = react.createElement;
   const [open, setOpen] = react.useState("");
   const packs: any[] = state.packs ?? [];
   const pack = packs.find((candidate) => candidate.id === open);
-  if (pack) return h(SoundsPack, { state, pack, onBack: () => setOpen("") });
-  const importZip = () =>
-    void showSteamFilePicker(ui, {
-      title: "Choose an Audio Loader ZIP",
-      mode: "file",
-      extensions: [".zip"],
-    }).then((chosen) => chosen && soundsAct("import", { path: chosen }));
-  const choice = renderSteamSettingRow(
-    ui,
+  if (pack) return h(SoundsPack, { context, state, pack, onBack: () => setOpen("") });
+  const busy = !!state.busy;
+  const rows = [
     {
       key: "sounds-selected",
       kind: "choice",
@@ -224,181 +176,123 @@ function SoundsInstalled({ state }: any) {
       // With no pack chosen the coverage line only repeats that Steam's sounds play.
       description: state.selected ? state.compatibility : undefined,
       text: state.selected ?? "",
+      disabled: busy,
       choices: [
         { value: "", label: "Steam default" },
+        ...(state.selected && !packs.some((item) => item.id === state.selected && !item.error)
+          ? [{ value: state.selected, label: "Unavailable pack", selectable: false }]
+          : []),
         ...packs
           .filter((item) => !item.error)
           .map((item) => ({ value: item.id, label: item.name })),
       ],
     },
-    undefined,
-    (_row, value, commit = true) => {
-      if (commit) void soundsAct("select", { id: String(value ?? "") });
+    {
+      key: "sounds-integration",
+      kind: "note",
+      label: "Steam integration",
+      text: "",
+      description: state.integration,
     },
-    () => {},
-  );
+  ];
   return renderSteamUiPane(
     ui,
     {},
-    renderSteamUiToolbar(
-      ui,
-      h(
-        ui.dialogButton,
-        { disabled: !!state.busy, onClick: () => void soundsAct("refresh") },
-        "Refresh",
-      ),
-      h(ui.dialogButton, { disabled: !!state.busy, onClick: importZip }, "Import a ZIP…"),
-      h(
-        ui.dialogButton,
+    renderSteamUiFields(ui, {
+      title: "Steam UI sounds",
+      rows,
+      revision: state.revision,
+      onChange: (_row, value) => context.send("select", { id: String(value ?? "") }),
+    }),
+    renderSteamUiManage(ui, {
+      title: "Installed packs",
+      items: packs,
+      itemKey: (item) => item.id,
+      label: (item) => item.name,
+      detail: (item) => soundsPackLine(item),
+      error: (item) => item.error ?? null,
+      status: (item) =>
+        state.selected === item.id ? h("span", { className: "wsgm-sounds-active" }, "Selected") : null,
+      selected: state.selected,
+      onOpen: (item) => setOpen(item.id),
+      add: [
+        { id: "refresh", label: "Refresh", disabled: busy, onClick: () => void context.act("refresh") },
         {
-          disabled: !!state.busy || !state.selected,
-          onClick: () => void soundsAct("select", { id: "" }),
+          id: "import",
+          label: "Import a ZIP…",
+          disabled: busy,
+          pick: { title: "Choose an Audio Loader ZIP", mode: "file", extensions: [".zip"] },
+          onPick: (path) => void context.act("import", { path }),
         },
-        "Restore Steam Defaults",
-      ),
-    ),
-    h(
-      ui.settingsSection,
-      { label: "Steam UI sounds" },
-      choice,
-      renderSteamSettingRow(
-        ui,
         {
-          key: "sounds-integration",
-          kind: "note",
-          label: "Steam integration",
-          text: "",
-          description: state.integration,
+          id: "defaults",
+          label: "Restore Steam Defaults",
+          disabled: busy || !state.selected,
+          onClick: () => void context.act("select", { id: "" }),
         },
-        undefined,
-        () => {},
-        () => {},
-      ),
-    ),
-    packs.length === 0
-      ? renderSteamUiEmpty(
-          react,
-          "No sound packs installed. Get one under Browse, or import an Audio Loader ZIP.",
-        )
-      : h(
-          ui.settingsSection,
-          { label: "Installed packs" },
-          ...packs.map((item) =>
-            renderSteamUiSelectRow(ui, {
-              key: item.id,
-              title: item.name,
-              detail: item.error ?? soundsPackLine(item),
-              status:
-                state.selected === item.id
-                  ? h("span", { className: "wsgm-sounds-active" }, "Selected")
-                  : null,
-              selected: state.selected === item.id,
-              onClick: () => setOpen(item.id),
-            }),
-          ),
-        ),
+      ],
+      empty: {
+        title: "No sound packs yet",
+        text: "No sound packs installed. Get one under Browse, or import an Audio Loader ZIP.",
+        action: { label: "Browse sound packs", onClick: () => context.setTab("browse") },
+      },
+    }),
   );
 }
 
-function SoundsBrowse({ state }: any) {
-  const ui = soundsUi;
+function SoundsBrowse({ context, state }: any) {
+  const ui = context.ui();
   const react = ui.react;
   const h = react.createElement;
   const browse = state.browse ?? {};
-  const [search, setSearch] = react.useState("");
-  const [searched, setSearched] = react.useState("");
   const [open, setOpen] = react.useState("");
-  // The first look at the store is the page's own: nothing is fetched until someone opens the tab.
-  react.useEffect(() => {
-    if (!browse.page && !state.busy) soundsBrowse(1, "");
-  }, []);
   const items: any[] = browse.items ?? [];
   const item = items.find((candidate) => candidate.id === open);
-  if (item) return h(SoundsListing, { state, item, onBack: () => setOpen("") });
-  const page = browse.page ?? 0;
-  const pages = Math.max(1, Math.ceil((browse.total ?? 0) / Math.max(1, browse.pageSize ?? 1)));
+  if (item) return h(SoundsListing, { context, state, item, onBack: () => setOpen("") });
+  const search = browse.search ?? "";
+  const ask = (text: string) => void context.act(SteamUiBrowse.browse, { search: text });
+  const busy = !!state.busy;
   return renderSteamUiPane(
     ui,
     {},
-    renderSteamUiToolbar(
-      ui,
-      renderSteamUiTool(
-        ui,
-        null,
-        h(ui.textField, {
-          label: "Search",
-          value: search,
-          onChange: (event) => setSearch(event?.target?.value ?? ""),
-          onBlur: () => {
-            if (search === searched) return;
-            setSearched(search);
-            soundsBrowse(1, search);
-          },
-        }),
-        true,
-      ),
-      h(
-        ui.dialogButton,
-        { disabled: !!state.busy, onClick: () => soundsBrowse(Math.max(1, page), searched) },
-        "Refresh",
-      ),
-    ),
-    renderSteamUiGrid(
-      ui,
-      items.map((listing) => soundsCard(ui, listing, setOpen)),
-    ),
-    state.busy && items.length === 0
-      ? renderSteamUiEmpty(react, "Asking the store…")
-      : page && items.length === 0
-        ? renderSteamUiEmpty(react, "Nothing matched.")
-        : null,
-    page > 0 && pages > 1
-      ? renderSteamUiActions(ui, [
-          {
-            id: "previous",
-            label: "Previous Page",
-            disabled: !!state.busy || page <= 1,
-            onClick: () => soundsBrowse(page - 1, searched),
-          },
-          {
-            id: "next",
-            label: `Next Page (${page} of ${pages})`,
-            disabled: !!state.busy || page >= pages,
-            onClick: () => soundsBrowse(page + 1, searched),
-          },
-        ])
-      : null,
+    renderSteamUiCollection(ui, {
+      id: "wsgm-sounds-browse",
+      items,
+      itemKey: (listing) => listing.id,
+      render: (listing) => soundsCard(ui, listing, setOpen),
+      search: { value: search, onSubmit: ask },
+      actions: [{ id: "refresh", label: "Refresh", disabled: busy, onClick: () => ask(search) }],
+      // The store's answer arrives through the service's busy state; before the first one the tab
+      // is asking, unless the asking failed, which the page's banner says.
+      loading: (busy && items.length === 0) || (!browse.page && !state.error),
+      loadingText: "Asking the store…",
+      empty: { text: "The store lists no sound packs right now." },
+      noMatch: { text: "Nothing matched." },
+      filtered: !!search,
+      more:
+        items.length < (browse.total ?? 0)
+          ? {
+              total: browse.total,
+              disabled: busy,
+              onMore: () => void context.act(SteamUiBrowse.more),
+            }
+          : null,
+      // The first look at the store is the page's own: nothing is fetched until someone opens the tab.
+      onFirstShow: !browse.page && !busy ? () => ask("") : null,
+    }),
   );
 }
 
 /**
- * Renders sound-pack selection, details, previews and the DeckThemes store from host state.
- * @param context Registered page accessors for Steam components, latest state and publication refusal.
- * @returns The page React tree, including loading or refusal state when data is unavailable.
+ * Draws the active tab of the UI sounds page: the installed packs and the DeckThemes store.
+ * @param props The frame's context, the host's state and the active tab.
+ * @returns The tab's content; the frame draws the tabs, banner and loading state around it.
  */
-function SoundsPage({ context }: any) {
+function SoundsPage({ context, state, tab }: any) {
   const react = context.react();
-  const h = react.createElement;
-  const ui = context.ui();
-  soundsUi = ui;
-  const state = context.state();
-  const [tab, setTab] = react.useState("installed");
   // A preview belongs to the page: leaving it stops whatever is playing.
-  react.useEffect(() => () => void soundsAct("stopPreview"), []);
-  if (!state) return renderSteamUiEmpty(react, context.refusal() ?? "Loading sound packs…");
-  return renderSteamUiTabbedPage(ui, {
-    id: "wsgm-sounds",
-    label: "UI sounds",
-    style: soundsStyles,
-    tabs: soundsTabs,
-    active: tab,
-    onTab: setTab,
-    // The service reports the last refusal until its next operation; there is nothing to dismiss.
-    banner: state.error
-      ? { text: state.error, error: true, onDismiss: () => void soundsAct("refresh") }
-      : null,
-    content: (id) => (id === "browse" ? h(SoundsBrowse, { state }) : h(SoundsInstalled, { state })),
-  });
+  react.useEffect(() => () => void context.act("stopPreview"), []);
+  return react.createElement(tab === "browse" ? SoundsBrowse : SoundsInstalled, { context, state });
 }
 
 // The page's own layout: where the kit's elements go, not how they look.
@@ -412,8 +306,13 @@ const soundsPage = registerSteamPage({
   template: "sounds",
   gate: "sounds",
   patchId: SoundsPatchId,
-  components: resolveSteamSettingsComponents,
-  required: SteamUiTabbedPageRequired,
+  title: "UI sounds",
+  id: "wsgm-sounds",
+  style: soundsStyles,
+  loading: "Loading sound packs…",
+  tabs: { source: "local", list: soundsTabs, initial: "installed" },
+  // The service reports the last refusal until its next operation; Dismiss asks it to look again.
+  banner: (state) => (state.error ? { text: state.error, error: true, dismiss: "refresh" } : null),
   status: () => ({ packs: soundsPage.state()?.packs?.length ?? 0 }),
   Page: SoundsPage,
 });

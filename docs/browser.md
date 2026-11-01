@@ -46,11 +46,11 @@ Steam owns its browser's memory, downloads and external-link prompts; WSGM's Kee
 setting controls the WSGM Overlay browser. Address editing and search stay in trusted Steam chrome.
 Arbitrary websites continue to render in Steam's separate browser view without a WSGM bridge.
 
-`Shell/BrowserSession` owns the WSGM engine lifetime. `Overlay/BrowserView`, `BrowserViewport` and
-`OverlayNativeWebViewHost` own chrome, clipping and input forwarding. `Core/Browser` defines the
-bounded wire and URL policy. `SteamBrowserSurface` and the toolkit's `overlay-browser.ts` own the
-separate native Steam entry and address editing. Installation and development deployment include the
-complete self-contained helper payload under `App/Browser`.
+`Shell/Browser/BrowserSession` owns the WSGM engine lifetime. `Overlay/BrowserView`,
+`BrowserViewport` and `OverlayNativeWebViewHost` own chrome, clipping and input forwarding.
+`Core/Browser` defines the bounded wire and URL policy. `SteamBrowserSurface` and the toolkit's
+`overlay-browser.ts` own the separate native Steam entry and address editing. Installation and
+development deployment include the complete self-contained helper payload under `App/Browser`.
 
 `Browser/WSGM.BrowserProbe` is a local validation harness, excluded from the solution and installed
 payload. Its optional `keyboard` argument checks trusted renderer touch, system-keyboard

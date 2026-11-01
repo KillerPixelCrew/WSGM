@@ -1,0 +1,21 @@
+<StackPanel xmlns="https://github.com/avaloniaui"
+            xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+            xmlns:ov="using:WSGM.Overlay"
+            xmlns:c="using:WSGM.Controls"
+            x:Class="WSGM.Overlay.SystemToolsPage"
+            x:DataType="ov:OverlayViewModel"
+            Spacing="10">
+  <TextBlock Text="SYSTEM" Classes="eyebrow" Margin="2,0,2,2" />
+  <c:ActionButton Click="OnSettings"
+                  Tag="system.settings"
+                  IconGeometry="{x:Static c:Icons.Gear}"
+                  Title="Settings"
+                  Description="Shell, startup, and quick access configuration"
+                  IsVisible="{Binding SettingsAvailable}" />
+  <c:ActionButton Click="OnTaskManager"
+                  Tag="system.task-manager"
+                  IconGeometry="{x:Static c:Icons.Grid4}"
+                  Title="Task Manager"
+                  Description="Processes and performance" />
+  <StackPanel x:Name="UacPolicyHost" Spacing="8" />
+</StackPanel>

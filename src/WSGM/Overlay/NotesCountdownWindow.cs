@@ -1,44 +1,14 @@
 using System;
+using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
-using Avalonia.Threading;
 using WSGM.Core;
 using WSGM.Interop;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
-
-/// <summary>The session's one countdown display; its window is created on first use, on the UI thread.</summary>
-/// <remarks>Notes that never takes a screenshot never creates a window.</remarks>
-internal sealed class NotesCountdown : INotesCountdownDisplay
-{
-    private NotesCountdownWindow? _window;
-
-    /// <inheritdoc />
-    public void Show(int remaining, string game)
-    {
-        Dispatcher.UIThread.Post(() => (_window ??= new NotesCountdownWindow()).Show(remaining, game));
-    }
-
-    /// <inheritdoc />
-    public void Hide()
-    {
-        // Display capture must not start while the countdown is still waiting to hide on the UI thread.
-        Dispatcher.UIThread.Invoke(() => _window?.Hide());
-    }
-
-    /// <summary>Closes the window at session end.</summary>
-    internal void Close()
-    {
-        Dispatcher.UIThread.Post(() =>
-        {
-            _window?.Close();
-            _window = null;
-        });
-    }
-}
 
 /// <summary>
 ///     The Add Screenshot countdown over the game: a small top-center, non-activating, click-through window.
@@ -67,8 +37,10 @@ internal sealed class NotesCountdownWindow : Window
         ShowInTaskbar = false;
         Background = Brushes.Transparent;
         TransparencyLevelHint = [WindowTransparencyLevel.Transparent];
-        _count = new TextBlock { FontSize = 30, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center };
-        _detail = new TextBlock { FontSize = 15, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+        _count = new TextBlock
+            { FontSize = 30, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+        _detail = new TextBlock
+            { FontSize = 15, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
         var row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), ColumnSpacing = 16 };
         row.Children.Add(_count);
         Grid.SetColumn(_detail, 1);
@@ -110,7 +82,7 @@ internal sealed class NotesCountdownWindow : Window
             return;
         }
 
-        _count.Text = remaining.ToString(System.Globalization.CultureInfo.CurrentCulture);
+        _count.Text = remaining.ToString(CultureInfo.CurrentCulture);
         _detail.Text = $"Screenshot of {game}. Open the WSGM overlay to cancel.";
         if (!IsVisible)
         {

@@ -1,169 +1,38 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
-using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Core;
-
-/// <summary>Which profile layer supplied a value.</summary>
-public enum ProfileSource
-{
-    /// <summary>Neither layer sets it. WSGM writes nothing and the device keeps what it has.</summary>
-    None,
-
-    /// <summary>The Global profile.</summary>
-    Global,
-
-    /// <summary>The running game's enabled profile.</summary>
-    Game
-}
-
-/// <summary>A resolved value and the layer it came from.</summary>
-/// <typeparam name="T">The nullable value type.</typeparam>
-/// <param name="Value">The value, or null when nothing sets it.</param>
-/// <param name="Source">The layer that supplied it.</param>
-public readonly record struct Resolved<T>(T Value, ProfileSource Source)
-{
-    /// <summary>Whether the running game overrides this value.</summary>
-    public bool IsGameOverride => Source is ProfileSource.Game;
-}
-
-/// <summary>The application WSGM treats as running, and the game profile that matched it.</summary>
-/// <param name="ApplicationId">Canonical application identity, or null when nothing is running.</param>
-/// <param name="Executable">The running executable, once known.</param>
-/// <param name="SteamAppId">The Steam AppID, when the application has one.</param>
-/// <param name="GameProfileId">The matched game profile, enabled or not.</param>
-/// <param name="Enabled">Whether the matched profile's values are in force.</param>
-public sealed record ActiveProfile(
-    string? ApplicationId,
-    string? Executable,
-    uint? SteamAppId,
-    string? GameProfileId,
-    bool Enabled)
-{
-    /// <summary>Nothing is running.</summary>
-    public static ActiveProfile None { get; } = new(null, null, null, null, false);
-
-    /// <summary>Whether an application is running at all.</summary>
-    public bool HasApplication => ApplicationId is { Length: > 0 };
-}
-
-/// <summary>The two layers a value can come from, for one running application.</summary>
-/// <param name="Global">The Global layer.</param>
-/// <param name="Game">The game layer, only when its profile is enabled.</param>
-public readonly record struct ProfileLayers(ProfileValues Global, ProfileValues? Game)
-{
-    /// <summary>The setting that holds the manual power target for the current mode.</summary>
-    public ProfileSettingKey PowerTargetKey => Value(values => values.TdpUnified).Value == true
-        ? new ProfileSettingKey(ProfileField.UnifiedWatts)
-        : new ProfileSettingKey(ProfileField.SustainedWatts);
-
-    /// <summary>The number of settings the game layer overrides, counting every stored device value.</summary>
-    public int GameOverrideCount => Game?.Count() ?? 0;
-
-    /// <summary>The number of settings the game layer overrides for what is running now.</summary>
-    /// <param name="livePublishers">Identity keys of the device and graphics packages running now.</param>
-    /// <returns>The count, leaving out values stored for a package that is not running.</returns>
-    public int CountGameOverrides(IReadOnlyCollection<string> livePublishers)
-    {
-        return Game?.Count(livePublishers) ?? 0;
-    }
-
-    /// <summary>Resolves a value-typed member: Game, then Global, then nothing.</summary>
-    /// <typeparam name="T">The member's value type.</typeparam>
-    /// <param name="read">Reads the member from one layer.</param>
-    /// <returns>The value and its source.</returns>
-    public Resolved<T?> Value<T>(Func<ProfileValues, T?> read) where T : struct
-    {
-        return Game is not null && read(Game) is { } game ? new Resolved<T?>(game, ProfileSource.Game)
-            : read(Global) is { } global ? new Resolved<T?>(global, ProfileSource.Global)
-            : new Resolved<T?>(null, ProfileSource.None);
-    }
-
-    /// <summary>Resolves a reference-typed member: Game, then Global, then nothing.</summary>
-    /// <typeparam name="T">The member's type.</typeparam>
-    /// <param name="read">Reads the member from one layer.</param>
-    /// <returns>The value and its source.</returns>
-    public Resolved<T?> Reference<T>(Func<ProfileValues, T?> read) where T : class
-    {
-        return Game is not null && read(Game) is { } game ? new Resolved<T?>(game, ProfileSource.Game)
-            : read(Global) is { } global ? new Resolved<T?>(global, ProfileSource.Global)
-            : new Resolved<T?>(null, ProfileSource.None);
-    }
-
-    /// <summary>Resolves one device capability value.</summary>
-    /// <param name="deviceIdentityKey">Stable local device identity.</param>
-    /// <param name="capabilityId">The capability.</param>
-    /// <param name="instanceId">Its instance, or null.</param>
-    /// <returns>The value and its source.</returns>
-    public Resolved<CapabilityValue?> Device(string deviceIdentityKey, string capabilityId, string? instanceId)
-    {
-        return Reference(values => values.FindDevice(deviceIdentityKey, capabilityId, instanceId)?.Value);
-    }
-
-    /// <summary>Resolves the layer supplying one setting.</summary>
-    /// <param name="key">The setting.</param>
-    /// <param name="deviceIdentityKey">The device, for a device setting; null matches any device.</param>
-    /// <returns>The layer that sets it.</returns>
-    public ProfileSource Source(ProfileSettingKey key, string? deviceIdentityKey = null)
-    {
-        return Game is not null && Game.Has(key, deviceIdentityKey) ? ProfileSource.Game
-            : Global.Has(key, deviceIdentityKey) ? ProfileSource.Global
-            : ProfileSource.None;
-    }
-
-    /// <summary>The manual power preferences in force, each field resolved on its own.</summary>
-    /// <returns>The merged preferences, or null when no layer sets any of them.</returns>
-    /// <remarks>
-    ///     Field by field on purpose. Resolving the record as a whole let a game that set only its mode
-    ///     hide every Global wattage behind nulls.
-    /// </remarks>
-    public ManualTdpProfile? ManualTdp()
-    {
-        var unified = Value(values => values.TdpUnified);
-        var unifiedWatts = Value(values => values.UnifiedWatts);
-        var sustained = Value(values => values.SustainedWatts);
-        return unified.Source is ProfileSource.None
-               && unifiedWatts.Source is ProfileSource.None
-               && sustained.Source is ProfileSource.None
-            ? null
-            : new ManualTdpProfile(unified.Value ?? false, unifiedWatts.Value, sustained.Value);
-    }
-}
-
-/// <summary>An immutable view of the profile store and the application it is resolved for.</summary>
-/// <param name="config">A detached copy of the store. Never mutate it.</param>
-/// <param name="active">The running application and its matched profile.</param>
-/// <param name="generation">Increases with every published change.</param>
-public sealed class ProfileSnapshot(ProfileConfig config, ActiveProfile active, long generation)
-{
-    /// <summary>A detached copy of the store. Never mutate it.</summary>
-    public ProfileConfig Config { get; } = config;
-
-    /// <summary>The running application and its matched profile.</summary>
-    public ActiveProfile Active { get; } = active;
-
-    /// <summary>Increases with every published change.</summary>
-    public long Generation { get; } = generation;
-
-    /// <summary>An empty store with nothing running.</summary>
-    public static ProfileSnapshot Empty { get; } = new(new ProfileConfig(), ActiveProfile.None, 0);
-
-    /// <summary>The matched game profile, enabled or not.</summary>
-    public GameProfile? Game { get; } = ProfileResolver.FindGame(config, active.GameProfileId);
-
-    /// <summary>The layers values resolve from.</summary>
-    public ProfileLayers Layers { get; } = ProfileResolver.Layers(config, active);
-
-    /// <summary>Whether an edit made now lands in the game profile rather than Global.</summary>
-    public bool EditsGame => Active.Enabled && Game is not null;
-}
 
 /// <summary>Matches the running application to a game profile and resolves the layers.</summary>
 public static class ProfileResolver
 {
+    /// <summary>The identity prefix of a Steam app.</summary>
+    public const string SteamIdPrefix = "steam:";
+
     /// <summary>The identity prefix of an application known only by its executable.</summary>
-    private const string ProcessIdPrefix = "process:";
+    public const string ProcessIdPrefix = "process:";
+
+    /// <summary>The identity a running Steam app, and every per-game profile and notebook for it, is known by.</summary>
+    /// <param name="appId">The app id, a shortcut's included.</param>
+    /// <returns><c>steam:</c> and the unsigned id.</returns>
+    /// <remarks>
+    ///     One spelling for every side: a profile written under another would never match the running
+    ///     title it was written for.
+    /// </remarks>
+    public static string SteamId(uint appId)
+    {
+        return SteamIdPrefix + appId.ToString(CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>The identity of an application known only by its executable.</summary>
+    /// <param name="executable">The executable's file name.</param>
+    /// <returns><c>process:</c> and the lower-case file name.</returns>
+    public static string ProcessId(string executable)
+    {
+        return ProcessIdPrefix + executable.ToLowerInvariant();
+    }
 
     /// <summary>Matches a running application against the game profiles.</summary>
     /// <param name="config">The profile store.</param>

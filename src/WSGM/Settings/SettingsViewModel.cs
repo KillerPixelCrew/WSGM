@@ -321,6 +321,15 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         internal ScaledResolutionService? ScaledResolutions { get; init; }
 
+        /// <summary>Lists the log files an upload sends, on a worker; none unless the composer supplies them.</summary>
+        internal Func<IReadOnlyList<LogUploadFile>> ListLogs { get; init; } = () => [];
+
+        /// <summary>Masks and uploads the listed log files on a worker, answering with the link that shows them.</summary>
+        /// <remarks>Throws <see cref="LogUploadException" /> with the user-facing reason; unavailable unless supplied.</remarks>
+        internal Func<IReadOnlyList<LogUploadFile>, IProgress<LogUploadProgress>, CancellationToken, Task<string>>
+            UploadLogs { get; init; } = (_, _, _) =>
+            Task.FromException<string>(new LogUploadException("Uploading the log is not available here."));
+
         /// <summary>Composes production delegates around the caller's persistence and shim owners.</summary>
         /// <param name="store">Borrowed configuration store.</param>
         /// <param name="steamInputShim">Borrowed process shim reconciler.</param>
@@ -380,7 +389,7 @@ public sealed partial class SettingsViewModel : ObservableObject
                 StartSetupRepair,
                 // Core Audio, off the dispatcher. A test supplies its own so it reads a fixture
                 // rather than whatever this machine has plugged in.
-                AudioDiscovery.Read,
+                new AudioProfileService(new CoreAudioProfileOperations()).Discover,
                 // The last update check, from the user's profile.
                 () => UpdateChecker.ReadState(UpdateChecker.StatePath(store.Context)),
                 () => OtherManagers.Detect(),
@@ -388,7 +397,17 @@ public sealed partial class SettingsViewModel : ObservableObject
                 () => store.Read().RequireConfig(),
                 () => new SettingsInventory(HandheldDevice.Detect(DeviceMachineIdentity.Collect()),
                     BuiltinGpuDrivers.Detect()),
-                action => Dispatcher.UIThread.Post(action));
+                action => Dispatcher.UIThread.Post(action))
+            {
+                // The files the process's own logger writes, so a standalone Settings finds the same log.
+                ListLogs = () => Log.Files is { } files ? LogUploader.Find(files.Live, files.Archive) : [],
+                UploadLogs = (files, progress, cancellationToken) => Task.Run(async () =>
+                {
+                    using DownloadClient http = new(null);
+                    return await new LogUploader(http, LogMask.CurrentUser())
+                        .UploadAsync(files, progress, cancellationToken).ConfigureAwait(false);
+                }, CancellationToken.None)
+            };
         }
     }
 }

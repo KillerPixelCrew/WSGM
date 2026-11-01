@@ -13,6 +13,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using FluentAvalonia.UI.Controls;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
@@ -81,7 +82,6 @@ internal sealed class DeviceSliderRow : Border
         var tick = Math.Max(1, step);
         var clamped = Math.Clamp(valueNow ?? minimum, minimum, maximum);
 
-        Classes.Add("tile");
         Tag = key;
 
         _value = new TextBlock
@@ -150,7 +150,6 @@ internal sealed class DeviceSliderRow : Border
         AutomationProperties.SetName(_slider, title);
         AutomationProperties.SetHelpText(_slider, description);
         Child = setting;
-        Classes.Remove("tile");
         DetachedFromVisualTree += (_, _) => CommitPendingChange();
     }
 
@@ -237,21 +236,6 @@ internal sealed class DeviceSliderRow : Border
     {
         return _format is not null
             ? _format(value)
-            : $"{value.ToString(CultureInfo.CurrentCulture)}{Suffix(_unit)}";
-    }
-
-    private static string Suffix(CapabilityUnit unit)
-    {
-        return unit switch
-        {
-            CapabilityUnit.Watt => " W",
-            CapabilityUnit.Percent => "%",
-            CapabilityUnit.Celsius => " °C",
-            CapabilityUnit.Rpm => " RPM",
-            CapabilityUnit.Milliampere => " mA",
-            CapabilityUnit.Millivolt => " mV",
-            CapabilityUnit.Megahertz => " MHz",
-            _ => string.Empty
-        };
+            : $"{value.ToString(CultureInfo.CurrentCulture)}{CapabilityRowProjection.UnitSuffix(_unit)}";
     }
 }

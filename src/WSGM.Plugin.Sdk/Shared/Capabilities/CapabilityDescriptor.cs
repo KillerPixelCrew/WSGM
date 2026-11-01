@@ -124,7 +124,7 @@ public sealed record CapabilityDescriptor
         init
         {
             ArgumentNullException.ThrowIfNull(value);
-            field = Array.AsReadOnly<int>([.. value]);
+            field = Array.AsReadOnly([.. value]);
         }
     } = [];
 

@@ -62,7 +62,7 @@ internal static class PerformanceBuilders
     /// <summary>A launcher that never starts or watches a real RTSS process.</summary>
     internal static RtssLauncher InertLauncher()
     {
-        return new RtssLauncher(static _ => Task.FromResult(false), static (_, _) => null);
+        return new RtssLauncher(static _ => false, static (_, _) => null);
     }
 
     /// <summary>Makes an application the running one and lets RTSS apply what resolves for it.</summary>

@@ -40,7 +40,10 @@ Steam page; the Overlay uses focusable command and choice rows within its own na
   may already have, or a title the user deleted from Steam; those are ticked one at a time.
 - **One title's artwork** (Y on a card): every candidate for each artwork type, grouped by provider,
   with "Fix match" to search again under any name. Its results list SteamGridDB's and
-  Screenscraper's games together, grouped by provider, and the user picks one.
+  Screenscraper's games together, grouped by provider, and the user picks one. A provider that found
+  nothing says why beside the results: SteamGridDB needs a key (with a button to WSGM's Artwork
+  settings in Steam, or Settings from the overlay), Screenscraper is not responding, or it knows no
+  game by that name.
 - **All artwork:** every selected title as a row, one column per artwork type. The D-pad moves
   between cells and LT/RT cycle an image, so a whole library is dressed without opening titles one
   by one. Bulk actions fill every title from the Store or SteamGridDB first, fill only empty slots,
@@ -111,38 +114,44 @@ sources ──detect/discover──▶ games ──plan──▶ entries ──c
 
 | Part             | Home                                                                                                           | Owns                                                                                                                                                                                                                       |
 | ---------------- | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sources          | `Core\Library\LibrarySource.cs`, `Core\Library\Sources\`                                                       | Detecting one launcher and finding its installed games in one shape: identity, name, install path, launch routes, multiplayer, whether it is a game, catalog images. Nothing after discovery knows where a game came from. |
+| Sources          | `Core\Library\ILibrarySource.cs`, `Core\Library\DiscoveredGame.cs`, `Core\Library\Sources\`                    | Detecting one launcher and finding its installed games in one shape: identity, name, install path, launch routes, multiplayer, whether it is a game, catalog images. Nothing after discovery knows where a game came from. |
 | Launch routes    | `Core\Library\ShortcutRoute.cs`, `Core\Library\ProtocolHandler.cs`, `Core\Library\PackagedLauncherShortcut.cs` | How a title's shortcut is written and recognised again. The packaged route composes a `WSGM.PackagedLaunch.exe` request; a command route is an exact Target, directory and arguments.                                      |
 | Plan             | `Core\Library\ImportPlan.cs`                                                                                   | Pure: what a sync would do to each title, from the sources, WSGM's records and Steam's live shortcuts.                                                                                                                     |
 | Choices, records | `Core\Library\ImportStateStore.cs`                                                                             | What the user decided per title (mode or route, "don't import", artwork picks, a fixed match) and what WSGM created.                                                                                                       |
-| Artwork stage    | `Shell\GameLibraryArtwork.cs`                                                                                  | Candidates per title and artwork type, gathered in the background after a scan, and each title's match and status. It only gathers.                                                                                        |
+| Artwork stage    | `Shell\Library\GameLibraryArtwork.cs`                                                                          | Candidates per title and artwork type, gathered in the background after a scan, and each title's match and status. It only gathers.                                                                                        |
 | Artwork core     | `Core\Artwork\`: `ArtworkSearch`, the providers, `ArtworkRequestGate`, `ArtworkDownload`, `SteamArtwork`       | The automatic match and the merged search, each provider's pacing and memory, downloads, and applying an image to Steam by the format its bytes declare. Shared with the artwork page.                                     |
-| Service          | `Shell\GameLibraryService.cs`                                                                                  | Scanning, choices, picks, cycling and bulk fills, applying, the controller override; every label both surfaces show; publishes the state both surfaces render.                                                             |
-| Steam page       | `Shell\SteamLibraryImportSurface.cs`, `Core\SteamUiAssets\Source\library-import.ts`                            | Surface one: route `/wsgm/library-import`.                                                                                                                                                                                 |
+| Service          | `Shell\Library\GameLibraryService.cs`, `GameLibraryService.Roms.cs`                                            | The command surface both surfaces call (choices, picks, cycling and bulk fills, sources, ROMs), the review and the scan and apply lifecycle; publishes the state both surfaces render.                                     |
+| Scan             | `Shell\Library\GameLibraryScanner.cs`                                                                          | The sources, their detection and counts, and the scan that plans against Steam and lays stored choices and the selection over the review.                                                                                  |
+| Apply            | `Shell\Library\GameLibraryApplier.cs`, `GameLibraryApplyRun.cs`                                                | Removing, writing and decorating each selected title with a re-read before every write, the controller override, artwork and the Steam collections.                                                                        |
+| Projection       | `Shell\Library\GameLibraryProjection.cs`, `GameLibraryEntryState.cs`                                           | Every label, group, route and artwork slot both surfaces show, projected from each entry's plan and the user's choices.                                                                                                    |
+| Cards, emulators | `Shell\Library\GameLibraryCardStorage.cs`, `GameLibraryEmulators.cs`                                           | Binding titles to the card they are on, each card's game list, Repair and Use this card; the cached ROM choices and the emulator dependency counts.                                                                        |
+| Steam page       | `Shell\Library\SteamLibraryImportSurface.cs`, `Core\SteamUiAssets\Source\library-import.ts`                    | Surface one: route `/wsgm/library-import`.                                                                                                                                                                                 |
 | Toolkit          | `external\steam-ui-toolkit`                                                                                    | The page gate and modal frame, the capsule drawn with Steam's own library classes, a folder and file picker Steam does not have, the confirmed shortcut add, the one-call shortcut read, and state delivered in parts.     |
 | Overlay view     | `Overlay\GameLibraryView.cs`                                                                                   | Surface two: sources, review and apply, one level at a time.                                                                                                                                                               |
 | Settings         | `AppConfig.GameLibrary`, Settings → Steam                                                                      | The mode new single-player Xbox titles start on, whether titles with no launch route are offered, which artwork provider a title starts on, the disabled sources and the shortcuts folders.                                |
 
 ## From a command to a published review
 
-`ShellSession` composes `GameLibraryService` with the source list, configuration and import-state
+`LibraryServices` composes `GameLibraryService` with the source list, configuration and import-state
 stores, toolkit-backed shortcut delegates, artwork providers and controller-profile writer.
-`ShellSession.GameLibrary.cs` distinguishes an unreadable whole library from an empty one and maps a
+`GameLibraryService` distinguishes an unreadable whole library from an empty one and maps a
 sent-but-unconfirmed add to an uncertain result. Such an add is not repeated automatically.
 
-`ScanAsync` starts a generation with its own cancellation token. Discovery and the whole-library
-read produce inputs for the pure `ImportPlan`; stored choices are reapplied and stable entry IDs are
-preserved. `GameLibraryArtwork` fills candidates asynchronously and signals changes. A newer
-generation or shutdown invalidates old work. `ReadState` supplies the compact review and its
-revision, while `ReadDetails`/artwork-option requests supply detail on demand.
+`ScanAsync` starts a generation with its own cancellation token and hands the work to
+`GameLibraryScanner`. Discovery and the whole-library read produce inputs for the pure `ImportPlan`;
+stored choices are reapplied and stable entry IDs are preserved. `ApplyAsync` hands the selection to
+`GameLibraryApplier`, which removes, writes and decorates each title in turn. `GameLibraryArtwork`
+fills candidates asynchronously and signals changes. A newer generation or shutdown invalidates old
+work. `ReadState` supplies the compact review and its revision, while `ReadDetails`/artwork-option
+requests supply detail on demand.
 
 Both command adapters call that same service: `SteamLibraryImportSurface` connects the CEF page to
-it, and `IGameLibraryOverlaySource` in `Shell/OverlayToolSessions.cs` supplies the Overlay.
-`GameLibraryView.cs` and `.Tools.cs` own local navigation/filter state; `ServiceSubView` marshals
-publications to the dispatcher and reconciles keyed controls. The Overlay initially shows 48 review
-entries and reveals another 48 on Load more; source, tab and text filters determine the list.
-`OverlayPreviewImage` owns thumbnail loading and disposal, so a view does not decode the entire
-library at once.
+it, and `IGameLibraryOverlaySource` in `Shell/Library/IGameLibraryOverlaySource.cs` supplies the
+Overlay. `GameLibraryView.cs` and `.Tools.cs` own local navigation/filter state; `ServiceSubView`
+marshals publications to the dispatcher and reconciles keyed controls. The Overlay initially shows
+48 review entries and reveals another 48 on Load more; source, tab and text filters determine the
+list. `OverlayPreviewImage` owns thumbnail loading and disposal, so a view does not decode the
+entire library at once.
 
 `ApplyAsync` freezes editing while the selected batch is processed. Each write rechecks its live
 shortcut premise, persists successful records as it goes, applies the selected artwork and
@@ -242,10 +251,17 @@ There are two rules for asking the providers, one for each question:
   Screenscraper, a ROM database, is asked only when SteamGridDB does not know the title, or its game
   there has no images. The match is that provider's first exact result for the title's name, else
   its first result. A provider that could not be asked (a rejected key, a spent quota, no
-  connection) stops the match there and marks the title failed with the provider's reason; it never
-  falls through to a provider that might pin a wrong game.
+  connection) gives way to the next one; when none answers, the title is marked failed with the
+  provider's reason rather than as having no artwork.
 - **"Fix match"**, with the user choosing, searches every ready provider at once and lists their
-  games together, the way the artwork page does. The game the user picks is kept as a choice.
+  games together, the way the artwork page does. The game the user picks is kept as a choice. The
+  command only starts the search and answers at once: a provider can take its whole request timeout
+  (Screenscraper's is 20 seconds, behind whatever request already holds its one slot), far longer
+  than the 5 seconds the Steam bridge waits for a command. The search runs in the background and is
+  published as the state's `matchSearch`, which both surfaces draw: "Searching" while it runs, then
+  the matches and one outcome per provider (`found`, `none`, `failed`, `setup` for a missing key,
+  `off`). A newer search replaces one still running, and picking a game or the automatic match
+  closes it.
 
 A title's artwork status is ready, not found (every provider was asked and none had images), failed
 (with the reason), or unavailable (no provider is set up, with what to do). Entering or correcting a
@@ -258,9 +274,12 @@ time, backing off on a 429, and Screenscraper one, since a free account, registe
 allowed one thread. A page a provider answered is remembered for the session, checked both before
 and behind the gate, and a failure is remembered for half a minute so the lookups queued behind it
 do not each wait out the timeout. The background gathering waits behind every request a person is
-waiting on, so the artwork page and "Fix match" are answered first. Screenscraper's media URLs carry
-the request's credentials; the user's account is taken out of every URL before it is shown, stored
-or logged, and put back only for the download, which goes through the same gate.
+waiting on, so the artwork page and "Fix match" are answered first; a request already in flight
+still finishes or times out first. Nothing retries a request: when Screenscraper does not answer,
+each distinct lookup (one per title, and the user's search) costs its own 20 second timeout, one
+after another, and says "Screenscraper is not responding" rather than "no artwork". Screenscraper's
+media URLs carry the request's credentials; the user's account is taken out of every URL before it
+is shown, stored or logged, and put back only for the download, which goes through the same gate.
 
 Each title starts on the first candidate from the provider Settings prefers, per artwork type. A
 title Steam already has starts on "keep current" and changes nothing until the user picks an image.
@@ -417,17 +436,61 @@ Managed PCSX2 versions use the upstream `portable.txt` data-directory binding, s
 builds retain the same configuration, BIOS, memory-card and save directory without moving user
 files.
 
-Installed and Available separate registered installations from the supported catalogue. Both
-surfaces show update/setup status, search by emulator or system, grouped installation details and
-core filters for search matches, missing files and absent metadata. System defaults lists native
-emulator/core editors by console family; changing them leaves existing ROM libraries and overrides
-alone. Y checks for updates in the Overlay and Steam page.
+The page has five views behind one segmented track, the same on both surfaces, and a detail page per
+emulator. `EmulatorPageProjection` builds everything both surfaces show from state the backend
+already holds, and `/wsgm/emulators` publishes it as `wsgm.emulators`:
+
+- **Installed** is a card grid. Each card shows the version and channel (or "your own
+  installation"), the cores and systems or the systems it runs, and its status chips
+  (`installed[].chips`): Update to X, a setup chip (BIOS, firmware, keys or runtime missing, or
+  Needs setup), External, and otherwise Up to date, Not checked, Check failed or X skipped. A banner
+  lists the waiting updates (`updatesSummary`) with Update all (`updateAllEmulators`), which applies
+  them one at a time through the ordinary update transaction. A failed update is recorded and the
+  next still runs; Stop ends the run before the next update. `updateAll` carries the run's progress
+  and then its outcome, worded as a partial failure when one update failed, until other work starts.
+- **Get emulators** lists the whole catalogue (`catalog`) with search, console-family filters
+  (`families`: Nintendo, PlayStation, Sega, Xbox, Arcade, Other systems, from each system's family)
+  and what each needs after installing, taken from its required prerequisites. Install uses the
+  first channel; the detail page offers the other channels, Use my installation and the runtimes.
+- **RetroArch cores** lists the installed cores with Needs attention (declared files missing, named)
+  before Ready, a search, paging and Update installed cores.
+- **System defaults** shows each system the library uses with its game and source counts
+  (`systems[].summary`, counted from the ROM sources and import records) and its emulator and core
+  choices; other systems are folded below. A system with games and no emulator that names it links
+  to Get emulators searched for that system.
+- **BIOS and firmware** shows the shared folder with "N of M files found" (`biosSummary`) and a
+  checklist per system. Regional alternatives count once: any present dump satisfies the system.
+
+The detail page has the update (Update to X, Release notes, Skip version), the setup checklist
+(`installed[].setup`, read from each prerequisite's native path and the required runtimes, with
+Choose file and Recheck), In Steam (the shortcut switch, launch mode and the library's use of it),
+then Repair and, apart, Remove or Forget. Remove asks in the in-window confirm with Cancel focused
+and names what is deleted and what stays. Install, update and repair show their steps (find,
+download with its byte progress, extract, startup check) and Stop inside the emulator's own card,
+from the progress channel's `operation`, `targetId`, `phase`, `bytes` and `total`. The card icon is
+the icon the shortcut sync applied to the emulator's Steam shortcut from SteamGridDB; an emulator
+without a shortcut or icon shows the emulator glyph. In the Overlay LB/RB switch views, Y opens the
+focused emulator's details on Get emulators and the search on RetroArch cores, and the footer names
+Y only there. Check for updates sits beside the page title on every view.
+
+In Steam the five views are the page frame's tabs, which L1 and R1 switch, and the detail pages are
+levels inside the tab that B leaves. Installed and Get emulators are grids of icon cards (the
+shortcut's icon through Steam's `GetIconURLForApp`, else the controller glyph); a catalogue card
+opens its details on A and installs its first channel on X. The detail page is a hero band with the
+icon, the update actions, the setup checklist and In Steam as Steam's own fields, Repair and the
+core list, Remove set apart, and an Installation panel beside them. Remove and Forget use Steam's
+confirm with Cancel focused. The Overlay's Choose file, Recheck, Update all, Stop, Skip version and
+release notes are the same commands (`configureEmulatorPrerequisite`, `refreshEmulators`,
+`updateAllEmulators`, `cancel`, `ignoreEmulatorVersion`, `openEmulatorReleaseNotes`). A core that
+needs files offers BIOS and firmware on X. The page has no catalogue art and no region filter on
+BIOS, and RetroArch has no Add cores: it installs the whole published catalogue.
 
 Installing or registering an emulator also publishes its own interface as a managed Steam shortcut.
 Existing installations default to this on upgrade. Each installation's detail page, in Overlay and
-`/wsgm/emulators`, has the same shortcut switch and launch-mode choice: input lease (default), no
-lease, de-elevation, or de-elevation with a lease. The lease uses the current Steam Input Management
-setting, selecting the injecting route when management is off. Launch resolves the stable
+`/wsgm/emulators`, has the same shortcut switch and launch-mode choice, named as the launch
+configuration names them: give the game the controller (default), no WSGM launch action, run without
+admin, or both. Giving it the controller takes the Steam Input lease through the current Steam Input
+Management setting, selecting the injecting route when management is off. Launch resolves the stable
 installation identity and current active version, so updates and repairs preserve the Steam app id.
 Opening the emulator interface requires its portable program and data, without requiring a ROM, core
 or game BIOS/firmware to be configured first.

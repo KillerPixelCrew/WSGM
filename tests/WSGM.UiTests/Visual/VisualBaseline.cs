@@ -30,9 +30,20 @@ internal static class VisualBaseline
     {
         // Capture resting controls. Focus visuals and caret timing belong to interaction tests.
         window.FocusManager.Focus(null);
-        foreach (var visual in window.GetVisualDescendants().OfType<Animatable>())
+        foreach (var visual in window.GetVisualDescendants())
         {
-            visual.Transitions = null;
+            if (visual is Animatable animatable)
+            {
+                animatable.Transitions = null;
+            }
+
+            // Redraw the whole window from its final tree. The headless render timer is a wall-clock
+            // dispatcher timer, so frames are also rendered while a window is still being built, and
+            // how many depends on how warm the process is: the first window of a run is slow to JIT.
+            // An incremental frame keeps earlier pixels outside its dirty region, including the
+            // anti-aliased edge a visual drew one pixel past its later bounds, which made a capture
+            // depend on the tests that ran before it.
+            visual.InvalidateVisual();
         }
 
         window.MouseMove(new Point(-20, -20));

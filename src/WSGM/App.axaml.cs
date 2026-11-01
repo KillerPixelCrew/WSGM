@@ -88,7 +88,7 @@ public class App : Application
             }
 
             Runtime = new ApplicationRuntime(_session is not null ? _session.ShutdownAsync
-                    : _standaloneGraphics is not null ? _standaloneGraphics.ShutdownAsync : null,
+                : _standaloneGraphics is not null ? _standaloneGraphics.ShutdownAsync : null,
                 code => { desktop.Shutdown(code); }, UpdateExitWatcher.ReportHandoff);
             desktop.ShutdownRequested += OnShutdownRequested;
             if (_options.Mode is RunMode.Shell)

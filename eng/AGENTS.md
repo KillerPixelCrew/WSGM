@@ -18,6 +18,13 @@ codes, and safe to rerun.
 - -Fix may rewrite formatted files. Never hide unrelated changes in that pass; inspect the diff
   afterward.
 - Parse potentially invasive scripts for syntax instead of executing them as part of verification.
+- eng/verify.ps1 runs `check-steam-fingerprints.mjs --other-channel` against the installed Steam
+  client and the newest snapshot of the other channel, and prints a loud SKIPPED, never a pass,
+  without an installed client. Every feature's closing batch runs that check and
+  `npm run steam-assets:claims`; `check-steam-patch-health.mjs` follows an authorized
+  `dev-deploy.ps1` once Steam has fully started. A MISSING or ambiguous fingerprint, or a patch
+  that ends Incompatible or never reaches Verified, is a defect to fix in the same task, never
+  dismissed as unrelated or pre-existing.
 - eng/verify.ps1 validates Steam Input but does not build or validate VIIPER. A VIIPER change
   requires `eng/build-viiper.ps1 -Validate`. CI runs that separately from the main `verify` job (see
   `.github/workflows/ci.yml`), so a broken VIIPER pin is caught before a release tag rather than

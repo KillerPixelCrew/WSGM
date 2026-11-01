@@ -3,12 +3,17 @@
 const BrowserPatchId = "wsgm.browser";
 let browserNative: any = null;
 
-function BrowserGuidePage({ context }: any) {
+/**
+ * Hands the route off to Steam's own browser once the host has published its home page, and says
+ * why with a retry when Steam's browser is not reachable from this window.
+ * @param props The frame's context and the host's published home and search prefix.
+ * @returns The handoff status inside the page frame.
+ */
+function BrowserGuidePage({ context, state }: any) {
   const ui = context.ui();
   const react = ui.react;
   const h = react.createElement;
   const instance = browserNative.useWindow();
-  const state = context.state();
   const attempted = react.useRef(false);
   const [error, setError] = react.useState("");
   const open = () => {
@@ -24,27 +29,20 @@ function BrowserGuidePage({ context }: any) {
       setError(String(failure instanceof Error ? failure.message : failure));
     }
   };
+  // The frame draws the page once the host has published, so the first render may hand off.
   react.useEffect(() => {
     if (!state || attempted.current) return;
     attempted.current = true;
     open();
   }, [instance, !!state]);
 
-  return h(
-    "div",
-    { id: "wsgm-browser", className: "steam-ui-kit-page", "aria-label": "Browser" },
-    steamUiKitStyle(react),
-    renderSteamUiLevel(
-      ui,
-      { bounded: true },
-      h("h2", null, "Browser"),
-      h("p", { role: error ? "alert" : "status" }, error || "Opening Steam's browser…"),
-      error
-        ? renderSteamUiActions(ui, [
-            { id: "retry", label: "Try again", primary: true, onClick: open },
-          ])
-        : null,
-    ),
+  return renderSteamUiLevel(
+    ui,
+    { bounded: true },
+    h("h2", null, "Browser"),
+    error
+      ? renderSteamUiEmpty(ui, { kind: "unavailable", text: error, action: { label: "Try again", onClick: open } })
+      : renderSteamUiEmpty(ui, { kind: "loading", text: "Opening Steam's browser…" }),
   );
 }
 
@@ -52,8 +50,11 @@ const browserGuidePage = registerSteamPage({
   template: "browser",
   gate: "browser",
   patchId: BrowserPatchId,
-  components: resolveSteamSettingsComponents,
-  required: ["react", "focusable", "dialogButton"],
+  title: "Browser",
+  id: "wsgm-browser",
+  loading: "Opening Steam's browser…",
+  // The page publishes no notice of its own; a handoff failure is said on the page with its retry.
+  banner: false,
   prepare: (ui, runtime) => {
     browserNative = resolveSteamOverlayBrowser(runtime);
     if (!browserNative) return "Steam's native browser contract is unavailable.";

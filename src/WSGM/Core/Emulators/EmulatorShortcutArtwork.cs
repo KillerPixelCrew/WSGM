@@ -9,8 +9,6 @@ namespace WSGM.Core;
 /// <summary>Finds optional emulator shortcut art through the existing paced SteamGridDB provider.</summary>
 internal static class EmulatorShortcutArtwork
 {
-    private static readonly SteamGridDbProvider Provider = new();
-
     internal static async Task<IReadOnlyList<(ArtworkAsset Asset, string Url)>> FindAsync(
         EmulatorDefinition definition, ArtworkConfig config, CancellationToken token)
     {
@@ -22,15 +20,11 @@ internal static class EmulatorShortcutArtwork
 
         // The shared provider owns request pacing, filtering and HTTPS validation. Image bytes
         // still go through SteamArtwork/ArtworkDownload at application time.
-        var provider = Provider;
+        var provider = ArtworkSearch.SteamGridDb;
         var id = definition.SteamGridDbId;
         if (id is not > 0)
         {
-            var name = definition.Id switch
-            {
-                "retroarch" => "RetroArch", "xenia" => "Xenia", "ryujinx" => "Ryujinx",
-                "model2" => "Model 2 Emulator", _ => definition.Name
-            };
+            var name = definition.Name;
             var matches = await provider.SearchGamesAsync(name, key, token).ConfigureAwait(false);
             var match = matches.FirstOrDefault(game => game.Name.Equals(name + " (Emulator)",
                             StringComparison.OrdinalIgnoreCase))
@@ -50,10 +44,11 @@ internal static class EmulatorShortcutArtwork
                  })
         {
             var page = await provider.GetAssetsForGameAsync(slot, id.Value, key,
-                new ArtworkQuery(Animated: false, Adult: false, Humor: false, Epilepsy: false), token)
+                    new ArtworkQuery(Animated: false, Adult: false, Humor: false, Epilepsy: false), token)
                 .ConfigureAwait(false);
             var candidate = page.Candidates.FirstOrDefault(item => !item.Animated && !item.Nsfw && !item.Humor
-                && !item.Epilepsy && JsonRead.HttpsUrl(item.Url).Length > 0);
+                                                                   && !item.Epilepsy &&
+                                                                   JsonRead.HttpsUrl(item.Url).Length > 0);
             if (candidate is not null)
             {
                 result.Add((slot, candidate.Url));

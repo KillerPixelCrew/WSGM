@@ -50,15 +50,19 @@ public sealed partial class GameLibraryView
     }
 
     /// <summary>Holds a title's level while a scan or apply has taken it out of the list for now.</summary>
-    /// <remarks>The next published state renders the level again, with the title or without it.</remarks>
-    /// <param name="state">The current state.</param>
-    private void RenderEntryPending(GameLibraryState state)
+    /// <remarks>
+    ///     The progress updates in place; a published state that brings the title back or ends the work renders the
+    ///     title's level again, with the title or without it.
+    /// </remarks>
+    /// <param name="id">The title.</param>
+    /// <param name="shown">The reading without the title.</param>
+    private void RenderEntryPending(string id, EntryShown shown)
     {
         var stack = NewStack(_openEntryName.Length > 0 ? _openEntryName : "Title");
-        AddStatus(stack, state);
+        AddStatus(stack, shown.State);
         stack.Children.Add(Caption("The library is being updated. This title returns when the update "
                                    + "finishes, unless it was removed."));
-        SetContent(stack);
+        SetEntryContent(stack, id, shown);
     }
 
     /// <summary>
@@ -80,9 +84,9 @@ public sealed partial class GameLibraryView
         var shortcuts = state.Shortcuts ?? [];
         var storages = state.StorageLibraries ?? [];
         stack.Children.Add(Tagged(Row("Recheck", state.StorageChecked
-                ? "Check every shortcut and card again"
-                : "Checking shortcuts for the first time",
-            Icons.Restart, state.Loading ? null : () => Run(token => _service.RecheckAvailabilityAsync(token))),
+                    ? "Check every shortcut and card again"
+                    : "Checking shortcuts for the first time",
+                Icons.Restart, state.Loading ? null : () => Run(token => _service.RecheckAvailabilityAsync(token))),
             "storage.recheck"));
 
         var groups = GameLibraryRows.StorageGroups(shortcuts, storages);
@@ -91,21 +95,24 @@ public sealed partial class GameLibraryView
             stack.Children.Add(Caption(state.StorageChecked
                 ? "No shortcut in Steam has its files on this device's storage, and no game library card is known."
                 : "Shortcuts are listed here once Steam has been checked."));
-            SetContent(stack);
+            SetLibraryContent(stack, state, SameStorage);
             return;
         }
 
         var entries = state.Entries.Where(entry => entry.AppId > 0).GroupBy(entry => entry.AppId)
             .ToDictionary(group => group.Key, group => group.First().Id);
-        var tags = entries.ToDictionary(pair => pair.Value, pair => "storage.shortcut:" + pair.Key, StringComparer.Ordinal);
-        var order = groups.SelectMany(group => group.Shortcuts).Select(shortcut => entries.GetValueOrDefault(shortcut.AppId))
+        var tags = entries.ToDictionary(pair => pair.Value, pair => "storage.shortcut:" + pair.Key,
+            StringComparer.Ordinal);
+        var order = groups.SelectMany(group => group.Shortcuts)
+            .Select(shortcut => entries.GetValueOrDefault(shortcut.AppId))
             .OfType<string>().ToArray();
         var shown = 0;
         string? more = null;
         foreach (var group in groups)
         {
             var unavailable = group.Shortcuts.Count(shortcut => !shortcut.Available);
-            var heading = SectionLabel(group.Shortcuts.Count == 0 ? group.Name.ToUpperInvariant()
+            var heading = SectionLabel(group.Shortcuts.Count == 0
+                ? group.Name.ToUpperInvariant()
                 : unavailable > 0
                     ? $"{group.Name.ToUpperInvariant()} ({group.Shortcuts.Count}, {unavailable} UNAVAILABLE)"
                     : $"{group.Name.ToUpperInvariant()} ({group.Shortcuts.Count})");
@@ -145,15 +152,14 @@ public sealed partial class GameLibraryView
         if (more is { } next)
         {
             var total = shortcuts.Count;
-            stack.Children.Add(Tagged(Row("Load more", $"{shown} of {total}", Icons.ArrowDown, () =>
+            stack.Children.Add(PagedRows.More(this, "storage.more", $"{shown} of {total}", next, () =>
             {
                 _storageShown += 48;
                 RenderStorage();
-                PagedRows.FocusAdded(this, next);
-            }), "storage.more"));
+            }));
         }
 
-        SetContent(stack);
+        SetLibraryContent(stack, state, SameStorage);
     }
 
     /// <summary>A card library's status and, when it has one, its immediate action.</summary>
@@ -169,16 +175,16 @@ public sealed partial class GameLibraryView
         if (library.CanRepair)
         {
             stack.Children.Add(Tagged(Row("Repair library",
-                "Rebuild this card's game list from the titles WSGM knows. Your game files stay as they are",
-                Icons.Wrench, busy ? null : () => Run(token => _service!.RepairLibraryAsync(id, token))),
+                    "Rebuild this card's game list from the titles WSGM knows. Your game files stay as they are",
+                    Icons.Wrench, busy ? null : () => Run(token => _service!.RepairLibraryAsync(id, token))),
                 "storage.repair:" + id));
         }
 
         if (library.CanAcceptBinding)
         {
             stack.Children.Add(Tagged(Row("Use this card",
-                "Launch this card's games on this device from where it is connected now",
-                Icons.SdCard, busy ? null : () => Run(token => _service!.UseLibraryAsync(id, token))),
+                    "Launch this card's games on this device from where it is connected now",
+                    Icons.SdCard, busy ? null : () => Run(token => _service!.UseLibraryAsync(id, token))),
                 "storage.use:" + id));
         }
     }

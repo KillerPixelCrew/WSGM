@@ -53,7 +53,7 @@
                          Classes="caption"
                          TextWrapping="Wrap"
                          IsVisible="{Binding !WifiOn}" />
-              <ItemsControl ItemsSource="{Binding Networks}"
+              <ItemsControl ItemsSource="{Binding Wifi.Networks}"
                             IsVisible="{Binding WifiOn}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="sh:WifiNetworkEntry">

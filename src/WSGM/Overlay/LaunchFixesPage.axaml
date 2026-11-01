@@ -1,0 +1,40 @@
+<StackPanel xmlns="https://github.com/avaloniaui"
+            xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+            xmlns:ov="using:WSGM.Overlay"
+            xmlns:c="using:WSGM.Controls"
+            xmlns:core="using:WSGM.Core"
+            x:Class="WSGM.Overlay.LaunchFixesPage"
+            x:DataType="ov:OverlayViewModel"
+            Spacing="10">
+  <TextBlock Text="PER-GAME LAUNCH FIXES" Classes="eyebrow" Margin="2,0,2,2" />
+  <!-- The x:Name lives on the button: the handlers rewrite its
+       Title with the result. Titles and descriptions are set
+       in code (they differ for the CEF and clipboard paths) and
+       must NOT be bound, or a binding re-evaluation would wipe the
+       result text. -->
+  <c:ActionButton x:Name="DeelevateFixButton" Click="OnApplyLaunchFix"
+                  CommandParameter="{x:Static core:LaunchWrapperMode.Deelevate}"
+                  Tag="steam.launch.deelevate"
+                  IconGeometry="{x:Static c:Icons.ArrowDown}" />
+  <c:ActionButton x:Name="InputLeaseFixButton" Click="OnApplyLaunchFix"
+                  CommandParameter="{x:Static core:LaunchWrapperMode.InputLease}"
+                  Tag="steam.launch.input-lease"
+                  IconGeometry="{x:Static c:Icons.BlockedCircle}" />
+  <c:ActionButton x:Name="BothFixesButton" Click="OnApplyLaunchFix"
+                  CommandParameter="{x:Static core:LaunchWrapperMode.Both}"
+                  Tag="steam.launch.both"
+                  IconGeometry="{x:Static c:Icons.Rocket}" />
+  <c:ActionButton x:Name="CustomLaunchButton" Click="OnPickCustomLaunchAction"
+                  Tag="steam.launch.custom"
+                  IsVisible="{Binding ConfigureLaunchOptionsLive}"
+                  IconGeometry="{x:Static c:Icons.FolderPlus}"
+                  Title="Replace launch action"
+                  Description="Run an EXE, CMD, BAT, or PowerShell script" />
+  <c:ActionButton x:Name="RemoveFixesButton" Click="OnApplyLaunchFix"
+                  CommandParameter="{x:Static core:LaunchWrapperMode.None}"
+                  Tag="steam.launch.restore"
+                  IsVisible="{Binding ShowRemoveLaunchWrapper}"
+                  IconGeometry="{x:Static c:Icons.Close}"
+                  Title="Restore original launch action"
+                  Description="Remove WSGM changes and restore the original" />
+</StackPanel>

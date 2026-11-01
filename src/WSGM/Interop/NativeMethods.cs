@@ -16,7 +16,7 @@ internal static partial class NativeMethods
     // ---- Low-level keyboard hook (shortcut recording only — see KeyRecorder) ----
     internal const int WhKeyboardLl = 13;
 
-    // ---- Synthetic keyboard input (Steam Big Picture's own Ctrl+1/Ctrl+2 shortcuts) ----
+    // ---- Synthetic keyboard input (Steam's Big Picture shortcuts and the Overlay hotkeys) ----
     internal const uint InputKeyboard = 1;
     internal const uint InputMouse = 0;
     internal const uint MouseEventMove = 0x0001;
@@ -27,7 +27,6 @@ internal static partial class NativeMethods
     internal const short KeyDownState = unchecked((short)0x8000);
 
     internal const uint KeyEventExtendedKey = 0x0001;
-    internal const uint KeyEventScanCode = 0x0008;
 
     /// <summary>MAPVK_VK_TO_VSC: virtual key to scan code.</summary>
     internal const uint MapVkToVsc = 0;
@@ -85,6 +84,10 @@ internal static partial class NativeMethods
 
     // ---- Switchable-window enumeration (alt-tab style) ----
     internal const int GwlExStyle = -20;
+    internal const int GwlStyle = -16;
+    internal const uint GwOwner = 4;
+    internal const int WsCaption = 0x00C00000;
+    internal const int WsThickFrame = 0x00040000;
     internal const int WsExToolWindow = 0x0080;
     internal const uint DwmWaCloaked = 14;
 
@@ -219,6 +222,11 @@ internal static partial class NativeMethods
     internal const uint WinEventOutOfContext = 0x0000;
     internal const uint WinEventSkipOwnProcess = 0x0002;
 
+    internal const nint HwndTopmost = -1;
+    internal const uint SwpNoSize = 0x0001;
+    internal const uint SwpNoMove = 0x0002;
+    internal const uint SwpShowWindow = 0x0040;
+
     /// <summary>
     ///     GUID_SESSION_DISPLAY_STATUS {2B84C20E-AD23-4DDF-93DB-05FFBD7EFCA5}: the
     ///     display of the CALLING SESSION turned on or off. Microsoft documents this as the
@@ -339,11 +347,8 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll")]
     internal static partial short GetAsyncKeyState(int vKey);
 
-    [LibraryImport("user32.dll", EntryPoint = "MapVirtualKeyExW")]
-    internal static partial uint MapVirtualKeyExW(uint code, uint mapType, nint layout);
-
-    [LibraryImport("user32.dll")]
-    internal static partial nint GetKeyboardLayout(uint threadId);
+    [LibraryImport("user32.dll", EntryPoint = "MapVirtualKeyW")]
+    internal static partial uint MapVirtualKeyW(uint code, uint mapType);
 
     [LibraryImport("user32.dll", SetLastError = true)]
     internal static partial uint SendInput(uint inputCount, [In] InputRecord[] inputs, int inputSize);
@@ -423,11 +428,6 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool SetForegroundWindow(nint hWnd);
-
-    internal const nint HwndTopmost = -1;
-    internal const uint SwpNoSize = 0x0001;
-    internal const uint SwpNoMove = 0x0002;
-    internal const uint SwpShowWindow = 0x0040;
 
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -533,6 +533,9 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll", EntryPoint = "GetWindowLongW")]
     internal static partial int GetWindowLong(nint hWnd, int nIndex);
 
+    [LibraryImport("user32.dll")]
+    internal static partial nint GetWindow(nint hWnd, uint uCmd);
+
     [LibraryImport("user32.dll", EntryPoint = "GetWindowTextW", StringMarshalling = StringMarshalling.Utf16)]
     internal static partial int GetWindowTextW(nint hWnd, [Out] char[] text, int maxCount);
 
@@ -598,7 +601,7 @@ internal static partial class NativeMethods
     internal static partial bool GetTokenInformation(nint tokenHandle, int tokenInformationClass, nint tokenInformation,
         uint tokenInformationLength, out uint returnLength);
 
-    // ---- RTSS OSD metrics (Core\RtssOsd) ----
+    // ---- RTSS OSD metrics (Core\Performance\SystemMetricsSource) ----
     // FILETIME pairs as raw 64-bit ticks; kernel time includes idle.
     [LibraryImport("kernel32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

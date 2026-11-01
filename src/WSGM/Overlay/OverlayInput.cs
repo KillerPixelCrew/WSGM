@@ -15,47 +15,55 @@ internal static class OverlayInput
     internal static GamepadNavigation Create(OverlayWindow window, IUiButtonSource buttons, Action back,
         Func<bool>? isNintendoLayout = null)
     {
-        return new GamepadNavigation(window.BrowserInput(buttons, isNintendoLayout), window, back,
+        // The browser page's native viewport takes the presses it owns before the sheet sees them.
+        BrowserButtons filtered = new(buttons,
+            pressed => window.BrowserHost.ConsumeButtons(pressed, isNintendoLayout?.Invoke() == true));
+        window.Closed += (_, _) => filtered.Dispose();
+        return new GamepadNavigation(filtered, window, back,
             isNintendoLayout,
             () => window.DefaultFocusTarget,
             focused =>
             {
-                if (window.IsPowerMenuOpen)
+                if (window.Surfaces.IsPowerMenuOpen)
                 {
-                    window.CloseActiveSurface();
+                    window.Surfaces.CloseActive();
                 }
-                else if (!window.HasActiveSurface)
+                else if (!window.Surfaces.HasActive)
                 {
                     window.RequestSecondaryAction(focused);
                 }
             },
             () =>
             {
-                if (!window.NavigateSurfaceTab(false))
+                if (!window.Surfaces.NavigateTab(false))
                 {
                     window.SelectPreviousTab();
                 }
             },
             () =>
             {
-                if (!window.NavigateSurfaceTab(true))
+                if (!window.Surfaces.NavigateTab(true))
                 {
                     window.SelectNextTab();
                 }
             },
             _ =>
             {
-                if (!window.HasActiveSurface)
+                if (!window.Surfaces.HasActive)
                 {
-                    if (!window.CheckEmulatorUpdates())
+                    if (!window.EmulatorManagerHost.SecondaryAction())
                     {
                         window.CycleNextApp();
                     }
                 }
             },
-            direction => window.HasActiveSurface
-                ? window.NavigateSurfaceDirection(direction)
+            direction => window.Surfaces.HasActive
+                ? window.Surfaces.NavigateDirection(direction)
                 : window.NavigateWorkspace(direction),
-            true, () => window.ActiveSurfaceNavigationRoot);
+            true, () => window.Surfaces.NavigationRoot)
+        {
+            // LB/RB switch the Emulators page's views while it is open; the triggers still switch destinations.
+            ShoulderTabs = next => !window.Surfaces.HasActive && window.EmulatorManagerHost.SelectAdjacentView(next)
+        };
     }
 }

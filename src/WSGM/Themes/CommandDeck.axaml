@@ -42,6 +42,10 @@
     <Setter Property="FocusAdorner" Value="{x:Null}" />
     <Setter Property="Background" Value="{StaticResource DeckGroupBrush}" />
   </Style>
+  <!-- A row that is the body of a card: no fill of its own at rest, the card's hover and focus when used. -->
+  <Style Selector="Button.deck-action.flat">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
   <Style Selector="Button.deck-action.section-pin">
     <Setter Property="Width" Value="36" />
     <Setter Property="Height" Value="36" />
@@ -79,6 +83,32 @@
   </Style>
   <Style Selector="Button.deck-action:disabled">
     <Setter Property="Opacity" Value="0.5" />
+  </Style>
+  <!-- A page's view switcher (OverlaySubView.ViewTabs): segments on an inset track, the selected one filled. -->
+  <Style Selector="Border.deck-segments">
+    <Setter Property="Background" Value="{StaticResource DeckGroupBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource DeckGroupBorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{StaticResource DeckGroupRadius}" />
+    <Setter Property="Padding" Value="3" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
+  </Style>
+  <Style Selector="Button.deck-action.segment">
+    <Setter Property="MinHeight" Value="{StaticResource DeckControlHeight}" />
+    <Setter Property="Padding" Value="12,2" />
+    <Setter Property="Margin" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{StaticResource DeckSecondaryBrush}" />
+  </Style>
+  <Style Selector="Button.deck-action.segment:pointerover">
+    <Setter Property="Background" Value="{StaticResource DeckHoverBrush}" />
+  </Style>
+  <Style Selector="Button.deck-action.segment.selected">
+    <Setter Property="Background" Value="{StaticResource DeckPressedBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource DeckTextBrush}" />
+  </Style>
+  <Style Selector="Button.deck-action.segment:focus-visible">
+    <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
   </Style>
   <Style Selector="Window.command-deck">
     <Setter Property="Foreground" Value="{StaticResource DeckTextBrush}" />
@@ -194,6 +224,14 @@
   <Style Selector="Window.command-deck TextBlock.caption">
     <Setter Property="Foreground" Value="{StaticResource DeckSecondaryBrush}" />
   </Style>
+  <!-- A sub-view's progress or usage bar: accent fill on the deck surface, 6 DIP like Steam's meter. -->
+  <Style Selector="Window.command-deck ProgressBar.overlay-progress">
+    <Setter Property="MinHeight" Value="6" />
+    <Setter Property="Height" Value="6" />
+    <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="Foreground" Value="{DynamicResource HcAccentBrush}" />
+    <Setter Property="Background" Value="{StaticResource DeckSurfaceBrush}" />
+  </Style>
   <Style Selector="Window.command-deck Button.primary TextBlock.caption">
     <Setter Property="Foreground" Value="{DynamicResource HcOnAccentCaptionBrush}" />
   </Style>
@@ -203,6 +241,39 @@
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="BorderBrush" Value="{StaticResource DeckGroupBorderBrush}" />
     <Setter Property="Padding" Value="{StaticResource DeckGroupPadding}" />
+  </Style>
+  <!-- One key of a hotkey (Overlay Keycaps): a raised cap with the key's name; "large" in the editor. -->
+  <Style Selector="Window.command-deck Border.keycap">
+    <Setter Property="Background" Value="{StaticResource DeckSurfaceBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource DeckGroupBorderBrush}" />
+    <Setter Property="BorderThickness" Value="1,1,1,2" />
+    <Setter Property="CornerRadius" Value="{StaticResource DeckControlRadius}" />
+    <Setter Property="Padding" Value="7,1" />
+    <Setter Property="MinWidth" Value="26" />
+    <Setter Property="MinHeight" Value="24" />
+  </Style>
+  <Style Selector="Window.command-deck Border.keycap > TextBlock">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{StaticResource DeckTextBrush}" />
+  </Style>
+  <Style Selector="Window.command-deck Border.keycap.large">
+    <Setter Property="Padding" Value="10,3" />
+    <Setter Property="MinWidth" Value="36" />
+    <Setter Property="MinHeight" Value="34" />
+  </Style>
+  <Style Selector="Window.command-deck Border.keycap.large > TextBlock">
+    <Setter Property="FontSize" Value="15" />
+  </Style>
+  <Style Selector="Window.command-deck TextBlock.keycap-joiner">
+    <Setter Property="Foreground" Value="{StaticResource DeckSecondaryBrush}" />
+  </Style>
+  <!-- The hotkey capture field: a card that takes focus, with the deck's accent focus border. -->
+  <Style Selector="Window.command-deck Border.device-group.hotkey-capture">
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
+  <Style Selector="Window.command-deck Border.device-group.hotkey-capture:focus">
+    <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
   </Style>
   <!-- A row the running game's own profile supplies: accent bar and a "Game override" line. -->
   <Style Selector="Border.profile-override-bar">

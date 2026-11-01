@@ -1,0 +1,39 @@
+<StackPanel xmlns="https://github.com/avaloniaui"
+            xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+            xmlns:c="using:WSGM.Controls"
+            xmlns:core="using:WSGM.Core"
+            x:Class="WSGM.Overlay.PowerActionsPage"
+            Spacing="8">
+  <Button Content="Open power menu" Classes="deck-action" Click="OnOpenPowerMenu" />
+  <c:ActionButton x:Name="SignOutButton" Title="Sign out" Description="End the current Windows session"
+                  IconGeometry="{x:Static c:Icons.SignOut}"
+                  Click="OnConfirmedPowerAction"
+                  CommandParameter="{x:Static core:SessionPowerAction.SignOut}" />
+  <TextBlock Text="POWER" Classes="eyebrow" Margin="2,0,2,2" />
+  <c:ActionButton Click="OnStandby"
+                  Tag="system.standby"
+                  IconGeometry="{x:Static c:Icons.Moon}"
+                  Title="Standby"
+                  Description="Suspend to RAM and resume where you left off" />
+  <c:ActionButton Click="OnHibernate"
+                  Tag="system.hibernate"
+                  IconGeometry="{x:Static c:Icons.Snowflake}"
+                  Title="Hibernate"
+                  Description="Save the session to disk and power off" />
+  <c:ActionButton x:Name="RestartButton" Click="OnConfirmedPowerAction"
+                  CommandParameter="{x:Static core:SessionPowerAction.Restart}"
+                  Tag="system.restart"
+                  IconGeometry="{x:Static c:Icons.Restart}"
+                  Title="Restart"
+                  Description="Restart Windows" />
+  <c:ActionButton x:Name="ShutdownButton" Classes="danger" Click="OnConfirmedPowerAction"
+                  CommandParameter="{x:Static core:SessionPowerAction.Shutdown}"
+                  Tag="system.shutdown"
+                  IconGeometry="{x:Static c:Icons.Power}"
+                  Title="Shut down"
+                  Description="Turn off this device" />
+  <StackPanel x:Name="PowerButtonSection" Spacing="8" IsVisible="False">
+    <TextBlock Text="POWER BUTTON" Classes="eyebrow" Margin="2,8,2,2" />
+    <StackPanel x:Name="PowerButtonHost" Spacing="8" />
+  </StackPanel>
+</StackPanel>

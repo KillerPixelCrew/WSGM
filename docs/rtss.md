@@ -27,16 +27,15 @@ RTSS state is independent of Device Integration. One session-owned `PerformanceS
 the WSGM overlay and the native Steam QAM; neither owns a separate RTSS adapter. RTSS absence or
 failure disables only the performance controls and never blocks startup or a mode transition.
 
-`RtssDiscovery` accepts exactly one machine-wide RTSS 7.3-or-newer registration whose publisher,
-protected Program Files location, `RTSS.exe` product/version identity, required profile-API PE
-exports and running process path all agree. It reads the DLL export table as data rather than
-loading the DLL; a process merely named `RTSS` is never sufficient. `RtssNativeAdapter` then loads
-only that architecture-matched, signed `RTSSHooks.dll`/`RTSSHooks64.dll` by absolute path and uses
-the documented profile functions (`LoadProfile`, `SaveProfile`, `GetProfileProperty`,
-`SetProfileProperty`, `UpdateProfiles`): set `FramerateLimit`, save the selected profile, ask
-running applications to reload, read the property back. The reference installation is 7.3.7 under
-`C:\Program Files (x86)\RivaTuner Statistics Server`, with `RTSS.exe` and `RTSSHooks.dll`
-Authenticode-signed by the MSI bundle publisher (Claw, 2026-08-28).
+`RtssDiscovery` follows the reference rule. The registry names the installation folder: RTSS's own
+`SOFTWARE\Unwinder\RTSS` `InstallDir`, else the uninstall registration's `InstallLocation`.
+`RTSS.exe` and `RTSSHooks64.dll` must both exist there, and the executable's product version must be
+at least 7.3. The running RTSS is the process whose image path is that executable; a process merely
+named `RTSS` elsewhere is not it. Nothing is loaded during discovery. `RtssNativeAdapter` then loads
+that `RTSSHooks64.dll` by absolute path and uses the documented profile functions (`LoadProfile`,
+`SaveProfile`, `GetProfileProperty`, `SetProfileProperty`, `UpdateProfiles`): set `FramerateLimit`,
+save the selected profile, ask running applications to reload, read the property back. The reference
+installation is 7.3.7 under `C:\Program Files (x86)\RivaTuner Statistics Server` (Claw, 2026-08-28).
 
 ## Application identity and profile writes
 
@@ -77,11 +76,11 @@ The performance contract takes its desired frame limit and overlay level from th
 each resolved on its own from the game's profile, then Global ([profiles](profiles.md)). It also
 takes adapter-published frame-limit and overlay-level bounds; one serialized command path with
 origin/correlation diagnostics; distinct requested, applying, deferred, applied, rejected, failed
-and externally-changed outcomes; a process-generation check before each write, so a command
-addressed to an RTSS that restarted fails rather than landing on the new process; and polling for
-the service lifetime, bounded to 250 ms through 30 s (5 s by default). A write publishes the written
-value as observed, and the next poll reads it back. External changes and RTSS availability are
-detected on that cadence, even when neither performance UI has been opened.
+and externally-changed outcomes; a fresh probe inside the command gate before each read and write,
+so a command always reaches the RTSS process that probe found; and polling for the service lifetime,
+bounded to 250 ms through 30 s (5 s by default). A write publishes the written value as observed,
+and the next poll reads it back. External changes and RTSS availability are detected on that
+cadence, even when neither performance UI has been opened.
 
 ### Configurable application profiles
 
@@ -173,8 +172,8 @@ surface had written it.
 ## OSD levels
 
 The overlay control exposes Steam's five selector notches. Levels 1–3 are fixed WSGM-rendered
-presets with HandheldCompanion's structure (`Core\RtssOsd.cs`); level 4 is HC's Custom level, one
-row per widget with order and per-widget detail from the Settings Integration page
+presets with HandheldCompanion's structure (`Core\Performance\RtssOsdContent.cs`); level 4 is HC's
+Custom level, one row per widget with order and per-widget detail from the Settings Integration page
 (`PerformanceConfig.OsdCustom*`); 0 renders nothing. The level lives in WSGM's renderer, whose live
 state is the observed value. On the wire it is Valve's `EGraphicsPerfOverlayLevel`, which is not the
 notch order; `SteamOverlayLevelWire` (toolkit, `SteamPerformanceSurface.cs`) translates at the QAM
@@ -190,7 +189,8 @@ boundary in both directions, and everything behind it speaks notches.
 
 Those notch names are what the overlay's Performance overlay row offers, as a dropdown built from
 the levels the adapter actually publishes. A cycling button that read "On" for every one of 1 to 4
-made four different overlays indistinguishable in the one place they are chosen. The frame limit
+made four different overlays indistinguishable in the one place they are chosen; the row's read-only
+form, shown while RTSS is unavailable and on pinned copies, uses the same names. The frame limit
 beside it is a slider, zero reading "Off", because the preset ladder it used to cycle through could
 not reach a rate the ladder did not contain. Both write through
 `PerformanceOverlayBridge.SetValueAsync`, which refuses a value the adapter does not accept rather
@@ -285,10 +285,10 @@ and restart. The unconditional 5 s poll is the backstop for a missed exit notifi
 
 - Only the executable discovery already verified. The launcher never resolves a path itself or takes
   one from configuration.
-- Only on a NotRunning probe. One in-flight guard spans launch and a bounded readiness check, so
-  concurrent refreshes cannot start another copy. The service probes every 200 ms for up to ten
-  seconds and applies saved values as soon as RTSS is ready. A failed start releases the guard
-  immediately.
+- Only on a NotRunning probe. The session refresh runs one refresh at a time and holds the launch
+  and its bounded readiness check, so no second copy can start meanwhile. The service probes every
+  200 ms for up to ten seconds and applies saved values as soon as RTSS is ready. A failed start
+  ends that refresh immediately.
 - Integration off means probes without launches or writes. WSGM never kills RTSS; its detached
   process continues running after WSGM exits.
 
@@ -344,10 +344,10 @@ draws, so that step remains attended.
 
 RTSS is what makes AutoTDP possible: the frametime reader above supplies the windows the controller
 judges. The deadline is AutoTDP's own per-game target, so no frame limit is needed. An active frame
-limit below the target lowers the deadline to the limit, because a capped game cannot reach a
-higher target; an active limit is the readback, or the value WSGM wrote until the next poll reads
-it, and a desired cap alone is not one. The controller, the service that admits it and the trace it
-records are in [AutoTDP](autotdp-controller.md).
+limit below the target lowers the deadline to the limit, because a capped game cannot reach a higher
+target; an active limit is the readback, or the value WSGM wrote until the next poll reads it, and a
+desired cap alone is not one. The controller, the service that admits it and the trace it records
+are in [AutoTDP](autotdp-controller.md).
 
 ## Remaining live work
 
@@ -360,16 +360,16 @@ records are in [AutoTDP](autotdp-controller.md).
 
 ## Source routes
 
-| Boundary                                           | Source                                                                                    |
-| -------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Registration, file identity and compatible exports | [RtssDiscovery](../src/WSGM/Core/RtssDiscovery.cs)                                        |
-| Starting the installed application                 | [RtssLauncher](../src/WSGM/Core/RtssLauncher.cs)                                          |
-| Profile API and installed native-library lifetime  | [RtssNativeAdapter](../src/WSGM/Core/RtssNativeAdapter.cs)                                |
-| Typed status, target and adapter contract          | [RtssModels](../src/WSGM/Core/RtssModels.cs)                                              |
-| Shared-memory frametime snapshots                  | [RtssFrametimeReader](../src/WSGM/Core/RtssFrametimeReader.cs)                            |
-| Performance overlay composition                    | [RtssOsd](../src/WSGM/Core/RtssOsd.cs)                                                    |
-| Application/profile reconciliation                 | [ApplicationPerformanceReconciler](../src/WSGM/Shell/ApplicationPerformanceReconciler.cs) |
-| Session construction and disposal                  | [ShellSession.Performance](../src/WSGM/Shell/ShellSession.Performance.cs)                 |
+| Boundary                                          | Source                                                                                                                                                                                                                                                                         |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Registered folder, required files and version     | [RtssDiscovery](../src/WSGM/Core/Performance/RtssDiscovery.cs)                                                                                                                                                                                                                 |
+| Starting the installed application                | [RtssLauncher](../src/WSGM/Core/Performance/RtssLauncher.cs)                                                                                                                                                                                                                   |
+| Profile API and installed native-library lifetime | [RtssNativeAdapter](../src/WSGM/Core/Performance/RtssNativeAdapter.cs)                                                                                                                                                                                                         |
+| Typed status, target and adapter contract         | [RtssCapabilities](../src/WSGM/Core/Performance/RtssCapabilities.cs), [IRtssAdapter](../src/WSGM/Core/Performance/IRtssAdapter.cs)                                                                                                                                             |
+| Shared-memory frametime snapshots                 | [RtssFrametimeReader](../src/WSGM/Core/Performance/RtssFrametimeReader.cs)                                                                                                                                                                                                     |
+| Performance overlay composition                   | [RtssOsdContent](../src/WSGM/Core/Performance/RtssOsdContent.cs), [RtssOsdRenderer](../src/WSGM/Core/Performance/RtssOsdRenderer.cs), [RtssOsdSlots](../src/WSGM/Core/Performance/RtssOsdSlots.cs), [SystemMetricsSource](../src/WSGM/Core/Performance/SystemMetricsSource.cs) |
+| Application/profile reconciliation                | [ApplicationPerformanceReconciler](../src/WSGM/Shell/Performance/ApplicationPerformanceReconciler.cs)                                                                                                                                                                          |
+| Session construction and disposal                 | [PerformanceServices](../src/WSGM/Shell/Session/PerformanceServices.cs)                                                                                                                                                                                                        |
 
 RTSS observations feed both performance presentation and AutoTDP. Their readback can update
 effective state and diagnose an external edit, but cannot become a new saved preference.
@@ -386,29 +386,30 @@ installed profiles, start a game or establish the cause on the reporting device.
 
 These source defects were corrected:
 
-| Area                                                                        | Defect and correction                                                                                                                                                                   |
-| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [First foreground](../src/WSGM/Shell/ForegroundWindowWatcher.cs#L74)        | Constructor-started observation could precede subscription and lose the current game. Start now follows subscription.                                                                   |
-| [Image query](../src/WSGM/Shell/ForegroundWindowWatcher.cs#L207)            | A failed first image query permanently cached the window. Unreadable identities retry.                                                                                                  |
-| [Observation order](../src/WSGM/Shell/ForegroundWindowWatcher.cs#L230)      | A slow old resolution could replace a newer window or publish after disposal. Both are rejected.                                                                                        |
-| [Steam/profile pairing](../src/WSGM/Shell/RunningApplicationTarget.cs#L738) | Foreground reprojection could combine old Steam identity with a newly resolved profile. Published evidence is paired atomically.                                                        |
-| [Steam disabled](../src/WSGM/Shell/RunningApplicationTarget.cs#L786)        | Foreground-only expiry stopped with CEF observation. Liveness polling continues without CEF calls.                                                                                      |
-| [Startup readiness](../src/WSGM/Core/PerformanceService.cs#L503)            | A fixed ten-second delay plus the normal poll delayed ready RTSS. Readiness now ends settling early.                                                                                    |
-| [RTSS exit watch](../src/WSGM/Core/RtssLauncher.cs)                         | PID-only watch deduplication missed a replacement reusing that PID. Identity includes the probe generation.                                                                             |
-| [Native admission](../src/WSGM/Core/RtssNativeAdapter.cs#L353)              | Cached readiness could admit an operation after RTSS replacement. Each operation checks fresh identity.                                                                                 |
-| [First OSD text](../src/WSGM/Core/RtssOsd.cs#L1615)                         | Optional sensors blocked publication, including FPS-only level 1. Level 1 never samples; richer layouts publish first.                                                                  |
-| [Sensor startup](../src/WSGM/Core/RtssOsd.cs#L1022)                         | An unknown RTSS location consumed the provider cooldown. Only an actual start attempt consumes it.                                                                                      |
-| [Slot transaction](../src/WSGM/Core/RtssOsd.cs#L106)                        | Busy writes claimed ownership and reported success; failures could retain the flag. Claim, write, notification and release are synchronized, with truthful retry and `finally` cleanup. |
-| [OSD clearing](../src/WSGM/Core/RtssOsd.cs#L1615)                           | A failed clear parked forever. Previously published content is retried before parking; an unpublished display needs no clear.                                                           |
-| [Integration off](../src/WSGM/Core/PerformanceService.cs#L251)              | Empty desired state left the renderer on. Disabling clears only WSGM's OSD and preserves the preference.                                                                                |
-| [Presentation drift](../src/WSGM/Core/RtssNativeAdapter.cs#L333)            | Cached selector readback hid closed RTSS OSD gates. Presentation health is checked and repaired separately from the selector.                                                           |
-| [Tick rollover](../src/WSGM/Core/RtssFrametimeReader.cs#L208)               | A measurement crossing the 32-bit rollover was discarded. Unsigned interval arithmetic preserves it.                                                                                    |
+| Area                                                                                      | Defect and correction                                                                                                                                                                   |
+| ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [First foreground](../src/WSGM/Shell/Desktop/ForegroundWindowWatcher.cs#L74)              | Constructor-started observation could precede subscription and lose the current game. Start now follows subscription.                                                                   |
+| [Image query](../src/WSGM/Shell/Desktop/ForegroundWindowWatcher.cs#L207)                  | A failed first image query permanently cached the window. Unreadable identities retry.                                                                                                  |
+| [Observation order](../src/WSGM/Shell/Desktop/ForegroundWindowWatcher.cs#L230)            | A slow old resolution could replace a newer window or publish after disposal. Both are rejected.                                                                                        |
+| [Steam/profile pairing](../src/WSGM/Shell/Applications/RunningApplicationMonitor.cs#L132) | Foreground reprojection could combine old Steam identity with a newly resolved profile. Published evidence is paired atomically.                                                        |
+| [Steam disabled](../src/WSGM/Shell/Applications/RunningApplicationMonitor.cs#L225)        | Foreground-only expiry stopped with CEF observation. Liveness polling continues without CEF calls.                                                                                      |
+| [Startup readiness](../src/WSGM/Core/Performance/PerformanceService.cs)                   | A fixed ten-second delay plus the normal poll delayed ready RTSS. Readiness now ends settling early.                                                                                    |
+| [RTSS exit watch](../src/WSGM/Core/Performance/RtssLauncher.cs)                           | PID-only watch deduplication missed a replacement reusing that PID. Identity includes the probe generation.                                                                             |
+| [Native admission](../src/WSGM/Core/Performance/RtssNativeAdapter.cs#L335)                | Cached readiness could admit an operation after RTSS replacement. Each operation follows a fresh probe in the same gate.                                                                |
+| [First OSD text](../src/WSGM/Core/Performance/RtssOsdRenderer.cs#L223)                    | Optional sensors blocked publication, including FPS-only level 1. Level 1 never samples; richer layouts publish first.                                                                  |
+| [Sensor startup](../src/WSGM/Core/Performance/SystemMetricsSource.cs)                     | An unknown RTSS location consumed the provider cooldown. Only an actual start attempt consumes it.                                                                                      |
+| [Slot transaction](../src/WSGM/Core/Performance/RtssOsdSlots.cs#L38)                      | Busy writes claimed ownership and reported success; failures could retain the flag. Claim, write, notification and release are synchronized, with truthful retry and `finally` cleanup. |
+| [OSD clearing](../src/WSGM/Core/Performance/RtssOsdRenderer.cs#L193)                      | A failed clear parked forever. Previously published content is retried before parking; an unpublished display needs no clear.                                                           |
+| [Integration off](../src/WSGM/Core/Performance/PerformanceStateStore.cs)                  | Empty desired state left the renderer on. Disabling clears only WSGM's OSD and preserves the preference.                                                                                |
+| [Presentation drift](../src/WSGM/Core/Performance/RtssNativeAdapter.cs#L312)              | Cached selector readback hid closed RTSS OSD gates. Presentation health is checked and repaired separately from the selector.                                                           |
+| [Tick rollover](../src/WSGM/Core/Performance/RtssFrametimeReader.cs#L154)                 | A measurement crossing the 32-bit rollover was discarded. Unsigned interval arithmetic preserves it.                                                                                    |
 
-One separate telemetry finding remains: [the GPU sensor parser](../src/WSGM/Core/RtssOsd.cs#L816)
-can mix adapters when the provider exports multiple GPUs. Load and temperature can come from a later
-GPU while power and memory come from an earlier one. Correct game-adapter selection needs a separate
-sensor-identity change; it is not a demonstrated cause of the Claw's missing FPS-only OSD and was
-not changed in this visibility fix.
+One separate telemetry finding remains:
+[the GPU sensor selection](../src/WSGM/Core/Performance/LhmSensorSelection.cs#L41) can mix adapters
+when the provider exports multiple GPUs. Load and temperature can come from a later GPU while power
+and memory come from an earlier one. Correct game-adapter selection needs a separate sensor-identity
+change; it is not a demonstrated cause of the Claw's missing FPS-only OSD and was not changed in
+this visibility fix.
 
 Offline tests exercise startup delivery, retry, contention, exception cleanup, clearing, saved-level
 restoration, presentation drift, RTSS readiness/PID reuse, foreground-only exit and tick rollover.

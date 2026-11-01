@@ -20,6 +20,14 @@ Steam and the overlay. A cancelled wait has not touched hardware and is rejected
 write is uncertain and is never automatically retried. Readback does not gate support or writes.
 Glyph loading failure drops glyphs and records the failure; it does not tear down a sound cycle.
 
+The power button is host policy in `Shell\Power\PowerButtonCoordinator`, attached with the OEM
+router but outside it: the router drops `Power` controls. `Core\Power\PowerButtonTakeover` saves
+each plan's power-button action and the SlideToShutDown redirect to the configuration before
+writing, and every stop and recovery path restores them. Short and long timing, the wake guard and
+the actions live in the coordinator; the short-press choice is `PowerButtonSetting`, shared by the
+overlay and Steam. Sleep on a Modern Standby machine goes through `PowerActions.EnterStandby`, never
+`SetSuspendState`. See docs/power-and-display.md, "The power button".
+
 For diagnosis, begin with current `wsgm.log`, the matching family source and provenance, and current
 attended evidence. Remote testers are ordinary users: do not ask them to run probes. Hardware or
 attended CEF actions require the maintainer's explicit scope and their respective preflight.

@@ -58,7 +58,7 @@ public sealed class RtssInstallerTests
     public void OnlineAndLegacyPayloadsRequestOnlyThePinnedArchive(string? mode)
     {
         using SetupTestInstallation installation = new();
-        using var payload = Payload(installation.User, mode, included: false);
+        using var payload = Payload(installation.User, mode, false);
         var handler = new RecordingHandler(() => new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new ByteArrayContent(Encoding.UTF8.GetBytes("downloaded-archive"))
@@ -160,6 +160,7 @@ public sealed class RtssInstallerTests
         public override bool CanSeek => false;
         public override bool CanWrite => false;
         public override long Length => throw new NotSupportedException();
+
         public override long Position
         {
             get => throw new NotSupportedException();
@@ -180,10 +181,29 @@ public sealed class RtssInstallerTests
             return 0;
         }
 
-        public override void Flush() => throw new NotSupportedException();
-        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(long value) => throw new NotSupportedException();
-        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override void Flush()
+        {
+            throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            throw new NotSupportedException();
+        }
+
+        public override long Seek(long offset, SeekOrigin origin)
+        {
+            throw new NotSupportedException();
+        }
+
+        public override void SetLength(long value)
+        {
+            throw new NotSupportedException();
+        }
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            throw new NotSupportedException();
+        }
     }
 }

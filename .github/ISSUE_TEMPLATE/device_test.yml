@@ -54,7 +54,8 @@ body:
     attributes:
       label: Logs, screenshots, and setup details
       description: |
-        For failures, attach wsgm.log from WSGM Settings > System > Open log location.
+        For failures, attach wsgm.log from WSGM Settings > System > Open log location, or paste the
+        link from Settings > Upload log.
         Screenshots and relevant BIOS, firmware, driver, or companion software details also help.
     validations:
       required: false

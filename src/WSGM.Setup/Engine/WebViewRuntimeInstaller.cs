@@ -60,7 +60,8 @@ internal static class WebViewRuntimeInstaller
                 if (!RtssInstaller.TryDownload(new SocketsHttpHandler(), download, installer,
                         RtssInstaller.BodyStallTimeout, out var problem))
                 {
-                    step.Note = $"Setup could not download WebView2 ({problem}). Connect to the internet and run Repair. Media previews need WebView2.";
+                    step.Note =
+                        $"Setup could not download WebView2 ({problem}). Connect to the internet and run Repair. Media previews need WebView2.";
                     return false;
                 }
             }
@@ -72,7 +73,8 @@ internal static class WebViewRuntimeInstaller
                 }
                 catch (FileNotFoundException)
                 {
-                    step.Note = "This setup is missing the bundled WebView2 installer. Use a complete offline setup or install Microsoft WebView2, then run Repair.";
+                    step.Note =
+                        "This setup is missing the bundled WebView2 installer. Use a complete offline setup or install Microsoft WebView2, then run Repair.";
                     return false;
                 }
             }
@@ -81,7 +83,8 @@ internal static class WebViewRuntimeInstaller
             {
                 if (!Convert.ToHexString(SHA256.HashData(input)).Equals(expected, StringComparison.OrdinalIgnoreCase))
                 {
-                    step.Note = "The WebView2 runtime checksum does not match this setup's pin, so setup did not run it. Use a complete WSGM setup or install Microsoft WebView2.";
+                    step.Note =
+                        "The WebView2 runtime checksum does not match this setup's pin, so setup did not run it. Use a complete WSGM setup or install Microsoft WebView2.";
                     return false;
                 }
             }
@@ -100,7 +103,7 @@ internal static class WebViewRuntimeInstaller
         {
             try
             {
-                Directory.Delete(stage, recursive: true);
+                Directory.Delete(stage, true);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {

@@ -375,10 +375,9 @@ public sealed class AudioProfileEditor : ObservableObject
 
                 if (_discovered.SpatialFormats is { } spatial)
                 {
-                    SpatialChoices.Add(new SpatialAudioOption(CoreAudio.SpatialAudioFormats.Off, "Off"));
-                    foreach (var format in spatial)
+                    foreach (var option in AudioPlaybackChoices.Spatial(spatial))
                     {
-                        SpatialChoices.Add(new SpatialAudioOption(format, SpatialAudioNames.For(format)));
+                        SpatialChoices.Add(option);
                     }
                 }
 

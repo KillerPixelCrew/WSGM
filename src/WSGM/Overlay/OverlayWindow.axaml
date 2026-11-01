@@ -1,10 +1,9 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ov="using:WSGM.Overlay"
+        xmlns:cv="using:Avalonia.Data.Converters"
         xmlns:c="using:WSGM.Controls"
-        xmlns:core="using:WSGM.Core"
         xmlns:sh="using:WSGM.Shell"
-        xmlns:li="using:LoadingIndicators.Avalonia"
         xmlns:fa="using:FluentAvalonia.UI.Controls"
         xmlns:labs="using:Avalonia.Labs.Panels"
         x:Class="WSGM.Overlay.OverlayWindow"
@@ -41,9 +40,7 @@
                            Foreground="{StaticResource DeckSecondaryBrush}" TextTrimming="CharacterEllipsis" />
                 <ComboBox x:Name="HeaderProfile" SelectedIndex="0" IsEnabled="False"
                           HorizontalAlignment="Stretch" AutomationProperties.Name="Settings profile"
-                          ToolTip.Tip="Start or focus an application to give it separate settings."
-                          SelectionChanged="OnHeaderProfileChanged"
-                          DropDownClosed="OnHeaderProfileClosed">
+                          ToolTip.Tip="Start or focus an application to give it separate settings.">
                   <ComboBoxItem Content="Global" />
                   <ComboBoxItem Content="Per-application" />
                 </ComboBox>
@@ -68,18 +65,18 @@
                   <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
                     <c:RadioIcon Width="18" Height="18"
                                  State="{Binding Radios.WifiIconState}"
-                                 Signal="{Binding Radios.WifiSignal}"
+                                 Signal="{Binding Radios.Wifi.Signal}"
                                  Accent="{DynamicResource HcAccentBrush}"
                                  Muted="{StaticResource HcTextPrimaryBrush}"
                                  VerticalAlignment="Center" />
                     <Border Classes="header-detail">
-                    <TextBlock x:Name="WifiLabel" Text="{Binding Radios.ConnectedSsid}"
+                    <TextBlock x:Name="WifiLabel" Text="{Binding Radios.Wifi.ConnectedSsid}"
                                FontSize="12"
                                FontWeight="SemiBold"
                                MaxWidth="90"
                                TextTrimming="CharacterEllipsis"
                                VerticalAlignment="Center"
-                               IsVisible="{Binding Radios.WifiConnected}" />
+                               IsVisible="{Binding Radios.Wifi.Connected}" />
                     </Border>
                   </StackPanel>
                 </Button>
@@ -127,7 +124,7 @@
                 </Button>
                 <Border Width="1" Height="24" Background="{StaticResource DeckDividerBrush}" Margin="6,0" />
                 <Button x:Name="KeyboardButton" Classes="pill" AutomationProperties.Name="On-screen keyboard"
-                        ToolTip.Tip="On-screen keyboard" Click="OnHeaderKeyboard">
+                        ToolTip.Tip="On-screen keyboard" Click="OnScreenKeyboard">
                   <Path Classes="status-icon" Data="{x:Static c:Icons.Keyboard}" Width="20" Stretch="Uniform" />
                 </Button>
                 <Border x:Name="BatteryStatus" Classes="pill-static" IsVisible="{Binding HasBattery}">
@@ -175,6 +172,17 @@
                          is visible on every one. -->
             <fa:FAInfoBar IsOpen="{Binding HasWarning}" Title="WSGM" Message="{Binding WarningText}" Severity="Warning"
                           IsClosable="False" Margin="0,0,0,4" />
+            <!-- A Steam client build this WSGM was not checked with: information only, dismissed per build.
+                 Hidden, not only closed, without a notice: a closed bar still takes the panel's spacing. -->
+            <fa:FAInfoBar x:Name="SteamBuildNotice" IsVisible="{Binding HasSteamBuildNotice}"
+                          IsOpen="{Binding HasSteamBuildNotice}" Title="Steam updated"
+                          Message="{Binding SteamBuildNoticeText}" Severity="Informational" IsClosable="False"
+                          Margin="0,0,0,4">
+              <fa:FAInfoBar.ActionButton>
+                <Button Content="Dismiss" Click="OnSteamBuildNoticeDismiss"
+                        AutomationProperties.Name="Dismiss the Steam update notice" />
+              </fa:FAInfoBar.ActionButton>
+            </fa:FAInfoBar>
 
             <!-- Quick access combines action cards, complete pinned sections and widgets.
                          Section headers own pinning; their controls keep normal editing behavior. -->
@@ -184,172 +192,15 @@
               <StackPanel x:Name="PinnedPluginWidgetsHost" Spacing="8" />
             </StackPanel>
 
-            <!-- Steam: a menu of categories, like the Device root. The controls
-                         themselves live on the category pages below. -->
-            <UniformGrid x:Name="PanelSteam" Columns="2" IsVisible="False">
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.SteamLibrary}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.SteamLike}"
-                            Title="Steam library"
-                            Description="Tabs, artwork, card manager and library folders" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.SteamLaunchFixes}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Rocket}"
-                            Title="Per-game launch fixes"
-                            Description="De-elevation, the Steam Input lease and custom launch actions" />
+            <ov:SteamLibraryPage x:Name="PanelSteamLibrary" IsVisible="False" HorizontalAlignment="Stretch" />
 
-            </UniformGrid>
+            <ov:LaunchFixesPage x:Name="PanelSteamLaunch" IsVisible="False" HorizontalAlignment="Stretch" />
 
-            <StackPanel x:Name="PanelSteamLibrary" Spacing="10" IsVisible="False" HorizontalAlignment="Stretch">
-              <TextBlock Text="STEAM LIBRARY" Classes="eyebrow" Margin="2,0,2,2" />
-              <TextBlock Text="Steam integration is turned off in Settings."
-                         Classes="caption"
-                         IsVisible="{Binding !ShowSteamLibrarySection}" />
-              <c:ActionButton Click="OnLibraryTabs"
-                            Tag="steam.library-tabs"
-                            IsVisible="{Binding ShowLibraryTabs}"
-                            IconGeometry="{x:Static c:Icons.SteamLike}"
-                            Title="Library Tabs"
-                            Description="Custom filter tabs and genres" />
-              <c:ActionButton Click="OnCardManager"
-                            Tag="steam.card-manager"
-                            IsVisible="{Binding ShowCardManager}"
-                            IconGeometry="{x:Static c:Icons.SdCard}"
-                            Title="Card Manager"
-                            Description="Rename, hide, and view SD-card libraries" />
-              <c:ActionButton Click="OnAddLibrary"
-                            Tag="steam.add-library"
-                            IsVisible="{Binding ShowSdCard}"
-                            IconGeometry="{x:Static c:Icons.FolderPlus}"
-                            Title="Add Steam Library"
-                            Description="Register a folder, drive, or network share" />
-            </StackPanel>
-
-            <StackPanel x:Name="PanelSteamLaunch" Spacing="10" IsVisible="False" HorizontalAlignment="Stretch">
-              <TextBlock Text="PER-GAME LAUNCH FIXES" Classes="eyebrow" Margin="2,0,2,2" />
-              <!-- The x:Name lives on the button: the handlers rewrite its
-                             Title with the result. Titles and descriptions are set
-                             once in the constructor (they differ for the CEF and
-                             clipboard paths) and must NOT be bound, or a binding
-                             re-evaluation would wipe the result text. -->
-              <c:ActionButton x:Name="DeelevateFixButton" Click="OnApplyLaunchFix"
-                            CommandParameter="{x:Static core:LaunchWrapperMode.Deelevate}"
-                            Tag="steam.launch.deelevate"
-                            IconGeometry="{x:Static c:Icons.ArrowDown}" />
-              <c:ActionButton x:Name="InputLeaseFixButton" Click="OnApplyLaunchFix"
-                            CommandParameter="{x:Static core:LaunchWrapperMode.InputLease}"
-                            Tag="steam.launch.input-lease"
-                            IconGeometry="{x:Static c:Icons.BlockedCircle}" />
-              <c:ActionButton x:Name="BothFixesButton" Click="OnApplyLaunchFix"
-                            CommandParameter="{x:Static core:LaunchWrapperMode.Both}"
-                            Tag="steam.launch.both"
-                            IconGeometry="{x:Static c:Icons.Rocket}" />
-              <c:ActionButton x:Name="CustomLaunchButton" Click="OnPickCustomLaunchAction"
-                            Tag="steam.launch.custom"
-                            IsVisible="{Binding ConfigureLaunchOptionsLive}"
-                            IconGeometry="{x:Static c:Icons.FolderPlus}"
-                            Title="Replace launch action"
-                            Description="Run an EXE, CMD, BAT, or PowerShell script" />
-              <c:ActionButton x:Name="RemoveFixesButton" Click="OnApplyLaunchFix"
-                            CommandParameter="{x:Static core:LaunchWrapperMode.None}"
-                            Tag="steam.launch.restore"
-                            IsVisible="{Binding ShowRemoveLaunchWrapper}"
-                            IconGeometry="{x:Static c:Icons.Close}"
-                            Title="Restore original launch action"
-                            Description="Remove WSGM changes and restore the original" />
-            </StackPanel>
-
-            <!-- Format flow lives in-place (a Popup/Flyout would be
-                         unreachable by the controller — GamepadNavigation is
-                         scoped to this window). Three states toggle by
-                         visibility: pick a drive, confirm the erase, watch it
-                         run. The whole sub-view is hidden from the tab strip. -->
-            <StackPanel x:Name="PanelFormat" DataContext="{x:Null}" x:DataType="sh:SdFormatManager" Spacing="6"
-                        IsVisible="False" HorizontalAlignment="Stretch">
-              <TextBlock x:Name="FormatHeading"
-                         Text="Format SD Card"
-                         FontSize="15"
-                         FontWeight="SemiBold" />
-
-              <!-- State 1: target list -->
-              <StackPanel x:Name="FormatPickView" Spacing="4">
-                <TextBlock Text="Choose a drive to erase and set up as a Steam library. Everything on it will be lost."
-                           Classes="caption"
-                           TextWrapping="Wrap" />
-                <TextBlock Text="No removable drives found."
-                           Classes="caption"
-                           IsVisible="{Binding !HasTargets}" />
-                <ItemsControl ItemsSource="{Binding Targets}">
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="sh:FormatTargetEntry">
-                      <c:ActionButton Click="OnFormatTargetChosen"
-                                    IconGeometry="{x:Static c:Icons.SdCard}"
-                                    Title="{Binding Name}"
-                                    Description="{Binding Detail}"
-                                    IsEnabled="{Binding $parent[ItemsControl].((sh:SdFormatManager)DataContext).NotBusy, FallbackValue=True}" />
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-                <Button Content="Refresh" Click="OnFormatRefresh" HorizontalAlignment="Stretch" />
-              </StackPanel>
-
-              <!-- State 2: confirm -->
-              <StackPanel x:Name="FormatConfirmView" Spacing="8" IsVisible="False">
-                <Border Background="{StaticResource HcCardBrush}"
-                        BorderBrush="{StaticResource HcDangerBrush}"
-                        BorderThickness="2"
-                        CornerRadius="6"
-                        Padding="12">
-                  <StackPanel Spacing="6">
-                    <TextBlock x:Name="FormatConfirmTarget" FontWeight="SemiBold" TextWrapping="Wrap" />
-                    <TextBlock x:Name="FormatConfirmDetail" Classes="caption" TextWrapping="Wrap" />
-                    <TextBlock Text="Everything on this drive will be permanently erased."
-                               Foreground="{StaticResource HcDangerBrush}"
-                               TextWrapping="Wrap" />
-                  </StackPanel>
-                </Border>
-                <!-- Press-to-edit row, the same shape every other name field
-                                 in the panel uses (tab editor, card rename): the current
-                                 value lives on the row and the in-window keyboard owns
-                                 the typing. A bare TextBox reads as broken on a controller,
-                                 which is exactly how this one was reported. -->
-                <c:ActionButton x:Name="FormatNameButton"
-                              Click="OnFormatEditName"
-                              IconGeometry="{x:Static c:Icons.CopyDoc}"
-                              Title="Name (volume and Steam library)"
-                              Description="Games" />
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                  <Button x:Name="FormatConfirmButton"
-                          Classes="danger"
-                          Content="Erase and format"
-                          Click="OnFormatConfirmed" />
-                  <Button Content="Cancel" Click="OnFormatCancel" />
-                </StackPanel>
-              </StackPanel>
-
-              <!-- State 3: progress / done -->
-              <StackPanel x:Name="FormatProgressView" Spacing="10" IsVisible="False">
-                <StackPanel Orientation="Horizontal" Spacing="10">
-                  <li:LoadingIndicator Mode="Ring"
-                                       Width="22" Height="22"
-                                       IsVisible="{Binding Busy}"
-                                       VerticalAlignment="Center" />
-                  <TextBlock Text="{Binding StatusText}"
-                             TextWrapping="Wrap"
-                             VerticalAlignment="Center" />
-                </StackPanel>
-                <Button x:Name="FormatDoneButton"
-                        Content="Done"
-                        Click="OnFormatCancel"
-                        IsVisible="{Binding NotBusy}"
-                        HorizontalAlignment="Stretch" />
-              </StackPanel>
-            </StackPanel>
+            <!-- The format flow, in place so the controller reaches it; hidden from the tab strip. -->
+            <ov:StorageFormatView x:Name="StorageFormatHost" IsVisible="False" HorizontalAlignment="Stretch" />
 
             <!-- Self-drawing gamepad nested pages (see OverlaySubView); hidden
-                         from the tab strip like PanelFormat, with the same
+                         from the tab strip like StorageFormatHost, with the same
                          LB/RB-suppress + B-cancels wiring. Width-capped: they were
                          designed as single columns and read badly stretched across
                          the whole sheet. -->
@@ -357,6 +208,7 @@
             <ov:CardManagerView x:Name="CardManagerHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:GameLibraryView x:Name="GameLibraryHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:ProgramsView x:Name="ProgramsHost" IsVisible="False" HorizontalAlignment="Stretch" />
+            <ov:HotkeysView x:Name="HotkeysHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:NotesView x:Name="NotesHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:BrowserView x:Name="BrowserHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:ScreensaversView x:Name="ScreensaversHost" IsVisible="False" HorizontalAlignment="Stretch" />
@@ -366,411 +218,43 @@
             <ov:ThemesView x:Name="ThemesHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:AnimationsView x:Name="AnimationsHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:LaunchWrapperView x:Name="LaunchWrapperHost" IsVisible="False" HorizontalAlignment="Stretch" />
+            <ov:GameToolsView x:Name="GameToolsHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:WakeLockHoldersView x:Name="WakeLockHost" IsVisible="False" HorizontalAlignment="Stretch" />
 
             <!-- Device RGB editor. It stages changes and commits once so persistent
                          firmware lighting is never written continuously while navigating. -->
             <ov:DeviceColorView x:Name="DeviceColorHost" IsVisible="False" HorizontalAlignment="Stretch" />
 
-            <!-- Device destination. Plugin rows come from the closed semantic descriptor
-                         vocabulary; WSGM-owned commands are separate view models. Packages cannot
-                         provide markup, styles, URLs, or arbitrary commands through this surface. -->
-            <StackPanel x:Name="PanelDevice" Spacing="12" MaxWidth="{StaticResource DeckContentMaxWidth}" HorizontalAlignment="Stretch"
-                        IsVisible="False">
-              <TextBlock x:Name="DeviceStatusTitle"
-                         Text="Device integration"
-                         FontSize="16"
-                         FontWeight="SemiBold"
-                         Margin="2,0,2,0" />
-              <TextBlock x:Name="DeviceStatusDetail"
-                         Text="Waiting for coordinator state"
-                         Classes="caption"
-                         TextWrapping="Wrap"
-                         Margin="2,0,2,6" />
-              <!-- A device package can arrive on an install that has no controller
-                             support, because the Plugins folder is one an administrator can
-                             copy a package file into. Without this the package simply does nothing and
-                             nothing says why. Lives on the Device page because that is where a
-                             person goes when their device is not working. -->
-              <Border x:Name="DevicePrerequisiteBanner" Classes="device-group"
-                      IsVisible="False" Margin="2,0,2,8">
-                <StackPanel Spacing="8">
-                  <TextBlock x:Name="DevicePrerequisiteDetail" TextWrapping="Wrap" />
-                  <Button x:Name="DevicePrerequisiteEnable" Content="Enable Device Integration"
-                          IsVisible="False" HorizontalAlignment="Stretch"
-                          Click="OnEnableDeviceIntegration" />
-                </StackPanel>
-              </Border>
-              <StackPanel x:Name="DevicePowerOverview" Spacing="12" IsVisible="False">
-                <!-- The Overview's headline: the per-application profile switch, above what it scopes. -->
-                <StackPanel x:Name="DeviceApplicationProfileHost" IsVisible="False" />
-                <Border x:Name="DevicePowerControlsCard" VerticalAlignment="Top">
-                  <StackPanel x:Name="UnifiedDevicePowerBody" Spacing="12">
-                    <!-- AC and battery assignments lead, as in Steam's Quick Access; the Windows
-                         profile follows them. -->
-                    <Border Classes="device-group" IsVisible="{Binding #DevicePowerPresetContainer.IsVisible}">
-                      <StackPanel x:Name="DevicePowerPresetContainer" IsVisible="False">
-                        <ov:DevicePowerPresetView x:Name="DevicePowerPresetHost" IsVisible="False" />
-                      </StackPanel>
-                    </Border>
-                    <Border Classes="device-group" IsVisible="{Binding #DeviceWindowsPower.IsVisible}">
-                      <StackPanel x:Name="DeviceWindowsPower" Spacing="8">
-                        <StackPanel x:Name="DevicePowerSchemeHeading" />
-                        <ov:PowerSchemeView x:Name="DevicePowerSchemeHost" />
-                      </StackPanel>
-                    </Border>
-                    <Border Classes="device-group" IsVisible="{Binding #ManualTdpHost.IsVisible}">
-                      <StackPanel x:Name="ManualTdpHost" IsVisible="False" />
-                    </Border>
-                  </StackPanel>
-                </Border>
-                <!-- Cooling is its own fold beside Power rather than one of Power's groups: fan
-                     mode, curve and speed are visited on their own, not on the way to a limit. -->
-                <StackPanel x:Name="DeviceFansHost" Spacing="12" IsVisible="False" />
-                <Border x:Name="DevicePerformanceCard" VerticalAlignment="Top">
-                  <StackPanel x:Name="DevicePerformanceColumn" />
-                </Border>
-              </StackPanel>
-              <StackPanel x:Name="DeviceCapabilityList" Spacing="12" />
-              <Expander x:Name="DeviceWidgetsExpander" Header="Quick Access pins" HorizontalAlignment="Stretch"
-                        HorizontalContentAlignment="Stretch">
-                <StackPanel Spacing="8">
-                  <TextBlock Text="Choose sections and widgets to show on Quick Access." Classes="caption" />
-                  <StackPanel x:Name="DeviceSectionPinsHost" Spacing="8" />
-                  <StackPanel x:Name="DeviceWidgetPinsHost" Spacing="8" />
-                </StackPanel>
-              </Expander>
+            <!-- Device destination: the Overview, the section pages and the GPU page, each drawn from its
+                         description. Plugin rows come from the closed semantic descriptor vocabulary;
+                         packages cannot provide markup, styles, URLs, or arbitrary commands here. -->
+            <ov:DevicePageView x:Name="DevicePage" IsVisible="False" />
 
-              <!-- Windows power policy like the energy plan above, so it belongs here
-                             rather than in WSGM Settings, and it stays available with device
-                             integration off. Hidden on a CPU with one kind of core. -->
-              <Expander x:Name="DeviceHybridCores" Header="Processor cores" IsVisible="False"
-                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Margin="0,12,0,0">
-                <ov:HybridCoreView x:Name="DeviceHybridCoreHost" />
-              </Expander>
-            </StackPanel>
+            <ov:SystemToolsPage x:Name="PanelSystemTools" IsVisible="False" HorizontalAlignment="Stretch" />
 
-            <!-- Tools (the System destination): what is left once Steam, Device
-                         and Power have their own destinations, as a menu of categories.
-                         Performance and Plugins appear only when they have something in
-                         them, which is resolved in code alongside their content. -->
-            <UniformGrid x:Name="PanelSystem" Columns="2" IsVisible="False">
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.SystemTools}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Gear}"
-                            Title="System"
-                            Description="WSGM Settings, Task Manager and UAC prompts" />
-              <c:ActionButton x:Name="SystemPerformanceTile" Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.SystemPerformance}"
-                            Margin="0,0,10,10"
-                            IsVisible="False"
-                            IconGeometry="{x:Static c:Icons.Grid4}"
-                            Title="Performance"
-                            Description="Frame limit, overlay and per-application profiles" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.SystemStorage}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.SdCard}"
-                            Title="Storage"
-                            Description="Eject an SD card or USB drive" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.SystemDisplay}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Monitor}"
-                            Title="Display"
-                            Description="Panel brightness and display routes" />
-              <c:ActionButton x:Name="SystemPluginsTile" Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.SystemPlugins}"
-                            Margin="0,0,10,10"
-                            IsVisible="False"
-                            IconGeometry="{x:Static c:Icons.Wrench}"
-                            Title="Plugins"
-                            Description="Controls published by the enabled common plugins" />
-              <c:ActionButton Classes="tile" Click="OnGameLibrary"
-                            Tag="system.game-library"
-                            CommandParameter="{x:Static ov:OverlayPage.SteamGameLibrary}"
-                            IsVisible="{Binding ShowGameLibrary}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Grid4}"
-                            Title="Library Importer"
-                            Description="Bring games from other launchers into Steam, with their artwork" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.Programs}"
-                            IconGeometry="{x:Static c:Icons.Rocket}" Title="Programs"
-                            Description="Launch or focus your tools; pin them to Quick access" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory" Tag="system.notes"
-                            CommandParameter="{x:Static ov:OverlayPage.Notes}"
-                            IconGeometry="{x:Static c:Icons.ListLines}" Title="Notes"
-                            Description="Game notes with text, drawings and screenshots" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory" Tag="system.screensavers"
-                            CommandParameter="{x:Static ov:OverlayPage.Screensavers}"
-                            IconGeometry="{x:Static c:Icons.Monitor}" Title="Screensavers"
-                            Description="Local image folders and scene packs" />
-              <c:ActionButton x:Name="EmulatorManagerTile" Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.EmulatorManager}"
-                            Tag="system.emulator-manager"
-                            IsVisible="{Binding ShowEmulators}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Grid4}"
-                            Title="Emulators"
-                            Description="Install, update and configure emulators" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.SystemArtwork}" IsVisible="{Binding ShowArtwork}"
-                            IconGeometry="{x:Static c:Icons.Palette}" Title="Steam Artwork Changer" />
-              <c:ActionButton Classes="tile" Click="OnThemes" CommandParameter="{x:Static ov:OverlayPage.SystemThemes}"
-                            Tag="system.themes"
-                            IsVisible="{Binding ShowThemes}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Palette}"
-                            Title="CSS Loader"
-                            Description="Restyle Big Picture with CSS Loader themes from DeckThemes" />
-              <c:ActionButton Classes="tile" Click="OnAnimations" CommandParameter="{x:Static ov:OverlayPage.SystemAnimations}"
-                            Tag="system.animations"
-                            IsVisible="{Binding ShowAnimations}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Play}"
-                            Title="Video Switcher"
-                            Description="The boot movie, from SteamDeckRepo or your own" />
-              <c:ActionButton Classes="tile" Click="OnSounds" CommandParameter="{x:Static ov:OverlayPage.SystemSounds}"
-                            Tag="system.sounds" IsVisible="{Binding ShowSounds}" Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Play}" Title="Sounds"
-                            Description="Install, preview and select Steam UI sound packs" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.SystemController}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Keyboard}"
-                            Title="Keyboard"
-                            Description="The on-screen keyboard for the current mode" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.SystemAbout}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Info}"
-                            Title="About"
-                            Description="Version, licence and thanks" />
-            </UniformGrid>
+            <!-- The shared performance rows live here while there is no Device destination to hold them. -->
+            <ov:PerformancePage x:Name="PanelSystemPerformance" Spacing="10" IsVisible="False"
+                                HorizontalAlignment="Stretch" />
 
-            <StackPanel x:Name="PanelSystemTools" Spacing="10" IsVisible="False" HorizontalAlignment="Stretch">
-              <TextBlock Text="SYSTEM" Classes="eyebrow" Margin="2,0,2,2" />
-              <c:ActionButton Click="OnSettings"
-                            Tag="system.settings"
-                            IconGeometry="{x:Static c:Icons.Gear}"
-                            Title="Settings"
-                            Description="Shell, startup, and quick access configuration"
-                            IsVisible="{Binding SettingsAvailable}" />
-              <c:ActionButton Click="OnTaskManager"
-                            Tag="system.task-manager"
-                            IconGeometry="{x:Static c:Icons.Grid4}"
-                            Title="Task Manager"
-                            Description="Processes and performance" />
-              <StackPanel x:Name="UacPolicyHost" Spacing="8" />
-            </StackPanel>
+            <ov:StoragePage x:Name="PanelSystemStorage" IsVisible="False" HorizontalAlignment="Stretch" />
 
-            <!-- One shared performance projection is reparented into Device while
-                         integration is visible and lives on this page otherwise. Its source owns
-                         RTSS lifetime and state; this window only observes and invokes rows. -->
-            <StackPanel x:Name="PanelSystemPerformance" Spacing="10" IsVisible="False"
-                        HorizontalAlignment="Stretch">
-              <StackPanel x:Name="PerformanceSection" Spacing="4" IsVisible="False">
-                <TextBlock Text="PERFORMANCE" Classes="eyebrow" Margin="2,0,2,2" />
-                <TextBlock x:Name="PerformanceStatus"
-                           Classes="caption"
-                           TextWrapping="Wrap"
-                           Margin="2,0,2,2" />
-                <StackPanel x:Name="PerformanceRows" Spacing="4" />
-              </StackPanel>
-            </StackPanel>
+            <ov:DisplayPage x:Name="PanelSystemDisplay" IsVisible="False" HorizontalAlignment="Stretch" />
 
-            <StackPanel x:Name="PanelSystemStorage" Spacing="10" IsVisible="False"
-                        HorizontalAlignment="Stretch">
-              <TextBlock Text="STORAGE" Classes="eyebrow" Margin="2,0,2,2" />
-              <c:ActionButton Click="OnEjectTileClicked"
-                            Tag="system.eject"
-                            IconGeometry="{x:Static c:Icons.Eject}"
-                            Title="Safely remove hardware"
-                            Description="Eject an SD card or USB drive" />
-              <c:ActionButton Click="OnFormatSdCard"
-                            Tag="system.format-card"
-                            IsVisible="{Binding ShowSdCard}"
-                            IconGeometry="{x:Static c:Icons.SdCard}"
-                            Title="Format SD Card"
-                            Description="Erase a card as a Steam game library" />
-            </StackPanel>
+            <ov:AboutPage x:Name="PanelSystemAbout" IsVisible="False" HorizontalAlignment="Stretch" />
 
-            <StackPanel x:Name="PanelSystemDisplay" Spacing="10" IsVisible="False"
-                        HorizontalAlignment="Stretch">
-              <TextBlock Text="DISPLAY" Classes="eyebrow" Margin="2,0,2,2" />
-              <StackPanel x:Name="DisplayBrightnessHost" />
-            </StackPanel>
-
-            <!-- Read-only: the same Core\Credits the Settings About page shows. Links stay in
-                         Settings, where a browser is the expected thing to open; here the names and the
-                         addresses are text. -->
-            <StackPanel x:Name="PanelSystemAbout" Spacing="10" IsVisible="False" HorizontalAlignment="Stretch">
-              <TextBlock Text="ABOUT" Classes="eyebrow" Margin="2,0,2,2" />
-              <StackPanel Spacing="2" Margin="2,0,2,6">
-                <TextBlock Text="{x:Static core:Credits.VersionText}" />
-                <TextBlock Text="{x:Static core:Credits.Copyright}" Classes="caption" TextWrapping="Wrap" />
-                <TextBlock Text="{x:Static core:Credits.License}" Classes="caption" TextWrapping="Wrap" />
-                <TextBlock Text="{x:Static core:Credits.ProjectUrl}" Classes="caption" TextWrapping="Wrap" />
-              </StackPanel>
-              <TextBlock Text="THANKS" Classes="eyebrow" Margin="2,0,2,2" />
-              <ItemsControl ItemsSource="{x:Static core:Credits.People}" Margin="2,0,2,6">
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate x:DataType="core:Credit">
-                    <StackPanel Spacing="2" Margin="0,0,0,8">
-                      <TextBlock Text="{Binding Name}" />
-                      <TextBlock Text="{Binding Role}" Classes="caption" TextWrapping="Wrap" />
-                      <TextBlock Text="{Binding Url}" Classes="caption" TextWrapping="Wrap" />
-                    </StackPanel>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-              <TextBlock Text="BUILT ON" Classes="eyebrow" Margin="2,0,2,2" />
-              <ItemsControl ItemsSource="{x:Static core:Credits.Projects}" Margin="2,0,2,0">
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate x:DataType="core:Credit">
-                    <StackPanel Spacing="2" Margin="0,0,0,8">
-                      <TextBlock Text="{Binding Name}" />
-                      <TextBlock Text="{Binding Role}" Classes="caption" TextWrapping="Wrap" />
-                    </StackPanel>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-            </StackPanel>
-
-            <StackPanel x:Name="PanelSystemPlugins" Spacing="10" IsVisible="False"
-                        HorizontalAlignment="Stretch">
-              <TextBlock Text="PLUGINS" Classes="eyebrow" Margin="2,0,2,2" />
-              <StackPanel x:Name="CommonPluginRows" Spacing="8" />
-            </StackPanel>
+            <ov:PluginsPage x:Name="PanelSystemPlugins" IsVisible="False" HorizontalAlignment="Stretch" />
 
             <ov:SoundsView x:Name="SoundsHost" IsVisible="False" />
 
-            <StackPanel x:Name="GpuHost" Spacing="12" IsVisible="False" HorizontalAlignment="Stretch">
-              <TextBlock Text="GPU" Classes="eyebrow" />
-              <TextBlock Text="Graphics and driver controls for your GPU. Availability depends on the GPU, display and installed driver."
-                         Classes="caption" TextWrapping="Wrap" />
-              <TextBlock x:Name="GraphicsStatus" Classes="caption" TextWrapping="Wrap" IsVisible="False" />
-              <StackPanel x:Name="GraphicsCapabilityList" Spacing="12" />
-              <TextBlock x:Name="GpuUnavailable" Text="GPU controls will appear here when a supported Intel, NVIDIA or AMD plugin is enabled."
-                         Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
+            <ov:KeyboardPage x:Name="PanelSystemController" IsVisible="False" HorizontalAlignment="Stretch" />
 
-            <StackPanel x:Name="PanelSystemController" Spacing="10" IsVisible="False"
-                        HorizontalAlignment="Stretch">
-              <TextBlock Text="KEYBOARD" Classes="eyebrow" Margin="2,0,2,2" />
-              <c:ActionButton Title="On-Screen Keyboard" Click="OnScreenKeyboard"
-                            Tag="system.keyboard" Description="Open the keyboard for the current mode" />
-            </StackPanel>
+            <ov:PowerSessionPage x:Name="PanelPowerSession" IsVisible="False" HorizontalAlignment="Stretch" />
 
-            <!-- Power: wake, idle timeouts, and the session-ending actions as
-                         three categories. Each timeout row cycles its preset; the trailing
-                         badge is the current value read live from the active power
-                         scheme. The two-step confirms rewrite Title ("Really?") from
-                         code-behind, same auto-revert as before. -->
-            <UniformGrid x:Name="PanelPower" Columns="2" IsVisible="False">
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.PowerWake}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Mug}"
-                            Title="Wake"
-                            Description="Keep Awake, wake locks and the sign-in after standby" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.PowerTimeouts}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Moon}"
-                            Title="Idle timeouts"
-                            Description="Screen off and standby, on battery and plugged in" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.PowerActions}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Power}"
-                            Title="Power"
-                            Description="Standby, hibernate, restart and shut down" />
-              <c:ActionButton Classes="tile" Click="OnEnterCategory"
-                            CommandParameter="{x:Static ov:OverlayPage.PowerSession}"
-                            Margin="0,0,10,10"
-                            IconGeometry="{x:Static c:Icons.Play}"
-                            Title="Session"
-                            Description="Big Picture, the desktop, and quitting Steam" />
-            </UniformGrid>
+            <ov:PowerWakePage x:Name="PanelPowerWake" IsVisible="False" HorizontalAlignment="Stretch" />
 
-            <!-- Session: the former root tab, now a Power category. The four rows keep
-                         their names, tags and handlers so pins and focus keys are unchanged. -->
-            <StackPanel x:Name="PanelPowerSession" Spacing="10" IsVisible="False" HorizontalAlignment="Stretch">
-              <TextBlock Text="SESSION" Classes="eyebrow" Margin="2,0,2,2" />
-              <c:ActionButton x:Name="HomeAppButton" Classes="primary" Click="OnHomeApp"
-                            Tag="home.steam"
-                            IconGeometry="{x:Static c:Icons.Play}"
-                            Title="{Binding HomeAppButtonText}"
-                            Description="Open Steam Big Picture"
-                            TrailingText="A" />
-              <c:ActionButton x:Name="DesktopButton" Click="OnDesktop"
-                            Tag="home.desktop"
-                            IconGeometry="{x:Static c:Icons.Monitor}"
-                            Title="{Binding DesktopButtonText}"
-                            Description="Show or hide the Windows desktop"
-                            IsVisible="{Binding ModeSwitchAvailable}" />
-              <c:ActionButton x:Name="ExitBigPictureButton" Click="OnExitBigPicture"
-                            Tag="home.exit-big-picture"
-                            IconGeometry="{x:Static c:Icons.ExitFullscreen}"
-                            Title="Exit Big Picture"
-                            Description="Switch Steam to its desktop window" />
-              <c:ActionButton x:Name="CloseLauncherButton" Click="OnCloseLauncher"
-                            Tag="home.close-steam"
-                            IsVisible="{Binding HomeAppAlive}"
-                            IconGeometry="{x:Static c:Icons.Close}"
-                            Title="{Binding CloseLauncherText}"
-                            Description="Quit Steam completely" />
-            </StackPanel>
+            <ov:PowerTimeoutsPage x:Name="PanelPowerTimeouts" IsVisible="False" HorizontalAlignment="Stretch" />
 
-            <StackPanel x:Name="PanelPowerWake" Spacing="10" IsVisible="False" HorizontalAlignment="Stretch">
-              <TextBlock Text="WAKE" Classes="eyebrow" Margin="2,0,2,2" />
-              <StackPanel x:Name="KeepAwakeHost" IsVisible="{Binding ShowKeepAwake}" Spacing="8">
-                <TextBlock x:Name="KeepAwakeDetail" Classes="caption" TextWrapping="Wrap" />
-              </StackPanel>
-              <c:ActionButton Click="OnShowWakeLockHolders"
-                            Tag="system.wake-locks"
-                            IconGeometry="{x:Static c:Icons.ListLines}"
-                            Title="What's keeping this awake"
-                            Description="List the programs holding a wake lock" />
-              <StackPanel x:Name="LockOnWakePolicyHost" Spacing="8" />
-            </StackPanel>
-
-            <StackPanel x:Name="PanelPowerTimeouts" Spacing="10" IsVisible="False"
-                        HorizontalAlignment="Stretch">
-              <TextBlock Text="IDLE TIMEOUTS" Classes="eyebrow" Margin="2,0,2,2" />
-              <StackPanel x:Name="PowerTimeoutEditors" Spacing="8" />
-            </StackPanel>
-
-            <StackPanel x:Name="PanelPowerActions" Spacing="8" IsVisible="False" HorizontalAlignment="Stretch">
-              <Button Content="Open power menu" Classes="deck-action" Click="OnOpenPowerMenu" />
-              <c:ActionButton x:Name="SignOutButton" Title="Sign out" Description="End the current Windows session"
-                              IconGeometry="{x:Static c:Icons.SignOut}"
-                              Click="OnSignOut" />
-              <TextBlock Text="POWER" Classes="eyebrow" Margin="2,0,2,2" />
-              <c:ActionButton Click="OnStandby"
-                            Tag="system.standby"
-                            IconGeometry="{x:Static c:Icons.Moon}"
-                            Title="Standby"
-                            Description="Suspend to RAM and resume where you left off" />
-              <c:ActionButton Click="OnHibernate"
-                            Tag="system.hibernate"
-                            IconGeometry="{x:Static c:Icons.Snowflake}"
-                            Title="Hibernate"
-                            Description="Save the session to disk and power off" />
-              <c:ActionButton x:Name="RestartButton" Click="OnRestart"
-                            Tag="system.restart"
-                            IconGeometry="{x:Static c:Icons.Restart}"
-                            Title="Restart"
-                            Description="Restart Windows" />
-              <c:ActionButton x:Name="ShutdownButton" Classes="danger" Click="OnShutdown"
-                            Tag="system.shutdown"
-                            IconGeometry="{x:Static c:Icons.Power}"
-                            Title="Shut down"
-                            Description="Turn off this device" />
-            </StackPanel>
+            <ov:PowerActionsPage x:Name="PanelPowerActions" IsVisible="False" HorizontalAlignment="Stretch" />
           </StackPanel>
         </ScrollViewer>
           </Border>
@@ -908,10 +392,12 @@
                               VerticalAlignment="Center" />
                 <TextBlock Text="Pin to Quick access" Classes="caption" VerticalAlignment="Center" />
               </StackPanel>
-              <StackPanel Orientation="Horizontal" Spacing="5" IsVisible="{Binding #EmulatorManagerHost.IsVisible}">
+              <StackPanel Orientation="Horizontal" Spacing="5"
+                          IsVisible="{Binding #EmulatorManagerHost.SecondaryHint, Converter={x:Static cv:StringConverters.IsNotNullOrEmpty}}">
                 <ov:GlyphIcon Width="18" Height="18" Button="y" GlyphStyle="{Binding GlyphStyle}"
                               VerticalAlignment="Center" />
-                <TextBlock Text="Check for updates" Classes="caption" VerticalAlignment="Center" />
+                <TextBlock Text="{Binding #EmulatorManagerHost.SecondaryHint}" Classes="caption"
+                           VerticalAlignment="Center" />
               </StackPanel>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="14">

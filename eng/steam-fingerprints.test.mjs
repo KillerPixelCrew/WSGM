@@ -63,6 +63,33 @@ test("comments, quoted source and unrelated arrays never create module fingerpri
   );
 });
 
+test("a helper forwarding its parameter is read at every call site", () => {
+  const source = `
+    const StoreTokens = ["GetCollection"];
+    function gate(runtime) {
+      const exportOf = (runtime, tokens, predicate) => runtime.exported([...tokens], predicate);
+      exportOf(runtime, StoreTokens, isStore);
+      exportOf(runtime, ["AppFilter"], isFilter);
+    }
+  `;
+  assert.deepEqual(
+    readFingerprints(source).map(({ tokens }) => tokens),
+    [["GetCollection"], ["AppFilter"]],
+  );
+  assert.throws(
+    () => readFingerprints(`const exportOf = (tokens) => runtime.exported([...tokens], isStore);`),
+    /Cannot read the emitted module fingerprint/u,
+  );
+  assert.throws(
+    () =>
+      readFingerprints(`
+        const exportOf = (tokens) => runtime.exported([...tokens], isStore);
+        exportOf(MissingTokens);
+      `),
+    /Cannot read the emitted module fingerprint at line 3/u,
+  );
+});
+
 test("optional exports use the fingerprint passed after the resolver", () => {
   assert.deepEqual(
     readFingerprints(`optionalSteamExport(runtime, ["Settings.Root()"], isPage);`).map(

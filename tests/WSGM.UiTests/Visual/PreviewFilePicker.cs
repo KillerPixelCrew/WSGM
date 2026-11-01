@@ -36,7 +36,7 @@ internal static class PreviewFilePicker
                     new SteamFilePlace(@"C:\Users\Example\Downloads", "Downloads", "folder", "")
                 ])),
                 (path, _, _) => Task.FromResult(new SteamFileListing(path, @"C:\Emulation", entries, null)));
-            _ = window.PickLocalPathAsync(picker, folder);
+            _ = window.Surfaces.PickLocalPathAsync(picker, folder);
             Dispatcher.UIThread.RunJobs();
             window.FocusManager!.Focus(null);
             window.MouseMove(new Point(-20, -20));

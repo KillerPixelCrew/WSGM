@@ -33,16 +33,17 @@ public sealed partial class AnimationsView : ServiceSubView
     /// <param name="service">The service, or null when the overlay closes or the session has none.</param>
     internal void Attach(AnimationService? service)
     {
-        AttachSession(service?.CreateBrowserSession());
+        AttachSession(service?.CreateBrowserSession("library"), service);
     }
 
     /// <summary>Replaces and disposes the previous surface-local browser, then follows the new session on the UI thread.</summary>
     /// <param name="session">Owned browser session; null detaches. Do not pass the currently attached instance again.</param>
-    internal void AttachSession(IAnimationBrowseSession? session)
+    /// <param name="service">The shared owner the movie commands go to; null with a null session.</param>
+    internal void AttachSession(IAnimationBrowseSession? session, ISteamAnimationsBackend? service)
     {
         _browser?.Dispose();
         _browser = session;
-        _service = session;
+        _service = service;
         AttachSource(session);
     }
 
@@ -149,73 +150,5 @@ public sealed partial class AnimationsView : ServiceSubView
     private static void AddStatus(StackPanel stack, SteamAnimationsState state)
     {
         AddStatus(stack, state.Busy, state.Error, state.Notice);
-    }
-}
-
-/// <summary>What the overlay's Animations view says about the choice and each movie.</summary>
-/// <remarks>Pure, so the wording is tested without building a window.</remarks>
-internal static class AnimationsRows
-{
-    /// <summary>The home level's summary.</summary>
-    /// <param name="state">The published state.</param>
-    /// <returns>Which movie Big Picture starts with, and whether Steam has to restart to show it.</returns>
-    internal static string Summary(SteamAnimationsState state)
-    {
-        var selected = state.Library.FirstOrDefault(item => item.Id == state.Selected);
-        var line = selected is null
-            ? "Big Picture starts with Steam's own movie."
-            : $"Big Picture starts with {selected.Name}.";
-        if (state.Settings.RestartNeeded)
-        {
-            line += " Restart Steam to see the change.";
-        }
-
-        return line;
-    }
-
-    /// <summary>One library entry's line.</summary>
-    /// <param name="item">The entry.</param>
-    /// <param name="state">The published state, for whether it plays.</param>
-    /// <returns>Whether it is the user's file, its author, and whether it plays at boot.</returns>
-    internal static string Describe(SteamAnimationsItem item, SteamAnimationsState state)
-    {
-        List<string> parts = [item.Custom ? "Your file" : "SteamDeckRepo"];
-        if (item.Author.Length > 0)
-        {
-            parts.Add(item.Author);
-        }
-
-        if (state.Selected == item.Id)
-        {
-            parts.Add("Plays at boot");
-        }
-
-        return string.Join(" · ", parts);
-    }
-
-    /// <summary>One repository listing's line.</summary>
-    /// <param name="item">The listing.</param>
-    /// <returns>Its author, date, likes, downloads and whether the library holds it.</returns>
-    internal static string DescribeListing(SteamAnimationsItem item)
-    {
-        List<string> parts = [];
-        if (item.Author.Length > 0)
-        {
-            parts.Add(item.Author);
-        }
-
-        if (item.Updated.Length > 0)
-        {
-            parts.Add(item.Updated);
-        }
-
-        parts.Add($"{item.Likes} likes");
-        parts.Add($"{item.Downloads} downloads");
-        if (item.Downloaded)
-        {
-            parts.Add("In the library");
-        }
-
-        return string.Join(" · ", parts);
     }
 }

@@ -87,7 +87,7 @@ public sealed class OverlayFilePickerTests
         using var fixture = new UiFixture();
         var window = fixture.Overlay();
         var picker = Picker(false);
-        var selection = window.PickLocalPathAsync(picker, false);
+        var selection = window.Surfaces.PickLocalPathAsync(picker, false);
         Dispatcher.UIThread.RunJobs();
         var loaded = DirectoryLoaded(picker, directory.Root);
         UiFixture.Click(window, picker.GetLogicalDescendants().OfType<ActionButton>()
@@ -97,7 +97,7 @@ public sealed class OverlayFilePickerTests
         Assert.Same(window, TopLevel.GetTopLevel(keyboard));
         UiFixture.Named<TextBox>(keyboard, "Input").Text = directory.Root;
         var keyboardClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        window.SurfaceClosed += () => keyboardClosed.TrySetResult();
+        window.Surfaces.Closed += () => keyboardClosed.TrySetResult();
         UiFixture.Click(window, keyboard.GetVisualDescendants().OfType<Button>()
             .Single(button => button.IsEffectivelyVisible && Equals(button.Tag, Key.Enter)));
         await loaded.WaitAsync(TimeSpan.FromSeconds(5));
@@ -111,11 +111,11 @@ public sealed class OverlayFilePickerTests
         Assert.False(selection.IsCompleted);
 
         var pickerClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        window.SurfaceClosed += () => pickerClosed.TrySetResult();
+        window.Surfaces.Closed += () => pickerClosed.TrySetResult();
         UiFixture.Key(window, Key.Enter);
         Assert.Equal(directory.GetPath("first.png"), await selection.WaitAsync(TimeSpan.FromSeconds(2)));
         await pickerClosed.Task.WaitAsync(TimeSpan.FromSeconds(2));
-        Assert.False(window.HasActiveSurface);
+        Assert.False(window.Surfaces.HasActive);
         Assert.Null(TopLevel.GetTopLevel(picker));
     }
 
@@ -128,7 +128,7 @@ public sealed class OverlayFilePickerTests
         using var fixture = new UiFixture();
         var window = fixture.Overlay();
         var picker = Picker(false);
-        var selection = window.PickLocalPathAsync(picker, false);
+        var selection = window.Surfaces.PickLocalPathAsync(picker, false);
         Dispatcher.UIThread.RunJobs();
         UiFixture.Click(window, picker.GetLogicalDescendants().OfType<ActionButton>()
             .Single(button => button.Title == "Enter a path" || button.Description == "Enter a path"));
@@ -138,7 +138,7 @@ public sealed class OverlayFilePickerTests
         var closures = 0;
         var pickerDetachments = 0;
         picker.DetachedFromVisualTree += (_, _) => pickerDetachments++;
-        window.SurfaceClosed += () =>
+        window.Surfaces.Closed += () =>
         {
             closures++;
             closed.TrySetResult();
@@ -148,7 +148,7 @@ public sealed class OverlayFilePickerTests
             .Single(button => button.IsEffectivelyVisible && Equals(button.Tag, Key.Enter)));
         Assert.Equal(path, await selection.WaitAsync(TimeSpan.FromSeconds(2)));
         await closed.Task.WaitAsync(TimeSpan.FromSeconds(2));
-        Assert.False(window.HasActiveSurface);
+        Assert.False(window.Surfaces.HasActive);
         Assert.Null(TopLevel.GetTopLevel(keyboard));
         Assert.Null(TopLevel.GetTopLevel(picker));
         Assert.Equal(1, pickerDetachments);

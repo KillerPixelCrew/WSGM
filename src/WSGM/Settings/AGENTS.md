@@ -13,11 +13,11 @@ state is not.
 - A save operation reads fresh configuration, applies the page's owned fields, validates, and commits through
   ConfigStore. Do not overwrite fields owned by another page or hold the config lock while doing external work.
 - WSGM's page in Steam writes some of the same fields while this window may be open. Those are listed in
-  `Core/WsgmSharedSettings`; a save writes one only when the user changed it here, measured against what the
+  `Core/Config/WsgmSharedSettings`; a save writes one only when the user changed it here, measured against what the
   window last loaded or saved, and keeps the saved value otherwise. A field that page gains goes on that list.
 - Write dependent sidecars or manifests atomically and keep them consistent with the committed configuration.
 - Display edits use stable display identities and must handle a disconnected or stale target explicitly.
-- First-run choices are asked by setup, not here. Setup exports and applies them through `Core/SetupAnswers`
+- First-run choices are asked by setup, not here. Setup exports and applies them through `Core/Setup/SetupAnswers`
   (`--export-setup-answers`, `--setup --answers`); a field setup asks is added there as well as on its page.
 - The Plugins page (`PluginSettingsPage`) installs a bundled package by copying it into the Plugins folder and removes
   one by deleting it, or at the next start while it is loaded. It never loads plugin code and never installs drivers:
@@ -38,8 +38,8 @@ state is not.
   activates, before the sheet's deferred close ends the sheet's claim.
 - Desktop Settings launches reuse the resident session's Settings window when it is available, so Settings and the
   overlay acquire through the same process owner and integrity level. Only a launch with no resident receiver creates a
-  standalone Settings runtime. In the resident process `Shell/SettingsSurface` is the only creator of the window: the
-  tray, the overlay and a desktop launch open or activate the same one, listed as switchable in game mode.
+  standalone Settings runtime. In the resident process `Shell/Session/SettingsSurface` is the only creator of the
+  window: the tray, the overlay and a desktop launch open or activate the same one, listed as switchable in game mode.
 - Required text credentials need a controller-accessible OnScreenKeyboard path; gamepad navigation deliberately skips
   ordinary TextBox controls.
 - SettingsViewModel takes every machine read and write through a required `SettingsServices`; nothing falls back to

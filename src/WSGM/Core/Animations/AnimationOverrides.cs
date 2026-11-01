@@ -39,9 +39,11 @@ namespace WSGM.Core;
 ///         plays as Steam plays it.
 ///     </para>
 ///     <para>
-///         Steam's suspend movies are overridable the same way, but nothing on Windows drives Steam's
-///         suspend flow: the power button delivers one press edge and no release (#116), so WSGM
-///         sleeps Windows directly (#21) and Steam never plays them. Only the boot movie is offered.
+///         Steam's suspend movies are overridable the same way, but they play only in Steam's own suspend
+///         flow. When this was decided nothing on Windows drove it (the Claw 8's power button delivers
+///         one press edge, #116). The power button's Steam suspend choice now runs it on a model whose
+///         button WSGM can read; offering those movies is a separate decision. Only the boot movie is
+///         offered.
 ///     </para>
 /// </remarks>
 public static class AnimationOverrides
@@ -130,7 +132,7 @@ public static class AnimationOverrides
             }
 
             var owned = Owned(target, markerText);
-            if (owned && Same(source, target) && RecordedVolume(marker) == volume)
+            if (owned && Same(source, target) && RecordedVolume(markerText!) == volume)
             {
                 return new AnimationApplyReport(false, null);
             }
@@ -245,11 +247,11 @@ public static class AnimationOverrides
     }
 
     /// <summary>The volume the marker records the copy was written at.</summary>
-    private static int? RecordedVolume(string marker)
+    /// <param name="markerText">The marker's validated text.</param>
+    private static int? RecordedVolume(string markerText)
     {
-        var text = File.ReadAllText(marker).Trim();
-        return int.TryParse(text.AsSpan(text.LastIndexOf('|') + 1), NumberStyles.None, CultureInfo.InvariantCulture,
-            out var volume)
+        return int.TryParse(markerText.AsSpan(markerText.LastIndexOf('|') + 1), NumberStyles.None,
+            CultureInfo.InvariantCulture, out var volume)
             ? volume
             : null;
     }
@@ -303,9 +305,3 @@ public static class AnimationOverrides
         return to.Exists && from.Length == to.Length && from.LastWriteTimeUtc == to.LastWriteTimeUtc;
     }
 }
-
-/// <summary>What applying a choice did.</summary>
-/// <param name="Changed">Whether the override was written, removed or given back.</param>
-/// <param name="Error">Why it could not be brought in step, or null.</param>
-/// <param name="Note">Something about the written movie worth saying, such as a volume that could not be set.</param>
-public sealed record AnimationApplyReport(bool Changed, string? Error, string? Note = null);

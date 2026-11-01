@@ -202,63 +202,40 @@ function LaunchActionsMenu({ native }: any) {
 registerSteamGameContextMenuRenderer("launch-actions", (native) =>
   native.react.createElement(LaunchActionsMenu, { key: native.key, native }),
 );
+// The submenu's gate. Its probe is find without binding: the native components the submenu draws
+// with, each required, the way a page's probe is.
+const LaunchActionsRequired = ["react", "focusable", "dialogButton", "textField", "modalRoot", "showModal"];
 registerGate(
   "launchActions",
-  (() => {
-    let unsubscribe: (() => void) | null = null;
-    let unsubscribeRefusal: (() => void) | null = null;
-    let lastError = "";
-    return {
-      install: () => {
-        if (launchActionsMenuLifetime) return { ok: true, alreadyInstalled: true };
-        try {
-          const ui = resolveSteamUiComponents(getWebpackRuntime("launch-actions"));
-          const missing = [
-            "react",
-            "focusable",
-            "dialogButton",
-            "textField",
-            "modalRoot",
-            "showModal",
-          ].filter((key) => !ui?.[key]);
-          if (missing.length)
-            return {
-              ok: false,
-              error: (lastError = `Native Steam components unavailable: ${missing.join(", ")}`),
-            };
-          launchActionsMenuUi = ui;
-          launchActionsMenuLifetime = new AbortController();
-          unsubscribe = subscribe(LaunchActionsPatchId, (state) => {
-            launchActionsMenuState = state;
-            launchActionsMenuStore.changed();
-          });
-          unsubscribeRefusal = subscribeRefusal(LaunchActionsPatchId, (reason) => {
-            launchActionsMenuRefusal = reason || "";
-            launchActionsMenuStore.changed();
-          });
-          launchActionsMenuStore.changed();
-          return { ok: true, installed: true };
-        } catch (failure) {
-          return { ok: false, error: (lastError = String(failure)) };
-        }
-      },
-      remove: () => {
+  defineGate({
+    name: "launch-actions",
+    find: (runtime) => {
+      const ui = resolveSteamUiComponents(runtime);
+      const missing = LaunchActionsRequired.filter((key) => !ui?.[key]);
+      return missing.length
+        ? gateIncompatible(`Native Steam components unavailable: ${missing.join(", ")}`, { missing })
+        : gateReady(ui, { components: LaunchActionsRequired.length });
+    },
+    bind: (ui, ledger) => {
+      launchActionsMenuUi = ui;
+      launchActionsMenuLifetime = new AbortController();
+      ledger.cleanup("submenu", () => {
         launchActionsMenuLifetime?.abort();
         launchActionsMenuLifetime = null;
-        unsubscribe = endSubscription(unsubscribe);
-        unsubscribeRefusal = endSubscription(unsubscribeRefusal);
         launchActionsMenuUi = null;
         launchActionsMenuState = null;
         launchActionsMenuRefusal = "";
         launchActionsMenuStore.changed();
-        return { ok: true, removed: true };
-      },
-      status: () => ({
-        installed: !!launchActionsMenuLifetime,
-        resolved: !!launchActionsMenuUi,
-        subscribed: !!unsubscribe,
-        lastError,
-      }),
-    };
-  })(),
+      });
+      ledger.subscribe(LaunchActionsPatchId, (state) => {
+        launchActionsMenuState = state;
+        launchActionsMenuStore.changed();
+      });
+      ledger.subscribeRefusal(LaunchActionsPatchId, (reason) => {
+        launchActionsMenuRefusal = reason || "";
+        launchActionsMenuStore.changed();
+      });
+      launchActionsMenuStore.changed();
+    },
+  }),
 );

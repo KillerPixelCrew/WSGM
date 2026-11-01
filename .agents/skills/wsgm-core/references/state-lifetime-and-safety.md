@@ -52,7 +52,7 @@ Display profiles admit only GPU controls with a physical output identity. NVIDIA
 uses the output's Adaptive Sync API; the global DRS G-SYNC policy is separate. Do not restore a
 targetless legacy G-SYNC preference to every monitor or guess its intended output.
 
-`Core/ConfigStore.cs` owns `%LOCALAPPDATA%\WSGM\config.json` and its cross-process lock.
+`Core/Config/ConfigStore.cs` owns `%LOCALAPPDATA%\WSGM\config.json` and its cross-process lock.
 
 - `Read` reports an explicit outcome; startup can use read-only defaults after a failed read. There
   is no automatic rename to `config.bad.json`. A mutation/transaction requires a usable current
@@ -68,15 +68,18 @@ targetless legacy G-SYNC preference to every monitor or guess its intended outpu
   ownership claims, and observed live values belong in the manager that owns them.
 
 The current reload route is a useful model: `ShellSession.WatchStartupAppsAndConfig` creates the
-session-owned watchers during startup; `WatchConfig` loads on a worker and posts the detached
-result. The dispatcher callback rejects `_disposed` or stale `_configReloadGeneration` immediately
-before replacing `_config`, closing the older-result race. It then calls existing owners such as
-`StartupAppWatcher.Apply`, `OverlayController.ApplyConfig`, and `SessionModes.ApplyConfig`; reload
-does not construct another session or manager. Do not re-enter startup/composition from an apply
-path. `WatchStartupAppsAndConfig` uses `??=` for its startup-app watcher, and `WatchConfig` refuses
-an existing watcher. Both reject a disposed session. Shutdown increments the reload generation and
-detaches the watcher/timer under the debounce gate before disposal, so late callbacks cannot create
-unowned replacement work. Preserve these repeated-start/disposal guards.
+session-owned watchers during startup, the startup-app watcher through `SessionBoot` and the
+configuration watcher as one `ConfigReloadWatcher` (`Shell/Session`). The watcher debounces file
+changes, loads on a worker one read at a time, so a later read never posts before an earlier one,
+and posts the detached result. The dispatcher callback is dropped once the watcher is disposed;
+otherwise `ShellSession.ApplyReloadedConfig` replaces `SessionState.Config` and calls the existing
+owners in one fixed order, such as `StartupAppWatcher.Apply`, `OverlayController.ApplyConfig` and
+`SessionModes.ApplyConfig`, each step isolated so one failure does not skip the rest. Reload does
+not construct another session or manager. Do not re-enter startup/composition from an apply path.
+The startup-app watcher is created with `??=`, and `WatchConfig` refuses an existing watcher. Both
+refuse once shutdown is requested. Shutdown detaches and disposes the watcher under its gate, so
+late callbacks cannot create unowned replacement work. Preserve these repeated-start/disposal
+guards.
 
 Test unreadable current state, recovery snapshots, concurrent mutations, reload replacement, and
 save failure. Never point tests at the user's real profile.
@@ -93,9 +96,11 @@ For every long-lived service identify:
 6. how repeated stop/dispose behaves;
 7. what evidence distinguishes clean, unverified, and failed cleanup.
 
-Root session services in `ShellSession` fields so native registrations, watchers, and callbacks are
-not collected or orphaned. Views subscribe to projections and send intent; they never acquire
-machine resources. Static process-wide hooks/sinks require explicit reset and test serialization.
+Root session services in a field of `ShellSession` or of the session part that owns their feature
+(`IntegrationServices`, `SystemServices`, `StorageServices` and the others in `Shell/Session`), so
+native registrations, watchers, and callbacks are not collected or orphaned. Views subscribe to
+projections and send intent; they never acquire machine resources. Static process-wide hooks/sinks
+require explicit reset and test serialization.
 
 Some resources are intentionally scoped to a mode rather than the whole process. `TrayHost`, for
 example, is created for a game-mode span and retired before Explorer returns. Re-entry must not
@@ -116,13 +121,15 @@ exception does not skip later cleanup. Preserve this established dependency orde
 7. destroy `MessageWindow` last among services registered against that window; it is not necessarily
    the final unrelated cleanup in the process.
 
-`ShellSession.RunShutdownAsync` isolates phases with `Step`, `StepAsync`, `UiStepAsync` and
-`JoinAsync`, accumulates failures and reports them after later cleanup has been attempted. Preserve
-the independent guards rather than replacing them with one broad `try`. `ApplicationRuntime` owns
-one exit attempt and its outer deadline: normal 15 seconds, update 10, uninstall 20, session-end 5.
-An arriving session-end request tightens that deadline and makes suppression of Explorer restoration
-sticky. `EnterGameModeSurfaces` retains an existing tray owner on duplicate entry and rejects a
-failed creation; commit is awaited so the transition can recover from that failure.
+`ShellSession.RunShutdownAsync` drives that order and hands each session part its slice. One
+`ShutdownSteps` isolates the phases with `Step`, `StepAsync`, `UiStepAsync`, `JoinAsync` and
+`DisposeOwner`, bounds every wait by the shared deadline, accumulates failures and reports them
+after later cleanup has been attempted. Preserve the independent guards rather than replacing them
+with one broad `try`. `ApplicationRuntime` owns one exit attempt and its outer deadline: normal 15
+seconds, update 10, uninstall 20, session-end 5. An arriving session-end request tightens that
+deadline and makes suppression of Explorer restoration sticky. `GameModeSurfaces.Enter` retains an
+existing tray owner on duplicate entry and rejects a failed creation; commit is awaited so the
+transition can recover from that failure.
 
 ## Threads and hot paths
 
@@ -162,11 +169,11 @@ Preserve every external owner's state:
 - make disable and repeated cleanup idempotent;
 - fail open when WSGM cannot prove it still owns a change.
 
-Device Integration off is not a degraded plugin state. `ShellSession` still creates the session
-`DeviceCoordinator`, which reserves `Global\WSGM.DeviceOwner`, but it starts no Device plugin
-lifecycle, controller target, Device hardware write, or AutoTDP. Common plugin instances are managed
-separately by `CommonPluginManager`. Code independent of a package must still work, and turning
-integration off does not make package maintenance ownership available.
+Device Integration off is not a degraded plugin state. The session's `IntegrationServices` still
+creates the session `DeviceCoordinator`, which reserves `Global\WSGM.DeviceOwner`, but it starts no
+Device plugin lifecycle, controller target, Device hardware write, or AutoTDP. Common plugin
+instances are managed separately by `CommonPluginManager`. Code independent of a package must still
+work, and turning integration off does not make package maintenance ownership available.
 
 ## Live-machine boundary
 

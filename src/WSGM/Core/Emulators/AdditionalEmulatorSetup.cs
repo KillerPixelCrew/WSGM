@@ -19,7 +19,7 @@ internal static class AdditionalEmulatorSetup
             {
                 if (!File.Exists(path))
                 {
-                    AtomicFile.WriteText(path, "", durable: true);
+                    AtomicFile.WriteText(path, "", true);
                 }
             }
             else
@@ -34,7 +34,8 @@ internal static class AdditionalEmulatorSetup
                 // The Windows ZIP is portable unless this installer-created marker opts out.
                 if (File.Exists(Path.Combine(program, "installed.txt")))
                 {
-                    throw new InvalidDataException("This PPSSPP package enables installed mode instead of portable mode.");
+                    throw new InvalidDataException(
+                        "This PPSSPP package enables installed mode instead of portable mode.");
                 }
 
                 break;
@@ -52,8 +53,8 @@ internal static class AdditionalEmulatorSetup
                 SetDefault(installed, "scummvm.ini", "savepath", "saves", "scummvm");
                 break;
             case "melonds":
-                SetDefault(installed, "melonDS.toml", "SaveFilePath", "saves", "Instance0", quoted: true);
-                SetDefault(installed, "melonDS.toml", "SavestatePath", "states", "Instance0", quoted: true);
+                SetDefault(installed, "melonDS.toml", "SaveFilePath", "saves", "Instance0", true);
+                SetDefault(installed, "melonDS.toml", "SavestatePath", "states", "Instance0", true);
                 break;
             case "ares":
                 SetBmlPaths(installed);
@@ -78,7 +79,7 @@ internal static class AdditionalEmulatorSetup
         // CopyData already preserves user bytes/collisions. Rebind only references to the retired
         // owned data root; intentional paths elsewhere keep their original external semantics.
         foreach (var file in Directory.EnumerateFiles(installed.DataPath, "*", new EnumerationOptions
-                 { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint }))
+                     { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint }))
         {
             token.ThrowIfCancellationRequested();
             if (Path.GetRelativePath(installed.DataPath, file).Split(Path.DirectorySeparatorChar)
@@ -105,7 +106,7 @@ internal static class AdditionalEmulatorSetup
             if (changed != text)
             {
                 File.Copy(file, file + ".before-portable-" + Guid.NewGuid().ToString("N"));
-                AtomicFile.WriteText(file, changed, durable: true);
+                AtomicFile.WriteText(file, changed, true);
             }
         }
     }
@@ -153,7 +154,7 @@ internal static class AdditionalEmulatorSetup
             }
         }
 
-        AtomicFile.WriteText(file, string.Join(Environment.NewLine, lines) + Environment.NewLine, durable: true);
+        AtomicFile.WriteText(file, string.Join(Environment.NewLine, lines) + Environment.NewLine, true);
     }
 
     private static void SetTomlDefault(EmulatorInstallation installed, string key, string relative)

@@ -17,8 +17,8 @@ public sealed class KeyboardEditingTests
         var first = fixture.Overlay(session: new OverlayWindow.SessionState());
         var second = fixture.Overlay(session: new OverlayWindow.SessionState());
         string? accepted = null;
-        Assert.True(first.RequestText("First", "one", 0, _ => { }));
-        Assert.True(second.RequestText("Second", "two", 0, value => accepted = value));
+        Assert.True(first.Surfaces.RequestText("First", "one", 0, _ => { }));
+        Assert.True(second.Surfaces.RequestText("Second", "two", 0, value => accepted = value));
         var firstKeyboard = first.GetVisualDescendants().OfType<KeyboardPanel>().Single();
         var keyboard = second.GetVisualDescendants().OfType<KeyboardPanel>().Single();
         Assert.Same(first, TopLevel.GetTopLevel(firstKeyboard));
@@ -28,15 +28,15 @@ public sealed class KeyboardEditingTests
         first.Close();
         Dispatcher.UIThread.RunJobs();
 
-        Assert.False(first.HasActiveSurface);
+        Assert.False(first.Surfaces.HasActive);
         Assert.Null(TopLevel.GetTopLevel(firstKeyboard));
-        Assert.True(second.HasActiveSurface);
+        Assert.True(second.Surfaces.HasActive);
         Assert.Same(keyboard, second.GetVisualDescendants().OfType<KeyboardPanel>().Single());
         Assert.Same(second, TopLevel.GetTopLevel(keyboard));
         Assert.Same(keyboard.DefaultFocusTarget, second.FocusManager.GetFocusedElement());
         var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var closures = 0;
-        second.SurfaceClosed += () =>
+        second.Surfaces.Closed += () =>
         {
             closures++;
             closed.TrySetResult();
@@ -45,7 +45,7 @@ public sealed class KeyboardEditingTests
         Assert.Equal("two", accepted);
         Assert.False(keyboard.IsEffectivelyEnabled);
         await closed.Task.WaitAsync(TimeSpan.FromSeconds(2));
-        Assert.False(second.HasActiveSurface);
+        Assert.False(second.Surfaces.HasActive);
         Assert.Null(TopLevel.GetTopLevel(keyboard));
         Assert.Equal(1, closures);
     }
@@ -55,15 +55,15 @@ public sealed class KeyboardEditingTests
     {
         using UiFixture fixture = new();
         var window = fixture.Overlay();
-        window.ShowBrightnessSurface();
-        var utility = Assert.IsAssignableFrom<Control>(window.ActiveSurfaceNavigationRoot);
+        window.Surfaces.ShowBrightness();
+        var utility = Assert.IsAssignableFrom<Control>(window.Surfaces.NavigationRoot);
         var closures = 0;
-        window.SurfaceClosed += () => closures++;
-        Assert.True(window.CloseActiveSurface());
+        window.Surfaces.Closed += () => closures++;
+        Assert.True(window.Surfaces.CloseActive());
         Assert.False(utility.IsEffectivelyEnabled);
 
         string? accepted = null;
-        Assert.True(window.RequestText("Name", "replacement", 0, value => accepted = value));
+        Assert.True(window.Surfaces.RequestText("Name", "replacement", 0, value => accepted = value));
         Dispatcher.UIThread.RunJobs();
         var keyboard = window.GetVisualDescendants().OfType<KeyboardPanel>().Single();
         Assert.Null(TopLevel.GetTopLevel(utility));
@@ -72,12 +72,12 @@ public sealed class KeyboardEditingTests
         Assert.Same(keyboard.DefaultFocusTarget, window.FocusManager.GetFocusedElement());
 
         var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        window.SurfaceClosed += () => closed.TrySetResult();
+        window.Surfaces.Closed += () => closed.TrySetResult();
         UiFixture.Click(window, KeyButton(keyboard, Key.Enter));
         Assert.Equal("replacement", accepted);
         await closed.Task.WaitAsync(TimeSpan.FromSeconds(2));
         Assert.Equal(2, closures);
-        Assert.False(window.HasActiveSurface);
+        Assert.False(window.Surfaces.HasActive);
         Assert.Null(TopLevel.GetTopLevel(keyboard));
         Assert.True(UiFixture.Named<Grid>(window, "DeckContent").IsHitTestVisible);
     }
@@ -88,7 +88,7 @@ public sealed class KeyboardEditingTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         var keyboard = new KeyboardPanel("Name", "before OLD after", 100);
-        window.ShowKeyboardSurface(keyboard);
+        window.Surfaces.ShowKeyboard(keyboard);
         Dispatcher.UIThread.RunJobs();
         var input = UiFixture.Named<TextBox>(keyboard, "Input");
         input.Focus();
@@ -105,7 +105,7 @@ public sealed class KeyboardEditingTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         var keyboard = new KeyboardPanel("Name", "1234", 6);
-        window.ShowKeyboardSurface(keyboard);
+        window.Surfaces.ShowKeyboard(keyboard);
         Dispatcher.UIThread.RunJobs();
         var input = UiFixture.Named<TextBox>(keyboard, "Input");
         Click(Key.D5);
@@ -133,7 +133,7 @@ public sealed class KeyboardEditingTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         var keyboard = new KeyboardPanel("Password", "", 100, true);
-        window.ShowKeyboardSurface(keyboard);
+        window.Surfaces.ShowKeyboard(keyboard);
         Dispatcher.UIThread.RunJobs();
         HashSet<char> characters = [' '];
         Collect();
@@ -189,7 +189,10 @@ public sealed class KeyboardEditingTests
 
         throw new InvalidOperationException("No visible keyboard key " + key);
 
-        Button? Find() => keyboard.GetVisualDescendants().OfType<Button>()
-            .FirstOrDefault(candidate => candidate.IsEffectivelyVisible && Equals(candidate.Tag, key));
+        Button? Find()
+        {
+            return keyboard.GetVisualDescendants().OfType<Button>()
+                .FirstOrDefault(candidate => candidate.IsEffectivelyVisible && Equals(candidate.Tag, key));
+        }
     }
 }

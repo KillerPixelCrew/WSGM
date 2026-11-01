@@ -1,72 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading;
 
 namespace WSGM.Core;
-
-/// <summary>Everything WSGM remembers about the entries it created, and what the user decided.</summary>
-internal sealed class ImportState
-{
-    /// <summary>The file format this build writes.</summary>
-    internal const int CurrentVersion = ManagedContentStorage.FormatVersion;
-
-    /// <summary>The format the file was written in. Zero for a file from before versions were recorded.</summary>
-    public int Version { get; set; } = CurrentVersion;
-
-    /// <summary>One record per generated entry, oldest first.</summary>
-    public List<ImportedEntry> Entries { get; set; } = [];
-
-    /// <summary>One choice per title the user has decided something about, oldest first.</summary>
-    public List<ImportChoice> Choices { get; set; } = [];
-
-    /// <summary>The Steam collections WSGM made for its imports, one per group.</summary>
-    public List<ImportedCollection> Collections { get; set; } = [];
-
-    /// <summary>Accepted local storage identities and their manifest revisions.</summary>
-    public List<StorageLibraryRecord> Libraries { get; set; } = [];
-
-    /// <summary>The card each Steam shortcut's literal drive path was last found on, per account.</summary>
-    public List<ShortcutBinding> ShortcutBindings { get; set; } = [];
-}
-
-/// <summary>One Steam collection WSGM made and keeps for a group of imported titles.</summary>
-/// <remarks>
-///     WSGM owns the collection by <see cref="Id" />, never by its name, and changes only the apps it
-///     put in: <see cref="AppIds" /> is what the last sync added, so a title the user put in the
-///     collection stays, and a title WSGM no longer imports is taken back out.
-/// </remarks>
-public sealed class ImportedCollection
-{
-    /// <summary>The owning userdata account, null until explicitly observed for legacy collections.</summary>
-    public uint? AccountId { get; set; }
-
-    /// <summary>The group it holds: a source's id.</summary>
-    public string Group { get; set; } = "";
-
-    /// <summary>Steam's id for the collection.</summary>
-    public string Id { get; set; } = "";
-
-    /// <summary>The name it was created with.</summary>
-    public string Name { get; set; } = "";
-
-    /// <summary>The imported titles the last sync put in it.</summary>
-    public List<uint> AppIds { get; set; } = [];
-}
-
-[JsonSourceGenerationOptions(WriteIndented = true)]
-[JsonSerializable(typeof(ImportState))]
-[JsonSerializable(typeof(ImportAccountMapping))]
-internal sealed partial class ImportStateJsonContext : JsonSerializerContext;
-
-/// <summary>The import records could not be read or written; nothing was changed on their account.</summary>
-/// <param name="message">What went wrong, in words the page shows.</param>
-/// <param name="inner">The underlying failure.</param>
-public sealed class ImportStateException(string message, Exception inner) : Exception(message, inner);
 
 /// <summary>Remembers which Steam entries WSGM created, and from what.</summary>
 /// <remarks>
@@ -93,9 +32,9 @@ public sealed class ImportStateStore
 {
     private readonly Lock _gate = new();
     private readonly string _path;
-    private ImportState? _state;
     private uint? _activeAccount;
     private bool _needsLegacyBackup;
+    private ImportState? _state;
 
     /// <summary>Creates the store over the owner's explicit per-user directory.</summary>
     /// <param name="context">The directory context supplied by the owner.</param>
@@ -112,15 +51,6 @@ public sealed class ImportStateStore
         _path = path;
     }
 
-    /// <summary>Sets the account established by a settled Steam observation; null or zero means unknown.</summary>
-    public void SetActiveAccount(uint? accountId)
-    {
-        lock (_gate)
-        {
-            _activeAccount = accountId is > 0 ? accountId : null;
-        }
-    }
-
     /// <summary>The last settled account observation, null while unknown.</summary>
     public uint? ActiveAccountId
     {
@@ -130,6 +60,15 @@ public sealed class ImportStateStore
             {
                 return _activeAccount;
             }
+        }
+    }
+
+    /// <summary>Sets the account established by a settled Steam observation; null or zero means unknown.</summary>
+    public void SetActiveAccount(uint? accountId)
+    {
+        lock (_gate)
+        {
+            _activeAccount = accountId is > 0 ? accountId : null;
         }
     }
 
@@ -154,7 +93,8 @@ public sealed class ImportStateStore
                     var recorded = entry.Copy();
                     mapping.Project(recorded);
                     var matches = shortcuts.Where(shortcut => (mapping.AppId == 0 || shortcut.AppId == mapping.AppId)
-                        && ImportPlan.OwnsRecorded(shortcut, recorded)).Take(2).ToArray();
+                                                              && ImportPlan.OwnsRecorded(shortcut, recorded)).Take(2)
+                        .ToArray();
                     if (matches is [{ } match])
                     {
                         mapping.AccountId = accountId;
@@ -210,7 +150,8 @@ public sealed class ImportStateStore
             foreach (var collection in state.Collections.Where(item => item.AccountId is null))
             {
                 if (state.Collections.Any(item => item.AccountId == accountId
-                        && string.Equals(item.Group, collection.Group, StringComparison.OrdinalIgnoreCase)))
+                                                  && string.Equals(item.Group, collection.Group,
+                                                      StringComparison.OrdinalIgnoreCase)))
                 {
                     continue;
                 }
@@ -241,7 +182,7 @@ public sealed class ImportStateStore
     {
         lock (_gate)
         {
-            return [.. Read().Libraries.Select(CopyLibrary)];
+            return [.. Read().Libraries.Select(library => library.Copy())];
         }
     }
 
@@ -249,15 +190,16 @@ public sealed class ImportStateStore
     public void SaveLibrary(StorageLibraryRecord library)
     {
         ArgumentNullException.ThrowIfNull(library);
-        if (LibraryDefect(library) is { } defect)
+        if (ImportStateSanitizer.LibraryDefect(library) is { } defect)
         {
             throw new ArgumentException(defect, nameof(library));
         }
 
         Mutate(state =>
         {
-            state.Libraries.RemoveAll(existing => string.Equals(existing.Id, library.Id, StringComparison.OrdinalIgnoreCase));
-            state.Libraries.Add(CopyLibrary(library));
+            state.Libraries.RemoveAll(existing =>
+                string.Equals(existing.Id, library.Id, StringComparison.OrdinalIgnoreCase));
+            state.Libraries.Add(library.Copy());
         });
     }
 
@@ -287,9 +229,11 @@ public sealed class ImportStateStore
                 var saved = new ImportedEntry
                 {
                     Source = entry.Source, Key = entry.Key, Name = entry.Name, Content = entry.Content?.Copy(),
-                    SteamMappings = previous is null ? [] : [.. previous.SteamMappings.Select(mapping => mapping.Copy())]
+                    SteamMappings = previous is null
+                        ? []
+                        : [.. previous.SteamMappings.Select(mapping => mapping.Copy())]
                 };
-                if (EntryDefect(saved) is { } defect)
+                if (ImportStateSanitizer.EntryDefect(saved) is { } defect)
                 {
                     throw new ArgumentException(defect, nameof(entries));
                 }
@@ -338,7 +282,9 @@ public sealed class ImportStateStore
     {
         lock (_gate)
         {
-            return [.. Read().Entries.Select(Project)];
+            var state = Read();
+            var names = LibraryNames(state);
+            return [.. state.Entries.Select(entry => Project(entry, names))];
         }
     }
 
@@ -347,7 +293,13 @@ public sealed class ImportStateStore
     {
         lock (_gate)
         {
-            return _state is null ? null : [.. _state.Entries.Select(Project)];
+            if (_state is null)
+            {
+                return null;
+            }
+
+            var names = LibraryNames(_state);
+            return [.. _state.Entries.Select(entry => Project(entry, names))];
         }
     }
 
@@ -388,6 +340,69 @@ public sealed class ImportStateStore
         }
     }
 
+    /// <summary>
+    ///     Counts the imported ROM titles of each system and the sources they came from, without copying content or
+    ///     starting a disk read.
+    /// </summary>
+    /// <returns>Per canonical system, its title count and source ids; null while the records are unread.</returns>
+    internal Dictionary<string, (int Titles, HashSet<string> Sources)>? CountSystemTitles()
+    {
+        lock (_gate)
+        {
+            if (_state is null)
+            {
+                return null;
+            }
+
+            Dictionary<string, (int Titles, HashSet<string> Sources)> counts = new(StringComparer.Ordinal);
+            foreach (var entry in _state.Entries)
+            {
+                if (entry.Content is not { SourceKind: LibrarySourceKind.Rom } content)
+                {
+                    continue;
+                }
+
+                var system = EmulatorStorage.NormalizeSystemId(content.SystemId);
+                if (!counts.TryGetValue(system, out var count))
+                {
+                    count = (0, new HashSet<string>(StringComparer.Ordinal));
+                }
+
+                count.Sources.Add(content.SourceId == "manual" ? "manual:" + content.SourceKey : content.SourceId);
+                counts[system] = (count.Titles + 1, count.Sources);
+            }
+
+            return counts;
+        }
+    }
+
+    /// <summary>The confirmed Steam shortcut of each entry one source created, without starting a disk read.</summary>
+    /// <param name="source">The source, such as the emulator manager's.</param>
+    /// <returns>App ids by entry key; empty while the records are unread.</returns>
+    internal Dictionary<string, uint> ShortcutAppIds(string source)
+    {
+        lock (_gate)
+        {
+            Dictionary<string, uint> appIds = new(StringComparer.Ordinal);
+            if (_state is null)
+            {
+                return appIds;
+            }
+
+            var names = LibraryNames(_state);
+            foreach (var entry in _state.Entries.Where(entry => entry.Source == source))
+            {
+                // The projection resolves the active account's shortcut id, as Entries() does.
+                if (Project(entry, names) is { AppId: > 0 } projected)
+                {
+                    appIds.TryAdd(projected.Key, projected.AppId);
+                }
+            }
+
+            return appIds;
+        }
+    }
+
     /// <summary>Every choice the user has made.</summary>
     /// <exception cref="ImportStateException">The records could not be read.</exception>
     /// <returns>Choices read from disk for this call; modifying them does not persist changes.</returns>
@@ -406,8 +421,14 @@ public sealed class ImportStateStore
     {
         lock (_gate)
         {
-            return _activeAccount is null ? [] : [.. Read().Collections
-                .Where(collection => collection.AccountId == _activeAccount).Select(CopyCollection)];
+            return _activeAccount is null
+                ? []
+                :
+                [
+                    .. Read().Collections
+                        .Where(collection => collection.AccountId == _activeAccount)
+                        .Select(collection => collection.Copy())
+                ];
         }
     }
 
@@ -416,7 +437,11 @@ public sealed class ImportStateStore
     {
         lock (_gate)
         {
-            return [.. Read().Collections.Where(collection => collection.AccountId is null).Select(CopyCollection)];
+            return
+            [
+                .. Read().Collections.Where(collection => collection.AccountId is null)
+                    .Select(collection => collection.Copy())
+            ];
         }
     }
 
@@ -440,10 +465,11 @@ public sealed class ImportStateStore
 
             var accountId = RequireAccount(collection.AccountId);
             state.Collections.RemoveAll(existing =>
-                existing.AccountId == accountId && string.Equals(existing.Group, collection.Group, StringComparison.OrdinalIgnoreCase));
+                existing.AccountId == accountId &&
+                string.Equals(existing.Group, collection.Group, StringComparison.OrdinalIgnoreCase));
             if (collection.Id.Length > 0)
             {
-                var saved = CopyCollection(collection);
+                var saved = collection.Copy();
                 saved.AccountId = accountId;
                 state.Collections.Add(saved);
             }
@@ -459,7 +485,7 @@ public sealed class ImportStateStore
         Mutate(state => Replace(state, entry, RequireEntryAccount(entry)));
     }
 
-    /// <summary>Records one applied entry and settles its choice in a single write.</summary>
+    /// <summary>Records one applied entry's receipt for its account in a single write.</summary>
     /// <param name="entry">What Steam now has.</param>
     /// <exception cref="ImportStateException">The record could not be written.</exception>
     /// <remarks>Shared choices remain user intent across accounts; this records only the applied account's receipt.</remarks>
@@ -485,16 +511,6 @@ public sealed class ImportStateStore
             Replace(state, entry, accountId);
             return true;
         });
-    }
-
-    /// <summary>Forgets only the active account's mapping once its shortcut is gone.</summary>
-    /// <param name="source">Which source it came from.</param>
-    /// <param name="key">Its identity in that source.</param>
-    /// <exception cref="ImportStateException">The change could not be written.</exception>
-    [Obsolete("Pass the captured Steam account to Forget.", error: true)]
-    public void Forget(string source, string key)
-    {
-        throw new InvalidOperationException("Forgetting a shortcut requires its captured Steam account. Use the account-scoped overload.");
     }
 
     /// <summary>Settles only the named active account's receipt after an account-checked observation.</summary>
@@ -528,7 +544,7 @@ public sealed class ImportStateStore
         {
             foreach (var choice in choices)
             {
-                if (ChoiceDefect(choice) is { } defect)
+                if (ImportStateSanitizer.ChoiceDefect(choice) is { } defect)
                 {
                     throw new ArgumentException(defect, nameof(choices));
                 }
@@ -554,19 +570,7 @@ public sealed class ImportStateStore
     {
         ArgumentNullException.ThrowIfNull(listed);
         ArgumentNullException.ThrowIfNull(read);
-        lock (_gate)
-        {
-            var state = Read();
-            if (!state.Choices.Any(Stale))
-            {
-                return;
-            }
-
-            var working = Copy(state);
-            working.Choices.RemoveAll(Stale);
-            Write(working);
-            _state = working;
-        }
+        Mutate(state => state.Choices.RemoveAll(Stale) > 0);
 
         bool Stale(ImportChoice choice)
         {
@@ -588,7 +592,7 @@ public sealed class ImportStateStore
         // another route stops carrying it.
         saved.SteamMappings.RemoveAll(mapping => mapping.AccountId == accountId);
         saved.SteamMappings.Add(ImportAccountMapping.From(entry, accountId));
-        if (EntryDefect(saved) is { } defect)
+        if (ImportStateSanitizer.EntryDefect(saved) is { } defect)
         {
             throw new ArgumentException(defect, nameof(entry));
         }
@@ -615,9 +619,10 @@ public sealed class ImportStateStore
 
     private uint RequireAccount(uint? expected = null)
     {
-        if (_activeAccount is not { } accountId || expected is not null && expected != accountId)
+        if (_activeAccount is not { } accountId || (expected is not null && expected != accountId))
         {
-            throw new InvalidOperationException("Steam's active account is unknown or changed; no import records were changed.");
+            throw new InvalidOperationException(
+                "Steam's active account is unknown or changed; no import records were changed.");
         }
 
         return accountId;
@@ -627,24 +632,39 @@ public sealed class ImportStateStore
     {
         if (entry.AccountId is null || entry.AccountUnknown || entry.HasUnresolvedLegacyMapping)
         {
-            throw new InvalidOperationException("This title needs an exact Steam account observation before it can be changed.");
+            throw new InvalidOperationException(
+                "This title needs an exact Steam account observation before it can be changed.");
         }
 
         return RequireAccount(entry.AccountId);
     }
 
-    private ImportedEntry Project(ImportedEntry entry)
+    private static Dictionary<string, string> LibraryNames(ImportState state)
+    {
+        Dictionary<string, string> names = new(StringComparer.OrdinalIgnoreCase);
+        foreach (var library in state.Libraries)
+        {
+            names.TryAdd(library.Id, library.Name);
+        }
+
+        return names;
+    }
+
+    private ImportedEntry Project(ImportedEntry entry, Dictionary<string, string> libraryNames)
     {
         var projection = entry.Copy();
         projection.AccountId = _activeAccount;
         projection.AccountUnknown = _activeAccount is null;
-        var mapping = _activeAccount is null ? null : entry.SteamMappings.FirstOrDefault(item => item.AccountId == _activeAccount);
-        projection.HasUnresolvedLegacyMapping = mapping is null && entry.SteamMappings.Any(item => item.AccountId is null);
+        var mapping = _activeAccount is null
+            ? null
+            : entry.SteamMappings.FirstOrDefault(item => item.AccountId == _activeAccount);
+        projection.HasUnresolvedLegacyMapping =
+            mapping is null && entry.SteamMappings.Any(item => item.AccountId is null);
         mapping?.Project(projection);
         if (projection.Content is { LibraryId.Length: > 0 } content
-            && Read().Libraries.FirstOrDefault(library => string.Equals(library.Id, content.LibraryId, StringComparison.OrdinalIgnoreCase)) is { } library)
+            && libraryNames.TryGetValue(content.LibraryId, out var libraryName))
         {
-            content.Location = library.Name;
+            content.Location = libraryName;
         }
 
         return projection;
@@ -655,8 +675,11 @@ public sealed class ImportStateStore
         return ImportPlan.Identity.Equals((sourceA, keyA), (sourceB, keyB));
     }
 
-    /// <summary>Applies one change to a copy, writes it, and only then makes it the state.</summary>
-    /// <remarks>A write that fails leaves the remembered state as the file still has it.</remarks>
+    /// <summary>Applies one change to the remembered state and writes it.</summary>
+    /// <remarks>
+    ///     A change or write that fails forgets the remembered state, so the next read takes it from the
+    ///     file again and the remembered state never holds what the file does not.
+    /// </remarks>
     private void Mutate(Action<ImportState> change)
     {
         Mutate(state =>
@@ -670,27 +693,20 @@ public sealed class ImportStateStore
     {
         lock (_gate)
         {
-            var working = Copy(Read());
-            if (change(working))
+            var state = Read();
+            try
             {
-                Write(working);
+                if (change(state))
+                {
+                    Write(state);
+                }
             }
-
-            _state = working;
+            catch
+            {
+                _state = null;
+                throw;
+            }
         }
-    }
-
-    private static ImportState Copy(ImportState state)
-    {
-        return new ImportState
-        {
-            Version = ImportState.CurrentVersion,
-            Entries = [.. state.Entries.Select(entry => entry.Copy())],
-            Choices = [.. state.Choices.Select(choice => choice.Copy())],
-            Collections = [.. state.Collections.Select(CopyCollection)],
-            Libraries = [.. state.Libraries.Select(CopyLibrary)],
-            ShortcutBindings = [.. state.ShortcutBindings]
-        };
     }
 
     private ImportState Read()
@@ -725,7 +741,7 @@ public sealed class ImportStateStore
                     new InvalidDataException($"Import state version {version}."));
             }
 
-            loaded = JsonSerializer.Deserialize(document.RootElement, ImportStateJsonContext.Default.ImportState)
+            loaded = document.RootElement.Deserialize(ImportStateJsonContext.Default.ImportState)
                      ?? throw new JsonException("Import state is null.");
             loaded.Version = version;
             DropLauncherRouteContent(document.RootElement, loaded);
@@ -738,16 +754,18 @@ public sealed class ImportStateStore
                     var index = 0;
                     foreach (var legacy in legacyEntries.EnumerateArray())
                     {
-                        if (loaded.Entries is not null && index < loaded.Entries.Count && loaded.Entries[index] is { } entry
+                        if (loaded.Entries is not null && index < loaded.Entries.Count &&
+                            loaded.Entries[index] is { } entry
                             && legacy.ValueKind == JsonValueKind.Object)
                         {
-                            var mapping = JsonSerializer.Deserialize(legacy, ImportStateJsonContext.Default.ImportAccountMapping)
+                            var mapping = legacy.Deserialize(ImportStateJsonContext.Default.ImportAccountMapping)
                                           ?? throw new JsonException("Legacy shortcut receipt is null.");
                             mapping.AccountId = null;
-                            if (MappingDefect(mapping) is { } defect)
+                            if (ImportStateSanitizer.MappingDefect(mapping) is { } defect)
                             {
                                 // Preserve v1's row-local recovery without weakening v2 ownership validation.
-                                Log.Warn($"Library import legacy record {Describe(entry)} dropped: {defect}.");
+                                Log.Warn(
+                                    $"Library import legacy record {ImportStateSanitizer.Describe(entry)} dropped: {defect}.");
                                 entry.Source = "";
                                 entry.SteamMappings = [];
                             }
@@ -782,7 +800,7 @@ public sealed class ImportStateStore
             _needsLegacyBackup = false;
         }
 
-        _state = Sanitize(loaded ?? new ImportState());
+        _state = ImportStateSanitizer.Sanitize(loaded ?? new ImportState());
         return _state;
     }
 
@@ -817,10 +835,9 @@ public sealed class ImportStateStore
     /// <summary>Moves an unreadable file aside, keeping it for recovery rather than writing over it.</summary>
     private void Quarantine(JsonException failure)
     {
-        var aside = _path + ".corrupt-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture);
         try
         {
-            File.Move(_path, aside, false);
+            var aside = AtomicFile.SetAside(_path);
             Log.Warn($"The library import records did not parse ({failure.Message}); kept as {aside}.");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -828,288 +845,6 @@ public sealed class ImportStateStore
             throw new ImportStateException(
                 "WSGM's record of imported titles is damaged and could not be set aside, so nothing was changed.",
                 ex);
-        }
-    }
-
-    /// <summary>Rejects malformed record shapes while preserving authored strings in full.</summary>
-    /// <remarks>
-    ///     A hand-edited or corrupted record must not become a launch command or a removal target. Only a
-    ///     row that fails a shape check is dropped, never one for its length, and each one is logged with
-    ///     its reason, because the next write persists the loss.
-    /// </remarks>
-    private static ImportState Sanitize(ImportState state)
-    {
-        List<ImportedEntry> entries = [];
-        foreach (var entry in state.Entries ?? [])
-        {
-            if (EntryDefect(entry) is { } reason)
-            {
-                Log.Warn($"Library import record {Describe(entry)} dropped: {reason}.");
-                continue;
-            }
-
-            // A later title snapshot replaces metadata, but must not erase another account's receipt.
-            var earlier = entries.FirstOrDefault(item => Same(item.Source, item.Key, entry.Source, entry.Key));
-            if (earlier is not null)
-            {
-                foreach (var mapping in earlier.SteamMappings)
-                {
-                    if (!entry.SteamMappings.Any(item => item.AccountId == mapping.AccountId))
-                    {
-                        entry.SteamMappings.Add(mapping);
-                    }
-                }
-
-                entries.Remove(earlier);
-            }
-
-            entries.Add(entry);
-        }
-
-        List<ImportChoice> choices = [];
-        foreach (var choice in state.Choices ?? [])
-        {
-            if (ChoiceDefect(choice) is { } reason)
-            {
-                Log.Warn($"Library import choice {Describe(choice)} dropped: {reason}.");
-                continue;
-            }
-
-            // One pick per artwork type, and only an image the apply could download: an https URL, or
-            // empty for a slot the user cleared.
-            List<ArtworkPick> picks = [];
-            foreach (var pick in choice.Artwork ?? [])
-            {
-                if (PickDefect(pick, picks) is { } pickReason)
-                {
-                    Log.Warn($"Library import choice {Describe(choice)} artwork pick dropped: {pickReason}.");
-                    continue;
-                }
-
-                picks.Add(pick);
-            }
-
-            choice.Artwork = picks;
-            choices.RemoveAll(existing => Same(existing.Source, existing.Key, choice.Source, choice.Key));
-            choices.Add(choice);
-        }
-
-        // The last record for a group wins, as SaveCollection replaces the earlier one.
-        List<ImportedCollection> collections = [];
-        foreach (var collection in state.Collections ?? [])
-        {
-            if (collection?.AccountId == 0)
-            {
-                throw new ImportStateException("A stored collection account is invalid; the index was left unchanged.",
-                    new InvalidDataException("Steam account zero is not an ownership identity."));
-            }
-
-            if (collection is not { Group.Length: > 0, Id.Length: > 0, Name: not null, AppIds: not null })
-            {
-                Log.Warn($"Library import collection {Describe(collection)} dropped: "
-                         + "no group or id, or a missing field.");
-                continue;
-            }
-
-            var earlier = collections.FindIndex(existing =>
-                existing.AccountId == collection.AccountId
-                && string.Equals(existing.Group, collection.Group, StringComparison.OrdinalIgnoreCase));
-            if (earlier >= 0)
-            {
-                Log.Warn($"Library import collection {Describe(collections[earlier])} dropped: "
-                         + "a later record for the same group replaces it.");
-                collections.RemoveAt(earlier);
-            }
-
-            collection.AppIds = [.. collection.AppIds.Where(id => id != 0).Distinct()];
-            collections.Add(collection);
-        }
-
-        List<StorageLibraryRecord> libraries = [];
-        foreach (var library in state.Libraries ?? [])
-        {
-            if (LibraryDefect(library) is { } defect)
-            {
-                throw new ImportStateException("A stored library binding is invalid; the index was left unchanged.",
-                    new InvalidDataException(defect));
-            }
-
-            libraries.RemoveAll(existing => string.Equals(existing.Id, library.Id, StringComparison.OrdinalIgnoreCase));
-            libraries.Add(CopyLibrary(library));
-        }
-
-        List<ShortcutBinding> bindings = [];
-        foreach (var binding in state.ShortcutBindings ?? [])
-        {
-            if (binding is not { AccountId: > 0, AppId: > 0, Path.Length: > 0, VolumeId.Length: > 0,
-                    CardId: not null, Name: not null })
-            {
-                Log.Warn("Library import shortcut binding dropped: a missing field.");
-                continue;
-            }
-
-            bindings.RemoveAll(existing => existing.AccountId == binding.AccountId && existing.AppId == binding.AppId
-                                           && string.Equals(existing.Path, binding.Path, StringComparison.OrdinalIgnoreCase));
-            bindings.Add(binding);
-        }
-
-        return new ImportState
-        {
-            Version = ImportState.CurrentVersion, Entries = entries, Choices = choices, Collections = collections,
-            Libraries = libraries, ShortcutBindings = bindings
-        };
-    }
-
-    /// <summary>Why a loaded entry cannot be kept, or null when it can.</summary>
-    /// <remarks>
-    ///     Every string is matched through a property pattern, which is null-safe. A state file with a JSON
-    ///     null in any of them would otherwise throw out of the scan, and every later scan too.
-    /// </remarks>
-    private static string? EntryDefect(ImportedEntry? entry)
-    {
-        if (entry is not { Source.Length: > 0, Key.Length: > 0 })
-        {
-            return "no source or key";
-        }
-
-        if (entry is not { Name: not null, SteamMappings: not null })
-        {
-            return "a missing field";
-        }
-
-        if (entry.Content is { } content && ManagedContentStorage.RecordDefect(content) is { } defect)
-        {
-            return defect;
-        }
-
-        HashSet<uint?> accounts = [];
-        foreach (var mapping in entry.SteamMappings)
-        {
-            if (MappingDefect(mapping) is not null || !accounts.Add(mapping.AccountId))
-            {
-                // Losing an account receipt could authorize a duplicate or hide pending deletion.
-                throw new ImportStateException("A stored Steam ownership receipt is invalid; the index was left unchanged.",
-                    new InvalidDataException(MappingDefect(mapping) ?? "Duplicate account receipt."));
-            }
-        }
-
-        return null;
-    }
-
-    private static string? MappingDefect(ImportAccountMapping? mapping)
-    {
-        if (mapping is not
-            {
-                Target: not null, LaunchOptions: not null, StartDirectory: not null, Route: not null,
-                ImportedUtc: not null, ConfirmedUtc: not null, SettledArtwork: not null
-            } || mapping.AccountId == 0
-              || mapping.SettledArtwork.Any(pair => !Enum.IsDefined(pair.Key)
-                  || pair.Value is not { Url: not null, Revision: not null }))
-        {
-            return "an incomplete account shortcut receipt";
-        }
-
-        if (mapping.PendingLaunch is { } pending
-            && pending is not { Target: not null, StartDirectory: not null, LaunchOptions: not null })
-        {
-            return "an incomplete pending shortcut command";
-        }
-
-        return mapping.Mode is nameof(ImportMode.ControllerOnly) or nameof(ImportMode.SteamIntegration)
-            ? null : $"unknown mode '{mapping.Mode}'";
-    }
-
-    /// <summary>Why a loaded choice cannot be kept, or null when it can.</summary>
-    private static string? ChoiceDefect(ImportChoice? choice)
-    {
-        if (choice is not { Source.Length: > 0, Key.Length: > 0 })
-        {
-            return "no source or key";
-        }
-
-        if (choice is not
-            {
-                Mode: not null, Route: not null, MatchProvider: not null, MatchId: not null, MatchName: not null,
-                TitleName: not null, EmulatorInstallationId: not null, CoreId: not null, Arguments: not null,
-                Artwork: not null
-            })
-        {
-            return "a missing field";
-        }
-
-        return choice.Mode.Length == 0 || choice.PickedMode() is not null
-            ? null
-            : $"unknown mode '{choice.Mode}'";
-    }
-
-    /// <summary>Why a loaded artwork pick cannot be kept beside the ones already kept, or null when it can.</summary>
-    private static string? PickDefect(ArtworkPick? pick, List<ArtworkPick> kept)
-    {
-        if (pick is not { Url: not null, Thumb: not null, Provider: not null, Revision: not null })
-        {
-            return "a missing field";
-        }
-
-        if (!Enum.IsDefined(pick.Asset))
-        {
-            return $"unknown artwork type {(int)pick.Asset}";
-        }
-
-        if (pick.Url.Length > 0 && !HttpUrls.IsHttps(pick.Url))
-        {
-            return "not an https image";
-        }
-
-        return kept.Exists(existing => existing.Asset == pick.Asset)
-            ? $"a second pick for {pick.Asset}"
-            : null;
-    }
-
-    private static string Describe(ImportedEntry? entry)
-    {
-        return entry is null ? "(empty row)" : $"{entry.Source}/{entry.Key}";
-    }
-
-    private static string Describe(ImportChoice? choice)
-    {
-        return choice is null ? "(empty row)" : $"{choice.Source}/{choice.Key}";
-    }
-
-    private static string Describe(ImportedCollection? collection)
-    {
-        return collection is null ? "(empty row)" : $"{collection.Group}/{collection.Id}";
-    }
-
-    private static ImportedCollection CopyCollection(ImportedCollection collection)
-    {
-        return new ImportedCollection
-        {
-            AccountId = collection.AccountId, Group = collection.Group, Id = collection.Id,
-            Name = collection.Name, AppIds = [.. collection.AppIds]
-        };
-    }
-
-    private static StorageLibraryRecord CopyLibrary(StorageLibraryRecord library)
-    {
-        return library.Copy();
-    }
-
-    private static string? LibraryDefect(StorageLibraryRecord? library)
-    {
-        if (library is not { Id: not null, Name: not null, VolumeId: not null, ManifestRevision: >= 0 }
-            || !Guid.TryParseExact(library.Id, "D", out var id) || id == Guid.Empty)
-        {
-            return "An invalid library identity or checkpoint.";
-        }
-
-        try
-        {
-            _ = ManagedContentStorage.ResolveLibraryPath(library.VolumeId, "");
-            return null;
-        }
-        catch (InvalidDataException)
-        {
-            return "An invalid library volume binding.";
         }
     }
 
@@ -1133,13 +868,14 @@ public sealed class ImportStateStore
                     try
                     {
                         using (var original = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.Read))
-                        using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                        using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write,
+                                   FileShare.None))
                         {
                             original.CopyTo(output);
-                            output.Flush(flushToDisk: true);
+                            output.Flush(true);
                         }
 
-                        File.Move(temporary, backup, overwrite: false);
+                        File.Move(temporary, backup, false);
                     }
                     finally
                     {

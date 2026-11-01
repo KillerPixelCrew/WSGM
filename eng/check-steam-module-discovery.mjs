@@ -15,7 +15,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 // flag, process start) is C# behaviour and belongs in WSGM.Tests, not in a regex over source text.
 // Never launch live Steam here.
 const composedAsset = readFileSync(
-  resolve(root, "src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js"),
+  resolve(root, process.argv[2] ?? "src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js"),
   "utf8",
 );
 const resolver = fragment(composedAsset, "module-resolver.ts");
@@ -107,7 +107,14 @@ const JsxTokens = ["react.transitional.element", ".jsx", ".jsxs"];
   runtime.jsx = runtime.jsxs = original;
   f.calls.length = 0;
   const gate = sortGate(f);
+  // The probe is the gate's own: ready once Steam's modules load, without installing anything.
+  assert.equal(gate.probe().outcome, "ready");
+  assert.equal(gate.status().installed, false);
+  assert.equal(gate.status().claims, 0);
   assert.equal(gate.install().ok, true);
+  assert.equal(gate.status().held, true, "the standard status must show the transform held");
+  assert.equal(gate.status().claims, 1);
+  assert.equal(gate.probe().installed, true, "an installed gate answers from what it holds");
   assert.deepEqual(f.calls, ["react", "focus", "progress", "jsx"]);
   assert.notEqual(runtime.jsx, original, "the header transform must claim the runtime");
   assert.equal(gate.status().registered, true);
@@ -130,6 +137,7 @@ const JsxTokens = ["react.transitional.element", ".jsx", ".jsxs"];
   assert.equal(gate.remove().ok, true);
   assert.equal(runtime.jsx, original, "removal must hand the runtime back");
   assert.equal(gate.status().registered, false);
+  assert.equal(gate.status().claims, 0, "removal must leave nothing held");
   assert.equal(gate.install().ok, true);
   assert.equal(gate.status().registered, true);
 }

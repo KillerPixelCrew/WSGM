@@ -100,7 +100,8 @@ public sealed record DevicePowerPreset(
     private static bool ValidFast(DevicePowerPreset preset, IReadOnlyList<CapabilityDescriptor> descriptors)
     {
         var fast = descriptors.Where(descriptor => descriptor.Role == CapabilityRole.PowerFastLimit).ToArray();
-        return fast.Length == 0 ? preset.FastWatts is null
+        return fast.Length == 0
+            ? preset.FastWatts is null
             : fast.Length == 1 && DevicePowerPair.IsLimit(fast[0])
                                && DevicePowerPair.Fits(preset.FastWatts ?? preset.SlowWatts, fast[0]);
     }

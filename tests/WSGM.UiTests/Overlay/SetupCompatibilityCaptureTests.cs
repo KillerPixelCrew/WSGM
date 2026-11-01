@@ -13,14 +13,43 @@ namespace WSGM.UiTests.Overlay;
 
 public sealed class SetupCompatibilityCaptureTests
 {
+    [AvaloniaFact]
+    public void SettingsAlreadySetShowCheckedAndLocked()
+    {
+        using var fixture = new UiFixture();
+        var page = new DriverCompatibilityPage(
+            new WindowsProtectionState(false, false, ControlFlowGuardSetting.Disabled, false), defenderExcluded: true);
+        var model = new SetupViewModel(new SetupOptions(), null, page,
+            ["welcome", "profile", "customize", "compatibility", "progress", "summary"], 3);
+        var window = new SetupWindow { Width = 1280, Height = 800, DataContext = model };
+        window.Styles.Add(new StyleInclude(new Uri("avares://WSGM.Setup/"))
+        {
+            Source = new Uri("avares://WSGM.Setup/UI/SetupTheme.axaml")
+        });
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        var switches = window.GetVisualDescendants().OfType<ToggleSwitch>().ToArray();
+        Assert.Equal(5, switches.Length);
+        Assert.All(switches.Skip(1), toggle =>
+        {
+            Assert.True(toggle.IsChecked);
+            Assert.False(toggle.IsEffectivelyEnabled);
+        });
+        var directory = Path.Combine(RepositoryFiles.Root, "TestResults", "ui", "setup-compatibility-already-set");
+        Directory.CreateDirectory(directory);
+        DevicePageCaptureTests.Capture(window, Path.Combine(directory, "viewport.png"));
+        window.Close();
+    }
+
     [AvaloniaTheory]
     [InlineData(1024, 640, false)]
     [InlineData(1280, 800, true)]
     public void OptionalChoicesRemainReachable(int width, int height, bool unavailable)
     {
         using var fixture = new UiFixture();
-        var page = new DriverCompatibilityPage(unavailable ? null
-            : new WindowsProtectionState(true, true, ControlFlowGuardSetting.Default, false),
+        var page = new DriverCompatibilityPage(unavailable
+                ? null
+                : new WindowsProtectionState(true, true, ControlFlowGuardSetting.Default, false),
             unavailable ? "Windows protection settings could not be read." : null);
         var model = new SetupViewModel(new SetupOptions(), null, page,
             ["welcome", "profile", "customize", "compatibility", "progress", "summary"], 3);

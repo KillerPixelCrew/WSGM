@@ -1,0 +1,16 @@
+{
+  "builds": [
+    {
+      "channel": "publicbeta",
+      "version": "1793235415",
+      "spContenthash": "7039b9918d21fc46ca79",
+      "checked": "2026-11-01"
+    },
+    {
+      "channel": "stable",
+      "version": "1792618285",
+      "spContenthash": "3708f234683c51cc73a9",
+      "checked": "2026-11-01"
+    }
+  ]
+}

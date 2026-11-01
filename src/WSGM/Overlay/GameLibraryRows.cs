@@ -20,7 +20,7 @@ internal static class GameLibraryRows
     internal static string Describe(GameLibraryEntry entry)
     {
         List<string> parts = [entry.ActionLabel, entry.LaunchLabel];
-        if (IsUnavailable(entry))
+        if (entry.Unavailable)
         {
             parts.Add(entry.AvailabilityLabel);
         }
@@ -31,11 +31,6 @@ internal static class GameLibraryRows
         }
 
         return string.Join(" · ", parts);
-    }
-
-    internal static bool IsUnavailable(GameLibraryEntry entry)
-    {
-        return entry.Unavailable;
     }
 
     /// <summary>Whether a title is already in Steam as an entry the library manages.</summary>
@@ -149,7 +144,7 @@ internal static class GameLibraryRows
     internal static bool StorageNeedsAttention(GameLibraryStorage storage)
     {
         return storage.CanRepair || storage.CanAcceptBinding
-               || !string.Equals(storage.Status, "Connected", StringComparison.OrdinalIgnoreCase);
+                                 || !string.Equals(storage.Status, "Connected", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>The home level's line for the Storage row.</summary>
@@ -219,8 +214,9 @@ internal static class GameLibraryRows
         foreach (var storage in storages)
         {
             var members = shortcuts.Where(shortcut => string.Equals(shortcut.LibraryId, storage.Id,
-                    StringComparison.OrdinalIgnoreCase)
-                || shortcut.LibraryId.Length == 0 && shortcut.Location == storage.Name).ToArray();
+                                                          StringComparison.OrdinalIgnoreCase)
+                                                      || (shortcut.LibraryId.Length == 0 &&
+                                                          shortcut.Location == storage.Name)).ToArray();
             placed.UnionWith(members);
             groups.Add(new StorageGroup(storage.Name, storage, members));
         }
@@ -243,9 +239,3 @@ internal static class GameLibraryRows
         }
     }
 }
-
-/// <summary>One location on the Storage page: a card library, a disk or a drive, and its shortcuts.</summary>
-/// <param name="Name">The location's name.</param>
-/// <param name="Library">The card library this group is, or null for a disk or drive.</param>
-/// <param name="Shortcuts">Its shortcuts, by name.</param>
-internal sealed record StorageGroup(string Name, GameLibraryStorage? Library, IReadOnlyList<ShortcutStatus> Shortcuts);

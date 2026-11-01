@@ -52,7 +52,8 @@ public sealed partial class GameLibraryView
         }), "arguments.default"));
         body.Children.Add(Tagged(PrimaryRow("Save arguments", "Apply this choice to the title or staged library",
             Icons.Play, () => _ = RunSafelyAsync(SaveRomArgumentsAsync(), "save arguments")), "arguments.save"));
-        SetContent(body);
+        // The list is the view's own draft, so the library's publications leave it as drawn.
+        SetStaticContent(body);
     }
 
     private Task SaveRomArgumentsAsync()

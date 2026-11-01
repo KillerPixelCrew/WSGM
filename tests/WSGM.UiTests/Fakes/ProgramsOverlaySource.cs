@@ -31,23 +31,60 @@ internal sealed class ProgramsOverlaySource : IProgramsSource
         }, true, true, "Running · no window", null)
     ];
 
+    public string LastResult => "Windows or the foreground game prevented application activation.";
+
+    public ProgramState[] ReadState()
+    {
+        return _state;
+    }
+
+    public bool IsPinned(string id)
+    {
+        return id is "monitor" or "missing";
+    }
+
+    public void ReportResult(string message)
+    {
+    }
+
     public event Action? Changed
     {
         add { }
         remove { }
     }
 
-    public string LastResult => "Windows or the foreground game prevented application activation.";
-    public ProgramState[] ReadState() => _state;
-    public bool IsPinned(string id) => id is "monitor" or "missing";
-    public Task SaveAsync(ProgramDefinition definition, bool approveExecutable) => Refused();
-    public Task RemoveAsync(string id) => Refused();
-    public Task RememberWindowAsync(string id, ProgramUiCandidate candidate) => Refused();
-    public Task ForgetUiAsync(string id) => Refused();
-    public Task ClearPendingAsync(string id) => Refused();
-    public Task<string> ActivateAsync(string id, CancellationToken cancellationToken) =>
-        Task.FromResult("Preview only.");
-    public void ReportResult(string message) { }
+    public Task SaveAsync(ProgramDefinition definition, bool approveExecutable)
+    {
+        return Refused();
+    }
 
-    private static Task Refused() => Task.FromException(new InvalidOperationException("Preview only."));
+    public Task RemoveAsync(string id)
+    {
+        return Refused();
+    }
+
+    public Task RememberWindowAsync(string id, ProgramUiCandidate candidate)
+    {
+        return Refused();
+    }
+
+    public Task ForgetUiAsync(string id)
+    {
+        return Refused();
+    }
+
+    public Task ClearPendingAsync(string id)
+    {
+        return Refused();
+    }
+
+    public Task<string> ActivateAsync(string id, CancellationToken cancellationToken)
+    {
+        return Task.FromResult("Preview only.");
+    }
+
+    private static Task Refused()
+    {
+        return Task.FromException(new InvalidOperationException("Preview only."));
+    }
 }

@@ -7,7 +7,6 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WindowsDeviceControl;
 using WSGM.Controls;
-using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Overlay;
 using WSGM.Shell;
@@ -51,7 +50,7 @@ public sealed class OverlayLayoutTests
         Assert.True(workspace.Bounds.Width >= 979.5);
         Assert.True(workspace.Bounds.Height >= 639.5);
         var keyboard = new KeyboardPanel("Text entry", "", 100);
-        window.ShowKeyboardSurface(keyboard);
+        window.Surfaces.ShowKeyboard(keyboard);
         Dispatcher.UIThread.RunJobs();
         foreach (var button in keyboard.GetVisualDescendants().OfType<Button>()
                      .Where(button => button.IsEffectivelyVisible))
@@ -74,8 +73,8 @@ public sealed class OverlayLayoutTests
     [InlineData(3840, 2160, 3.0)]
     public void SavedGameModeScaleMatchesNativeDesktopPhysicalSizing(int width, int height, double desiredScale)
     {
-        var gameMode = OverlayWindow.ComputeContentScale(desiredScale, 1, width, height);
-        var desktop = OverlayWindow.ComputeContentScale(1, desiredScale, width, height) * desiredScale;
+        var gameMode = OverlayPlacement.ComputeContentScale(desiredScale, 1, width, height);
+        var desktop = OverlayPlacement.ComputeContentScale(1, desiredScale, width, height) * desiredScale;
         Assert.Equal(gameMode, desktop, 5);
     }
 
@@ -187,7 +186,7 @@ public sealed class OverlayLayoutTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         window.AttachDeviceBridge(device);
-        window.SetPins(["section.device.overview"]);
+        window.SetPins(["section.device.plugin.info.main"]);
         UiFixture.OpenSections(window);
         var panel = UiFixture.Named<Panel>(window, "PinnedSectionsGrid");
         Dispatcher.UIThread.RunJobs();
@@ -214,7 +213,7 @@ public sealed class OverlayLayoutTests
         var window = fixture.Overlay();
         window.AttachDeviceBridge(device);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
-        UiFixture.Click(window, UiFixture.Rail(window, "device.section.overview"));
+        UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.info"));
         UiFixture.OpenSections(window);
         var reading = window.GetVisualDescendants().OfType<DeviceStatisticRow>()
             .Single(row => row.IsEffectivelyVisible);
@@ -228,7 +227,7 @@ public sealed class OverlayLayoutTests
         Dispatcher.UIThread.RunJobs();
         Assert.True(Header().IsFocused);
         UiFixture.Click(window, Header());
-        Assert.Equal(["section.device.overview"], pins);
+        Assert.Equal(["section.device.plugin.info.main"], pins);
 
         return;
 
@@ -242,8 +241,7 @@ public sealed class OverlayLayoutTests
     [AvaloniaFact]
     public async Task WindowsPowerPickerPinsWithoutDeviceIntegrationAndDetachesOnRemoval()
     {
-        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower()),
-            _ => throw new InvalidOperationException("Pinning must not apply a power plan")));
+        using var schemes = UiFixture.PowerProfiles(new FakePower());
         await schemes.RefreshAsync();
         using FakeDevice device = new();
         device.State = device.State with { Visible = false };
@@ -255,7 +253,7 @@ public sealed class OverlayLayoutTests
         UiFixture.OpenSections(window);
         Dispatcher.UIThread.RunJobs();
         var panel = UiFixture.Named<Panel>(window, "PinnedSectionsGrid");
-        Assert.Single(panel.GetVisualDescendants().OfType<PowerSchemeView>());
+        Assert.Single(panel.GetVisualDescendants().OfType<ChoiceRowView>());
         var choice = panel.GetVisualDescendants().OfType<ComboBox>().Single();
         UiFixture.Tab(window, 0).Focus();
         device.State = device.State with { Visible = true };
@@ -294,17 +292,17 @@ public sealed class OverlayLayoutTests
             Capabilities =
             [
                 device.State.Capabilities[0],
-                new DeviceOverlayCapability("fixture.other", null, DeviceOverlaySection.Oem, DescriptorStatus.Available,
-                    "Other section", "", "", false),
-                new DeviceOverlayCapability("fixture.value", null, DeviceOverlaySection.Overview,
-                    DescriptorStatus.Available, "Fixture value", "", "", true,
-                    new CapabilityValue
+                new DeviceOverlayCapability("fixture.other", null, DescriptorStatus.Available,
+                    "Other section", "", "", false) { PluginSectionId = DeviceSections.ControllerId },
+                new DeviceOverlayCapability("fixture.value", null, DescriptorStatus.Available, "Fixture value", "", "",
+                    true, new CapabilityValue
                     {
                         Kind = kind, IntegerValue = 50, BooleanValue = false, ChoiceValue = "a",
                         CurveValue = [new CurvePoint(30, 20), new CurvePoint(60, 50), new CurvePoint(90, 100)]
                     })
                 {
                     ValueKind = kind, Writable = true, Minimum = 0, Maximum = 100, Step = 1,
+                    PluginSectionId = DeviceSections.InfoId,
                     Choices =
                     [
                         new CapabilityChoice("a",
@@ -318,7 +316,7 @@ public sealed class OverlayLayoutTests
         var window = fixture.Overlay();
         window.AttachDeviceBridge(device);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
-        UiFixture.Click(window, UiFixture.Rail(window, "device.section.overview"));
+        UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.info"));
         UiFixture.OpenSections(window);
         var type = kind switch
         {
@@ -333,7 +331,7 @@ public sealed class OverlayLayoutTests
         window.PinToggleRequested += requests.Add;
         editor.Focus();
         window.RequestSecondaryAction(editor);
-        Assert.Equal(["section.device.overview"], requests);
+        Assert.Equal(["section.device.plugin.info.main"], requests);
         UiFixture.Click(window, editor, MouseButton.Right);
         Assert.Equal(2, requests.Count);
         switch (editor)
@@ -350,8 +348,8 @@ public sealed class OverlayLayoutTests
             .Single(header => header.IsEffectivelyVisible);
         UiFixture.Click(window, header.GetVisualDescendants().OfType<Button>().Single());
         Assert.Equal(3, requests.Count);
-        Assert.All(requests, id => Assert.Equal("section.device.overview", id));
-        window.SetPins(["section.device.overview"]);
+        Assert.All(requests, id => Assert.Equal("section.device.plugin.info.main", id));
+        window.SetPins(["section.device.plugin.info.main"]);
         UiFixture.OpenSections(window);
         UiFixture.Click(window, UiFixture.Tab(window, 0));
         UiFixture.OpenSections(window);
@@ -375,14 +373,14 @@ public sealed class OverlayLayoutTests
         }
 
         window.RequestSecondaryAction(pinned);
-        Assert.Equal("section.device.overview", requests[^1]);
+        Assert.Equal("section.device.plugin.info.main", requests[^1]);
         device.State = device.State with { Visible = false };
         device.Notify();
         Dispatcher.UIThread.RunJobs();
         Assert.DoesNotContain(pinnedSection.GetVisualDescendants(), control => control.GetType() == type);
         var unavailableHeader = pinnedSection.GetVisualDescendants().OfType<SectionPinHeader>().Single();
         UiFixture.Click(window, unavailableHeader.GetVisualDescendants().OfType<Button>().Single());
-        Assert.Equal("section.device.overview", requests[^1]);
+        Assert.Equal("section.device.plugin.info.main", requests[^1]);
         window.SetPins([]);
         UiFixture.OpenSections(window);
         Assert.DoesNotContain(UiFixture.Named<Panel>(window, "PinnedSectionsGrid").GetVisualDescendants(),
@@ -397,7 +395,7 @@ public sealed class OverlayLayoutTests
             _ => throw new InvalidOperationException("Unexpected write"), Timeout.InfiniteTimeSpan);
         await brightness.ReadAsync();
         var window = fixture.Overlay();
-        var host = UiFixture.Named<StackPanel>(window, "DisplayBrightnessHost");
+        var host = window.PanelSystemDisplay.DisplayBrightnessHost;
         DisplayTargetIdentity target = new("fixture", null, null, "Internal display", 1, 0, 1);
         DisplayModeSnapshot modes = new(new ActiveDisplayPath(target, "fixture", 0, 120, 1),
             new DisplayMode(1920, 1200, 120),

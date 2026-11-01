@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Security;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -263,8 +262,7 @@ public sealed partial class GogLibrarySource : ILibrarySource
                     return client;
                 }
             }
-            catch (Exception ex) when (ex is SecurityException or UnauthorizedAccessException
-                                           or IOException)
+            catch (Exception ex) when (LibraryFiles.IsUnreadable(ex))
             {
                 // An unreadable key is no Galaxy.
             }
@@ -276,15 +274,3 @@ public sealed partial class GogLibrarySource : ILibrarySource
     [GeneratedRegex(@"^(\d+)_is1$", RegexOptions.CultureInvariant)]
     private static partial Regex GameKey();
 }
-
-/// <summary>What a <c>goggame-&lt;id&gt;.info</c> file says about launching its game.</summary>
-/// <param name="RootGameId">The game this one belongs to, or empty.</param>
-/// <param name="HasPrimaryTask">Whether any play task is marked primary. None means DLC.</param>
-/// <param name="Primary">The first primary task that runs a file, or null.</param>
-internal sealed record GogGameInfo(string RootGameId, bool HasPrimaryTask, GogPlayTask? Primary);
-
-/// <summary>A GOG play task that runs a file.</summary>
-/// <param name="Path">The executable, relative to the install folder.</param>
-/// <param name="WorkingDir">The working directory, relative to the install folder, or empty.</param>
-/// <param name="Arguments">Its arguments, or empty.</param>
-internal sealed record GogPlayTask(string Path, string WorkingDir, string Arguments);

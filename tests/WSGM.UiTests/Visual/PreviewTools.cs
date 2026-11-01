@@ -7,6 +7,7 @@ using Avalonia.Threading;
 using WSGM.Controls;
 using WSGM.Input;
 using WSGM.Overlay;
+using WSGM.Shell;
 using WSGM.UiTests.Fakes;
 using WSGM.UiTests.Infrastructure;
 
@@ -15,6 +16,14 @@ namespace WSGM.UiTests.Visual;
 /// <summary>Populated tool captures over explicit local fakes, without Steam, network or installs.</summary>
 public static class PreviewTools
 {
+    /// <summary>Storage cases render only when a filter names them, so ordinary exports are unchanged.</summary>
+    private static readonly string[] StorageScenarios =
+    [
+        "importer-storage-home", "importer-storage-list", "importer-storage-lower", "importer-storage-entry",
+        "importer-storage-empty", "importer-storage-checking", "importer-storage-error", "importer-entry-removed",
+        "importer-entry-loading"
+    ];
+
     /// <summary>Exports only the affected Display settings and emulator dependency previews.</summary>
     public static void ExportFeatureCases(string directory, int width, int height)
     {
@@ -31,24 +40,113 @@ public static class PreviewTools
         Export(directory, width, height, StorageScenarios);
     }
 
-    /// <summary>Storage cases render only when a filter names them, so ordinary exports are unchanged.</summary>
-    private static readonly string[] StorageScenarios =
-    [
-        "importer-storage-home", "importer-storage-list", "importer-storage-lower", "importer-storage-entry",
-        "importer-storage-empty", "importer-storage-checking", "importer-storage-error", "importer-entry-removed",
-        "importer-entry-loading"
-    ];
+    /// <summary>
+    ///     Exports the artwork game searches: the Game Library's "Fix match" while it runs, with every
+    ///     provider's reason, and with matches, and the artwork page's game search with its reasons.
+    /// </summary>
+    public static void ExportMatchCases(string directory, int width, int height)
+    {
+        Directory.CreateDirectory(directory);
+        const string keyDetail = "Needs an API key. Get a free one at "
+                                 + "https://www.steamgriddb.com/profile/preferences/api and add it in WSGM Settings "
+                                 + "under Artwork.";
+        foreach (var scenario in new[]
+                 {
+                     "importer-match-searching", "importer-match-reasons", "importer-match-found",
+                     "artwork-filters-reasons"
+                 })
+        {
+            using var fixture = new UiFixture();
+            var library = new FakeLibrarySource();
+            var artwork = new FakeArtworkSource();
+            var window = Create(fixture, width, height, library);
+            UiFixture.Named<ArtworkView>(window, "ArtworkHost").AttachSession(artwork);
+            if (scenario.StartsWith("artwork", StringComparison.Ordinal))
+            {
+                UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SystemArtwork.ToString()));
+                Dispatcher.UIThread.RunJobs();
+                Click("Example game");
+                artwork.State = artwork.State with
+                {
+                    GameSearchProviders =
+                    [
+                        new ArtworkMatchProvider("steamgriddb", "SteamGridDB", "setup", keyDetail, 0),
+                        new ArtworkMatchProvider("screenscraper", "Screenscraper.fr", "none", "No game by that name.",
+                            0)
+                    ]
+                };
+                Click("Filters");
+            }
+            else
+            {
+                UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SteamGameLibrary.ToString()));
+                Dispatcher.UIThread.RunJobs();
+                Click("Review (3)");
+                Click("New game");
+                Click("Staged artwork");
+                Click("Search game match");
+                library.State = library.State with
+                {
+                    MatchSearch = scenario switch
+                    {
+                        "importer-match-searching" => new GameLibraryMatchSearchState("new-one",
+                            "The Blood of Dawnwalker", true, [], []),
+                        "importer-match-reasons" => new GameLibraryMatchSearchState("new-one",
+                            "The Blood of Dawnwalker", false, [],
+                            [
+                                new ArtworkMatchProvider("steamgriddb", "SteamGridDB", "setup", keyDetail, 0),
+                                new ArtworkMatchProvider("screenscraper", "Screenscraper.fr", "failed",
+                                    "Screenscraper is not responding. Try again later.", 0)
+                            ]),
+                        _ => new GameLibraryMatchSearchState("new-one", "The Blood of Dawnwalker", false,
+                            [
+                                new GameLibraryMatchAnswer("steamgriddb", "SteamGridDB", "1",
+                                    "The Blood of Dawnwalker", true),
+                                new GameLibraryMatchAnswer("steamgriddb", "SteamGridDB", "2",
+                                    "The Blood of Dawnwalker: Prologue", false)
+                            ],
+                            [
+                                new ArtworkMatchProvider("steamgriddb", "SteamGridDB", "found", "", 2),
+                                new ArtworkMatchProvider("screenscraper", "Screenscraper.fr", "none",
+                                    "No game by that name.", 0)
+                            ])
+                    }
+                };
+                library.Publish();
+            }
+
+            Dispatcher.UIThread.RunJobs();
+            window.FocusManager!.Focus(null);
+            window.MouseMove(new Point(-20, -20));
+            using var image = window.CaptureRenderedFrame() ??
+                              throw new InvalidOperationException("No match preview was rendered.");
+            image.Save(Path.Combine(directory, $"{scenario}-{width}x{height}.png"), new PngBitmapEncoderOptions());
+            window.Close();
+            continue;
+
+            void Click(string title)
+            {
+                var button = FocusSearch.First<ActionButton>(window,
+                                 button => button.Title == title && button.IsEffectivelyVisible)
+                             ?? throw new InvalidOperationException("Preview action is missing: " + title);
+                UiFixture.Click(window, button);
+                Dispatcher.UIThread.RunJobs();
+            }
+        }
+    }
 
     internal static OverlayWindow Create(UiFixture fixture, int width = 1280, int height = 800,
         FakeLibrarySource? library = null)
     {
         var window = fixture.Overlay(width, height);
-        UiFixture.Named<ThemesView>(window, "ThemesHost").AttachSession(new FakeThemesSource());
-        UiFixture.Named<AnimationsView>(window, "AnimationsHost").AttachSession(new FakeMoviesSource());
+        var themes = new FakeThemesSource();
+        UiFixture.Named<ThemesView>(window, "ThemesHost").AttachSession(themes, themes);
+        var movies = new FakeMoviesSource();
+        UiFixture.Named<AnimationsView>(window, "AnimationsHost").AttachSession(movies, movies);
         UiFixture.Named<ArtworkView>(window, "ArtworkHost").AttachSession(new FakeArtworkSource());
         UiFixture.Named<GameLibraryView>(window, "GameLibraryHost").Attach(library ?? new FakeLibrarySource());
         UiFixture.Named<EmulatorManagerView>(window, "EmulatorManagerHost").Attach(PreviewEmulators.Create());
-        window.AttachPrograms(new ProgramsOverlaySource());
+        window.ProgramsHost.Attach(new ProgramsOverlaySource());
         var model = (OverlayViewModel)window.DataContext!;
         model.ShowThemes = model.ShowAnimations = model.ShowArtwork = model.ShowGameLibrary = true;
         model.ShowEmulators = true;
@@ -59,13 +157,15 @@ public static class PreviewTools
         return window;
     }
 
-    internal static void Export(string directory, int width, int height, IReadOnlyCollection<string>? scenarioFilter = null)
+    internal static void Export(string directory, int width, int height,
+        IReadOnlyCollection<string>? scenarioFilter = null)
     {
         foreach (var scenario in new[]
                  {
                      "themes-installed", "themes-browse", "themes-profiles", "themes-settings", "movies-library",
                      "movies-browse", "movies-settings", "artwork", "artwork-manage", "artwork-logo", "importer",
-                     "importer-review", "importer-artwork", "importer-all-artwork", "importer-rom-source", "emulators-installed",
+                     "importer-review", "importer-artwork", "importer-all-artwork", "importer-rom-source",
+                     "emulators-installed",
                      "emulators-detail", "emulators-install", "emulators-cores", "emulators-defaults", "emulators-bios",
                      "programs", "programs-detail", "programs-unavailable", "programs-pins"
                  }.Concat(scenarioFilter is null ? Array.Empty<string>() : StorageScenarios))
@@ -113,14 +213,13 @@ public static class PreviewTools
 
             if (scenario == "emulators-install")
             {
-                Click("Available 2");
-                Click("Eden");
+                Click("Get emulators");
+                Click("RPCS3");
             }
 
             if (scenario == "emulators-cores")
             {
-                Click("RetroArch (all cores)");
-                Click("Installed cores (3)");
+                Click("RetroArch cores");
             }
 
             if (scenario == "emulators-defaults")
@@ -130,7 +229,7 @@ public static class PreviewTools
 
             if (scenario == "emulators-bios")
             {
-                Click("BIOS & firmware");
+                Click("BIOS and firmware");
             }
 
             if (scenario == "themes-browse" || scenario == "movies-browse")

@@ -60,7 +60,7 @@ internal static partial class Elevation
                 }
 
                 if (!Win32Common.DuplicateTokenEx(linked, PrimaryTokenAccess, 0,
-                        impersonationLevel: 2, tokenType: 1, out var primary))
+                        2, 1, out var primary))
                 {
                     error = Marshal.GetLastPInvokeError();
                     return null;

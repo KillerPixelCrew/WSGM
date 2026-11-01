@@ -10,7 +10,7 @@
     <ApplicationIcon>Assets\wsgm.ico</ApplicationIcon>
     <AssemblyName>WSGM</AssemblyName>
     <RootNamespace>WSGM</RootNamespace>
-    <Version>2.4.5</Version>
+    <Version>3.0.0</Version>
     <!-- Self-contained JIT publish. Built-in handheld and GPU libraries own native mechanics;
          the resident process owns policy and uses managed Windows APIs where possible. -->
     <SelfContained>true</SelfContained>
@@ -41,6 +41,10 @@
                       LogicalName="WSGM.Core.Emulators.bios-catalog.json"/>
     <EmbeddedResource Include="Core\Emulators\retrobios-LICENSE.txt"
                       LogicalName="WSGM.Core.Emulators.retrobios-LICENSE.txt"/>
+    <EmbeddedResource Include="Core\GameTools\game-tools.json"
+                      LogicalName="WSGM.Core.GameTools.game-tools.json"/>
+    <EmbeddedResource Include="Core\Steam\steam-client-builds.json"
+                      LogicalName="WSGM.Core.Steam.steam-client-builds.json"/>
   </ItemGroup>
   <ItemGroup>
     <!-- The Steam Input Lease submodule's binding is the single managed ABI source. Both

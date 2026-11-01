@@ -1,9 +1,10 @@
 using System;
-using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Browser;
@@ -16,25 +17,27 @@ namespace WSGM.Overlay;
 /// <summary>Quick lookup chrome; the native viewport never owns application policy or input leases.</summary>
 public sealed class BrowserView : OverlaySubView
 {
+    private readonly Button _address = new() { MinHeight = 44, HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly TextBlock _addressText = new() { TextTrimming = TextTrimming.CharacterEllipsis, MaxLines = 1 };
+    private readonly Button _back;
+    private readonly TextBlock _emptyViewport;
+    private readonly Button _enter;
+    private readonly Button _forward;
+    private readonly Button _gameSearch = new() { MinHeight = 44, MaxWidth = 210, IsVisible = false };
+    private readonly OverlayChoice<BrowserMemoryBehavior> _memory;
+    private readonly Button _reload;
+    private readonly StackPanel _stack;
+    private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Classes = { "caption" } };
     private readonly BrowserViewport _viewport = new();
     private readonly Grid _viewportFrame = new() { Height = 320, MinHeight = 240 };
-    private readonly TextBlock _emptyViewport;
-    private readonly Button _address = new() { MinHeight = 44, HorizontalAlignment = HorizontalAlignment.Stretch };
-    private readonly TextBlock _addressText = new() { TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis, MaxLines = 1 };
-    private readonly Button _gameSearch = new() { MinHeight = 44, MaxWidth = 210, IsVisible = false };
-    private readonly Button _back;
-    private readonly Button _forward;
-    private readonly Button _reload;
-    private readonly Button _enter;
-    private readonly TextBlock _status = new() { TextWrapping = Avalonia.Media.TextWrapping.Wrap, Classes = { "caption" } };
     private readonly TextBlock _zoom = new() { VerticalAlignment = VerticalAlignment.Center };
-    private readonly OverlayChoice<BrowserMemoryBehavior> _memory;
-    private BrowserSession? _session;
-    private readonly StackPanel _stack;
-    private bool _entered;
     private bool _covered;
+    private bool _entered;
     private BrowserPacket? _pendingPageText;
     private BrowserMemoryBehavior? _renderedPolicy;
+    private ScrollViewer? _scroller;
+    private BrowserSession? _session;
+    private OverlayWindow? _window;
 
     /// <summary>Builds only Avalonia chrome. No browser environment or helper starts here.</summary>
     public BrowserView()
@@ -45,7 +48,7 @@ public sealed class BrowserView : OverlaySubView
         _address.Click += (_, _) => EditAddress();
         var addressRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 10 };
         addressRow.Children.Add(_address);
-        _gameSearch.Click += (_, _) => EditAddress(withGame: true);
+        _gameSearch.Click += (_, _) => EditAddress(true);
         Grid.SetColumn(_gameSearch, 1);
         addressRow.Children.Add(_gameSearch);
         _stack.Children.Add(addressRow);
@@ -101,39 +104,172 @@ public sealed class BrowserView : OverlaySubView
             Refresh();
         };
         var memoryRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 16 };
-        memoryRow.Children.Add(new TextBlock { Text = "Browser memory behavior", VerticalAlignment = VerticalAlignment.Center, TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+        memoryRow.Children.Add(new TextBlock
+        {
+            Text = "Browser memory behavior", VerticalAlignment = VerticalAlignment.Center,
+            TextWrapping = TextWrapping.Wrap
+        });
         Grid.SetColumn(_memory, 1);
         memoryRow.Children.Add(_memory);
         _stack.Children.Add(memoryRow);
-        _stack.Children.Add(Caption("Page: D-pad scrolls, LB/RB selects links, Confirm activates, Y opens the keyboard. Back / Escape returns to browser controls. Downloads and application links are disabled."));
+        _stack.Children.Add(Caption(
+            "Page: D-pad scrolls, LB/RB selects links, Confirm activates, Y opens the keyboard. Back / Escape returns to browser controls. Downloads and application links are disabled."));
         Content = _stack;
-        LayoutUpdated += FitViewport;
+        // The frame's effective viewport changes exactly when the scroller's viewport or the frame's
+        // place in it does, the two inputs of the fit; a tree-wide layout pass adds nothing.
+        _viewportFrame.EffectiveViewportChanged += OnFrameViewportChanged;
         Refresh();
     }
 
     /// <inheritdoc />
     protected override string LogScope => "Browser";
 
+    internal bool ViewportOwnsInput => _session?.ViewportFocused == true;
+
     /// <inheritdoc />
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
-        if (_session is not null && change.Property == IsVisibleProperty)
+        if (change.Property == IsVisibleProperty)
         {
-            if (IsVisible && TopLevel.GetTopLevel(this) is Window { IsVisible: true })
-            {
-                Enter();
-            }
-            else
-            {
-                Leave();
-            }
+            RefreshLifetime();
         }
     }
 
-    internal bool ViewportOwnsInput => _session?.ViewportFocused == true;
+    /// <summary>Connects the inert page to the one session-owned browser and the sheet that hosts it.</summary>
+    /// <param name="session">The session's browser.</param>
+    /// <param name="window">The sheet, whose keys and text reach the page while its viewport owns input.</param>
+    internal void Attach(BrowserSession session, OverlayWindow window)
+    {
+        if (_window is null)
+        {
+            _window = window;
+            window.PropertyChanged += OnWindowPropertyChanged;
+            window.Closed += OnWindowClosed;
+            window.AddHandler(KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel);
+            window.AddHandler(TextInputEvent, OnWindowTextInput, RoutingStrategies.Tunnel);
+        }
 
-    internal void Attach(BrowserSession session)
+        Attach(session);
+    }
+
+    /// <summary>
+    ///     Consumes the controller presses the native viewport owns: Back returns to the chrome, Y opens the
+    ///     page keyboard and the rest drive the page.
+    /// </summary>
+    /// <param name="buttons">The pressed buttons.</param>
+    /// <param name="nintendoLayout">Whether the face buttons use the Nintendo layout.</param>
+    /// <returns>True when the page consumed the press; false while it does not own input or a surface is up.</returns>
+    internal bool ConsumeButtons(GamepadButtons buttons, bool nintendoLayout)
+    {
+        if (!ViewportOwnsInput || TopLevel.GetTopLevel(this) is not OverlayWindow { Surfaces.HasActive: false })
+        {
+            return false;
+        }
+
+        var back = nintendoLayout ? GamepadButtons.A : GamepadButtons.B;
+        if (buttons.HasFlag(back))
+        {
+            TryReturnToChrome();
+        }
+        else if (buttons.HasFlag(GamepadButtons.Y))
+        {
+            PageKeyboard();
+        }
+        else
+        {
+            HandleViewportButtons(buttons, nintendoLayout);
+        }
+
+        return true;
+    }
+
+    /// <summary>Enters the page while it and its sheet show, under any open surface; leaves it otherwise.</summary>
+    private void RefreshLifetime()
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        if (IsVisible && TopLevel.GetTopLevel(this) is Window { IsVisible: true } window)
+        {
+            Enter();
+            Cover(window is OverlayWindow { Surfaces.HasActive: true });
+        }
+        else
+        {
+            Leave();
+        }
+    }
+
+    private void OnWindowPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property == IsVisibleProperty)
+        {
+            RefreshLifetime();
+        }
+    }
+
+    private void OnWindowClosed(object? sender, EventArgs e)
+    {
+        Detach();
+        if (_window is { } window)
+        {
+            window.PropertyChanged -= OnWindowPropertyChanged;
+            window.Closed -= OnWindowClosed;
+            window.RemoveHandler(KeyDownEvent, OnWindowKeyDown);
+            window.RemoveHandler(TextInputEvent, OnWindowTextInput);
+            _window = null;
+        }
+    }
+
+    private void OnWindowKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (_window is not { Surfaces.HasActive: false } || !ViewportOwnsInput)
+        {
+            return;
+        }
+
+        if (e.Key == Key.Space)
+        {
+            // TextInput supplies the character; do not also activate the last Avalonia button.
+            e.Handled = true;
+            return;
+        }
+
+        var key = e.Key switch
+        {
+            Key.Enter => "Enter",
+            Key.Tab => e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? "ShiftTab" : "Tab",
+            Key.Up => "ArrowUp",
+            Key.Down => "ArrowDown",
+            Key.Left => "ArrowLeft",
+            Key.Right => "ArrowRight",
+            Key.PageUp => "PageUp",
+            Key.PageDown => "PageDown",
+            Key.Back => "Backspace",
+            Key.Delete => "Delete",
+            Key.Home => "Home",
+            Key.End => "End",
+            _ => null
+        };
+        if (key is not null && PageKey(key))
+        {
+            e.Handled = true;
+        }
+    }
+
+    private void OnWindowTextInput(object? sender, TextInputEventArgs e)
+    {
+        if (_window is { Surfaces.HasActive: false } && ViewportOwnsInput && !string.IsNullOrEmpty(e.Text))
+        {
+            PageText(e.Text);
+            e.Handled = true;
+        }
+    }
+
+    private void Attach(BrowserSession session)
     {
         if (ReferenceEquals(_session, session))
         {
@@ -160,6 +296,25 @@ public sealed class BrowserView : OverlaySubView
         _entered = true;
         _session?.Open();
         Refresh();
+        // Changes while the page was hidden or not entered were skipped, and showing it again
+        // need not move the frame. A fresh registration reports the next layout's viewport.
+        _viewportFrame.EffectiveViewportChanged -= OnFrameViewportChanged;
+        _viewportFrame.EffectiveViewportChanged += OnFrameViewportChanged;
+        FitViewport();
+    }
+
+    /// <inheritdoc />
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        _scroller = this.FindAncestorOfType<ScrollViewer>();
+    }
+
+    /// <inheritdoc />
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        _scroller = null;
+        base.OnDetachedFromVisualTree(e);
     }
 
     internal override void Leave()
@@ -191,8 +346,16 @@ public sealed class BrowserView : OverlaySubView
         _session = null;
     }
 
+    /// <summary>Hides the native page under a surface the sheet opened, and shows it again once that closes.</summary>
+    /// <param name="covered">Whether a surface covers the page.</param>
     internal void Cover(bool covered)
     {
+        // A page with no browser has no native viewport to hide.
+        if (_session is null)
+        {
+            return;
+        }
+
         _covered = covered;
         UpdateViewportVisibility();
     }
@@ -214,7 +377,10 @@ public sealed class BrowserView : OverlaySubView
         }
     }
 
-    internal bool TryReturnToChrome() => _session?.ReturnToChrome() == true;
+    internal bool TryReturnToChrome()
+    {
+        return _session?.ReturnToChrome() == true;
+    }
 
     internal void HandleViewportButtons(GamepadButtons buttons, bool nintendoLayout)
     {
@@ -249,25 +415,26 @@ public sealed class BrowserView : OverlaySubView
             return;
         }
 
-        if (TopLevel.GetTopLevel(this) is OverlayWindow { HasActiveSurface: false } window)
+        if (TopLevel.GetTopLevel(this) is OverlayWindow { Surfaces.HasActive: false } window)
         {
             var field = _session.TextField;
             _session.ReturnToChrome();
             var generation = NavigationGeneration;
             var keyboard = new KeyboardPanel("Website text", field.Text, 4096,
-                sensitive: field.Sensitive, multiline: field.Multiline);
+                field.Sensitive, field.Multiline);
             keyboard.Accepted += text =>
             {
                 if (_entered && generation == NavigationGeneration)
                 {
                     _pendingPageText = new BrowserPacket
                     {
-                        Text = text, Submit = !field.Multiline, Replace = field.Replace, NavigationId = field.NavigationId
+                        Text = text, Submit = !field.Multiline, Replace = field.Replace,
+                        NavigationId = field.NavigationId
                     };
                 }
             };
             keyboard.AttachedToVisualTree += (_, _) => keyboard.SelectText(field.SelectionStart, field.SelectionEnd);
-            window.ShowKeyboardSurface(keyboard);
+            window.Surfaces.ShowKeyboard(keyboard);
         }
     }
 
@@ -282,18 +449,26 @@ public sealed class BrowserView : OverlaySubView
         return true;
     }
 
-    internal void PageText(string text) => _session?.InsertText(text);
+    internal void PageText(string text)
+    {
+        _session?.InsertText(text);
+    }
 
-    private void FitViewport(object? sender, EventArgs e)
+    private void OnFrameViewportChanged(object? sender, EffectiveViewportChangedEventArgs e)
+    {
+        FitViewport();
+    }
+
+    private void FitViewport()
     {
         if (!_entered || !IsEffectivelyVisible)
         {
             return;
         }
 
-        var scroller = this.GetVisualAncestors().OfType<ScrollViewer>().FirstOrDefault();
+        var scroller = _scroller;
         if (scroller is null || scroller.Viewport.Height <= 0
-            || _viewportFrame.TranslatePoint(default, scroller) is not { } origin)
+                             || _viewportFrame.TranslatePoint(default, scroller) is not { } origin)
         {
             return;
         }
@@ -321,7 +496,7 @@ public sealed class BrowserView : OverlaySubView
         var game = withGame ? session.CurrentGame : null;
         var prompt = game is not null ? "Search " + game.Title : "Search or enter an address";
         var generation = NavigationGeneration;
-        window.RequestText(prompt, initial, BrowserNavigation.MaximumAddressLength,
+        window.Surfaces.RequestText(prompt, initial, BrowserNavigation.MaximumAddressLength,
             text =>
             {
                 if (_entered && generation == NavigationGeneration && ReferenceEquals(_session, session))
@@ -340,8 +515,11 @@ public sealed class BrowserView : OverlaySubView
 
     private void FocusChrome()
     {
-        if (!_entered || TopLevel.GetTopLevel(this) is not OverlayWindow { IsVisible: true, HasActiveSurface: false } window
-            || _memory.IsDropDownOpen)
+        if (!_entered || TopLevel.GetTopLevel(this) is not OverlayWindow
+                      {
+                          IsVisible: true, Surfaces.HasActive: false
+                      } window
+                      || _memory.IsDropDownOpen)
         {
             return;
         }
@@ -373,7 +551,7 @@ public sealed class BrowserView : OverlaySubView
             _ => session?.Loading == true ? "Stop" : "Reload"
         };
         _enter.IsEnabled = session is { Lifecycle: BrowserLifecycle.Active, Address: not BrowserNavigation.Home };
-        _zoom.Text = $"{(session?.Options.ZoomFactor ?? 1):P0}";
+        _zoom.Text = $"{session?.Options.ZoomFactor ?? 1:P0}";
         _status.Text = session?.Status ?? "Browser is unavailable in this session.";
         UpdateViewportVisibility();
         _gameSearch.IsVisible = session?.CurrentGame is not null;

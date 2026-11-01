@@ -9,7 +9,7 @@ public sealed partial class OverlayController
     /// <param name="pad">The managed controller's UI state.</param>
     internal void UseManagedPad(ManagedUiPad pad)
     {
-        _gamepad.UseManagedPad(pad);
+        _activation.Gamepad.UseManagedPad(pad);
     }
 
     /// <summary>Claims this controller's Steam Input lease for a focus-taking surface.</summary>

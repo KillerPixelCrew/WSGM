@@ -37,8 +37,8 @@ public sealed class OverlayControllerLifecycleTests
         {
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             controller.OnPinToggleRequested("home.steam");
-            controller.OnPinToggleRequested("home.desktop");
-            Assert.False(controller.PinWrites.IsCompleted);
+            controller.OnPinToggleRequested("system.keep-awake");
+            Assert.False(controller.Pins.Writes.IsCompleted);
             // The watcher can still publish the first save while the second is queued.
             controller.ApplyConfig(new AppConfig { QuickAccessPins = ["home.steam"] });
             controller.OnPinToggleRequested("system.standby");
@@ -48,10 +48,10 @@ public sealed class OverlayControllerLifecycleTests
         {
             release.Set();
             await holdingStore.WaitAsync(TimeSpan.FromSeconds(5));
-            await controller.PinWrites.WaitAsync(TimeSpan.FromSeconds(5));
+            await controller.Pins.Writes.WaitAsync(TimeSpan.FromSeconds(5));
         }
 
-        Assert.Equal(["home.steam", "home.desktop", "system.standby"],
+        Assert.Equal([AppConfig.DesktopSwitchPin, "home.steam", "system.keep-awake", "system.standby"],
             fixture.Store.Read().RequireConfig().QuickAccessPins);
         Assert.Empty(config.QuickAccessPins);
     }
@@ -74,9 +74,80 @@ public sealed class OverlayControllerLifecycleTests
         using var controller = new OverlayController(config, fixture.Store, blocker, null,
             new SessionModes(config, null), audio, radios, drives, previewOnly: true);
         controller.OnPinToggleRequested("home.steam");
-        controller.OnPinToggleRequested("home.desktop");
-        await controller.PinWrites;
-        Assert.Equal(["home.steam"], config.QuickAccessPins);
-        Assert.Equal(["home.steam"], fixture.Store.Read().RequireConfig().QuickAccessPins);
+        controller.OnPinToggleRequested("system.keep-awake");
+        await controller.Pins.Writes;
+        Assert.Equal([AppConfig.DesktopSwitchPin, "home.steam"], config.QuickAccessPins);
+        Assert.Equal([AppConfig.DesktopSwitchPin, "home.steam"], fixture.Store.Read().RequireConfig().QuickAccessPins);
+    }
+
+    [AvaloniaFact]
+    public void TheDesktopSwitchCannotBeUnpinned()
+    {
+        using var fixture = new UiFixture();
+        fixture.Store.Update(_ => true);
+        var config = fixture.Store.Read().RequireConfig();
+        using var audio = new AudioManager();
+        using var radios = new RadioManager();
+        using var drives = new RemovableDriveManager();
+        var blocker = new SteamInputBlocker(new SteamInputShim(),
+            () => throw new InvalidOperationException("Pin toggles must not acquire Steam Input."));
+        using var controller = new OverlayController(config, fixture.Store, blocker, null,
+            new SessionModes(config, null), audio, radios, drives, previewOnly: true);
+
+        controller.OnPinToggleRequested(AppConfig.DesktopSwitchPin);
+
+        Assert.Equal([AppConfig.DesktopSwitchPin], controller.Pins.Ids);
+    }
+
+    [AvaloniaFact]
+    public async Task CloseRefocusAsksSteamToRaiseTheGameBeforeFocusingIt()
+    {
+        using var fixture = new UiFixture();
+        fixture.Store.Update(_ => true);
+        var config = fixture.Store.Read().RequireConfig();
+        using var audio = new AudioManager();
+        using var radios = new RadioManager();
+        using var drives = new RemovableDriveManager();
+        var blocker = new SteamInputBlocker(new SteamInputShim(),
+            () => throw new InvalidOperationException("A close refocus must not acquire Steam Input."));
+        using var controller = new OverlayController(config, fixture.Store, blocker, null,
+            new SessionModes(config, null), audio, radios, drives, previewOnly: true);
+        List<string> steps = [];
+        var gameReturn = new GameWindowReturn((pid, _) =>
+        {
+            steps.Add($"raise {pid}");
+            return Task.FromResult(true);
+        }, _ => 42, _ => false, hwnd =>
+        {
+            steps.Add($"focus {hwnd}");
+            return true;
+        }, _ => { });
+
+        await controller.RestoreFocusAsync(gameReturn, 30);
+
+        Assert.Equal(["raise 42", "focus 30"], steps);
+    }
+
+    [AvaloniaFact]
+    public async Task DisposingDuringSteamRaiseCancelsTheCloseRefocus()
+    {
+        using var fixture = new UiFixture();
+        fixture.Store.Update(_ => true);
+        var config = fixture.Store.Read().RequireConfig();
+        using var audio = new AudioManager();
+        using var radios = new RadioManager();
+        using var drives = new RemovableDriveManager();
+        var blocker = new SteamInputBlocker(new SteamInputShim(),
+            () => throw new InvalidOperationException("A close refocus must not acquire Steam Input."));
+        using var controller = new OverlayController(config, fixture.Store, blocker, null,
+            new SessionModes(config, null), audio, radios, drives, previewOnly: true);
+        TaskCompletionSource<bool> steam = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var gameReturn = new GameWindowReturn((_, token) => steam.Task.WaitAsync(token), _ => 42, _ => false,
+            _ => throw new InvalidOperationException("A cancelled refocus must not focus."), _ => { });
+
+        var refocus = controller.RestoreFocusAsync(gameReturn, 30);
+        controller.Dispose();
+        await refocus.WaitAsync(TimeSpan.FromSeconds(5));
+        steam.SetResult(true);
     }
 }

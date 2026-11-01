@@ -25,21 +25,25 @@ public sealed class LaunchWrapperView : ServiceSubView
     // A full Steam library is one ActionButton per title in a non-virtualizing
     // host, so it is paged the way LibraryTabsView's multi-select is: laying out
     // a 1000+ title account in one pass stalls the overlay's UI thread.
-    private const int PageSize = 200;
+    private const int Chunk = 200;
+    private SteamLibraryApp? _actionGame;
+    private LaunchActionService? _actions;
+    private bool _busy;
     private string _customArguments = "";
     private SteamLibraryApp? _customGame;
 
     private string? _customPath;
-    private IReadOnlyList<SteamLibraryApp> _games = [];
-    private LaunchActionService? _actions;
-    private SteamLibraryApp? _actionGame;
-    private LaunchActionState? _state;
-    private DispatcherTimer? _refresh;
-    private bool _reading;
-    private bool _busy;
-    private string? _draftPath;
     private string _draftArguments = "";
+    private string? _draftPath;
+    private IReadOnlyList<SteamLibraryApp> _games = [];
+    private int _gamesShown;
+    private bool _reading;
+    private DispatcherTimer? _refresh;
+    private LaunchActionState? _state;
     private LaunchWrapperMode _suggestedMode;
+
+    /// <inheritdoc />
+    protected override string LogScope => "Launch wrappers";
 
     internal void AttachLaunchActions(LaunchActionService? actions)
     {
@@ -59,6 +63,9 @@ public sealed class LaunchWrapperView : ServiceSubView
         CurrentLevel = null;
         AttachSource(_actions);
         Navigate(RenderActions);
+        _ = RefreshActionsAsync();
+        // Steam announces no change to launch fields edited in Steam itself, so they are read again
+        // while the page shows. A draw only shows the state already read.
         _refresh ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _refresh.Tick -= OnRefresh;
         _refresh.Tick += OnRefresh;
@@ -112,22 +119,35 @@ public sealed class LaunchWrapperView : ServiceSubView
 
     private void RenderActions()
     {
-        _ = RefreshActionsAsync();
         var body = NewStack(_actionGame?.Name ?? "Launch Actions");
         if (_state is not { } state)
         {
-            body.Children.Add(Caption(_actions is null ? "Launch actions unavailable" : "Reading launch configuration…"));
+            body.Children.Add(
+                Caption(_actions is null ? "Launch actions unavailable" : "Reading launch configuration…"));
             SetContent(body);
             return;
         }
 
         body.Children.Add(Tagged(Caption($"Current: {state.Ownership}"), "launch.current"));
-        body.Children.Add(Tagged(Caption(state.CanRestore ? "Original launch action recorded. Restore is available." : "No restoration snapshot recorded."), "launch.restore-status"));
+        body.Children.Add(Tagged(
+            Caption(state.CanRestore
+                ? "Original launch action recorded. Restore is available."
+                : "No restoration snapshot recorded."), "launch.restore-status"));
         body.Children.Add(Tagged(Caption(state.InputRoute), "launch.input"));
-        body.Children.Add(Tagged(Caption(state.ExternallyChanged ? "Launch fields differ from WSGM's saved action. The recorded original is retained." : ""), "launch.external"));
-        body.Children.Add(Tagged(Caption(state.WrapperAvailable ? "" : "Launch wrapper missing. Repair the installation before applying wrapper actions."), "launch.wrapper"));
+        body.Children.Add(Tagged(
+            Caption(state.ExternallyChanged
+                ? "Launch fields differ from WSGM's saved action. The recorded original is retained."
+                : ""), "launch.external"));
+        body.Children.Add(Tagged(
+            Caption(state.WrapperAvailable
+                ? ""
+                : "Launch wrapper missing. Repair the installation before applying wrapper actions."),
+            "launch.wrapper"));
         body.Children.Add(Tagged(Caption(state.Error ?? state.Notice ?? ""), "launch.result"));
-        body.Children.Add(Tagged(Caption(state.IsShortcut ? $"Target: {state.Target}\nLaunch arguments: {state.Options}" : $"Launch options: {state.Options}"), "launch.fields"));
+        body.Children.Add(Tagged(
+            Caption(state.IsShortcut
+                ? $"Target: {state.Target}\nLaunch arguments: {state.Options}"
+                : $"Launch options: {state.Options}"), "launch.fields"));
         AddMode(LaunchWrapperMode.Deelevate, "launch.deelevate");
         AddMode(LaunchWrapperMode.InputLease, "launch.lease");
         AddMode(LaunchWrapperMode.Both, "launch.both");
@@ -143,7 +163,8 @@ public sealed class LaunchWrapperView : ServiceSubView
             body.Children.Add(apply);
         }
 
-        var restore = Tagged(Row("Restore original launch action", "Remove WSGM changes and restore the recorded original", Icons.Restart,
+        var restore = Tagged(Row("Restore original launch action",
+            "Remove WSGM changes and restore the recorded original", Icons.Restart,
             () => ConfirmChange(LaunchWrapperMode.None)), "launch.restore");
         restore.IsEnabled = !_busy && state.CanRestore && state.Error is null;
         body.Children.Add(restore);
@@ -191,7 +212,9 @@ public sealed class LaunchWrapperView : ServiceSubView
             return;
         }
 
-        ConfirmCommand(path is not null ? "Replace launch action" : mode == LaunchWrapperMode.None ? "Restore original launch action" : LaunchActionService.Label(mode),
+        ConfirmCommand(
+            path is not null ? "Replace launch action" :
+            mode == LaunchWrapperMode.None ? "Restore original launch action" : LaunchActionService.Label(mode),
             $"Replace the current launch action for {game.Name}? The recorded original is retained until restoration is confirmed.",
             async token =>
             {
@@ -212,13 +235,14 @@ public sealed class LaunchWrapperView : ServiceSubView
                 finally
                 {
                     _busy = false;
-                    Dispatcher.UIThread.Post(() => CurrentLevel?.Invoke());
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        CurrentLevel?.Invoke();
+                        _ = RefreshActionsAsync();
+                    });
                 }
             });
     }
-
-    /// <inheritdoc />
-    protected override string LogScope => "Launch wrappers";
 
     /// <summary>
     ///     Raised when the user chooses a game. The overlay then applies the
@@ -322,14 +346,12 @@ public sealed class LaunchWrapperView : ServiceSubView
         }
 
         _games = games;
-        Replace(() => RenderGamePage(heading, 0));
+        _gamesShown = Chunk;
+        Replace(() => RenderGamePage(heading));
     }
 
-    private void RenderGamePage(string heading, int page)
+    private void RenderGamePage(string heading)
     {
-        var pageCount = Math.Max(1, (_games.Count + PageSize - 1) / PageSize);
-        page = Math.Clamp(page, 0, pageCount - 1);
-        var current = page;
         var stack = NewStack(heading);
         if (_games.Count == 0)
         {
@@ -341,20 +363,10 @@ public sealed class LaunchWrapperView : ServiceSubView
         {
             stack.Children.Add(Caption(
                 "Choose a game, or open one in Steam and use this panel from its page."));
-            if (pageCount > 1)
-            {
-                stack.Children.Add(Caption($"Page {page + 1} of {pageCount} · {_games.Count} games"));
-                if (page > 0)
-                {
-                    stack.Children.Add(Row("Previous page", "", Icons.Restart,
-                        () => Replace(() => RenderGamePage(heading, current - 1))));
-                }
-            }
-
-            foreach (var game in _games.Skip(page * PageSize).Take(PageSize))
+            foreach (var game in _games.Take(_gamesShown))
             {
                 var g = game;
-                stack.Children.Add(Row(
+                stack.Children.Add(Tagged(Row(
                     g.Name,
                     g.Shortcut ? "Non-Steam shortcut" : "",
                     Icons.SteamLike,
@@ -368,18 +380,21 @@ public sealed class LaunchWrapperView : ServiceSubView
                         {
                             Picked?.Invoke(g);
                         }
+                    }), "game:" + g.AppId));
+            }
+
+            if (_games.Count > _gamesShown)
+            {
+                stack.Children.Add(PagedRows.More(this, "games.more", $"{_gamesShown} of {_games.Count}",
+                    "game:" + _games[_gamesShown].AppId, () =>
+                    {
+                        _gamesShown += Chunk;
+                        Replace(() => RenderGamePage(heading));
                     }));
             }
         }
 
         stack.Children.Add(SectionLabel(""));
-        if (page + 1 < pageCount)
-        {
-            stack.Children.Add(Row("Next page",
-                $"Games {(page + 1) * PageSize + 1}–{Math.Min(_games.Count, (page + 2) * PageSize)}",
-                Icons.Play, () => Replace(() => RenderGamePage(heading, current + 1))));
-        }
-
         stack.Children.Add(Row("Back", "Cancel", Icons.ExitFullscreen, () => Back()));
         SetContent(stack);
     }

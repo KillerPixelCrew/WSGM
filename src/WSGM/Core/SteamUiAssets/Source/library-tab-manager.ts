@@ -3,12 +3,10 @@
 // the whole tab back, and moves the strip one press at a time.
 const LibraryTabsPatchId = "wsgm.library-tabs";
 
-const libraryTabsAct = wsgmPageAct(LibraryTabsPatchId);
-
 // The page's own layout: where the kit's elements go, not how they look.
 const libraryTabsStyles = `
-#wsgm-library-tabs .wsgm-tabs-list { display: flex; flex-direction: column; gap: 8px; }
-#wsgm-library-tabs .wsgm-tabs-list .DialogButton { width: 100%; min-width: 0; height: auto; padding: 10px 14px; }
+#wsgm-library-tabs .wsgm-tabs-list, #wsgm-library-tabs .steam-ui-kit-list { display: flex; flex-direction: column; gap: 8px; }
+#wsgm-library-tabs .wsgm-tabs-list .DialogButton, #wsgm-library-tabs .steam-ui-kit-list .DialogButton { width: 100%; min-width: 0; height: auto; padding: 10px 14px; }
 #wsgm-library-tabs .wsgm-tabs-stepper { display: flex; align-items: center; gap: 8px; }
 #wsgm-library-tabs .wsgm-tabs-stepper span { min-width: 64px; text-align: center; }
 #wsgm-library-tabs .steam-ui-kit-tool:not(.grow) { width: 200px; }
@@ -197,12 +195,10 @@ const libraryTabsLevel = (ui, onBack, title: string, detail: string | undefined,
 
 /**
  * The root level: the builder's tabs, the way to the strip order and a new tab.
- * @param props Resolved components, published state, the tab to put the focus back on and the open callbacks.
- * @returns The list pane.
+ * @param props Resolved components, published state and the open callbacks.
+ * @returns The list pane; the collection puts the focus back on the tab it was left from.
  */
-function LibraryTabsList({ ui, state, returnTo, onNew, onOrder, onEdit }: any) {
-  const react = ui.react;
-  const h = react.createElement;
+function LibraryTabsList({ ui, state, onNew, onOrder, onEdit }: any) {
   const tabs = state.tabs ?? [];
   return renderSteamUiPane(
     ui,
@@ -212,44 +208,30 @@ function LibraryTabsList({ ui, state, returnTo, onNew, onOrder, onEdit }: any) {
       title: "Library Tab Manager",
       detail: "Tabs appear in Steam's library and update automatically as you make changes.",
     }),
-    renderSteamUiActions(ui, [
-      { id: "new", label: "New tab", primary: true, onClick: onNew },
-      { id: "order", label: "Tab order & Steam tabs", onClick: onOrder },
-    ], { compact: true }),
-    !state.loaded
-      ? renderSteamUiEmpty(react, "Reading your tabs…")
-      : tabs.length === 0
-        ? renderSteamUiBox(react, "Make the library your own", h("p", null, "Create a tab from filters such as installed games, collections or SD cards. Use Tab order & Steam tabs to arrange the library strip."))
-        : renderSteamUiGroup(
-            ui,
-            { key: "tabs", title: "Your tabs" },
-            h(
-              ui.focusable,
-              { className: "wsgm-tabs-list", "flow-children": "column" },
-              ...tabs.map((tab) =>
-                h(
-                  ui.dialogButton,
-                  {
-                    key: tab.id,
-                    // Back from a tab's editor lands on that tab again, not on the top of the list.
-                    autoFocus: tab.id === returnTo,
-                    onClick: () => onEdit(tab),
-                    onOKActionDescription: "Edit",
-                  },
-                  h(
-                    "div",
-                    { className: "steam-ui-kit-select-row" },
-                    h("span", { className: "steam-ui-kit-select-row-title" }, tab.name || "(unnamed)"),
-                    h(
-                      "span",
-                      { className: "steam-ui-kit-select-row-detail" },
-                      tab.enabled ? `${tab.filterTree?.children?.length ?? 0} filters` : "disabled",
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
+    renderSteamUiCollection(ui, {
+      id: "wsgm-library-tabs:list",
+      layout: "list",
+      items: tabs,
+      itemKey: (tab) => tab.id,
+      render: (tab) =>
+        renderSteamUiSelectRow(ui, {
+          key: tab.id,
+          title: tab.name || "(unnamed)",
+          detail: tab.enabled ? `${tab.filterTree?.children?.length ?? 0} filters` : "disabled",
+          onClick: () => onEdit(tab),
+        }),
+      actions: [
+        { id: "new", label: "New tab", primary: true, onClick: onNew },
+        { id: "order", label: "Tab order & Steam tabs", onClick: onOrder },
+      ],
+      loading: !state.loaded,
+      loadingText: "Reading your tabs…",
+      empty: {
+        title: "Make the library your own",
+        text: "Create a tab from filters such as installed games, collections or SD cards. Use Tab order & Steam tabs to arrange the library strip.",
+        action: { label: "New tab", onClick: onNew },
+      },
+    }),
   );
 }
 
@@ -258,7 +240,7 @@ function LibraryTabsList({ ui, state, returnTo, onNew, onOrder, onEdit }: any) {
  * @param props Resolved components, published state and the back callback.
  * @returns The nested level; Back returns to the list.
  */
-function LibraryTabsOrder({ ui, state, onBack }: any) {
+function LibraryTabsOrder({ ui, state, act, onBack }: any) {
   const react = ui.react;
   const h = react.createElement;
   const order = state.order ?? [];
@@ -273,12 +255,12 @@ function LibraryTabsOrder({ ui, state, onBack }: any) {
       focusable: false,
       value: renderSteamUiActions(ui, [
         { id: "up", label: "Move up", disabled: index === 0 || !!state.busy,
-          onClick: () => void libraryTabsAct("moveTab", { key: entry.key, delta: -1 }) },
+          onClick: () => void act("moveTab", { key: entry.key, delta: -1 }) },
         { id: "down", label: "Move down", disabled: index === order.length - 1 || !!state.busy,
-          onClick: () => void libraryTabsAct("moveTab", { key: entry.key, delta: 1 }) },
+          onClick: () => void act("moveTab", { key: entry.key, delta: 1 }) },
         ...(entry.kind === "native" ? [{ id: "visibility", label: entry.hidden ? "Show" : "Hide",
           disabled: !!state.busy,
-          onClick: () => void libraryTabsAct("setNativeHidden", { key: entry.key, hidden: !entry.hidden }) }] : [])
+          onClick: () => void act("setNativeHidden", { key: entry.key, hidden: !entry.hidden }) }] : [])
       ], { compact: true }),
     }),
   );
@@ -287,7 +269,9 @@ function LibraryTabsOrder({ ui, state, onBack }: any) {
     onBack,
     "Tab order",
     "Top to bottom here is left to right in Steam. Steam's own tabs can be hidden; WSGM tabs disappear when disabled in their editors.",
-    h(ui.settingsSection, { label: "Strip" }, ...rows),
+    order.length
+      ? h(ui.settingsSection, { label: "Strip" }, ...rows)
+      : renderSteamUiEmpty(ui, { kind: "loading", text: "Reading Steam's library strip…" }),
     renderSteamUiActions(ui, [{ id: "back", label: "Done", onClick: onBack }], { compact: true }),
   );
 }
@@ -320,7 +304,7 @@ function LibraryTabsFilterPicker({ ui, state, inGroup, onPick, onBack }: any) {
  * @param props Resolved components, the title, the published picker, how an item is labelled, the selected ids and the done callback.
  * @returns The nested level; Done and Back both keep the selection, which lives on the draft.
  */
-function LibraryTabsMultiSelect({ ui, title, picker, labelOf, idOf, selected, onToggle, onBack }: any) {
+function LibraryTabsMultiSelect({ ui, title, picker, labelOf, idOf, selected, onToggle, onRetry, onBack }: any) {
   const react = ui.react;
   const h = react.createElement;
   const [search, setSearch] = react.useState("");
@@ -330,11 +314,13 @@ function LibraryTabsMultiSelect({ ui, title, picker, labelOf, idOf, selected, on
   const current = Math.min(page, pageCount - 1);
   const shown = items.slice(current * libraryTabsPageSize, (current + 1) * libraryTabsPageSize);
   const body = picker?.loading && !items.length
-    ? renderSteamUiEmpty(react, "Reading from Steam…")
+    ? renderSteamUiEmpty(ui, { kind: "loading", text: "Reading from Steam…" })
     : picker?.error && !items.length
-      ? renderSteamUiEmpty(react, picker.error, true)
+      ? renderSteamUiEmpty(ui, { kind: "error", text: picker.error, action: { label: "Try again", onClick: onRetry } })
       : !items.length
-        ? renderSteamUiEmpty(react, search ? "Nothing matches." : "Nothing to pick from.")
+        ? search
+          ? renderSteamUiEmpty(ui, { kind: "noMatch", text: "Nothing matches." })
+          : renderSteamUiEmpty(ui, { kind: "empty", text: "Nothing to pick from." })
         : h(
             ui.settingsSection,
             { label: `${selected.size} selected` },
@@ -380,20 +366,21 @@ function LibraryTabsMultiSelect({ ui, title, picker, labelOf, idOf, selected, on
  * @param props Resolved components, the published picker, the pick and back callbacks.
  * @returns The nested level.
  */
-function LibraryTabsCollectionPicker({ ui, picker, onPick, onBack }: any) {
-  const react = ui.react;
-  const h = react.createElement;
+function LibraryTabsCollectionPicker({ ui, picker, onPick, onRetry, onBack }: any) {
+  const h = ui.react.createElement;
   const items = picker?.items ?? [];
   return libraryTabsLevel(
     ui,
     onBack,
     "Collection",
-    picker?.error ?? undefined,
+    picker?.error && items.length ? picker.error : undefined,
     picker?.loading && !items.length
-      ? renderSteamUiEmpty(react, "Reading from Steam…")
-      : !items.length
-        ? renderSteamUiEmpty(react, "No collections found — is Steam open?")
-        : h(
+      ? renderSteamUiEmpty(ui, { kind: "loading", text: "Reading from Steam…" })
+      : picker?.error && !items.length
+        ? renderSteamUiEmpty(ui, { kind: "error", text: picker.error, action: { label: "Try again", onClick: onRetry } })
+        : !items.length
+          ? renderSteamUiEmpty(ui, { kind: "empty", text: "No collections found — is Steam open?" })
+          : h(
             ui.focusable,
             { className: "wsgm-tabs-list", "flow-children": "column" },
             ...items.map((item) =>
@@ -621,7 +608,7 @@ function LibraryTabsEditor({ ui, state, draft, existing, touch, onAddFilter, onE
       ui,
       { key: "filters", title: "Filters" },
       filters.length === 0
-        ? renderSteamUiEmpty(react, "No filters yet — add one below.")
+        ? renderSteamUiEmpty(ui, { kind: "empty", text: "No filters yet — add one below." })
         : h(
             ui.focusable,
             { className: "wsgm-tabs-list", "flow-children": "column" },
@@ -655,34 +642,33 @@ function LibraryTabsEditor({ ui, state, draft, existing, touch, onAddFilter, onE
 }
 
 /**
- * Renders the tab list, the strip order, one tab's editor and its filter levels from host state,
+ * Walks the tab list, the strip order, one tab's editor and its filter levels over host state,
  * with Back walking the levels up.
- * @param context Registered page accessors for Steam components, latest state and publication refusal.
- * @returns The page React tree, including loading or refusal state when data is unavailable.
+ * @param props The frame's context and the host's published state.
+ * @returns The level on screen.
  */
-function LibraryTabsPage({ context }: any) {
+function LibraryTabsPage({ context, state }: any) {
   const react = context.react();
   const h = react.createElement;
   const ui = context.ui();
-  const state = context.state();
+  const act = context.act;
   // The levels the user walked into, root first; a reload of the asset starts at the list, so no
   // stale editor outlives the state it was opened from. The draft tab is edited in place and
   // redrawn through a counter, as the overlay's editor mutates its own copy.
   const [levels, setLevels] = react.useState([] as any[]);
   const [draft, setDraft] = react.useState(null as any);
   const [existing, setExisting] = react.useState(false);
-  const [returnTo, setReturnTo] = react.useState("");
   const [, redraw] = react.useState(0);
+  // The tabs are read again whenever the page opens: another surface may have changed them.
   react.useEffect(() => {
-    void libraryTabsAct("refresh");
+    void act("refresh");
   }, []);
-  if (!state) return renderSteamUiEmpty(react, context.refusal() ?? "Loading library tabs…");
   const touch = () => redraw((value: number) => value + 1);
   const push = (level) => setLevels((stack) => [...stack, level]);
   const pop = () => setLevels((stack) => stack.slice(0, -1));
   const replaceTop = (level) => setLevels((stack) => [...stack.slice(0, -1), level]);
-  const toList = (id: string) => {
-    setReturnTo(id);
+  // Back at the list, the collection puts the focus back on the tab it was left from.
+  const toList = () => {
     setLevels([]);
     setDraft(null);
   };
@@ -693,21 +679,19 @@ function LibraryTabsPage({ context }: any) {
   };
   const listOf = (group) => (group ? group.children : draft.filterTree.children);
   const top = levels[levels.length - 1];
-  const banner = state.error || state.notice;
   let body;
   if (!top) {
     body = h(LibraryTabsList, {
       ui,
       state,
-      returnTo,
       onNew: () => openEditor(null),
       onOrder: () => setLevels([{ kind: "order" }]),
       onEdit: openEditor,
     });
   } else if (top.kind === "order") {
-    body = h(LibraryTabsOrder, { ui, state, onBack: () => toList("") });
+    body = h(LibraryTabsOrder, { ui, state, act, onBack: toList });
   } else if (!draft) {
-    body = renderSteamUiEmpty(react, "Loading…");
+    body = renderSteamUiEmpty(ui, { kind: "loading", text: "Loading…" });
   } else if (top.kind === "editor") {
     body = h(LibraryTabsEditor, {
       ui,
@@ -718,13 +702,14 @@ function LibraryTabsPage({ context }: any) {
       onAddFilter: () => push({ kind: "picker", replacing: null, group: null }),
       onEditFilter: (node) => push({ kind: "filter", node, group: null }),
       onSave: () =>
-        void request(LibraryTabsPatchId, "saveTab", { tab: draft }).then(
-          () => toList(draft.id),
-          // The host names what is missing in the banner; the editor stays open.
-          () => {},
+        void context.send("saveTab", { tab: draft }).then(
+          toList,
+          // The refusal names what is missing in the banner; the editor stays open with the draft.
+          (error) => context.report(error),
         ),
-      onDelete: () => void request(LibraryTabsPatchId, "deleteTab", { id: draft.id }).then(() => toList(""), () => {}),
-      onBack: () => toList(existing ? draft.id : ""),
+      onDelete: () =>
+        void context.send("deleteTab", { id: draft.id }).then(toList, (error) => context.report(error)),
+      onBack: toList,
     });
   } else if (top.kind === "picker") {
     body = h(LibraryTabsFilterPicker, {
@@ -754,15 +739,15 @@ function LibraryTabsPage({ context }: any) {
       touch,
       onBack: pop,
       onPickTags: () => {
-        void libraryTabsAct("loadTags");
+        void act("loadTags");
         push({ kind: "tags", node });
       },
       onPickCollection: () => {
-        void libraryTabsAct("loadCollections");
+        void act("loadCollections");
         push({ kind: "collections", node });
       },
       onPickGames: () => {
-        void libraryTabsAct("loadGames");
+        void act("loadGames");
         push({ kind: "games", node });
       },
       onChangeType: () => push({ kind: "picker", replacing: node, group: top.group }),
@@ -783,6 +768,7 @@ function LibraryTabsPage({ context }: any) {
       ui,
       title: "Tags",
       picker: state.tags,
+      onRetry: () => void act("loadTags"),
       labelOf: (tag) => `${tag.name} (${tag.count})`,
       idOf: (tag) => Number(tag.tagId),
       selected,
@@ -799,6 +785,7 @@ function LibraryTabsPage({ context }: any) {
       ui,
       title: "Games",
       picker: state.games,
+      onRetry: () => void act("loadGames"),
       labelOf: (game) => game.name,
       idOf: (game) => Number(game.appId),
       selected,
@@ -813,6 +800,7 @@ function LibraryTabsPage({ context }: any) {
     body = h(LibraryTabsCollectionPicker, {
       ui,
       picker: state.collections,
+      onRetry: () => void act("loadCollections"),
       onBack: pop,
       onPick: (id: string) => {
         node.collectionId = id;
@@ -821,28 +809,17 @@ function LibraryTabsPage({ context }: any) {
       },
     });
   }
-  return h(
-    "div",
-    { id: "wsgm-library-tabs", className: "steam-ui-kit-page", "aria-label": "Library Tab Manager" },
-    steamUiKitStyle(react),
-    h("style", null, libraryTabsStyles),
-    banner
-      ? h(
-          "div",
-          { className: "steam-ui-kit-page-banner" },
-          renderSteamUiBanner(ui, { text: banner, error: !!state.error, onDismiss: () => void libraryTabsAct("dismiss") }),
-        )
-      : null,
-    body,
-  );
+  return body;
 }
 
 const libraryTabsPage = registerSteamPage({
   template: "library-tab-manager",
   gate: "libraryTabManager",
   patchId: LibraryTabsPatchId,
-  components: resolveSteamSettingsComponents,
-  required: [...SteamSettingsRequired, "dialogButtonPrimary", "modalRoot"],
+  title: "Library Tab Manager",
+  id: "wsgm-library-tabs",
+  style: libraryTabsStyles,
+  loading: "Loading library tabs…",
   status: () => ({ tabs: libraryTabsPage.state()?.tabs?.length ?? 0 }),
   Page: LibraryTabsPage,
 });

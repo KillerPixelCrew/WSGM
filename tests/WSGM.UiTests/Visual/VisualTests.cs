@@ -6,7 +6,6 @@ using Avalonia.VisualTree;
 using WSGM.Core;
 using WSGM.Overlay;
 using WSGM.Settings;
-using WSGM.Shell;
 using WSGM.UiTests.Fakes;
 using WSGM.UiTests.Infrastructure;
 
@@ -25,7 +24,7 @@ public sealed class VisualTests
         var window = fixture.Overlay(width, height, uiScale);
         if (keyboard)
         {
-            window.ShowKeyboardSurface(new KeyboardPanel("Enter text", "Full keyboard", 256));
+            window.Surfaces.ShowKeyboard(new KeyboardPanel("Enter text", "Full keyboard", 256));
         }
         else
         {
@@ -65,8 +64,7 @@ public sealed class VisualTests
     {
         using FakeDevice device = new();
         using UiFixture fixture = new();
-        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower()),
-            _ => throw new InvalidOperationException("Unexpected power write")));
+        using var schemes = UiFixture.PowerProfiles(new FakePower());
         await schemes.RefreshAsync();
         var window = fixture.Overlay(width, height, uiScale);
         // Every destination opens its selected section beside a persistent rail. With no device
@@ -95,13 +93,33 @@ public sealed class VisualTests
             UiFixture.Click(window, UiFixture.Tab(window, 2));
             if (page == "plugin")
             {
-                UiFixture.Click(window, UiFixture.Rail(window, "device.section.overview"));
+                UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.info"));
             }
         }
 
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(width, window.ClientSize.Width);
         Assert.Equal(height, window.ClientSize.Height);
+        VisualBaseline.Verify(window, name);
+    }
+
+    [AvaloniaTheory]
+    [InlineData("overlay-power-button-980", 980, 640)]
+    [InlineData("overlay-power-button-1280", 1280, 800)]
+    public void PowerButton(string name, int width, int height)
+    {
+        using UiFixture fixture = new();
+        var window = fixture.Overlay(width, height);
+        UiFixture.Click(window, UiFixture.Tab(window, 3));
+        UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerActions));
+        var model = Assert.IsType<OverlayViewModel>(window.DataContext);
+        model.PowerButtonAvailable = true;
+        model.PowerButtonShortPress = PowerButtonShortPress.SteamSuspend;
+        Dispatcher.UIThread.RunJobs();
+        var section = window.PanelPowerActions.PowerButtonSection;
+        Assert.True(section.IsVisible);
+        section.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
         VisualBaseline.Verify(window, name);
     }
 
@@ -121,17 +139,43 @@ public sealed class VisualTests
         UiFixture.Click(window, UiFixture.Tab(window, page));
         if (page == 0)
         {
-            var model = Assert.IsType<SettingsViewModel>(window.DataContext);
-            var updateStatus = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(),
-                text => text.IsEffectivelyVisible && text.Text == model.UpdateStatusText);
-            // Freeze only sample version data; the production caption and layout still render normally.
-            updateStatus.Bind(TextBlock.TextProperty,
-                new Binding { Source = "WSGM 2.1.0 is current. Not checked yet.", Mode = BindingMode.OneWay });
-            Dispatcher.UIThread.RunJobs();
+            FreezeUpdateStatus(window);
         }
 
         Assert.Equal(width, window.ClientSize.Width);
         Assert.Equal(height, window.ClientSize.Height);
+        VisualBaseline.Verify(window, name);
+    }
+
+    // System > Diagnostics with the log upload asking for confirmation, and after both files went up, both
+    // scrolled into view at the Settings floor and at a larger window.
+    [AvaloniaTheory]
+    [InlineData("settings-system-log-confirm-1024", false, 1024, 700)]
+    [InlineData("settings-system-log-confirm-1280", false, 1280, 800)]
+    [InlineData("settings-system-log-uploaded-1024", true, 1024, 700)]
+    [InlineData("settings-system-log-uploaded-1280", true, 1280, 800)]
+    public async Task SettingsLogUpload(string name, bool uploaded, int width, int height)
+    {
+        using UiFixture fixture = new();
+        fixture.LogFiles =
+        [
+            new LogUploadFile("wsgm.log", @"X:\wsgm.log", 1_258_291, false),
+            new LogUploadFile("wsgm.old.log", @"X:\wsgm.old.log", 5_242_880, true)
+        ];
+        fixture.UploadLogs = (_, _) => Task.FromResult("https://filebin.net/wsgm-0123456789abcdef0123456789abcdef");
+        var window = fixture.Settings(width, height);
+        FreezeUpdateStatus(window);
+        var model = Assert.IsType<SettingsViewModel>(window.DataContext);
+        model.Clipboard = _ => Task.CompletedTask;
+        await model.PrepareLogUploadAsync();
+        if (uploaded)
+        {
+            await model.UploadLogAsync();
+        }
+
+        Dispatcher.UIThread.RunJobs();
+        window.GetVisualDescendants().OfType<Border>().Single(border => border.Name == "LogRow").BringIntoView();
+        Dispatcher.UIThread.RunJobs();
         VisualBaseline.Verify(window, name);
     }
 
@@ -159,6 +203,17 @@ public sealed class VisualTests
 
         UiFixture.Click(window, UiFixture.Tab(window, 9));
         VisualBaseline.Verify(window, name);
+    }
+
+    // Freeze only sample version data; the production caption and layout still render normally.
+    private static void FreezeUpdateStatus(Window window)
+    {
+        var model = Assert.IsType<SettingsViewModel>(window.DataContext);
+        var updateStatus = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(),
+            text => text.IsEffectivelyVisible && text.Text == model.UpdateStatusText);
+        updateStatus.Bind(TextBlock.TextProperty,
+            new Binding { Source = "WSGM 2.1.0 is current. Not checked yet.", Mode = BindingMode.OneWay });
+        Dispatcher.UIThread.RunJobs();
     }
 
     private static PluginPackageRowState[] PluginRows()

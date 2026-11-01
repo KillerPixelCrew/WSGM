@@ -84,7 +84,7 @@ public sealed partial class SettingsViewModel
         {
             var snapshot =
                 await DeviceCoordinatorDiagnosticsClient.TryReadAsync(
-                    (uint)WindowFinder.CurrentSessionId,
+                    (uint)ProcessLookup.CurrentSessionId,
                     TimeSpan.FromMilliseconds(750));
             DeviceOwnerStatusText = snapshot is null
                 ? "No running device coordinator detected. Saved changes apply at the next shell start."

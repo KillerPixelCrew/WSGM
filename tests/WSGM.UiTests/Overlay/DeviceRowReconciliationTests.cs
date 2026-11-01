@@ -7,6 +7,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Controls;
+using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Overlay;
 using WSGM.Shell;
@@ -52,7 +53,8 @@ public sealed class DeviceRowReconciliationTests
         using var fixture = new UiFixture();
         var writes = 0;
         CurvePoint[] points = [new(40, 20), new(90, 100)];
-        var row = new DeviceCurveRow("fan", "Fan curve", "", points, null, false, _ => writes++);
+        var row = new DeviceCurveRow("fan", "Fan curve", "", points, null, false, _ => writes++,
+            FanCurvePresetTable.HandheldCompanion);
         var window = new Window { Content = row, Width = 600, Height = 400, Classes = { "command-deck" } };
         try
         {
@@ -92,7 +94,7 @@ public sealed class DeviceRowReconciliationTests
         var writes = 0;
         Control row = curve
             ? new DeviceCurveRow("edit", "Fan curve", "", [new CurvePoint(40, 20), new CurvePoint(90, 100)],
-                null, true, _ => writes++)
+                null, true, _ => writes++, FanCurvePresetTable.HandheldCompanion)
             : new DeviceSliderRow("edit", "Power", "", 8, 37, 1, CapabilityUnit.Watt, 15, true, _ => writes++);
         var window = new Window { Content = row, Width = 800, Height = 600 };
         try
@@ -147,8 +149,8 @@ public sealed class DeviceRowReconciliationTests
             writes.Add(requested);
             return Task.CompletedTask;
         };
-        var capability = new DeviceOverlayCapability("power.test", null, DeviceOverlaySection.PowerAndThermals,
-            DescriptorStatus.Available, "Power limit", "", "15 W", true, CapabilityValue.Integer(15))
+        var capability = new DeviceOverlayCapability("power.test", null, DescriptorStatus.Available, "Power limit", "",
+            "15 W", true, CapabilityValue.Integer(15))
         {
             Role = CapabilityRole.PowerSustainedLimit, PluginSectionId = "power",
             ValueKind = CapabilityValueKind.Integer, Writable = true, Minimum = 8, Maximum = 37
@@ -208,8 +210,8 @@ public sealed class DeviceRowReconciliationTests
     {
         using var device = new FakeDevice();
         using var fixture = new UiFixture();
-        var capability = new DeviceOverlayCapability("power.test", null, DeviceOverlaySection.PowerAndThermals,
-            DescriptorStatus.Available, "Power limit", "", "15 W", true, CapabilityValue.Integer(15))
+        var capability = new DeviceOverlayCapability("power.test", null, DescriptorStatus.Available, "Power limit", "",
+            "15 W", true, CapabilityValue.Integer(15))
         {
             Role = CapabilityRole.PowerSustainedLimit, PluginSectionId = "power",
             ValueKind = CapabilityValueKind.Integer,
@@ -345,8 +347,8 @@ public sealed class DeviceRowReconciliationTests
         {
             Capabilities =
             [
-                new DeviceOverlayCapability("power.test", null, DeviceOverlaySection.PowerAndThermals,
-                    DescriptorStatus.Available, "Power", "", "15 W", true, CapabilityValue.Integer(15))
+                new DeviceOverlayCapability("power.test", null, DescriptorStatus.Available, "Power", "", "15 W", true,
+                    CapabilityValue.Integer(15))
                 {
                     Role = CapabilityRole.PowerSustainedLimit, PluginSectionId = "power",
                     ValueKind = CapabilityValueKind.Integer,
@@ -359,10 +361,12 @@ public sealed class DeviceRowReconciliationTests
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.power"));
         UiFixture.OpenSections(window);
-        var detail = UiFixture.Named<StackPanel>(window, "DeviceCapabilityList");
-        var group = Assert.IsType<Border>(Assert.Single(detail.Children));
+        var group = UiFixture.Tagged<DeviceGroupView>(window, "section.device.plugin.power.main");
+        var detail = (Control)group.Parent!;
         // Power groups sit unfolded inside the page's single Power section.
         Assert.IsNotType<CollapsibleSection>(group.Child);
+        Assert.Contains(detail,
+            group.GetVisualAncestors().OfType<CollapsibleSection>().Single().GetVisualDescendants());
         Assert.True(detail.Bounds.Width > 0);
         Assert.Equal(detail.Bounds.Width, group.Bounds.Width, 3);
         Assert.Single(group.GetVisualDescendants().OfType<Slider>());
@@ -376,31 +380,32 @@ public sealed class DeviceRowReconciliationTests
     {
         using var device = new FakeDevice();
         using var fixture = new UiFixture();
-        var capability = new DeviceOverlayCapability("lighting.test", null, DeviceOverlaySection.Overview,
-            DescriptorStatus.Available, "Lighting", "", "On", true,
-            new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = true })
+        var capability = new DeviceOverlayCapability("lighting.test", null, DescriptorStatus.Available, "Lighting", "",
+            "On", true, new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = true })
         {
-            ValueKind = CapabilityValueKind.Boolean, Writable = true
+            ValueKind = CapabilityValueKind.Boolean, Writable = true, PluginSectionId = DeviceSections.InfoId
         };
-        device.State = device.State with { Capabilities = [capability], PluginSections = [] };
+        device.State = device.State with { Capabilities = [capability] };
         var window = fixture.Overlay(1280, 720);
         window.AttachDeviceBridge(device);
         if (pinned)
         {
-            window.SetPins(["section.device.overview"]);
+            window.SetPins(["section.device.plugin.info.main"]);
             UiFixture.OpenSections(window);
         }
         else
         {
             UiFixture.Click(window, UiFixture.Tab(window, 2));
-            UiFixture.Click(window, UiFixture.Rail(window, "device.section.overview"));
+            UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.info"));
             UiFixture.OpenSections(window);
         }
 
         Dispatcher.UIThread.RunJobs();
-        var host = UiFixture.Named<Panel>(window, pinned ? "PinnedSectionsGrid" : "DeviceCapabilityList");
+        var host = pinned
+            ? UiFixture.Named<Panel>(window, "PinnedSectionsGrid")
+            : (Panel)UiFixture.Tagged<DeviceGroupView>(window, "section.device.plugin.info.main").Parent!;
         var group = Assert.Single(host.Children.OfType<Border>());
-        Assert.Equal((pinned ? "pin:" : "") + "section.device.overview", group.Tag);
+        Assert.Equal((pinned ? "pin:" : "") + "section.device.plugin.info.main", group.Tag);
         var fold = Assert.IsType<CollapsibleSection>(group.Child);
         Assert.True(fold.IsExpanded);
         Assert.Single(fold.GetVisualDescendants().OfType<Expander>());
@@ -414,6 +419,61 @@ public sealed class DeviceRowReconciliationTests
         Assert.Same(group, Assert.Single(host.Children.OfType<Border>()));
         Assert.Same(editor, Assert.Single(group.GetVisualDescendants().OfType<ToggleSwitch>()));
         Assert.True(editor.IsFocused);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void TurningAutoTdpOnRebuildsOnlyItsGroupAndKeepsTheOthersAndTheirFocus()
+    {
+        using var device = new FakeDevice();
+        using var fixture = new UiFixture();
+        device.State = device.State with
+        {
+            Capabilities =
+            [
+                new DeviceOverlayCapability("power.limit", null, DescriptorStatus.Available, "Sustained", "", "15 W",
+                    true, CapabilityValue.Integer(15))
+                {
+                    PluginSectionId = DeviceSections.PowerId, Role = CapabilityRole.PowerSustainedLimit,
+                    ValueKind = CapabilityValueKind.Integer, Writable = true, Minimum = 8, Maximum = 37
+                }
+            ],
+            AutoTdp = DeviceHostRows.AutoTdpView(false, null),
+            HostSelections = new Dictionary<string, DeviceHostSelection>
+            {
+                [DeviceHostRowIds.AutoTdp] = new("off", [
+                    DeviceHostRows.HostChoice("off", "Off"),
+                    DeviceHostRows.HostChoice("on", "On")
+                ])
+            }
+        };
+        var window = fixture.Overlay(1280, 720);
+        window.AttachDeviceBridge(device);
+        UiFixture.Click(window, UiFixture.Tab(window, 2));
+        UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.power"));
+        UiFixture.OpenSections(window);
+        var fold = UiFixture.Tagged<DeviceGroupView>(window, "section.device.unified-power");
+        var limits = UiFixture.Tagged<DeviceGroupView>(window, "section.device.plugin.power.main");
+        var configuration = UiFixture.Tagged<DeviceGroupView>(window, "section.device.plugin.power.configuration");
+        var slider = Assert.Single(limits.GetVisualDescendants().OfType<Slider>());
+        Assert.True(slider.Focus());
+
+        device.State = device.State with
+        {
+            AutoTdp = DeviceHostRows.AutoTdpView(true, null),
+            AutoTdpTarget = DeviceHostRows.AutoTdpTargetRow(true, new AutoTdpTargetView(60, 60, false))
+        };
+        device.Notify();
+        Dispatcher.UIThread.RunJobs();
+
+        // The new target row rebuilds its own group; the fold and the limits beside it keep their controls.
+        Assert.Same(fold, UiFixture.Tagged<DeviceGroupView>(window, "section.device.unified-power"));
+        Assert.Same(limits, UiFixture.Tagged<DeviceGroupView>(window, "section.device.plugin.power.main"));
+        Assert.NotSame(configuration,
+            UiFixture.Tagged<DeviceGroupView>(window, "section.device.plugin.power.configuration"));
+        Assert.Contains(window.GetVisualDescendants().OfType<Slider>(),
+            candidate => Equals(candidate.Tag, DeviceHostRowIds.AutoTdpTarget));
+        Assert.True(slider.IsFocused);
         window.Close();
     }
 

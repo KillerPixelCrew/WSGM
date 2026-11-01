@@ -136,9 +136,12 @@ public sealed class SettingsSaveMergeTests
         foreach (var field in WsgmSharedSettings.All)
         {
             var current = field.Read(fresh);
-            var changed = current is bool boolean
-                ? !boolean
-                : Enum.GetValues(current.GetType()).Cast<object>().First(item => !item.Equals(current));
+            var changed = current switch
+            {
+                bool boolean => !boolean,
+                string text => text + "-runtime",
+                _ => Enum.GetValues(current.GetType()).Cast<object>().First(item => !item.Equals(current))
+            };
             field.Write(fresh, changed);
         }
 
@@ -175,10 +178,7 @@ public sealed class SettingsSaveMergeTests
         values.Profiles.Global.ControllerTarget = ManagedControllerTarget.Xbox360;
         values.DeviceIntegration.GlyphSelection = DeviceGlyphSelection.NativeSteam;
 
-        var fresh = AppConfigRules.Normalize(new AppConfig
-        {
-            LastSelectedPowerSchemeId = Guid.NewGuid()
-        }).Value;
+        var fresh = AppConfigRules.Normalize(new AppConfig()).Value;
         // Written by the running shell while the window was open: the entry it is still inside
         // owes the desktop this layout, and a save must not drop it.
         fresh.GameModeLaunchRecovery.PendingReturnLayout = new DisplayLayout([
@@ -191,6 +191,7 @@ public sealed class SettingsSaveMergeTests
         };
         fresh.LibraryTabOrder = ["fresh-tab"];
         fresh.QuickAccessPins = ["fresh-pin"];
+        fresh.Hotkeys = [new HotkeyDefinition { Id = "menu", Name = "Menu", Keys = [HotkeyKeys.Insert] }];
         fresh.PreviousShellSnapshotCaptured = true;
         fresh.PreviousShellValue = "explorer.exe";
         fresh.DeviceIntegration.AutoTdpEnabled = true;
@@ -208,9 +209,7 @@ public sealed class SettingsSaveMergeTests
             SharedEdits = ["SteamStorageFormatEnabled"]
         };
 
-        var savedPowerScheme = fresh.LastSelectedPowerSchemeId;
         var (merged, _) = SettingsSaveMerge.Apply(fresh, request, values.Splash);
-        Assert.Equal(savedPowerScheme, merged.LastSelectedPowerSchemeId);
 
         Assert.True(merged.SteamAutoRelaunch);
         Assert.Equal("#123456", merged.AccentColor);
@@ -221,6 +220,7 @@ public sealed class SettingsSaveMergeTests
         Assert.False(merged.SteamStorageFormatEnabled);
         Assert.Equal("fresh-tab", Assert.Single(merged.LibraryTabOrder));
         Assert.Equal("fresh-pin", Assert.Single(merged.QuickAccessPins));
+        Assert.Equal("menu", Assert.Single(merged.Hotkeys).Id);
         Assert.True(merged.PreviousShellSnapshotCaptured);
         Assert.Equal("explorer.exe", merged.PreviousShellValue);
         Assert.True(merged.DeviceIntegration.AutoTdpEnabled);

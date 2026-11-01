@@ -36,13 +36,14 @@ public sealed partial class EmulatorManager
             }
 
             var runtimeCheck = GetSnapshot().Installations.FirstOrDefault(installed =>
-                installed.DefinitionId == definitionId && installed.Architecture == architecture)
-                ?? new EmulatorInstallation
-                {
-                    DefinitionId = definition.Id, Architecture = architecture,
-                    ExecutablePath = Path.Combine(_context.Root, "Emulation", "runtime-check.exe"),
-                    DataPolicy = definition.DataPolicy
-                };
+                                   installed.DefinitionId == definitionId && installed.Architecture == architecture)
+                               ?? new EmulatorInstallation
+                               {
+                                   DefinitionId = definition.Id,
+                                   Architecture = architecture,
+                                   ExecutablePath = Path.Combine(_context.Root, "Emulation", "runtime-check.exe"),
+                                   DataPolicy = definition.DataPolicy
+                               };
             runtimeCheck = runtimeCheck with { DataPolicy = definition.DataPolicy };
             if (EmulatorStorage.MissingRuntimePrerequisites(runtimeCheck).Length == 0)
             {
@@ -77,7 +78,8 @@ public sealed partial class EmulatorManager
                 var missing = EmulatorStorage.MissingRuntimePrerequisites(runtimeCheck);
                 if (!reboot && missing.Length > 0)
                 {
-                    throw new InvalidOperationException("Microsoft setup finished, but the required runtime is still unavailable. "
+                    throw new InvalidOperationException(
+                        "Microsoft setup finished, but the required runtime is still unavailable. "
                         + string.Join(" ", missing));
                 }
 
@@ -99,7 +101,7 @@ public sealed partial class EmulatorManager
                         if (running.Length > 0)
                         {
                             throw new InvalidOperationException(label +
-                                " setup is already running. Finish it before starting another setup.");
+                                                                " setup is already running. Finish it before starting another setup.");
                         }
                     }
                     finally
@@ -112,7 +114,7 @@ public sealed partial class EmulatorManager
 
                     SetStatus("Downloading " + label + " from Microsoft");
                     var installer = Path.Combine(root, name);
-                    await _packages.DownloadAsync(new EmulatorAsset(name, url), installer, cancellation)
+                    await _client.DownloadAsync(new ReleaseAsset(name, url), installer, cancellation)
                         .ConfigureAwait(false);
                     using var held = new FileStream(installer, FileMode.Open, FileAccess.Read, FileShare.Read);
                     if (NativeAuthenticode.VerifyFile(installer) != 0)
@@ -123,7 +125,7 @@ public sealed partial class EmulatorManager
 #pragma warning disable SYSLIB0057 // Authenticode signer extraction has no X509CertificateLoader equivalent.
                     using var signer = new X509Certificate2(X509Certificate.CreateFromSignedFile(installer));
 #pragma warning restore SYSLIB0057
-                    if (!signer.GetNameInfo(X509NameType.SimpleName, forIssuer: false)
+                    if (!signer.GetNameInfo(X509NameType.SimpleName, false)
                             .Equals("Microsoft Corporation", StringComparison.Ordinal))
                     {
                         throw new InvalidDataException("Runtime setup is not signed by Microsoft Corporation.");
@@ -136,12 +138,16 @@ public sealed partial class EmulatorManager
                     {
                         started = Process.Start(new ProcessStartInfo(installer)
                         {
-                            Arguments = arguments, WorkingDirectory = root, UseShellExecute = true, Verb = "runas"
+                            Arguments = arguments,
+                            WorkingDirectory = root,
+                            UseShellExecute = true,
+                            Verb = "runas"
                         });
                     }
                     catch (Win32Exception exception) when (exception.NativeErrorCode == 1223)
                     {
-                        throw new InvalidOperationException("Microsoft runtime setup was cancelled at the Windows permission prompt.");
+                        throw new InvalidOperationException(
+                            "Microsoft runtime setup was cancelled at the Windows permission prompt.");
                     }
 
                     using var setup = started ?? throw new IOException("Microsoft runtime setup could not be started.");
@@ -154,14 +160,15 @@ public sealed partial class EmulatorManager
                     }
                     catch (OperationCanceledException)
                     {
-                        throw new InvalidOperationException("WSGM stopped waiting for Microsoft setup. Finish the setup window before trying again; its installer has not been terminated.");
+                        throw new InvalidOperationException(
+                            "WSGM stopped waiting for Microsoft setup. Finish the setup window before trying again; its installer has not been terminated.");
                     }
 
                     setupRunning = false;
                     if (setup.ExitCode is not (0 or SessionProtocolNames.RestartRequired))
                     {
                         throw new InvalidOperationException(label + " setup exited with code " + setup.ExitCode +
-                            ". Check the Microsoft setup result before trying again.");
+                                                            ". Check the Microsoft setup result before trying again.");
                     }
 
                     return setup.ExitCode == SessionProtocolNames.RestartRequired;

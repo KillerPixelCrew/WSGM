@@ -1,11 +1,20 @@
 using WindowsDeviceControl;
 using WSGM.Setup.Engine;
+using WSGM.Setup.UI;
 
 namespace WSGM.Tests.Setup;
 
 public sealed class DriverCompatibilityTests : IDisposable
 {
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "wsgm-protection-" + Guid.NewGuid());
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_directory))
+        {
+            Directory.Delete(_directory, true);
+        }
+    }
 
     [Fact]
     public void UninstallRestoresAbsentOverridesAndPreservesPreexistingExclusions()
@@ -60,38 +69,104 @@ public sealed class DriverCompatibilityTests : IDisposable
         Assert.False(File.Exists(Path.Combine(_directory, "recovery.json")));
     }
 
-    private DriverCompatibility Create(FakeSystem system) =>
-        new(Path.Combine(_directory, "recovery.json"), system);
-
-    public void Dispose()
+    [Fact]
+    public void ExclusionsAddedOnAnEarlierRunAreRecognised()
     {
-        if (Directory.Exists(_directory))
+        var system = new FakeSystem();
+        var root = Path.Combine(_directory, "WSGM");
+        var service = Create(system);
+        Assert.False(service.HasDefenderExclusions(root));
+
+        service.AddDefenderExclusions(root);
+
+        Assert.True(Create(system).HasDefenderExclusions(root));
+    }
+
+    [Fact]
+    public void SettingsThisPcAlreadyHasShowAsDoneAndAreNotAppliedAgain()
+    {
+        var page = new DriverCompatibilityPage(
+            new WindowsProtectionState(false, false, ControlFlowGuardSetting.Disabled, false), defenderExcluded: true);
+
+        Assert.All(page.Options.Where(option => option.Key != "restore"), option =>
         {
-            Directory.Delete(_directory, recursive: true);
-        }
+            Assert.True(option.On);
+            Assert.False(option.Enabled);
+            Assert.StartsWith("Already set", option.Description, StringComparison.Ordinal);
+        });
+        var choices = page.Choices;
+        Assert.False(choices.DefenderExclusions || choices.DisableMemoryIntegrity || choices.DisableDriverBlocklist
+                     || choices.DisableControlFlowGuard);
+
+        var fresh = new DriverCompatibilityPage(new WindowsProtectionState(null, null, ControlFlowGuardSetting.Default,
+            false));
+        Assert.All(fresh.Options.Where(option => option.Key != "restore"), option =>
+        {
+            Assert.False(option.On);
+            Assert.True(option.Enabled);
+        });
+    }
+
+    private DriverCompatibility Create(FakeSystem system)
+    {
+        return new DriverCompatibility(Path.Combine(_directory, "recovery.json"), system);
     }
 
     private sealed class FakeSystem : IDriverCompatibilitySystem
     {
-        internal WindowsProtectionState State = new(null, null, ControlFlowGuardSetting.Default, false);
         internal readonly List<string> Paths = [];
         internal readonly List<string> Processes = [];
         internal bool FailBlocklist;
-        public WindowsProtectionState Read(bool controlFlowGuard) => controlFlowGuard ? State : State with { ControlFlowGuard = null };
-        public void SetMemoryIntegrity(bool? value) => State = State with { MemoryIntegrity = value };
+        internal WindowsProtectionState State = new(null, null, ControlFlowGuardSetting.Default, false);
+
+        public WindowsProtectionState Read(bool controlFlowGuard)
+        {
+            return controlFlowGuard ? State : State with { ControlFlowGuard = null };
+        }
+
+        public void SetMemoryIntegrity(bool? value)
+        {
+            State = State with { MemoryIntegrity = value };
+        }
+
         public void SetDriverBlocklist(bool? value)
         {
             if (FailBlocklist)
             {
                 throw new IOException("Simulated Windows refusal");
             }
+
             State = State with { VulnerableDriverBlocklist = value };
         }
-        public void SetControlFlowGuard(ControlFlowGuardSetting value) => State = State with { ControlFlowGuard = value };
-        public DefenderExclusionState ReadExclusions() => new(Paths.ToArray(), Processes.ToArray());
-        public void AddPath(string path) => Paths.Add(path);
-        public void AddProcess(string path) => Processes.Add(path);
-        public void RemovePath(string path) => Paths.Remove(path);
-        public void RemoveProcess(string path) => Processes.Remove(path);
+
+        public void SetControlFlowGuard(ControlFlowGuardSetting value)
+        {
+            State = State with { ControlFlowGuard = value };
+        }
+
+        public DefenderExclusionState ReadExclusions()
+        {
+            return new DefenderExclusionState(Paths.ToArray(), Processes.ToArray());
+        }
+
+        public void AddPath(string path)
+        {
+            Paths.Add(path);
+        }
+
+        public void AddProcess(string path)
+        {
+            Processes.Add(path);
+        }
+
+        public void RemovePath(string path)
+        {
+            Paths.Remove(path);
+        }
+
+        public void RemoveProcess(string path)
+        {
+            Processes.Remove(path);
+        }
     }
 }

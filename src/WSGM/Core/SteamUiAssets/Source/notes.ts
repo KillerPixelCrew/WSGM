@@ -583,11 +583,10 @@ function NotesCaptureLevel({ ui, state, page, onBack }: any) {
       ),
     ),
     !state.captureAvailable
-      ? renderSteamUiEmpty(
-          react,
-          "Screenshots are taken from a game's Steam overlay. Open Notes over a running game.",
-          true,
-        )
+      ? renderSteamUiEmpty(ui, {
+          kind: "unavailable",
+          text: "Screenshots are taken from a game's Steam overlay. Open Notes over a running game.",
+        })
       : null,
     renderSteamUiToolbar(
       ui,
@@ -1065,10 +1064,10 @@ function NotesPageLevel(props: any) {
       panel === "contents"
         ? list.length
           ? h(ui.focusable, { className: "wsgm-notes-list", "flow-children": "column" }, ...list)
-          : renderSteamUiEmpty(
-              react,
-              "No text or images yet. Return to add text, ink or a screenshot.",
-            )
+          : renderSteamUiEmpty(ui, {
+              kind: "empty",
+              text: "No text or images yet. Return to add text, ink or a screenshot.",
+            })
         : panel === "selection"
           ? selection
           : pageActions,
@@ -1174,12 +1173,11 @@ function NotesPageLevel(props: any) {
 
 /**
  * The notebook: its pages, a new page, and switching to Global or another game's notebook.
- * @param props Resolved components, published state and the switch flag/callbacks.
- * @returns The list pane or the notebook picker.
+ * @param props Resolved components and published state.
+ * @returns The notebook pane; its collection puts the focus back on the page it was left from.
  */
 function NotesNotebookLevel({ ui, state }: any) {
-  const react = ui.react;
-  const h = react.createElement;
+  const h = ui.react.createElement;
   const game = state.game;
   const detail =
     state.scope === "global"
@@ -1191,7 +1189,8 @@ function NotesNotebookLevel({ ui, state }: any) {
       : state.scope === game.scope
         ? `Notes for ${game.title}, the game running now.`
         : "Notes for this game.";
-  const pages = state.pages.map((page) =>
+  const create = () => void notesSend("create", { scope: state.scope });
+  const card = (page) =>
     renderSteamUiCard(ui, {
       key: page.id,
       title: page.title,
@@ -1222,58 +1221,45 @@ function NotesNotebookLevel({ ui, state }: any) {
         "Edited " + new Date(page.modified).toLocaleDateString(undefined, { dateStyle: "medium" }),
       ],
       onActivate: () => void notesSend("openPage", { pageId: page.id }),
-    }),
-  );
+    });
   return renderSteamUiPane(
     ui,
     { key: "notebook", bounded: true },
     renderSteamUiHeader(ui, { page: true, title: "Notes", detail }),
-    renderSteamUiChoice(ui, {
-      label: "Notebook",
-      selectedOption: state.scope,
-      rgOptions: state.notebooks.map((book) => ({
-        data: book.scope,
-        label: `${book.title}${book.scope === game.scope ? " · Running now" : ""} · ${book.pages} ${book.pages === 1 ? "page" : "pages"}`,
-      })),
-      onChange: (option) => void notesSend("selectScope", { scope: option.data }),
+    renderSteamUiCollection(ui, {
+      // One memory per notebook, so the focus returns to the page that was open in it.
+      id: `wsgm-notes:${state.scope}`,
+      items: state.pages,
+      itemKey: (page) => page.id,
+      render: card,
+      header: renderSteamUiChoice(ui, {
+        label: "Notebook",
+        selectedOption: state.scope,
+        rgOptions: state.notebooks.map((book) => ({
+          data: book.scope,
+          label: `${book.title}${book.scope === game.scope ? " · Running now" : ""} · ${book.pages} ${book.pages === 1 ? "page" : "pages"}`,
+        })),
+        onChange: (option) => void notesSend("selectScope", { scope: option.data }),
+      }),
+      actions: [{ id: "create", label: "New page", primary: true, onClick: create }],
+      empty: {
+        title: "Your notebook starts here",
+        text: `Create a page in ${state.scopeTitle} for text, drawings and game screenshots. Changes stay on this PC.`,
+        action: { label: "New page", onClick: create },
+      },
     }),
-    renderSteamUiActions(
-      ui,
-      [
-        {
-          id: "create",
-          label: "New page",
-          primary: true,
-          onClick: () => void notesSend("create", { scope: state.scope }),
-        },
-      ],
-      { compact: true },
-    ),
-    pages.length
-      ? renderSteamUiGrid(ui, pages)
-      : renderSteamUiBox(
-          react,
-          "Your notebook starts here",
-          h(
-            "p",
-            null,
-            `Create a page in ${state.scopeTitle} for text, drawings and game screenshots.`,
-          ),
-          h("p", { className: "steam-ui-kit-muted" }, "Changes stay on this PC."),
-        ),
   );
 }
 
 /**
  * Renders Notes from host state: the notebook, its page editor, and the capture and conflict levels.
- * @param context Registered page accessors for Steam components, latest state and publication refusal.
- * @returns The page React tree.
+ * @param props The frame's context and the host's published state.
+ * @returns The level on screen, in an element that tells which Steam window the page is drawn in.
  */
-function NotesPage({ context }: any) {
+function NotesPage({ context, state }: any) {
   const react = context.react();
   const h = react.createElement;
   const ui = context.ui();
-  const state = context.state();
   const rootRef = react.useRef(null);
   const [capabilities, setCapabilities] = react.useState(null);
   react.useEffect(() => {
@@ -1289,13 +1275,10 @@ function NotesPage({ context }: any) {
     });
     void notesSend("report", { capabilities: JSON.stringify({ ...found, overlay }) });
   }, []);
-  const banner =
-    state?.error ||
-    state?.notice ||
-    (state?.capture?.phase === "idle" ? state.capture.outcome : null);
   let body;
-  if (!state || !state.loaded) {
-    body = renderSteamUiEmpty(react, context.refusal() ?? "Opening your notes…");
+  if (!state.loaded) {
+    // The host reads Notes only once the page has said it opened.
+    body = renderSteamUiEmpty(ui, { kind: "loading", text: "Opening your notes…" });
   } else if (state.page) {
     body = h(NotesPageLevel, {
       key: state.page.id,
@@ -1312,32 +1295,28 @@ function NotesPage({ context }: any) {
       state,
     });
   }
-  return h(
-    "div",
-    { id: "wsgm-notes", ref: rootRef, className: "steam-ui-kit-page", "aria-label": "Notes" },
-    steamUiKitStyle(react),
-    h("style", null, notesStyles),
-    banner
-      ? h(
-          "div",
-          { className: "steam-ui-kit-page-banner" },
-          renderSteamUiBanner(ui, {
-            text: banner,
-            error: !!state?.error || !!state?.capture?.outcomeIsError,
-            onDismiss: () => void notesSend("dismiss"),
-          }),
-        )
-      : null,
-    body,
-  );
+  return h("div", { ref: rootRef, className: "wsgm-notes-root" }, body);
 }
+
+// The host's message: an error, a notice, or how the last screenshot ended.
+const notesBanner = (state) =>
+  state.error
+    ? { text: state.error, error: true }
+    : state.notice
+      ? { text: state.notice }
+      : state.capture?.phase === "idle" && state.capture.outcome
+        ? { text: state.capture.outcome, error: !!state.capture.outcomeIsError }
+        : null;
 
 const notesPage = registerSteamPage({
   template: "notes",
   gate: "notes",
   patchId: NotesPatchId,
-  components: resolveSteamSettingsComponents,
-  required: [...SteamSettingsRequired, "dialogButtonPrimary", "modalRoot"],
+  title: "Notes",
+  id: "wsgm-notes",
+  style: notesStyles,
+  loading: "Opening your notes…",
+  banner: notesBanner,
   status: () => ({
     loaded: !!notesPage.state()?.loaded,
     keyboard: notesKeyboardHook ? "hook" : notesKeyboardHook === null ? "none" : "unresolved",

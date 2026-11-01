@@ -1,0 +1,648 @@
+using WindowsDeviceControl;
+using WSGM.Core;
+using WSGM.Plugin.Sdk;
+using WSGM.Shell;
+using static WSGM.Tests.Builders.PluginBuilders;
+
+namespace WSGM.Tests.Shell;
+
+public sealed class GameModeEntryTransactionTests
+{
+    private static readonly DisplayTargetIdentity Tv = new(@"\\?\tv", null, null, "Living room TV", 0, 0, 1);
+
+    private static readonly DisplayTargetIdentity Desk = new(@"\\?\desk", null, null, "Desk", 0, 0, 2);
+
+    private static DisplayLayout Layout(DisplayTargetIdentity target)
+    {
+        return new DisplayLayout([new DisplayLayoutOutput(target, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60))]);
+    }
+
+    private static GameModeLaunchConfiguration Custom()
+    {
+        return new GameModeLaunchConfiguration
+        {
+            Kind = GameModeLaunchKind.Custom,
+            GameLayout = Layout(Tv),
+            WaitForDisplay = Tv,
+            EnterActions = [Step("switch-to-pc"), Step("tv-on")],
+            LeaveActions = [Step("switch-to-box")]
+        };
+    }
+
+    [Fact]
+    public async Task ACustomEntryRunsItsStepsInOrderAndAsksForBigPictureAfterExplorerLeaves()
+    {
+        Backend backend = new();
+
+        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
+
+        Assert.Equal(GameModeEntryOutcome.Entered, result.Outcome);
+        Assert.Equal(
+        [
+            "observe",
+            "capture-audio",
+            "enter-actions",
+            "wait",
+            "persist-return",
+            "prepare-explorer",
+            "observe",
+            "exit-explorer",
+            "apply-layout",
+            "arm-splash",
+            "big-picture",
+            "commit"
+        ], backend.Steps);
+    }
+
+    [Fact]
+    public async Task ADefaultEntryTouchesNoLayoutButStillRunsTheActionsAndTheWait()
+    {
+        // The maintainer's desktop needs the IR switch and the TV wait even when the layout itself
+        // is left to Windows, so Default is "no saved layout", not "no automation".
+        Backend backend = new();
+        GameModeLaunchConfiguration launch = new()
+        {
+            Kind = GameModeLaunchKind.Default,
+            WaitForDisplay = Tv,
+            EnterActions = [Step("switch-to-pc")]
+        };
+
+        var result = await new GameModeEntryTransaction(backend, launch).RunAsync(CancellationToken.None);
+
+        Assert.Equal(GameModeEntryOutcome.Entered, result.Outcome);
+        Assert.Equal(
+            [
+                "enter-actions", "wait", "prepare-explorer", "observe", "exit-explorer",
+                "default-posture", "arm-splash", "big-picture", "commit"
+            ],
+            backend.Steps);
+    }
+
+    [Fact]
+    public async Task GameModeAudioIsAppliedAfterTheLayout()
+    {
+        Backend backend = new();
+        var launch = Custom();
+        launch.GameAudio = new AudioProfilePreference
+        {
+            Output = new AudioEndpointPreference { Id = "hdmi", Name = "TV" }
+        };
+
+        var result = await new GameModeEntryTransaction(backend, launch).RunAsync(CancellationToken.None);
+
+        Assert.Equal(GameModeEntryOutcome.Entered, result.Outcome);
+        Assert.True(backend.Calls.IndexOf("apply-layout") < backend.Calls.IndexOf("apply-audio"));
+    }
+
+    [Fact]
+    public async Task LayoutDriverPreferencesAreAppliedBeforeHdmiAudioAndDoNotBlockSteamOnRefusal()
+    {
+        Backend backend = new() { GraphicsWarning = "The output rejected 10-bit color." };
+        var launch = Custom();
+        launch.GameDisplayGpu =
+        [
+            new DisplayGpuPreference
+            {
+                Target = Tv, PluginId = "wsgm.gpu.nvidia", CapabilityId = "display.color-depth",
+                Value = new PluginValue(Text: "10")
+            }
+        ];
+        launch.GameAudio = new AudioProfilePreference { Output = new AudioEndpointPreference { Id = "hdmi" } };
+
+        var result = await new GameModeEntryTransaction(backend, launch).RunAsync(CancellationToken.None);
+
+        Assert.Equal(GameModeEntryOutcome.Entered, result.Outcome);
+        Assert.Contains("rejected 10-bit", result.Warning!, StringComparison.Ordinal);
+        Assert.True(backend.Calls.IndexOf("capture-display-gpu") < backend.Calls.IndexOf("exit-explorer"));
+        Assert.True(backend.Calls.IndexOf("apply-layout") < backend.Calls.IndexOf("apply-display-gpu"));
+        Assert.True(backend.Calls.IndexOf("apply-display-gpu") < backend.Calls.IndexOf("apply-audio"));
+        Assert.True(backend.Calls.IndexOf("apply-audio") < backend.Calls.IndexOf("big-picture"));
+    }
+
+    [Fact]
+    public async Task APreviouslyAbsentTvOriginalIsPersistedBeforeItsFirstWriteWithoutReplacingEarlierOriginals()
+    {
+        var globalOriginal = new DisplayGpuPreference
+        {
+            PluginId = "wsgm.gpu.nvidia", CapabilityId = "graphics.gsync", Value = new PluginValue(true)
+        };
+        var globalAfterLayout = new DisplayGpuPreference
+        {
+            PluginId = globalOriginal.PluginId, CapabilityId = globalOriginal.CapabilityId,
+            Value = new PluginValue(false)
+        };
+        var tvOriginal = new DisplayGpuPreference
+        {
+            Target = Tv, PluginId = "wsgm.gpu.nvidia", CapabilityId = "display.color-depth",
+            Value = new PluginValue(Text: "8")
+        };
+        Backend backend = new()
+        {
+            CapturedGraphics = [globalOriginal], LateCapturedGraphics = [globalAfterLayout, tvOriginal]
+        };
+        var launch = Custom();
+        launch.GameDisplayGpu =
+        [
+            globalAfterLayout, new DisplayGpuPreference
+            {
+                Target = Tv, PluginId = tvOriginal.PluginId, CapabilityId = tvOriginal.CapabilityId,
+                Value = new PluginValue(Text: "10")
+            }
+        ];
+
+        var result = await new GameModeEntryTransaction(backend, launch).RunAsync(CancellationToken.None);
+
+        Assert.Equal(GameModeEntryOutcome.Entered, result.Outcome);
+        Assert.Equal(2, backend.PersistedGraphics.Count);
+        var originals = backend.PersistedGraphics[1];
+        Assert.Equal(2, originals.Count);
+        Assert.Same(globalOriginal, originals[0]);
+        Assert.Same(tvOriginal, originals[1]);
+        Assert.True(backend.Calls.IndexOf("apply-layout") < backend.Calls.IndexOf("capture-display-gpu-late"));
+        Assert.True(backend.Calls.LastIndexOf("persist-return") < backend.Calls.IndexOf("apply-display-gpu"));
+    }
+
+    [Fact]
+    public async Task UnreadableGpuOriginalsDoNotGateTheRequestedWrite()
+    {
+        Backend backend = new();
+        var launch = Custom();
+        launch.GameDisplayGpu =
+        [
+            new DisplayGpuPreference
+            {
+                Target = Tv, PluginId = "wsgm.gpu.nvidia", CapabilityId = "display.color-depth",
+                Value = new PluginValue(Text: "10")
+            }
+        ];
+
+        var result = await new GameModeEntryTransaction(backend, launch).RunAsync(CancellationToken.None);
+
+        Assert.Equal(GameModeEntryOutcome.Entered, result.Outcome);
+        Assert.Contains("apply-display-gpu", backend.Calls);
+        Assert.All(backend.PersistedGraphics, originals => Assert.Empty(originals));
+    }
+
+    [Fact]
+    public async Task BigPictureWaitsUntilSplashDetectionIsArmed()
+    {
+        TaskCompletionSource armed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Backend backend = new() { ArmGate = armed.Task };
+        var entry = new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
+
+        Assert.Contains("arm-splash", backend.Calls);
+        Assert.DoesNotContain("big-picture", backend.Calls);
+        armed.SetResult();
+        Assert.Equal(GameModeEntryOutcome.Entered, (await entry).Outcome);
+        Assert.Contains("big-picture", backend.Calls);
+    }
+
+    [Fact]
+    public async Task AFailedEntryActionStopsTheRestAndUndoesWhatRan()
+    {
+        Backend backend = new() { FailAction = "tv-on" };
+
+        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
+
+        Assert.Equal(GameModeEntryOutcome.Failed, result.Outcome);
+        Assert.Contains("tv-on refused", result.Warning!, StringComparison.Ordinal);
+        Assert.DoesNotContain("exit-explorer", backend.Calls);
+        // The switch was already told to select this PC, so leaving it there would strand the TV
+        // on the wrong input.
+        Assert.Contains("leave-actions", backend.Calls);
+        Assert.Contains("apply-layout", backend.Calls);
+        Assert.Contains("clear-return", backend.Calls);
+    }
+
+    [Fact]
+    public async Task AnEntryWhoseFirstActionWasRejectedDoesNotEmitTheLeaveActions()
+    {
+        // Nothing was sent, so there is nothing to undo, and an IR burst here would move a switch
+        // the user never asked to move.
+        Backend backend = new() { FailAction = "switch-to-pc" };
+
+        await new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
+
+        Assert.DoesNotContain("leave-actions", backend.Calls);
+    }
+
+    [Fact]
+    public async Task CancellingDuringTheDisplayWaitRestoresTheDesktopAndNeverTouchesExplorer()
+    {
+        using CancellationTokenSource cancellation = new();
+        Backend backend = new() { OnWait = cancellation.Cancel };
+
+        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(cancellation.Token);
+
+        Assert.Equal(GameModeEntryOutcome.Cancelled, result.Outcome);
+        Assert.Null(result.Warning);
+        Assert.DoesNotContain("prepare-explorer", backend.Calls);
+        Assert.DoesNotContain("exit-explorer", backend.Calls);
+        Assert.Contains("leave-actions", backend.Calls);
+        Assert.Equal(["captured"], backend.RestoredLayouts);
+    }
+
+    [Fact]
+    public async Task ARefusedExplorerTakeoverKeepsTheDesktopAndCompensates()
+    {
+        Backend backend = new() { PrepareExplorer = false };
+
+        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
+
+        Assert.Equal(GameModeEntryOutcome.DesktopPreserved, result.Outcome);
+        Assert.Equal(SessionModes.ExplorerTakeoverRefusedWarning, result.Warning);
+        Assert.DoesNotContain("exit-explorer", backend.Calls);
+    }
+
+    [Fact]
+    public async Task AnExplorerThatRefusedToLeaveKeepsTheDesktopRatherThanHalfEntering()
+    {
+        Backend backend = new() { ExitExplorer = false };
+
+        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
+
+        Assert.Equal(GameModeEntryOutcome.DesktopPreserved, result.Outcome);
+        Assert.Equal(SessionModes.ExplorerExitFailedWarning, result.Warning);
+        Assert.DoesNotContain("commit", backend.Calls);
+    }
+
+    [Fact]
+    public async Task ALayoutRefusedAfterExplorerLeftStillEntersAndReportsIt()
+    {
+        // Past the boundary there is no cheap desktop to go back to. A usable Game Mode on the
+        // wrong display beats tearing the whole session down again.
+        Backend backend = new() { LayoutOutcome = DisplayLayoutOutcome.Rejected };
+
+        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
+
+        Assert.Equal(GameModeEntryOutcome.Entered, result.Outcome);
+        Assert.Contains("Game Mode display layout", result.Warning!, StringComparison.Ordinal);
+        Assert.Contains("commit", backend.Calls);
+    }
+
+    [Fact]
+    public async Task ADisplayThatVanishesBeforeTheBoundaryIsWaitedForAgain()
+    {
+        Backend backend = new() { MissingOnRecheck = true };
+
+        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
+
+        Assert.Equal(GameModeEntryOutcome.Entered, result.Outcome);
+        Assert.Equal(2, backend.Calls.Count(call => call == "wait"));
+    }
+
+    [Fact]
+    public async Task TheReturnLayoutIsRecordedBeforeExplorerLeavesAndClearedWhenEntryIsUndone()
+    {
+        Backend backend = new() { PrepareExplorer = false };
+
+        await new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
+
+        Assert.Equal(["captured", null], backend.PersistedReturns);
+    }
+
+    [Fact]
+    public async Task AConfiguredDesktopLayoutIsWhatEntryPromisesToRestore()
+    {
+        Backend backend = new() { PrepareExplorer = false };
+        var launch = Custom();
+        launch.Return = GameModeReturn.DesktopLayout;
+        launch.DesktopLayout = Layout(Desk);
+
+        await new GameModeEntryTransaction(backend, launch).RunAsync(CancellationToken.None);
+
+        // The configured layout, not whatever the desktop happened to look like at entry.
+        Assert.Equal(["desk"], backend.PersistedReturns.Where(name => name is not null));
+        Assert.Equal(["desk"], backend.RestoredLayouts);
+    }
+
+    [Fact]
+    public async Task TheSplashStopsOfferingCancelExactlyAtTheExplorerExit()
+    {
+        Backend backend = new();
+
+        await new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
+
+        var lastCancellable = backend.Calls.LastIndexOf("cancellable:true");
+        var notCancellable = backend.Calls.IndexOf("cancellable:false");
+        var exit = backend.Calls.IndexOf("exit-explorer");
+        Assert.InRange(notCancellable, lastCancellable + 1, exit);
+    }
+
+    [Fact]
+    public async Task APartialExplorerExitAlwaysRecoversAndNeverCommits()
+    {
+        Backend backend = new() { ExitExplorer = false };
+        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
+        Assert.Equal(GameModeEntryOutcome.DesktopPreserved, result.Outcome);
+        Assert.Contains("restore-desktop", backend.Calls);
+        Assert.DoesNotContain("commit", backend.Calls);
+    }
+
+    [Fact]
+    public async Task ADesktopRequestDuringExplorerExitIsHonouredAfterTheExit()
+    {
+        using CancellationTokenSource cancellation = new();
+        Backend backend = new() { OnExit = cancellation.Cancel };
+        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(cancellation.Token);
+        Assert.Equal(GameModeEntryOutcome.Cancelled, result.Outcome);
+        Assert.Contains("restore-desktop", backend.Calls);
+        Assert.DoesNotContain("big-picture", backend.Calls);
+    }
+
+    [Fact]
+    public async Task EntryWaitsForTheUiCommitAndRecoversIfItFails()
+    {
+        TaskCompletionSource commit = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Backend backend = new() { CommitGate = commit.Task, ThrowOnCommit = true };
+        var entry = new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
+        Assert.False(entry.IsCompleted);
+        commit.SetResult();
+        Assert.Equal(GameModeEntryOutcome.Failed, (await entry).Outcome);
+        Assert.Equal(1, backend.Calls.Count(call => call == "restore-desktop"));
+        Assert.Equal(1, backend.Calls.Count(call => call == "leave-actions"));
+    }
+
+    private sealed class Backend : IGameModeEntryBackend
+    {
+        private int _observations;
+
+        internal List<string> Calls { get; } = [];
+
+        /// <summary>
+        ///     Calls with the splash's button-label changes filtered out, for the tests that
+        ///     assert the exact order of the work itself.
+        /// </summary>
+        internal IEnumerable<string> Steps =>
+            Calls.Where(call => !call.StartsWith("cancellable", StringComparison.Ordinal));
+
+        internal List<string?> PersistedReturns { get; } = [];
+
+        internal List<string> RestoredLayouts { get; } = [];
+
+        internal string? FailAction { get; init; }
+
+        internal Action? OnWait { get; init; }
+
+        internal Task ArmGate { get; init; } = Task.CompletedTask;
+        internal Task CommitGate { get; init; } = Task.CompletedTask;
+        internal Action? OnExit { get; init; }
+        internal bool ThrowOnCommit { get; init; }
+
+        internal bool PrepareExplorer { get; init; } = true;
+
+        internal bool ExitExplorer { get; init; } = true;
+
+        internal bool MissingOnRecheck { get; init; }
+        internal string? GraphicsWarning { get; init; }
+        internal IReadOnlyList<DisplayGpuPreference> CapturedGraphics { get; init; } = [];
+        internal IReadOnlyList<DisplayGpuPreference> LateCapturedGraphics { get; init; } = [];
+        internal List<IReadOnlyList<DisplayGpuPreference>> PersistedGraphics { get; } = [];
+
+        internal DisplayLayoutOutcome LayoutOutcome { get; init; } = DisplayLayoutOutcome.Applied;
+
+        public Task<bool> RestorePendingReturnAsync(CancellationToken cancellationToken)
+        {
+            return Task.FromResult(true);
+        }
+
+        public void SetStatus(string line)
+        {
+        }
+
+        public void SetCancellable(bool cancellable)
+        {
+            Calls.Add($"cancellable:{(cancellable ? "true" : "false")}");
+        }
+
+        public Task<DisplayArrangement> ObserveAsync()
+        {
+            Calls.Add("observe");
+            _observations++;
+            var visible = !MissingOnRecheck || _observations != 2;
+            return Task.FromResult(new DisplayArrangement(
+                visible
+                    ?
+                    [
+                        new DisplayTargetObservation(Tv, true, true,
+                            new DisplayLayoutOutput(Tv, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60)))
+                    ]
+                    : [],
+                "captured", DateTimeOffset.UnixEpoch));
+        }
+
+        public Task<DisplayArrangement> WaitForDisplaysAsync(
+            IReadOnlyList<DisplayTargetIdentity> targets, CancellationToken cancellationToken)
+        {
+            Calls.Add("wait");
+            OnWait?.Invoke();
+            cancellationToken.ThrowIfCancellationRequested();
+            return ObserveWithoutRecording();
+        }
+
+        public Task<DisplayLayoutResult> ApplyLayoutAsync(
+            DisplayLayout layout, CancellationToken cancellationToken)
+        {
+            var name = layout.Outputs[0].Target.FriendlyName == "Desk" ? "desk" : "captured";
+            // A restore is the same call with the layout entry recorded; distinguishing them by
+            // whether Explorer has left yet would test the test, so both are recorded.
+            Calls.Add("apply-layout");
+            RestoredLayouts.Add(name);
+            return Task.FromResult(new DisplayLayoutResult(LayoutOutcome, [], 0, false, 0, [],
+                FailureMessage: "refused"));
+        }
+
+        public Task<AudioProfilePreference?> CaptureAudioAsync(CancellationToken cancellationToken)
+        {
+            Calls.Add("capture-audio");
+            return Task.FromResult<AudioProfilePreference?>(new AudioProfilePreference
+            {
+                Output = new AudioEndpointPreference { Id = "desktop", Name = "Desktop" }
+            });
+        }
+
+        public Task<string?> ApplyDisplayGpuAsync(IReadOnlyList<DisplayGpuPreference> preferences,
+            CancellationToken cancellationToken)
+        {
+            Calls.Add("apply-display-gpu");
+            return Task.FromResult(GraphicsWarning);
+        }
+
+        public Task<IReadOnlyList<DisplayGpuPreference>> CaptureDisplayGpuAsync(
+            IReadOnlyList<DisplayGpuPreference> preferences, CancellationToken cancellationToken,
+            bool refreshTopology = false)
+        {
+            Calls.Add(refreshTopology ? "capture-display-gpu-late" : "capture-display-gpu");
+            return Task.FromResult(refreshTopology ? LateCapturedGraphics : CapturedGraphics);
+        }
+
+        public Task<AudioProfileApplyResult> ApplyAudioAsync(
+            AudioProfilePreference? preference,
+            CancellationToken cancellationToken)
+        {
+            Calls.Add("apply-audio");
+            return Task.FromResult(new AudioProfileApplyResult([]));
+        }
+
+        public Task PersistPendingReturnAsync(DisplayLayout? layout, AudioProfilePreference? audio,
+            IReadOnlyList<DisplayGpuPreference>? graphics = null)
+        {
+            Calls.Add(layout is null ? "clear-return" : "persist-return");
+            if (graphics is not null)
+            {
+                PersistedGraphics.Add([.. graphics]);
+            }
+
+            PersistedReturns.Add(layout is null ? null
+                : layout.Outputs[0].Target.FriendlyName == "Desk" ? "desk" : "captured");
+            return Task.CompletedTask;
+        }
+
+        public Task ApplyDefaultPostureAsync()
+        {
+            Calls.Add("default-posture");
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<PluginActionStepResult>> RunEnterActionsAsync(
+            IReadOnlyList<PluginActionStep> steps, CancellationToken cancellationToken)
+        {
+            Calls.Add("enter-actions");
+            List<PluginActionStepResult> results = [];
+            foreach (var step in steps)
+            {
+                var failed = step.ActionId == FailAction;
+                results.Add(new PluginActionStepResult(step,
+                    failed ? PluginActionOutcome.Rejected : PluginActionOutcome.Dispatched,
+                    failed ? $"{step.ActionId} refused" : "sent"));
+                if (failed)
+                {
+                    break;
+                }
+            }
+
+            return Task.FromResult<IReadOnlyList<PluginActionStepResult>>(results);
+        }
+
+        public Task<bool> PrepareExplorerExitAsync()
+        {
+            Calls.Add("prepare-explorer");
+            return Task.FromResult(PrepareExplorer);
+        }
+
+        public Task<bool> ExitExplorerAndWaitAsync()
+        {
+            Calls.Add("exit-explorer");
+            OnExit?.Invoke();
+            return Task.FromResult(ExitExplorer);
+        }
+
+        public Task<bool> ReturnToDesktopAsync(DisplayLayout? layout, bool runLeaveActions)
+        {
+            Calls.Add("restore-desktop");
+            // The real return sequence over effects that only record what they were asked to do.
+            return DesktopReturnSequence.RunAsync(new ReturnBackend(this, layout), runLeaveActions,
+                (phase, _) => Calls.Add("return-failed:" + phase));
+        }
+
+        public Task<string?> ApplyReturnLayoutAsync(DisplayLayout? explicitLayout,
+            GameModeLaunchRecovery recovery)
+        {
+            Calls.Add("return-layout");
+            return Task.FromResult<string?>(null);
+        }
+
+        public Task<string?> ApplyReturnAudioAsync(GameModeLaunchRecovery recovery)
+        {
+            Calls.Add("return-audio");
+            return Task.FromResult<string?>(null);
+        }
+
+        public Task<string?> ApplyReturnDisplayGpuAsync(GameModeLaunchRecovery recovery)
+        {
+            return Task.FromResult<string?>(null);
+        }
+
+        public Task ArmSteamDetectionAsync()
+        {
+            Calls.Add("arm-splash");
+            return ArmGate;
+        }
+
+        public Task<string?> RequestBigPictureAsync()
+        {
+            Calls.Add("big-picture");
+            return Task.FromResult<string?>(null);
+        }
+
+        public async Task CommitGameModeAsync()
+        {
+            Calls.Add("commit");
+            await CommitGate;
+            if (ThrowOnCommit)
+            {
+                throw new InvalidOperationException("UI commit failed");
+            }
+        }
+
+        public Task<IReadOnlyList<PluginActionStepResult>> RunLeaveActionsAsync()
+        {
+            Calls.Add("leave-actions");
+            return Task.FromResult<IReadOnlyList<PluginActionStepResult>>([]);
+        }
+
+        private static Task<DisplayArrangement> ObserveWithoutRecording()
+        {
+            return Task.FromResult(new DisplayArrangement(
+                [
+                    new DisplayTargetObservation(Tv, true, true,
+                        new DisplayLayoutOutput(Tv, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60)))
+                ],
+                "captured", DateTimeOffset.UnixEpoch));
+        }
+    }
+
+    /// <summary>The desktop return's effects, routed to the entry backend the way the session routes them.</summary>
+    private sealed class ReturnBackend(Backend owner, DisplayLayout? layout) : IDesktopReturnBackend
+    {
+        public Task ExitBigPictureAsync()
+        {
+            owner.Calls.Add("exit-big-picture");
+            return Task.CompletedTask;
+        }
+
+        public async Task<bool> RestoreLayoutAsync()
+        {
+            return layout is not null
+                ? (await owner.ApplyLayoutAsync(layout, CancellationToken.None)).Applied
+                : await owner.ApplyReturnLayoutAsync(null, new GameModeLaunchRecovery()) is null;
+        }
+
+        public async Task<bool> RestoreAudioAsync()
+        {
+            return await owner.ApplyReturnAudioAsync(new GameModeLaunchRecovery()) is null;
+        }
+
+        public Task RetireGameModeAsync()
+        {
+            owner.Calls.Add("retire-game-mode");
+            return Task.CompletedTask;
+        }
+
+        public Task<bool> RestoreExplorerAsync()
+        {
+            owner.Calls.Add("restore-explorer");
+            return Task.FromResult(true);
+        }
+
+        public Task RunLeaveActionsAsync()
+        {
+            return owner.RunLeaveActionsAsync();
+        }
+
+        public Task ClearPendingReturnAsync()
+        {
+            return owner.PersistPendingReturnAsync(null, null);
+        }
+    }
+}

@@ -150,7 +150,11 @@ public sealed class SetupShutdownContractTests
 
         Assert.False(engine.StopRuntime(step, forUninstall));
 
-        Assert.Equal(["ForceStop WSGM.exe", "ForceStop WSGM.ShellAnchor.exe", "ForceStop steam.exe", "ForceStop steamwebhelper.exe"],
+        Assert.Equal(
+            [
+                "ForceStop WSGM.exe", "ForceStop WSGM.ShellAnchor.exe", "ForceStop steam.exe",
+                "ForceStop steamwebhelper.exe"
+            ],
             runtime.Calls.Where(call => call.StartsWith("ForceStop ", StringComparison.Ordinal)));
         Assert.Contains("CloseSteam 60", runtime.Calls);
         Assert.DoesNotContain("ReserveDeviceOwner 30", runtime.Calls);
@@ -172,7 +176,7 @@ public sealed class SetupShutdownContractTests
             installation.GetPath("machine"), installation.GetPath("user"));
         var step = Step();
 
-        Assert.True(engine.StopRuntime(step, forUninstall: false));
+        Assert.True(engine.StopRuntime(step, false));
         Assert.Contains("ForceStop steam.exe", runtime.Calls);
         Assert.Contains("ForceStop steamwebhelper.exe", runtime.Calls);
         Assert.Contains("ReserveDeviceOwner 30", runtime.Calls);
@@ -275,6 +279,7 @@ public sealed class SetupShutdownContractTests
     /// <summary>Records every stop operation in order and answers as a machine with WSGM and Steam running.</summary>
     private sealed class RecordingRuntime : IRuntimeShutdown
     {
+        private readonly HashSet<string> _terminatedSteam = [];
         public List<string> Calls { get; } = [];
 
         public ServiceState? Service { get; init; } = new ServiceState(true, true);
@@ -284,7 +289,6 @@ public sealed class SetupShutdownContractTests
         public bool ForceClearsSteam { get; init; } = true;
         public bool OwnerAvailable { get; init; }
         public IReadOnlyList<string> StillRunning { get; init; } = [];
-        private readonly HashSet<string> _terminatedSteam = [];
 
         public string? InstalledVersion()
         {
@@ -373,7 +377,7 @@ public sealed class SetupShutdownContractTests
         public Mutex? ReserveDeviceOwner(TimeSpan wait)
         {
             Calls.Add($"ReserveDeviceOwner {wait.TotalSeconds:0}");
-            return OwnerAvailable ? new Mutex(initiallyOwned: false) : null;
+            return OwnerAvailable ? new Mutex(false) : null;
         }
 
         public bool RunInnoUninstaller(string command, Func<bool> stillInstalled)

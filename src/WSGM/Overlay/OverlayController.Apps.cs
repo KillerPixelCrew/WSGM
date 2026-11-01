@@ -1,10 +1,8 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
-using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using WSGM.Core;
 using WSGM.Interop;
@@ -36,39 +34,16 @@ public sealed partial class OverlayController
             return;
         }
 
-        _windowReturnCancellation?.Cancel();
-        var cancellation = new CancellationTokenSource();
-        _windowReturnCancellation = cancellation;
         Log.Info($"Open apps: focusing '{entry.Title}'.");
-        _suppressFocusRestore = true;
-        Log.Observe(PickWindowAsync(entry, window, cancellation), "Open apps activation");
-        CloseOverlay(true);
-    }
-
-
-    private async Task PickWindowAsync(AppSwitcherEntry entry, OverlayWindow window,
-        CancellationTokenSource cancellation)
-    {
-        TaskCompletionSource closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        window.Closed += OnClosed;
-        try
+        RunAfterClose(window, "Open apps activation", async token =>
         {
-            await closed.Task.WaitAsync(cancellation.Token);
-            await _leaseRelease.WaitAsync(cancellation.Token);
-
-            cancellation.Token.ThrowIfCancellationRequested();
-            if (_disposed)
-            {
-                return;
-            }
-
             if (entry.IsSteam)
             {
-                _modes.FocusSteam();
+                _modes.SteamLifecycle.Focus();
             }
             else if (GameReturn is { } gameReturn)
             {
-                await gameReturn.ReturnAsync(entry.Hwnd, entry.ProcessId, cancellation.Token);
+                await gameReturn.ReturnAsync(entry.Hwnd, entry.ProcessId, token);
             }
             else
             {
@@ -78,26 +53,92 @@ public sealed partial class OverlayController
                     WindowFinder.BringToForeground(entry.Hwnd);
                 }
             }
+        });
+    }
+
+    /// <summary>
+    ///     Returns the window the sheet opened over to the front through the shared game return, so Steam
+    ///     treats the game as focused again and opens its menus over it.
+    /// </summary>
+    /// <param name="gameReturn">The session's game-window return.</param>
+    /// <param name="window">The window that was foreground when the sheet opened.</param>
+    /// <returns>Completion of the logged attempt; a reopened sheet or shutdown ends it before the focus.</returns>
+    internal async Task RestoreFocusAsync(GameWindowReturn gameReturn, nint window)
+    {
+        using var cancellation = new CancellationTokenSource();
+        _focusRestoreCancellation = cancellation;
+        try
+        {
+            await gameReturn.ReturnAsync(window, cancellation.Token);
         }
         catch (OperationCanceledException)
         {
-        } // A reopened sheet or session shutdown ends the return.
+        } // The sheet reopened or the session is shutting down.
         finally
         {
-            window.Closed -= OnClosed;
-            if (ReferenceEquals(_windowReturnCancellation, cancellation))
+            if (ReferenceEquals(_focusRestoreCancellation, cancellation))
             {
-                _windowReturnCancellation = null;
+                _focusRestoreCancellation = null;
             }
-
-            cancellation.Dispose();
         }
+    }
 
+    /// <summary>
+    ///     Closes the sheet and runs an activation once the window has closed and the input lease is
+    ///     released, by default without restoring focus to the window the sheet came from.
+    /// </summary>
+    /// <param name="window">The open sheet.</param>
+    /// <param name="operation">The name failures are logged under.</param>
+    /// <param name="activate">The activation; its token ends when the sheet reopens or the session shuts down.</param>
+    /// <param name="restoreFocus">
+    ///     Whether the close still returns focus to the window the sheet came from, for an activation that acts on
+    ///     that window, such as a hotkey sent to the game.
+    /// </param>
+    private void RunAfterClose(OverlayWindow window, string operation, Func<CancellationToken, Task> activate,
+        bool restoreFocus = false)
+    {
+        _windowReturnCancellation?.Cancel();
+        var cancellation = new CancellationTokenSource();
+        _windowReturnCancellation = cancellation;
+        _suppressFocusRestore = !restoreFocus;
+        Log.Observe(RunAsync(), operation);
+        CloseOverlay(true);
         return;
 
-        void OnClosed(object? sender, EventArgs args)
+        async Task RunAsync()
         {
-            closed.TrySetResult();
+            TaskCompletionSource closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            window.Closed += OnClosed;
+            try
+            {
+                await closed.Task.WaitAsync(cancellation.Token);
+                await _leaseRelease.WaitAsync(cancellation.Token);
+                cancellation.Token.ThrowIfCancellationRequested();
+                if (!_disposed)
+                {
+                    await activate(cancellation.Token);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            } // A reopened sheet or session shutdown ends the activation.
+            finally
+            {
+                window.Closed -= OnClosed;
+                if (ReferenceEquals(_windowReturnCancellation, cancellation))
+                {
+                    _windowReturnCancellation = null;
+                }
+
+                cancellation.Dispose();
+            }
+
+            return;
+
+            void OnClosed(object? sender, EventArgs args)
+            {
+                closed.TrySetResult();
+            }
         }
     }
 
@@ -125,14 +166,14 @@ public sealed partial class OverlayController
     /// </summary>
     private static void FocusTaskManagerWhenVisible(int attempt)
     {
-        RunOnUiThreadAfter(TaskManagerFocusInterval, () =>
+        DispatcherTimer.RunOnce(() =>
         {
             // Only the real System32 Task Manager qualifies — never promote a
             // same-named exe running from elsewhere to the foreground.
             var expected = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.System), "Taskmgr.exe");
-            var pids = WindowFinder.FindProcessIds("Taskmgr");
-            pids.RemoveWhere(pid => !WindowFinder.ProcessImagePathEquals(pid, expected));
+            var pids = ProcessLookup.FindProcessIds("Taskmgr");
+            pids.RemoveWhere(pid => !ProcessLookup.ProcessImagePathEquals(pid, expected));
             var hwnd = WindowFinder.FindWindow(pids, null);
             if (hwnd != 0)
             {
@@ -147,7 +188,7 @@ public sealed partial class OverlayController
             }
 
             FocusTaskManagerWhenVisible(attempt + 1);
-        });
+        }, TaskManagerFocusInterval);
     }
 
     /// <summary>
@@ -188,172 +229,7 @@ public sealed partial class OverlayController
     /// <param name="host">The live tray host, or null when leaving game mode.</param>
     public void AttachTrayHost(TrayHost? host)
     {
-        if (_trayHost is not null)
-        {
-            _trayHost.IconsChanged -= OnTrayIconsChanged;
-        }
-
-        _trayHost = host;
-        if (host is not null)
-        {
-            host.IconsChanged += OnTrayIconsChanged;
-        }
-
-        OnTrayIconsChanged();
-    }
-
-    private void OnTrayIconsChanged()
-    {
-        _switcherViewModel?.ReconcileTray(_trayHost?.Table.Icons ?? []);
-    }
-
-    /// <summary>
-    ///     Queues an off-thread snapshot of the process/window tables, then reconciles the
-    ///     Open apps chips on Avalonia's dispatcher. While the sheet is open the highlight uses the
-    ///     captured pre-open foreground window.
-    /// </summary>
-    private void RefreshSwitcherEntries()
-    {
-        var viewModel = _switcherViewModel;
-        if (viewModel is null || Interlocked.CompareExchange(ref _switcherRefreshInFlight, 1, 0) != 0)
-        {
-            return;
-        }
-
-        var now = DateTime.UtcNow;
-        var refreshSteamPids = _steamPidsAtUtc == default
-                               || now - _steamPidsAtUtc >= TimeSpan.FromSeconds(5);
-        HashSet<uint> cachedSteamPids = [.. _steamPids];
-        var active = _overlay is { IsVisible: true }
-            ? _restoreFocusTo
-            : NativeMethods.GetForegroundWindow();
-        Log.Observe(
-            RefreshSwitcherEntriesAsync(
-                viewModel,
-                active,
-                refreshSteamPids,
-                cachedSteamPids,
-                now),
-            "Open apps refresh");
-    }
-
-    private async Task RefreshSwitcherEntriesAsync(
-        AppSwitcherViewModel viewModel,
-        nint active,
-        bool refreshSteamPids,
-        HashSet<uint> cachedSteamPids,
-        DateTime requestedAtUtc)
-    {
-        try
-        {
-            // EnumWindows, DWM queries and the process-table snapshot are synchronous Win32 work.
-            // Avalonia's dispatcher also owns pointer delivery and the 16 ms gamepad poll, so only
-            // a detached snapshot returns to it.
-            (HashSet<uint> SteamPids, IReadOnlyList<WindowFinder.AppWindow> Windows) snapshot =
-                await Task.Run(() =>
-                {
-                    var steamPids = refreshSteamPids
-                        ? WindowFinder.FindProcessIds(Steam.ProcessNames)
-                        : cachedSteamPids;
-                    return (steamPids, WindowFinder.ListSwitchableWindows());
-                }).ConfigureAwait(false);
-
-            await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                if (_disposed || !ReferenceEquals(_switcherViewModel, viewModel))
-                {
-                    return;
-                }
-
-                if (refreshSteamPids)
-                {
-                    _steamPids = snapshot.SteamPids;
-                    _steamPidsAtUtc = requestedAtUtc;
-                }
-
-                viewModel.Reconcile(
-                    snapshot.Windows,
-                    active,
-                    window => CreateSwitcherEntry(window, snapshot.SteamPids));
-            }, DispatcherPriority.Background);
-        }
-        finally
-        {
-            Interlocked.Exchange(ref _switcherRefreshInFlight, 0);
-        }
-    }
-
-    private AppSwitcherEntry CreateSwitcherEntry(
-        WindowFinder.AppWindow window,
-        HashSet<uint> steamPids)
-    {
-        // Cached icons are handed over synchronously; a miss resolves off the UI thread
-        // (cross-process WM_GETICON probes plus a possible exe read) and lands in place.
-        Bitmap? icon = null;
-        if (_iconCache is not null && !_iconCache.TryGetCached(window.Hwnd, out icon))
-        {
-            _iconCache.ResolveInBackground(window.Hwnd, window.ProcessId, ApplyResolvedIcon);
-        }
-
-        return new AppSwitcherEntry(
-                window.Hwnd,
-                window.Title,
-                steamPids.Contains(window.ProcessId),
-                icon)
-            { ProcessId = window.ProcessId };
-    }
-
-    /// <summary>
-    ///     Places a background-resolved icon on its chip, if that chip is still on
-    ///     the open sheet. Runs off the UI thread, so it marshals before touching view state.
-    /// </summary>
-    private void ApplyResolvedIcon(nint hwnd, Bitmap? icon)
-    {
-        if (icon is null)
-        {
-            return;
-        }
-
-        Dispatcher.UIThread.Post(() =>
-        {
-            // The window may have closed, or the sheet may have been dismissed and its
-            // cache cleared, between the resolve starting and finishing.
-            if (_switcherViewModel is null || _overlay is not { IsVisible: true })
-            {
-                return;
-            }
-
-            foreach (var entry in _switcherViewModel.Entries)
-            {
-                if (entry.Hwnd != hwnd)
-                {
-                    continue;
-                }
-
-                entry.Icon = icon;
-                return;
-            }
-        });
-    }
-
-    /// <summary>
-    ///     Keeps the open sheet's strip current (new/closed windows, titles,
-    ///     minimize state) without disturbing the focused chip — Reconcile updates in place.
-    /// </summary>
-    private void StartSwitcherRefresh()
-    {
-        StopSwitcherRefresh();
-        // Parameterless ctor + explicit Start; see the DispatcherTimer finding in
-        // docs\overlay-and-input.md.
-        _switcherRefresh = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-        _switcherRefresh.Tick += (_, _) => RefreshSwitcherEntries();
-        _switcherRefresh.Start();
-    }
-
-    private void StopSwitcherRefresh()
-    {
-        _switcherRefresh?.Stop();
-        _switcherRefresh = null;
+        _openApps.AttachTrayHost(host);
     }
 
     /// <summary>
@@ -383,7 +259,7 @@ public sealed partial class OverlayController
             CloseOverlay();
         }
 
-        _trayHost?.SendClick(entry.Icon, contextMenu, anchor.X, anchor.Y);
+        _openApps.SendTrayClick(entry, contextMenu, anchor.X, anchor.Y);
     }
 
     private static void RestoreTopmost(object? sender, EventArgs e)

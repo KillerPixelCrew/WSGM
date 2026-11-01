@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
+import { fileURLToPath } from "node:url";
 import {
   fragment,
   instantiate,
   loadAsset,
 } from "../external/steam-ui-toolkit/eng/check-harness.mjs";
+
+// The shipped WSGM asset, or the one named on the command line; the toolkit's own prelude carries no
+// consumer fragments.
+const emitted = loadAsset(
+  process.argv[2] ??
+    fileURLToPath(new URL("../src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js", import.meta.url)),
+);
 
 // Exercise the emitted page's real image owner while editors publish and secondary views unmount.
 let scope;
@@ -39,10 +47,8 @@ const notes = instantiate(
     request: (_patch, _command, payload, _generation, signal) =>
       new Promise((resolve) => requests.push({ payload, signal, resolve })),
     registerSteamPage: () => ({}),
-    resolveSteamSettingsComponents: () => ({}),
-    SteamSettingsRequired: [],
   },
-  fragment(loadAsset(), "consumer/notes.ts"),
+  fragment(emitted, "consumer/notes.ts"),
   "({NotesSurface})",
 );
 const asset = "a".repeat(64) + ".png";

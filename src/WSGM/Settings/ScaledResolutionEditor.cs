@@ -13,23 +13,29 @@ namespace WSGM.Settings;
 public sealed record ScaledResolutionChoice(string Path, string Name)
 {
     /// <inheritdoc />
-    public override string ToString() => Name;
+    public override string ToString()
+    {
+        return Name;
+    }
 }
 
 /// <summary>A resolution in the selected display's list.</summary>
 public sealed record ScaledResolutionItem(int Width, int Height, string Label)
 {
     /// <inheritdoc />
-    public override string ToString() => Label;
+    public override string ToString()
+    {
+        return Label;
+    }
 }
 
 /// <summary>Controller-accessible editor over the same source-mode service used by Steam Display Settings.</summary>
 public sealed class ScaledResolutionEditor : ObservableObject
 {
-    private readonly ScaledResolutionService? _service;
     private readonly CancellationTokenSource _lifetime = new();
-    private ScaledResolutionState? _state;
+    private readonly ScaledResolutionService? _service;
     private bool _loading;
+    private ScaledResolutionState? _state;
 
     internal ScaledResolutionEditor(ScaledResolutionService? service)
     {
@@ -45,20 +51,28 @@ public sealed class ScaledResolutionEditor : ObservableObject
 
     /// <summary>Connected monitor choices.</summary>
     public ObservableCollection<ScaledResolutionChoice> Displays { get; } = [];
+
     /// <summary>Editable source sizes reported by the driver.</summary>
     public ObservableCollection<ScaledResolutionItem> Resolutions { get; } = [];
+
     /// <summary>Reads displays, driving adapter and custom source sizes.</summary>
     public AsyncRelayCommand RefreshCommand { get; }
+
     /// <summary>Adds the entered width-height pair without selecting it.</summary>
     public AsyncRelayCommand AddCommand { get; }
+
     /// <summary>Adds native 100% down to 50%, in 5% steps.</summary>
     public AsyncRelayCommand AddStepsCommand { get; }
+
     /// <summary>Removes the selected driver-list entry.</summary>
     public AsyncRelayCommand RemoveCommand { get; }
+
     /// <summary>Restores the list captured before the first explicit edit.</summary>
     public AsyncRelayCommand RestoreCommand { get; }
+
     /// <summary>Explicitly reapplies missing remembered entries.</summary>
     public AsyncRelayCommand ReapplyCommand { get; }
+
     /// <summary>Explicitly restarts the selected display's graphics driver.</summary>
     public AsyncRelayCommand RestartCommand { get; }
 
@@ -85,6 +99,7 @@ public sealed class ScaledResolutionEditor : ObservableObject
             Raise(nameof(CanRemove));
         }
     }
+
     /// <summary>Custom pixel dimensions, entered as width × height.</summary>
     public string Size
     {
@@ -95,44 +110,60 @@ public sealed class ScaledResolutionEditor : ObservableObject
             Raise(nameof(CanAdd));
         }
     } = "";
+
     /// <summary>Whether an editor operation is running.</summary>
     public bool Busy
     {
         get;
         private set => SetField(ref field, value, nameof(Busy));
     }
+
     /// <summary>Driving GPU and native size.</summary>
     public string AdapterText => _state?.Catalog is { } catalog
         ? catalog.AdapterName + (_state.Native is { } native ? $" · Native {native.Width} × {native.Height}" : "")
         : "Driving GPU unavailable";
+
     /// <summary>Last operation result or support explanation.</summary>
     public string Status
     {
         get;
         private set => SetField(ref field, value, nameof(Status));
     } = "Refresh to read the display's driving GPU.";
+
     /// <summary>Whether the current list can be edited.</summary>
     public bool CanEdit => _state?.Catalog is { Supported: true };
+
     /// <summary>Whether the custom dimensions can be added.</summary>
     public bool CanAdd => CanEdit && ScaledResolutionService.TryParseResolution(Size, out _);
+
     /// <summary>Whether the native size is known for percentage generation.</summary>
     public bool CanAddSteps => CanEdit && _state?.Native is not null;
+
     /// <summary>Whether the selected size is in the driver's editable list.</summary>
     public bool CanRemove => CanEdit && Resolution is { } selected
-        && new GpuScaledResolution(selected.Width, selected.Height) != _state!.Native
-        && _state.Catalog!.Modes.Contains(new GpuScaledResolution(selected.Width, selected.Height));
+                                     && new GpuScaledResolution(selected.Width, selected.Height) != _state!.Native
+                                     && _state.Catalog!.Modes.Contains(
+                                         new GpuScaledResolution(selected.Width, selected.Height));
+
     /// <summary>Whether an original list was saved for this driver route.</summary>
     public bool CanRestore => CanEdit && _state?.Original is not null;
+
     /// <summary>Whether remembered additions are missing.</summary>
     public bool HasMissing => _state?.Missing.Count > 0;
+
     /// <summary>Whether this vendor stores adapter lists requiring restart.</summary>
     public bool NeedsRestart => _state?.RequiresRestart == true;
+
     /// <summary>Persistent activation warning for adapter-wide resolution edits.</summary>
     public string ActivationNotice => _state?.ActivationNotice ?? "";
+
     /// <summary>Whether optional driver maintenance is available.</summary>
     public bool HasDriverOptions => HasMissing || NeedsRestart;
 
-    internal void Close() => _lifetime.Cancel();
+    internal void Close()
+    {
+        _lifetime.Cancel();
+    }
 
     private async Task RefreshAsync()
     {
@@ -186,9 +217,14 @@ public sealed class ScaledResolutionEditor : ObservableObject
                 Resolutions.Add(new ScaledResolutionItem(mode.Width, mode.Height, state.ResolutionLabel(mode)));
             }
 
-            Resolution = Resolutions.FirstOrDefault(mode => mode.Width == previous?.Width && mode.Height == previous?.Height)
+            Resolution =
+                Resolutions.FirstOrDefault(mode => mode.Width == previous?.Width && mode.Height == previous?.Height)
                 ?? Resolutions.FirstOrDefault();
-            foreach (var name in new[] { nameof(AdapterText), nameof(CanEdit), nameof(CanAdd), nameof(CanAddSteps), nameof(CanRestore), nameof(HasMissing), nameof(NeedsRestart), nameof(ActivationNotice), nameof(HasDriverOptions) })
+            foreach (var name in new[]
+                     {
+                         nameof(AdapterText), nameof(CanEdit), nameof(CanAdd), nameof(CanAddSteps), nameof(CanRestore),
+                         nameof(HasMissing), nameof(NeedsRestart), nameof(ActivationNotice), nameof(HasDriverOptions)
+                     })
             {
                 Raise(name);
             }
@@ -206,7 +242,7 @@ public sealed class ScaledResolutionEditor : ObservableObject
         return RunAsync(async () =>
         {
             if (_service is null || _state?.Catalog is not { Supported: true } catalog
-                || !ScaledResolutionService.TryParseResolution(Size, out var mode))
+                                 || !ScaledResolutionService.TryParseResolution(Size, out var mode))
             {
                 Status = "Enter width × height, for example 1760 × 1100. Each dimension must be 100 to 15999 pixels.";
                 return;
@@ -221,45 +257,58 @@ public sealed class ScaledResolutionEditor : ObservableObject
         return RunAsync(async () =>
         {
             if (_service is not null && _state?.Catalog is { Supported: true } catalog
-                && _state.Native is { } native)
+                                     && _state.Native is { } native)
             {
-                await FinishAsync(await _service.AddAsync(catalog, ScaledResolutionService.PercentagePreview(native), _lifetime.Token));
+                await FinishAsync(await _service.AddAsync(catalog, ScaledResolutionService.PercentagePreview(native),
+                    _lifetime.Token));
             }
         });
     }
 
-    private Task RemoveAsync() => RunAsync(async () =>
+    private Task RemoveAsync()
     {
-        if (_service is not null && _state?.Catalog is { } catalog && Resolution is { } selected)
+        return RunAsync(async () =>
         {
-            await FinishAsync(await _service.RemoveAsync(catalog,
-                new GpuScaledResolution(selected.Width, selected.Height), _lifetime.Token));
-        }
-    });
+            if (_service is not null && _state?.Catalog is { } catalog && Resolution is { } selected)
+            {
+                await FinishAsync(await _service.RemoveAsync(catalog,
+                    new GpuScaledResolution(selected.Width, selected.Height), _lifetime.Token));
+            }
+        });
+    }
 
-    private Task ReapplyAsync() => RunAsync(async () =>
+    private Task ReapplyAsync()
     {
-        if (_service is not null && _state?.Catalog is { } catalog)
+        return RunAsync(async () =>
         {
-            await FinishAsync(await _service.ReapplyAsync(catalog, _lifetime.Token));
-        }
-    });
+            if (_service is not null && _state?.Catalog is { } catalog)
+            {
+                await FinishAsync(await _service.ReapplyAsync(catalog, _lifetime.Token));
+            }
+        });
+    }
 
-    private Task RestoreAsync() => RunAsync(async () =>
+    private Task RestoreAsync()
     {
-        if (_service is not null && _state?.Catalog is { } catalog)
+        return RunAsync(async () =>
         {
-            await FinishAsync(await _service.RestoreOriginalAsync(catalog, _lifetime.Token));
-        }
-    });
+            if (_service is not null && _state?.Catalog is { } catalog)
+            {
+                await FinishAsync(await _service.RestoreOriginalAsync(catalog, _lifetime.Token));
+            }
+        });
+    }
 
-    private Task RestartAsync() => RunAsync(async () =>
+    private Task RestartAsync()
     {
-        if (_service is not null && _state?.Catalog is { } catalog)
+        return RunAsync(async () =>
         {
-            await FinishAsync(await _service.RestartAsync(catalog, _lifetime.Token));
-        }
-    });
+            if (_service is not null && _state?.Catalog is { } catalog)
+            {
+                await FinishAsync(await _service.RestartAsync(catalog, _lifetime.Token));
+            }
+        });
+    }
 
     private async Task FinishAsync(GpuScaledResolutionResult result)
     {

@@ -4,7 +4,6 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
-using WSGM.Overlay;
 using WSGM.Shell;
 using WSGM.UiTests.Fakes;
 using WSGM.UiTests.Infrastructure;
@@ -31,14 +30,15 @@ public sealed class DevicePowerSectionTests
         };
         var capabilities = new[]
         {
-            new DeviceOverlayCapability("fan.mode", null, DeviceOverlaySection.PowerAndThermals,
-                DescriptorStatus.Available, "Fan mode", "", "Off", true, CapabilityValue.Choice("off"))
+            new DeviceOverlayCapability("fan.mode", null, DescriptorStatus.Available, "Fan mode", "", "Off", true,
+                CapabilityValue.Choice("off"))
             {
                 PluginSectionId = "power", CategoryId = "fans", Role = CapabilityRole.FanMode,
                 ValueKind = CapabilityValueKind.Choice, Writable = true, Choices = choices
             },
-            new DeviceOverlayCapability("power.limit", null, DeviceOverlaySection.PowerAndThermals,
-                DescriptorStatus.Available, "Power limit", "", "15 W", true, CapabilityValue.Integer(15))
+            new DeviceOverlayCapability("power.limit", null, DescriptorStatus.Available, "Power limit", "", "15 W",
+                true,
+                CapabilityValue.Integer(15))
             {
                 PluginSectionId = "power", Role = CapabilityRole.PowerSustainedLimit,
                 ValueKind = CapabilityValueKind.Integer, Writable = true, Minimum = 8, Maximum = 37
@@ -53,8 +53,11 @@ public sealed class DevicePowerSectionTests
                 new DeviceOverlayPluginSection("power", "Power", "", SectionIcon.Power,
                     [new DeviceOverlayCategory("fans", "Fans")]) { Key = SettingSectionKey.Power }
             ],
-            AutoTdp = new DescriptorRow(keys[0], "AutoTDP", "", "Off", true),
-            AuthoredProfile = new DescriptorRow(keys[1], "Fan profile", "", "Off", true),
+            AutoTdp = new DescriptorRow(keys[0], "AutoTDP", "", "Off", true) { SectionId = DeviceSections.PowerId },
+            AuthoredProfile = new DescriptorRow(keys[1], "Fan profile", "", "Off", true)
+            {
+                SectionId = DeviceSections.PowerId
+            },
             HostSelections = keys.ToDictionary(key => key, _ => new DeviceHostSelection("off", choices))
         };
         var window = fixture.Overlay(1280, 720);
@@ -72,7 +75,7 @@ public sealed class DevicePowerSectionTests
         }
 
         Dispatcher.UIThread.RunJobs();
-        var host = UiFixture.Named<Panel>(window, pinned ? "PinnedSectionsGrid" : "DeviceCapabilityList");
+        var host = UiFixture.Named<Panel>(window, pinned ? "PinnedSectionsGrid" : "DevicePage");
         var group = Assert.Single(host.GetVisualDescendants().OfType<Border>(), border =>
             Equals(border.Tag, (pinned ? "pin:" : "") + "section.device.plugin.power.configuration"));
         var editors = keys.Select(key => Assert.Single(host.GetVisualDescendants().OfType<ComboBox>(), combo =>

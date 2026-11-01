@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
@@ -6,6 +7,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using SteamUiToolkit;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Overlay;
@@ -78,7 +80,8 @@ public sealed class NotesLayoutTests
         });
         UiFixture.Click(window, Tagged(window, "notes.undo"));
         await AsyncConditions.WaitForAsync(() => canvas.Page?.Strokes.Count == page.Strokes.Count);
-        Assert.Equal(page.Strokes.Select(stroke => stroke.Id), service.ReadPage(page.Id)!.Strokes.Select(stroke => stroke.Id));
+        Assert.Equal(page.Strokes.Select(stroke => stroke.Id),
+            service.ReadPage(page.Id)!.Strokes.Select(stroke => stroke.Id));
     }
 
     [AvaloniaFact]
@@ -116,7 +119,7 @@ public sealed class NotesLayoutTests
         notes.StartCapture = (id, _) =>
         {
             capturedPage = id;
-            return SteamUiToolkit.SteamUiCommandResult.Applied;
+            return SteamUiCommandResult.Applied;
         };
         service.Publish();
         Dispatcher.UIThread.RunJobs();
@@ -153,7 +156,8 @@ public sealed class NotesLayoutTests
         DevicePageCaptureTests.Capture(window, Path.Combine(directory, "page.png"));
         Assert.True(canvas.TranslatePoint(new Point(0, canvas.Bounds.Height), window)?.Y <= height - 65,
             "The canvas must fit above the Overlay footer.");
-        Assert.DoesNotContain(window.GetVisualDescendants().OfType<Control>(), control => Equals(control.Tag, "notes.delete"));
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<Control>(),
+            control => Equals(control.Tag, "notes.delete"));
         var notes = UiFixture.Named<NotesView>(window, "NotesHost");
         UiFixture.Click(window, Tagged(window, "notes.options"));
         Dispatcher.UIThread.RunJobs();
@@ -180,14 +184,15 @@ public sealed class NotesLayoutTests
             new[] { "notes.mode.ink", "notes.add.text", "notes.add.screenshot", "notes.options" }.Select(tag =>
             {
                 var control = Tagged(window, tag);
-                return $"{tag}: visible={control.IsEffectivelyVisible} bounds={control.Bounds} at={control.TranslatePoint(default, window)} parent={(control.Parent as Control)?.Bounds}";
+                return
+                    $"{tag}: visible={control.IsEffectivelyVisible} bounds={control.Bounds} at={control.TranslatePoint(default, window)} parent={(control.Parent as Control)?.Bounds}";
             }));
         DevicePageCaptureTests.Capture(window, Path.Combine(directory, "ink.png"));
 
         UiFixture.Click(window, Tagged(window, "notes.add.text"));
         Dispatcher.UIThread.RunJobs();
         // The overlay's own full-width keyboard surface, multiline.
-        Assert.True(window.HasActiveSurface);
+        Assert.True(window.Surfaces.HasActive);
         var keyboard = Assert.Single(window.GetVisualDescendants().OfType<KeyboardPanel>());
         var editor = Assert.Single(keyboard.GetVisualDescendants().OfType<TextBox>());
         Assert.True(editor.AcceptsReturn);
@@ -213,7 +218,9 @@ public sealed class NotesLayoutTests
         Assert.True(Tagged(window, "notes.create").IsEffectivelyVisible);
         Assert.True(Tagged(window, "notes.page:" + page.Id).IsEffectivelyVisible);
         Assert.Empty(window.GetVisualDescendants().OfType<NotesCanvas>());
-        Assert.Equal(3, window.GetVisualDescendants().OfType<StackPanel>().Count(panel => panel.Tag is string tag && tag.StartsWith("notes.card:", StringComparison.Ordinal)));
+        Assert.Equal(3,
+            window.GetVisualDescendants().OfType<StackPanel>().Count(panel =>
+                panel.Tag is string tag && tag.StartsWith("notes.card:", StringComparison.Ordinal)));
         DevicePageCaptureTests.Capture(window, Path.Combine(CaptureDirectory(width, height), "notebook.png"));
         var notesWidth = UiFixture.Named<ScrollViewer>(window, "ContentScroller").Bounds.Width;
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SystemTools));
@@ -228,7 +235,8 @@ public sealed class NotesLayoutTests
     public void EmptyNotebookExplainsWhatNewPagesCanContain(int width, int height)
     {
         using var fixture = new UiFixture();
-        var service = new NotesService(new NoteStore(Path.Combine(fixture.Store.Context.Root, "notes")), null, null, null);
+        var service = new NotesService(new NoteStore(Path.Combine(fixture.Store.Context.Root, "notes")), null, null,
+            null);
         service.EnsureLoaded();
         var window = OpenNotes(fixture, service, width, height);
         Assert.True(Tagged(window, "notes.create").IsEffectivelyVisible);
@@ -242,7 +250,7 @@ public sealed class NotesLayoutTests
         {
             Destination = OverlayDestination.System
         });
-        window.AttachNotes(service);
+        window.NotesHost.Attach(service);
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.Notes));
         Dispatcher.UIThread.RunJobs();
         Assert.True(UiFixture.Named<NotesView>(window, "NotesHost").IsEffectivelyVisible);
@@ -309,7 +317,7 @@ public sealed class NotesLayoutTests
                 }
             }
 
-            System.Runtime.InteropServices.Marshal.Copy(pixels, 0, buffer.Address, pixels.Length);
+            Marshal.Copy(pixels, 0, buffer.Address, pixels.Length);
         }
 
         using MemoryStream stream = new();

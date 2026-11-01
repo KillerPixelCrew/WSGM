@@ -10,21 +10,35 @@ namespace WSGM.Tests.Overlay;
 /// </summary>
 public sealed class QuickAccessSheetTests
 {
+    [Theory]
+    [InlineData("section.device.power", "section.device.plugin.power.configuration")]
+    [InlineData("section.device.controller", "section.device.plugin.controller.configuration")]
+    [InlineData("section.device.controller-and-motion", "section.device.plugin.controller.configuration")]
+    [InlineData("section.device.lighting", "section.device.plugin.rgb.configuration")]
+    [InlineData("section.device.diagnostics", "section.device.plugin.info.configuration")]
+    [InlineData("section.device.plugin.power.main", "section.device.plugin.power.main")]
+    [InlineData("home.desktop", "home.desktop")]
+    public void APinSavedForAFormerDevicePageResolvesToItsSharedPageGroup(string stored, string current)
+    {
+        Assert.Equal(current, QuickAccessPins.CurrentId(stored));
+    }
+
     // The SteamOS map: left/right are Steam's, top/bottom are WSGM's. The bottom
     // edge is explorer's in desktop mode and stays ignored there.
     [Theory]
-    [InlineData(ScreenEdge.Top, false, OverlayController.SwipeAction.QuickAccess)]
-    [InlineData(ScreenEdge.Top, true, OverlayController.SwipeAction.QuickAccess)]
-    [InlineData(ScreenEdge.Bottom, false, OverlayController.SwipeAction.QuickAccessApps)]
-    [InlineData(ScreenEdge.Bottom, true, OverlayController.SwipeAction.None)] // desktop: explorer owns the edge
-    [InlineData(ScreenEdge.Left, false, OverlayController.SwipeAction.SteamMenu)]
-    [InlineData(ScreenEdge.Left, true, OverlayController.SwipeAction.SteamMenu)]
-    [InlineData(ScreenEdge.Right, false, OverlayController.SwipeAction.SteamQuickAccess)]
-    [InlineData(ScreenEdge.Right, true, OverlayController.SwipeAction.SteamQuickAccess)]
+    [InlineData(ScreenEdge.Top, false, OverlayActivation.SwipeAction.QuickAccess)]
+    [InlineData(ScreenEdge.Top, true, OverlayActivation.SwipeAction.QuickAccess)]
+    [InlineData(ScreenEdge.Bottom, false, OverlayActivation.SwipeAction.QuickAccessApps)]
+    [InlineData(ScreenEdge.Bottom, true, OverlayActivation.SwipeAction.None)] // desktop: explorer owns the edge
+    [InlineData(ScreenEdge.Left, false, OverlayActivation.SwipeAction.SteamMenu)]
+    [InlineData(ScreenEdge.Left, true, OverlayActivation.SwipeAction.SteamMenu)]
+    [InlineData(ScreenEdge.Right, false, OverlayActivation.SwipeAction.SteamQuickAccess)]
+    [InlineData(ScreenEdge.Right, true, OverlayActivation.SwipeAction.SteamQuickAccess)]
     public void EdgeSwipeRoutesToTheSteamOsLayout(
-        object edge, bool explorerRunning, OverlayController.SwipeAction expected)
+        object edge, bool explorerRunning, object expected)
     {
-        Assert.Equal(expected, OverlayController.DecideSwipe((ScreenEdge)edge, explorerRunning));
+        Assert.Equal((OverlayActivation.SwipeAction)expected,
+            OverlayActivation.DecideSwipe((ScreenEdge)edge, explorerRunning));
     }
 
     [Theory]
@@ -36,7 +50,7 @@ public sealed class QuickAccessSheetTests
     {
         IReadOnlySet<string> pins = new HashSet<string>(["steam.artwork"], StringComparer.Ordinal);
 
-        Assert.Equal(expected, OverlayWindow.IsOriginalPinnedRow(tag, pins));
+        Assert.Equal(expected, QuickAccessPins.IsOriginalPinnedRow(tag, pins));
     }
 
     // The tray shares the bottom rail with Open apps.
@@ -50,7 +64,7 @@ public sealed class QuickAccessSheetTests
     [InlineData(double.NaN, 1.0, 40.0)]
     public void TheTrayStripIsCappedAtAFractionOfTheAvailableWidth(double width, double scale, double expected)
     {
-        Assert.Equal(expected, OverlayWindow.ComputeTrayMaxWidth(width, scale), 3);
+        Assert.Equal(expected, OverlayPlacement.ComputeTrayMaxWidth(width, scale), 3);
     }
 
     [Theory]
@@ -63,15 +77,15 @@ public sealed class QuickAccessSheetTests
     public void ContentScalingPreservesTheMinimumWorkspaceAtEveryViewport(
         double requested, double renderScale, double width, double height, double expected)
     {
-        Assert.Equal(expected, OverlayWindow.ComputeContentScale(requested, renderScale, width, height), 4);
+        Assert.Equal(expected, OverlayPlacement.ComputeContentScale(requested, renderScale, width, height), 4);
     }
 
-    private static WindowFinder.AppWindow Window(nint hwnd, string title, bool minimized = false)
+    private static AppWindow Window(nint hwnd, string title, bool minimized = false)
     {
-        return new WindowFinder.AppWindow(hwnd, title, (uint)hwnd) { IsMinimized = minimized };
+        return new AppWindow(hwnd, title, (uint)hwnd) { IsMinimized = minimized };
     }
 
-    private static AppSwitcherEntry Create(WindowFinder.AppWindow window)
+    private static AppSwitcherEntry Create(AppWindow window)
     {
         return new AppSwitcherEntry(window.Hwnd, window.Title, false, null);
     }

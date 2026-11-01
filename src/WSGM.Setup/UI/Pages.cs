@@ -108,7 +108,9 @@ internal sealed class MessagePage(string eyebrow, string title, string lead, str
     public override CloseBehaviour OnClose => CloseBehaviour.Close;
 }
 
-internal sealed class WelcomePage(Version version, bool steamFound,
+internal sealed class WelcomePage(
+    Version version,
+    bool steamFound,
     string prerequisites = "Selected RTSS needs an internet connection if it is missing.") : Page
 {
     public override string Eyebrow => $"WSGM {SetupEngine.Display(version)}";

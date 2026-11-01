@@ -5,6 +5,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Core;
 using WSGM.Overlay;
+using WSGM.Settings;
 using WSGM.Shell;
 using WSGM.Testing;
 using WSGM.UiTests.Infrastructure;
@@ -28,7 +29,7 @@ public sealed class BrowserLayoutTests
         {
             Destination = OverlayDestination.System
         });
-        window.AttachBrowserSession(session);
+        window.BrowserHost.Attach(session, window);
         Assert.Null(session.HelperProcessId);
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SystemBrowser));
         Dispatcher.UIThread.RunJobs();
@@ -56,11 +57,11 @@ public sealed class BrowserLayoutTests
         DevicePageCaptureTests.Capture(window, Path.Combine(directory, "chrome.png"));
         UiFixture.Click(window, keyboard);
         Dispatcher.UIThread.RunJobs();
-        Assert.False(window.HasActiveSurface);
+        Assert.False(window.Surfaces.HasActive);
         Assert.Contains("Select a text field", session.Status, StringComparison.Ordinal);
-        window.RequestText("Website text", "", 4096, _ => { });
+        window.Surfaces.RequestText("Website text", "", 4096, _ => { });
         Dispatcher.UIThread.RunJobs();
-        Assert.True(window.HasActiveSurface);
+        Assert.True(window.Surfaces.HasActive);
         Assert.False(viewport.IsVisible);
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(),
             text => text.IsEffectivelyVisible && text.Text == "Website text");
@@ -79,7 +80,7 @@ public sealed class BrowserLayoutTests
         Dispatcher.UIThread.RunJobs();
         var page = UiFixture.Named<Control>(window, "PageQuickAccess");
         var memory = Assert.Single(page.GetVisualDescendants().OfType<ComboBox>(),
-            choice => Equals(choice.ItemsSource, ((WSGM.Settings.SettingsViewModel)window.DataContext!).BrowserMemoryBehaviors));
+            choice => Equals(choice.ItemsSource, ((SettingsViewModel)window.DataContext!).BrowserMemoryBehaviors));
         memory.BringIntoView();
         Dispatcher.UIThread.RunJobs();
         Assert.True(memory.IsEffectivelyVisible);

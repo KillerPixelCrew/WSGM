@@ -15,6 +15,15 @@ namespace WSGM.Interop;
 /// </summary>
 internal static partial class NativeShellProcess
 {
+    private const uint ProcessCreateProcess = 0x0080;
+    private const uint ProcessQueryLimitedInformation = 0x1000;
+    private const uint TokenDuplicate = 0x0002;
+    private const int TokenIntegrityLevel = 25;
+    private const uint CreateUnicodeEnvironment = 0x00000400;
+    private const uint WaitObject0 = 0;
+    private const int ErrorInvalidParameter = 87;
+    private const int ProcessCommandLineInformation = 60;
+
     /// <summary>Terminates the exact held process after its owner has validated its identity.</summary>
     /// <param name="process">Borrowed process whose retained handle is used for termination.</param>
     /// <param name="exitCode">Exit status selected by the owning lifecycle.</param>
@@ -35,15 +44,6 @@ internal static partial class NativeShellProcess
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool TerminateProcess(SafeProcessHandle process, uint exitCode);
-
-    private const uint ProcessCreateProcess = 0x0080;
-    private const uint ProcessQueryLimitedInformation = 0x1000;
-    private const uint TokenDuplicate = 0x0002;
-    private const int TokenIntegrityLevel = 25;
-    private const uint CreateUnicodeEnvironment = 0x00000400;
-    private const uint WaitObject0 = 0;
-    private const int ErrorInvalidParameter = 87;
-    private const int ProcessCommandLineInformation = 60;
 
     /// <summary>Inspects a process without retaining a handle.</summary>
     /// <param name="processId">Process identifier to inspect.</param>
@@ -339,15 +339,6 @@ internal static partial class NativeShellProcess
         int length,
         out int returnLength);
 
-    /// <summary>The native UNICODE_STRING the command-line class answers with: lengths in bytes.</summary>
-    [StructLayout(LayoutKind.Sequential)]
-    private struct UnicodeString
-    {
-        internal ushort Length;
-        internal ushort MaximumLength;
-        internal nint Buffer;
-    }
-
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool IsProcessInJob(
@@ -503,6 +494,15 @@ internal static partial class NativeShellProcess
         {
             Win32Common.WTSFreeMemory(buffer);
         }
+    }
+
+    /// <summary>The native UNICODE_STRING the command-line class answers with: lengths in bytes.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct UnicodeString
+    {
+        internal ushort Length;
+        internal ushort MaximumLength;
+        internal nint Buffer;
     }
 }
 

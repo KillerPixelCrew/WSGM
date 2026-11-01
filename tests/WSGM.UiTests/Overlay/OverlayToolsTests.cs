@@ -91,7 +91,7 @@ public sealed class OverlayToolsTests
         using var fixture = new UiFixture();
         var window = PreviewTools.Create(fixture);
         var source = new FakeMoviesSource();
-        UiFixture.Named<AnimationsView>(window, "AnimationsHost").AttachSession(source);
+        UiFixture.Named<AnimationsView>(window, "AnimationsHost").AttachSession(source, source);
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SystemAnimations));
         Click(window, "Aurora");
         Click(window, "Remove");
@@ -110,7 +110,7 @@ public sealed class OverlayToolsTests
         var window = PreviewTools.Create(fixture);
         var source = new FakeThemesSource();
         var themes = UiFixture.Named<ThemesView>(window, "ThemesHost");
-        themes.AttachSession(source);
+        themes.AttachSession(source, source);
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SystemThemes));
         Click(window, "Browse");
         var editor = themes.GetVisualDescendants().OfType<ComboBox>()

@@ -17,6 +17,14 @@ namespace WSGM.Setup.Engine;
 /// </summary>
 internal static class RtssInstaller
 {
+    private const string UninstallKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RTSS";
+
+    // HttpClient's timeout ends with the headers; a mirror that stops sending the body is caught by this.
+    internal static readonly TimeSpan BodyStallTimeout = TimeSpan.FromSeconds(30);
+
+    private static readonly (string Version, string Sha256, string SetupEntry, string Asset, Uri Download) Pin =
+        ReadPin();
+
     /// <summary>The pinned RTSS version.</summary>
     internal static string Version => Pin.Version;
 
@@ -25,13 +33,6 @@ internal static class RtssInstaller
 
     /// <summary>The installer inside the archive.</summary>
     internal static string SetupEntry => Pin.SetupEntry;
-
-    private const string UninstallKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RTSS";
-
-    // HttpClient's timeout ends with the headers; a mirror that stops sending the body is caught by this.
-    internal static readonly TimeSpan BodyStallTimeout = TimeSpan.FromSeconds(30);
-
-    private static readonly (string Version, string Sha256, string SetupEntry, string Asset, Uri Download) Pin = ReadPin();
 
     /// <summary>
     ///     The archive, from the mirror winget's manifest uses. Guru3D's own download page has no stable file link.
@@ -156,7 +157,8 @@ internal static class RtssInstaller
                 return true;
             }
 
-            problem = $"Setup could not download RTSS ({downloadProblem}). Connect to the internet and run Repair, or install it from guru3d.com.";
+            problem =
+                $"Setup could not download RTSS ({downloadProblem}). Connect to the internet and run Repair, or install it from guru3d.com.";
             return false;
         }
 
@@ -170,7 +172,8 @@ internal static class RtssInstaller
             }
             catch (FileNotFoundException)
             {
-                problem = "This offline setup is missing RTSS. Use a complete offline setup, or install RTSS from guru3d.com.";
+                problem =
+                    "This offline setup is missing RTSS. Use a complete offline setup, or install RTSS from guru3d.com.";
                 return false;
             }
         }
@@ -181,7 +184,8 @@ internal static class RtssInstaller
     /// <returns>Whether its SHA-256 is <see cref="Sha256" />.</returns>
     internal static bool Matches(Stream archive)
     {
-        return string.Equals(Convert.ToHexStringLower(SHA256.HashData(archive)), Sha256, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(Convert.ToHexStringLower(SHA256.HashData(archive)), Sha256,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Fetches the pinned archive once; the hash check afterwards decides whether it is used.</summary>
@@ -266,7 +270,7 @@ internal static class RtssInstaller
         var setupEntry = root.GetProperty("setupEntry").GetString()!;
         var download = new Uri(root.GetProperty("url").GetString()!, UriKind.Absolute);
         if (Path.GetFileName(asset) != asset || Path.GetFileName(setupEntry) != setupEntry
-            || download.Scheme != Uri.UriSchemeHttps)
+                                             || download.Scheme != Uri.UriSchemeHttps)
         {
             throw new InvalidDataException("The RTSS runtime pin is invalid.");
         }

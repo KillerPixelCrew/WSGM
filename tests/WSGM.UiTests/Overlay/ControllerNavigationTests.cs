@@ -51,11 +51,11 @@ public sealed class ControllerNavigationTests
         Assert.Equal("Process name", UiFixture.Named<TextBlock>(processKeyboard, "PromptText").Text);
         Assert.Same(window, TopLevel.GetTopLevel(processKeyboard));
         var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        window.SurfaceClosed += () => closed.TrySetResult();
+        window.Surfaces.Closed += () => closed.TrySetResult();
         buttons.Press(GamepadButtons.B);
         await closed.Task.WaitAsync(TimeSpan.FromSeconds(2));
         // Closing the keyboard returns to the profile editor's containing utility surface.
-        Assert.True(window.HasActiveSurface);
+        Assert.True(window.Surfaces.HasActive);
         Assert.Null(TopLevel.GetTopLevel(processKeyboard));
         Assert.Same(window, TopLevel.GetTopLevel(editor));
         Assert.Same(add, window.FocusManager.GetFocusedElement());
@@ -74,8 +74,7 @@ public sealed class ControllerNavigationTests
         using FakeDevice device = new();
         using UiFixture fixture = new();
         var sensor = device.State.Capabilities[0];
-        var lighting = new DeviceOverlayCapability("fixture.lighting", null,
-            DeviceOverlaySection.LightingAndFeatures, DescriptorStatus.Available,
+        var lighting = new DeviceOverlayCapability("fixture.lighting", null, DescriptorStatus.Available,
             "Lighting", "", "Off", false) { PluginSectionId = DeviceSections.RgbId };
         device.State = device.State with { Capabilities = [sensor, lighting] };
         var window = fixture.Overlay();
@@ -95,8 +94,8 @@ public sealed class ControllerNavigationTests
         Assert.True(overview.IsFocused);
         Assert.DoesNotContain(UiFixture.Named<StackPanel>(window, "SectionRail").Children,
             control => Equals(control.Tag, "rail.device.section.plugin." + DeviceSections.RgbId));
-        Assert.NotNull(UiFixture.Rail(window, "device.section.overview"));
-        Assert.True(UiFixture.Named<Control>(window, "PanelDevice").IsVisible);
+        Assert.NotNull(UiFixture.Rail(window, "device.section.plugin.info"));
+        Assert.True(UiFixture.Named<Control>(window, "DevicePage").IsVisible);
     }
 
     [AvaloniaFact]
@@ -109,10 +108,10 @@ public sealed class ControllerNavigationTests
         var vm = Assert.IsType<OverlayViewModel>(window.DataContext);
         vm.PowerTimeoutValues = new Dictionary<PowerTimeoutKind, int?> { [PowerTimeoutKind.DisplayDc] = 60 };
         List<(PowerTimeoutKind Kind, int Seconds)> requested = [];
-        window.PowerTimeoutSelected += (kind, seconds) => requested.Add((kind, seconds));
+        window.PowerEditors.PowerTimeoutSelected += (kind, seconds) => requested.Add((kind, seconds));
         UiFixture.Click(window, UiFixture.Tab(window, 3));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerTimeouts));
-        var editor = UiFixture.Named<StackPanel>(window, "PowerTimeoutEditors")
+        var editor = window.PanelPowerTimeouts.PowerTimeoutEditors
             .GetVisualDescendants().OfType<ComboBox>().Single(choice => choice.IsEnabled);
         Assert.True(editor.Focus());
         UiFixture.Key(window, Key.Enter);
@@ -137,20 +136,20 @@ public sealed class ControllerNavigationTests
             Visible = false,
             Capabilities = [],
             Controller = null,
-            PluginSections = DeviceOverlayBridge.ProjectSections(DeviceSectionLayout.IncludePredefined([]))
+            PluginSections = CapabilityRowProjection.ProjectSections(DeviceSectionLayout.IncludePredefined([]))
         };
         using FakeDevice device = new();
         device.SampleSource = source;
         device.State = state;
         using UiFixture fixture = new();
-        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower()),
-            _ => throw new InvalidOperationException("Unexpected power write")));
+        using var schemes = UiFixture.PowerProfiles(new FakePower());
         await schemes.RefreshAsync();
         var window = fixture.Overlay();
-        DeviceGlyphSelection? requested = null;
-        device.SelectGlyphs = selection =>
+        string? requested = null;
+        device.SelectHost = (row, value) =>
         {
-            requested = selection;
+            Assert.Equal(DeviceHostRowIds.GlyphSelection, row);
+            requested = value;
             return Task.CompletedTask;
         };
         window.AttachDeviceBridge(device);
@@ -172,7 +171,7 @@ public sealed class ControllerNavigationTests
         UiFixture.Click(window, glyphs);
         UiFixture.Key(window, Key.Down);
         UiFixture.Key(window, Key.Enter);
-        Assert.Equal(DeviceGlyphSelection.NativeSteam, requested);
+        Assert.Equal(nameof(DeviceGlyphSelection.NativeSteam), requested);
         UiFixture.Key(window, Key.Escape);
         Assert.True(controller.IsFocused);
         Assert.Contains("selected", controller.Classes);
@@ -224,9 +223,9 @@ public sealed class ControllerNavigationTests
         var window = fixture.Overlay();
         FakeButtonSource buttons = new();
         using var navigation = OverlayInput.Create(window, buttons, () => window.TryCancelSubView());
-        window.ShowBrightnessSurface();
+        window.Surfaces.ShowBrightness();
         Dispatcher.UIThread.RunJobs();
-        var close = Assert.IsType<Button>(window.ActiveSurfaceFocusTarget);
+        var close = Assert.IsType<Button>(window.Surfaces.FocusTarget);
 
         buttons.Press(GamepadButtons.DPadLeft);
         buttons.Press(GamepadButtons.DPadRight);
@@ -236,7 +235,7 @@ public sealed class ControllerNavigationTests
         Assert.Same(close, window.FocusManager.GetFocusedElement());
         Assert.True(UiFixture.Named<Button>(window, "CloseButton").Focus());
         buttons.Press(GamepadButtons.A);
-        Assert.True(window.HasActiveSurface);
+        Assert.True(window.Surfaces.HasActive);
         buttons.Press(GamepadButtons.DPadDown);
         Assert.Same(close, window.FocusManager.GetFocusedElement());
     }
@@ -249,7 +248,7 @@ public sealed class ControllerNavigationTests
         var window = fixture.Overlay();
         window.AttachDeviceBridge(device);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
-        var rail = UiFixture.Rail(window, "device.section.overview");
+        var rail = UiFixture.Rail(window, "device.section.plugin.info");
         UiFixture.Click(window, rail);
         UiFixture.OpenSections(window);
         Assert.True(rail.Focus());
@@ -259,7 +258,7 @@ public sealed class ControllerNavigationTests
         };
         device.Notify();
         Dispatcher.UIThread.RunJobs();
-        Assert.Same(rail, UiFixture.Rail(window, "device.section.overview"));
+        Assert.Same(rail, UiFixture.Rail(window, "device.section.plugin.info"));
         Assert.True(rail.IsFocused);
         Assert.Contains("selected", rail.Classes);
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(),

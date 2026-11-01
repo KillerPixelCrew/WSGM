@@ -18,17 +18,17 @@ public sealed class SetupFileOwnerTests
         Directory.CreateDirectory(working);
         var ready = Path.Combine(installation.Machine, "directory-owner-ready.txt");
         var script = $$"""
-            Add-Type -TypeDefinition @'
-            using System.Runtime.InteropServices;
-            public static class DirectoryOwner {
-                [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-                public static extern bool SetCurrentDirectory(string path);
-            }
-            '@
-            if (-not [DirectoryOwner]::SetCurrentDirectory('{{working.Replace("'", "''", StringComparison.Ordinal)}}')) { exit 2 }
-            [IO.File]::WriteAllText('{{ready.Replace("'", "''", StringComparison.Ordinal)}}', 'ready')
-            while ($true) { Start-Sleep -Seconds 1 }
-            """;
+                       Add-Type -TypeDefinition @'
+                       using System.Runtime.InteropServices;
+                       public static class DirectoryOwner {
+                           [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+                           public static extern bool SetCurrentDirectory(string path);
+                       }
+                       '@
+                       if (-not [DirectoryOwner]::SetCurrentDirectory('{{working.Replace("'", "''", StringComparison.Ordinal)}}')) { exit 2 }
+                       [IO.File]::WriteAllText('{{ready.Replace("'", "''", StringComparison.Ordinal)}}', 'ready')
+                       while ($true) { Start-Sleep -Seconds 1 }
+                       """;
         var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
         using var helper = Process.Start(new ProcessStartInfo(
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
@@ -61,7 +61,7 @@ public sealed class SetupFileOwnerTests
         {
             if (!helper.HasExited)
             {
-                helper.Kill(entireProcessTree: false);
+                helper.Kill(false);
                 Assert.True(helper.WaitForExit(10000));
             }
         }
@@ -81,24 +81,24 @@ public sealed class SetupFileOwnerTests
         var quotedLibrary = library.Replace("'", "''", StringComparison.Ordinal);
         var quotedReady = ready.Replace("'", "''", StringComparison.Ordinal);
         var script = $$"""
-            $ownerNativeSource = @'
-            using System;
-            using System.Runtime.InteropServices;
-            public static class WsgmSetupFileOwnerFixture
-            {
-                [DllImport("kernel32.dll", EntryPoint = "LoadLibraryW", CharSet = CharSet.Unicode, SetLastError = true)]
-                public static extern IntPtr LoadLibrary(string path);
-            }
-            '@
-            Add-Type -TypeDefinition $ownerNativeSource -ErrorAction Stop
-            $ownerLibraryHandle = [WsgmSetupFileOwnerFixture]::LoadLibrary('{{quotedLibrary}}')
-            if ($ownerLibraryHandle -eq [IntPtr]::Zero)
-            {
-                throw "LoadLibrary failed: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())"
-            }
-            [IO.File]::WriteAllText('{{quotedReady}}', [Diagnostics.Process]::GetCurrentProcess().Id.ToString())
-            while ($true) { Start-Sleep -Seconds 1 }
-            """;
+                       $ownerNativeSource = @'
+                       using System;
+                       using System.Runtime.InteropServices;
+                       public static class WsgmSetupFileOwnerFixture
+                       {
+                           [DllImport("kernel32.dll", EntryPoint = "LoadLibraryW", CharSet = CharSet.Unicode, SetLastError = true)]
+                           public static extern IntPtr LoadLibrary(string path);
+                       }
+                       '@
+                       Add-Type -TypeDefinition $ownerNativeSource -ErrorAction Stop
+                       $ownerLibraryHandle = [WsgmSetupFileOwnerFixture]::LoadLibrary('{{quotedLibrary}}')
+                       if ($ownerLibraryHandle -eq [IntPtr]::Zero)
+                       {
+                           throw "LoadLibrary failed: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())"
+                       }
+                       [IO.File]::WriteAllText('{{quotedReady}}', [Diagnostics.Process]::GetCurrentProcess().Id.ToString())
+                       while ($true) { Start-Sleep -Seconds 1 }
+                       """;
         var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
         using var helper = Process.Start(new ProcessStartInfo(
             Path.Combine(system, "WindowsPowerShell", "v1.0", "powershell.exe"),
@@ -144,7 +144,7 @@ public sealed class SetupFileOwnerTests
             // process and never stops a child tree or any application started by the user.
             if (!helper.HasExited)
             {
-                helper.Kill(entireProcessTree: false);
+                helper.Kill(false);
                 Assert.True(helper.WaitForExit(10000), "The owned helper did not finish cleanup.");
             }
         }
@@ -155,7 +155,7 @@ public sealed class SetupFileOwnerTests
     {
         using SetupTestInstallation installation = new();
         var file = Path.Combine(installation.Root, "App", "WSGM.exe");
-        FileStream? held = File.Open(file, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var held = File.Open(file, FileMode.Open, FileAccess.Read, FileShare.Read);
         List<string> calls = [];
         FakeProcess process = new()
         {
@@ -361,12 +361,12 @@ public sealed class SetupFileOwnerTests
 
     private sealed class FakeProcess : SetupFileOwners.IProcess
     {
-        public ulong Started { get; init; } = 100;
-        public bool Critical { get; init; }
-        public string Image { get; init; } = "holder.exe";
         public Func<bool>? OnStop { get; init; }
         public int Stops { get; private set; }
         public bool Disposed { get; private set; }
+        public ulong Started { get; init; } = 100;
+        public bool Critical { get; init; }
+        public string Image { get; init; } = "holder.exe";
 
         public bool Stop(TimeSpan budget)
         {

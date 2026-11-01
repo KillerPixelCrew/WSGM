@@ -14,9 +14,9 @@ internal static class Program
     {
         // Never fall back to an elevated renderer, including when UAC is disabled.
         if (args.Length != 4 || !args[0].StartsWith("WSGM.Browser.", StringComparison.Ordinal)
-            || !int.TryParse(args[1], CultureInfo.InvariantCulture, out var parentId)
-            || !long.TryParse(args[2], CultureInfo.InvariantCulture, out var parentStarted)
-            || !BrowserNative.IsMediumIntegrity(Environment.ProcessId))
+                             || !int.TryParse(args[1], CultureInfo.InvariantCulture, out var parentId)
+                             || !long.TryParse(args[2], CultureInfo.InvariantCulture, out var parentStarted)
+                             || !BrowserNative.IsMediumIntegrity(Environment.ProcessId))
         {
             return 2;
         }

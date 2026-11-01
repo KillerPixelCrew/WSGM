@@ -9,6 +9,10 @@
     <IsTestProject>true</IsTestProject>
     <ImplicitUsings>enable</ImplicitUsings>
     <NoWarn>$(NoWarn);1573;1591</NoWarn>
+    <!-- The tests use WSGM.Setup's types and never run its executable. Setup is self-contained only
+         in Release, so without this every Debug build, and the Debug design-time build Rider's
+         cleanup analyses, fails with NETSDK1150 before references resolve. -->
+    <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0"/>

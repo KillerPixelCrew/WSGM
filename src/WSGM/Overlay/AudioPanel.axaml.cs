@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using WindowsDeviceControl;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Shell;
@@ -118,12 +117,7 @@ public partial class AudioPanel : UserControl
             ChannelsChoice.SelectedItem =
                 channels?.FirstOrDefault(choice => choice.Format == capabilities?.CurrentFormat);
             var spatialOptions = capabilities?.SupportedSpatialFormats is { Count: > 0 } spatial
-                ? new ObservableCollection<SpatialAudioOption>(
-                [
-                    new SpatialAudioOption(CoreAudio.SpatialAudioFormats.Off, "Off"),
-                    .. spatial.Select(static format =>
-                        new SpatialAudioOption(format, SpatialAudioNames.For(format)))
-                ])
+                ? new ObservableCollection<SpatialAudioOption>(AudioPlaybackChoices.Spatial(spatial))
                 : null;
             SpatialChoice.ItemsSource = spatialOptions;
             FormatChoice.SelectedItem = formats?.FirstOrDefault(choice => choice.Format == capabilities?.CurrentFormat);

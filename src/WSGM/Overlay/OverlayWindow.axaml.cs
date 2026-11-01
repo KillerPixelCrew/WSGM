@@ -1,15 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using Avalonia.LiveBackdrop;
-using Avalonia.Threading;
 using SteamUiToolkit;
 using WSGM.Core;
-using WSGM.Device.Sdk.Glyphs;
 using WSGM.Interop;
 using WSGM.Shell;
 
@@ -25,31 +23,24 @@ public partial class OverlayWindow : Window
     private const int DeviceLiveRefresh = 1;
     private const int PerformanceLiveRefresh = 2;
     private const int GraphicsLiveRefresh = 4;
-    private const int DeviceRenderAwaitingOpen = 1;
-    private const int PerformanceRenderAwaitingOpen = 2;
+    private const int PinSourcesLiveRefresh = 8;
+    private const int PluginsLiveRefresh = 16;
 
-    private const int PinsRenderAwaitingOpen = 4;
-    private const int GraphicsRenderAwaitingOpen = 8;
-
-    private readonly Dictionary<string, (string Title, Func<Control> Create)> _controlPinFactories = [];
     private readonly CancellationTokenSource _deviceLifetime = new();
+
+    // Draws every Device, GPU, performance and pinned group description.
+    private readonly DeviceGroupRenderer _deviceRenderer;
     private readonly Action<OverlayWindow> _dock;
-
-    /// <summary>Preview tiles by control, rebuilt with the Glyphs page and empty elsewhere.</summary>
-    /// <remarks>
-    ///     Held so the input test can light a tile without re-rendering the page on every sample. The
-    ///     tiles are owned by the visual tree; this only points at them, and is cleared whenever the
-    ///     page that made them is replaced.
-    /// </remarks>
-    private readonly Dictionary<GlyphControlId, Border> _glyphTiles = [];
-
-    private readonly HashSet<GlyphControlId> _glyphOemPressed = [];
-
-    private int _glyphOemEpoch;
 
     private readonly OverlayNavigation _navigation = new();
 
+    // The second-press confirmations shared by the Session and Power pages, the power menu and Back.
+    private readonly PowerActionConfirms _powerConfirms;
+
     private readonly HashSet<IPointer> _pressedPointers = [];
+
+    // Creates each described row with the commands of its source.
+    private readonly DeviceRowFactory _rows;
 
     // The creating controller owns navigation state across its window recreations.
     private readonly SessionState _session;
@@ -58,7 +49,6 @@ public partial class OverlayWindow : Window
     private readonly SteamClient? _steam;
     private readonly ConfigStore _store;
     private readonly AppSwitcherViewModel _switcher;
-    private double _blurRadius = 8;
 
     /// <summary>
     ///     Set once this window instance is gone. Post-action feedback delays
@@ -67,36 +57,27 @@ public partial class OverlayWindow : Window
     /// </summary>
     private bool _closed;
 
-    private DispatcherTimer? _confirmResetTimer;
     private IDeviceOverlaySource? _deviceBridge;
-    private DevicePrerequisiteSource? _devicePrerequisites;
-    private bool _devicePrerequisitesReading;
-    private bool _devicePrerequisitesStale;
 
-    private SdFormatManager? _format;
-    private LiveBackdrop? _glassBackdrop;
+    // Set while the Device panel is hidden and a refresh was asked for; it renders when shown again.
+    private bool _devicePanelStale;
+    private IGraphicsOverlaySource? _graphicsSource;
 
-    private long _glyphInputKey;
-    private IDisposable? _glyphInputObservation;
-    private HybridCoreSelection? _hybridCoreSelection;
+    private ChoiceRowSelection? _hybridCoreSelection;
     private int _liveRefreshScheduled;
 
-    // Renders asked for before the window first opens are held and run once in OnOpened. Each
-    // source attached while the sheet is being built otherwise rebuilt the Device page or the pins.
+    // Reads whether the device offers a manual power mode; null until the coordinator attaches.
+    private Func<(bool Available, bool Unified)>? _manualTdpMode;
+
+    // Renders wait for the window to open, and OnOpened runs each once. Each source attached while
+    // the sheet is being built otherwise rebuilt the Device page or the pins.
     private bool _opened;
     private int _pendingLiveRefreshes;
-    private FormatTargetEntry? _pendingTarget;
 
     private PerformanceOverlayBridge? _performanceSource;
-    private PowerSchemeSelection? _powerSchemeSelection;
-    private OverlayPage? _renderedDevicePage;
-    private string? _renderedDeviceSection;
-    private int _rendersAwaitingOpen;
-
-    private PixelPoint _slideEnd;
-    private PixelPoint _slideStart;
-    private DateTime _slideStartedUtc;
-    private DispatcherTimer? _slideTimer;
+    private CommonPluginOverlaySource? _pluginSource;
+    private DevicePowerPresetSelection? _powerPresetSelection;
+    private ChoiceRowSelection? _powerSchemeSelection;
 
     /// <summary>Creates the sheet bound to the supplied state.</summary>
     /// <param name="store">The persistence owner supplied by the process or resident session.</param>
@@ -132,8 +113,6 @@ public partial class OverlayWindow : Window
         _store = store;
         _steam = steam;
         _dock = dock;
-        _uiScale = uiScale;
-        _preferredScreenPoint = preferredScreenPoint;
         _switcher = switcher;
         DataContext = viewModel;
         InitializeComponent();
@@ -141,15 +120,45 @@ public partial class OverlayWindow : Window
         ArtworkHost.ConfigureContext(store.Context);
         viewModel.PropertyChanged += OnWorkspacePolicyChanged;
         SurfaceRoot.SizeChanged += OnWorkspaceSizeChanged;
-        ApplyGlassTransparency();
-        InitializePowerEditors();
-        InitializeWindowsPolicies();
+        Placement = new OverlayPlacement(this, RootScale, GlassCanvas, TrayScroller, uiScale, preferredScreenPoint);
+        _powerConfirms = new PowerActionConfirms(viewModel, PanelPowerActions.RestartButton,
+            PanelPowerActions.ShutdownButton, PanelPowerActions.SignOutButton);
+        Surfaces = new OverlaySurfaceStack(this, SurfaceRoot, DeckContent, () => DefaultFocusTarget, CoverMedia,
+            _powerConfirms.Reset);
+        PowerEditors = new OverlayPowerEditors(viewModel, PanelPowerWake.KeepAwakeHost,
+            PanelPowerWake.KeepAwakeDetail, PanelPowerTimeouts.PowerTimeoutEditors,
+            PanelPowerActions.PowerButtonSection,
+            PanelPowerActions.PowerButtonHost);
+        WindowsPolicies = new WindowsPolicyRows(PanelSystemTools.UacPolicyHost, PanelPowerWake.LockOnWakePolicyHost);
+        _profileScope = new HeaderProfileScope(HeaderProfile, ProfileContext, ManageProfiles, _deviceLifetime.Token);
         // Two subtrees bind different objects than the window (compiled bindings:
         // x:DataType on the TrayScroller / AppsStrip and StatusZone subtrees).
         TrayScroller.DataContext = switcher;
         AppsStrip.DataContext = switcher;
         StatusZone.DataContext = status;
-        IndexPinnableRows();
+        _pins = new QuickAccessPins(this, PinnedGrid, PinToast, PinToastText, PinToastHint);
+        _rows = new DeviceRowFactory(() => _deviceBridge, () => _graphicsSource, () => _performanceSource,
+            (bridge, capability) =>
+            {
+                DeviceColorHost.Open(bridge, capability);
+                EnterSubView(OverlayPage.DeviceColor);
+            }, _deviceLifetime.Token, () => _closed);
+        _deviceRenderer = new DeviceGroupRenderer(_rows.Create,
+            (id, title, pinned) => CreateSectionHeader(id, title, pinned), session.ExpandedSections);
+        _devicePins = new DevicePins(_deviceRenderer, _rows.Views, () => _deviceBridge?.Snapshot(),
+            () => _performanceSource?.Snapshot(), () => _graphicsSource?.Snapshot());
+        foreach (var view in SubViews.Where(view => view.PinId is not null))
+        {
+            var page = view.Page;
+            _pins.AddSection(view.PinId!, view.Title!, view.Description ?? string.Empty, view.Icon,
+                () => view.Available?.Invoke() ?? true, () => OpenSection(page));
+        }
+
+        DevicePage.Configure(_deviceRenderer, session.ExpandedSections);
+        PanelSystemPerformance.Configure(_deviceRenderer);
+        StorageFormatHost.CloseRequested += () => LeaveSubView(OverlayPage.SteamStorageFormat);
+        StorageFormatHost.ScrollToTopRequested += () => ContentScroller.Offset = default;
+        ConfigurePages(steam);
 
         // Controller navigation moves focus with InputElement.Focus(Directional),
         // which does NOT raise RequestBringIntoView on its own — a chip scrolled
@@ -160,10 +169,6 @@ public partial class OverlayWindow : Window
         // them handled from a TUNNEL handler on the window.
         TileScroller.AddHandler(GotFocusEvent, OnStripGotFocus, RoutingStrategies.Bubble);
         TrayScroller.AddHandler(GotFocusEvent, OnStripGotFocus, RoutingStrategies.Bubble);
-        // Budget the tray against the XAML's declared width right away, so the
-        // strip is bounded even on the path where DockToTopEdge bails out (no
-        // primary screen); the dock recomputes it against the real display width.
-        TrayScroller.MaxWidth = ComputeTrayMaxWidth(Width, _contentScale);
         // Touch and mouse routes to pinning: a hold on a row, or a right click.
         AddHandler(HoldingEvent, OnHolding, RoutingStrategies.Bubble, true);
         AddHandler(PointerPressedEvent, OnPointerPressedForPin, RoutingStrategies.Tunnel);
@@ -172,7 +177,7 @@ public partial class OverlayWindow : Window
         AddHandler(PointerReleasedEvent, OnPointerReleasedForLiveRefresh, RoutingStrategies.Tunnel);
         PointerCaptureLost += OnPointerCaptureLostForLiveRefresh;
 
-        ConfigureTabs(false);
+        ConfigureTabs(DeviceSnapshotOrOff());
         Tabs.SelectionChanged += OnTabSelectionChanged;
 
         // ReSharper disable once UseDeconstruction
@@ -185,25 +190,20 @@ public partial class OverlayWindow : Window
 
             host.Steam = steam;
             var page = view.Page;
-            var leave = () => LeaveSubView(page);
-            host.CloseRequested += leave;
-            _subViewCloseHandlers.Add((host, leave));
-            var changed = () =>
+            host.CloseRequested += () => LeaveSubView(page);
+            host.LevelChanged += () =>
             {
                 if (ReferenceEquals(ActiveSubView?.Host, host))
                 {
                     ContentScroller.Offset = default;
                 }
             };
-            host.LevelChanged += changed;
-            _subViewLevelHandlers.Add((host, changed));
         }
 
         GameLibraryHost.ArtworkRequested += OpenImportedArtwork;
         GameLibraryHost.EmulatorsRequested += OpenEmulators;
-        LaunchWrapperHost.Picked += OnLaunchFixGamePicked;
-        LaunchWrapperHost.CustomPicked += OnCustomLaunchGamePicked;
-        InitializeLaunchFixLabels(viewModel);
+        GameLibraryHost.SettingsRequested += PanelSystemTools.RequestSettings;
+        ArtworkHost.SettingsRequested += PanelSystemTools.RequestSettings;
 
         KeyDown += OnKeyDown;
         Opened += OnOpened;
@@ -233,42 +233,98 @@ public partial class OverlayWindow : Window
     /// </summary>
     internal bool WarmingUp { get; init; }
 
-    /// <summary>Updates the attached backdrop without recreating the Overlay window.</summary>
-    /// <param name="radius">Saved backdrop blur in physical pixels, normalized to the supported range before application.</param>
-    internal void SetBlurRadius(double radius)
-    {
-        _blurRadius = double.IsFinite(radius) ? Math.Clamp(radius, 0, LiveBackdrop.MaximumBlurRadius) : 8;
-        if (_glassBackdrop is not null)
-        {
-            _glassBackdrop.BlurRadius = _blurRadius;
-        }
-    }
+    /// <summary>The Wake and Idle timeouts editors, with the Keep Awake indicator.</summary>
+    internal OverlayPowerEditors PowerEditors { get; }
+
+    /// <summary>The UAC prompt and sign-in-after-standby switches on the System and Wake pages.</summary>
+    internal WindowsPolicyRows WindowsPolicies { get; }
 
     /// <summary>Raised when a nested page is torn down so its auxiliary surface closes too.</summary>
     public event Action? SubViewClosed;
 
-    /// <summary>Raised when the user requests Task Manager.</summary>
-    public event Action? TaskManagerRequested;
-
+    /// <summary>Raised when the user asks for the on-screen keyboard, from the header or Tools > Keyboard.</summary>
     internal event Action? OnScreenKeyboardRequested;
+
+    /// <summary>Connects the destination pages to the navigation, surfaces and confirmations the sheet owns.</summary>
+    /// <param name="steam">The session's Steam client, or null on a surface without one.</param>
+    private void ConfigurePages(SteamClient? steam)
+    {
+        PanelSteamLibrary.Configure(StorageFormatHost);
+        PanelSteamLibrary.PageRequested += OpenPage;
+        PanelSteamLibrary.FormatPageRequested += OpenStorageFormat;
+        PanelSteamLibrary.SystemDialogActive += active => SystemDialogActive?.Invoke(active);
+        PanelSteamLaunch.Steam = steam;
+        PanelSteamLaunch.Configure(LaunchWrapperHost, Surfaces);
+        PanelSteamLaunch.ConfigurationRequested += () => OpenPage(OverlayPage.SteamLaunchConfiguration);
+        PanelSteamLaunch.ConfigurationClosed += () => LeaveSubView(OverlayPage.SteamLaunchConfiguration);
+        PanelSteamLaunch.DismissRequested += () => Dismissed?.Invoke();
+        PanelSteamLaunch.RefreshLabels();
+        PanelSystemStorage.Configure(StorageFormatHost);
+        PanelSystemStorage.EjectRequested += () => EjectPanelRequested?.Invoke();
+        PanelSystemStorage.FormatPageRequested += OpenStorageFormat;
+        PanelSystemController.KeyboardRequested += () => OnScreenKeyboardRequested?.Invoke();
+        PanelPowerSession.Configure(_powerConfirms);
+        PanelPowerWake.WakeLocksRequested += () => OpenPage(OverlayPage.PowerWakeLocks);
+        PanelPowerActions.Configure(_powerConfirms);
+        PanelPowerActions.DismissRequested += () => Dismissed?.Invoke();
+        PanelPowerActions.PowerMenuRequested += () => PowerMenuRequested?.Invoke();
+        ProgramsHost.ProgramsChanged += () => QueueLiveRefresh(PinSourcesLiveRefresh);
+        ProgramsHost.EditorRequested += id =>
+        {
+            if (OpenSection(OverlayPage.Programs))
+            {
+                ProgramsHost.OpenEditor(id);
+                FocusFirstControl(ProgramsHost);
+            }
+        };
+        ProgramsHost.PinRequested += id => PinToggleRequested?.Invoke(ProgramsService.PinPrefix + id);
+        ProgramsHost.UnpinRequested += id =>
+        {
+            var pin = ProgramsService.PinPrefix + id;
+            if (_pins.Contains(pin))
+            {
+                // Queue the final removal after any older home-pin writes already admitted by the controller.
+                PinToggleRequested?.Invoke(pin);
+            }
+        };
+        HotkeysHost.HotkeysChanged += () => QueueLiveRefresh(PinSourcesLiveRefresh);
+        HotkeysHost.PinToggleRequested += pin => PinToggleRequested?.Invoke(pin);
+        HotkeysHost.UnpinRequested += pin =>
+        {
+            if (_pins.Contains(pin))
+            {
+                PinToggleRequested?.Invoke(pin);
+            }
+        };
+        HotkeysHost.CreateHeader = (id, title) => CreateSectionHeader(id, title);
+        PanelSystemPlugins.OfferedChanged += () =>
+        {
+            if (!PanelSystemPlugins.Offered && _navigation.Page == OverlayPage.SystemPlugins)
+            {
+                SelectDestination(OverlayDestination.System);
+            }
+            else
+            {
+                RefreshWorkspace();
+            }
+        };
+    }
 
     private void OnScreenKeyboard(object? sender, RoutedEventArgs e)
     {
         OnScreenKeyboardRequested?.Invoke();
     }
 
-    private void OnSettings(object? sender, RoutedEventArgs e)
+    private void OnSteamBuildNoticeDismiss(object? sender, RoutedEventArgs e)
     {
-        SettingsRequested?.Invoke();
-    }
-
-    private void OnTaskManager(object? sender, RoutedEventArgs e)
-    {
-        TaskManagerRequested?.Invoke();
+        SteamBuildNoticeDismissed?.Invoke();
     }
 
     /// <summary>Raised when the overlay is dismissed without another action.</summary>
     public event Action? Dismissed;
+
+    /// <summary>Raised when the user dismisses the Steam client build notice.</summary>
+    public event Action? SteamBuildNoticeDismissed;
 
     /// <summary>Raised when the user picks an Open apps chip (or cycles with Y).</summary>
     public event Action<AppSwitcherEntry>? WindowPicked;
@@ -313,50 +369,30 @@ public partial class OverlayWindow : Window
     {
         // Before the warm-up return: rendering is part of what the warm pass exercises.
         _opened = true;
-        FoldStaticSections();
-        RunRendersAwaitingOpen();
+        PanelSystemDisplay.Fold(_session.ExpandedSections);
+        var performance = _performanceSource?.Snapshot();
+        var device = DeviceSnapshotOrOff();
+        RefreshNavigationHints();
+        RefreshPerformancePanel(performance);
+        // Drawn even while the panel is hidden: the warm pass exercises it, and the first Device
+        // visit then only refreshes values.
+        RefreshDevicePanel(device, performance);
+        RenderPins(device, performance);
         if (WarmingUp)
         {
             return;
         }
 
         _dock(this);
-        _glassBackdrop = LiveBackdrop.Attach(this, _blurRadius);
-        _glassBackdrop.StateChanged += OnGlassBackdropChanged;
-        OnGlassBackdropChanged(_glassBackdrop, EventArgs.Empty);
+        Placement.AttachBackdrop();
         SelectDestination(_session.Destination);
         RestoreDestinationState(true);
-    }
-
-    private void RunRendersAwaitingOpen()
-    {
-        var pending = _rendersAwaitingOpen;
-        _rendersAwaitingOpen = 0;
-        if ((pending & PerformanceRenderAwaitingOpen) != 0)
-        {
-            RefreshPerformancePanel();
-        }
-
-        if ((pending & DeviceRenderAwaitingOpen) != 0)
-        {
-            RefreshDevicePanel();
-        }
-
-        if ((pending & GraphicsRenderAwaitingOpen) != 0)
-        {
-            RefreshGraphicsPanel();
-        }
-
-        if ((pending & PinsRenderAwaitingOpen) != 0)
-        {
-            RenderPins();
-        }
     }
 
     /// <summary>Returns an already open sheet to its selected section when summoned again.</summary>
     internal void ResetForResummon()
     {
-        if (HasActiveSurface)
+        if (Surfaces.HasActive)
         {
             return;
         }
@@ -367,41 +403,32 @@ public partial class OverlayWindow : Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
-        CloseAllSurfaces();
-        if (_glassBackdrop is not null)
-        {
-            _glassBackdrop.StateChanged -= OnGlassBackdropChanged;
-            _glassBackdrop.Dispose();
-            _glassBackdrop = null;
-        }
-
-        if (DataContext is OverlayViewModel powerState)
-        {
-            powerState.PropertyChanged -= OnPowerEditorStateChanged;
-        }
-
+        Surfaces.Detach();
+        Placement.Detach();
+        PowerEditors.Detach();
         RememberDestinationState(_navigation.Destination);
 
-        // Before _closed, because releasing reads the bridge, and after it the guard inside would
-        // skip the release and leave the subscription attached to a dead window.
-        UpdateGlyphInputObservation(false);
+        // Released against the bridge that granted the lease, before anything else lets go of it.
+        ObserveGlyphInput(false);
         _closed = true;
+        PanelSteamLibrary.Detach();
+        PanelSteamLaunch.Detach();
+        _profileScope.Detach();
         ViewModel.PropertyChanged -= OnWorkspacePolicyChanged;
-        _pinToastTimer?.Stop();
-        _pinToastTimer = null;
-        DevicePowerSchemeHost.Attach(null);
+        _pins.Detach();
         GameLibraryHost.Attach(null);
-        AttachLibraryManager(null);
-        DetachPrograms();
-        AttachNotes(null);
-        AttachScreensavers(null);
+        LibraryTabsHost.Attach(null);
+        CardManagerHost.Attach(null);
+        ProgramsHost.Attach(null);
+        HotkeysHost.Attach(null);
+        NotesHost.Attach(null);
+        ScreensaversHost.Attach(null);
         EmulatorManagerHost.Attach(null);
         ThemesHost.Attach(null);
         AnimationsHost.Attach(null);
         SoundsHost.Attach(null);
         ArtworkHost.Attach(null);
-        DeviceHybridCoreHost.Attach(null);
-        DevicePowerPresetHost.Attach(null);
+        GameToolsHost.Attach(null);
         _deviceLifetime.Cancel();
         if (_deviceBridge is not null)
         {
@@ -409,40 +436,17 @@ public partial class OverlayWindow : Window
         }
 
         DetachGraphicsSource();
+        DetachCommonPlugins();
         if (_performanceSource is not null)
         {
             _performanceSource.Changed -= OnPerformanceChanged;
         }
 
-
-        // These page controls are window-owned. Detach every cross-control callback and
-        // invalidate asynchronous artwork loads at the same lifetime boundary.
-        Tabs.SelectionChanged -= OnTabSelectionChanged;
-        RemoveHandler(PointerPressedEvent, OnPointerPressedForLiveRefresh);
-        RemoveHandler(PointerReleasedEvent, OnPointerReleasedForLiveRefresh);
-        PointerCaptureLost -= OnPointerCaptureLostForLiveRefresh;
+        // Handlers between this window and its own controls die with the window; only pending
+        // work is dropped here.
         _pressedPointers.Clear();
         Interlocked.Exchange(ref _pendingLiveRefreshes, 0);
-        foreach (var (host, leave) in _subViewCloseHandlers)
-        {
-            host.CloseRequested -= leave;
-        }
-
-        foreach (var (host, changed) in _subViewLevelHandlers)
-        {
-            host.LevelChanged -= changed;
-        }
-
-        GameLibraryHost.ArtworkRequested -= OpenImportedArtwork;
-        GameLibraryHost.EmulatorsRequested -= OpenEmulators;
-        LaunchWrapperHost.Picked -= OnLaunchFixGamePicked;
-        LaunchWrapperHost.CustomPicked -= OnCustomLaunchGamePicked;
-        KeyDown -= OnKeyDown;
-        Opened -= OnOpened;
-        Closed -= OnClosed;
-        StopSlide();
-        ResetConfirms();
-        ReleasePinMirrors();
+        _powerConfirms.Reset();
         _deviceLifetime.Dispose();
     }
 

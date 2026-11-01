@@ -7,6 +7,7 @@ using Avalonia.Input;
 using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using FluentAvalonia.UI.Controls;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
@@ -26,15 +27,14 @@ public sealed class OverlayInteractionTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         List<ManualWakeMode> requested = [];
-        var vm = Assert.IsType<OverlayViewModel>(window.DataContext);
-        window.KeepAwakeSelected += mode =>
+        window.PowerEditors.KeepAwakeSelected += mode =>
         {
             requested.Add(mode);
             // A refused write leaves the old view-model value unchanged.
-            window.RefreshPowerEditors(vm);
+            window.PowerEditors.Refresh();
         };
         UiFixture.Click(window, UiFixture.Tab(window, 3));
-        var editor = UiFixture.Named<StackPanel>(window, "KeepAwakeHost")
+        var editor = window.PanelPowerWake.KeepAwakeHost
             .GetVisualDescendants().OfType<ComboBox>().Single();
         UiFixture.Click(window, editor);
         UiFixture.Key(window, Key.Down);
@@ -51,13 +51,13 @@ public sealed class OverlayInteractionTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         List<(PowerTimeoutKind Kind, int Seconds)> requested = [];
-        window.PowerTimeoutSelected += (kind, seconds) => requested.Add((kind, seconds));
+        window.PowerEditors.PowerTimeoutSelected += (kind, seconds) => requested.Add((kind, seconds));
         var vm = Assert.IsType<OverlayViewModel>(window.DataContext);
         vm.PowerTimeoutValues = new Dictionary<PowerTimeoutKind, int?> { [PowerTimeoutKind.DisplayDc] = 60 };
         UiFixture.Click(window, UiFixture.Tab(window, 3));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerTimeouts));
         UiFixture.OpenSections(window);
-        var editor = UiFixture.Named<StackPanel>(window, "PowerTimeoutEditors")
+        var editor = window.PanelPowerTimeouts.PowerTimeoutEditors
             .GetVisualDescendants().OfType<ComboBox>().Single(choice => choice.IsEnabled);
         UiFixture.Click(window, editor);
         Assert.True(editor.IsDropDownOpen);
@@ -81,9 +81,9 @@ public sealed class OverlayInteractionTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         List<ManualWakeMode> requested = [];
-        window.KeepAwakeSelected += requested.Add;
+        window.PowerEditors.KeepAwakeSelected += requested.Add;
         UiFixture.Click(window, UiFixture.Tab(window, 3));
-        var editor = UiFixture.Named<StackPanel>(window, "KeepAwakeHost")
+        var editor = window.PanelPowerWake.KeepAwakeHost
             .GetVisualDescendants().OfType<ComboBox>().Single();
         UiFixture.Click(window, editor);
         Assert.True(editor.IsDropDownOpen);
@@ -100,11 +100,11 @@ public sealed class OverlayInteractionTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         List<ManualWakeMode> requested = [];
-        window.KeepAwakeSelected += requested.Add;
+        window.PowerEditors.KeepAwakeSelected += requested.Add;
         var vm = Assert.IsType<OverlayViewModel>(window.DataContext);
         vm.KeepAwakeManualMode = ManualWakeMode.Standby;
         UiFixture.Click(window, UiFixture.Tab(window, 3));
-        var editor = UiFixture.Named<StackPanel>(window, "KeepAwakeHost")
+        var editor = window.PanelPowerWake.KeepAwakeHost
             .GetVisualDescendants().OfType<ComboBox>().Single();
         Assert.Equal(1, editor.SelectedIndex);
         Assert.Empty(requested);
@@ -123,13 +123,13 @@ public sealed class OverlayInteractionTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         List<(PowerTimeoutKind Kind, int Seconds)> requested = [];
-        window.PowerTimeoutSelected += (kind, seconds) => requested.Add((kind, seconds));
+        window.PowerEditors.PowerTimeoutSelected += (kind, seconds) => requested.Add((kind, seconds));
         var vm = Assert.IsType<OverlayViewModel>(window.DataContext);
         vm.PowerTimeoutValues = new Dictionary<PowerTimeoutKind, int?> { [PowerTimeoutKind.DisplayDc] = 60 };
         UiFixture.Click(window, UiFixture.Tab(window, 3));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerTimeouts));
         UiFixture.OpenSections(window);
-        var editors = UiFixture.Named<StackPanel>(window, "PowerTimeoutEditors")
+        var editors = window.PanelPowerTimeouts.PowerTimeoutEditors
             .GetVisualDescendants().OfType<ComboBox>().ToArray();
         Assert.Equal(4, editors.Length);
         var editor = Assert.Single(editors, choice => choice.IsEnabled);
@@ -177,15 +177,25 @@ public sealed class OverlayInteractionTests
         DevicePowerPresetView view = new();
         view.Attach(model);
         await model.RefreshAsync();
-        var choices = view.GetLogicalDescendants().OfType<ComboBox>().ToArray();
-        foreach (var choice in choices)
+        Window window = new() { Content = view, Width = 600, Height = 400 };
+        try
         {
-            var isAc = Equals(choice.Tag, "device.power-assignment.ac");
-            Assert.Equal(isAc == ac ? "custom" : "balanced", Assert.IsType<DevicePowerPreset>(choice.SelectedItem).Id);
-            Assert.Equal(isAc == ac, choice.Items.Cast<DevicePowerPreset>().Any(item => item.Id == "custom"));
-        }
+            window.Show();
+            var choices = view.GetLogicalDescendants().OfType<ComboBox>().ToArray();
+            foreach (var choice in choices)
+            {
+                // The unset entry, Balanced, and Custom only where an assignment holds it.
+                var holdsCustom = Equals(choice.Tag, "device.power-assignment.ac") == ac;
+                Assert.Equal(holdsCustom ? 3 : 2, choice.ItemCount);
+                Assert.Equal(holdsCustom ? 2 : 1, choice.SelectedIndex);
+            }
 
-        Assert.Equal(2, choices.Length);
+            Assert.Equal(2, choices.Length);
+        }
+        finally
+        {
+            window.Close();
+        }
 
         return;
 
@@ -225,8 +235,7 @@ public sealed class OverlayInteractionTests
     [AvaloniaFact]
     public void LosingIntegrationKeepsWindowsPlansOnTheOpenPowerPage()
     {
-        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower()),
-            _ => throw new InvalidOperationException("Unexpected power scheme write")));
+        using var schemes = UiFixture.PowerProfiles(new FakePower());
         using FakeDevice device = new();
         device.State = device.State with
         {
@@ -243,13 +252,15 @@ public sealed class OverlayInteractionTests
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, UiFixture.Named<StackPanel>(window, "SectionRail").Children.OfType<Button>()
             .Single(button => AutomationProperties.GetName(button) == "Power"));
-        var plans = UiFixture.Named<StackPanel>(window, "DeviceWindowsPower");
-        Assert.True(plans.IsVisible);
+        UiFixture.OpenSections(window);
+        var plans = UiFixture.Tagged<DeviceGroupView>(window, "section.system.power-profile");
+        Assert.True(plans.IsEffectivelyVisible);
         device.State = device.State with { Visible = false };
         device.Notify();
         Dispatcher.UIThread.RunJobs();
-        Assert.True(plans.IsVisible);
-        Assert.True(UiFixture.Named<PowerSchemeView>(window, "DevicePowerSchemeHost").IsEffectivelyVisible);
+        // The plan keeps its control: only the device groups beside it left.
+        Assert.Same(plans, UiFixture.Tagged<DeviceGroupView>(window, "section.system.power-profile"));
+        Assert.True(UiFixture.Tagged<ChoiceRowView>(window, "section.system.power-profile").IsEffectivelyVisible);
     }
 
     [AvaloniaFact]
@@ -354,8 +365,8 @@ public sealed class OverlayInteractionTests
         UiFixture.Click(window, UiFixture.Tab(window, 1));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SteamLaunchFixes));
         UiFixture.OpenSections(window);
-        var last = UiFixture.Named<ActionButton>(window, "RemoveFixesButton");
-        UiFixture.Named<ActionButton>(window, "DeelevateFixButton").Focus();
+        var last = window.PanelSteamLaunch.RemoveFixesButton;
+        window.PanelSteamLaunch.DeelevateFixButton.Focus();
         for (var step = 0; step < 12 && !last.IsFocused; step++)
         {
             UiFixture.Key(window, Key.Tab);
@@ -370,6 +381,44 @@ public sealed class OverlayInteractionTests
     }
 
     [AvaloniaFact]
+    public void APinnedToolsSectionCardOpensItsSection()
+    {
+        using UiFixture fixture = new();
+        var window = fixture.Overlay();
+        window.SetPins(["system.notes"]);
+        Dispatcher.UIThread.RunJobs();
+        var card = Assert.Single(UiFixture.Named<Panel>(window, "PinnedGrid").Children.OfType<ActionButton>(),
+            button => button.IsEnabled);
+        Assert.Equal("Notes", card.Title);
+        Assert.Equal("Game notes with text, drawings and screenshots", card.Description);
+
+        UiFixture.Click(window, card);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(UiFixture.Named<Control>(window, "NotesHost").IsVisible);
+        Assert.Contains("selected", UiFixture.Rail(window, OverlayPage.Notes).Classes);
+    }
+
+    [AvaloniaFact]
+    public void APinnedRowThatOpensANestedPageOpensItFromQuickAccess()
+    {
+        using UiFixture fixture = new();
+        var window = fixture.Overlay();
+        window.SetPins(["system.wake-locks"]);
+        Dispatcher.UIThread.RunJobs();
+        var card = Assert.Single(UiFixture.Named<Panel>(window, "PinnedGrid").Children.OfType<ActionButton>(),
+            button => button.IsEnabled);
+
+        UiFixture.Click(window, card);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(UiFixture.Named<Control>(window, "WakeLockHost").IsVisible);
+        Assert.Contains("selected", UiFixture.Rail(window, OverlayPage.PowerWake).Classes);
+        UiFixture.Key(window, Key.Escape);
+        Assert.True(UiFixture.Named<Control>(window, "PanelPowerWake").IsVisible);
+    }
+
+    [AvaloniaFact]
     public void QuickAccessPinsReportIntentThroughPointerAndKeyboard()
     {
         using UiFixture fixture = new();
@@ -378,7 +427,7 @@ public sealed class OverlayInteractionTests
         List<string> pins = [];
         var home = 0;
         window.PinToggleRequested += pins.Add;
-        window.HomeAppRequested += () => home++;
+        window.PanelPowerSession.HomeAppRequested += () => home++;
         var grid = UiFixture.Named<Panel>(window, "PinnedGrid");
         var card = Assert.IsType<ActionButton>(grid.Children[0]);
         UiFixture.Click(window, card);
@@ -392,7 +441,7 @@ public sealed class OverlayInteractionTests
         UiFixture.Click(window, UiFixture.Tab(window, 3));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerSession));
         UiFixture.OpenSections(window);
-        var source = UiFixture.Named<ActionButton>(window, "HomeAppButton");
+        var source = window.PanelPowerSession.HomeAppButton;
         source.Focus();
         UiFixture.Key(window, Key.Enter);
         Assert.Equal(2, home);
@@ -409,7 +458,7 @@ public sealed class OverlayInteractionTests
         Dispatcher.UIThread.RunJobs();
         var dismissed = 0;
         window.Dismissed += () => dismissed++;
-        var entry = UiFixture.Rail(window, "device.section.overview");
+        var entry = UiFixture.Rail(window, "device.section.plugin.info");
         UiFixture.Click(window, entry);
         var heading = window.GetVisualDescendants().OfType<SectionPinHeader>()
             .Single(header => header.IsEffectivelyVisible).GetVisualDescendants().OfType<Button>().Single();
@@ -425,12 +474,12 @@ public sealed class OverlayInteractionTests
     }
 
     [AvaloniaTheory]
-    [InlineData(1, "PanelSteam", "SteamLibrary", "PanelSteamLibrary")]
-    [InlineData(2, "PanelSystem", "SystemDisplay", "PanelSystemDisplay")]
-    [InlineData(3, "PanelPower", "PowerTimeouts", "PanelPowerTimeouts")]
-    [InlineData(3, "PanelPower", "PowerSession", "PanelPowerSession")]
+    [InlineData(1, "SteamLibrary", "PanelSteamLibrary")]
+    [InlineData(2, "SystemDisplay", "PanelSystemDisplay")]
+    [InlineData(3, "PowerTimeouts", "PanelPowerTimeouts")]
+    [InlineData(3, "PowerSession", "PanelPowerSession")]
     public void ASectionRailKeepsTheSelectedPageVisibleWhileFocusMoves(
-        int tab, string root, string section, string page)
+        int tab, string section, string page)
     {
         using UiFixture fixture = new();
         var window = fixture.Overlay();
@@ -438,7 +487,6 @@ public sealed class OverlayInteractionTests
         Dispatcher.UIThread.RunJobs();
         var selected = UiFixture.Rail(window, section);
         UiFixture.Click(window, selected);
-        Assert.False(UiFixture.Named<Control>(window, root).IsVisible);
         Assert.True(UiFixture.Named<Control>(window, page).IsVisible);
         Assert.Contains("selected", selected.Classes);
         var peer = UiFixture.Named<StackPanel>(window, "SectionRail").Children.OfType<Button>()
@@ -473,7 +521,6 @@ public sealed class OverlayInteractionTests
         Assert.False(UiFixture.Named<Control>(window, "WakeLockHost").IsVisible);
         Assert.Null(UiFixture.Named<WakeLockHoldersView>(window, "WakeLockHost").Content);
         Assert.True(UiFixture.Named<Control>(window, "PanelPowerWake").IsVisible);
-        Assert.False(UiFixture.Named<Control>(window, "PanelPower").IsVisible);
         UiFixture.Key(window, Key.Escape);
         Assert.True(UiFixture.Rail(window, OverlayPage.PowerWake).IsFocused);
         Assert.True(UiFixture.Named<Control>(window, "PanelPowerWake").IsVisible);
@@ -494,7 +541,6 @@ public sealed class OverlayInteractionTests
         Dispatcher.UIThread.RunJobs();
         Assert.False(UiFixture.Named<Control>(window, "WakeLockHost").IsVisible);
         Assert.False(UiFixture.Named<Control>(window, "PanelPowerWake").IsVisible);
-        Assert.False(UiFixture.Named<Control>(window, "PanelPower").IsVisible);
         Assert.True(UiFixture.Named<Control>(window, "PanelSteamLibrary").IsVisible);
         Assert.Contains("selected", UiFixture.Rail(window, OverlayPage.SteamLibrary).Classes);
     }
@@ -538,7 +584,7 @@ public sealed class OverlayInteractionTests
             UiFixture.Click(window, UiFixture.Tab(window, 4));
             UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerSession));
             UiFixture.OpenSections(window);
-            UiFixture.Named<ActionButton>(window, "DesktopButton").Focus(NavigationMethod.Directional);
+            window.PanelPowerSession.DesktopButton.Focus(NavigationMethod.Directional);
             window.Close();
             Assert.Equal(0, device.Subscribers);
             device.Notify();
@@ -557,8 +603,7 @@ public sealed class OverlayInteractionTests
     {
         using FakeDevice device = new();
         using UiFixture fixture = new();
-        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower()),
-            _ => throw new InvalidOperationException("Unexpected power scheme write")));
+        using var schemes = UiFixture.PowerProfiles(new FakePower());
         DevicePowerPresets service = new(() => [],
             (_, _, _, _) => throw new InvalidOperationException("Unexpected preset write"),
             new WindowsPowerModes(new PowerSchemes(new FakePower()), new UnusedPowerModeApi()));
@@ -590,7 +635,7 @@ public sealed class OverlayInteractionTests
         Assert.NotNull(PrivateField<Delegate>(schemes, "Changed"));
         Assert.NotNull(PrivateField<Delegate>(presets, "Changed"));
         UiFixture.Click(window, UiFixture.Tab(window, 2));
-        UiFixture.Click(window, UiFixture.Rail(window, "device.section.overview"));
+        UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.info"));
         UiFixture.OpenSections(window);
         UiFixture.Click(window, window.GetVisualDescendants().OfType<DeviceSettingRow>()
             .Single(row => row.IsEffectivelyVisible && Equals(row.Content, "Processor temperature")).Editor);
@@ -600,7 +645,8 @@ public sealed class OverlayInteractionTests
         window.SetPins(["home.steam"]);
         UiFixture.OpenSections(window);
         Assert.True(UiFixture.Named<Control>(window, "PinToast").IsVisible);
-        var timer = Assert.IsType<DispatcherTimer>(PrivateField<DispatcherTimer>(window, "_pinToastTimer"));
+        var pins = Assert.IsType<QuickAccessPins>(PrivateField<QuickAccessPins>(window, "_pins"));
+        var timer = Assert.IsType<DispatcherTimer>(PrivateField<DispatcherTimer>(pins, "_toastTimer"));
         Assert.True(timer.IsEnabled);
         window.Close();
 
@@ -621,11 +667,11 @@ public sealed class OverlayInteractionTests
     }
 
     [AvaloniaFact]
-    public async Task CorePowerSelectionStagesThenAppliesAndShowsFailureWithoutAPlugin()
+    public async Task CorePowerSelectionAppliesTheSettledChoiceAndShowsFailureWithoutAPlugin()
     {
         using UiFixture fixture = new();
         FakePower api = new();
-        using PowerSchemeSelection selection = new(new NativeQamPowerProfileService(new PowerSchemes(api), _ => { }));
+        using var selection = UiFixture.PowerProfiles(api);
         await selection.RefreshAsync();
         var window = fixture.Overlay();
         window.AttachPowerSchemes(selection);
@@ -634,15 +680,6 @@ public sealed class OverlayInteractionTests
         UiFixture.OpenSections(window);
         var combo = window.GetVisualDescendants().OfType<ComboBox>()
             .Single(control => Equals(control.Tag, "system.power-profile.choice"));
-        combo.Focus();
-        UiFixture.Key(window, Key.Down);
-        UiFixture.Key(window, Key.Enter);
-        UiFixture.Key(window, Key.Escape);
-        Assert.False(combo.IsDropDownOpen);
-        Assert.Equal(1, combo.SelectedIndex);
-        Assert.Equal(0, api.Writes);
-        var apply = window.GetVisualDescendants().OfType<Button>()
-            .Single(control => Equals(control.Tag, "system.power-profile.apply"));
         TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         api.BeforeWrite = () =>
@@ -661,11 +698,12 @@ public sealed class OverlayInteractionTests
         };
         try
         {
-            UiFixture.Click(window, apply);
+            combo.Focus();
+            UiFixture.Key(window, Key.Down);
+            UiFixture.Key(window, Key.Enter);
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.True(selection.Busy);
             Assert.False(combo.IsEnabled);
-            Assert.False(apply.IsEnabled);
         }
         finally
         {
@@ -673,10 +711,11 @@ public sealed class OverlayInteractionTests
         }
 
         await finished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Dispatcher.UIThread.RunJobs();
         Assert.Equal(1, api.Writes);
-        Assert.Contains("Choose again", selection.Status);
+        Assert.Contains("failed", selection.Status, StringComparison.Ordinal);
         Assert.True(combo.IsEnabled);
-        Assert.True(apply.IsEnabled);
-        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == selection.Status);
+        Assert.Contains(window.GetVisualDescendants().OfType<FASettingsExpanderItem>(),
+            row => Equals(row.Tag, "system.power-profile.choice") && Equals(row.Description, selection.Status));
     }
 }

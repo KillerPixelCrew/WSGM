@@ -30,6 +30,16 @@ public sealed record CapabilityDisplay
     public string? CustomLabel { get; init; }
 
     /// <summary>
+    ///     Optional plugin-supplied plain text explaining what invoking or changing the control does, with any key.
+    /// </summary>
+    /// <remarks>
+    ///     An action row shows it as its caption while nothing more urgent, such as a failure or an unavailable
+    ///     reason, needs saying. Like <see cref="CustomLabel" />, it is never a format string, markup, or
+    ///     localization key.
+    /// </remarks>
+    public string? Description { get; init; }
+
+    /// <summary>
     ///     Whether this display metadata is usable.
     /// </summary>
     /// <param name="error">The reason it is not, when the result is <see langword="false" />.</param>
@@ -39,6 +49,11 @@ public sealed record CapabilityDisplay
         if (!Enum.IsDefined(Key))
         {
             error = $"display key '{Key}' is not defined.";
+            return false;
+        }
+
+        if (Description is not null && !PlainText.TryValidate(Description, "description", out error))
+        {
             return false;
         }
 

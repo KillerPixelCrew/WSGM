@@ -22,23 +22,30 @@ internal sealed class FixtureGraphicsSource : IGraphicsOverlaySource
     private const string GameOverride = "graphics.low-latency";
 
     private readonly Publication _publication;
+    private readonly bool _published;
 
-    private FixtureGraphicsSource(Publication publication)
+    private FixtureGraphicsSource(Publication publication, bool published)
     {
         _publication = publication;
+        _published = published;
     }
 
     internal int Subscribers { get; private set; }
+
+    public GraphicsOverlaySnapshot Snapshot()
+    {
+        return GraphicsOverlayBridge.Project([PublisherSnapshot()]);
+    }
+
+    public void Dispose()
+    {
+        Assert.Equal(0, Subscribers);
+    }
 
     public event Action? Changed
     {
         add { Subscribers++; }
         remove { Subscribers--; }
-    }
-
-    public GraphicsOverlaySnapshot Snapshot()
-    {
-        return GraphicsOverlayBridge.Project([PublisherSnapshot()]);
     }
 
     public Task<CapabilityCommandResult?> WriteAsync(DeviceOverlayCapability capability, CapabilityValue? value,
@@ -52,15 +59,22 @@ internal sealed class FixtureGraphicsSource : IGraphicsOverlaySource
         throw new InvalidOperationException("Unexpected graphics profile write");
     }
 
-    public void Dispose()
-    {
-        Assert.Equal(0, Subscribers);
-    }
-
     internal static FixtureGraphicsSource Load()
     {
-        return new FixtureGraphicsSource(JsonSerializer.Deserialize<Publication>(File.ReadAllText(
-            Path.Combine(AppContext.BaseDirectory, "Fixtures", "intel-graphics-ui-publication.json")))!);
+        return new FixtureGraphicsSource(Read(), true);
+    }
+
+    /// <summary>The Intel package running before its driver has published any section or setting.</summary>
+    /// <returns>A source whose one publisher has no sections and no rows.</returns>
+    internal static FixtureGraphicsSource Unpublished()
+    {
+        return new FixtureGraphicsSource(Read(), false);
+    }
+
+    private static Publication Read()
+    {
+        return JsonSerializer.Deserialize<Publication>(File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "intel-graphics-ui-publication.json")))!;
     }
 
     /// <summary>
@@ -77,12 +91,8 @@ internal sealed class FixtureGraphicsSource : IGraphicsOverlaySource
                 .Where(capability => capability.View.Descriptor.Role is CapabilityRole.VariableRefreshRate)
                 .Select(capability => new PublishedCapability(capability.View, PluginId))
         ])!;
-        return DeviceOverlayBridge.ToOverlayCapability(vrr.View, declaredSections) with
-        {
-            GpuPluginId = vrr.GpuPluginId,
-            PluginSectionId = null,
-            CategoryId = null
-        };
+        return DeviceOverlayBridge.VariableRefreshRow(vrr.View, vrr.GpuPluginId!, declaredSections,
+            FanCurvePresetTable.HandheldCompanion);
     }
 
     private GpuPublisherSnapshot PublisherSnapshot()
@@ -90,6 +100,11 @@ internal sealed class FixtureGraphicsSource : IGraphicsOverlaySource
         var key = ProfileSettingKey.GpuPublisher(PluginId);
         GpuPublisherView publisher = new(new PluginInstanceIdentity(PluginId, "default"), "Intel Graphics", key,
             PluginHealth.Ready, null);
+        if (!_published)
+        {
+            return new GpuPublisherSnapshot(publisher, [], []);
+        }
+
         return new GpuPublisherSnapshot(publisher, _publication.Descriptors.Sections,
         [
             .. _publication.Descriptors.Descriptors.Select(descriptor =>
@@ -106,7 +121,7 @@ internal sealed class FixtureGraphicsSource : IGraphicsOverlaySource
                     ProfileScope = descriptor.ProfileScope,
                     ApplyTiming = descriptor.ApplyTiming
                 }, null) { Publisher = key };
-                return new GpuCapabilityView(view, DeviceOverlayBridge.OverrideIdFor(view, null));
+                return new GpuCapabilityView(view, CapabilityRowProjection.OverrideIdFor(view, null));
             })
         ]);
     }

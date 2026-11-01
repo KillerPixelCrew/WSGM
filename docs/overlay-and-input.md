@@ -11,17 +11,19 @@ integration boundaries.
 All paths below are under [`src/WSGM`](../src/WSGM). The [repository source map](source-map.md)
 covers the other executables and libraries.
 
-| Owner                            | Entry files                                                                                                                                 | Responsibility                                                                                                                                                                                                |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Resident composition             | `Shell/ShellSession.cs`, `Overlay/OverlaySources.cs`                                                                                        | Supply the session's services; the window borrows them. `SimulatedDeviceOverlaySource` and `SimulatedGraphicsOverlaySource` provide preview publications.                                                     |
-| Overlay lifetime                 | `Overlay/OverlayController.cs` and `.Lease`, `.Apps`, `.Gestures`, `.Keyboard`, `.Power` partials                                           | Activation, capture claims, Steam Input claims, close deferral, focus return and pending-operation cancellation.                                                                                              |
-| Window and routes                | `Overlay/OverlayWindow.axaml`, `.axaml.cs`, `.Navigation`, `.Workspace`, `.Rail`, `.Placement`, `.Surfaces`                                 | Build the visual tree, select the display, fit scaling, remember sections and confine in-window surfaces. `OverlayNavigation.cs` holds route identities; the `SubViews` table declares parent/leave behavior. |
-| Capability presentation          | `Overlay/OverlayWindow.Device*`, `.Graphics`, `.Performance`, `.Pins`, `CapabilityRowRenderer.cs`, `DescriptorControlView.cs`               | Reconcile descriptor rows and pinned sections; report user intent through the supplied device, graphics or performance bridge.                                                                                |
-| Utility and content presentation | `Overlay/StatusPanel.cs`, `RadioPanel`, `AudioPanel`, `EjectPanel`, `KeyboardPanel`, `ServiceSubView.cs`, `OverlaySubView.cs`               | Own transient presentation, nested navigation and subscriptions. `ThemesView`, `AnimationsView`, `SoundsView`, `ArtworkView` and `GameLibraryView` borrow durable services.                                   |
-| UI input                         | `Input/SdlGamepads.cs`, `GamepadService.cs`, `GamepadNavigation.cs`, `FocusSearch.cs`, `Overlay/OverlayInput.cs`                            | One SDL owner, UI sampling, edge/repeat decisions, focused-control dispatch and navigation.                                                                                                                   |
-| Managed input                    | `Shell/ControllerManager.cs`, `Shell/UiCaptureState.cs`, `Input/ManagedControllerRouter.cs`, `ManagedUiPad.cs`, `ControllerOutputRouter.cs` | Publish managed pad state to UI and suspend/resume game forwarding around capture. Physical transport and firmware interpretation belong to LibHandheld.                                                      |
-| Touch activation                 | `Overlay/RawTouchInput.cs`, `TouchSwipeMonitor.cs`, `EdgeSwipeRecognizer.cs`                                                                | Observe digitizer reports, recognize one gesture, and request an action without intercepting the desktop input stream.                                                                                        |
-| Rendering support                | `Controls/`, `Themes/`, `Avalonia.LiveBackdrop`                                                                                             | Shared editors, focus and color tokens; one native backdrop per overlay window. See [UI](ui.md) and the [backdrop API](../src/Avalonia.LiveBackdrop/README.md).                                               |
+| Owner                            | Entry files                                                                                                                                                                                                                                      | Responsibility                                                                                                                                                                                                                                                                                                                                                                                              |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Resident composition             | `Shell/Session/ShellSession.cs`, `Overlay/OverlaySources.cs`                                                                                                                                                                                     | Supply the session's services; the window borrows them. `SimulatedDeviceOverlaySource` and `SimulatedGraphicsOverlaySource` provide preview publications.                                                                                                                                                                                                                                                   |
+| Overlay lifetime                 | `Overlay/OverlayController.cs` and `.Lease`, `.Requests`, `.Apps`, `.Keyboard`, `.Notes`, `.Power`, `.Programs`, `.Hotkeys` partials; `OverlayActivation`, `QuickAccessPinStore`, `OverlayPowerState`, `OverlayOpenApps`, `OverlaySheetServices` | Lifetime and summon, capture claims, Steam Input claims, close deferral, focus return and pending-operation cancellation. The owners hold the hotkey, chord and edge swipes; the pin list and its saves; Keep awake, the idle timeouts and the Windows policies; the Open apps strip; and how each sheet connects to the session services.                                                                  |
+| Window and routes                | `Overlay/OverlayWindow.axaml`, `.axaml.cs`, `.Navigation`, `.Workspace`, `.Rail`, `.Placement`, `.Surfaces`, `.Header`, `.Sources`, `.Device`, `.Pins`                                                                                           | The shell: header, destinations and section rail, workspace selection, navigation and Back, live-refresh coalescing, surface and placement hosting, and the borrowed sources it refreshes from. `OverlayPage.cs` holds stable page identities; the `SubViews` table declares each page's host, parent, availability, entry and leave, and the pin id of a section that pins as a card.                      |
+| Capability presentation          | `Overlay/DevicePages.cs`, `DevicePage`, `DeviceGroup`, `DeviceRow`, `DeviceGroupRenderer.cs`, `DeviceRowFactory.cs`, `DevicePageView.cs`                                                                                                         | Describe each Device, GPU, performance and pinned page from the snapshots, draw it with one keyed renderer, create each row with the commands of its device, graphics or performance source, and show the missing-prerequisites banner.                                                                                                                                                                     |
+| Destination pages                | `Overlay/SteamLibraryPage`, `LaunchFixesPage`, `SystemToolsPage`, `PerformancePage`, `StoragePage`, `DisplayPage`, `AboutPage`, `PluginsPage`, `KeyboardPage`, `PowerSessionPage`, `PowerWakePage`, `PowerTimeoutsPage`, `PowerActionsPage`      | One view per Steam, Tools and Power section, owning its controls and handlers and raising its requests; the controller subscribes to the page that raises one. `OverlayPowerEditors`, `WindowsPolicyRows` and `PowerActionConfirms` fill and confirm rows on the Wake, Idle timeouts, System, Session and Power pages.                                                                                      |
+| Quick Access pins                | `Overlay/QuickAccessPins.cs`, `QuickAccessPin.cs`, `DevicePins.cs`, `ProgramsView.ResolvePin`, `HotkeysView.ResolvePin`                                                                                                                          | Each pin source resolves its own ids to a title, availability and control: action rows and section cards, programs, hotkeys, and Device, performance, graphics and composite view groups.                                                                                                                                                                                                                   |
+| Utility and content presentation | `Overlay/StatusPanel.cs`, `RadioPanel`, `AudioPanel`, `EjectPanel`, `KeyboardPanel`, `ServiceSubView.cs`, `OverlaySubView.cs`, `OverlayProgress.cs`                                                                                              | Own transient presentation, nested navigation and subscriptions. `ThemesView`, `AnimationsView`, `SoundsView`, `ArtworkView` and `GameLibraryView` borrow durable services. A level that shows running work registers it with `ServiceSubView.SetLiveContent`, so a publication that changes only the progress updates its `OverlayProgress` in place and only a change to what the level draws redraws it. |
+| UI input                         | `Input/SdlGamepads.cs`, `GamepadService.cs`, `GamepadNavigation.cs`, `FocusSearch.cs`, `Overlay/OverlayInput.cs`                                                                                                                                 | One SDL owner, UI sampling, edge/repeat decisions, focused-control dispatch and navigation.                                                                                                                                                                                                                                                                                                                 |
+| Managed input                    | `Shell/Controller/ControllerManager.cs`, `ControllerForwarding.cs`, `UiCaptureState.cs`, `Input/ManagedControllerRouter.cs`, `ManagedUiPad.cs`, `ControllerOutputRouter.cs`                                                                      | Publish managed pad state to UI and suspend/resume game forwarding around capture. Physical transport and firmware interpretation belong to LibHandheld.                                                                                                                                                                                                                                                    |
+| Touch activation                 | `Overlay/RawTouchInput.cs`, `TouchSwipeMonitor.cs`, `EdgeSwipeRecognizer.cs`                                                                                                                                                                     | Observe digitizer reports, recognize one gesture, and request an action without intercepting the desktop input stream.                                                                                                                                                                                                                                                                                      |
+| Rendering support                | `Controls/`, `Themes/`, `Avalonia.LiveBackdrop`                                                                                                                                                                                                  | Shared editors, focus and color tokens; one native backdrop per overlay window. See [UI](ui.md) and the [backdrop API](../src/Avalonia.LiveBackdrop/README.md).                                                                                                                                                                                                                                             |
 
 An activation reaches `OverlayController.ShowOverlay`, which cancels any obsolete close/return,
 records the foreground target, requests the applicable Steam Input claim, and opens the window over
@@ -89,7 +91,8 @@ stores stable action and section IDs. A pinned action invokes the same handler a
 Device group such as Fans or Charging has one Pin section action in its heading; X, right-click and
 touch hold inside a group target that group, including its nested editors. Pinned controls use the
 source renderer and keep active drafts through a value refresh. An unavailable section stays
-removable.
+removable. The Game Mode / Desktop switch (`home.desktop`) is always pinned first: configuration
+normalization restores it and a toggle never removes it.
 
 Open apps and tray icons share the bottom rail. `AppSwitcherViewModel` reconciles window chips in
 place, so a refresh does not replace the focused chip. Y cycles to the next window; X on a tray icon
@@ -101,9 +104,11 @@ snapshot returns to Avalonia.
 The session remembers each destination's selected section across tab switches and window reopen.
 Rail selection and keyboard/controller focus are independent: moving focus to a peer does not change
 the selected controls. Right from a rail row selects that section and enters its controls. LT/RT and
-LB/RB switch destinations with wrap. An open utility, keyboard or power surface confines input to
-itself; see "In-window surfaces" below. Re-summoning an open sheet returns to the selected section.
-An ordinary focus or activation change leaves the current page intact.
+LB/RB switch destinations with wrap. The one exception is Tools › Emulators: while it is open, LB/RB
+switch its five views (`GamepadNavigation.ShoulderTabs`) and LT/RT still switch destinations. An
+open utility, keyboard or power surface confines input to itself; see "In-window surfaces" below.
+Re-summoning an open sheet returns to the selected section. An ordinary focus or activation change
+leaves the current page intact.
 
 B, Escape and the header Back button share one route. From primary controls, Back focuses the
 selected rail row; from that rail, Back returns to Quick access; at home, Back dismisses the sheet.
@@ -112,21 +117,62 @@ the Card Manager to Steam library. Switching destination unwinds nested views, t
 remembered primary section.
 
 `OverlayNavigation` owns stable routes and section IDs. `OverlayWindow`'s `SubViews` table declares
-the host, parent and teardown for nested pages. Add a nested page through that owner, so Back,
-DefaultFocusTarget and leaving the destination agree. Pages are in-window controls, while selector
-popups keep their owning ComboBox as the controller target. The fixed Back control stays reachable
-when the content scrolls.
+the host, parent, entry and teardown for nested pages, the Device section and GPU pages included.
+Steam, Tools and Power have no root page: their rail sections have no parent, and a page opened from
+a section names that section. A page asks the window to open a nested page; a pinned copy asks from
+Quick access, so the window selects the page's section first. Add a nested page through that owner,
+so Back, DefaultFocusTarget and leaving the destination agree. Pages are in-window controls, while
+selector popups keep their owning ComboBox as the controller target. The fixed Back control stays
+reachable when the content scrolls.
 
 ## Device sections, performance profiles and lighting color
 
-Plugin-declared Device sections and WSGM-owned sections appear in the Device rail.
+Shell always publishes the shared Power, RGB, Controller and Info pages (`DeviceSections`), before a
+descriptor set arrives and with integration off too, followed by the sections a plugin declares. It
+gives every row one of them where it projects the row: a capability its publisher left unplaced goes
+to the page of its role (`CapabilityRowProjection.DevicePageFor`; OEM buttons to Controller, generic
+controls and readings to Info), the graphics package's variable refresh row to Power, each
+host-owned row to the page in its `DescriptorRow.SectionId`, and the performance rows to
+`PerformanceOverlaySnapshot.SectionId`. The Overlay draws pages only from that publication, so there
+are no WSGM-owned fallback pages and no rules folding them into declared ones. The Device root is
+the one Overview.
+
+The rail lists a page while it draws something, and its badge counts the rows it draws:
+capabilities, host rows, the performance rows other than the per-application switch, and on Power
+the Windows plan, power assignment, manual power and processor core controls.
 `OverlayPage.DevicePluginSection` carries the open section's id in the route rather than adding an
 enum value per section. Rows are grouped under declared category headings in sort-then-snapshot
 order, with full-width folding groups stacked vertically. The SDK's closed prominence and pairing
-hints guide presentation without allowing plugin markup. A section that vanishes with a descriptor
-generation while its page is open renders a plain "no longer available" line. Leaving one runs the
-same body as leaving a WSGM section: the glyph sample lease is released and both panels are redrawn.
-The generic pop fallback it used to take did neither.
+hints guide presentation without allowing plugin markup. A section that vanishes while its page is
+open renders a plain "no longer available" line, and a page whose section the snapshot no longer
+publishes returns to the Device root. Device sections and the GPU page are sub-views of the one
+`DevicePageView`: entering one draws its description, and leaving releases the glyph sample lease
+and draws the page beneath.
+
+Each page is a description built once per refresh (`DevicePages`): an ordered list of groups, each
+with its pin id, title and pin title, fold policy, rows and nested groups. Shell owns the split into
+groups (`DeviceOverlayGroups`), including the Power page's lead limits, fan group and titles and the
+Controller page's leading configuration. The Overview is the per-application toggle above the Power
+page's groups; the pin chooser and Quick Access read the same groups. `DeviceGroupRenderer` turns a
+description into controls and keys what it drew by group id: an unchanged group refreshes its rows
+in place, a changed one is rebuilt alone, and nested groups in the shared Power fold are matched on
+their own. Pinned copies take their `pin:` scope as they are created.
+
+Every pin id is resolved by the source that owns it, once per render and once per pin toggle: an
+action row or a Tools section card (`QuickAccessPins`), a program (`ProgramsView.ResolvePin`), a
+hotkey (`HotkeysView.ResolvePin`), or a Device, performance, graphics or composite view group
+(`DevicePins`). Each resolves to a title, whether its source offers it now and its control. A pin is
+offered to toggle while its source offers it or while it is pinned, so a pin whose provider is gone
+can still be removed. Tools sections pin as cards under the pin id their `SubViews` entry declares
+(`system.notes`, `system.themes` and the others), and a card opens its section.
+
+Tiles fill the two-column grid in pin order. Row mirrors and section cards come from
+`QuickAccessPins`; a source whose pin is a tile of its own, such as a hotkey, draws it and
+`QuickAccessPins.PlaceTiles` places it among the mirrors.
+
+Quick Access pins saved while Device drew WSGM-owned fallback pages (`section.device.power`,
+`.controller`, `.controller-and-motion`, `.lighting` and `.diagnostics`) are read as the
+`.configuration` group of the matching shared page, through `QuickAccessPins.CurrentId`.
 
 ## Graphics sections
 
@@ -163,14 +209,13 @@ Graphics section and Built-in display section with a game override, a Global-onl
 after restart, a row that applies at the next game start, the frame rate limit and a row unavailable
 until variable refresh is on. Its writes change only that object.
 
-Per-application performance profiles belong to Device → Profiles. They are not a second detector and
-not a device-plugin feature: `PerformanceOverlayBridge` projects the session's one
-`PerformanceService` into closed rows. The value rows also sit beside the power controls on Device →
-Power and thermals, including when Device Integration is off. An identity-only Steam game stays
-visible as "executable pending", with its edits stored for that AppID until foreground observation
-supplies the RTSS profile. Descriptor and layout identity changes rebuild the affected rows; value
-publications update retained editors and readings in place. Profiles stays available whenever WSGM
-has profile rows.
+Per-application performance profiles are switched on at the top of the Device overview. They are not
+a second detector and not a device-plugin feature: `PerformanceOverlayBridge` projects the session's
+one `PerformanceService` into closed rows. The value rows sit beside the power controls on the
+Device overview and Power page, and under Tools → Performance while Device is unavailable. An
+identity-only Steam game stays visible as "executable pending", with its edits stored for that AppID
+until foreground observation supplies the RTSS profile. Descriptor and layout identity changes
+rebuild the affected rows; value publications update retained editors and readings in place.
 
 Device lighting color opens `DeviceColorView` rather than cycling an opaque integer in the row. The
 hue field, RGB sliders and exact `#RRGGBB` entry are staged locally, and only the explicit Apply row
@@ -186,14 +231,15 @@ zone's color editor claimed a per-zone brightness the firmware does not have.
 ## Collapsible groups and GPU preparation
 
 Device capability groups, power assignments, manual power, Windows energy plans, performance,
-display and common plugin categories use `CollapsibleSection`, backed by the same native Expander as
-Processor cores. The title and optional summary form one vertically centered header block; summary
-headers have extra height and line spacing. Its focusable header follows the QAM's folding model:
-activation toggles the mounted body, Left collapses and Right expands while the header has focus,
-and Down enters expanded controls through normal navigation. Collapsing a focused body returns focus
-to its header before hiding it. Pinning remains an independent, vertically centered tack icon
-button. Its tooltip names the action and its accent color marks a pinned section. Hidden bodies keep
-their state and subscriptions but leave controller and Tab navigation.
+Processor cores, the Overview's Quick Access pins, display and common plugin categories use
+`CollapsibleSection` over the native Expander. The title and optional summary form one vertically
+centered header block; summary headers have extra height and line spacing. Its focusable header
+follows the QAM's folding model: activation toggles the mounted body, Left collapses and Right
+expands while the header has focus, and Down enters expanded controls through normal navigation.
+Collapsing a focused body returns focus to its header before hiding it. Pinning remains an
+independent, vertically centered tack icon button. Its tooltip names the action and its accent color
+marks a pinned section. Hidden bodies keep their state and subscriptions but leave controller and
+Tab navigation.
 
 Groups start folded, matching QAM. Device, pinned and plugin group expansion is remembered by stable
 section identity for the resident session, including Overlay reopen. Unlike QAM's small
@@ -211,7 +257,7 @@ backend and no duplicate common-action renderer.
 | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | Device power, thermals and capabilities                        | Fold task/category groups; retain curve and color editors as deep pages.                                                      |
 | Windows energy plan, assignments, manual power and performance | Independent folding groups; keep live editor instances during telemetry.                                                      |
-| Controller and motion                                          | Stack full-width folds for glyphs, output configuration and plugin categories.                                                |
+| Controller and motion                                          | Stack full-width folds: one configuration group for output and glyphs, then plugin categories.                                |
 | Display                                                        | Fold brightness and display-mode controls together.                                                                           |
 | Common plugins and GPU                                         | Fold declared categories, retaining normal host action routing.                                                               |
 | Quick Access                                                   | Fold whole pinned groups with a separate pin action.                                                                          |
@@ -224,11 +270,12 @@ backend and no duplicate common-action renderer.
 
 Text entry in the panel is a press-to-edit row, never a bare `TextBox`. Every editable name is a row
 whose current value stays visible and whose click opens the in-window keyboard through
-`OverlayWindow.RequestText`. A `TextBox` in a panel looks editable but is unusable on a controller:
-`GamepadNavigation` skips TextBoxes so the Windows touch keyboard cannot pop, so focus never lands
-on one and nothing types. When `OverlayWindow.RequestText` returns false there is no way to type at
-all; report the unavailable keyboard and log it rather than leaving a row that silently does nothing
-when pressed. `OverlaySubView.EditText` supplies this behavior for service pages.
+`OverlaySurfaceStack.RequestText`. A `TextBox` in a panel looks editable but is unusable on a
+controller: `GamepadNavigation` skips TextBoxes so the Windows touch keyboard cannot pop, so focus
+never lands on one and nothing types. When `OverlaySurfaceStack.RequestText` returns false there is
+no way to type at all; report the unavailable keyboard and log it rather than leaving a row that
+silently does nothing when pressed. `OverlaySubView.EditText` supplies this behavior for service
+pages.
 
 ## The on-screen keyboard
 
@@ -253,14 +300,19 @@ selectors and confirmation flows. Radio scanning ends when the panel is detached
 Bluetooth pairing ceremony is declined before its subscription is removed. Utility panels create no
 native windows and acquire no navigation, input capture or lease of their own.
 
+A confirmation opens through `ShowConfirm`: the same utility surface centred in the window rather
+than anchored below its invoker, so the whole question and both answers stay visible at the 980 ×
+640 floor. The safe answer is focused first and Back cancels. Game Tools asks this way before an
+install into a game with anti-cheat, a takeover, a configuration-replacing update and Remove.
+
 ### Keyboard and credentials
 
-`OverlayWindow.RequestText` opens `KeyboardPanel` for an internal text field. The keyboard stretches
-across the bottom of the overlay, with four 44-DIP key rows, one-DIP gaps and a single entry bar.
-The letter layout keeps typing, Shift, Ctrl, Backspace, Enter and cursor movement nearby. **&123**
-opens symbols; **More** holds function/navigation keys and the number pad. Secondary layouts retain
-the same height. The normal keyboard fits within 240 DIPs, including its editor, and long prompts
-keep their full accessible name and tooltip.
+`OverlaySurfaceStack.RequestText` opens `KeyboardPanel` for an internal text field. The keyboard
+stretches across the bottom of the overlay, with four 44-DIP key rows, one-DIP gaps and a single
+entry bar. The letter layout keeps typing, Shift, Ctrl, Backspace, Enter and cursor movement nearby.
+**&123** opens symbols; **More** holds function/navigation keys and the number pad. Secondary
+layouts retain the same height. The normal keyboard fits within 240 DIPs, including its editor, and
+long prompts keep their full accessible name and tooltip.
 
 Done returns the text once; cancel leaves the original value unchanged. Its multiline variant
 inserts a line on Enter and commits with Done; an optional change callback retains drafts. Notes
@@ -296,13 +348,15 @@ touching the machine.
 `OverlayController.ShowPowerMenu` opens the menu from the desktop or from an existing overlay. A new
 desktop power surface acquires no Steam Input lease. Cancelling that standalone menu closes its
 containing overlay; a menu opened from an existing overlay returns to that deck. `TogglePowerMenu`
-treats a repeated request as cancellation. These entry points install no physical power-button
-capture and change no Windows power-button policy; that integration belongs to the separate
-hardware-button work.
+treats a repeated request as cancellation. A hold of the handheld's power button on the desktop
+opens the menu through `TogglePowerMenu`, and a short press while it is open closes it; the button
+capture and Windows' power-button policy belong to `Shell\Power\PowerButtonCoordinator`, described
+in [power and display](power-and-display.md#the-power-button). The Power > Power page also carries
+the power button's short-press choice, shown only while the button is handled.
 
 ### Closure and validation
 
-All temporary controls live in `OverlayWindow.Surfaces.cs`. Surface closure disables its controls at
+All temporary controls live in `OverlaySurfaceStack.cs`. Surface closure disables its controls at
 once and keeps the 150 ms touch promotion grace, and the containing window keeps its
 synthesized-mouse filter. Overlay closure releases all surface contents before disposing their
 managers. There is no raw-pointer outside-window hit test and no separate-window activation handoff.
@@ -397,7 +451,7 @@ that window's claim and navigation owner. The first claim neutralizes the virtua
 claims keep capture active, and the last close resumes game forwarding only after every control the
 UI used is released. Sleep, session lock, controller release and source faults share one
 forwarding-blocked state, cleared by a successfully created or replaced target, or by
-`ControllerManager.ResumeForwardingAsync` on wake and unlock. There is no parallel enum of
+`ControllerForwarding.ResumeForwardingAsync` on wake and unlock. There is no parallel enum of
 hypothetical zero reasons: capture, routing admission and target state decide delivery.
 
 WSGM's own navigation reads the managed controller as one more pad. Every sample the plugin
@@ -483,10 +537,15 @@ force foreground focus.
 
 On close the sheet refocuses the window that was foreground when it opened (`_restoreFocusTo`,
 captured in `ShowOverlay`), because an exclusive-fullscreen game sits minimized after the sheet took
-focus. The refocus fires only in game mode (no Explorer in the session) and only when no overlay
-action redirected focus. Every focus-redirecting action sets `_suppressFocusRestore`: Next-app
-cycling via `PickWindow`, picking an Open apps chip, activating a tray icon. That suppression is
-load-bearing, because the app the user just chose has to stay foreground.
+focus. The refocus goes through the same `GameWindowReturn` as an Open apps pick, so Steam treats
+the game as focused again and opens Quick Access over it rather than behind it; a desktop window has
+no overlay to raise and is only focused. `GameWindowReturn` is the one way WSGM brings a game window
+forward: launched-window focus uses it too. Reopening the sheet or shutting down cancels a refocus
+still waiting on Steam. The refocus fires only in game mode (no Explorer in the session) and only
+when no overlay action redirected focus. Every focus-redirecting action sets
+`_suppressFocusRestore`: Next-app cycling via `PickWindow`, picking an Open apps chip, activating a
+tray icon. That suppression is load-bearing, because the app the user just chose has to stay
+foreground.
 
 A close that is cancelled because the sheet is re-shown inside the 150 ms deferral must clear both
 fields. A latched suppression would silently disable the refocus for the rest of that sheet's life,
@@ -501,11 +560,12 @@ stays in place during updates, disables when readback is unavailable, and works 
 The same page shows resolution and refresh for the display the overlay sheet is on. Pickers hold
 driver-validated modes, and changing resolution updates the offered refresh rates. A committed
 dropdown selection applies the mode and saves it, as Windows Settings does; browsing an open popup
-does not. Fresh observations every five seconds while open replace stale choices after a reconnect,
-resume or profile change. Windows Device Control rechecks target identity and driver validation
-before applying and writes once. A write Windows accepts is the result and is not read back; a
-refused one gets one write-back of the original mode, never a retry. Ambiguous clone sources are
-unavailable. None of this establishes physical visibility.
+does not. A fresh observation on every display change Windows announces replaces stale choices after
+a reconnect, resume or profile change; a change while a popup is open is read once it closes.
+Windows Device Control rechecks target identity and driver validation before applying and writes
+once. A write Windows accepts is the result and is not read back; a refused one gets one write-back
+of the original mode, never a retry. Ambiguous clone sources are unavailable. None of this
+establishes physical visibility.
 
 Device provides a manual TDP mode selector when a paired capability is available. Selecting Unified
 saves the active global or per-game preference without writing hardware, and later sustained-slider
@@ -555,6 +615,56 @@ it. Format choices stay within the current channel layout. Spatial Off is displa
 Plugins contains only independent common-plugin controls; device and GPU controls stay on Device.
 The Plugins entry is hidden when no independent controls remain.
 
+## Hotkeys
+
+Tools › Hotkeys ([`HotkeysView`](../src/WSGM/Overlay/HotkeysView.cs)) keeps key combinations the
+Overlay sends to the game in front, such as Insert for OptiScaler's menu or Lossless Scaling's
+Ctrl+Alt+S. [`HotkeysService`](../src/WSGM/Shell/Applications/HotkeysService.cs) owns the list in
+`AppConfig.Hotkeys`, its edits and the sends. The page keeps only editor drafts, which survive Back
+and publications until they are saved or discarded; an unsaved edit is marked on its hotkey and an
+unsaved new hotkey is listed as one to finish. Hotkeys are global, not per game.
+
+A new configuration starts with two ordinary hotkeys, OptiScaler menu (Insert) and Lossless Scaling
+(Ctrl+Alt+S), which pin, edit and delete like any other. The editor shows the name and keycaps on
+top, then the name row (in-window keyboard), Ctrl, Alt, Shift and Win switches, the key picker
+grouped like a keyboard, Press the keys… and the press delay. Press the keys… reads the window's own
+key events. WSGM cannot tell a keyboard from a handheld's built-in HID keyboards, so it is always
+offered. The capture field ignores keys for 300 ms after it opens, because the press that opened it
+and Steam's keyboard echo of a controller press arrive then. It takes back focus a navigation key
+moved and consumes Enter, Space and Tab; Esc or B cancels. Delete asks with the hotkey's name and
+also removes its pin.
+
+A hotkey pins as `hotkey:<id>` and draws as a Quick Access tile with its name and keycaps
+(`HotkeyActionRow`, `Keycaps`). X, touch hold, right-click and the editor's heading pin toggle it,
+and the Hotkeys section itself pins as a card (`system.hotkeys`). Pressing a hotkey on the page or
+its tile closes the sheet through `OverlayController.RunAfterClose`, which here keeps the focus
+restore. Once the window has closed and the input lease is released, `HotkeysService.SendAsync`
+checks the foreground window with `ForegroundApplicationFilter`: WSGM, Steam, launchers, Explorer
+and the shell surfaces are never the game. If something else is in front it brings back the window
+the sheet opened over and checks again after 150 ms. With no game in front nothing is typed, and the
+hotkey's row and tile say so until the next press or edit. Each send or refusal writes one log line.
+
+### Sending keys
+
+[`KeyboardInput.SendChord`](../src/WSGM/Interop/KeyboardInput.cs) is the one synthetic keyboard
+sender; Steam's Big Picture shortcuts (`SendControlChord`) use it too. It mirrors Handheld Companion
+1.3.1.6, whose `KeyboardCommands` call GregsStack InputSimulatorStandard's `InputBuilder`:
+
+- One `INPUT_KEYBOARD` per key event, with `wVk` set and
+  `wScan = MapVirtualKey(vk, MAPVK_VK_TO_VSC) & 0xFF`; never `KEYEVENTF_SCANCODE`.
+- `KEYEVENTF_EXTENDEDKEY` exactly for that list: Numpad Enter (`0x4000000D`), Alt, right Alt, Ctrl,
+  right Ctrl, Insert, Delete, Home, End, Page Up, Page Down, the arrows, Num Lock, Cancel, Print
+  Screen and Numpad /. Ctrl and Alt are sent extended because the list includes them; Win is not.
+- Every key down in press order in one `SendInput`, then the press delay (0 to 5000 ms), then every
+  key up in the same order.
+- A partly accepted press releases the keys that went down. A partly accepted release sends the
+  remaining releases once. The result carries the accepted and requested event counts and the Win32
+  error for the log.
+
+Steam reads the scan code, so a record without one does nothing in Big Picture; the scan code above
+covers that. Games that read raw input, run above WSGM's integrity level or filter injected input
+may still ignore the keys.
+
 ## Complete Tools content workflows
 
 Tools exposes CSS Loader, Video Switcher, Steam Artwork Changer and Library Importer through the
@@ -572,12 +682,13 @@ directories. WebM import, local artwork, shortcut folders and sound-pack ZIP imp
 frontends borrow the toolkit's file-listing rules; reads run off the UI thread and canceled/stale
 results are discarded.
 
-Preview images load near the visible viewport, reuse a bounded byte cache, validate dimensions and
-decode at a bounded size. Movie and animated-image details use one explicit WebView2 viewport; all
-controls stay Avalonia. Playback starts only on Play and stops when the page leaves. Native content
-is hidden and paused behind modal surfaces. A failed decode has a visible error. Setup carries the
-pinned, Microsoft-signed Evergreen offline runtime and installs it only when missing; no feature
-view installs software and uninstall leaves the shared runtime alone.
+Preview images load near the visible viewport, decode straight from the file or bounded download,
+validate dimensions and decode at a bounded size; nothing is cached. Movie and animated-image
+details use one explicit WebView2 viewport; all controls stay Avalonia. Playback starts only on Play
+and stops when the page leaves. Native content is hidden and paused behind modal surfaces. A failed
+decode has a visible error. Setup carries the pinned, Microsoft-signed Evergreen offline runtime and
+installs it only when missing; no feature view installs software and uninstall leaves the shared
+runtime alone.
 
 Service publications reconcile keyed commands and editors in place. Dropdowns, color drafts, sliders
 and focus survive updates. Nested tool levels consume Back before section-rail/home rules; config

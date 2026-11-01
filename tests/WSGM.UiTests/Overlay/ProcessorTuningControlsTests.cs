@@ -1,7 +1,9 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Overlay;
 using WSGM.Shell;
@@ -18,7 +20,7 @@ public sealed class ProcessorTuningControlsTests
     public void UnknownValuesAndResetResultStayReadableWithoutSendingCommands(bool restartRequired)
     {
         using UiFixture fixture = new();
-        var body = new StackPanel { Spacing = 8, Margin = new Avalonia.Thickness(16) };
+        var body = new StackPanel { Spacing = 8, Margin = new Thickness(16) };
         foreach (var (id, label, min, max, unit) in new[]
                  {
                      ("processor.cpu-curve-all", "CPU all-core curve offset", -24, 12, CapabilityUnit.None),
@@ -32,7 +34,11 @@ public sealed class ProcessorTuningControlsTests
         var descriptor = new CapabilityDescriptor
         {
             CapabilityId = "processor.reset", Role = CapabilityRole.GenericAction,
-            Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Reset processor tuning" },
+            Display = new CapabilityDisplay
+            {
+                Key = DisplayKey.Custom, CustomLabel = "Reset processor tuning",
+                Description = "Restores supported values; a Windows restart may be needed for firmware defaults."
+            },
             ValueKind = CapabilityValueKind.None, SupportsAction = true, Persistence = CapabilityPersistence.Volatile
         };
         var view = new DeviceCapabilityView(descriptor, new CapabilityProjection
@@ -40,11 +46,14 @@ public sealed class ProcessorTuningControlsTests
             State = new CapabilityState
             {
                 CapabilityId = descriptor.CapabilityId, Available = true, Quality = HardwareStateQuality.Unknown,
-                Reason = restartRequired ? new CapabilityReason(CapabilityReasonCode.Unsupported,
-                    "Saved processor overrides cleared. Restart Windows to restore firmware defaults for: GPU clock, CPU temperature limit.") : null
+                Reason = restartRequired
+                    ? new CapabilityReason(CapabilityReasonCode.Unsupported,
+                        "Saved processor overrides cleared. Restart Windows to restore firmware defaults for: GPU clock, CPU temperature limit.")
+                    : null
             }
         }, null);
-        var reset = DeviceOverlayBridge.ToOverlayCapability(view, new HashSet<string>());
+        var reset = CapabilityRowProjection.ToOverlayCapability(view, new HashSet<string>(),
+            FanCurvePresetTable.HandheldCompanion);
         body.Children.Add(new DeviceCapabilityControl(reset, descriptor.CapabilityId,
             (_, _) => throw new InvalidOperationException("Unexpected hardware write"),
             _ => throw new InvalidOperationException("Unexpected reset"), null));

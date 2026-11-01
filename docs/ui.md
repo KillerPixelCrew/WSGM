@@ -10,11 +10,11 @@ and the splash engine with its import limits. What the overlay does and how it i
 | Area                       | Sources                                                                                                                                                                                                                                      | State and lifetime                                                                                                                                      |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Application UI composition | [`App.axaml.cs`](../src/WSGM/App.axaml.cs), [`App.axaml`](../src/WSGM/App.axaml)                                                                                                                                                             | Select the Settings, resident-session or preview composition after `Program` has handled early recovery and one-shot modes.                             |
-| Settings window            | [`SettingsWindow.axaml.cs`](../src/WSGM/Settings/SettingsWindow.axaml.cs), `SettingsWindowServices.cs`, `Shell/SettingsSurface.cs`, `Shell/SettingsActivation.cs`                                                                            | Keep page controls mounted, own window input/capture, and route secondary launches to the resident process when available.                              |
+| Settings window            | [`SettingsWindow.axaml.cs`](../src/WSGM/Settings/SettingsWindow.axaml.cs), `SettingsWindowServices.cs`, `Shell/Session/SettingsSurface.cs`, `Shell/Session/SettingsActivation.cs`                                                            | Keep page controls mounted, own window input/capture, and route secondary launches to the resident process when available.                              |
 | Settings state and save    | [`SettingsViewModel.cs`](../src/WSGM/Settings/SettingsViewModel.cs) and feature partials, [`SettingsViewModel.Save.cs`](../src/WSGM/Settings/SettingsViewModel.Save.cs), [`SettingsSaveMerge.cs`](../src/WSGM/Settings/SettingsSaveMerge.cs) | Load an editing baseline, capture on the dispatcher, merge on the save worker, acknowledge only the captured edits.                                     |
 | Settings pages             | [`Settings/Pages`](../src/WSGM/Settings/Pages), profile/plugin rows and display/splash editors in `Settings/`                                                                                                                                | Present WSGM configuration and editing workflows; runtime Windows controls are on the overlay or Steam surfaces.                                        |
 | Shared presentation        | [`Controls`](../src/WSGM/Controls), [`Themes`](../src/WSGM/Themes)                                                                                                                                                                           | Focus, colors, glyph rendering, committed choices, folds, curves, keyboard and command controls shared by production views.                             |
-| Boot splash                | [`Shell/BootSplash.cs`](../src/WSGM/Shell/BootSplash.cs), `BootSplashWindow`, `SplashPolicy`, `SplashStyle`, `SplashDecode`                                                                                                                  | Own the boot-window lifetime and bounded asset decode; Core's `Splash*` files own configuration, import/export and asset promotion.                     |
+| Boot splash                | [`Shell/Boot/BootSplash.cs`](../src/WSGM/Shell/Boot/BootSplash.cs), `BootSplashWindow`, `SplashPolicy`, `SplashStyle`, `SplashDecode`                                                                                                        | Own the boot-window lifetime and bounded asset decode; Core's `Splash*` files own configuration, import/export and asset promotion.                     |
 | Overlay previews and media | [`OverlayPreviewImage.cs`](../src/WSGM/Overlay/OverlayPreviewImage.cs), [`OverlayMediaPreview.cs`](../src/WSGM/Overlay/OverlayMediaPreview.cs), [`OverlayFilePicker.cs`](../src/WSGM/Overlay/OverlayFilePicker.cs)                           | Bound image work, explicitly start/release WebView2 playback, and discard stale directory results. These are separate from the native desktop backdrop. |
 | Render verification        | [`tests/WSGM.UiTests`](../tests/WSGM.UiTests), [`tools/OverlayPreview`](../tools/OverlayPreview/README.md)                                                                                                                                   | Load the production themes and windows with explicit service fakes; write image evidence without opening a resident session.                            |
 
@@ -45,11 +45,11 @@ onto that fresh object. Runtime state, including Themes, Sounds, Animations and 
 restore record, stays fresh. Splash asset staging and the configuration transaction keep their
 existing order.
 
-`Core/WsgmSharedSettings` is the one read/write table for fields shared with Steam or the overlay.
-Settings writes those fields only when edited against the window's last loaded or captured baseline;
-save completion acknowledges the captured values and leaves later edits pending. Steam rows use the
-same entries. Plugin settings and device profiles use one merge path on the fresh scope, and
-deleting a fan profile clears fresh profile references to it.
+`Core/Config/WsgmSharedSettings` is the one read/write table for fields shared with Steam or the
+overlay. Settings writes those fields only when edited against the window's last loaded or captured
+baseline; save completion acknowledges the captured values and leaves later edits pending. Steam
+rows use the same entries. Plugin settings and device profiles use one merge path on the fresh
+scope, and deleting a fan profile clears fresh profile references to it.
 
 ## Overlay design and production preview
 
@@ -57,23 +57,25 @@ The overlay is the compact dark glass composition with horizontal LT/RT navigati
 `tools/OverlayPreview` and the UI baselines below are its visual reference.
 
 The production implementation is `OverlayWindow`, with a fullscreen canvas, a persistent 240-DIP
-section rail and a controls plane that fills the remaining width. `CommandDeck.axaml` owns the
-shared glass, opaque, spacing and focus tokens. The workspace is capped at 1600 DIPs, and scaling is
-bounded so its 980 × 640 DIP floor stays usable. Rail buttons stay 48 DIPs tall with 4-DIP gaps, and
-a selected section stays marked when focus enters the controls. The compositor backdrop behind the
-canvas, its blur setting and what happens when it is unavailable are in
+section rail and a controls plane that fills the remaining width. Each rail section is a page view
+of its own (`SteamLibraryPage`, `PowerWakePage` and the others); Steam, Tools and Power have no menu
+page above their sections. `CommandDeck.axaml` owns the shared glass, opaque, spacing and focus
+tokens. The workspace is capped at 1600 DIPs, and scaling is bounded so its 980 × 640 DIP floor
+stays usable. Rail buttons stay 48 DIPs tall with 4-DIP gaps, and a selected section stays marked
+when focus enters the controls. The compositor backdrop behind the canvas, its blur setting and what
+happens when it is unavailable are in
 [overlay and input](overlay-and-input.md#the-quick-access-sheet).
 
-The controls plane uses bordered groups with 12-DIP separation and 12-DIP inner padding. Folding
-section headings use the native Expander styling shared with Processor cores, with an independent
-pin button. Their mounted bodies remain available for reconciliation while folded. Section state and
-the page audit are in
-[overlay and input](overlay-and-input.md#collapsible-groups-and-gpu-preparation). Supporting
-captions stay distinct from headings. Empty descriptions reserve no space. Labels and values are
-centered beside 36-DIP dropdowns, whose closed and popup surfaces use the deck palette. Fan curves
-sit in their group with their presets below the graph. Windows energy plans, power assignments and
-manual power each have a group of their own. Pinned sections keep their natural height, so short
-sections leave no large empty blocks between controls.
+The controls plane uses bordered groups with 12-DIP separation and 12-DIP inner padding. Every fold,
+Processor cores and the Overview's Quick Access pins included, is a persisted `CollapsibleSection`
+over the native Expander styling, with an independent pin button where the group can be pinned.
+Their mounted bodies remain available for reconciliation while folded. Section state and the page
+audit are in [overlay and input](overlay-and-input.md#collapsible-groups-and-gpu-preparation).
+Supporting captions stay distinct from headings. Empty descriptions reserve no space. Labels and
+values are centered beside 36-DIP dropdowns, whose closed and popup surfaces use the deck palette.
+Fan curves sit in their group with their presets below the graph. Windows energy plans, power
+assignments and manual power each have a group of their own. Pinned sections keep their natural
+height, so short sections leave no large empty blocks between controls.
 
 Game Mode lowers Windows scaling to 100%, and the overlay keeps using WSGM's saved desktop-DPI
 preference from `DisplayScale.GetUiScalePercent`. Desktop Mode uses native window DPI without
@@ -113,15 +115,21 @@ capability availability cancels the pending edit. Device submissions recheck the
 and its descriptor and cycle generation, so a removed or replaced capability cannot receive an old
 draft.
 
+Status chips are a `Border.badge` with a neutral, `accent`, `community`, `info`, `good`, `warn`,
+`bad` or `action` (solid accent, for the one status that asks for action) tone, styled once in
+`Themes\Shared.axaml` for Settings and the Overlay alike.
+
 Shared controls live under `Controls\`: `TabStrip` (the destination bar), `ActionButton` (commands)
 and `Icons` (stroke-style `StreamGeometry`). Stroke icons use `Fill={x:Null}` so their interior
 detail stays visible.
 
-Descriptor rows keep semantic ids independent of placement. The performance projection renders both
-as the Device → Profiles workflow and, for its value controls, beside Device power; the window adds
-a placement-specific focus prefix when it creates each `DescriptorControlView`. Do not clone state
-or command logic to place the same control twice: the descriptor and its bridge stay the one owner,
-and each rendered row keeps a stable focus key.
+Descriptor rows keep semantic ids independent of placement. The performance projection renders its
+per-application toggle at the top of the Device overview and its value controls beside Device power.
+`DeviceCapabilityControl` is the one row control for capabilities, host rows and performance rows;
+the renderer gives a pinned copy its `pin:` focus key as it creates it. The header's profile switch
+and the Overview toggle are two placements of one state and write it through the same command. Do
+not clone state or command logic to place the same control twice: the descriptor and its bridge stay
+the one owner, and each rendered row keeps a stable focus key.
 
 Settings keeps its page controls alive and switches `IsVisible`, which preserves scroll position and
 recorder lifetime.
@@ -210,11 +218,12 @@ Atlas startup reads the active stock profile's PL1/PL2 values from the EC. The s
 retained separately for later custom edits. Stock startup does not show unknown TDP merely because
 Manual is inactive; unavailable getters still leave writes usable.
 
-Every device's Power detail page has one outer Power expander containing Windows energy plans,
+Every device's Power detail page has one shared Power fold containing Windows energy plans,
 AC/battery preset assignments, manual power controls and firmware power controls. Subheadings retain
-their existing Quick Access pin actions without introducing separate power expanders. Pinned
-sections keep their independent folds. The shared view also covers integration disabled and devices
-without firmware power controls; Windows plans remain independently available.
+their existing Quick Access pin actions without introducing separate power folds; the fan group
+folds on its own after it. Pinned sections keep their independent folds. The shared view also covers
+integration disabled and devices without firmware power controls; Windows plans remain independently
+available.
 
 The device integration defines the preset list; both surfaces list every published preset in order.
 Atlas assignments offer Battery Saver, Efficiency, Light, Quiet, Balanced, Turbo, Full Power and
@@ -223,13 +232,16 @@ Manual, from 8/8 W up to Full Power at the firmware-advertised 40/65 W maxima, w
 power mode. Custom uses the manual controls. Selecting a firmware scenario pauses AutoTDP so its
 next write cannot overwrite that selection.
 
-The Device Overview shows the per-application profile switch, then the same Power and Fans folds as
-the Power page while device integration publishes power controls, then Performance, beside the
-persistent section rail. Available sections and Quick Access pin choices keep stable identities.
+The Device Overview shows the per-application profile switch, then the Power page's groups (the
+Power and Fans folds, Performance and Processor cores) under the same ids and keys, beside the
+persistent section rail. The rail lists each published page that draws rows, the shared Power, RGB,
+Controller and Info pages and any declared sections, with a badge counting those rows; it never
+shows a second Overview. Available sections and Quick Access pin choices keep stable identities.
 Windows energy plans are visible directly, including with integration disabled. Power holds the
 assignments and device-specific groups for manual power and display, fans, charging and automatic
-control; profile details and reset are collapsible. Controller stacks button glyph selection above
-controller output and explains unavailable output. Normal capability persistence and readback
+control; profile details and reset are collapsible. Controller leads with one Configuration group,
+the same group the pin list and Quick Access show: controller output, button glyph selection and its
+preview, with a caption in place of unavailable output. Normal capability persistence and readback
 details are tooltips, and faults stay visible in their rows. Device groups stack vertically at full
 width and share native folding headers with vertically centered titles. The closed SDK prominence
 and pairing hints guide their presentation. FluentAvalonia footer rows hold real sliders, numeric
@@ -254,14 +266,16 @@ categories, so a graphics toggle, slider or choice looks and behaves like a devi
 heading pins that group to Quick Access. `GraphicsPageCaptureTests` renders it from
 `tests/WSGM.UiTests/Fixtures/intel-graphics-ui-publication.json`, an Intel adapter and built-in
 display publication with one game override, and a pinned group on Quick Access. The Claw captures
-take the Power and thermals variable refresh row from the same fixture, as the device bridge does.
-`--overlay-test` shows the destination with an Intel-shaped simulated publication, described in
+take the Power variable refresh row from the same fixture through
+`DeviceOverlayBridge.VariableRefreshRow`, as the device bridge does. `--overlay-test` shows the
+destination with an Intel-shaped simulated publication, described in
 [overlay and input](overlay-and-input.md#graphics-sections).
 
-Live value refreshes keep row and editor instances and their drafts. A descriptor generation,
-availability or layout identity change can rebuild the affected groups; those refreshes preserve
-scroll position and suppress accidental bring-into-view, while explicit navigation keeps its normal
-focus scrolling.
+Live value refreshes keep row and editor instances and their drafts. Each page is a `DevicePage`
+description, and `DeviceGroupRenderer` keys its groups by pin id: a group whose layout changed is
+rebuilt alone, so turning AutoTDP on rebuilds its configuration group and leaves the limits, the fan
+curve draft and the Power fold in place. Those refreshes preserve scroll position and suppress
+accidental bring-into-view, while explicit navigation keeps its normal focus scrolling.
 
 ## Readable controls and pins
 

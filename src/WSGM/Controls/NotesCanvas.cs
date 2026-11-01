@@ -54,6 +54,10 @@ public enum NotesInkTool
 /// </remarks>
 public sealed class NotesCanvas : Control
 {
+    private const double HandleSize = 28;
+    private const double EraserRadius = 14;
+    private const double TapSlop = 8;
+
     /// <summary>The page shown.</summary>
     public static readonly StyledProperty<NotePage?> PageProperty =
         AvaloniaProperty.Register<NotesCanvas, NotePage?>(nameof(Page));
@@ -83,26 +87,23 @@ public sealed class NotesCanvas : Control
     public static readonly StyledProperty<string?> SelectedElementProperty =
         AvaloniaProperty.Register<NotesCanvas, string?>(nameof(SelectedElement));
 
-    private const double HandleSize = 28;
-    private const double EraserRadius = 14;
-    private const double TapSlop = 8;
     private static readonly TimeSpan DoubleTap = TimeSpan.FromMilliseconds(450);
+    private readonly HashSet<string> _erased = new(StringComparer.Ordinal);
 
     private readonly Dictionary<string, Geometry> _geometry = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, double> _textHeights = new(StringComparer.Ordinal);
     private readonly List<float> _livePoints = [];
     private readonly List<float> _livePressure = [];
-    private readonly HashSet<string> _erased = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, double> _textHeights = new(StringComparer.Ordinal);
     private Drag _drag;
     private string? _dragId;
     private Rect _dragRect;
     private Point _dragStart;
-    private Point _scrollStart;
-    private bool _moved;
+    private NotePage? _geometryPage;
     private DateTime _lastTapAt;
     private string? _lastTapId;
-    private NotePage? _geometryPage;
+    private bool _moved;
     private Point _scroll;
+    private Point _scrollStart;
 
     static NotesCanvas()
     {
@@ -260,7 +261,8 @@ public sealed class NotesCanvas : Control
         var group = Resolve("DeckGroupBrush", Brushes.DimGray);
         var accent = Resolve("HcAccentBrush", Brushes.DodgerBlue);
         var secondary = Resolve("DeckSecondaryBrush", Brushes.Gray);
-        using (context.PushTransform(Matrix.CreateTranslation(-_scroll.X, -_scroll.Y) * Matrix.CreateScale(scale, scale)))
+        using (context.PushTransform(
+                   Matrix.CreateTranslation(-_scroll.X, -_scroll.Y) * Matrix.CreateScale(scale, scale)))
         {
             context.FillRectangle(Resolve("DeckSurfaceBrush", Brushes.Black),
                 new Rect(0, 0, NotePage.PageWidth, NoteDocumentRules.ContentHeight(page)));
@@ -485,16 +487,6 @@ public sealed class NotesCanvas : Control
         e.Handled = true;
     }
 
-    private enum Drag
-    {
-        None,
-        Draw,
-        Erase,
-        Move,
-        Resize,
-        Pan
-    }
-
     private double Scale()
     {
         return Bounds.Width <= 0 ? 0 : Bounds.Width / NotePage.PageWidth * Zoom;
@@ -606,7 +598,8 @@ public sealed class NotesCanvas : Control
 
     private void Erase(NotePage page, Point position)
     {
-        foreach (var id in NoteDocumentRules.StrokesAt(page, position.X, position.Y, EraserRadius / Math.Max(0.01, Scale())))
+        foreach (var id in NoteDocumentRules.StrokesAt(page, position.X, position.Y,
+                     EraserRadius / Math.Max(0.01, Scale())))
         {
             _erased.Add(id);
         }
@@ -721,5 +714,15 @@ public sealed class NotesCanvas : Control
     private IBrush Resolve(string key, IBrush fallback)
     {
         return this.TryFindResource(key, out var value) && value is IBrush brush ? brush : fallback;
+    }
+
+    private enum Drag
+    {
+        None,
+        Draw,
+        Erase,
+        Move,
+        Resize,
+        Pan
     }
 }

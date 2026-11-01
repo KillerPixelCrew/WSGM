@@ -87,13 +87,13 @@ internal static class GlyphInputTestMap
         return (long)sample.Buttons
                | (sample.LeftTrigger > TriggerThreshold ? 1L << 32 : 0)
                | (sample.RightTrigger > TriggerThreshold ? 1L << 33 : 0)
-               | DirectionKey(sample.LeftStickX, sample.LeftStickY, bit: 34)
-               | DirectionKey(sample.RightStickX, sample.RightStickY, bit: 38)
+               | DirectionKey(sample.LeftStickX, sample.LeftStickY, 34)
+               | DirectionKey(sample.RightStickX, sample.RightStickY, 38)
                | ((sample.Buttons & CanonicalButtons.LeftPadClick) != 0
-                   ? DirectionKey(sample.LeftPadX, sample.LeftPadY, bit: 42)
+                   ? DirectionKey(sample.LeftPadX, sample.LeftPadY, 42)
                    : 0)
                | ((sample.Buttons & CanonicalButtons.RightPadClick) != 0
-                   ? DirectionKey(sample.RightPadX, sample.RightPadY, bit: 46)
+                   ? DirectionKey(sample.RightPadX, sample.RightPadY, 46)
                    : 0);
     }
 

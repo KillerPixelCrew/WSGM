@@ -1,36 +1,29 @@
-using System.Linq;
-using Avalonia.Automation;
 using Avalonia.Controls;
-using Avalonia.Data;
-using Avalonia.Layout;
 using Avalonia.Media;
-using WSGM.Controls;
-using WSGM.Core;
-using WSGM.Device.Sdk.Capabilities;
+using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
-/// <summary>Device power presets, separate from Windows power plans and application preferences.</summary>
+/// <summary>
+///     Device power presets, separate from Windows power plans and application preferences. It draws the
+///     <see cref="PowerPresetRowState" /> Steam's Device performance rows draw: the preset in effect and the
+///     plugged-in and battery assignments with the same choices, labels and game-override marks.
+/// </summary>
 public sealed class DevicePowerPresetView : UserControl
 {
-    private readonly ComboBox _ac = AssignmentChoice("device.power-assignment.ac", "When plugged in");
-    private readonly TextBlock _acOverride = OverrideLabel();
+    private readonly ChoiceRowView _ac = new();
     private readonly TextBlock _active = new() { Classes = { "setting-title" }, Tag = "device.power-preset.active" };
     private readonly StackPanel _assignments = new() { Spacing = 6 };
-    private readonly ComboBox _battery = AssignmentChoice("device.power-assignment.battery", "On battery");
-    private readonly TextBlock _batteryOverride = OverrideLabel();
+    private readonly ChoiceRowView _battery = new();
     private readonly TextBlock _scope = new() { Classes = { "caption" } };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Classes = { "caption" } };
     private DevicePowerPresetSelection? _model;
-    private bool _rendering;
 
-    /// <summary>Creates the assignment dropdowns and observed active-profile status.</summary>
+    /// <summary>Creates the assignment rows and the observed active-profile status.</summary>
     public DevicePowerPresetView()
     {
         _assignments.Children.Add(_scope);
-        _assignments.Children.Add(Title("When plugged in", _acOverride));
         _assignments.Children.Add(_ac);
-        _assignments.Children.Add(Title("On battery", _batteryOverride));
         _assignments.Children.Add(_battery);
         Content = new Border
         {
@@ -47,51 +40,6 @@ public sealed class DevicePowerPresetView : UserControl
                 }
             }
         };
-        // Browsing an open dropdown must not assign every preset it passes.
-        ComboCommit.Attach<DevicePowerPreset>(_ac, () => _rendering, choice => Assign(true, choice));
-        ComboCommit.Attach<DevicePowerPreset>(_battery, () => _rendering, choice => Assign(false, choice));
-    }
-
-    private void Assign(bool ac, DevicePowerPreset choice)
-    {
-        if (_model is not { CanAssign: true } model || choice.Id == "custom")
-        {
-            return;
-        }
-
-        _ = model.AssignAsync(ac, choice.Id.Length == 0 ? null : choice.Id);
-    }
-
-    // The running game's own assignment for a source is marked beside its title. Its unset entry,
-    // "Use global assignment", is the way back, so the marker needs no button of its own.
-    private static TextBlock OverrideLabel()
-    {
-        return new TextBlock
-        {
-            Text = "Game override", Classes = { "profile-override-label" }, IsVisible = false,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-    }
-
-    private static StackPanel Title(string text, TextBlock marker)
-    {
-        return new StackPanel
-        {
-            Orientation = Orientation.Horizontal, Spacing = 10,
-            Children = { new TextBlock { Text = text, Classes = { "setting-title" } }, marker }
-        };
-    }
-
-    private static ComboBox AssignmentChoice(string tag, string name)
-    {
-        var choice = new ComboBox
-        {
-            Tag = tag,
-            DisplayMemberBinding = new Binding(nameof(DevicePowerPreset.Name)),
-            HorizontalAlignment = HorizontalAlignment.Stretch
-        };
-        AutomationProperties.SetName(choice, name);
-        return choice;
     }
 
     internal void Attach(DevicePowerPresetSelection? model)
@@ -112,60 +60,32 @@ public sealed class DevicePowerPresetView : UserControl
 
     private void Render()
     {
-        _rendering = true;
-        try
-        {
-            var state = _model?.State;
-            _active.Text = "Active: " + (state?.Presets.FirstOrDefault(preset => preset.Id == state.Current)?.Name
-                                         ?? (state?.Current == "custom" ? "Custom" : "Unavailable"));
-            var assignments = _model?.Assignments;
-            _assignments.IsVisible = assignments is not null;
-            if (assignments is not null)
-            {
-                _scope.Text = assignments.Scope;
-                _acOverride.IsVisible = assignments.AcSource is ProfileSource.Game;
-                _batteryOverride.IsVisible = assignments.BatterySource is ProfileSource.Game;
-                DevicePowerPreset[] choices =
-                [
-                    new("", assignments.IsGlobal
-                        ? "Manual selection"
-                        : "Use global assignment", 0, 0, DevicePowerMode.Balanced),
-                    .. state!.Presets
-                ];
-                if (assignments.AcPreset == "custom" || assignments.BatteryPreset == "custom")
-                {
-                    choices = [.. choices, new DevicePowerPreset("custom", "Custom", 0, 0, DevicePowerMode.Balanced)];
-                }
-
-                RenderAssignment(_ac, assignments.AcPreset, choices);
-                RenderAssignment(_battery, assignments.BatteryPreset, choices);
-                _ac.IsEnabled = _battery.IsEnabled = _model?.CanAssign == true;
-            }
-
-            _status.Text = _model?.Busy == true ? "Applying power profile..."
-                : assignments?.Status.Length > 0 ? assignments.Status : state?.Status;
-            IsVisible = state?.Presets.Count > 0;
-        }
-        finally
-        {
-            _rendering = false;
-        }
-    }
-
-    private void RenderAssignment(ComboBox dropdown, string? assigned, DevicePowerPreset[] choices)
-    {
-        if (dropdown.IsDropDownOpen || _model?.Busy == true)
+        var model = _model;
+        var state = model?.State;
+        _active.Text = "Active: " + (state?.Current is { Length: > 0 } current ? current : "Unavailable");
+        _status.Text = model?.Busy == true ? "Applying power profile..." : state?.StatusText;
+        IsVisible = state?.Options.Count > 0;
+        // While an assignment runs, the rows keep the user's choice on screen rather than the value before it.
+        _assignments.IsEnabled = model is { Busy: false };
+        if (model is null || state is null || model.Busy)
         {
             return;
         }
 
-        var items = choices.Where(item => item.Id != "custom" || assigned == "custom").ToArray();
-        if (dropdown.ItemsSource is not DevicePowerPreset[] existing || !existing.SequenceEqual(items))
-        {
-            dropdown.ItemsSource = items;
-        }
-
-        dropdown.SelectedItem =
-            ((DevicePowerPreset[])dropdown.ItemsSource).FirstOrDefault(item => item.Id == (assigned ?? ""));
+        _scope.Text = state.Scope;
+        _scope.IsVisible = state.Scope.Length > 0;
+        // The empty entry is the way back to Global for a game's own assignment, so an override needs only
+        // its marker, not a second control.
+        ChoiceRowOption[] options =
+        [
+            new(string.Empty, state.UnsetLabel is { Length: > 0 } unset ? unset : "Manual selection"),
+            .. state.Options
+        ];
+        _ac.Render("device.power-assignment.ac", "When plugged in",
+            new ChoiceRowState(state.Available, options, state.Ac, string.Empty, state.AcAccent), model.CanAssign,
+            string.Empty, id => _ = model.AssignAsync(true, id.Length == 0 ? null : id));
+        _battery.Render("device.power-assignment.battery", "On battery",
+            new ChoiceRowState(state.Available, options, state.Battery, string.Empty, state.BatteryAccent),
+            model.CanAssign, string.Empty, id => _ = model.AssignAsync(false, id.Length == 0 ? null : id));
     }
 }

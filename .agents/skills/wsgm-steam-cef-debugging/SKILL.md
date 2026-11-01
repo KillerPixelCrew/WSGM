@@ -55,7 +55,10 @@ Steam mutation, restart and device writes still require applicable explicit main
 
 Prefer evidence in this order:
 
-1. Steam and WSGM logs from the affected run, read from disk without CEF.
+1. Steam and WSGM logs from the affected run, read from disk without CEF, with
+   `node eng/check-steam-fingerprints.mjs --other-channel` (every fingerprint against the installed
+   client and the newest snapshot of the other channel) and `node eng/check-steam-patch-health.mjs`
+   (each patch's final state in the newest wsgm.log session). Stable and Beta are both supported.
 2. Current code, generated asset and existing regression sources; obey manual-first test timing.
 3. Read-only process/window/listener evidence. Only after log-confirmed startup, `/json/list`.
 4. Bounded read-only evaluation of one known target and authored source-token fingerprint.
@@ -77,6 +80,12 @@ not proof of a successful JavaScript evaluation.
 
 ## Safety invariants
 
+- Every feature's closing batch runs `node eng/check-steam-fingerprints.mjs --other-channel` (the
+  installed client and the newest snapshot of the other channel; Stable and Beta are both supported)
+  and `npm run steam-assets:claims`, whether or not the feature touched Steam code, and after an
+  authorized deployment `node eng/check-steam-patch-health.mjs` once Steam has fully started. A
+  MISSING or ambiguous fingerprint, or a patch that ends Incompatible or never reaches Verified, is
+  a defect to fix in the same task, never dismissed as unrelated or pre-existing.
 - Complete current-run Steam-log confirmation before even a read-only CEF target listing.
 - Verify that loopback port 8080 belongs to `steam` or `steamwebhelper` and that the websocket URL
   is loopback port 8080 before attaching.

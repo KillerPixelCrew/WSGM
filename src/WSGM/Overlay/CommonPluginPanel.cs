@@ -14,6 +14,7 @@ using Avalonia.Media;
 using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Core;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Input;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
@@ -21,28 +22,47 @@ using WSGM.Shell;
 namespace WSGM.Overlay;
 
 /// <summary>Host-rendered common plugin controls. Only an explicit button press dispatches an action.</summary>
+/// <remarks>
+///     Reads on attach; the owning window calls <see cref="Refresh" /> when the device or the plugin host
+///     reports a change.
+/// </remarks>
 internal sealed class CommonPluginPanel : StackPanel
 {
     private readonly Dictionary<(string Plugin, string Instance, string Category), Control> _categories = [];
     private readonly ISet<string> _folds;
-    private readonly bool _independentOnly;
+    private readonly Func<PluginOverlayInstance[]>? _independent;
     private readonly Action<PluginWidgetPin, string>? _navigate;
     private readonly bool _pinsOnly;
     private readonly PluginWidgetPreferences? _preferences;
     private readonly Func<Task<PluginWidgetPin[]>>? _readPins;
     private readonly List<Action> _refresh = [];
     private readonly ICommonPluginOverlaySource _source;
+
+    // Each instance's state as read once for the refresh running now.
+    private readonly Dictionary<PluginInstanceIdentity, PluginStatePublication[]> _states = [];
     private readonly PluginWidgetPin? _widget;
     private CancellationTokenSource _closed = new();
     private PluginOverlayInstance[] _observed = [];
     private (PluginInstanceIdentity Identity, long Generation, bool HasControls, string? Error)[]? _structure;
 
+    /// <summary>Creates a panel over one plugin source.</summary>
+    /// <param name="source">The instances, their state and the action route.</param>
+    /// <param name="widget">The one pinned widget to show, or null for whole instances.</param>
+    /// <param name="navigate">Opens a widget's plugin controls, when the panel offers that.</param>
+    /// <param name="pinsOnly">Whether to show only the widget pin toggles.</param>
+    /// <param name="preferences">The widget pin store, when pins can be toggled here.</param>
+    /// <param name="folds">The session's expanded categories.</param>
+    /// <param name="independent">
+    ///     Reads only the host's own instances, for the System Plugins page that never shows the device;
+    ///     null reads every instance from <paramref name="source" />.
+    /// </param>
     internal CommonPluginPanel(ICommonPluginOverlaySource source, PluginWidgetPin? widget = null,
         Action<PluginWidgetPin, string>? navigate = null, bool pinsOnly = false,
-        PluginWidgetPreferences? preferences = null, ISet<string>? folds = null, bool independentOnly = false)
+        PluginWidgetPreferences? preferences = null, ISet<string>? folds = null,
+        Func<PluginOverlayInstance[]>? independent = null)
     {
         _source = source;
-        _independentOnly = independentOnly;
+        _independent = independent;
         _folds = folds ?? new HashSet<string>(StringComparer.Ordinal);
         _widget = widget;
         _pinsOnly = pinsOnly;
@@ -51,24 +71,28 @@ internal sealed class CommonPluginPanel : StackPanel
         _navigate = navigate;
         Spacing = widget is null ? 20 : 12;
         HorizontalAlignment = HorizontalAlignment.Stretch;
-        // A re-parented panel gets a live token before the poll's first read; actions of the detached
-        // lifetime stay cancelled.
+        // A re-parented panel gets a live token before its first read; actions of the detached lifetime
+        // stay cancelled.
         AttachedToVisualTree += (_, _) =>
         {
             if (_closed.IsCancellationRequested)
             {
                 _closed = new CancellationTokenSource();
             }
+
+            Refresh();
         };
-        VisiblePoll.Attach(this, TimeSpan.FromMilliseconds(500), Refresh);
         DetachedFromVisualTree += (_, _) => _closed.Cancel();
     }
 
-    internal void Refresh()
+    /// <summary>Redraws from one read of the instances and one read of each instance's state.</summary>
+    /// <param name="snapshot">Instances already read for several panels at once, or null to read them here.</param>
+    internal void Refresh(PluginOverlayInstance[]? snapshot = null)
     {
-        var instances = _source.Snapshot();
+        var instances = snapshot ?? _independent?.Invoke() ?? _source.Snapshot();
         _observed = instances;
-        if (_independentOnly)
+        _states.Clear();
+        if (_independent is not null)
         {
             instances =
             [
@@ -124,6 +148,20 @@ internal sealed class CommonPluginPanel : StackPanel
         {
             update();
         }
+
+        _states.Clear();
+    }
+
+    /// <summary>An instance's state, read from the source once per refresh.</summary>
+    private PluginStatePublication[] StateOf(PluginInstanceIdentity identity)
+    {
+        if (!_states.TryGetValue(identity, out var states))
+        {
+            states = _source.State(identity);
+            _states[identity] = states;
+        }
+
+        return states;
     }
 
     /// <summary>Whether the instances still have the shape the rows were built for.</summary>
@@ -219,7 +257,7 @@ internal sealed class CommonPluginPanel : StackPanel
             Children.Add(secondary);
             _refresh.Add(() =>
             {
-                var states = _source.State(instance.Identity).Where(value => value.Generation == owner.Generation)
+                var states = StateOf(instance.Identity).Where(value => value.Generation == owner.Generation)
                     .ToArray();
                 var available = Predicate(widget.VisibleStateKey);
                 var enabled = available && Predicate(widget.EnabledStateKey);
@@ -278,21 +316,8 @@ internal sealed class CommonPluginPanel : StackPanel
                 AddContribution(content, instance, owner, contribution);
             }
 
-            var section = new CollapsibleSection(title, content);
             var foldId = "plugin." + instance.Identity.PluginId + "." + instance.Identity.InstanceId + "." + group.Key;
-            section.IsExpanded = _folds.Contains(foldId);
-            section.Heading.Tag = foldId;
-            section.ExpansionChanged += expanded =>
-            {
-                if (expanded)
-                {
-                    _folds.Add(foldId);
-                }
-                else
-                {
-                    _folds.Remove(foldId);
-                }
-            };
+            var section = CollapsibleSection.Persisted(title, content, _folds, foldId, foldId);
             _categories[(instance.Identity.PluginId, instance.Identity.InstanceId, group.Key)] = section;
             Children.Add(section);
         }
@@ -339,7 +364,7 @@ internal sealed class CommonPluginPanel : StackPanel
             : new Border { Classes = { "tile" }, Child = row });
         _refresh.Add(() =>
         {
-            var state = _source.State(instance.Identity).FirstOrDefault(value =>
+            var state = StateOf(instance.Identity).FirstOrDefault(value =>
                 value.Key == contribution.StateKey && value.Generation == generation);
             effective.Text = state is null ? "No confirmed value" : Format(state.Value);
         });
@@ -382,7 +407,7 @@ internal sealed class CommonPluginPanel : StackPanel
                     }
                     case PluginSettingKind.Number:
                     {
-                        var (editor, readArgument) = CreateTextArgumentEditor(field, RequestText);
+                        var (editor, readArgument) = CreateTextArgumentEditor(field);
                         inputs.Children.Add(editor);
                         argumentReaders.Add(field.Key, readArgument);
                         break;
@@ -399,7 +424,7 @@ internal sealed class CommonPluginPanel : StackPanel
                         }
                         else
                         {
-                            var (editor, readArgument) = CreateTextArgumentEditor(field, RequestText);
+                            var (editor, readArgument) = CreateTextArgumentEditor(field);
                             inputs.Children.Add(editor);
                             argumentReaders.Add(field.Key, readArgument);
                         }
@@ -529,15 +554,18 @@ internal sealed class CommonPluginPanel : StackPanel
     {
         return key switch
         {
-            "power" => Icons.Power,
-            "fan" => Icons.Snowflake,
-            "battery" => Icons.Battery,
-            "lighting" => Icons.Palette,
-            "controller" => Icons.Grid4,
-            "display" => Icons.Monitor,
             "settings" => Icons.Gear,
             "action" => Icons.Play,
-            _ => null
+            _ => OverlayWindow.SectionIconFor(key switch
+            {
+                "power" => SectionIcon.Power,
+                "fan" => SectionIcon.Fan,
+                "battery" => SectionIcon.Battery,
+                "lighting" => SectionIcon.Lighting,
+                "controller" => SectionIcon.Controller,
+                "display" => SectionIcon.Display,
+                _ => SectionIcon.None
+            })
         };
     }
 
@@ -548,35 +576,17 @@ internal sealed class CommonPluginPanel : StackPanel
             : value.Number?.ToString("G", CultureInfo.CurrentCulture) ?? value.Text ?? "No confirmed value";
     }
 
-    private bool RequestText(string prompt, string initial, int maximum, Action<string> accept)
+    internal static (Button Editor, Func<PluginValue> Read) CreateTextArgumentEditor(PluginSetting field)
     {
-        return TopLevel.GetTopLevel(this) is OverlayWindow window
-               && window.RequestText(prompt, initial, maximum, accept);
-    }
-
-    internal static (Button Editor, Func<PluginValue> Read) CreateTextArgumentEditor(PluginSetting field,
-        Func<string, string, int, Action<string>, bool> requestText)
-    {
-        var draft = field.Default.Text ?? field.Default.Number?.ToString("G", CultureInfo.CurrentCulture) ?? "";
-        Button editor = new() { Content = draft.Length > 0 ? draft : "Enter value" };
-        editor.Click += (_, _) =>
-        {
-            var opened = requestText(field.Label, draft, 0,
-                value =>
-                {
-                    draft = value;
-                    editor.Content = draft.Length > 0 ? draft : "Enter value";
-                });
-            if (!opened)
-            {
-                editor.Content = "Keyboard unavailable. Reopen the overlay to retry.";
-            }
-        };
+        PressToEditButton? editor = null;
+        editor = new PressToEditButton(field.Label,
+            field.Default.Text ?? field.Default.Number?.ToString("G", CultureInfo.CurrentCulture), 0, "Enter value",
+            _ => { }, () => editor!.Content = "Keyboard unavailable. Reopen the overlay to retry.");
         return (editor, () => field.Kind == PluginSettingKind.Number
             ? new PluginValue(
-                Number: double.TryParse(draft, NumberStyles.Float, CultureInfo.CurrentCulture, out var number)
+                Number: double.TryParse(editor.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var number)
                     ? number
                     : double.NaN)
-            : new PluginValue(Text: draft));
+            : new PluginValue(Text: editor.Text));
     }
 }

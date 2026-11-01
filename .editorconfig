@@ -9,8 +9,10 @@ indent_style = space
 indent_size = 4
 
 [*.{cs,csx}]
-dotnet_sort_system_directives_first = true
-dotnet_separate_import_directive_groups = false
+# Rider orders using directives (jb cleanupcode in the gate). Its "System first" also places
+# Windows.* namespaces first, which Roslyn's import formatter rejects, and dotnet format only runs
+# that formatter when one of these two options is written here. Both tools default to System
+# first with no blank lines between groups, so the options stay at their defaults unwritten.
 csharp_new_line_before_open_brace = all
 csharp_indent_case_contents = true
 # Rider is the formatting authority. Its layout puts a case block's braces at the case label's
@@ -55,7 +57,7 @@ resharper_unused_parameter_local_highlighting = none
 resharper_unused_member_local_highlighting = none
 
 # Normalize repairs explicit JSON nulls over the initializers; the guards are its purpose (ConfigurationTests pins it).
-[src/WSGM/Core/ConfigStore.cs]
+[src/WSGM/Core/Config/ConfigStore.cs]
 resharper_null_coalescing_condition_is_always_not_null_according_to_api_contract_highlighting = none
 resharper_condition_is_always_true_or_false_according_to_nullable_api_contract_highlighting = none
 resharper_conditional_access_qualifier_is_non_nullable_according_to_api_contract_highlighting = none

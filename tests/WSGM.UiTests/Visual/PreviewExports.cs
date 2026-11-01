@@ -8,6 +8,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Controls;
+using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Overlay;
 using WSGM.Shell;
@@ -72,10 +73,11 @@ public static class PreviewExports
                 Status = deviceName ?? "MSI Claw 8 AI+", Detail = "Device integration active",
                 Capabilities =
                 [
-                    .. capabilities.Select(view => DeviceOverlayBridge.ToOverlayCapability(view, ids)),
+                    .. capabilities.Select(view => CapabilityRowProjection.ToDeviceRow(view, ids,
+                        FanCurvePresetTable.HandheldCompanion)),
                     graphics.VariableRefreshRow(ids)
                 ],
-                PluginSections = DeviceOverlayBridge.ProjectSections(sections), Recovery = null
+                PluginSections = CapabilityRowProjection.ProjectSections(sections), Recovery = null
             };
             var window = fixture.Overlay(width, height, scale);
             window.AttachDeviceBridge(device);
@@ -124,6 +126,7 @@ public static class PreviewExports
                                                         + string.Join(", ", rail.Children.OfType<Button>()
                                                             .Select(button => button.Tag)));
                 }
+
                 button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             }
 
@@ -134,7 +137,7 @@ public static class PreviewExports
 
             if (page == "keyboard")
             {
-                window.ShowKeyboardSurface(new KeyboardPanel("Profile name", "Balanced", 100));
+                window.Surfaces.ShowKeyboard(new KeyboardPanel("Profile name", "Balanced", 100));
             }
 
             Dispatcher.UIThread.RunJobs();
@@ -178,9 +181,10 @@ public static class PreviewExports
                         selected.IsExpanded = true;
                         Dispatcher.UIThread.RunJobs();
                         var scroll = selected.GetVisualAncestors().OfType<ScrollViewer>().FirstOrDefault();
-                        if (scroll?.Content is Avalonia.Visual content && selected.TranslatePoint(default, content) is { } point)
+                        if (scroll?.Content is Avalonia.Visual content && selected.TranslatePoint(default, content) is
+                                { } point)
                         {
-                            scroll.Offset = new Vector(x: 0, point.Y);
+                            scroll.Offset = new Vector(0, point.Y);
                         }
 
                         Dispatcher.UIThread.RunJobs();

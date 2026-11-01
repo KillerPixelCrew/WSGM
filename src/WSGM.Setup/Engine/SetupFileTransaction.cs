@@ -12,9 +12,9 @@ internal sealed class SetupFileTransaction
     private readonly Func<string?>? _executingSetup;
     private readonly string _journalPath;
     private readonly Func<string?>? _readRegistration;
+    private readonly Action<IReadOnlyList<string>>? _releaseFiles;
     private readonly Action<string>? _relocatedSetup;
     private readonly Action<string?>? _restoreRegistration;
-    private readonly Action<IReadOnlyList<string>>? _releaseFiles;
     private readonly Dictionary<string, (string Path, bool Directory)> _targets;
     private Journal? _journal;
 

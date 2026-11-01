@@ -60,14 +60,19 @@ The full analysis is in issue 181. The CSVs are the replay inputs for the new co
 
 ## Scope
 
-The controller is a pure, single-threaded policy in `Core\AutoTdp.cs` whose inputs are arguments and
-whose outputs are decisions, replayable from a trace. `AutoTdpService` owns application identity,
-capability lookup, paired limits, one write in flight, manual pause, restore on stop and the trace.
-The original watts survive device cycle changes such as lock, sleep and restart. Stop restores them
-through the currently published primary power capability, including the pair's original watts. If
-the capability is unavailable, the restore obligation is retained and logged. The native device
-runtime declares the limit range and paired descriptors; WSGM chooses the sustained/boost values and
-the plugin writes that pair in its firmware's order. Nothing here changes QAM or overlay ownership.
+The controller is a pure, single-threaded policy, `AutoTdpController` in `Core\Performance`, whose
+inputs are arguments and whose outputs are decisions, replayable from a trace. It owns the phase
+machine; `AutoTdpWindowClassifier` classifies windows, `AutoTdpStepSizing` sizes raises and probes,
+`AutoTdpPresentClock` measures the present gap, and `AutoTdpRaiseChain` and `AutoTdpProbeTrial` hold
+the evidence a raise chain and a probe are judged on. `AutoTdpService` owns application identity,
+the enable generation, one write in flight, manual pause, restore on stop and the trace;
+`AutoTdpTelemetry` selects the renderer and reads the sensors, `AutoTdpPowerCapability` finds the
+primary and paired limits, and `AutoTdpRestoreObligation` keeps the limit to hand back. The original
+watts survive device cycle changes such as lock, sleep and restart. Stop restores them through the
+currently published primary power capability, including the pair's original watts. If the capability
+is unavailable, the restore obligation is retained and logged. The native device runtime declares
+the limit range and paired descriptors; WSGM chooses the sustained/boost values and the plugin
+writes that pair in its firmware's order. Nothing here changes QAM or overlay ownership.
 
 There is no learning. No floor, learned or failed, is kept for a context or across sessions. Control
 starts from the limit the hardware reports and every conclusion is re-tested from fresh evidence.
@@ -78,15 +83,15 @@ in time, described below.
 
 Each tick the service reads what it reads today and passes it in one sample:
 
-| Field                                   | Source                                               | Use                                                                    |
-| --------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------- |
-| Window identity                         | RTSS `dwTime0`, `dwTime1`                            | Dedupe. A window already judged is skipped entirely.                   |
-| Window duration, frames, mean frametime | RTSS window                                          | Ratio and severity.                                                    |
-| Target frametime                        | AutoTDP target, or a lower active RTSS frame limit   | Deadline. Part of the context key.                                     |
-| Last frame                              | RTSS `dwFrameTime`, microseconds                     | A hiatus that ended inside the window.                                 |
-| Sample age                              | RTSS window                                          | Time since the last present, for a hiatus still in progress.           |
-| GPU load, CPU load                      | `RtssOsdMetricsSource`, shared with the OSD renderer | Tertiary evidence. Absent values disable only the rules that use them. |
-| Limits                                  | Plugin descriptor                                    | Minimum, maximum, step.                                                |
+| Field                                   | Source                                              | Use                                                                    |
+| --------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------- |
+| Window identity                         | RTSS `dwTime0`, `dwTime1`                           | Dedupe. A window already judged is skipped entirely.                   |
+| Window duration, frames, mean frametime | RTSS window                                         | Ratio and severity.                                                    |
+| Target frametime                        | AutoTDP target, or a lower active RTSS frame limit  | Deadline. Part of the context key.                                     |
+| Last frame                              | RTSS `dwFrameTime`, microseconds                    | A hiatus that ended inside the window.                                 |
+| Sample age                              | RTSS window                                         | Time since the last present, for a hiatus still in progress.           |
+| GPU load, CPU load                      | `SystemMetricsSource`, shared with the OSD renderer | Tertiary evidence. Absent values disable only the rules that use them. |
+| Limits                                  | Plugin descriptor                                   | Minimum, maximum, step.                                                |
 
 Time is measured from RTSS window timestamps, not from tick count, so tick jitter and missed ticks
 neither speed up nor slow down a dwell. Every dwell below is a sum of fresh window durations.
@@ -381,14 +386,14 @@ The deadline is AutoTDP's own target frame rate, a per-game profile value (`Auto
 144 FPS, 60 when no layer sets one) resolved like the frame limit. No frame limit is needed: an
 uncapped game runs fast while power is generous, those windows are comfortable, and the descent
 stops where the game runs just above the target. An active RTSS frame limit below the target lowers
-the deadline to the limit, because a capped game cannot reach a higher target and every window
-would read as a miss and raise power to the ceiling. A limit at or above the target changes
-nothing. An active limit is the readback, or the value WSGM wrote until the next poll reads it.
-`AutoTdpTarget` in `Core\AutoTdp.cs` holds the range and the rule; the context key carries the
+the deadline to the limit, because a capped game cannot reach a higher target and every window would
+read as a miss and raise power to the ceiling. A limit at or above the target changes nothing. An
+active limit is the readback, or the value WSGM wrote until the next poll reads it. `AutoTdpTarget`
+in `Core\Performance\AutoTdpTarget.cs` holds the range and the rule; the context key carries the
 deadline, so a target or limit change starts over like a context change. The target is edited from
-the slider under the AutoTDP switch in the Overlay's Power page, in Quick Access and on Steam's Power
-settings page, all through `DeviceCoordinator.SetAutoTdpTargetAsync`; each shows the slider only
-while AutoTDP is on, says when a frame limit holds the target lower, and marks a game override.
+the slider under the AutoTDP switch in the Overlay's Power page, in Quick Access and on Steam's
+Power settings page, all through `DevicePowerPolicy.SetAutoTdpTargetAsync`; each shows the slider
+only while AutoTDP is on, says when a frame limit holds the target lower, and marks a game override.
 
 The service's shared availability result drives both QAM and Overlay and guards the coordinator's
 enable command. It refuses only for a missing or uncommandable power limit; the switch stays on
@@ -404,10 +409,10 @@ original values are captured before the first write; release restores the sustai
 the original boost value, including unequal manual limits, whatever device cycle is current then. No
 automatic target is persisted into profile configuration.
 
-The device coordinator owns AutoTDP. Its writes share the coordinator's one power lane with manual,
-preset and per-application power writes, and the coordinator restores AutoTDP's original limit
-before it stops the device: at exit, update, uninstall, session end and when Device Integration is
-switched off.
+The device coordinator's power policy, `DevicePowerPolicy`, owns AutoTDP. Its writes share the
+policy's one power lane with manual, preset and per-application power writes, and the coordinator
+restores AutoTDP's original limit before it stops the device: at exit, update, uninstall, session
+end and when Device Integration is switched off.
 
 The service also supplies runtime ownership to the shared power-preset projection. Both QAM and
 Overlay show Custom while AutoTDP owns power, even if a momentary readback matches a named preset,
@@ -478,12 +483,17 @@ provenance in a README beside them.
 
 ## Source routes
 
-[AutoTdp.cs](../src/WSGM/Core/AutoTdp.cs) contains the deterministic state machine, sample/decision
-records and tuning defaults. [AutoTdpService](../src/WSGM/Shell/AutoTdpService.cs) binds it to the
-application, observed limiter and device capability, serializes writes and keeps the restore
-obligation. [AutoTdpTrace](../src/WSGM/Core/AutoTdpTrace.cs) defines trace data and
-[AutoTdpTraceRecorder](../src/WSGM/Shell/AutoTdpTraceRecorder.cs) writes it away from the control
-thread. [RtssFrametimeReader](../src/WSGM/Core/RtssFrametimeReader.cs) supplies raw windows; it does
-not classify them. [DeviceCoordinator](../src/WSGM/Shell/DeviceCoordinator.cs) owns shutdown order
-and the common power lane. Change the state machine for policy, the service for orchestration, and
-the plugin for firmware sequencing.
+[AutoTdpController](../src/WSGM/Core/Performance/AutoTdpController.cs) contains the deterministic
+state machine and its tuning defaults, with the classifier, step sizing, present clock, raise chain
+and probe trial beside it and one file per sample and decision record.
+[AutoTdpService](../src/WSGM/Shell/Performance/AutoTdpService.cs) binds it to the application,
+observed limiter and device capability, serializes writes and keeps the restore obligation through
+[AutoTdpRestoreObligation](../src/WSGM/Shell/Performance/AutoTdpRestoreObligation.cs).
+[AutoTdpTraceRow](../src/WSGM/Core/Performance/AutoTdpTraceRow.cs) and
+[AutoTdpTraceCsv](../src/WSGM/Core/Performance/AutoTdpTraceCsv.cs) define trace data and
+[AutoTdpTraceRecorder](../src/WSGM/Shell/Performance/AutoTdpTraceRecorder.cs) writes it away from
+the control thread. [RtssFrametimeReader](../src/WSGM/Core/Performance/RtssFrametimeReader.cs)
+supplies raw windows; it does not classify them.
+[DeviceCoordinator](../src/WSGM/Shell/Device/DeviceCoordinator.cs) owns shutdown order and
+[DevicePowerPolicy](../src/WSGM/Shell/Device/DevicePowerPolicy.cs) the common power lane. Change the
+state machine for policy, the service for orchestration, and the plugin for firmware sequencing.

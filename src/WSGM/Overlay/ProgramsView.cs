@@ -14,16 +14,96 @@ namespace WSGM.Overlay;
 public sealed class ProgramsView : ServiceSubView
 {
     private IProgramsSource? _service;
-    internal event Action<string>? ActivateRequested;
-    internal event Action<string>? PinRequested;
-    internal event Action<string>? UnpinRequested;
+
     /// <inheritdoc />
     protected override string LogScope => "Programs";
 
+    /// <summary>Raised with a program to launch or whose window to focus.</summary>
+    internal event Action<string>? ActivateRequested;
+
+    /// <summary>Raised with a program that can neither launch nor is running, whose editor says why.</summary>
+    internal event Action<string>? EditorRequested;
+
+    /// <summary>Raised with a program to pin to Quick access.</summary>
+    internal event Action<string>? PinRequested;
+
+    /// <summary>Raised with a program to unpin from Quick access.</summary>
+    internal event Action<string>? UnpinRequested;
+
+    /// <summary>Raised on the service's thread when the programs change, so their pinned rows follow.</summary>
+    internal event Action? ProgramsChanged;
+
+    /// <summary>Follows the session's Programs owner, or none with null.</summary>
+    /// <param name="service">The owner, or null when the overlay closes or the session has none.</param>
     internal void Attach(IProgramsSource? service)
     {
+        if (_service is not null)
+        {
+            _service.Changed -= OnProgramsChanged;
+        }
+
         _service = service;
+        if (service is not null)
+        {
+            service.Changed += OnProgramsChanged;
+        }
+
         AttachSource(IsEffectivelyVisible ? service : null);
+    }
+
+    /// <summary>Launches or focuses a program, or opens its editor when it can do neither.</summary>
+    /// <param name="id">The program.</param>
+    internal void Activate(string id)
+    {
+        var state = _service?.ReadState().FirstOrDefault(item => item.Definition.Id == id);
+        if (state is { CanLaunch: false, Running: false })
+        {
+            EditorRequested?.Invoke(id);
+            return;
+        }
+
+        ActivateRequested?.Invoke(id);
+    }
+
+    /// <summary>Resolves a pin id that names a program.</summary>
+    /// <param name="pin">The pin id.</param>
+    /// <returns>The program's Quick access row, or null for an id this source does not own.</returns>
+    internal QuickAccessPin? ResolvePin(string pin)
+    {
+        if (!pin.StartsWith(ProgramsService.PinPrefix, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var id = pin[ProgramsService.PinPrefix.Length..];
+        var tag = QuickAccessPins.TagPrefix + pin;
+        var state = _service?.ReadState().FirstOrDefault(item => item.Definition.Id == id);
+        if (state is null)
+        {
+            return new QuickAccessPin("Program unavailable", false, false, _ => new ActionButton
+            {
+                Tag = tag,
+                Title = "Program unavailable",
+                Description = "X, touch hold or right-click to unpin",
+                IconGeometry = Icons.Rocket
+            });
+        }
+
+        return new QuickAccessPin(state.Definition.Name, true, false, drawn =>
+        {
+            if (drawn is ProgramActionRow existing)
+            {
+                existing.Apply(state);
+                return existing;
+            }
+
+            return new ProgramActionRow(state, () => Activate(id)) { Tag = tag };
+        });
+    }
+
+    private void OnProgramsChanged()
+    {
+        ProgramsChanged?.Invoke();
     }
 
     internal void OpenEditor(string id)
@@ -53,7 +133,8 @@ public sealed class ProgramsView : ServiceSubView
             return;
         }
 
-        body.Children.Add(Caption("Launch a desktop tool or focus its existing window. X, touch hold or right-click pins a program to Quick access."));
+        body.Children.Add(Caption(
+            "Launch a desktop tool or focus its existing window. X, touch hold or right-click pins a program to Quick access."));
         if (service.LastResult.Length > 0)
         {
             body.Children.Add(Tagged(Caption(service.LastResult), "program.result"));
@@ -65,7 +146,7 @@ public sealed class ProgramsView : ServiceSubView
         {
             var id = state.Definition.Id;
             var group = new StackPanel { Spacing = 6, Tag = "program.group:" + id };
-            var action = new ProgramActionRow(state, () => ActivateRequested?.Invoke(id))
+            var action = new ProgramActionRow(state, () => Activate(id))
             {
                 Tag = ProgramsService.PinPrefix + id,
                 IsPinned = service.IsPinned(id)
@@ -88,14 +169,14 @@ public sealed class ProgramsView : ServiceSubView
     private async Task AddAsync()
     {
         var generation = NavigationGeneration;
-        var path = await PickPathAsync(folder: false, ".exe");
+        var path = await PickPathAsync(false, ".exe");
         if (path is null || generation != NavigationGeneration || _service is not { } service)
         {
             return;
         }
 
         var definition = new ProgramDefinition { Name = Path.GetFileNameWithoutExtension(path), Executable = path };
-        if (await ApplyAsync(() => service.SaveAsync(definition, approveExecutable: true)))
+        if (await ApplyAsync(() => service.SaveAsync(definition, true)))
         {
             Navigate(() => RenderEditor(definition.Id));
         }
@@ -106,24 +187,27 @@ public sealed class ProgramsView : ServiceSubView
         var state = _service?.ReadState().FirstOrDefault(item => item.Definition.Id == id);
         if (state is null || _service is not { } service)
         {
-            RenderMessage("Program removed", "This entry no longer exists. Removing an entry never closes the application.");
+            RenderMessage("Program removed",
+                "This entry no longer exists. Removing an entry never closes the application.");
             return;
         }
 
         var entry = state.Definition;
         var body = NewStack(entry.Name);
         body.Children.Add(Tagged(Caption(state.Status), "program.status"));
-        body.Children.Add(new ProgramActionRow(state, () => ActivateRequested?.Invoke(id))
+        body.Children.Add(new ProgramActionRow(state, () => Activate(id))
             { Tag = ProgramsService.PinPrefix + id, IsPinned = service.IsPinned(id) });
         body.Children.Add(Tagged(Row("Display name", entry.Name, Icons.ListLines,
-            () => EditText("Display name", entry.Name, 160, value => Save(entry with { Name = value }))), "program.name"));
+                () => EditText("Display name", entry.Name, 160, value => Save(entry with { Name = value }))),
+            "program.name"));
         body.Children.Add(Tagged(Row("Executable", entry.Executable, Icons.FolderPlus,
             () => _ = RunSafelyAsync(ChooseExecutableAsync(entry), "choose executable")), "program.executable"));
         body.Children.Add(Tagged(Row("Arguments", entry.Arguments.Length == 0 ? "None" : entry.Arguments,
             Icons.ListLines, () => EditText("Arguments", entry.Arguments, 4096,
                 value => Save(entry with { Arguments = value }))), "program.arguments"));
         body.Children.Add(Tagged(Row("Working directory", entry.WorkingDirectory.Length == 0
-                ? "Executable folder" : entry.WorkingDirectory, Icons.FolderPlus,
+                ? "Executable folder"
+                : entry.WorkingDirectory, Icons.FolderPlus,
             () => _ = RunSafelyAsync(ChooseDirectoryAsync(entry), "working directory")), "program.directory"));
         if (entry.WorkingDirectory.Length > 0)
         {
@@ -133,15 +217,19 @@ public sealed class ProgramsView : ServiceSubView
 
         body.Children.Add(ToggleRow("Request administrator elevation", entry.Elevated,
             value => Save(entry with { Elevated = value })));
-        body.Children.Add(Caption("Off launches as the normal interactive user. On explicitly requests UAC; Windows may refuse focus across integrity levels."));
+        body.Children.Add(Caption(
+            "Off launches as the normal interactive user. On explicitly requests UAC; Windows may refuse focus across integrity levels."));
         body.Children.Add(ToggleRow("Reinvoke when running without a window", entry.ReactivateWithoutWindow,
             value => Save(entry with { ReactivateWithoutWindow = value })));
-        body.Children.Add(Caption("Leave off unless this application's single-instance IPC activation is known to be safe. Otherwise WSGM reports running without a window."));
+        body.Children.Add(Caption(
+            "Leave off unless this application's single-instance IPC activation is known to be safe. Otherwise WSGM reports running without a window."));
         body.Children.Add(Tagged(Row(service.IsPinned(id) ? "Unpin from Quick access" : "Pin to Quick access",
             "Uses the same launch-or-focus action", Icons.Pin,
             () => PinRequested?.Invoke(id)), "program.pin"));
         body.Children.Add(Tagged(Row("Select running UI application",
-            entry.UiExecutable.Length > 0 ? entry.UiExecutable : "For launchers and bootstrap apps: choose the real application's window",
+            entry.UiExecutable.Length > 0
+                ? entry.UiExecutable
+                : "For launchers and bootstrap apps: choose the real application's window",
             Icons.Monitor, () => _ = RunSafelyAsync(SelectUiAsync(id), "select UI")), "program.ui"));
         if (entry.UiExecutable.Length > 0)
         {
@@ -154,42 +242,47 @@ public sealed class ProgramsView : ServiceSubView
             body.Children.Add(Tagged(Row("Approve replacement executable", entry.Executable,
                 Icons.Info, () => ConfirmAsync("Approve replacement executable",
                     "The executable changed since it was selected. Approve only if you trust the new file. This also clears the resolved UI identity.",
-                    () => service.SaveAsync(entry, approveExecutable: true))), "program.approve"));
+                    () => service.SaveAsync(entry, true))), "program.approve"));
         }
 
-        body.Children.Add(Tagged(Row("Clear pending launch", "Only after checking that a previous launch did not start the tool",
+        body.Children.Add(Tagged(Row("Clear pending launch",
+            "Only after checking that a previous launch did not start the tool",
             Icons.Restart, () => ConfirmAsync("Clear pending launch",
                 "A previous launch may still be starting. Clearing its pending state allows another launch and may create a duplicate.",
                 () => service.ClearPendingAsync(id))), "program.pending.clear"));
-        body.Children.Add(Tagged(DangerRow("Remove program", "Remove WSGM configuration and pin; keep the application running",
+        body.Children.Add(Tagged(DangerRow("Remove program",
+            "Remove WSGM configuration and pin; keep the application running",
             Icons.Close, () => ConfirmAsync("Remove program", "The application and its files will remain untouched.",
                 () =>
                 {
                     UnpinRequested?.Invoke(id);
                     return service.RemoveAsync(id);
-                }, returnHome: true)), "program.remove"));
+                }, true)), "program.remove"));
         SetContent(body);
     }
 
-    private void Save(ProgramDefinition entry) => _ = ApplyAsync(() => _service!.SaveAsync(entry, approveExecutable: false));
+    private void Save(ProgramDefinition entry)
+    {
+        _ = ApplyAsync(() => _service!.SaveAsync(entry, false));
+    }
 
     private async Task ChooseExecutableAsync(ProgramDefinition entry)
     {
         var generation = NavigationGeneration;
-        var path = await PickPathAsync(folder: false, ".exe");
+        var path = await PickPathAsync(false, ".exe");
         if (path is not null && generation == NavigationGeneration)
         {
-            await ApplyAsync(() => _service!.SaveAsync(entry with { Executable = path }, approveExecutable: true));
+            await ApplyAsync(() => _service!.SaveAsync(entry with { Executable = path }, true));
         }
     }
 
     private async Task ChooseDirectoryAsync(ProgramDefinition entry)
     {
         var generation = NavigationGeneration;
-        var path = await PickPathAsync(folder: true);
+        var path = await PickPathAsync(true);
         if (path is not null && generation == NavigationGeneration)
         {
-            await ApplyAsync(() => _service!.SaveAsync(entry with { WorkingDirectory = path }, approveExecutable: false));
+            await ApplyAsync(() => _service!.SaveAsync(entry with { WorkingDirectory = path }, false));
         }
     }
 
@@ -205,19 +298,22 @@ public sealed class ProgramsView : ServiceSubView
         Navigate(() =>
         {
             var body = NewStack("Select running UI application");
-            body.Children.Add(Caption("Choose only the window belonging to this program. WSGM remembers its exact executable path and fingerprint for future focus actions."));
+            body.Children.Add(Caption(
+                "Choose only the window belonging to this program. WSGM remembers its exact executable path and fingerprint for future focus actions."));
             foreach (var window in windows)
             {
                 var selected = window;
                 body.Children.Add(Tagged(Row(window.Window.Title, window.Executable, Icons.Monitor,
-                    () => ConfirmAsync("Remember this application?", selected.Window.Title + "\n" + selected.Executable,
-                        () => _service!.RememberWindowAsync(id, selected), returnHome: true)),
+                        () => ConfirmAsync("Remember this application?",
+                            selected.Window.Title + "\n" + selected.Executable,
+                            () => _service!.RememberWindowAsync(id, selected), true)),
                     "program.ui.window:" + window.Window.Hwnd));
             }
 
             if (windows.Length == 0)
             {
-                body.Children.Add(Caption("No eligible current-session application windows found. Open the tool, then try again."));
+                body.Children.Add(
+                    Caption("No eligible current-session application windows found. Open the tool, then try again."));
             }
 
             SetContent(body);
@@ -275,80 +371,5 @@ public sealed class ProgramsView : ServiceSubView
 
             return false;
         }
-    }
-}
-
-/// <summary>One shared presentation for a page action and its home pin, with a borrowed cached application icon.</summary>
-internal sealed class ProgramActionRow : ActionButton, IOverlayRefreshable
-{
-    private readonly Image _image = new() { Width = 32, Height = 32 };
-    private readonly Control? _fallback;
-    private Action _activate;
-
-    internal ProgramActionRow(ProgramState state, Action activate)
-    {
-        _activate = activate;
-        if (Content is Grid layout)
-        {
-            _fallback = layout.Children[0];
-            layout.Children.RemoveAt(0);
-            var icon = new Grid();
-            icon.Children.Add(_fallback);
-            icon.Children.Add(_image);
-            layout.Children.Insert(0, icon);
-        }
-
-        IconGeometry = Icons.Rocket;
-        Apply(state);
-        Click += (_, _) => _activate();
-    }
-
-    internal void Apply(ProgramState state)
-    {
-        Title = state.Definition.Name;
-        Description = state.Status;
-        TrailingText = state.Running ? "Focus" : state.CanLaunch ? "Launch" : "Review";
-        _image.Source = state.Icon;
-        _image.IsVisible = state.Icon is not null;
-        if (_fallback is not null)
-        {
-            _fallback.IsVisible = state.Icon is null;
-        }
-    }
-
-    internal void ReleaseIcon()
-    {
-        _image.Source = null;
-        _image.IsVisible = false;
-        if (_fallback is not null)
-        {
-            _fallback.IsVisible = true;
-        }
-    }
-
-    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
-    {
-        base.OnPropertyChanged(change);
-        if (_fallback is not null)
-        {
-            _fallback.IsVisible = _image.Source is null;
-        }
-    }
-
-    public void RefreshFrom(Control replacement)
-    {
-        var row = (ProgramActionRow)replacement;
-        Title = row.Title;
-        Description = row.Description;
-        TrailingText = row.TrailingText;
-        IsPinned = row.IsPinned;
-        _image.Source = row._image.Source;
-        _image.IsVisible = row._image.IsVisible;
-        if (_fallback is not null)
-        {
-            _fallback.IsVisible = !_image.IsVisible;
-        }
-
-        _activate = row._activate;
     }
 }

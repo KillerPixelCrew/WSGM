@@ -122,28 +122,35 @@ internal static partial class BrowserNative
 
     [LibraryImport("advapi32.dll", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool ConvertStringSecurityDescriptorToSecurityDescriptorW(string text, uint revision, out nint descriptor, out uint size);
+    private static partial bool ConvertStringSecurityDescriptorToSecurityDescriptorW(string text, uint revision,
+        out nint descriptor, out uint size);
 
     [LibraryImport("advapi32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool GetSecurityDescriptorSacl(nint descriptor, [MarshalAs(UnmanagedType.Bool)] out bool present, out nint sacl, [MarshalAs(UnmanagedType.Bool)] out bool defaulted);
+    private static partial bool GetSecurityDescriptorSacl(nint descriptor,
+        [MarshalAs(UnmanagedType.Bool)] out bool present, out nint sacl,
+        [MarshalAs(UnmanagedType.Bool)] out bool defaulted);
 
     [LibraryImport("advapi32.dll")]
-    private static partial uint SetSecurityInfo(SafePipeHandle handle, int objectType, uint information, nint owner, nint group, nint dacl, nint sacl);
+    private static partial uint SetSecurityInfo(SafePipeHandle handle, int objectType, uint information, nint owner,
+        nint group, nint dacl, nint sacl);
 
     [LibraryImport("kernel32.dll")]
     private static partial nint LocalFree(nint memory);
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
-    private static partial SafeProcessHandle OpenProcess(uint access, [MarshalAs(UnmanagedType.Bool)] bool inherit, uint processId);
+    private static partial SafeProcessHandle OpenProcess(uint access, [MarshalAs(UnmanagedType.Bool)] bool inherit,
+        uint processId);
 
     [LibraryImport("advapi32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool OpenProcessToken(SafeProcessHandle process, uint access, out SafeAccessTokenHandle token);
+    private static partial bool OpenProcessToken(SafeProcessHandle process, uint access,
+        out SafeAccessTokenHandle token);
 
     [LibraryImport("advapi32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool GetTokenInformation(SafeAccessTokenHandle token, int informationClass, nint data, int size, out int required);
+    private static partial bool GetTokenInformation(SafeAccessTokenHandle token, int informationClass, nint data,
+        int size, out int required);
 
     [LibraryImport("advapi32.dll")]
     private static partial nint GetSidSubAuthorityCount(nint sid);
@@ -175,15 +182,6 @@ internal static partial class BrowserNative
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool SetWindowPos(nint window, nint after, int x, int y, int width, int height, uint flags);
 
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct WindowRect
-    {
-        internal int Left;
-        internal int Top;
-        internal int Right;
-        internal int Bottom;
-    }
-
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool GetClientRect(nint window, out WindowRect rectangle);
@@ -194,4 +192,13 @@ internal static partial class BrowserNative
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool AreDpiAwarenessContextsEqual(nint first, nint second);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct WindowRect
+    {
+        internal int Left;
+        internal int Top;
+        internal int Right;
+        internal int Bottom;
+    }
 }

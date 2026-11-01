@@ -59,8 +59,8 @@ not rename those to match, and write new ones in the dotted style.
 Native device diagnostics come through the library/runtime observer. Common plugins use
 `plugin/{pluginId}/{scope}/{key}`, so two packages can use the same local scope and key. Their
 visible lines follow the same prefix with `: message`; blank scopes become `plugin` and blank keys
-become `state`. [`PluginLogLine`](../src/WSGM/Shell/PluginLogLine.cs) owns this formatting, after
-the host checks that the publishing plugin is still current.
+become `state`. [`PluginLogLine`](../src/WSGM/Shell/Plugins/PluginLogLine.cs) owns this formatting,
+after the host checks that the publishing plugin is still current.
 
 ## Verbosity
 
@@ -86,13 +86,14 @@ depend on a signed-in user's profile.
 | `%ProgramData%\WSGM\setup.log`            | Setup detection, per-step result, rollback and component operations | Appended without size rotation in the current implementation    |
 | `%ProgramData%\WSGM\update-failed.txt`    | Latest failed quiet update, read by WSGM at startup and in Settings | One failure record; cleared after a successful update           |
 
-[`Core/Log.cs`](../src/WSGM/Core/Log.cs) is process-wide. It formats local timestamps with
-milliseconds and a padded five-character level (`[info ]`, `[warn ]`, `[error]`, `[debug]`). Its
-process-local lock keeps repeat suppression and appending ordered. Each actual append encodes UTF-8
-and opens a `FileStream` with `FileMode.Append` and `FileShare.ReadWrite | FileShare.Delete`; up to
-three short retries follow an `IOException`, and a failed write is dropped. Suppressed `Debug` calls
-perform no append, although callers still construct their strings. High-rate telemetry and input
-paths must therefore avoid logging calls altogether.
+[`Core/Infrastructure/Log.cs`](../src/WSGM/Core/Infrastructure/Log.cs) is process-wide. It formats
+local timestamps with milliseconds and a padded five-character level (`[info ]`, `[warn ]`,
+`[error]`, `[debug]`). Its process-local lock keeps repeat suppression and appending ordered. Each
+actual append encodes UTF-8 and opens a `FileStream` with `FileMode.Append` and
+`FileShare.ReadWrite | FileShare.Delete`; up to three short retries follow an `IOException`, and a
+failed write is dropped. Suppressed `Debug` calls perform no append, although callers still
+construct their strings. High-rate telemetry and input paths must therefore avoid logging calls
+altogether.
 
 `Local\WSGM.LogRotate` serializes rotation attempts across shell, Settings and one-shots, not every
 append. Acquiring it never waits. Rotation checks run at initialization and after approximately 256
@@ -109,10 +110,10 @@ counter. The launcher adapters add `[pid N]` so overlapping game sessions can be
 suffix. The service uses uppercase levels; setup uses an unbracketed uppercase level. Do not assume
 every component has the main logger's verbosity control or rotation implementation.
 
-[`WsgmSteamUiLog`](../src/WSGM/Core/WsgmSteamUiLog.cs) installs the Steam toolkit sink immediately
-after the main logger initializes. Plugin diagnostics pass through `PluginLogLine` and inherit the
-resident threshold and keyed suppression. The native library, setup and wrapper logs do not become
-verbose merely because `AppConfig.LogVerbosity` changes.
+[`WsgmSteamUiLog`](../src/WSGM/Core/Steam/WsgmSteamUiLog.cs) installs the Steam toolkit sink
+immediately after the main logger initializes. Plugin diagnostics pass through `PluginLogLine` and
+inherit the resident threshold and keyed suppression. The native library, setup and wrapper logs do
+not become verbose merely because `AppConfig.LogVerbosity` changes.
 
 For a missing sign-in launch, pair `wsgm-service.log` with the first `Run mode` entry in `wsgm.log`.
 For an update, start with `setup.log` and `update-failed.txt`; for a game handoff, use the matching
@@ -124,3 +125,36 @@ correlate the failure, without copying game arguments or session credentials int
 primitive only with explicit temporary paths. Lifecycle flow and its early recovery paths are in
 [boot and shell](boot-and-shell.md); setup and launcher behavior is covered by [setup](setup.md),
 [elevation](elevation.md) and [packaged-game launcher](packaged-game-launcher.md).
+
+## Uploading the log
+
+`Settings → System → Diagnostics → Upload log` puts `wsgm.log`, and `wsgm.old.log` as a second file
+when it exists, into one new bin on [filebin.net](https://filebin.net/), with no account or key. A
+tester then pastes one link into a report instead of finding and attaching files. One confirmation
+names both files with their sizes and says what stays in them: game names, the device model, file
+paths below the user folder and hardware details. It also says that the link expires after about a
+week and that anyone with it can read the log until then.
+
+[`LogUploader`](../src/WSGM/Core/Infrastructure/LogUploader.cs) reads each file once with
+`FileShare.ReadWrite | FileShare.Delete` while WSGM keeps writing it, and
+[`LogMask`](../src/WSGM/Core/Infrastructure/LogMask.cs) masks the text before the first request. The
+user folder becomes `%USERPROFILE%` in any case and with either slash, a doubled JSON backslash
+included, unless the folder name only starts a longer one (`chris2`, `chris-old`). The user name,
+and the folder's own name when it differs, become `<user>` as a whole word, which covers every path
+segment; a name under three characters is masked only as a path segment. One regular expression
+replaces everything in a single pass, so `<user>` is never matched again. Nothing else is masked:
+the log is the diagnosis source.
+
+Each upload makes a new bin named `wsgm-` and 128 random bits in hexadecimal, so its link cannot be
+guessed. Each file goes up whole as `POST https://filebin.net/<bin>/<file name>` with a plain-text
+body; filebin answers 201 with JSON describing the bin and the stored file, and a stored size that
+differs from what was sent is a failure. No size limit is assumed: a file filebin refuses fails with
+its HTTP status and filebin's own explanation, and 429 means filebin is rate limiting. An upload
+that fails or is cancelled, including by closing Settings, deletes the bin with
+`DELETE https://filebin.net/<bin>` and says whether that worked; a bin that cannot be deleted
+expires on its own after about a week. Other failures name their real reason: no connection, a
+timeout or an unreadable file.
+
+On success the bin's link, `https://filebin.net/<bin>`, is shown and copied to the clipboard, and
+"Copy again" copies it once more. The log records one line for the outcome, with the file count and
+bytes sent, never the text or the link.

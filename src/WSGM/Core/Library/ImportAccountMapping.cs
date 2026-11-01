@@ -3,11 +3,6 @@ using System.Linq;
 
 namespace WSGM.Core;
 
-/// <summary>One explicitly selected artwork revision handled by an account's shortcut.</summary>
-/// <param name="Url">The selected image URL, or empty for a clear.</param>
-/// <param name="Revision">The explicit selection identity, retained across scans.</param>
-public sealed record AppliedArtworkChoice(string Url, string Revision);
-
 /// <summary>One Steam account's exact shortcut command, ownership and unsettled work for a title.</summary>
 public sealed class ImportAccountMapping
 {
@@ -73,14 +68,16 @@ public sealed class ImportAccountMapping
                && ImportedUtc == other.ImportedUtc && ConfirmedUtc == other.ConfirmedUtc
                && ArtworkApplied == other.ArtworkApplied && OwnsProfile == other.OwnsProfile
                && SettledArtwork.Count == other.SettledArtwork.Count
-               && SettledArtwork.All(pair => other.SettledArtwork.TryGetValue(pair.Key, out var url) && url == pair.Value);
+               && SettledArtwork.All(pair =>
+                   other.SettledArtwork.TryGetValue(pair.Key, out var url) && url == pair.Value);
     }
 
     internal static ImportAccountMapping From(ImportedEntry entry, uint? accountId)
     {
         return new ImportAccountMapping
         {
-            AccountId = accountId, AppId = entry.AppId, RemovedFromSteam = entry.RemovedFromSteam, Target = entry.Target,
+            AccountId = accountId, AppId = entry.AppId, RemovedFromSteam = entry.RemovedFromSteam,
+            Target = entry.Target,
             LaunchOptions = entry.LaunchOptions, StartDirectory = entry.StartDirectory,
             PendingLaunch = entry.PendingLaunch,
             Mode = entry.Mode, Route = entry.Route, Acknowledged = entry.Acknowledged,

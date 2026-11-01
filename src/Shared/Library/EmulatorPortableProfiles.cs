@@ -15,10 +15,16 @@ internal static class EmulatorPortableProfiles
             or "ryujinx" or "suyu" or "armsx2";
     }
 
+    /// <summary>Gets the folder beside the executable that holds an emulator's portable data.</summary>
+    /// <param name="id">Emulator definition id.</param>
+    /// <returns>The data folder name, or empty when the data lives beside the executable.</returns>
     internal static string Alias(string id)
     {
         return id switch
         {
+            "eden" => "user",
+            "rpcs3" => "portable",
+            "dolphin" => "User",
             "azahar" => "user",
             "citron" => "user",
             "suyu" => "user",
@@ -57,7 +63,7 @@ internal static class EmulatorPortableProfiles
     internal static string ReadExternal(string id, string program)
     {
         if (!Supports(id) || Markers(id).Any(marker => !File.Exists(Path.Combine(program, marker)) &&
-                                                     !Directory.Exists(Path.Combine(program, marker))))
+                                                       !Directory.Exists(Path.Combine(program, marker))))
         {
             throw new InvalidDataException("Use " + id + "'s native portable mode and copy existing user data " +
                                            "into the installation folder before registering it.");
@@ -65,7 +71,8 @@ internal static class EmulatorPortableProfiles
 
         if (id == "ppsspp" && File.Exists(Path.Combine(program, "installed.txt")))
         {
-            throw new InvalidDataException("Remove PPSSPP's installed.txt only after migrating its memory stick into memstick.");
+            throw new InvalidDataException(
+                "Remove PPSSPP's installed.txt only after migrating its memory stick into memstick.");
         }
 
         if (id == "mgba")
@@ -73,13 +80,15 @@ internal static class EmulatorPortableProfiles
             var redirect = IniFile.ReadValue(Path.Combine(program, "portable.ini"), "path", "portable");
             if (!string.IsNullOrWhiteSpace(redirect) && redirect.Trim('"') != ".")
             {
-                throw new InvalidDataException("mGBA portable.ini must use the installation folder before registering it.");
+                throw new InvalidDataException(
+                    "mGBA portable.ini must use the installation folder before registering it.");
             }
         }
 
         if (id == "armsx2" && File.ReadAllText(Path.Combine(program, "portable.txt")).Trim() is not ("" or "."))
         {
-            throw new InvalidDataException("ARMSX2 portable.txt must use adjacent data before registering this installation.");
+            throw new InvalidDataException(
+                "ARMSX2 portable.txt must use adjacent data before registering this installation.");
         }
 
         return Path.Combine(program, Alias(id));
@@ -90,7 +99,8 @@ internal static class EmulatorPortableProfiles
         var program = Path.GetDirectoryName(installed.ExecutablePath)!;
         var actual = ReadExternal(installed.DefinitionId, program);
         if (!Path.GetFullPath(EmulatorPortable.PhysicalPath(actual)).Equals(
-                Path.GetFullPath(EmulatorPortable.PhysicalPath(installed.DataPath)), StringComparison.OrdinalIgnoreCase))
+                Path.GetFullPath(EmulatorPortable.PhysicalPath(installed.DataPath)),
+                StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidDataException("The portable " + installed.Name + " data binding changed. Use Repair.");
         }

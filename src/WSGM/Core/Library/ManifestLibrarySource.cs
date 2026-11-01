@@ -5,7 +5,10 @@ using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
-/// <summary>Offers a connected card's inventory through the existing review/apply pipeline, without adopting or executing it.</summary>
+/// <summary>
+///     Offers a connected card's inventory through the existing review/apply pipeline, without adopting or executing
+///     it.
+/// </summary>
 /// <remarks>
 ///     The card is identified by its manifest UUID, read through the volume GUID it was found on. Its drive letter
 ///     plays no part: every path is bound to that volume.
@@ -58,9 +61,11 @@ public sealed class ManifestLibrarySource : ILibrarySource
             cancellationToken.ThrowIfCancellationRequested();
             ManagedContentRecord? recipe = null;
             if (_localRecipes is not null && _localRecipes.TryGetValue(entry.Id, out var known)
-                && known.Id == entry.Id
-                && string.Equals(known.LibraryId, _library.Id, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(known.BackingPath.VolumeId, _library.VolumeId, StringComparison.OrdinalIgnoreCase))
+                                          && known.Id == entry.Id
+                                          && string.Equals(known.LibraryId, _library.Id,
+                                              StringComparison.OrdinalIgnoreCase)
+                                          && string.Equals(known.BackingPath.VolumeId, _library.VolumeId,
+                                              StringComparison.OrdinalIgnoreCase))
             {
                 recipe = known;
             }
@@ -72,7 +77,7 @@ public sealed class ManifestLibrarySource : ILibrarySource
             var route = new ShortcutRoute("managed", "Managed content", "", "", "",
                 "WSGM validates this title and its local dependencies at launch.", ManagedId: entry.Id);
             var game = DiscoveredGame.Command(Id, entry.Id, entry.Name, content.BackingPath.AbsolutePath, [route],
-                content, wrapManagedLaunch: true);
+                content, true);
             games.Add(game with
             {
                 Launch = new GameLaunch("Managed content", canConfigure,
@@ -82,6 +87,7 @@ public sealed class ManifestLibrarySource : ILibrarySource
                     : ["Game files missing from this card."]
             });
         }
+
         return Task.FromResult<IReadOnlyList<DiscoveredGame>>(games);
     }
 }

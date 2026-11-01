@@ -2,7 +2,7 @@
 
 What a Global and a per-game profile are, how a value resolves, which surfaces write where, and what
 Steam's per-game toggle and reset do. The store is `AppConfig.Profiles` (`Core\Profiles\`); the one
-owner is `Shell\ProfileService`.
+owner is `Shell\Profiles\ProfileService`.
 
 ## A game profile holds only what was changed for that game
 
@@ -32,7 +32,7 @@ Global wattage. A game that sets only its button colour keeps the Global ring co
 | `CpuBoost`                            | `ApplicationPerformanceReconciler` (Windows processor boost mode)                |
 | `AutoTdpTargetFps`                    | `AutoTdpService`, read each control window through the session's deadline        |
 | `AcPowerPreset`, `BatteryPowerPreset` | `DevicePowerAssignments`                                                         |
-| `FanCurveProfileId`                   | `DeviceCoordinator.ApplyAuthoredProfilesAsync`                                   |
+| `FanCurveProfileId`                   | `DeviceFanCurves.ApplyAuthoredProfilesAsync`                                     |
 | `ControllerTarget`                    | `ControllerTargetSelection` (default `SteamDeckComposite`)                       |
 | `Device[]` (capability, instance)     | `DeviceCapabilityRouter` desired state, keyed by the machine's identity key      |
 | `Device[]` of a graphics publisher    | that publisher's router in `GpuCoordinator`, keyed `gpu:<plugin id>`             |
@@ -97,8 +97,8 @@ changes live applies to the running game at once.
 Turning AMD Fluid Motion Frames on from the overlay or Steam first turns Radeon Anti-Lag on for the
 same GPU and saves it to the layer the AFMF edit lands in, as Handheld Companion does with every
 AFMF change. One already on is only saved. A profile pass writes Anti-Lag before AFMF, and turning
-AFMF off leaves Anti-Lag as it is. `Shell\GraphicsPrerequisites.cs` holds the rule; `GpuCoordinator`
-applies it.
+AFMF off leaves Anti-Lag as it is. `Shell\Graphics\GraphicsPrerequisites.cs` holds the rule;
+`GpuCoordinator` applies it.
 
 ## Where an edit lands
 
@@ -191,14 +191,15 @@ drops device values with no key.
 [ProfileEdits](../src/WSGM/Core/Profiles/ProfileEdits.cs) performs value edits. These are policy
 functions and do not touch hardware.
 
-[RunningApplicationCoordinator](../src/WSGM/Shell/RunningApplicationCoordinator.cs) delivers the
-single running-application answer to [ProfileService](../src/WSGM/Shell/ProfileService.cs).
-ProfileService serializes persistence and publishes the resulting snapshot. Consumers then apply
-that snapshot:
-[ApplicationPerformanceReconciler](../src/WSGM/Shell/ApplicationPerformanceReconciler.cs) for
-performance policy, [DeviceCoordinator](../src/WSGM/Shell/DeviceCoordinator.cs) for device values,
-and [GpuCoordinator](../src/WSGM/Shell/GpuCoordinator.cs) for independent graphics publishers.
-[DeviceDesiredWriteAdmission](../src/WSGM/Shell/DeviceDesiredWriteAdmission.cs) decides whether a
-desired device value may be restored, while
-[DeviceLightingRestore](../src/WSGM/Shell/DeviceLightingRestore.cs) adds the lighting attempt
+[RunningApplicationCoordinator](../src/WSGM/Shell/Applications/RunningApplicationCoordinator.cs)
+delivers the single running-application answer to
+[ProfileService](../src/WSGM/Shell/Profiles/ProfileService.cs). ProfileService serializes
+persistence and publishes the resulting snapshot. Consumers then apply that snapshot:
+[ApplicationPerformanceReconciler](../src/WSGM/Shell/Performance/ApplicationPerformanceReconciler.cs)
+for performance policy, [DeviceCoordinator](../src/WSGM/Shell/Device/DeviceCoordinator.cs) for
+device values, and [GpuCoordinator](../src/WSGM/Shell/Graphics/GpuCoordinator.cs) for independent
+graphics publishers.
+[DeviceDesiredWriteAdmission](../src/WSGM/Shell/Device/DeviceDesiredWriteAdmission.cs) decides
+whether a desired device value may be restored, while
+[DeviceLightingRestore](../src/WSGM/Shell/Device/DeviceLightingRestore.cs) adds the lighting attempt
 budget. Neither readback nor an automatic restore writes new profile preferences.

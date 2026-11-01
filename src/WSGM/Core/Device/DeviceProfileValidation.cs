@@ -1,0 +1,84 @@
+using System;
+using WSGM.Device.Sdk.Capabilities;
+
+namespace WSGM.Core;
+
+/// <summary>
+///     Checks an authored profile against the descriptor the device publishes right now.
+/// </summary>
+/// <remarks>
+///     Pure, and deliberately not redundant with storage normalization; why it runs immediately before
+///     apply is stated in <c>docs\device-integration.md</c> §Authored profiles.
+/// </remarks>
+public static class DeviceProfileValidation
+{
+    /// <summary>Checks a profile against the live descriptor.</summary>
+    /// <param name="profile">The authored profile.</param>
+    /// <param name="descriptor">The descriptor the device publishes now, or null when absent.</param>
+    /// <param name="reason">What is wrong, when the result is not <see cref="DeviceProfileRejection.None" />.</param>
+    /// <returns>Why the profile cannot be applied, or <see cref="DeviceProfileRejection.None" />.</returns>
+    /// <remarks>
+    ///     Returns the reason rather than a bare false so the caller can log which bound was missed. A
+    ///     refusal without the value and the bound beside it cannot be diagnosed from a user's log.
+    /// </remarks>
+    public static DeviceProfileRejection Validate(
+        DeviceAuthoredProfile profile,
+        CapabilityDescriptor? descriptor,
+        out string? reason)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        reason = null;
+
+        if (descriptor is null)
+        {
+            reason =
+                $"the device does not publish capability '{profile.CapabilityId}'";
+            return DeviceProfileRejection.CapabilityAbsent;
+        }
+
+        if (descriptor.ValueKind is not CapabilityValueKind.Curve)
+        {
+            reason =
+                $"capability '{profile.CapabilityId}' takes {descriptor.ValueKind}, not a curve";
+            return DeviceProfileRejection.NotACurve;
+        }
+
+        var curve = profile.Curve;
+        if (curve.Count is 0)
+        {
+            reason = "the curve has no points";
+            return DeviceProfileRejection.PointCount;
+        }
+
+        for (var index = 0; index < curve.Count; index++)
+        {
+            var point = curve[index];
+            if (index > 0 && point.Input <= curve[index - 1].Input)
+            {
+                reason =
+                    $"input {point.Input} does not exceed the previous point's "
+                    + $"{curve[index - 1].Input}";
+                return DeviceProfileRejection.NotAscending;
+            }
+
+            // Only the bounds the device actually declared are enforced. A descriptor that leaves
+            // one unset is saying it has no limit there, and inventing one would refuse a curve the
+            // device would have accepted.
+            if (descriptor.Minimum is { } minimum && point.Output < minimum)
+            {
+                reason = $"output {point.Output} is below the declared minimum {minimum}";
+                return DeviceProfileRejection.OutOfBounds;
+            }
+
+            if (descriptor.Maximum is not { } maximum || point.Output <= maximum)
+            {
+                continue;
+            }
+
+            reason = $"output {point.Output} is above the declared maximum {maximum}";
+            return DeviceProfileRejection.OutOfBounds;
+        }
+
+        return DeviceProfileRejection.None;
+    }
+}

@@ -1,0 +1,84 @@
+using System;
+
+namespace WSGM.Core;
+
+/// <summary>
+///     Decides whether an unattended wake should be slept through again. Pure: it reads no clock, no
+///     Windows state and no configuration, so every rule below is testable on its own.
+/// </summary>
+/// <remarks>
+///     The shape follows the Winhanced investigation in #27 rather than Handheld Companion's Enhanced
+///     Sleep: nothing global is changed, so there is nothing to restore if WSGM dies mid-session. The
+///     machine wakes normally, and WSGM only decides whether to put it back.
+/// </remarks>
+internal static class ModernStandbyPolicy
+{
+    /// <summary>How many unattended wakes in a row WSGM sleeps through before it leaves the machine awake.</summary>
+    /// <remarks>
+    ///     A machine that wakes for a reason WSGM cannot see would otherwise be suspended in a loop it
+    ///     never escapes, which is worse than the drain this feature exists to stop: the user reaches
+    ///     for it and it will not stay on.
+    /// </remarks>
+    internal const int MaximumAttemptsPerWake = 3;
+
+    /// <summary>The default settle time before an unexplained wake is acted on.</summary>
+    internal static readonly TimeSpan DefaultGrace = TimeSpan.FromSeconds(20);
+
+    /// <summary>Decides one look at the current wake.</summary>
+    /// <param name="enabled">Whether the user switched the mode on.</param>
+    /// <param name="unattendedResume">
+    ///     Whether Windows attributes the resume to something other than a person, from
+    ///     <c>IsSystemResumeAutomatic</c>.
+    /// </param>
+    /// <param name="displayOn">Whether the console display is currently on.</param>
+    /// <param name="sinceWake">How long ago the machine woke.</param>
+    /// <param name="sinceUserInput">
+    ///     How long ago Windows last recorded user input. Larger than <paramref name="sinceWake" />
+    ///     means nothing has been touched since the wake.
+    /// </param>
+    /// <param name="grace">How long to let an unexplained wake settle before acting.</param>
+    /// <param name="attempts">How many times this wake has already been slept through.</param>
+    /// <returns>The decision and the reason behind it.</returns>
+    internal static ModernStandbyDecision Decide(
+        bool enabled,
+        bool unattendedResume,
+        bool displayOn,
+        TimeSpan sinceWake,
+        TimeSpan sinceUserInput,
+        TimeSpan grace,
+        int attempts)
+    {
+        if (!enabled)
+        {
+            return new ModernStandbyDecision(ModernStandbyOutcome.Disabled);
+        }
+
+        if (!unattendedResume)
+        {
+            return new ModernStandbyDecision(ModernStandbyOutcome.UserWoke);
+        }
+
+        // The display is the gate that does not depend on Windows counting a device as input.
+        // A handheld's gamepad does not advance the last-input time (see #69), so a player holding
+        // a controller looks idle by that measure alone — and suspending the machine under their
+        // hands is the one failure this feature must never produce.
+        if (displayOn)
+        {
+            return new ModernStandbyDecision(ModernStandbyOutcome.DisplayOn);
+        }
+
+        if (sinceUserInput < sinceWake || sinceUserInput < grace)
+        {
+            return new ModernStandbyDecision(ModernStandbyOutcome.UserActive);
+        }
+
+        if (attempts >= MaximumAttemptsPerWake)
+        {
+            return new ModernStandbyDecision(ModernStandbyOutcome.AttemptsExhausted);
+        }
+
+        return sinceWake < grace
+            ? new ModernStandbyDecision(ModernStandbyOutcome.TooSoon)
+            : new ModernStandbyDecision(ModernStandbyOutcome.Resuspend);
+    }
+}

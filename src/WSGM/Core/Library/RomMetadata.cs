@@ -11,13 +11,13 @@ namespace WSGM.Core;
 /// <summary>Bounded metadata reads and filename rules used by ROM discovery.</summary>
 internal static class RomMetadata
 {
-    internal sealed record Sfo(string Title, string TitleId, string Category);
-
     internal static string CleanTitle(string name)
     {
         var cleaned = Regex.Replace(name, @"\s*[\[(]([^\])]+)[\])]", match =>
-            Regex.IsMatch(match.Groups[1].Value, @"^(?:Disc|Disk|CD)\s*\d+\b",
-                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant) ? match.Value : "",
+                Regex.IsMatch(match.Groups[1].Value, @"^(?:Disc|Disk|CD)\s*\d+\b",
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+                    ? match.Value
+                    : "",
             RegexOptions.CultureInvariant).Trim();
         return cleaned.Length > 0 ? cleaned : name;
     }
@@ -37,10 +37,10 @@ internal static class RomMetadata
         // the add-on range. Only interpret an explicit 16-digit Switch title tag.
         var id = Regex.Match(components[^1], @"\[(010[0-9a-fA-F]{13})\]", RegexOptions.CultureInvariant);
         return id.Success && ulong.TryParse(id.Groups[1].Value, NumberStyles.HexNumber,
-                   CultureInfo.InvariantCulture, out var titleId) && (titleId & 0x1fff) != 0;
+            CultureInfo.InvariantCulture, out var titleId) && (titleId & 0x1fff) != 0;
     }
 
-    internal static Sfo? ReadSfo(string eboot)
+    internal static SfoMetadata? ReadSfo(string eboot)
     {
         var folder = Path.GetDirectoryName(eboot)!;
         if (Path.GetFileName(folder).Equals("USRDIR", StringComparison.OrdinalIgnoreCase))
@@ -50,13 +50,17 @@ internal static class RomMetadata
 
         try
         {
-            var bytes = LibraryFiles.ReadBytes(Path.Combine(folder, "PARAM.SFO"), maximumBytes: 1024 * 1024);
+            var bytes = LibraryFiles.ReadBytes(Path.Combine(folder, "PARAM.SFO"));
             if (bytes is null || bytes.Length < 20 || !bytes.AsSpan(0, 4).SequenceEqual("\0PSF"u8))
             {
                 return null;
             }
 
-            uint Read(int offset) => BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(offset, 4));
+            uint Read(int offset)
+            {
+                return BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(offset, 4));
+            }
+
             var keyTable = (long)Read(8);
             var dataTable = (long)Read(12);
             var count = Read(16);
@@ -101,7 +105,7 @@ internal static class RomMetadata
                 }
             }
 
-            return new Sfo(title, titleId, category);
+            return new SfoMetadata(title, titleId, category);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

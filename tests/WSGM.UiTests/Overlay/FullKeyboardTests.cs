@@ -21,7 +21,7 @@ public sealed class FullKeyboardTests
         using UiFixture fixture = new();
         var window = fixture.Overlay(width, height, scale);
         var keyboard = new KeyboardPanel("Name", "", 100);
-        window.ShowKeyboardSurface(keyboard);
+        window.Surfaces.ShowKeyboard(keyboard);
         Dispatcher.UIThread.RunJobs();
         var buttons = keyboard.GetVisualDescendants().OfType<Button>()
             .Where(button => button.Tag is Key && button.IsEffectivelyVisible).ToArray();
@@ -42,8 +42,10 @@ public sealed class FullKeyboardTests
 
         Page(window, keyboard, "More");
         foreach (var key in Enumerable.Range(0, 12).Select(index => Key.F1 + index)
-                     .Concat([Key.LeftAlt, Key.LWin, Key.CapsLock, Key.Tab, Key.Home, Key.End, Key.Delete, Key.Up, Key.Down,
-                         Key.Insert, Key.PrintScreen, Key.Scroll, Key.Pause]))
+                     .Concat([
+                         Key.LeftAlt, Key.LWin, Key.CapsLock, Key.Tab, Key.Home, Key.End, Key.Delete, Key.Up, Key.Down,
+                         Key.Insert, Key.PrintScreen, Key.Scroll, Key.Pause
+                     ]))
         {
             var button = keyboard.GetVisualDescendants().OfType<Button>()
                 .Single(button => button.IsEffectivelyVisible && Equals(button.Tag, key));
@@ -90,7 +92,7 @@ public sealed class FullKeyboardTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         var keyboard = new KeyboardPanel("Name", "", 100);
-        window.ShowKeyboardSurface(keyboard);
+        window.Surfaces.ShowKeyboard(keyboard);
         Dispatcher.UIThread.RunJobs();
         var input = UiFixture.Named<TextBox>(keyboard, "Input");
         Page(window, keyboard, "More");
@@ -121,7 +123,7 @@ public sealed class FullKeyboardTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         var keyboard = new KeyboardPanel("Name", "old", 100);
-        window.ShowKeyboardSurface(keyboard);
+        window.Surfaces.ShowKeyboard(keyboard);
         Dispatcher.UIThread.RunJobs();
         var input = UiFixture.Named<TextBox>(keyboard, "Input");
         Click(Key.LeftCtrl);
@@ -161,7 +163,7 @@ public sealed class FullKeyboardTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         var keyboard = new KeyboardPanel("Name", "abcd", 100);
-        window.ShowKeyboardSurface(keyboard);
+        window.Surfaces.ShowKeyboard(keyboard);
         Dispatcher.UIThread.RunJobs();
         var input = UiFixture.Named<TextBox>(keyboard, "Input");
         Page(window, keyboard, "More");
@@ -193,7 +195,7 @@ public sealed class FullKeyboardTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         var keyboard = new KeyboardPanel("Name", "unchanged", 100);
-        window.ShowKeyboardSurface(keyboard);
+        window.Surfaces.ShowKeyboard(keyboard);
         Dispatcher.UIThread.RunJobs();
         var input = UiFixture.Named<TextBox>(keyboard, "Input");
         var received = new List<(Key, KeyModifiers)>();
@@ -204,7 +206,7 @@ public sealed class FullKeyboardTests
         Click(Key.F5);
         Assert.Contains((Key.F5, KeyModifiers.Control | KeyModifiers.Alt), received);
         Assert.Equal("unchanged", input.Text);
-        Assert.True(window.HasActiveSurface);
+        Assert.True(window.Surfaces.HasActive);
 
         return;
 
@@ -221,7 +223,7 @@ public sealed class FullKeyboardTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         var keyboard = new KeyboardPanel("Name", "copy me", 100);
-        window.ShowKeyboardSurface(keyboard);
+        window.Surfaces.ShowKeyboard(keyboard);
         Dispatcher.UIThread.RunJobs();
         var input = UiFixture.Named<TextBox>(keyboard, "Input");
         Click(Key.LeftCtrl);

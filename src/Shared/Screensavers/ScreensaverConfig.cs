@@ -14,9 +14,11 @@ public sealed class ScreensaverConfig
     public void Normalize()
     {
         Sources = (Sources ?? []).Where(source => source is not null
-                && !string.IsNullOrWhiteSpace(source.Id) && source.Id.Length <= 64
-                && !string.IsNullOrWhiteSpace(source.Name) && source.Name.Length <= 128
-                && !source.Name.Any(char.IsControl) && source.Folder is { Length: <= 4096 })
+                                                  && !string.IsNullOrWhiteSpace(source.Id) && source.Id.Length <= 64
+                                                  && !string.IsNullOrWhiteSpace(source.Name) &&
+                                                  source.Name.Length <= 128
+                                                  && !source.Name.Any(char.IsControl) &&
+                                                  source.Folder is { Length: <= 4096 })
             .DistinctBy(source => source.Id, StringComparer.Ordinal)
             .DistinctBy(source => source.Name.Trim(), StringComparer.OrdinalIgnoreCase).Take(32).ToList();
         foreach (var source in Sources)

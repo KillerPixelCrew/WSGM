@@ -135,7 +135,7 @@ internal sealed class ApplicationProfilesView : StackPanel
 
     private void RequestText(string prompt, string initial, Action<string> accept)
     {
-        if (TopLevel.GetTopLevel(this) is not OverlayWindow window || !window.RequestText(prompt, initial, 0, accept))
+        if (!OverlayWindow.RequestTextFor(this, prompt, initial, 0, accept))
         {
             _status.Text = "Keyboard unavailable. Reopen the overlay to retry.";
         }

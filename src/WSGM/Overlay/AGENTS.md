@@ -13,7 +13,22 @@ Read docs/overlay-and-input.md, "In-window surfaces", for utility, keyboard, cre
   automatic profile loop.
 - Quick Access pin IDs persist in AppConfig. Device groups use stable section/category keys. Plugin pages use the
   DevicePluginSection route plus a section ID rather than new enum values.
-- OverlayController owns lifetime and integration sequencing. Views and controls render state and report intent; they do
+- Shell publishes the Device pages and gives every row, host row and performance row its section. Draw and count only
+  what it publishes; never add WSGM-owned fallback pages, folding rules or seeded rail counts in the Overlay.
+- Every Device, GPU, Tools performance and Quick Access group is a `DevicePages` description drawn by the one
+  `DeviceGroupRenderer`. Change the description, not the controls: no per-page flags, host panels or moving controls
+  between parents. Page layout rules, such as the Power page's groups, belong in Shell's `DeviceOverlayGroups`.
+- OverlayWindow is the shell: header, destinations and rail, workspace selection, navigation and Back, live-refresh
+  coalescing, and surface and placement hosting. A destination page is a page view of its own (`*Page`, one per file)
+  that owns its controls, handlers and requests; register it in the `SubViews` table rather than adding XAML or
+  handlers to the window.
+- Each Quick Access pin source resolves its own ids to a title, availability and control (`QuickAccessPins`,
+  `ProgramsView.ResolvePin`, `HotkeysView.ResolvePin`, `DevicePins`). A source's own tile is placed in pin order by
+  `QuickAccessPins.PlaceTiles`. Add a pin kind to its source, not as another id-prefix test in the
+  window; a pinnable Tools section declares its pin id in its `SubViews` entry.
+- OverlayController owns lifetime and integration sequencing; `OverlayActivation`, `QuickAccessPinStore`,
+  `OverlayPowerState`, `OverlayOpenApps` and `OverlaySheetServices` own summon triggers, pins, Windows power state, the
+  Open apps strip and per-sheet service wiring. Views and controls render state and report intent; they do
   not mutate ConfigStore or acquire leases directly.
 - Capture, focus, cursor, and input-lease transitions are paired operations. Every close, cancellation, failure, and
   superseded open must release what it acquired.
@@ -58,3 +73,8 @@ before rail/home navigation. All four content tools complete their workflows loc
 importer's distinction between staged and immediate artwork. File/folder selection stays inside
 the Overlay. Media initializes only on Play, pauses behind surfaces and releases on leaving the
 page. Headless captures supply explicit session fakes and never start a live media/Steam owner.
+Hotkeys send only through `HotkeysService`, after `RunAfterClose` has closed the sheet and released
+the lease, and only into a game; `Interop/KeyboardInput` is the one key sender.
+A new confirmation uses the centred in-window `ShowConfirm` surface with the safe answer focused
+rather than a navigation level. A keyed card is a bordered panel; tag it by its layout so
+reconciliation keeps its editors without reusing stale grid cells.

@@ -21,9 +21,6 @@ public sealed partial class GameLibraryView
     private string _folderPath = "";
     private bool _grid = true;
     private string _group = "";
-    private string? _matchEntry;
-    private string? _matchError;
-    private GameLibraryMatchesAnswer? _matches;
     private string _search = "";
     private int _shown = 48;
     private string _sourceId = "";
@@ -69,7 +66,8 @@ public sealed partial class GameLibraryView
             })), "folder.types"));
         body.Children.Add(Tagged(PrimaryRow("Add folder", "Titles are offered at the next scan", Icons.Grid4,
             _folderPath.Length == 0 ? null : () => _ = RunSafelyAsync(AddAsync(), "add folder")), "folder.add"));
-        SetContent(body);
+        // The form shows only its own draft, so the library's publications leave it as drawn.
+        SetStaticContent(body);
         return;
 
         async Task ChooseAsync()
@@ -176,7 +174,7 @@ public sealed partial class GameLibraryView
                 var card = PreviewCard(id, slot?.Thumb, entry.Name, description,
                     () => OpenEntry(id, order));
                 card.Tag = "card:" + id;
-                card.Opacity = GameLibraryRows.IsUnavailable(entry) ? 0.55 : 1;
+                card.Opacity = entry.Unavailable ? 0.55 : 1;
                 cards.Children.Add(card);
             }
             else
@@ -194,12 +192,11 @@ public sealed partial class GameLibraryView
         if (entries.Length > _shown)
         {
             var added = (_grid ? "item:" : "entry:") + entries[_shown].Id;
-            body.Children.Add(Tagged(Row("Load more", $"{_shown} of {entries.Length}", Icons.ArrowDown, () =>
+            body.Children.Add(PagedRows.More(this, "review.more", $"{_shown} of {entries.Length}", added, () =>
             {
                 _shown += 48;
                 RenderReview(importedOnly);
-                PagedRows.FocusAdded(this, added);
-            }), "review.more"));
+            }));
         }
 
         if (entries.Length == 0)
@@ -210,12 +207,14 @@ public sealed partial class GameLibraryView
 
     private void RenderTitleArtwork(string id, string asset)
     {
-        if (_service?.ReadState() is not { } state || state.Entries.FirstOrDefault(entry => entry.Id == id) is not
-                { } entry)
+        if (ReadArtwork(id, asset) is not { } shown || _service is null)
         {
             Back();
             return;
         }
+
+        var state = shown.State;
+        var entry = shown.Entry;
 
         var body = NewStack(entry.Name + " · Staged artwork");
         AddStatus(body, state);
@@ -245,8 +244,7 @@ public sealed partial class GameLibraryView
         body.Children.Add(Tagged(
             Row("Search game match", entry.MatchName, Icons.ListLines, () => Navigate(() => RenderMatch(id))),
             "match"));
-        var answer = _service.ReadArtworkOptions(id, asset);
-        if (answer is not null)
+        if (shown.Options is { } answer)
         {
             body.Children.Add(Caption(answer.Status + (answer.Detail.Length == 0 ? "" : ": " + answer.Detail)));
             var cards = new WrapPanel();
@@ -267,33 +265,54 @@ public sealed partial class GameLibraryView
                 () => ArtworkRequested?.Invoke(entry.AppId, entry.Name)), "art.current"));
         }
 
-        SetContent(body);
+        SetLibraryContent(body, shown, () => ReadArtwork(id, asset), static reading => reading.State,
+            static (a, b) => SameEntry(a.Entry, b.Entry) && SameOptions(a.Options, b.Options));
     }
 
     private void RenderMatch(string id)
     {
-        if (_service?.ReadState().Entries.FirstOrDefault(entry => entry.Id == id) is not { } entry)
+        if (ReadMatch(id) is not { } shown)
         {
             Back();
             return;
         }
 
+        var entry = shown.Entry;
+        var search = shown.Search;
         var body = NewStack("Artwork game match");
         body.Children.Add(Caption(entry.MatchName.Length == 0 ? "Automatic match" : entry.MatchName));
-        body.Children.Add(Tagged(Row("Search", entry.Name, Icons.ListLines, () => EditText("Find artwork game",
-            entry.Name, 0,
-            query => _ = RunSafelyAsync(SearchAsync(query), "match search"))), "match.search"));
+        body.Children.Add(Tagged(Row("Search", search?.Query ?? entry.Name, Icons.ListLines,
+            () => EditText("Find artwork game", search?.Query ?? entry.Name, 0,
+                query => Run(token => _service!.SearchMatchAsync(id, query, token)))), "match.search"));
         body.Children.Add(Tagged(
             Row("Use automatic match", "Discard the fixed match", Icons.Restart,
                 () => Run(token => _service!.SetMatchAsync(id, "", "", "", token))), "match.auto"));
-        if (_matchEntry == id)
+        if (search is not null)
         {
-            if (_matchError is not null)
+            if (search.Searching)
             {
-                body.Children.Add(Caption(_matchError));
+                body.Children.Add(Caption($"Searching every provider for “{search.Query}”…"));
             }
 
-            foreach (var match in _matches?.Matches ?? [])
+            if (search.Error is not null)
+            {
+                body.Children.Add(Caption(search.Error));
+            }
+
+            // Each provider that found nothing says why, where the results would be: a provider that
+            // needs a key, is off, did not answer, or knows no such game.
+            foreach (var provider in search.Providers.Where(provider => provider.Status != "found"))
+            {
+                body.Children.Add(Caption($"{provider.Name}: {provider.Detail}"));
+                if (provider.Status == "setup" && SettingsRequested is not null)
+                {
+                    body.Children.Add(Tagged(Row("Open WSGM Settings",
+                        "Add the " + provider.Name + " key under Artwork",
+                        Icons.Gear, () => SettingsRequested?.Invoke()), "match.setup:" + provider.Provider));
+                }
+            }
+
+            foreach (var match in search.Matches)
             {
                 var chosen = match;
                 body.Children.Add(Tagged(Row(match.Name, match.ProviderName + (match.Exact ? " · Exact" : ""),
@@ -304,23 +323,20 @@ public sealed partial class GameLibraryView
             }
         }
 
-        SetContent(body);
-        return;
+        // The title's name and match and its search come from the library, so a search that finishes
+        // while this level is open redraws it.
+        SetLiveContent(body, shown, () => ReadMatch(id),
+            static (a, b) => a.Entry.Name == b.Entry.Name && a.Entry.MatchName == b.Entry.MatchName
+                                                          && Equals(a.Search, b.Search), null);
+    }
 
-        async Task SearchAsync(string query)
-        {
-            var generation = NavigationGeneration;
-            var result = await _service!.SearchMatchAsync(id, query, CancellationToken.None);
-            if (generation != NavigationGeneration)
-            {
-                return;
-            }
-
-            _matchEntry = id;
-            _matchError = result.Command.Error;
-            _matches = result.Matches;
-            RenderMatch(id);
-        }
+    /// <summary>One title and the "Fix match" search published for it, or null when it is no longer listed.</summary>
+    private MatchShown? ReadMatch(string id)
+    {
+        var state = _service?.ReadState();
+        return state?.Entries.FirstOrDefault(entry => entry.Id == id) is { } entry
+            ? new MatchShown(entry, state.MatchSearch?.Id == id ? state.MatchSearch : null)
+            : null;
     }
 
     private void RenderAllArtwork()
@@ -376,16 +392,18 @@ public sealed partial class GameLibraryView
         if (state.Entries.Where(entry => entry.Selected).Skip(_shown).FirstOrDefault() is { } next)
         {
             var added = "item:" + next.Id + ":" + Assets[0].Id;
-            body.Children.Add(Tagged(Row("Load more titles", "", Icons.ArrowDown, () =>
+            body.Children.Add(PagedRows.More(this, "all.more", "", added, () =>
             {
                 _shown += 48;
                 RenderAllArtwork();
-                PagedRows.FocusAdded(this, added);
-            }), "all.more"));
+            }, "Load more titles"));
         }
 
         body.Children.Add(Tagged(PrimaryRow($"Apply {state.SelectedCount}", "Save selected changes", Icons.Play,
             state.Loading || state.SelectedCount == 0 ? null : () => Run(_service.ApplyAsync)), "apply"));
-        SetContent(body);
+        SetLibraryContent(body, state, SameSelectedArtwork);
     }
+
+    /// <summary>What the match level draws: the title and its search.</summary>
+    private sealed record MatchShown(GameLibraryEntry Entry, GameLibraryMatchSearchState? Search);
 }

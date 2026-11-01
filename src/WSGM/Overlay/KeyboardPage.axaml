@@ -1,0 +1,9 @@
+<StackPanel xmlns="https://github.com/avaloniaui"
+            xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+            x:Class="WSGM.Overlay.KeyboardPage"
+            xmlns:c="using:WSGM.Controls"
+            Spacing="10">
+  <TextBlock Text="KEYBOARD" Classes="eyebrow" Margin="2,0,2,2" />
+  <c:ActionButton Title="On-Screen Keyboard" Click="OnScreenKeyboard"
+                  Tag="system.keyboard" Description="Open the keyboard for the current mode" />
+</StackPanel>

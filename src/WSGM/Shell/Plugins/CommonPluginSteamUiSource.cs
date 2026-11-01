@@ -1,0 +1,615 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using SteamUiToolkit;
+using WSGM.Core;
+using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Plugin.Sdk;
+
+namespace WSGM.Shell;
+
+/// <summary>Projects commands from admitted, ready plugins without exposing plugin code to Steam.</summary>
+internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, IDisposable
+{
+    /// <summary>
+    ///     Patches the session host declares itself. A plugin module naming one is dropped: one patch id
+    ///     belongs to one module, and registering a second is refused by the module set — which would
+    ///     take every Steam surface down with it, not just the package's own.
+    /// </summary>
+    private static readonly HashSet<string> HostOwnedPatches = new(StringComparer.Ordinal)
+    {
+        SteamPageSurface.PatchId,
+        SteamExtensionsTabSurface.PatchId,
+        SteamGameContextMenuSurface.PatchId,
+        SteamArtworkBrowserSurface.PatchId,
+        SteamLibraryImportSurface.PatchId,
+        SteamWsgmSettingsSurface.PatchId,
+        SteamNativeSettingsSurface.PatchId,
+        SteamQuickAccessRowsSurface.PatchId,
+        SteamQuickAccessRowsSurface.HostPatchId,
+        SteamNavigationPanelSurface.PatchId
+    };
+
+    private readonly bool _cefPluginsOff;
+
+    private readonly Dictionary<string, Command> _commands = new(StringComparer.Ordinal);
+    private readonly Dictionary<PluginRegistration, IPluginSteamFrontend> _frontendSubscriptions = [];
+    private readonly Dictionary<PluginRegistration, IReadOnlyList<ISteamUiModule>> _frontends = [];
+    private readonly Lock _gate = new();
+    private readonly PluginHost _host;
+    private readonly CommonPluginManager _manager;
+    private readonly Dictionary<string, PluginRegistration> _moduleOwners = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PluginRegistration> _settingsOwners = new(StringComparer.Ordinal);
+    private readonly HashSet<PluginRegistration> _subscriptions = [];
+    private bool _disposed;
+
+    // The ready plugins' Steam UI modules as of the last refresh, replaced whole.
+    private IReadOnlyList<ISteamUiModule> _modules = [];
+    private long _revision;
+
+    internal CommonPluginSteamUiSource(CommonPluginManager manager, PluginHost host, bool cefPluginsOff = false)
+    {
+        _manager = manager;
+        _cefPluginsOff = cefPluginsOff;
+        _host = host;
+        manager.Changed += OnChanged;
+        host.HealthChanged += OnHealthChanged;
+        // The first read after construction is populated without waiting for a change event.
+        lock (_gate)
+        {
+            Refresh();
+        }
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            foreach (var owner in _subscriptions)
+            {
+                owner.Actions?.UnsubscribeSteamUiChanged(OnChanged);
+            }
+
+            _subscriptions.Clear();
+            _settingsOwners.Clear();
+            _commands.Clear();
+            _modules = [];
+            _frontends.Clear();
+            foreach (var backend in _frontendSubscriptions.Values)
+            {
+                backend.FrontendChanged -= OnChanged;
+            }
+
+            _frontendSubscriptions.Clear();
+            _moduleOwners.Clear();
+            _manager.Changed -= OnChanged;
+            _host.HealthChanged -= OnHealthChanged;
+            Changed = null;
+            ModulesChanged = null;
+        }
+    }
+
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> ActivateAsync(string id, CancellationToken cancellationToken)
+    {
+        return ActivateAsync(null, id, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<SteamUiCommandResult> ConfigureAsync(
+        string id,
+        string key,
+        JsonElement value,
+        long expectedRevision,
+        CancellationToken cancellationToken)
+    {
+        PluginRegistration owner;
+        PluginSetting setting;
+        lock (_gate)
+        {
+            if (_disposed || !_settingsOwners.TryGetValue(id, out owner!)
+                          || owner.Settings is not { } settings
+                          || settings.Schema.FirstOrDefault(candidate => candidate.Key == key) is not { } found)
+            {
+                return new SteamUiCommandResult(false, "The plugin setting is no longer available.");
+            }
+
+            setting = found;
+        }
+
+        if (!TryReadValue(setting.Kind, value, out var pluginValue))
+        {
+            return new SteamUiCommandResult(false, "The plugin setting value is invalid.");
+        }
+
+        try
+        {
+            var result = await owner.ConfigureAsync(
+                expectedRevision,
+                new Dictionary<string, PluginValue>(StringComparer.Ordinal) { [key] = pluginValue },
+                Deadline.After(TimeSpan.FromSeconds(10)),
+                cancellationToken).ConfigureAwait(false);
+            OnChanged();
+            return result.Outcome == PluginConfigurationOutcome.Applied
+                ? SteamUiCommandResult.Applied
+                : new SteamUiCommandResult(false, result.Detail ?? "The plugin did not confirm the setting.");
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or TimeoutException
+                                       or ConfigUnavailableException)
+        {
+            return new SteamUiCommandResult(false, ex.Message);
+        }
+    }
+
+    internal event Action? Changed;
+
+    /// <summary>Raised after a refresh in which the ready plugins' Steam UI modules changed.</summary>
+    /// <remarks>
+    ///     A plugin that becomes ready adds its modules, and one that stops, restarts or is quarantined
+    ///     takes them away, so the handlers of a retired instance leave with it. Raised outside the
+    ///     lock, before <see cref="Changed" />; <see cref="ReadModules" /> returns the new list.
+    /// </remarks>
+    internal event Action? ModulesChanged;
+
+    internal SteamExtensionsTabState ReadExtensionsTab()
+    {
+        lock (_gate)
+        {
+            var instances = _manager.Snapshot();
+            return new SteamExtensionsTabState(_settingsOwners.Where(pair =>
+                    instances.Any(instance => ReferenceEquals(instance.Registration, pair.Value)))
+                .Select(pair =>
+                {
+                    var owner = pair.Value;
+                    var commandActions = _commands.Where(command => ReferenceEquals(command.Value.Owner, owner)
+                                                                    && command.Value.Contribution.Placement
+                                                                    == PluginSteamUiPlacement.ExtensionsTab)
+                        .Select(command => new SteamExtensionsTabAction(
+                            command.Key, command.Value.Contribution.Label)).ToArray();
+                    var settings = owner.Settings?.Schema.Select(setting => ProjectSetting(
+                        setting,
+                        owner.Settings.Desired is { } desired
+                        && desired.Values.TryGetValue(setting.Key, out var saved)
+                            ? saved
+                            : setting.Default)).ToArray() ?? [];
+                    var instance = instances.Single(candidate => ReferenceEquals(candidate.Registration, owner));
+                    return new SteamExtensionsTabItem(
+                        pair.Key,
+                        instance.Manifest.Name,
+                        instance.Manifest.Version,
+                        owner.Health.Health.ToString(),
+                        owner.Health.Detail,
+                        commandActions,
+                        settings,
+                        owner.Settings?.Desired?.Revision ?? 0);
+                }).ToArray(), _revision);
+        }
+    }
+
+    /// <summary>Every running plugin's declared settings, for WSGM's settings page in Steam.</summary>
+    /// <returns>One entry per plugin that declares settings, with the values in force.</returns>
+    /// <remarks>
+    ///     The same owners and ids the Quick Access tab uses, so a change made through either goes
+    ///     through <see cref="ConfigureAsync" /> and answers the same way. A secret's value is carried
+    ///     here only so the caller can say whether one is set; it must never be published.
+    /// </remarks>
+    internal IReadOnlyList<CommonPluginSettingsView> ReadSettings()
+    {
+        lock (_gate)
+        {
+            var instances = _manager.Snapshot();
+            return
+            [
+                .. _settingsOwners
+                    .Where(pair => pair.Value.Settings is { Schema.Count: > 0 })
+                    .Select(pair => (pair.Key, Owner: pair.Value,
+                        Instance: instances.FirstOrDefault(candidate =>
+                            ReferenceEquals(candidate.Registration, pair.Value))))
+                    .Where(entry => entry.Instance is not null)
+                    .Select(entry => new CommonPluginSettingsView(
+                        entry.Key,
+                        entry.Instance!.Identity,
+                        entry.Instance.Manifest.Name,
+                        entry.Owner.Settings!.Desired?.Revision ?? 0,
+                        [
+                            .. entry.Owner.Settings.Schema.Select(setting => new CommonPluginSettingValue(
+                                setting,
+                                entry.Owner.Settings.Desired is { } desired
+                                && desired.Values.TryGetValue(setting.Key, out var saved)
+                                    ? saved
+                                    : setting.Default))
+                        ]))
+            ];
+        }
+    }
+
+    internal SteamGameContextMenuState ReadGameContextMenu()
+    {
+        lock (_gate)
+        {
+            return new SteamGameContextMenuState(_commands.Where(pair =>
+                    pair.Value.Contribution.Placement == PluginSteamUiPlacement.GameContextMenu)
+                .Select(pair => new SteamGameContextMenuItem(pair.Key,
+                    MenuLabel(pair.Value.Name, pair.Value.Contribution.Label))).ToArray(), _revision);
+        }
+    }
+
+    /// <summary>The ready plugins' Steam UI modules, without any that claims a host-owned patch.</summary>
+    /// <returns>The list as of the last refresh; <see cref="ModulesChanged" /> says when it moves.</returns>
+    internal IReadOnlyList<ISteamUiModule> ReadModules()
+    {
+        lock (_gate)
+        {
+            return _modules;
+        }
+    }
+
+    /// <summary>The custom routes admitted packages declare, in a shape the host can merge.</summary>
+    /// <remarks>
+    ///     A page is dropped rather than published when its path is not absolute, is the router root,
+    ///     names no renderer, or claims Valve's default one. Overriding a Valve route is a host decision,
+    ///     so a package asking for one is refused outright.
+    /// </remarks>
+    /// <returns>
+    ///     Current ready, enabled package routes, deduplicated by case-insensitive path; no lifecycle ownership
+    ///     transfers.
+    /// </returns>
+    internal IReadOnlyList<SteamPage> ReadPages()
+    {
+        lock (_gate)
+        {
+            return
+            [
+                .. _manager.Snapshot()
+                    .Where(instance => !_cefPluginsOff && instance.Manifest.SteamCef && instance.SteamCefEnabled
+                                       && instance.Registration is { } owner && owner.CanInvoke &&
+                                       owner.Actions is not null)
+                    .SelectMany(instance => instance.Registration!.Actions!.SteamPages)
+                    .Where(Admissible)
+                    .DistinctBy(page => page.Path, StringComparer.OrdinalIgnoreCase)
+            ];
+        }
+    }
+
+    internal void FailModule(string moduleId, string reason)
+    {
+        PluginRegistration? owner;
+        lock (_gate)
+        {
+            _moduleOwners.TryGetValue(moduleId, out owner);
+        }
+
+        if (owner is not null)
+        {
+            _manager.FailFrontend(owner, moduleId, reason);
+        }
+    }
+
+    internal bool ModuleEnabled(string moduleId)
+    {
+        lock (_gate)
+        {
+            return _moduleOwners.TryGetValue(moduleId, out var owner) && owner.CanInvoke;
+        }
+    }
+
+    internal void CheckPatches(IReadOnlyList<SteamUiPatchSnapshot> patches)
+    {
+        foreach (var patch in patches.Where(patch => patch.State is SteamUiPatchState.Incompatible
+                     or SteamUiPatchState.Degraded or SteamUiPatchState.RemoveFailed))
+        {
+            ISteamUiModule? module;
+            lock (_gate)
+            {
+                module = _modules.FirstOrDefault(candidate => candidate.Patches.Any(owned => owned.Id == patch.Id));
+            }
+
+            if (module is not null)
+            {
+                FailModule(module.Id, $"Patch {patch.Id}: {patch.State}");
+            }
+        }
+    }
+
+    private static bool Admissible(SteamPage page)
+    {
+        // Property patterns are null-safe. A package can hand back null for either string whatever
+        // the annotations say, and dereferencing it would throw out of the publication that every
+        // host Steam surface rides on, not just this package's page.
+        return page is { Path.Length: > 1, Template.Length: > 0, Override: false }
+               && page.Path.StartsWith('/')
+               && !string.Equals(page.Template, "default", StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal Task<SteamUiCommandResult> ActivateAsync(uint appId, string id, CancellationToken cancellationToken)
+    {
+        return ActivateAsync((uint?)appId, id, cancellationToken);
+    }
+
+    private async Task<SteamUiCommandResult> ActivateAsync(uint? appId, string id,
+        CancellationToken cancellationToken)
+    {
+        Command command;
+        lock (_gate)
+        {
+            if (_disposed || !_commands.TryGetValue(id, out command!)
+                          || (appId.HasValue
+                              ? appId == 0 || command.Contribution.Placement != PluginSteamUiPlacement.GameContextMenu
+                              : command.Contribution.Placement != PluginSteamUiPlacement.ExtensionsTab))
+            {
+                return new SteamUiCommandResult(false, "The plugin command is no longer available.");
+            }
+        }
+
+        var arguments = new Dictionary<string, PluginValue>(StringComparer.Ordinal);
+        if (appId.HasValue)
+        {
+            arguments.Add(command.Contribution.AppIdArgumentKey!, new PluginValue(Number: appId.Value));
+        }
+
+        try
+        {
+            // Keep the captured registration: an identity lookup could select a replacement whose
+            // generation happens to equal that of the retired registration.
+            var result = await command.Owner.InvokeActionAsync(command.Generation, command.Contribution.ActionId,
+                    arguments, PluginActionOrigin.User, Deadline.After(TimeSpan.FromSeconds(10)), cancellationToken)
+                .ConfigureAwait(false);
+            return result.Outcome is PluginActionOutcome.Dispatched or PluginActionOutcome.AppliedVerified
+                ? result.SteamRoute is { } route
+                    ? SteamUiCommandResult.Route(route)
+                    : SteamUiCommandResult.Applied
+                : new SteamUiCommandResult(false,
+                    result.Detail ?? $"Plugin action was not confirmed: {result.Outcome}.");
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or TimeoutException
+                                       or ConfigUnavailableException)
+        {
+            return new SteamUiCommandResult(false, ex.Message);
+        }
+    }
+
+    /// <summary>Projects the manager's instances. The caller holds <c>_gate</c>.</summary>
+    /// <returns>Whether the plugin module list changed.</returns>
+    private bool Refresh()
+    {
+        if (_disposed)
+        {
+            return false;
+        }
+
+        var instances = _manager.Snapshot();
+        foreach (var pair in _settingsOwners.ToArray())
+        {
+            if (!instances.Any(instance => ReferenceEquals(instance.Registration, pair.Value)
+                                           && pair.Value.CanInvoke))
+            {
+                _settingsOwners.Remove(pair.Key);
+            }
+        }
+
+        foreach (var owner in _subscriptions.ToArray())
+        {
+            if (!instances.Any(instance => ReferenceEquals(instance.Registration, owner) && owner.CanInvoke))
+            {
+                owner.Actions?.UnsubscribeSteamUiChanged(OnChanged);
+                _subscriptions.Remove(owner);
+            }
+        }
+
+        foreach (var pair in _commands.ToArray())
+        {
+            if (!instances.Any(instance => ReferenceEquals(instance.Registration, pair.Value.Owner)
+                                           && pair.Value.Owner.CanInvoke
+                                           && pair.Value.Generation == pair.Value.Owner.Context.Generation))
+            {
+                _commands.Remove(pair.Key);
+            }
+        }
+
+        foreach (var instance in instances)
+        {
+            if (instance.Registration is not { } owner || !owner.CanInvoke || owner.Actions is null)
+            {
+                continue;
+            }
+
+            if (_subscriptions.Add(owner))
+            {
+                owner.Actions.SubscribeSteamUiChanged(OnChanged);
+            }
+
+            if (!_settingsOwners.ContainsValue(owner))
+            {
+                _settingsOwners.Add(Guid.NewGuid().ToString("N"), owner);
+            }
+
+            foreach (var contribution in owner.Actions.SteamUiContributions)
+            {
+                if (_commands.Values.Any(command => ReferenceEquals(command.Owner, owner)
+                                                    && command.Generation == owner.Context.Generation
+                                                    && command.Contribution.Id == contribution.Id))
+                {
+                    continue;
+                }
+
+                _commands.Add(Guid.NewGuid().ToString("N"), new Command(owner, owner.Context.Generation,
+                    contribution, instance.Manifest.Name, instance.Manifest.Version));
+            }
+        }
+
+        var eligible = instances.Where(instance => !_cefPluginsOff && instance.SteamCefEnabled
+                                                                   && instance.Manifest.SteamCef &&
+                                                                   instance.Registration is { } owner &&
+                                                                   owner.CanInvoke).ToArray();
+        foreach (var owner in _frontends.Keys
+                     .Where(owner => !eligible.Any(instance => ReferenceEquals(instance.Registration, owner)))
+                     .ToArray())
+        {
+            _frontends.Remove(owner);
+            if (_frontendSubscriptions.Remove(owner, out var backend))
+            {
+                backend.FrontendChanged -= OnChanged;
+            }
+        }
+
+        _moduleOwners.Clear();
+        List<ISteamUiModule> modules = [];
+        foreach (var instance in eligible)
+        {
+            var owner = instance.Registration!;
+            if (!_frontends.TryGetValue(owner, out var frontendModules))
+            {
+                List<ISteamUiModule> loaded = [];
+                try
+                {
+                    var identity = "plugin." + Guid.NewGuid().ToString("N");
+                    foreach (var frontend in instance.Manifest.FrontendModules)
+                    {
+                        var bundle = _manager.ReadFrontend(owner, frontend);
+                        if (bundle.Backend is { } backend && _frontendSubscriptions.TryAdd(owner, backend))
+                        {
+                            backend.FrontendChanged += OnChanged;
+                        }
+
+                        loaded.Add(SteamPluginFrontendSurface.Module(identity + "." + frontend.Id, identity,
+                            frontend.Id, bundle.Script, bundle.Style, () => owner.CanInvoke,
+                            bundle.Backend is null
+                                ? null
+                                : (method, payload, token) =>
+                                    _manager.InvokeFrontendAsync(owner, bundle.Backend, frontend.Id, method, payload,
+                                        token),
+                            (module, reason) => _manager.FailFrontend(owner, module, reason),
+                            bundle.Backend is null ? null : () => bundle.Backend.ReadFrontendState(frontend.Id)));
+                    }
+                }
+                catch (Exception error) when (error is not OutOfMemoryException)
+                {
+                    _manager.FailFrontend(owner, "load", error.Message);
+                }
+
+                _frontends[owner] = frontendModules = loaded;
+            }
+
+            if (!owner.CanInvoke)
+            {
+                continue;
+            }
+
+            foreach (var module in (owner.Actions?.SteamUiModules ?? []).Concat(frontendModules))
+            {
+                if (module.Patches.Any(patch => HostOwnedPatches.Contains(patch.Id)))
+                {
+                    _manager.FailFrontend(owner, module.Id, "Module collides with a host-owned patch.");
+                    modules.RemoveAll(candidate => _moduleOwners.TryGetValue(candidate.Id, out var previous)
+                                                   && ReferenceEquals(previous, owner));
+                    break;
+                }
+
+                modules.Add(module);
+                _moduleOwners[module.Id] = owner;
+            }
+        }
+
+        if (modules.SequenceEqual(_modules, ReferenceEqualityComparer.Instance))
+        {
+            return false;
+        }
+
+        _modules = modules;
+        return true;
+    }
+
+    private static SteamExtensionsTabSetting ProjectSetting(PluginSetting setting, PluginValue value)
+    {
+        var kind = setting.Kind switch
+        {
+            PluginSettingKind.Boolean => "boolean",
+            PluginSettingKind.Number => "number",
+            PluginSettingKind.Secret => "secret",
+            PluginSettingKind.OrderedChoices => "order",
+            _ => "text"
+        };
+        return new SteamExtensionsTabSetting(
+            setting.Key,
+            setting.Label,
+            kind,
+            value.Boolean,
+            value.Number,
+            setting.Kind == PluginSettingKind.Secret ? null : value.Text,
+            setting.Minimum,
+            setting.Maximum,
+            setting.Choices);
+    }
+
+    private static bool TryReadValue(PluginSettingKind kind, JsonElement value, out PluginValue pluginValue)
+    {
+        pluginValue = default;
+        switch (kind)
+        {
+            case PluginSettingKind.Boolean when value.ValueKind is JsonValueKind.True or JsonValueKind.False:
+                pluginValue = new PluginValue(value.GetBoolean());
+                return true;
+            case PluginSettingKind.Number when value.ValueKind == JsonValueKind.Number
+                                               && value.TryGetDouble(out var number) && double.IsFinite(number):
+                pluginValue = new PluginValue(Number: number);
+                return true;
+            case PluginSettingKind.Text or PluginSettingKind.Secret or PluginSettingKind.OrderedChoices
+                when value.ValueKind == JsonValueKind.String
+                     && value.GetString() is { } text:
+                pluginValue = new PluginValue(Text: text);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static string MenuLabel(string name, string label)
+    {
+        // The menu renders the whole text; neither the package name nor the action label is shortened.
+        return name + " / " + label;
+    }
+
+    private void OnHealthChanged(PluginHealthPublication publication)
+    {
+        OnChanged();
+    }
+
+    private void OnChanged()
+    {
+        bool modulesChanged;
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _revision++;
+            modulesChanged = Refresh();
+        }
+
+        if (modulesChanged)
+        {
+            ModulesChanged?.Invoke();
+        }
+
+        Changed?.Invoke();
+    }
+
+    private sealed record Command(
+        PluginRegistration Owner,
+        long Generation,
+        PluginSteamUiContribution Contribution,
+        string Name,
+        string Version);
+}

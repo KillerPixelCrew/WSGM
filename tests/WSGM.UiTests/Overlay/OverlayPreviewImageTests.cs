@@ -12,34 +12,26 @@ namespace WSGM.UiTests.Overlay;
 public sealed class OverlayPreviewImageTests
 {
     [Fact]
-    public async Task CacheRetainsMoreThan64SmallPreviewsWithinItsByteBudget()
+    public async Task LocalPreviewOpensTheFileInsteadOfCopyingIt()
     {
         using var directory = new TemporaryDirectory();
-        var firstPath = directory.GetPath("0.png");
-        byte[]? first = null;
-        for (var index = 0; index < 65; index++)
-        {
-            var path = directory.GetPath($"{index}.png");
-            await File.WriteAllBytesAsync(path, [(byte)index], TestContext.Current.CancellationToken);
-            var bytes = await OverlayPreviewImage.ReadAsync(path, CancellationToken.None);
-            first ??= bytes;
-        }
-
-        File.Delete(firstPath);
-        Assert.Same(first, await OverlayPreviewImage.ReadAsync(firstPath, CancellationToken.None));
+        var path = Path.GetFullPath(directory.GetPath("preview.png"));
+        await File.WriteAllBytesAsync(path, [1], TestContext.Current.CancellationToken);
+        await using var stream = await OverlayPreviewImage.OpenAsync(path, CancellationToken.None);
+        var file = Assert.IsType<FileStream>(stream);
+        Assert.Equal(path, file.Name);
     }
 
     [Fact]
-    public async Task CachedPreviewStillHonorsCancellation()
+    public async Task OpenHonorsCancellation()
     {
         using var directory = new TemporaryDirectory();
         var path = directory.GetPath("preview.png");
         await File.WriteAllBytesAsync(path, [1], TestContext.Current.CancellationToken);
-        await OverlayPreviewImage.ReadAsync(path, CancellationToken.None);
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         await Assert.ThrowsAsync<OperationCanceledException>(() =>
-            OverlayPreviewImage.ReadAsync(path, cancellation.Token));
+            OverlayPreviewImage.OpenAsync(path, cancellation.Token));
     }
 
     [Fact]
@@ -53,7 +45,7 @@ public sealed class OverlayPreviewImageTests
         }
 
         await Assert.ThrowsAsync<InvalidDataException>(() =>
-            OverlayPreviewImage.ReadAsync(path, CancellationToken.None));
+            OverlayPreviewImage.OpenAsync(path, CancellationToken.None));
     }
 
     [AvaloniaTheory]

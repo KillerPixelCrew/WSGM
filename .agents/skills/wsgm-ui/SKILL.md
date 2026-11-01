@@ -28,12 +28,12 @@ planning artifact. Inspect the whole affected workflow, including dialogs and co
 
 ## Respect the actual surfaces and owners
 
-| Surface            | Existing owner and design constraint                                                                                                                                                                                                                           |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Overlay            | `OverlayWindow`, its `Navigation`/`Surfaces` partials, `OverlayController` and feature `ServiceSubView`s. The fullscreen command deck has a persistent section rail and a controls pane; use nested levels and in-window utilities within that structure.      |
-| Steam QAM          | Toolkit typed surfaces, `SteamSettingsQuickAccessRow` and shared settings descriptors provide frequent controls inside Steam's narrow native panels. Preserve Valve content, folding and native navigation. Keep any Reset to Default action last.             |
-| Routed Steam pages | `SteamPageSurface`, `SteamPagePatch` and `registerSteamPage` use Steam's router and Back stack. Compose product workflows with native fields and `ui-kit.ts`; WSGM's `page-kit.ts` supplies its shared page frame.                                             |
-| Settings           | `SettingsWindow`, page controls and `SettingsViewModel` edit WSGM configuration. Follow its captured-edit/save-merge contract and the exceptions in [product decisions](../../../docs/decisions.md). Live external-state controls belong on Overlay and Steam. |
+| Surface            | Existing owner and design constraint                                                                                                                                                                                                                                              |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Overlay            | `OverlayWindow`, its `Navigation`/`Surfaces` partials, `OverlayController` and feature `ServiceSubView`s. The fullscreen command deck has a persistent section rail and a controls pane; use nested levels and in-window utilities within that structure.                         |
+| Steam QAM          | Toolkit typed surfaces, `SteamQuickAccessRowsSurface` and shared settings descriptors provide frequent controls inside Steam's narrow native panels. Preserve Valve content, folding and native navigation. Keep any Reset to Default action last.                                |
+| Routed Steam pages | `SteamPageSurface`, `SteamPagePatch` and `registerSteamPage` use Steam's router and Back stack. The toolkit's page frame owns tabs, banner, loading/refusal and style; compose content with native fields, `ui-kit.ts` and the `ui-flows.ts` collection, detail and manage flows. |
+| Settings           | `SettingsWindow`, page controls and `SettingsViewModel` edit WSGM configuration. Follow its captured-edit/save-merge contract and the exceptions in [product decisions](../../../docs/decisions.md). Live external-state controls belong on Overlay and Steam.                    |
 
 `ShellSession` creates the shared backend and supplies it through `OverlaySources` and
 `SteamUiBackends`; `SteamUiSessionHost` registers Steam projections and commands. Both surfaces must
@@ -85,11 +85,20 @@ related groups, and `ServiceSubView`/`OverlaySubView` helpers for rows, tabs, le
 parity guide for exact files and API choices.
 
 For Steam, resolve and use Steam's React, Focusable and native toggle, dropdown, slider, text,
-button and modal controls. Use `renderSteamUiChoice` for compact labelled choices and
+button and modal controls where one fits. Use `renderSteamUiChoice` for compact labelled choices and
 `renderSteamUiSelectRow` for readable title/status/detail selections. Compose sections, cards,
 galleries, toolbars, empty states and banners with the shared UI kit; include
-`steamUiKitStyle(react)` once in each consuming document root. Extend the existing shared primitive
-when a reusable behavior is missing. Keep feature labels and decisions in their owner.
+`steamUiKitStyle(react)` once in each consuming document root. A new element is fine whenever the
+design calls for it, even beside an existing native one, as long as it is Steam-styled: Steam's
+palette, type and 2 px radius, the `gpfocus` focus treatment and controller navigation. Add it once
+to the UI kit so other pages reuse it, never as one-off markup in a page. Keep feature labels and
+decisions in their owner.
+
+The design systems are the visual reference for both surfaces: the
+[Overlay design system](references/overlay-design-system.md) and the
+[Steam design system](../wsgm-steam-cef-toolkit/references/design-system.md). Use their tokens,
+anatomy and component states; add a reusable element to the system's code owner, then document it
+there.
 
 Consume the Overlay's `Deck*` and shared `Hc*` palette, typography and focus tokens. Steam uses its
 native control language and flat `steam-ui-kit-*` styles. Avoid page-specific copies of controls,

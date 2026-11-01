@@ -68,17 +68,43 @@ function createWsgmChordReset() {
     return { ok: true, removed: true };
   };
 
-  const status = () => ({
-    ok: true,
-    installed,
-    hooked: memberClaimed(input(), member, claimKeys),
-    active,
-    subscribed: !!unsubscribe,
-    resets,
-    lastError,
-  });
+  // The standard probe answer: the member this hook claims, answered from the claim while it holds.
+  // Steam's modules must be loaded, as everything the hook reports to runs inside them.
+  const probe = () => {
+    if (installed) return { ok: true, outcome: "ready", installed: true, facts: { input: true } };
+    try {
+      getWebpackRuntime("chord-reset");
+    } catch (error) {
+      return { ok: false, outcome: "notReady", reason: `Steam modules unavailable: ${String(error)}` };
+    }
+    const present = typeof input()?.[member] === "function";
+    return present
+      ? { ok: true, outcome: "ready", facts: { input: true } }
+      : {
+          ok: false,
+          outcome: "incompatible",
+          reason: "SteamClient.Input.SetSelectedConfigForApp is absent",
+          facts: { input: false },
+        };
+  };
 
-  return { install, remove, status };
+  const status = () => {
+    const hooked = memberClaimed(input(), member, claimKeys);
+    return {
+      ok: true,
+      installed,
+      hooked,
+      active,
+      subscribed: !!unsubscribe,
+      // The standard status: the claim and the subscription are what this gate holds.
+      held: installed && hooked && !!unsubscribe,
+      claims: (hooked ? 1 : 0) + (unsubscribe ? 1 : 0),
+      resets,
+      lastError,
+    };
+  };
+
+  return { install, remove, status, probe };
 }
 
 registerGate("wsgmChordReset", createWsgmChordReset());

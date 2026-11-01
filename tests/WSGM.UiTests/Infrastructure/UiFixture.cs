@@ -12,6 +12,7 @@ using WindowsDeviceControl;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Input;
+using WSGM.Interop;
 using WSGM.Overlay;
 using WSGM.Settings;
 using WSGM.Shell;
@@ -77,6 +78,13 @@ internal sealed class UiFixture : IDisposable
     /// </summary>
     internal IReadOnlyList<PluginActionOption> PluginActions { get; set; } = [];
 
+    /// <summary>The log files Settings would upload. None unless a test says otherwise.</summary>
+    internal IReadOnlyList<LogUploadFile> LogFiles { get; set; } = [];
+
+    /// <summary>Answers a log upload; never a live request.</summary>
+    internal Func<IReadOnlyList<LogUploadFile>, CancellationToken, Task<string>> UploadLogs { get; set; } =
+        (_, _) => throw new InvalidOperationException("Unexpected log upload.");
+
     private OverlayWindow.SessionState Session { get; } = new();
 
     public void Dispose()
@@ -141,7 +149,9 @@ internal sealed class UiFixture : IDisposable
             RepairAvailable = () => true,
             // A fixed observation: the real reader describes whatever this machine has plugged in,
             // which would put the local endpoint count into every settings baseline.
-            ReadAudio = _ => Audio
+            ReadAudio = _ => Audio,
+            ListLogs = () => LogFiles,
+            UploadLogs = (files, _, cancellationToken) => UploadLogs(files, cancellationToken)
         };
         var model = new SettingsViewModel(ConfigJson.Clone(Saved, ConfigJsonContext.Default.AppConfig),
             services, store: Store);
@@ -201,10 +211,11 @@ internal sealed class UiFixture : IDisposable
             {
                 w.Width = width / renderScale;
                 w.Height = height / renderScale;
-                w.ApplyContentScale(OverlayWindow.ComputeContentScale(uiScale, renderScale, width, height));
+                w.Placement.ApplyContentScale(
+                    OverlayPlacement.ComputeContentScale(uiScale, renderScale, width, height));
             }, uiScale);
         window.SetPins(["home.steam", "home.desktop"]);
-        window.RefreshWindowsPolicies(false, false, false);
+        window.WindowsPolicies.Refresh(false, false, false);
         Show(window);
         return window;
     }
@@ -232,6 +243,16 @@ internal sealed class UiFixture : IDisposable
         }
     }
 
+    /// <summary>The overlay's Windows power-profile row over a Steam row service reading the given fake.</summary>
+    /// <param name="api">The fake Windows scheme API.</param>
+    /// <returns>A selection the caller disposes.</returns>
+    internal static ChoiceRowSelection PowerProfiles(IPowerSchemeApi api)
+    {
+        NativeQamPowerProfileService profiles = new(new PowerSchemes(api));
+        return new ChoiceRowSelection("system.power-profile.choice", "Windows power profile", profiles.ReadAsync,
+            profiles.SetPowerProfileAsync);
+    }
+
     internal static DisplayModeAccess ReadOnlyDisplayModes(DisplayModeSnapshot snapshot)
     {
         return new DisplayModeAccess(source => Task.FromResult(
@@ -242,6 +263,17 @@ internal sealed class UiFixture : IDisposable
     internal static T Named<T>(Control parent, string name) where T : Control
     {
         return parent.FindControl<T>(name) ?? throw new InvalidOperationException($"Missing control {name}");
+    }
+
+    /// <summary>The one visible control of a type carrying a semantic key below a root.</summary>
+    /// <param name="parent">The root to search.</param>
+    /// <param name="tag">The control's Tag.</param>
+    /// <returns>The control.</returns>
+    internal static T Tagged<T>(Control parent, string tag) where T : Control
+    {
+        return parent.GetVisualDescendants().OfType<T>()
+                   .SingleOrDefault(control => control.IsEffectivelyVisible && Equals(control.Tag, tag))
+               ?? throw new InvalidOperationException($"Missing {typeof(T).Name} tagged {tag}");
     }
 
     internal static Button Tab(Window window, int index)

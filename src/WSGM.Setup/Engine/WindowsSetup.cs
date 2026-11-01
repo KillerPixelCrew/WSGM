@@ -56,7 +56,7 @@ internal static class WindowsSetup
     internal const int UpdateGraceIterations = 44;
     internal const int UninstallGraceIterations = 40;
 
-    /// <summary>Mirrors Core\Steam.cs: HKCU SteamExe, then the machine-wide install path.</summary>
+    /// <summary>Mirrors Core\Steam\Steam.cs: HKCU SteamExe, then the machine-wide install path.</summary>
     /// <returns>True when a recorded Steam executable exists; does not check running state.</returns>
     public static bool SteamInstalled()
     {
@@ -306,7 +306,7 @@ internal static class WindowsSetup
     {
         var grace = TimeSpan.FromSeconds(Math.Min(15, budget.TotalSeconds / 2));
         var stopped = SteamProcessControl.StopAsync(budget, grace,
-            message => SetupLog.Info(message), CancellationToken.None, entireProcessTree: true).GetAwaiter().GetResult();
+            message => SetupLog.Info(message), CancellationToken.None, true).GetAwaiter().GetResult();
         if (!stopped)
         {
             SetupLog.Warn($"Steam did not exit within {budget.TotalSeconds:0} s, including forced shutdown.");

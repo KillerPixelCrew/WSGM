@@ -162,12 +162,15 @@ internal sealed class SetupPayload : IDisposable
                 throw new InvalidDataException("The setup distribution marker is invalid. Use a complete WSGM setup.");
             }
 
-            return prerequisites.ValueKind == JsonValueKind.String ? prerequisites.GetString() switch
-            {
-                "download" => true,
-                "bundled" => false,
-                _ => throw new InvalidDataException("The setup prerequisite mode is unsupported. Use a complete WSGM setup.")
-            } : throw new InvalidDataException("The setup prerequisite mode is invalid. Use a complete WSGM setup.");
+            return prerequisites.ValueKind == JsonValueKind.String
+                ? prerequisites.GetString() switch
+                {
+                    "download" => true,
+                    "bundled" => false,
+                    _ => throw new InvalidDataException(
+                        "The setup prerequisite mode is unsupported. Use a complete WSGM setup.")
+                }
+                : throw new InvalidDataException("The setup prerequisite mode is invalid. Use a complete WSGM setup.");
         }
         catch (JsonException ex)
         {

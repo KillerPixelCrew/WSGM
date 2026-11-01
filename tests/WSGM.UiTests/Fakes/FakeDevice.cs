@@ -1,8 +1,7 @@
 using LibHandheld.Contracts;
 using WSGM.Controls;
-using WSGM.Core;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Glyphs;
-using WSGM.Overlay;
 using WSGM.Shell;
 
 namespace WSGM.UiTests.Fakes;
@@ -15,13 +14,27 @@ internal sealed class FakeDevice : IDeviceOverlaySource
 
     internal DeviceOverlaySnapshot State { get; set; } = new(true, "Fixture handheld", "Ready", null,
     [
-        new DeviceOverlayCapability("fixture.temperature", null, DeviceOverlaySection.Overview,
-            DescriptorStatus.Available,
-            "Processor temperature", "Synthetic sensor", "45 °C", false)
+        new DeviceOverlayCapability("fixture.temperature", null, DescriptorStatus.Available,
+            "Processor temperature", "Synthetic sensor", "45 °C", false) { PluginSectionId = DeviceSections.InfoId }
     ]);
 
     internal Func<DeviceOverlayCapability, CancellationToken, Task>? Invoke { get; set; }
-    internal Func<DeviceGlyphSelection, Task>? SelectGlyphs { get; set; }
+    internal Func<string, string?, Task>? SelectHost { get; set; }
+
+    public DeviceOverlaySnapshot Snapshot()
+    {
+        return State;
+    }
+
+    public PhysicalGlyphRenderPlan? NavigationHint(GlyphControlId control)
+    {
+        return null;
+    }
+
+    public void Dispose()
+    {
+        Assert.Equal(0, Subscribers);
+    }
 
     public event Action? Changed
     {
@@ -37,16 +50,6 @@ internal sealed class FakeDevice : IDeviceOverlaySource
         }
     }
 
-    public DeviceOverlaySnapshot Snapshot()
-    {
-        return State;
-    }
-
-    public PhysicalGlyphRenderPlan? NavigationHint(GlyphControlId control)
-    {
-        return null;
-    }
-
     public IDisposable ObservePhysicalSamples()
     {
         return SampleSource?.ObservePhysicalSamples() ??
@@ -59,17 +62,6 @@ internal sealed class FakeDevice : IDeviceOverlaySource
                throw new InvalidOperationException("Unexpected device write");
     }
 
-    public Task SetPhysicalGlyphSelectionAsync(DeviceGlyphSelection selection,
-        CancellationToken cancellationToken = default)
-    {
-        return SelectGlyphs?.Invoke(selection) ?? throw new InvalidOperationException("Unexpected glyph write");
-    }
-
-    public Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default)
-    {
-        throw new InvalidOperationException("Unexpected AutoTDP write");
-    }
-
     public Task SetAutoTdpTargetAsync(int fps, CancellationToken cancellationToken = default)
     {
         throw new InvalidOperationException("Unexpected AutoTDP target write");
@@ -77,12 +69,8 @@ internal sealed class FakeDevice : IDeviceOverlaySource
 
     public Task SetHostSelectionAsync(string rowId, string? value, CancellationToken cancellationToken = default)
     {
-        return Task.FromException(new NotSupportedException("Explicit host selection is not available."));
-    }
-
-    public Task CycleControllerTargetAsync(CancellationToken cancellationToken = default)
-    {
-        throw new InvalidOperationException("Unexpected controller write");
+        return SelectHost?.Invoke(rowId, value)
+               ?? Task.FromException(new NotSupportedException("Explicit host selection is not available."));
     }
 
     public Task UseGlobalAsync(string overrideId, CancellationToken cancellationToken = default)
@@ -93,16 +81,6 @@ internal sealed class FakeDevice : IDeviceOverlaySource
     public Task RetryDeviceCycleAsync(CancellationToken cancellationToken = default)
     {
         throw new InvalidOperationException("Unexpected device retry");
-    }
-
-    public Task CycleAuthoredProfileAsync(CancellationToken cancellationToken = default)
-    {
-        throw new InvalidOperationException("Unexpected authored profile write");
-    }
-
-    public void Dispose()
-    {
-        Assert.Equal(0, Subscribers);
     }
 
     public event Action<CanonicalControllerSample>? PhysicalSampleReceived
@@ -129,11 +107,6 @@ internal sealed class FakeDevice : IDeviceOverlaySource
                 throw new InvalidOperationException("Unexpected physical input subscription removal");
             }
         }
-    }
-
-    internal void Notify()
-    {
-        _changed?.Invoke();
     }
 
     public event Action<GlyphControlId, bool>? PhysicalOemControlReceived
@@ -170,5 +143,10 @@ internal sealed class FakeDevice : IDeviceOverlaySource
                 SampleSource.PhysicalInputReset -= value;
             }
         }
+    }
+
+    internal void Notify()
+    {
+        _changed?.Invoke();
     }
 }

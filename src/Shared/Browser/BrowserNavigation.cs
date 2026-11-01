@@ -12,9 +12,9 @@ internal static class BrowserNavigation
     internal static bool IsAllowed(string? address)
     {
         return address is { Length: > 0 and <= MaximumAddressLength }
-               && (address == Home || Uri.TryCreate(address, UriKind.Absolute, out var uri)
-                   && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp)
-                   && uri.UserInfo.Length == 0 && uri.Host.Length > 0);
+               && (address == Home || (Uri.TryCreate(address, UriKind.Absolute, out var uri)
+                                       && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp)
+                                       && uri.UserInfo.Length == 0 && uri.Host.Length > 0));
     }
 
     internal static string Resolve(string text, string? game = null)
@@ -43,7 +43,8 @@ internal static class BrowserNavigation
             }
 
             if (!text.Contains(' ') && Uri.TryCreate("https://" + text, UriKind.Absolute, out var candidate)
-                && (candidate.Host.Contains('.') || candidate.IsLoopback) && IsAllowed(candidate.AbsoluteUri))
+                                    && (candidate.Host.Contains('.') || candidate.IsLoopback) &&
+                                    IsAllowed(candidate.AbsoluteUri))
             {
                 return candidate.AbsoluteUri;
             }

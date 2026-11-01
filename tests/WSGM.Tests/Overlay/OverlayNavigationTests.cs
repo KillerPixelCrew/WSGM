@@ -1,3 +1,4 @@
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Overlay;
 
 namespace WSGM.Tests.Overlay;
@@ -5,20 +6,19 @@ namespace WSGM.Tests.Overlay;
 public sealed class OverlayNavigationTests
 {
     [Theory]
-    [InlineData(true, true, true, true, false, true, (int)OverlayBackAction.ClosePopup)]
-    [InlineData(false, true, true, true, false, true, (int)OverlayBackAction.CloseSurface)]
-    [InlineData(false, true, false, true, false, true, (int)OverlayBackAction.NestedBack)]
-    [InlineData(false, true, false, false, false, true, (int)OverlayBackAction.CloseDialog)]
-    [InlineData(false, false, false, false, false, true, (int)OverlayBackAction.FocusRail)]
-    [InlineData(false, false, false, false, true, true, (int)OverlayBackAction.ReturnHome)]
-    [InlineData(false, false, false, false, false, false, (int)OverlayBackAction.LeaveNestedPage)]
-    public void BackUsesSurfaceAndRailContext(bool popup, bool dialog, bool surface, bool nested,
+    [InlineData(true, true, true, false, true, (int)OverlayBackAction.CloseSurface)]
+    [InlineData(true, false, true, false, true, (int)OverlayBackAction.NestedBack)]
+    [InlineData(true, false, false, false, true, (int)OverlayBackAction.CloseDialog)]
+    [InlineData(false, false, false, false, true, (int)OverlayBackAction.FocusRail)]
+    [InlineData(false, false, false, true, true, (int)OverlayBackAction.ReturnHome)]
+    [InlineData(false, false, false, false, false, (int)OverlayBackAction.LeaveNestedPage)]
+    public void BackUsesSurfaceAndRailContext(bool dialog, bool surface, bool nested,
         bool focusInRail, bool railCanTakeFocus, int expected)
     {
         OverlayNavigation navigation = new();
         navigation.Select(OverlayDestination.Steam);
         navigation.Push(OverlayPage.SteamLibraryTabs, "steam.library");
-        Assert.Equal((OverlayBackAction)expected, navigation.BackAction(new OverlayBackContext(popup, dialog, surface,
+        Assert.Equal((OverlayBackAction)expected, navigation.BackAction(new OverlayBackContext(dialog, surface,
             nested,
             focusInRail, railCanTakeFocus)));
     }
@@ -32,10 +32,10 @@ public sealed class OverlayNavigationTests
     public void DeviceSectionKeysPreserveBothStoredSpellings(string id)
     {
         var key = new SectionKey(id);
-        Assert.Equal("section.device." + id, key.FocusKey);
-        Assert.Equal("device.section." + id, key.PinKey);
-        Assert.Equal(key, SectionKey.FromKey(key.FocusKey));
-        Assert.Equal(key, SectionKey.FromKey(key.PinKey));
+        Assert.Equal("section.device." + id, key.PinId);
+        Assert.Equal("device.section." + id, key.RailKey);
+        Assert.Equal(key, SectionKey.FromKey(key.PinId));
+        Assert.Equal(key, SectionKey.FromKey(key.RailKey));
     }
 
     [Fact]
@@ -48,21 +48,22 @@ public sealed class OverlayNavigationTests
         Assert.True(navigation.Push(OverlayPage.DevicePluginSection, "device.section.plugin.power", "power"));
         Assert.Equal(OverlayPage.DevicePluginSection, navigation.Page);
         Assert.Equal("power", navigation.SectionId);
-        Assert.False(navigation.NeedsDeviceRoot(false));
+        // Shell publishes the shared pages with integration off too.
+        Assert.False(navigation.NeedsDeviceRoot(DeviceSections.All.Select(section => section.SectionId)));
     }
 
     [Fact]
-    public void RemovingAPluginRequestsTheDeviceRootWhileCoreControlsRemain()
+    public void AnUnpublishedSectionRequestsTheDeviceRootWhileCoreControlsRemain()
     {
         OverlayNavigation navigation = new();
         navigation.SetDeviceVisible(true, true);
         navigation.Select(OverlayDestination.Device);
         navigation.Push(OverlayPage.DevicePluginSection, "power", "plugin-power");
-        Assert.False(navigation.NeedsDeviceRoot(true));
-        Assert.True(navigation.NeedsDeviceRoot(false));
+        Assert.False(navigation.NeedsDeviceRoot(["power", "plugin-power"]));
+        Assert.True(navigation.NeedsDeviceRoot(["power"]));
         navigation.Select(OverlayDestination.Device);
         navigation.SetDeviceVisible(false, true);
-        Assert.False(navigation.NeedsDeviceRoot(false));
+        Assert.False(navigation.NeedsDeviceRoot(["power"]));
         Assert.Equal(OverlayPage.Device, navigation.Page);
         Assert.Null(navigation.SectionId);
         Assert.Equal(1, navigation.Depth);
@@ -176,26 +177,25 @@ public sealed class OverlayNavigationTests
     }
 
     [Fact]
-    public void BackPriorityIsPopupThenDialogThenNestedThenQuickAccessThenOverlay()
+    public void BackPriorityIsDialogThenNestedThenQuickAccessThenOverlay()
     {
         OverlayNavigation navigation = new();
         navigation.Select(OverlayDestination.Steam);
         navigation.Push(OverlayPage.SteamCardManager, "steam.cards");
 
-        Assert.Equal(OverlayBackAction.ClosePopup, navigation.BackAction(new OverlayBackContext(true, true)));
-        Assert.Equal(OverlayBackAction.CloseDialog, navigation.BackAction(new OverlayBackContext(false, true)));
-        Assert.Equal(OverlayBackAction.LeaveNestedPage, navigation.BackAction(new OverlayBackContext(false, false)));
+        Assert.Equal(OverlayBackAction.CloseDialog, navigation.BackAction(new OverlayBackContext(true)));
+        Assert.Equal(OverlayBackAction.LeaveNestedPage, navigation.BackAction(new OverlayBackContext(false)));
 
         Assert.Equal("steam.cards", navigation.Pop());
-        Assert.Equal(OverlayBackAction.ReturnHome, navigation.BackAction(new OverlayBackContext(false, false)));
+        Assert.Equal(OverlayBackAction.ReturnHome, navigation.BackAction(new OverlayBackContext(false)));
 
         // Every other root behaves the same: Back returns to Quick access from it, and only
         // Quick access itself closes the sheet.
         navigation.Select(OverlayDestination.Steam);
-        Assert.Equal(OverlayBackAction.ReturnHome, navigation.BackAction(new OverlayBackContext(false, false)));
+        Assert.Equal(OverlayBackAction.ReturnHome, navigation.BackAction(new OverlayBackContext(false)));
 
         navigation.Select(OverlayDestination.QuickAccess);
-        Assert.Equal(OverlayBackAction.CloseOverlay, navigation.BackAction(new OverlayBackContext(false, false)));
+        Assert.Equal(OverlayBackAction.CloseOverlay, navigation.BackAction(new OverlayBackContext(false)));
     }
 
     [Fact]
@@ -237,7 +237,7 @@ public sealed class OverlayNavigationTests
 
         Assert.True(navigation.Push(OverlayPage.PowerSession, "power.session"));
         Assert.Equal(OverlayPage.PowerSession, navigation.Page);
-        Assert.Equal(OverlayBackAction.LeaveNestedPage, navigation.BackAction(new OverlayBackContext(false, false)));
+        Assert.Equal(OverlayBackAction.LeaveNestedPage, navigation.BackAction(new OverlayBackContext(false)));
         Assert.Equal("power.session", navigation.Pop());
         Assert.Equal(OverlayPage.Power, navigation.Page);
 
@@ -305,15 +305,15 @@ public sealed class OverlayNavigationTests
         OverlayNavigation navigation = new();
         navigation.SetDeviceVisible(true);
         Assert.True(navigation.Select(OverlayDestination.Device));
-        Assert.True(navigation.Push(OverlayPage.DevicePowerAndThermals, null));
-        Assert.Equal(OverlayPage.DevicePowerAndThermals, navigation.Page);
+        Assert.True(navigation.Push(OverlayPage.DevicePluginSection, null, DeviceSections.PowerId));
+        Assert.Equal(OverlayPage.DevicePluginSection, navigation.Page);
 
         Assert.True(navigation.Select(OverlayDestination.Steam));
         Assert.True(navigation.Select(OverlayDestination.Device));
 
         Assert.Equal(OverlayPage.Device, navigation.Page);
         Assert.Equal(1, navigation.Depth);
-        Assert.Null(DeviceOverlaySectionPages.SectionFor(navigation.Page));
+        Assert.Null(navigation.SectionId);
     }
 
     [Fact]

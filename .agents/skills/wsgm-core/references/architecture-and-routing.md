@@ -57,28 +57,41 @@ Explorer exists initially.
 | `src/WSGM.Setup`, `src/WSGM.Install`                       | setup UI/engine, shared bundle/offers/layout, file rollback and component installation                           | normal-session policy or live runtime feature ownership     |
 | `src/Shared`                                               | source-linked cross-executable contracts and native/process primitives                                           | an independently deployed service or assembly               |
 
-`ShellSession` is composition root, not permission to implement every feature in one file. A service
-with independent state/resource ownership should remain a focused manager, rooted and ordered by the
-session.
+`Core` and `Shell` are grouped into one folder per feature (`Core/Device`, `Shell/Device`,
+`Shell/Session` and so on); the namespaces stay `WSGM.Core` and `WSGM.Shell`, and each top-level
+type has its own file. Put a new file in the folder of the owner it belongs to, Core for persisted
+and pure policy, Shell for the live owner, and its tests in the mirrored folder under
+`tests/WSGM.Tests/Core` or `tests/WSGM.Tests/Shell`. The
+[source map](../../../../docs/source-map.md#core-and-shell-feature-folders) lists the folders and
+their owners.
+
+`ShellSession` is the composition root, not permission to implement every feature in one file. It
+builds focused parts in `Shell/Session` (`IntegrationServices`, `PerformanceServices`,
+`SteamUiServices`, `StorageServices`, `LibraryServices`, `SystemServices`, `OverlayTools`,
+`SessionBoot` and the others) over one `SessionState`; each part constructs, wires and disposes its
+own services. A service with independent state/resource ownership should remain a focused manager
+inside the part that owns its feature, started and ordered by the session.
 
 ## Existing components to reuse
 
-- Configuration: `Core/ConfigStore.cs` owns strict reads, the cross-process lock and atomic writes.
-  Use the page's owned-field save path and `Core/WsgmSharedSettings.cs` when Settings and Steam edit
-  the same field. External work happens after the config lock is released.
-- Bounded network reads: `Core/BoundedHttp.cs` checks body size and read-stall timeouts. Reuse it
-  for an HTTP body; carry caller cancellation and an explicit size limit rather than introducing an
-  unbounded stream copy or retry loop.
-- Launching: use `Core/AppLauncher.cs` for configured application/protocol activation and
-  `Core/UnelevatedLauncher.cs` for the existing scheduled-task route. `src/Shared/Process` contains
-  command-line, scheduled-task XML, parent-start, session-name and log primitives compiled by their
-  declared consumers. Check the project includes before changing a shared source file. Game-tree
-  containment stays with `WSGM.Launch` or `WSGM.PackagedLaunch`; Explorer recovery stays with
-  `ExplorerDesktopHost` and its anchor rather than a generic process-start helper.
-- Lifetime: compose the feature in its existing session manager, close admission through the
-  session's cancellation path and join it through `ShellSession.Shutdown.cs` and
-  `Core/ApplicationShutdown.cs`. Reuse that one shutdown request/task and its deadline; do not add
-  an independent exit loop or dispose dependencies while work still uses them.
+- Configuration: `Core/Config/ConfigStore.cs` owns strict reads, the cross-process lock and atomic
+  writes. Use the page's owned-field save path and `Core/Config/WsgmSharedSettings.cs` when Settings
+  and Steam edit the same field. External work happens after the config lock is released.
+- Bounded network reads: `Core/Infrastructure/BoundedHttp.cs` checks body size and read-stall
+  timeouts. Reuse it for an HTTP body; carry caller cancellation and an explicit size limit rather
+  than introducing an unbounded stream copy or retry loop.
+- Launching: use `Core/Applications/AppLauncher.cs` for configured application/protocol activation
+  and `Core/Desktop/UnelevatedLauncher.cs` for the existing scheduled-task route.
+  `src/Shared/Process` contains command-line, scheduled-task XML, parent-start, session-name and log
+  primitives compiled by their declared consumers. Check the project includes before changing a
+  shared source file. Game-tree containment stays with `WSGM.Launch` or `WSGM.PackagedLaunch`;
+  Explorer recovery stays with `ExplorerDesktopHost` and its anchor rather than a generic
+  process-start helper.
+- Lifetime: compose the feature in its existing session part, close admission through the session's
+  cancellation path and join it through `ShellSession.RunShutdownAsync` with its
+  `Shell/Session/ShutdownSteps.cs`, under `Core/Session/ApplicationRuntime.cs` and
+  `ApplicationShutdownCoordinator.cs`. Reuse that one shutdown request/task and its deadline; do not
+  add an independent exit loop or dispose dependencies while work still uses them.
 - Views: reuse `Controls` components such as `ActionButton`, `CollapsibleSection`, `TabStrip`,
   `CurveEditor` and `OnScreenKeyboard` when their interaction matches the feature. Reuse the current
   view model and navigation route before creating a second editor. Controls report intent and keep
@@ -95,26 +108,26 @@ parity review.
 
 ## Project ownership
 
-| Concern                                                  | Repository/path                                                             |
-| -------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Semantic device-plugin contract                          | `external/libhandheld/src/LibHandheld/Contracts`                            |
-| Common plugin contract, instances and extension surfaces | `src/WSGM.Plugin.Sdk`                                                       |
-| Handheld Companion scaffold (unfinished)                 | `src/WSGM.Device.HandheldCompanion`                                         |
-| MSI Claw device behavior                                 | `external/libhandheld/src/LibHandheld/Families/MsiClaw`                     |
-| ROG Ally device behavior and recorded evidence status    | `external/libhandheld/src/LibHandheld/Families/RogAlly`                     |
-| Built-in graphics driver engines                         | `external/libgpu-driver-interact`; WSGM adapter and coordinator in `Shell/` |
-| IR session actions and firmware                          | `src/WSGM.Plugin.Ir`                                                        |
-| Reusable live-backdrop rendering                         | `src/Avalonia.LiveBackdrop`                                                 |
-| Reusable Steam CEF transport/patch/surfaces              | `external/steam-ui-toolkit`                                                 |
-| Reusable Windows radio/audio/brightness/power primitives | `external/windows-device-control`                                           |
-| Native Steam Input shim/lease                            | `external/steam-input-lease`                                                |
-| VIIPER virtual controller library                        | `external/viiper`                                                           |
-| Vendored LoadingIndicators.Avalonia source               | `external/LoadingIndicators.Avalonia`                                       |
-| Controller dependency lock, licences, and VIIPER notes   | `external/controller`                                                       |
+| Concern                                                  | Repository/path                                                                      |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Semantic device-plugin contract                          | `external/libhandheld/src/LibHandheld/Contracts`                                     |
+| Common plugin contract, instances and extension surfaces | `src/WSGM.Plugin.Sdk`                                                                |
+| WSGM device host, controller and capability rows         | `src/WSGM/Shell/Device`, `src/WSGM/Shell/Controller`, `src/WSGM/Core/Device`         |
+| MSI Claw device behavior                                 | `external/libhandheld/src/LibHandheld/Families/MsiClaw`                              |
+| ROG Ally device behavior and recorded evidence status    | `external/libhandheld/src/LibHandheld/Families/RogAlly`                              |
+| Built-in graphics driver engines                         | `external/libgpu-driver-interact`; WSGM adapter and coordinator in `Shell/Graphics/` |
+| IR session actions and firmware                          | `src/WSGM.Plugin.Ir`                                                                 |
+| Reusable live-backdrop rendering                         | `src/Avalonia.LiveBackdrop`                                                          |
+| Reusable Steam CEF transport/patch/surfaces              | `external/steam-ui-toolkit`                                                          |
+| Reusable Windows radio/audio/brightness/power primitives | `external/windows-device-control`                                                    |
+| Native Steam Input shim/lease                            | `external/steam-input-lease`                                                         |
+| VIIPER virtual controller library                        | `external/viiper`                                                                    |
+| Vendored LoadingIndicators.Avalonia source               | `external/LoadingIndicators.Avalonia`                                                |
+| Controller dependency lock, licences, and VIIPER notes   | `external/controller`                                                                |
 
-WSGM owns policy, orchestration, session state, and adapters. Device projects share this repository
-and one SDK project reference. Keep them separate assemblies. Only the reusable libraries, Steam
-Input, and VIIPER remain submodules; publish a child change before advancing its WSGM gitlink.
+WSGM owns policy, orchestration, session state, and adapters. The handheld and GPU libraries, the
+reusable Steam and Windows libraries, Steam Input and VIIPER are submodules; publish a child change
+before advancing its WSGM gitlink.
 
 ## Documentation router
 

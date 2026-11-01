@@ -151,28 +151,12 @@ public sealed partial class SettingsViewModel
         ArtworkTabs.Clear();
         foreach (var id in stored)
         {
-            ArtworkTabs.Add(new ArtworkTabRow(id, titles[id], IsArtworkTabVisible(id)));
+            ArtworkTabs.Add(new ArtworkTabRow(id, titles[id], _config.Artwork.IsTabVisible(id)));
         }
 
         var index = ArtworkTabs.ToList()
             .FindIndex(row => string.Equals(row.Id, _config.Artwork.DefaultTab, StringComparison.Ordinal));
         ArtworkDefaultTabIndex = index < 0 ? 0 : index;
-    }
-
-    /// <summary>Whether the stored configuration offers one tab.</summary>
-    /// <param name="id">The tab id.</param>
-    private bool IsArtworkTabVisible(string id)
-    {
-        return id switch
-        {
-            "grid" => _config.Artwork.ShowGrid,
-            "wide" => _config.Artwork.ShowWide,
-            "hero" => _config.Artwork.ShowHero,
-            "logo" => _config.Artwork.ShowLogo,
-            "icon" => _config.Artwork.ShowIcon,
-            "manage" => _config.Artwork.ShowManage,
-            _ => true
-        };
     }
 
     /// <summary>Whether the edited rows offer one tab.</summary>

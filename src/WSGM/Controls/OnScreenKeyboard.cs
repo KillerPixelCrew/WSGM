@@ -18,8 +18,8 @@ public sealed class OnScreenKeyboard : Decorator
     private readonly List<(Button Button, KeyFace Face)> _keys = [];
     private readonly StackPanel _mainRows = new() { Spacing = 1 };
     private readonly StackPanel _numberRows = new() { Spacing = 1, IsVisible = false };
-    private readonly StackPanel _toolRows = new() { Spacing = 1, IsVisible = false };
     private readonly StackPanel _padRows = new() { Spacing = 1, IsVisible = false };
+    private readonly StackPanel _toolRows = new() { Spacing = 1, IsVisible = false };
     private bool _capsLock;
     private KeyModifiers _modifiers;
     private bool _numLock = true;
@@ -158,9 +158,11 @@ public sealed class OnScreenKeyboard : Decorator
                 CornerRadius = default,
                 BorderThickness = new Thickness(2),
                 FocusAdorner = null,
-                FontSize = face.Printable && face.Key != Key.Space
-                           || face.Key is Key.Back or Key.Enter or Key.LeftShift or Key.Left or Key.Right or Key.Up or Key.Down
-                    ? 20 : 14
+                FontSize = (face.Printable && face.Key != Key.Space)
+                           || face.Key is Key.Back or Key.Enter or Key.LeftShift or Key.Left or Key.Right or Key.Up
+                               or Key.Down
+                    ? 20
+                    : 14
             };
             AutomationProperties.SetName(button, face.Key switch
             {

@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
@@ -31,25 +32,29 @@ public sealed class ScreensaversLayoutTests
             [
                 new ScreensaverSourceConfig { Id = "local", Name = "Blue collection", Folder = images },
                 new ScreensaverSourceConfig { Id = "second", Name = "Daily favourites", Folder = images },
-                new ScreensaverSourceConfig { Id = "offline", Name = "Travel photos", Folder = Path.Combine(images, "missing") }
+                new ScreensaverSourceConfig
+                    { Id = "offline", Name = "Travel photos", Folder = Path.Combine(images, "missing") }
             ]
         };
-        await using var service = new ScreensaverService(fixture.Store.Context, () => config, change => change(config), () => false);
+        await using var service =
+            new ScreensaverService(fixture.Store.Context, () => config, change => change(config), () => false);
         Assert.Equal(3, service.ReadState().Sources.Count);
         await service.ExecuteAsync(new SteamScreensaverContentCommand
         {
-            Action = "playback", Id = "local", SelectorId = ScreensaverContent.SelectorId("Blue collection"), Active = false
+            Action = "playback", Id = "local", SelectorId = ScreensaverContent.SelectorId("Blue collection"),
+            Active = false
         }, CancellationToken.None);
         var window = fixture.Overlay(width, height, session: new OverlayWindow.SessionState
         {
             Destination = OverlayDestination.System
         });
-        window.AttachScreensavers(service);
+        UiFixture.Named<ScreensaversView>(window, "ScreensaversHost").Attach(service);
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.Screensavers));
         Dispatcher.UIThread.RunJobs();
         var page = UiFixture.Named<ScreensaversView>(window, "ScreensaversHost");
         Assert.True(page.IsEffectivelyVisible);
-        Assert.DoesNotContain(page.GetVisualDescendants().OfType<Control>(), control => Equals(control.Tag, "source.name"));
+        Assert.DoesNotContain(page.GetVisualDescendants().OfType<Control>(),
+            control => Equals(control.Tag, "source.name"));
         var folder = page.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Tag, "source:local"));
         var cover = page.GetVisualDescendants().OfType<OverlayPreviewImage>().First();
         await Decoded(cover);
@@ -59,7 +64,8 @@ public sealed class ScreensaversLayoutTests
         UiFixture.Click(window, folder);
         Dispatcher.UIThread.RunJobs();
         await Decoded(page.GetVisualDescendants().OfType<OverlayPreviewImage>().First());
-        Assert.Contains(page.GetVisualDescendants().OfType<Control>(), control => Equals(control.Tag, "source.preview"));
+        Assert.Contains(page.GetVisualDescendants().OfType<Control>(),
+            control => Equals(control.Tag, "source.preview"));
         Assert.Contains(page.GetVisualDescendants().OfType<Control>(), control => Equals(control.Tag, "source.rename"));
         Assert.Contains(page.GetVisualDescendants().OfType<Control>(), control => Equals(control.Tag, "source.folder"));
         DevicePageCaptureTests.Capture(window, Path.Combine(directory, "options.png"));
@@ -71,7 +77,7 @@ public sealed class ScreensaversLayoutTests
         Assert.Same(detailCover, page.GetVisualDescendants().OfType<OverlayPreviewImage>().First());
         Assert.Same(rendered, detailCover.Child);
         Assert.Equal(height < 740 ? 190 : 130, detailCover.Height);
-        window.AttachScreensavers(null);
+        UiFixture.Named<ScreensaversView>(window, "ScreensaversHost").Attach(null);
     }
 
     [AvaloniaTheory]
@@ -81,18 +87,21 @@ public sealed class ScreensaversLayoutTests
     {
         using var fixture = new UiFixture();
         var config = new ScreensaverConfig();
-        await using var service = new ScreensaverService(fixture.Store.Context, () => config, change => change(config), () => false);
-        var window = fixture.Overlay(width, height, session: new OverlayWindow.SessionState { Destination = OverlayDestination.System });
-        window.AttachScreensavers(service);
+        await using var service =
+            new ScreensaverService(fixture.Store.Context, () => config, change => change(config), () => false);
+        var window = fixture.Overlay(width, height,
+            session: new OverlayWindow.SessionState { Destination = OverlayDestination.System });
+        UiFixture.Named<ScreensaversView>(window, "ScreensaversHost").Attach(service);
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.Screensavers));
         Dispatcher.UIThread.RunJobs();
         var page = UiFixture.Named<ScreensaversView>(window, "ScreensaversHost");
         Assert.Single(page.GetVisualDescendants().OfType<Button>(), button => Equals(button.Tag, "source.images"));
-        Assert.DoesNotContain(page.GetVisualDescendants().OfType<Control>(), control => Equals(control.Tag, "source.name"));
+        Assert.DoesNotContain(page.GetVisualDescendants().OfType<Control>(),
+            control => Equals(control.Tag, "source.name"));
         var directory = Path.Combine(RepositoryFiles.Root, "TestResults", "ui", $"screensavers-{width}x{height}");
         Directory.CreateDirectory(directory);
         DevicePageCaptureTests.Capture(window, Path.Combine(directory, "empty.png"));
-        window.AttachScreensavers(null);
+        UiFixture.Named<ScreensaversView>(window, "ScreensaversHost").Attach(null);
     }
 
     private static async Task Decoded(OverlayPreviewImage preview)
@@ -101,6 +110,7 @@ public sealed class ScreensaversLayoutTests
         {
             return;
         }
+
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         preview.PropertyChanged += Changed;
         try
@@ -110,13 +120,16 @@ public sealed class ScreensaversLayoutTests
             {
                 return;
             }
+
             await completion.Task.WaitAsync(TimeSpan.FromSeconds(5));
         }
         finally
         {
             preview.PropertyChanged -= Changed;
         }
+
         return;
+
         void Changed(object? sender, AvaloniaPropertyChangedEventArgs args)
         {
             if (args.Property == Decorator.ChildProperty && preview.Child is Image)
@@ -128,7 +141,8 @@ public sealed class ScreensaversLayoutTests
 
     private static void WriteImage(string path)
     {
-        using var bitmap = new WriteableBitmap(new PixelSize(480, 300), new Vector(96, 96), PixelFormat.Bgra8888, AlphaFormat.Premul);
+        using var bitmap = new WriteableBitmap(new PixelSize(480, 300), new Vector(96, 96), PixelFormat.Bgra8888,
+            AlphaFormat.Premul);
         using (var buffer = bitmap.Lock())
         {
             var pixels = new byte[buffer.RowBytes * buffer.Size.Height];
@@ -143,8 +157,10 @@ public sealed class ScreensaversLayoutTests
                     pixels[offset + 3] = 255;
                 }
             }
-            System.Runtime.InteropServices.Marshal.Copy(pixels, 0, buffer.Address, pixels.Length);
+
+            Marshal.Copy(pixels, 0, buffer.Address, pixels.Length);
         }
+
         bitmap.Save(path, new PngBitmapEncoderOptions());
     }
 }

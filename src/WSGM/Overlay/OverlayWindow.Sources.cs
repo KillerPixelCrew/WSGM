@@ -1,9 +1,7 @@
 using System;
 using System.Linq;
 using Avalonia.Controls;
-using Avalonia.Interactivity;
 using Avalonia.Threading;
-using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Shell;
 
@@ -11,233 +9,135 @@ namespace WSGM.Overlay;
 
 public partial class OverlayWindow
 {
-    internal void AttachLibraryManager(LibraryManagerService? manager)
+    /// <summary>Attaches the session services the sheet shows, without taking over their lifetimes.</summary>
+    /// <param name="sources">The session's services; a null one hides or empties its page.</param>
+    /// <remarks>
+    ///     Brightness and the manual power mode attach separately, with the controller's preview rules, and the
+    ///     controller connects Notes to its screenshot capture.
+    /// </remarks>
+    internal void AttachSources(OverlaySources sources)
     {
-        LibraryTabsHost.Attach(manager);
-        CardManagerHost.Attach(manager);
+        AttachDeviceBridge(sources.Device);
+        AttachGraphicsSource(sources.Graphics);
+        DevicePage.AttachPrerequisites(sources.DevicePrerequisites);
+        AttachCommonPlugins(sources.CommonPlugins);
+        GameLibraryHost.Attach(sources.GameLibrary);
+        EmulatorManagerHost.Attach(sources.Emulators);
+        ViewModel.ShowEmulators = sources.Emulators is not null;
+        ProgramsHost.Attach(sources.Programs);
+        HotkeysHost.Attach(sources.Hotkeys);
+        RenderPins();
+        PanelSteamLaunch.AttachLaunchActions(sources.LaunchActions);
+        LibraryTabsHost.Attach(sources.LibraryManager);
+        CardManagerHost.Attach(sources.LibraryManager);
+        ScreensaversHost.Attach(sources.Screensavers);
+        if (sources.Browser is { } browser)
+        {
+            BrowserHost.Attach(browser, this);
+        }
+
+        ThemesHost.Attach(sources.Themes);
+        AnimationsHost.Attach(sources.Animations);
+        SoundsHost.Attach(sources.Sounds, _session.ExpandedSections);
+        ArtworkHost.Attach(sources.Artwork);
+        GameToolsHost.Attach(sources.GameTools);
+        AttachPerformanceSource(sources.Performance);
+        RefreshWorkspace();
     }
 
     internal void AttachPowerPresets(DevicePowerPresetSelection selection)
     {
-        DispatcherTimer refresh = new() { Interval = TimeSpan.FromSeconds(1) };
-        // Polled only while its rows can be seen: on their Device page, or pinned to Quick access.
-        refresh.Tick += async (_, _) =>
-        {
-            if (DevicePowerPresetContainer.IsEffectivelyVisible || PinShowing("section.device.power-presets"))
-            {
-                await selection.RefreshAsync();
-            }
-        };
-        Opened += async (_, _) =>
-        {
-            refresh.Start();
-            await selection.RefreshAsync();
-        };
-        Closed += (_, _) =>
-        {
-            refresh.Stop();
-            selection.Dispose();
-        };
-        DevicePowerPresetHost.Attach(selection);
-        DevicePowerPresetContainer.Tag = "section.device.power-presets";
-        DevicePowerPresetContainer.Children.Insert(0,
-            CreateSectionHeader("section.device.power-presets", "Power assignments"));
-        _controlPinFactories["section.device.power-presets"] = ("Power assignments", () =>
-                {
-                    DevicePowerPresetView view = new();
-                    view.Attach(selection);
-                    view.DetachedFromVisualTree += (_, _) => view.Attach(null);
-                    return view;
-                }
-            );
+        _powerPresetSelection = selection;
+        // Read once on open; after that the selection follows the assignment owner's changes.
+        Opened += async (_, _) => await selection.RefreshAsync();
+        Closed += (_, _) => selection.Dispose();
+        // The assignments are shown only once a preset has been read to choose from.
+        selection.Changed += RefreshDevicePanel;
+        _rows.Views[DevicePages.PowerPresetsId] =
+            AttachedPin<DevicePowerPresetView, DevicePowerPresetSelection>(selection,
+                (view, model) => view.Attach(model));
+        RefreshDevicePanel();
         RenderPins();
+    }
+
+    /// <summary>A pinned copy of a view that follows a shared selection while it is in the tree.</summary>
+    /// <param name="selection">The selection every copy shares.</param>
+    /// <param name="attach">Attaches a view to the selection, or detaches it with null.</param>
+    /// <returns>The pin factory.</returns>
+    private static Func<Control> AttachedPin<TView, TSelection>(TSelection selection,
+        Action<TView, TSelection?> attach) where TView : Control, new() where TSelection : class
+    {
+        return () =>
+        {
+            TView view = new();
+            attach(view, selection);
+            view.DetachedFromVisualTree += (_, _) => attach(view, null);
+            return view;
+        };
     }
 
     internal void AttachManualTdp(DeviceCoordinator coordinator)
     {
-        ManualTdpHost.Tag = "section.device.manual-tdp";
-        ManualTdpHost.Children.Add(CreateSectionHeader("section.device.manual-tdp", "Manual power mode"));
-        var view = Create();
-        view.PropertyChanged += (_, change) =>
-        {
-            if (change.Property == IsVisibleProperty)
-            {
-                ManualTdpHost.IsVisible = view.IsVisible;
-            }
-        };
-        ManualTdpHost.Children.Add(view);
-        _controlPinFactories["section.device.manual-tdp"] = ("Manual power mode", Create);
+        // The mode, its availability and its game override all arrive with the device's change event, which
+        // redraws the page and refreshes every selector in place.
+        _manualTdpMode = () => coordinator.Power.ManualTdpMode;
+        _rows.Views[DevicePages.ManualTdpId] = () => new ManualTdpModeView(
+            () => coordinator.Power.ManualTdpMode, coordinator.Power.SetManualTdpModeAsync,
+            () => coordinator.Power.ManualTdpOverrideId, _ => coordinator.Power.UseGlobalManualTdpAsync());
+        RefreshDevicePanel();
         RenderPins();
-        return;
-
-        Control Create()
-        {
-            return new ManualTdpModeView(() => coordinator.ManualTdpMode, coordinator.SetManualTdpModeAsync,
-                () => coordinator.ManualTdpOverrideId, _ => coordinator.UseGlobalManualTdpAsync());
-        }
     }
 
     internal void AttachBrightness(NativeQamBrightnessService service,
         DisplayModeAccess displayModes, Func<string?>? display = null)
     {
-        display ??= DisplaySourceName;
-        AttachBrightnessSurface(service);
-        DisplayBrightnessHost.Tag = "section.display";
-        // A shown page already owns a fold whose body contains this host. Replacing that fold would
-        // detach the entire Display page instead of changing its heading.
-        if (PanelSystemDisplay.Children.FirstOrDefault() is not CollapsibleSection)
-        {
-            PanelSystemDisplay.Children[0] = CreateSectionHeader("section.display", "Display");
-        }
-
-        DisplayBrightnessHost.Children.Clear();
-        DisplayBrightnessHost.Children.Add(new DisplayBrightnessView(service));
-        DisplayBrightnessHost.Children.Add(new DisplayModeView(displayModes.Read, displayModes.Apply, display));
+        display ??= Placement.DisplaySourceName;
+        Surfaces.AttachBrightness(service);
+        PanelSystemDisplay.Attach(service, displayModes, display,
+            () => CreateSectionHeader(DevicePages.DisplayId, DevicePages.ViewTitles[DevicePages.DisplayId]));
         if (_opened)
         {
-            FoldStaticSections();
+            PanelSystemDisplay.Fold(_session.ExpandedSections);
         }
 
-        _controlPinFactories["section.display"] = ("Display", () => new StackPanel
-        {
-            Spacing = 4,
-            Children =
-            {
-                new DisplayBrightnessView(service), new DisplayModeView(displayModes.Read, displayModes.Apply, display)
-            }
-        });
+        _rows.Views[DevicePages.DisplayId] = PanelSystemDisplay.CreateCopy;
         RenderPins();
     }
 
-    /// <summary>Whether a pinned row is on screen: its id is pinned and the Quick access root shows.</summary>
-    private bool PinShowing(string id)
-    {
-        return PanelQuickAccess.IsEffectivelyVisible && _pins.Contains(id);
-    }
-
-    internal void AttachPowerSchemes(PowerSchemeSelection selection)
+    internal void AttachPowerSchemes(ChoiceRowSelection selection)
     {
         _powerSchemeSelection = selection;
-        ConfigureTabs(DeviceSnapshotOrOff().Visible);
+        ConfigureTabs(DeviceSnapshotOrOff());
         Opened += async (_, _) => await selection.RefreshAsync();
         Closed += (_, _) => selection.Dispose();
         // The section is shown only once Windows has been read and offers a choice.
         selection.Changed += RefreshDevicePanel;
-        DevicePowerSchemeHost.Attach(selection);
-        DevicePowerSchemeHost.Tag = "section.system.power-profile";
-        DevicePowerSchemeHeading.Children.Clear();
-        DevicePowerSchemeHeading.Children.Add(
-            CreateSectionHeader("section.system.power-profile", "Windows energy plan"));
-        _controlPinFactories["section.system.power-profile"] = ("Windows energy plan", () =>
-                {
-                    PowerSchemeView view = new();
-                    view.Attach(selection);
-                    view.DetachedFromVisualTree += (_, _) => view.Attach(null);
-                    return view;
-                }
-            );
+        _rows.Views[DevicePages.PowerProfileId] =
+            AttachedPin<ChoiceRowView, ChoiceRowSelection>(selection, (view, model) => view.Attach(model));
         RefreshDevicePanel();
     }
 
     /// <summary>Attaches the hybrid core-placement workflow shown beside the Windows energy plan.</summary>
     /// <param name="selection">The workflow for this open; refreshed when the window opens and disposed when it closes.</param>
-    internal void AttachHybridCores(HybridCoreSelection selection)
+    internal void AttachHybridCores(ChoiceRowSelection selection)
     {
         _hybridCoreSelection = selection;
         Opened += async (_, _) => await selection.RefreshAsync();
         Closed += (_, _) => selection.Dispose();
-        DeviceHybridCoreHost.Attach(selection);
-        DeviceHybridCoreHost.Tag = "section.system.processor-cores";
-        DeviceHybridCores.Header = CreateSectionHeader("section.system.processor-cores", "Processor cores");
-        _controlPinFactories["section.system.processor-cores"] = ("Processor cores", () =>
-                {
-                    HybridCoreView view = new();
-                    view.Attach(selection);
-                    view.DetachedFromVisualTree += (_, _) => view.Attach(null);
-                    return view;
-                }
-            );
+        // Only on a hybrid CPU whose active scheme exposes the policy. Everywhere else the section would
+        // open on a control that has nothing to offer.
+        selection.Changed += RefreshDevicePanel;
+        _rows.Views[DevicePages.ProcessorCoresId] =
+            AttachedPin<ChoiceRowView, ChoiceRowSelection>(selection, (view, model) => view.Attach(model));
         RefreshDevicePanel();
-    }
-
-    /// <summary>Raised when the user requests to start or focus the home application.</summary>
-    public event Action? HomeAppRequested;
-
-    /// <summary>Gives the Game Library view this session's library, or hides it without one.</summary>
-    /// <param name="library">The library, or null in overlay-test.</param>
-    internal void AttachGameLibrary(GameLibraryService? library)
-    {
-        GameLibraryHost.Attach(library);
-        RefreshWorkspace();
-    }
-
-    internal void AttachEmulators(IEmulatorBackend? emulators)
-    {
-        EmulatorManagerHost.Attach(emulators);
-        ViewModel.ShowEmulators = emulators is not null;
-        RefreshWorkspace();
     }
 
     private void OpenEmulators()
     {
-        if (!ViewModel.ShowEmulators)
+        if (ViewModel.ShowEmulators)
         {
-            return;
+            OpenSection(OverlayPage.EmulatorManager);
         }
-
-        if (_navigation.Destination != OverlayDestination.System)
-        {
-            SelectDestination(OverlayDestination.System);
-        }
-
-        var section = _workspaceSections.FirstOrDefault(item => item.Page == OverlayPage.EmulatorManager);
-        if (section is not null)
-        {
-            SelectWorkspaceSection(section, false);
-        }
-    }
-
-    /// <summary>Gives the Themes view this session's themes, or hides it without them.</summary>
-    /// <param name="themes">The themes, or null in overlay-test.</param>
-    internal void AttachThemes(ThemeService? themes)
-    {
-        ThemesHost.Attach(themes);
-    }
-
-    /// <summary>Opens the Themes sub-view on its current state.</summary>
-    private void OnThemes(object? sender, RoutedEventArgs e)
-    {
-        EnterSubView(OverlayPage.SystemThemes);
-    }
-
-
-    /// <summary>Gives the Animations view this session's animations, or hides it without them.</summary>
-    /// <param name="animations">The animations, or null in overlay-test.</param>
-    internal void AttachAnimations(AnimationService? animations)
-    {
-        AnimationsHost.Attach(animations);
-    }
-
-    internal void AttachSounds(SoundPackService? sounds)
-    {
-        SoundsHost.Attach(sounds, _session.ExpandedSections);
-    }
-
-    private void OnSounds(object? sender, RoutedEventArgs e)
-    {
-        EnterSubView(OverlayPage.SystemSounds);
-    }
-
-    /// <summary>Opens the Animations sub-view on its current state.</summary>
-    private void OnAnimations(object? sender, RoutedEventArgs e)
-    {
-        EnterSubView(OverlayPage.SystemAnimations);
-    }
-
-
-    internal void AttachArtwork(SteamArtworkBrowserSource? artwork)
-    {
-        ArtworkHost.Attach(artwork);
     }
 
     private void OpenImportedArtwork(uint appId, string title)
@@ -251,67 +151,26 @@ public partial class OverlayWindow
         _ = ArtworkHost.OpenGameAsync(appId, title, true);
     }
 
-
-    /// <summary>Raised when the user requests a desktop/game-mode transition.</summary>
-    public event Action? DesktopRequested;
-
-    /// <summary>Raised when the user requests the Settings window.</summary>
-    public event Action? SettingsRequested;
-
-    /// <summary>Raised when the user requests to leave Steam Big Picture mode.</summary>
-    public event Action? ExitBigPictureRequested;
-
-    /// <summary>Raised after the user confirms closing the home application.</summary>
-    public event Action? CloseLauncherRequested;
-
-    /// <summary>
-    ///     Gives the overlay the shared removable-storage format manager so
-    ///     its Steam storage page can drive it. Called by the controller right after
-    ///     construction (the manager outlives the window).
-    /// </summary>
-    /// <param name="format">The controller-owned format manager.</param>
-    internal void AttachFormatManager(SdFormatManager format)
-    {
-        _format = format;
-        PanelFormat.DataContext = format;
-    }
-
     /// <summary>Attaches the semantic coordinator projection used by the optional Device tab.</summary>
     /// <param name="source">Borrowed current plugin projection; null detaches the prior source and clears its presentation.</param>
     internal void AttachCommonPlugins(CommonPluginOverlaySource? source)
     {
-        CommonPluginRows.Children.Clear();
-        DeviceWidgetPinsHost.Children.Clear();
+        DetachCommonPlugins();
+        DevicePage.WidgetPins.Children.Clear();
         PinnedPluginWidgetsHost.Children.Clear();
-        SystemPluginsTile.IsVisible = source is not null;
+        PanelSystemPlugins.Attach(source, _session.ExpandedSections);
         if (source is null)
         {
             return;
         }
 
+        _pluginSource = source;
+        source.Changed += OnPluginsChanged;
+        DevicePage.PinsExpanded += RefreshDeviceWidgetPins;
         var preferences = source.WidgetPreferences;
-        CommonPluginPanel panel = new(source, preferences: preferences, folds: _session.ExpandedSections,
-            independentOnly: true);
-        CommonPluginRows.Children.Add(panel);
-        SystemPluginsTile.IsVisible = panel.IsVisible;
-        panel.PropertyChanged += (_, change) =>
-        {
-            if (change.Property == IsVisibleProperty)
-            {
-                SystemPluginsTile.IsVisible = panel.IsVisible;
-                if (!panel.IsVisible && _navigation.Page == OverlayPage.SystemPlugins)
-                {
-                    SelectDestination(OverlayDestination.System);
-                }
-                else
-                {
-                    RefreshWorkspace();
-                }
-            }
-        };
         if (source.Device is { } device)
         {
-            DeviceWidgetPinsHost.Children.Add(new CommonPluginPanel(device, pinsOnly: true,
+            DevicePage.WidgetPins.Children.Add(new CommonPluginPanel(device, pinsOnly: true,
                 preferences: preferences));
         }
 
@@ -336,16 +195,67 @@ public partial class OverlayWindow
             // Plugins category too: selecting the destination alone now lands on the tiles.
             SelectDestination(OverlayDestination.System);
             EnterSubView(OverlayPage.SystemPlugins);
-            Dispatcher.UIThread.Post(() => panel.FocusCategory(pin, category));
+            Dispatcher.UIThread.Post(() => PanelSystemPlugins.FocusCategory(pin, category));
         }, preferences));
     }
 
-    /// <summary>Supplies the reader behind the Device page's missing-prerequisites banner.</summary>
-    /// <param name="prerequisites">The reader, or null in a preview with no session behind it.</param>
-    internal void AttachDevicePrerequisites(DevicePrerequisiteSource? prerequisites)
+    private void DetachCommonPlugins()
     {
-        _devicePrerequisites = prerequisites;
-        RefreshDevicePrerequisites();
+        if (_pluginSource is not null)
+        {
+            _pluginSource.Changed -= OnPluginsChanged;
+            _pluginSource = null;
+        }
+
+        DevicePage.PinsExpanded -= RefreshDeviceWidgetPins;
+    }
+
+    // Raised on whatever thread the plugin host or manager finished its work on.
+    private void OnPluginsChanged()
+    {
+        QueueLiveRefresh(PluginsLiveRefresh);
+    }
+
+    /// <summary>Follows a device or plugin-host change in the plugin panels that are showing.</summary>
+    /// <param name="device">Whether the device changed.</param>
+    /// <param name="plugins">Whether the plugin host changed.</param>
+    /// <remarks>
+    ///     A hidden panel is refreshed as it is shown instead. The System Plugins panel reads no device, and
+    ///     its tile follows whether any plugin runs, so it follows every host change.
+    /// </remarks>
+    private void RefreshPluginWidgets(bool device, bool plugins)
+    {
+        if (plugins)
+        {
+            PanelSystemPlugins.Refresh();
+        }
+
+        if (device)
+        {
+            RefreshDeviceWidgetPins();
+        }
+
+        if (PanelQuickAccess.IsVisible)
+        {
+            foreach (var widgets in PinnedPluginWidgetsHost.Children.OfType<PinnedPluginWidgets>())
+            {
+                widgets.Refresh();
+            }
+        }
+    }
+
+    /// <summary>Refreshes the Device page's widget pin toggles while they show.</summary>
+    private void RefreshDeviceWidgetPins()
+    {
+        if (!DevicePage.WidgetPins.IsEffectivelyVisible)
+        {
+            return;
+        }
+
+        foreach (var panel in DevicePage.WidgetPins.Children.OfType<CommonPluginPanel>())
+        {
+            panel.Refresh();
+        }
     }
 
     internal void AttachDeviceBridge(IDeviceOverlaySource? bridge)
@@ -357,7 +267,7 @@ public partial class OverlayWindow
 
         // Released against the outgoing bridge, before the field moves. Doing it after would leave
         // the old bridge holding a subscription and an observer count nothing can reach any more.
-        UpdateGlyphInputObservation(false);
+        ObserveGlyphInput(false);
         if (_deviceBridge is not null)
         {
             _deviceBridge.Changed -= OnDeviceChanged;
@@ -369,11 +279,16 @@ public partial class OverlayWindow
             _deviceBridge.Changed += OnDeviceChanged;
         }
 
-        ConfigureTabs(DeviceSnapshotOrOff().Visible);
-        UpdateGlyphInputObservation(
-            DeviceOverlaySectionPages.SectionFor(_navigation.Page)
-                is DeviceOverlaySection.ControllerAndMotion);
-        RefreshDevicePanel();
+        var snapshot = DeviceSnapshotOrOff();
+        ConfigureTabs(snapshot);
+        RefreshNavigationHints();
+        DevicePage.FollowPrerequisites(snapshot);
+        if (DevicePanelShowing())
+        {
+            RefreshDevicePanel(snapshot, _performanceSource?.Snapshot());
+        }
+
+        RenderPins(snapshot);
     }
 
     /// <summary>Attaches the shared performance projection without transferring its lifetime.</summary>
@@ -388,13 +303,6 @@ public partial class OverlayWindow
         if (_performanceSource is not null)
         {
             _performanceSource.Changed -= OnPerformanceChanged;
-        }
-
-        PerformanceSection.Tag = "section.performance";
-        if (PerformanceSection.Children.FirstOrDefault() is not CollapsibleSection)
-        {
-            PerformanceSection.Children[0] = CreateSectionHeader("section.performance", "Performance");
-            FoldStaticSections();
         }
 
         _performanceSource = source;
@@ -413,6 +321,47 @@ public partial class OverlayWindow
             }
         }
 
+        _profileScope.Attach(_performanceSource);
         RefreshPerformancePanel();
+        RefreshDevicePanel();
+        RenderPins();
+    }
+
+    internal void AttachGraphicsSource(IGraphicsOverlaySource? source)
+    {
+        if (ReferenceEquals(_graphicsSource, source))
+        {
+            return;
+        }
+
+        if (_graphicsSource is not null)
+        {
+            _graphicsSource.Changed -= OnGraphicsChanged;
+        }
+
+        _graphicsSource = source;
+        if (_graphicsSource is not null)
+        {
+            _graphicsSource.Changed += OnGraphicsChanged;
+        }
+
+        var snapshot = _graphicsSource?.Snapshot() ?? GraphicsOverlaySnapshot.Empty;
+        ConfigureGpuDestination(snapshot.Visible);
+        // Graphics groups are drawn on the GPU page, offered on the Overview and drawn on Quick access.
+        RefreshDevicePanel();
+        RenderPins(graphics: snapshot);
+    }
+
+    private void DetachGraphicsSource()
+    {
+        if (_graphicsSource is not null)
+        {
+            _graphicsSource.Changed -= OnGraphicsChanged;
+        }
+    }
+
+    private void OnGraphicsChanged()
+    {
+        QueueLiveRefresh(GraphicsLiveRefresh);
     }
 }
