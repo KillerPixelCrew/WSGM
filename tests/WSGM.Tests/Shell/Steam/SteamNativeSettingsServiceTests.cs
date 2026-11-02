@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using SteamUiToolkit;
 using WSGM.Core;
@@ -36,27 +37,47 @@ public sealed partial class SteamNativeSettingsServiceTests
     [Fact]
     public void RebuildingIdenticalPagesKeepsTheRevisionSoNothingIsResent()
     {
-        static SteamNativeSettingsPage[] Pages(int limit)
-        {
-            return
-            [
-                new SteamNativeSettingsPage("power",
-                [
-                    new SteamSettingsSection("Limits",
-                    [
-                        new SteamSettingsRow("limit", SteamSettingsRowKind.Range, "Limit", Number: limit, Minimum: 5,
-                            Maximum: 35, Step: 1, Choices: [new SteamSettingsChoice("a", "A")])
-                    ], "power.limits")
-                ])
-            ];
-        }
+        SteamNativeSettingsService.HeldPublication<SteamNativeSettingsPage[]> publication = new(() => 0);
 
-        string? published = null;
-        var revision = SteamNativeSettingsService.NextRevision(Pages(20), ref published, 0);
-        Assert.Equal(1, revision);
+        Assert.Equal(1, publication.Next(Pages(20, "1200 RPM")).Revision);
         // A fresh build with equal content, including fresh arrays, is not a new revision.
-        Assert.Equal(1, SteamNativeSettingsService.NextRevision(Pages(20), ref published, revision));
-        Assert.Equal(2, SteamNativeSettingsService.NextRevision(Pages(25), ref published, revision));
+        Assert.Equal(1, publication.Next(Pages(20, "1200 RPM")).Revision);
+        Assert.Equal(2, publication.Next(Pages(25, "1200 RPM")).Revision);
+    }
+
+    [Fact]
+    public void ANoteOnlyChangeIsHeldBackUntilItsIntervalOrAnotherChange()
+    {
+        long now = 0;
+        SteamNativeSettingsService.HeldPublication<SteamNativeSettingsPage[]> publication = new(() => now);
+        var first = Pages(20, "1200 RPM");
+        publication.Next(first);
+
+        var held = publication.Next(Pages(20, "1300 RPM"));
+        Assert.Same(first, held.Value);
+        Assert.Equal(1, held.Revision);
+
+        now = Stopwatch.Frequency * 11;
+        Assert.Equal(2, publication.Next(Pages(20, "1300 RPM")).Revision);
+        // A setting change publishes at once, with the latest notes.
+        var setting = Pages(25, "1400 RPM");
+        Assert.Same(setting, publication.Next(setting).Value);
+    }
+
+    private static SteamNativeSettingsPage[] Pages(int limit, string rpm)
+    {
+        return
+        [
+            new SteamNativeSettingsPage("power",
+            [
+                new SteamSettingsSection("Limits",
+                [
+                    new SteamSettingsRow("limit", SteamSettingsRowKind.Range, "Limit", Number: limit, Minimum: 5,
+                        Maximum: 35, Step: 1, Choices: [new SteamSettingsChoice("a", "A")]),
+                    new SteamSettingsRow("fan", SteamSettingsRowKind.Note, "Fan", Text: rpm)
+                ], "power.limits")
+            ])
+        ];
     }
 
     [Fact]

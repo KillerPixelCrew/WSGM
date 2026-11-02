@@ -5,6 +5,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
@@ -64,10 +65,8 @@ internal sealed partial class SteamNativeSettingsService(
     private long _sharedEpoch = -1;
     private long _sharedAt;
     private IReadOnlyDictionary<string, Offered> _offered = new Dictionary<string, Offered>();
-    private string? _publishedPages;
-    private string? _publishedQuickAccess;
-    private long _quickAccessRevision;
-    private long _revision;
+    private readonly HeldPublication<List<SteamNativeSettingsPage>> _pages = new();
+    private readonly HeldPublication<List<SteamQuickAccessRowSection>> _quickAccess = new();
 
     /// <summary>Validates one change against the row last offered under its key, then runs its write.</summary>
     /// <param name="key">The row key either surface published.</param>
@@ -133,6 +132,98 @@ internal sealed partial class SteamNativeSettingsService(
         return revision + 1;
     }
 
+    /// <summary>
+    ///     One surface's published content and revision, holding back a change that is only read-only note
+    ///     text for up to <see cref="NoteHold" />.
+    /// </summary>
+    /// <remarks>
+    ///     A note row carries live measurements such as fan speed or temperature, which move on every
+    ///     two-second telemetry read. Each move re-sent the whole Settings state (about 78 KB on the Atlas)
+    ///     and the Quick Access rows (about 54 KB) into Steam's context. A change anywhere else publishes at
+    ///     once and carries the latest notes with it.
+    /// </remarks>
+    /// <typeparam name="T">The published content's type.</typeparam>
+    internal sealed class HeldPublication<T> where T : class
+    {
+        /// <summary>How long a note-only change waits before it is published.</summary>
+        internal static readonly TimeSpan NoteHold = TimeSpan.FromSeconds(10);
+
+        private readonly Func<long> _now;
+        private string? _content;
+        private long _publishedAt;
+        private string? _shape;
+        private T? _value;
+
+        internal HeldPublication(Func<long>? now = null)
+        {
+            _now = now ?? Stopwatch.GetTimestamp;
+        }
+
+        internal long Revision { get; private set; }
+
+        /// <summary>The content to publish for a fresh build, and its revision.</summary>
+        /// <param name="built">The content just built.</param>
+        /// <returns>The built content, or the held one while only its notes changed recently.</returns>
+        internal (T Value, long Revision) Next(T built)
+        {
+            var content = JsonSerializer.Serialize(built);
+            if (string.Equals(content, _content, StringComparison.Ordinal))
+            {
+                return (built, Revision);
+            }
+
+            var shape = Shape(content);
+            var now = _now();
+            if (_value is { } held && string.Equals(shape, _shape, StringComparison.Ordinal)
+                                   && Stopwatch.GetElapsedTime(_publishedAt, now) < NoteHold)
+            {
+                return (held, Revision);
+            }
+
+            _content = content;
+            _shape = shape;
+            _value = built;
+            _publishedAt = now;
+            Revision++;
+            return (built, Revision);
+        }
+
+        /// <summary>The content with every note row's text removed.</summary>
+        private static string Shape(string content)
+        {
+            var root = JsonNode.Parse(content);
+            Strip(root);
+            return root?.ToJsonString() ?? string.Empty;
+        }
+
+        private static void Strip(JsonNode? node)
+        {
+            switch (node)
+            {
+                case JsonObject item:
+                    if ((item["Kind"] ?? item["kind"]) is JsonValue kind && kind.TryGetValue(out string? text)
+                                                                         && text == SteamSettingsRowKind.Note)
+                    {
+                        item[item.ContainsKey("Text") ? "Text" : "text"] = null;
+                    }
+
+                    foreach (var property in item)
+                    {
+                        Strip(property.Value);
+                    }
+
+                    break;
+                case JsonArray array:
+                    foreach (var element in array)
+                    {
+                        Strip(element);
+                    }
+
+                    break;
+            }
+        }
+    }
+
     /// <summary>Reads the Settings pages: one fresh build of every feature's rows.</summary>
     /// <returns>
     ///     Fresh native settings pages and revision; the completed read atomically replaces the exact offered command
@@ -149,8 +240,8 @@ internal sealed partial class SteamNativeSettingsService(
         {
             var built = await SharedBuildAsync().ConfigureAwait(false);
             Volatile.Write(ref _offered, built.Commands);
-            _revision = NextRevision(built.Pages, ref _publishedPages, _revision);
-            return new SteamNativeSettingsState(built.Pages, _revision);
+            var (pages, revision) = _pages.Next(built.Pages);
+            return new SteamNativeSettingsState(pages, revision);
         }
         finally
         {
@@ -170,8 +261,8 @@ internal sealed partial class SteamNativeSettingsService(
         {
             var built = await SharedBuildAsync().ConfigureAwait(false);
             Volatile.Write(ref _offered, built.Commands);
-            _quickAccessRevision = NextRevision(built.QuickAccess, ref _publishedQuickAccess, _quickAccessRevision);
-            return new SteamQuickAccessRowsState(built.QuickAccess, _quickAccessRevision);
+            var (sections, revision) = _quickAccess.Next(built.QuickAccess);
+            return new SteamQuickAccessRowsState(sections, revision);
         }
         finally
         {

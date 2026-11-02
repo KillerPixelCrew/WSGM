@@ -22,7 +22,11 @@ internal sealed class DeviceFanCurves
     private readonly Func<bool> _closed;
     private readonly Func<bool> _integrationEnabled;
     private readonly CancellationToken _lifetime;
+    /// <summary>How long the curve reuses one sensor sample.</summary>
+    private static readonly TimeSpan SensorReuse = TimeSpan.FromMilliseconds(1500);
+
     private readonly Func<RtssOsdMetrics> _metrics;
+    private RtssOsdMetrics _lastMetrics = RtssOsdMetrics.Empty;
     private readonly Func<FanCurvePresetTable> _presets;
     private readonly ProfileService _profiles;
     private readonly Func<HandheldDeviceRuntime?> _runtime;
@@ -148,7 +152,18 @@ internal sealed class DeviceFanCurves
     internal DeviceFanCurveTemperature Temperature()
     {
         var native = _capabilities.TryGetView(new DeviceCapabilityKey(CapabilityIds.Temperature, null));
-        return SelectFanTemperature(native?.Projection.State, _metrics(), DateTimeOffset.UtcNow);
+        var now = DateTimeOffset.UtcNow;
+        // A sensor sample walks every core through LibreHardwareMonitor, waking parked cores each
+        // second. The curve's one-second ticks reuse a sample younger than SensorReuse, which keeps
+        // every reading well inside MaximumTemperatureAge while sampling every other tick.
+        var metrics = _lastMetrics;
+        if (now - metrics.CapturedAt >= SensorReuse || metrics.CapturedAt > now)
+        {
+            metrics = _metrics();
+            _lastMetrics = metrics;
+        }
+
+        return SelectFanTemperature(native?.Projection.State, metrics, now);
     }
 
     /// <summary>Picks the hottest fresh temperature the native sensor and RTSS report.</summary>
