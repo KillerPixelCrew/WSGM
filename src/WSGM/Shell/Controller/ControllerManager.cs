@@ -123,6 +123,14 @@ internal sealed class ControllerManager : IAsyncDisposable
 
     internal static ControllerManager CreateProduction(string root, IPhysicalHapticSink hapticSink)
     {
+        return new ControllerManager(new ViiperControllerBackend(), hapticSink, HidHideOwnership.ForUser(root),
+            ReaderApplicationPath(), new ControllerProcessPriority());
+    }
+
+    /// <summary>WSGM's own image as HidHide's allowlist names it, so WSGM still reads the pad it hides.</summary>
+    /// <returns>The NT device path, or the DOS path when the conversion did not apply.</returns>
+    internal static string ReaderApplicationPath()
+    {
         var reader = NativeHidHide.FromDosPath(Environment.ProcessPath
                                                ?? throw new InvalidOperationException(
                                                    "The WSGM executable path is unavailable."));
@@ -137,8 +145,7 @@ internal sealed class ControllerManager : IAsyncDisposable
                 + $"{reader.Error}; HidHide readability may be unavailable.");
         }
 
-        return new ControllerManager(new ViiperControllerBackend(), hapticSink, HidHideOwnership.ForUser(root),
-            reader.Path, new ControllerProcessPriority());
+        return reader.Path;
     }
 
     internal async ValueTask DisposeAsync(Deadline deadline)

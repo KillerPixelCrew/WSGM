@@ -24,6 +24,9 @@ internal sealed class FakeHidHideControl(
 
     internal int Reads { get; private set; }
 
+    /// <summary>Reports device-list writes as accepted without applying them, as a driver that lost them would.</summary>
+    internal bool DropDeviceWrites { get; init; }
+
     internal List<string> Calls { get; } = [];
 
     /// <summary>List and cloak writes attempted, including refused ones.</summary>
@@ -44,6 +47,11 @@ internal sealed class FakeHidHideControl(
         if (WriteError != 0)
         {
             return WriteError;
+        }
+
+        if (DropDeviceWrites && entryKind is HidHideEntryKind.Device)
+        {
+            return 0;
         }
 
         var list = entryKind is HidHideEntryKind.Application ? Applications : Devices;

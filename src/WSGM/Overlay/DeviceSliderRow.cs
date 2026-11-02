@@ -116,8 +116,10 @@ internal sealed class DeviceSliderRow : Border
         // The Fluent Slider template contains focusable inner RepeatButtons on either side of the
         // thumb. Directional (XY) focus lands on THOSE rather than the Slider, so the pad handler's
         // `target is Slider` check misses and Left/Right does nothing — the reported "focus lands
-        // before and after the dot". Once templated, leave only the Slider itself focusable.
-        _slider.AttachedToVisualTree += (_, _) =>
+        // before and after the dot". Once templated, leave only the Slider itself focusable. The
+        // template is applied at measure, after the slider is attached, so a first attach found no
+        // parts to switch off; TemplateApplied runs once they exist.
+        _slider.TemplateApplied += (_, _) =>
         {
             foreach (var descendant in _slider.GetVisualDescendants().OfType<InputElement>())
             {

@@ -50,6 +50,18 @@ public sealed class HidHideOwnershipTests
     }
 
     [Fact]
+    public async Task AHideTheDriverDoesNotListIsNotConfirmed()
+    {
+        FakeHidHideControl control = new(active: false) { DropDeviceWrites = true };
+        HidHideOwnership ownership = new(control, new InMemoryHidHideOwnershipStore());
+
+        var result = await ownership.HideAsync(DosPath, [Physical("HID\\OWN")], CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("did not confirm", result.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task HideAndShowPreserveEveryExternalEntryAndItsOrdering()
     {
         FakeHidHideControl control = new(["HC.exe", "Other.exe"], ["HID\\PRE1", "HID\\PRE2"]);

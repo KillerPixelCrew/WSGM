@@ -571,7 +571,14 @@ internal sealed class GamepadNavigation : IDisposable
             return selector;
         }
 
-        var focused = GetFocused();
+        var raw = GetFocused();
+        var focused = ValueControlOwner(raw);
+        if (!ReferenceEquals(raw, focused) && focused is { Focusable: true })
+        {
+            // Hand focus to the slider itself, so Steam's mirrored arrow keys reach it too.
+            focused.Focus(NavigationMethod.Directional);
+        }
+
         if (focused is { IsEffectivelyEnabled: true, IsEffectivelyVisible: true } && focused is not Window &&
             IsInWindow(focused))
         {
@@ -598,6 +605,24 @@ internal sealed class GamepadNavigation : IDisposable
         _loggedFocusFallback = true;
         Log.Info("Gamepad nav: FocusManager lost track (never-activated window), using last focused element.");
         return last;
+    }
+
+    /// <summary>The slider whose template holds a focused part, or the element itself.</summary>
+    /// <param name="focused">The focused element.</param>
+    /// <returns>The owning slider when the element is a part of one, otherwise the element.</returns>
+    /// <remarks>
+    ///     The Fluent Slider template has focusable repeat buttons on either side of its thumb, and
+    ///     directional focus can land on them. The pad then saw a RepeatButton rather than a Slider, so
+    ///     Left and Right moved focus instead of the value, and the slider worked only by touch. Only
+    ///     DeviceSliderRow switched those parts off; the volume, plugin and colour sliders did not.
+    /// </remarks>
+    internal static InputElement? ValueControlOwner(InputElement? focused)
+    {
+        return focused is not null and not Slider && focused is Visual visual
+                                                  && visual.FindAncestorOfType<Slider>() is
+                                                      { IsEffectivelyEnabled: true } slider
+            ? slider
+            : focused;
     }
 
     private void MoveFocus(NavigationDirection direction)

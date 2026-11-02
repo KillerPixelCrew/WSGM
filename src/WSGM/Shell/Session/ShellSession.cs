@@ -184,6 +184,10 @@ public sealed class ShellSession
             // Overlay test deliberately never discovers packages or loads plugin code.
             if (!_state.OverlayTestOnly)
             {
+                // First, before anything that reads controllers and before Steam: hide the built-in pad.
+                await SessionPadHide.HideAsync(_state.Config, _state.Store.Context.Root, _state.ShutdownToken)
+                    .ConfigureAwait(false);
+
                 using var recoveryBudget = CancellationTokenSource.CreateLinkedTokenSource(_state.ShutdownToken);
                 recoveryBudget.CancelAfter(TimeSpan.FromSeconds(15));
                 try

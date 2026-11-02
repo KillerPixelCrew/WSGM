@@ -196,7 +196,20 @@ internal sealed class HidHideOwnership
                 Log.Info("HidHide cloak was off; turned it on.");
             }
 
-            return new HidHideResult(true, $"HidHide hides {devices.Length} device(s) for WSGM.");
+            // Confirmed, not assumed: Steam is started only after this succeeds, and a pad it opens
+            // before the cloak holds stays open (Atlas tester, 2026-11-02: Steam kept the physical
+            // XInput pad beside the virtual Deck, and every QAM press arrived twice).
+            var confirmed = _control.Read();
+            var missing = devices.Where(device => !confirmed.Succeeded || !Contains(confirmed.Devices, device))
+                .ToArray();
+            if (!confirmed.Succeeded || !confirmed.Active || missing.Length > 0)
+            {
+                return new HidHideResult(false,
+                    $"HidHide did not confirm the hide: cloak {(confirmed.Active ? "on" : "off")}, "
+                    + $"{missing.Length} of {devices.Length} device(s) not listed.");
+            }
+
+            return new HidHideResult(true, $"HidHide hides {devices.Length} device(s) for WSGM, confirmed.");
         }
         finally
         {
