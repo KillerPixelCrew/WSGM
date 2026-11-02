@@ -233,6 +233,10 @@ Applying a preset:
   writes without retry.
 - The manual TDP funnel pauses AutoTDP and records the underlying values through their existing
   owners. Preset scenario commands are not persisted as desired values.
+- With AutoTDP on, the Global limit is only where the slider was last left, and the per-application
+  restore does not impose it. Replaying it paused AutoTDP after every wake and application change
+  until AutoTDP was switched off and on. A limit the running game's own profile sets still applies
+  and pauses AutoTDP for that game.
 - The native library journals the exact original scenario and watt pair and restores the scenario
   first, then the pair, when releasing its temporary state.
 

@@ -64,6 +64,15 @@ internal sealed class ApplicationPerformanceReconciler(
         var layers = snapshot.Layers;
         var applicationId = snapshot.Active.ApplicationId;
         var manual = layers.ManualTdp();
+        var coordinator = readCoordinator();
+        if (coordinator?.Power.AutoTdpEnabled == true && !SetByGame(layers))
+        {
+            // With AutoTDP on, the Global limit is only where the slider was last left, not a limit to
+            // impose: replaying it paused AutoTDP on every wake and every application change, until it
+            // was switched off and on. A limit the running game's own profile sets still overrides it.
+            manual = null;
+        }
+
         var vrrPreference = layers.Value(values => values.VariableRefreshRate).Value;
         // Windows policy, so it runs with or without a device plugin and keeps its own identity:
         // the capability keys below are deliberately not recorded while their capability is missing.
@@ -74,7 +83,6 @@ internal sealed class ApplicationPerformanceReconciler(
                 .ConfigureAwait(false);
         }
 
-        var coordinator = readCoordinator();
         var power = coordinator is null
             ? null
             : AutoTdpPowerCapability.FindPrimary(coordinator.Capabilities.Snapshot());
@@ -233,5 +241,15 @@ internal sealed class ApplicationPerformanceReconciler(
         // Verified counts, unverified counts. A timeout does not: whether the panel changed is
         // unknown, and reporting success would leave Steam's toggle disagreeing with the display.
         return result.Outcome.IsApplied();
+    }
+
+    /// <summary>Whether the running game's own profile sets a power limit.</summary>
+    /// <param name="layers">The layers in force.</param>
+    /// <returns>True when the Game layer supplies a wattage or the limit mode.</returns>
+    internal static bool SetByGame(ProfileLayers layers)
+    {
+        return layers.Value(values => values.UnifiedWatts).Source is ProfileSource.Game
+               || layers.Value(values => values.SustainedWatts).Source is ProfileSource.Game
+               || layers.Value(values => values.TdpUnified).Source is ProfileSource.Game;
     }
 }
