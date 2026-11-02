@@ -12,7 +12,10 @@ namespace WSGM.Core;
 /// </summary>
 internal sealed class RtssOsdRenderer : IAsyncDisposable
 {
+    // Read-only view of RTSS's application table; it tells the loop whether an OSD is on screen.
+    private readonly RtssFrametimeReader _applications = new();
     private readonly SystemMetricsSource _metrics;
+    private readonly Func<bool> _presenting;
     private readonly Func<RtssOsdMetrics> _sample;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly SemaphoreSlim _wake = new(0, 1);
@@ -28,11 +31,17 @@ internal sealed class RtssOsdRenderer : IAsyncDisposable
     /// <summary>Creates an OSD renderer with its own sensor source and mapping writer.</summary>
     /// <param name="write">Optional isolated OSD sink; null uses the owned shared-memory writer.</param>
     /// <param name="sample">Optional isolated telemetry source; null uses the owned sensor source.</param>
-    internal RtssOsdRenderer(Func<string, bool>? write = null, Func<RtssOsdMetrics>? sample = null)
+    /// <param name="presenting">
+    ///     Optional test of whether any application is presenting through RTSS. Null reads RTSS's own
+    ///     application table, or always answers true when an isolated telemetry source is supplied.
+    /// </param>
+    internal RtssOsdRenderer(Func<string, bool>? write = null, Func<RtssOsdMetrics>? sample = null,
+        Func<bool>? presenting = null)
     {
         _metrics = new SystemMetricsSource();
         _write = write ?? _writer.TryUpdate;
         _sample = sample ?? _metrics.Sample;
+        _presenting = presenting ?? (sample is null ? () => _applications.ReadLive().Count > 0 : () => true);
     }
 
     /// <summary>Gets the level currently rendered — the adapter's overlay readback.</summary>
@@ -99,6 +108,7 @@ internal sealed class RtssOsdRenderer : IAsyncDisposable
     private void ReleaseResources()
     {
         _writer.Dispose();
+        _applications.Dispose();
         _metrics.Dispose();
         _shutdown.Dispose();
     }
@@ -220,7 +230,14 @@ internal sealed class RtssOsdRenderer : IAsyncDisposable
                         }
                     }
 
-                    var sample = level == 1 ? RtssOsdMetrics.Empty : _sample();
+                    // RTSS draws the OSD only into an application it has hooked and that is presenting
+                    // frames. With none, nobody sees the sensor values, and reading them is the loop's
+                    // whole cost: LibreHardwareMonitor's Intel update pins its thread to every core in
+                    // turn once a second. The text keeps its last values until an application presents,
+                    // which the next tick notices.
+                    var sample = level == 1 ? RtssOsdMetrics.Empty
+                        : _presenting() ? _sample()
+                        : writtenSample ?? RtssOsdMetrics.Empty;
                     var powerStatus = _powerStatus;
                     var custom = _custom;
                     var second = DateTime.UtcNow.Ticks / TimeSpan.TicksPerSecond;
