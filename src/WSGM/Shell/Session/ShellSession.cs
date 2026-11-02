@@ -714,6 +714,7 @@ public sealed class ShellSession
         // once game mode has closed it.
         modes.DesktopModeStarting += _surfaces.RetireForDesktop;
         modes.GameModeEntered += _surfaces.EnterFromDesktop;
+        modes.DesktopShellRestored += _surfaces.ShowDesktopTrayOnTaskbar;
         // A fresh Steam start while WSGM keeps running (client update, crash restart)
         // wipes the injected tabs and the resident badge with the old CEF session —
         // re-inject once the new UI is up.

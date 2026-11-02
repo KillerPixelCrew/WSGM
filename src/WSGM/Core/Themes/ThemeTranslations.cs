@@ -74,7 +74,8 @@ internal sealed class ThemeTranslations
                 return null;
             }
 
-            var mappings = ThemeClassMappings.Parse(File.ReadAllText(path));
+            var mappings = ThemeClassMappings.Parse(File.ReadAllText(path))
+                .Releasable(() => File.ReadAllText(path));
             var fetched = File.GetLastWriteTimeUtc(path);
             lock (_sync)
             {
@@ -150,7 +151,10 @@ internal sealed class ThemeTranslations
         try
         {
             Directory.CreateDirectory(_root);
-            AtomicFile.WriteText(Path.Combine(_root, ThemePaths.TranslationsFileName), text, false);
+            var path = Path.Combine(_root, ThemePaths.TranslationsFileName);
+            AtomicFile.WriteText(path, text, false);
+            // Kept on disk, so the parsed table can be read again instead of held.
+            mappings = mappings.Releasable(() => File.ReadAllText(path));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

@@ -67,7 +67,7 @@ internal sealed class RefreshRatePairingService
             PrimaryDisplayModes.ReadAdvertisedRefreshRates,
             PrimaryDisplayModes.ReadPrimaryOperatingPoint,
             PrimaryDisplayModes.TryRestoreRefreshRate,
-            target => DisplayModes.Read(target)?.Current.RefreshHz,
+            target => DisplayModes.ReadCurrent(target)?.RefreshHz,
             driver)
     {
     }
@@ -357,12 +357,7 @@ internal sealed class RefreshRatePairingService
                 return false;
             }
 
-            // The Windows mode's own rate is the display without a fixed rate: the profile it ran before.
-            if (_readTargetRate(current.Point.Target) == refreshHz)
-            {
-                return ReleaseFixed(false);
-            }
-
+            // ApplyRate hands the Windows mode's own rate back to the driver's profile.
             return ApplyRate(refreshHz, revision, false);
         }
 
@@ -649,7 +644,16 @@ internal sealed class RefreshRatePairingService
             return _restoreTarget(point.Target, rate);
         }
 
-        if (_readTargetRate(point.Target) is { } mode && mode < rate
+        // The Windows mode's own rate needs no fixed rate: the driver's profile already runs there and keeps
+        // its variable range, so an idle desktop can still drop below it. Pinning it held the Atlas panel at
+        // a constant 120 Hz under the default 120 FPS cap.
+        var modeRate = _readTargetRate(point.Target);
+        if (modeRate == rate)
+        {
+            return ReleaseFixed(false);
+        }
+
+        if (modeRate is { } mode && mode < rate
                                                       && _readAcceptedRates().DefaultIfEmpty(0).Max() is var top
                                                       && top > mode)
         {

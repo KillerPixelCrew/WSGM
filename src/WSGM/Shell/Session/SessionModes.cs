@@ -175,6 +175,20 @@ public sealed class SessionModes
     /// </summary>
     public event Action? GameModeEntered;
 
+    /// <summary>
+    ///     Raised on the UI thread once a desktop return restored Explorer and its taskbar exists.
+    ///     Desktop surfaces that register with the taskbar (WSGM's own notification icon) do so here:
+    ///     at <see cref="DesktopModeStarting" /> there is no taskbar to take them, and an elevated
+    ///     process never hears the TaskbarCreated broadcast Explorer sends afterwards.
+    /// </summary>
+    public event Action? DesktopShellRestored;
+
+    /// <summary>Raises <see cref="DesktopShellRestored" />. UI thread.</summary>
+    internal void NotifyDesktopShellRestored()
+    {
+        DesktopShellRestored?.Invoke();
+    }
+
     /// <summary>Surfaces a shell-transition warning on the UI thread through the overlay's existing warning path.</summary>
     /// <param name="warning">User-facing transition warning forwarded to SteamStartFailed subscribers.</param>
     /// <remarks>

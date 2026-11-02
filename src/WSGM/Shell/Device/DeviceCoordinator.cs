@@ -75,6 +75,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     private bool _faultRecoveryPending;
 
     private Action<OemControlEvent>? _glyphOemHandler;
+    private Action<bool>? _motionHandler;
 
     /// <summary>Whether the handheld was last told to own the physical controller. Written under the transition gate.</summary>
     private bool _handheldOwnsController;
@@ -1803,6 +1804,10 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             }
         };
         client.OemEventReceived += _glyphOemHandler;
+        // The IMU streams only while a consumer of the virtual target reads motion.
+        _motionHandler = client.SetMotionDemand;
+        Controllers.MotionWantedChanged += _motionHandler;
+        client.SetMotionDemand(Controllers.MotionWanted);
     }
 
     private void Detach(HandheldDeviceRuntime client)
@@ -1814,6 +1819,12 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
         client.PhysicalIdentitiesReceived -= OnPhysicalIdentities;
         client.ControllerSampleReceived -= Controllers.Forwarding.Submit;
+        if (_motionHandler is { } motionHandler)
+        {
+            Controllers.MotionWantedChanged -= motionHandler;
+            _motionHandler = null;
+        }
+
         if (_glyphOemHandler is { } oemHandler)
         {
             client.OemEventReceived -= oemHandler;

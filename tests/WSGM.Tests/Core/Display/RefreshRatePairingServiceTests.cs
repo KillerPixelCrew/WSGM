@@ -378,6 +378,20 @@ public sealed class RefreshRatePairingServiceTests
     }
 
     [Fact]
+    public void WithADriverRangeACapPairedToTheModesOwnRatePinsNothing()
+    {
+        // A fixed 120 Hz on the Atlas kept its panel out of the variable range at idle.
+        var driver = new FakeFixedRefreshDriver(48, 120);
+        Harness harness = new(driver);
+        harness.Service.SetStrategy(FrameLimitStrategy.FrameDoubling);
+
+        Assert.Equal(120, harness.Service.ApplyForCap(60));
+
+        Assert.Empty(driver.Applied);
+        Assert.Empty(harness.Applied);
+    }
+
+    [Fact]
     public void WithADriverRangePairedModeNeverPicksARateOutsideIt()
     {
         var driver = new FakeFixedRefreshDriver(48, 120);

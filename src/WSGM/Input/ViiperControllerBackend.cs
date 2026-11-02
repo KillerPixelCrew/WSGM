@@ -48,6 +48,9 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
     /// </summary>
     private const int AttachAttempts = 6;
 
+    /// <summary>Steam's <c>TRACKPAD_NONE</c>, the mode SDL's Deck driver writes to feed its watchdog.</summary>
+    private const int TrackpadModeNone = 0x07;
+
     /// <summary>Steam haptic command identifiers in the Deck's feedback report.</summary>
     private const byte HapticPulseCommandId = 0x8F;
 
@@ -84,6 +87,9 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
     /// </remarks>
     private readonly byte[] _lastFrame = new byte[SteamDeckNeptuneReport.Length];
 
+    /// <summary>Who wants motion from the current Steam Deck target, read out of its feedback frames.</summary>
+    private readonly MotionDemandTracker _motionDemand = new();
+
     private readonly ConcurrentDictionary<byte, int> _undecodedFeedback = new();
     private uint _deviceId;
     private ManagedControllerTarget? _deviceKind;
@@ -108,6 +114,9 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
 
     /// <inheritdoc />
     public event EventHandler<long>? TargetLost;
+
+    /// <inheritdoc />
+    public event EventHandler<bool>? MotionRequested;
 
     /// <inheritdoc />
     public async Task<ControllerBackendHealth> DiscoverAsync(CancellationToken cancellationToken)
@@ -262,6 +271,11 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
         }
     }
 
+    internal ViiperControllerBackend()
+    {
+        _motionDemand.Changed += OnMotionDemandChanged;
+    }
+
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
@@ -270,6 +284,7 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
             return;
         }
 
+        _motionDemand.Dispose();
         long? lostGeneration = null;
         await _gate.WaitAsync().ConfigureAwait(false);
         try
@@ -323,6 +338,8 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
         Volatile.Write(ref _deviceId, deviceId);
         _deviceKind = kind;
         _lastFrameLength = 0;
+        // A new device starts with the IMU off and no reader, as real firmware does; its consumers ask again.
+        _motionDemand.Reset();
         try
         {
             // Neutral before attach: the host enumerates the device and starts polling
@@ -470,6 +487,11 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
             }
 
             ReadOnlySpan<byte> report = new(data, length);
+            if (target.Kind is ManagedControllerTarget.SteamDeckComposite)
+            {
+                backend._motionDemand.Observe(ReadMotionSignal(report));
+            }
+
             if (DecodeFeedback(target.Kind, report) is not { } feedback)
             {
                 // Steam's known configuration chatter is dropped silently; a command id this
@@ -513,6 +535,76 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
             // Never let an exception cross back into native code.
             Log.Warn($"Virtual controller feedback was dropped: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    ///     Reads what a Steam Deck feedback frame says about who wants motion: the set-settings report
+    ///     (0x87) carrying IMU mode (setting 0x30) on or off, a reset that returns every setting to its
+    ///     default (factory reset 0x86, clear settings 0x88, load defaults 0x8E), or the SDL Deck
+    ///     driver's watchdog write of right trackpad mode (setting 0x08) to none.
+    /// </summary>
+    /// <param name="report">The feedback frame, with or without its leading report id byte.</param>
+    /// <returns>The signal, or <see cref="MotionSignal.None" />.</returns>
+    /// <remarks>
+    ///     The IMU mode is the demand signal a real Deck controller acts on: its IMU is off until Steam
+    ///     sets the mode for a layout that uses gyro. SDL's Deck driver never sets it and instead feeds a
+    ///     lizard-mode watchdog every 200 reports while it holds the pad, a single-setting write that Steam
+    ///     does not repeat. The settings payload is a length byte followed by (setting, value low, value
+    ///     high) triples. A frame carrying both settings answers for the IMU.
+    /// </remarks>
+    internal static MotionSignal ReadMotionSignal(ReadOnlySpan<byte> report)
+    {
+        if (report.Length > 1 && report[0] == 0x00)
+        {
+            report = report[1..];
+        }
+
+        if (report.Length == 0)
+        {
+            return MotionSignal.None;
+        }
+
+        switch (report[0])
+        {
+            case 0x86 or 0x88 or 0x8E:
+                return MotionSignal.ImuOff;
+            case 0x87 when report.Length >= 2:
+            {
+                var payload = Math.Min(report[1], report.Length - 2);
+                var settings = 0;
+                var signal = MotionSignal.None;
+                for (var offset = 2; offset + 2 < 2 + payload; offset += 3)
+                {
+                    settings++;
+                    var value = report[offset + 1] | (report[offset + 2] << 8);
+                    switch (report[offset])
+                    {
+                        case 0x30:
+                            signal = value != 0 ? MotionSignal.ImuOn : MotionSignal.ImuOff;
+                            break;
+                        // Only a write of this setting and nothing else is SDL's watchdog. Steam
+                        // writes trackpad modes too, but always alongside other settings.
+                        case 0x08 when value == TrackpadModeNone && signal is MotionSignal.None:
+                            signal = MotionSignal.ConsumerHeartbeat;
+                            break;
+                    }
+                }
+
+                return signal is MotionSignal.ConsumerHeartbeat && settings != 1
+                    ? MotionSignal.None
+                    : signal;
+            }
+            default:
+                return MotionSignal.None;
+        }
+    }
+
+    private void OnMotionDemandChanged(bool requested)
+    {
+        Log.Info(requested
+            ? "Virtual controller motion requested: a consumer turned the IMU on or is holding the pad."
+            : "Virtual controller motion released: the IMU is off and no consumer is holding the pad.");
+        MotionRequested?.Invoke(this, requested);
     }
 
     /// <summary>Decodes one VIIPER target feedback frame into canonical physical motors.</summary>

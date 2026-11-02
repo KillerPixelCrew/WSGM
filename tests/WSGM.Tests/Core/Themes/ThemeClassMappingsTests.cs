@@ -11,6 +11,23 @@ public sealed class ThemeClassMappingsTests
                                  """;
 
     [Fact]
+    public void AReleasableTableReadsItsSourceAgainOnceCollected()
+    {
+        var rereads = 0;
+        var mappings = ThemeClassMappings.Parse(Table).Releasable(() =>
+        {
+            rereads++;
+            return Table;
+        });
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+
+        Assert.Equal(3, mappings.Count);
+        Assert.Equal(".new_Title", mappings.Rewrite(".old_Title"));
+        Assert.InRange(rereads, 0, 1);
+    }
+
+    [Fact]
     public void EveryOlderSpellingMapsToTheLatest()
     {
         var mappings = ThemeClassMappings.Parse(Table);

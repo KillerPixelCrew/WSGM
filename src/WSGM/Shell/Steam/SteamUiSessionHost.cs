@@ -778,6 +778,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     {
         if (!_disposed)
         {
+            _modules.NativeSettings.Invalidate();
             _runtime.QueuePublication();
         }
     }

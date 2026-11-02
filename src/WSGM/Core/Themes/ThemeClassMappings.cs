@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -27,7 +28,10 @@ namespace WSGM.Core;
 /// </remarks>
 public sealed partial class ThemeClassMappings
 {
-    private readonly Dictionary<string, string> _mappings;
+    private readonly int _count;
+    private readonly Func<string>? _reread;
+    private readonly Dictionary<string, string>? _strong;
+    private readonly WeakReference<Dictionary<string, string>>? _weak;
 
     /// <summary>Creates an empty table: every name is left as written.</summary>
     public ThemeClassMappings()
@@ -37,14 +41,63 @@ public sealed partial class ThemeClassMappings
 
     private ThemeClassMappings(Dictionary<string, string> mappings)
     {
-        _mappings = mappings;
+        _strong = mappings;
+        _count = mappings.Count;
+    }
+
+    private ThemeClassMappings(Dictionary<string, string> mappings, Func<string> reread)
+    {
+        _weak = new WeakReference<Dictionary<string, string>>(mappings);
+        _reread = reread;
+        _count = mappings.Count;
     }
 
     /// <summary>A table with nothing in it.</summary>
     public static ThemeClassMappings Empty { get; } = new();
 
     /// <summary>How many older names the table maps.</summary>
-    public int Count => _mappings.Count;
+    public int Count => _count;
+
+    /// <summary>The same table, held only while a rewrite uses it and read again from its source after that.</summary>
+    /// <param name="reread">Reads the document again, normally from the saved translations file.</param>
+    /// <returns>A table that lets the collector reclaim its entries between rewrites.</returns>
+    /// <remarks>
+    ///     DeckThemes' table maps some fifty thousand names, about 7 MB once parsed, and a stylesheet is
+    ///     rewritten once and then cached by its inject. Keeping the parsed table for the life of the
+    ///     process held that memory for nothing.
+    /// </remarks>
+    public ThemeClassMappings Releasable(Func<string> reread)
+    {
+        ArgumentNullException.ThrowIfNull(reread);
+        return _strong is { } mappings ? new ThemeClassMappings(mappings, reread) : this;
+    }
+
+    private Dictionary<string, string> Mappings()
+    {
+        if (_strong is { } strong)
+        {
+            return strong;
+        }
+
+        if (_weak!.TryGetTarget(out var held))
+        {
+            return held;
+        }
+
+        Dictionary<string, string> read;
+        try
+        {
+            read = Parse(_reread!())._strong!;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            Log.Warn($"Themes: the saved class translations could not be read again: {ex.Message}");
+            read = new Dictionary<string, string>(StringComparer.Ordinal);
+        }
+
+        _weak.SetTarget(read);
+        return read;
+    }
 
     /// <summary>Reads DeckThemes' translation document.</summary>
     /// <param name="json">The document text.</param>
@@ -95,7 +148,7 @@ public sealed partial class ThemeClassMappings
     /// <returns>The name to inject.</returns>
     public string Translate(string className)
     {
-        return _mappings.TryGetValue(className, out var latest) ? latest : className;
+        return Mappings().TryGetValue(className, out var latest) ? latest : className;
     }
 
     /// <summary>Rewrites every class a stylesheet names to its current spelling.</summary>
@@ -103,14 +156,21 @@ public sealed partial class ThemeClassMappings
     /// <returns>The stylesheet to inject.</returns>
     public string Rewrite(string css)
     {
-        if (_mappings.Count == 0 || css.Length == 0)
+        if (_count == 0 || css.Length == 0)
         {
             return css;
         }
 
-        var selectors = ClassSelector().Replace(css, match => "." + Translate(match.Groups[1].Value));
+        // One strong reference for the whole rewrite.
+        var mappings = Mappings();
+        var selectors = ClassSelector().Replace(css, match => "." + Translate(mappings, match.Groups[1].Value));
         return AttributeSelector().Replace(selectors, match =>
-            match.Groups[1].Value + Translate(match.Groups[2].Value) + match.Groups[3].Value);
+            match.Groups[1].Value + Translate(mappings, match.Groups[2].Value) + match.Groups[3].Value);
+    }
+
+    private static string Translate(Dictionary<string, string> mappings, string className)
+    {
+        return mappings.TryGetValue(className, out var latest) ? latest : className;
     }
 
     // CSS Loader splits on `(\.[_a-zA-Z]+[_a-zA-Z0-9-]*)` and maps the token after the dot.

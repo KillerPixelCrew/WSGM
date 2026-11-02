@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -53,7 +54,15 @@ internal sealed partial class SteamNativeSettingsService(
     PowerButtonSetting? powerButton = null,
     ExtendedVrrService? extendedVrr = null) : ISteamNativeSettingsBackend, ISteamQuickAccessRowsBackend
 {
+    /// <summary>How long one build answers both surfaces when no change was queued in between.</summary>
+    private static readonly TimeSpan SharedBuildLifetime = TimeSpan.FromSeconds(1);
+
     private readonly SemaphoreSlim _reads = new(1, 1);
+    private long _buildEpoch;
+    private (List<SteamNativeSettingsPage> Pages, List<SteamQuickAccessRowSection> QuickAccess,
+        Dictionary<string, Offered> Commands)? _shared;
+    private long _sharedEpoch = -1;
+    private long _sharedAt;
     private IReadOnlyDictionary<string, Offered> _offered = new Dictionary<string, Offered>();
     private string? _publishedPages;
     private string? _publishedQuickAccess;
@@ -138,7 +147,7 @@ internal sealed partial class SteamNativeSettingsService(
         await _reads.WaitAsync().ConfigureAwait(false);
         try
         {
-            var built = await BuildAsync().ConfigureAwait(false);
+            var built = await SharedBuildAsync().ConfigureAwait(false);
             Volatile.Write(ref _offered, built.Commands);
             _revision = NextRevision(built.Pages, ref _publishedPages, _revision);
             return new SteamNativeSettingsState(built.Pages, _revision);
@@ -159,7 +168,7 @@ internal sealed partial class SteamNativeSettingsService(
         await _reads.WaitAsync().ConfigureAwait(false);
         try
         {
-            var built = await BuildAsync().ConfigureAwait(false);
+            var built = await SharedBuildAsync().ConfigureAwait(false);
             Volatile.Write(ref _offered, built.Commands);
             _quickAccessRevision = NextRevision(built.QuickAccess, ref _publishedQuickAccess, _quickAccessRevision);
             return new SteamQuickAccessRowsState(built.QuickAccess, _quickAccessRevision);
@@ -168,6 +177,34 @@ internal sealed partial class SteamNativeSettingsService(
         {
             _reads.Release();
         }
+    }
+
+    /// <summary>Says a state change was queued, so the next read builds afresh. Any thread.</summary>
+    internal void Invalidate()
+    {
+        Interlocked.Increment(ref _buildEpoch);
+    }
+
+    /// <summary>
+    ///     One build for both surfaces of a publication round: the Settings pages and the Quick Access
+    ///     rows each read every owner, which did the whole build twice every round. Called under
+    ///     <see cref="_reads" />.
+    /// </summary>
+    private async Task<(List<SteamNativeSettingsPage> Pages, List<SteamQuickAccessRowSection> QuickAccess,
+        Dictionary<string, Offered> Commands)> SharedBuildAsync()
+    {
+        var epoch = Volatile.Read(ref _buildEpoch);
+        if (_shared is { } shared && _sharedEpoch == epoch
+                                  && Stopwatch.GetElapsedTime(_sharedAt) < SharedBuildLifetime)
+        {
+            return shared;
+        }
+
+        var built = await BuildAsync().ConfigureAwait(false);
+        _shared = built;
+        _sharedEpoch = epoch;
+        _sharedAt = Stopwatch.GetTimestamp();
+        return built;
     }
 
     /// <summary>Builds both surfaces from one read of every owner.</summary>

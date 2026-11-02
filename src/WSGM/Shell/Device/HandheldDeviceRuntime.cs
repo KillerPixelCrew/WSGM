@@ -404,6 +404,14 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
             token).ConfigureAwait(false);
     }
 
+    /// <summary>Opens or closes the handheld's motion sensors to match whether anything reads motion.</summary>
+    /// <param name="wanted">Whether a consumer reads motion.</param>
+    /// <remarks>Never waits: the sensors open and close on the thread pool, latest demand last.</remarks>
+    internal void SetMotionDemand(bool wanted)
+    {
+        Log.Observe(Device.SetMotionDemandAsync(wanted), "Handheld motion demand");
+    }
+
     internal Task ApplyHapticOutputAsync(P.HapticOutputFrame output, CancellationToken token)
     {
         return IsActive ? Device.ApplyHapticsAsync(output, token).AsTask() : Task.CompletedTask;

@@ -39,6 +39,18 @@ internal sealed class DesktopTray : IDisposable
         _icon.IsVisible = desktop;
     }
 
+    /// <summary>Adds the icon again to a taskbar that was created after it was shown.</summary>
+    /// <remarks>
+    ///     Shown at the desktop return's start, the icon's add reached no taskbar, and WSGM runs
+    ///     elevated, so the non-elevated Explorer's TaskbarCreated broadcast that would re-add it is
+    ///     filtered out. Hiding and showing it sends a fresh add.
+    /// </remarks>
+    internal void Reregister()
+    {
+        _icon.IsVisible = false;
+        _icon.IsVisible = true;
+    }
+
     private static void Add(NativeMenu menu, string title, Action action)
     {
         NativeMenuItem item = new(title);

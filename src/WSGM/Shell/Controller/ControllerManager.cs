@@ -56,6 +56,9 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <remarks>
     ///     One immutable record, so a reader never pairs one transition's state with another's target.
     /// </remarks>
+    private int _backendMotion;
+    private int _motionWanted;
+
     private ControllerManagerStatus _status = new(
         ControllerManagementState.Off,
         null,
@@ -81,8 +84,19 @@ internal sealed class ControllerManager : IAsyncDisposable
         _controllerReaderApplication = controllerReaderApplication;
         _router = new ManagedControllerRouter(backend, hapticSink, timeProvider);
         _router.TargetFaulted += OnRouterTargetFaulted;
+        _backend.MotionRequested += OnBackendMotionRequested;
         Forwarding = new ControllerForwarding(_router, () => State);
     }
+
+    /// <summary>Whether anything reads motion from the current target.</summary>
+    /// <remarks>
+    ///     A Steam Deck target says so through its consumers' IMU request and SDL's watchdog. A DualShock 4
+    ///     has no such signal, so its readers always get motion. An Xbox target carries none.
+    /// </remarks>
+    internal bool MotionWanted => Volatile.Read(ref _motionWanted) != 0;
+
+    /// <summary>Raised on any thread when <see cref="MotionWanted" /> changed.</summary>
+    internal event Action<bool>? MotionWantedChanged;
 
     /// <summary>The route from the plugin's samples to WSGM's own surfaces and the virtual target.</summary>
     internal ControllerForwarding Forwarding { get; }
@@ -170,6 +184,7 @@ internal sealed class ControllerManager : IAsyncDisposable
             }
 
             _router.TargetFaulted -= OnRouterTargetFaulted;
+            _backend.MotionRequested -= OnBackendMotionRequested;
             if (!entered)
             {
                 return;
@@ -780,6 +795,30 @@ internal sealed class ControllerManager : IAsyncDisposable
                 ApplicationId = resolved.ApplicationId
             });
         }
+
+        UpdateMotionWanted();
+    }
+
+    private void OnBackendMotionRequested(object? sender, bool requested)
+    {
+        Volatile.Write(ref _backendMotion, requested ? 1 : 0);
+        UpdateMotionWanted();
+    }
+
+    private void UpdateMotionWanted()
+    {
+        var status = Volatile.Read(ref _status);
+        var wanted = !_disposed && status.State is ControllerManagementState.Active && status.Target switch
+        {
+            ManagedControllerTarget.DualShock4 => true,
+            ManagedControllerTarget.SteamDeckComposite => Volatile.Read(ref _backendMotion) != 0,
+            _ => false
+        };
+        var value = wanted ? 1 : 0;
+        if (Interlocked.Exchange(ref _motionWanted, value) != value)
+        {
+            MotionWantedChanged?.Invoke(wanted);
+        }
     }
 
     private ControllerManagerStatus SetState(ControllerManagementState state, string detail)
@@ -796,6 +835,7 @@ internal sealed class ControllerManager : IAsyncDisposable
             Volatile.Write(ref _status, status);
         }
 
+        UpdateMotionWanted();
         StatusChanged?.Invoke(status);
         return status;
     }

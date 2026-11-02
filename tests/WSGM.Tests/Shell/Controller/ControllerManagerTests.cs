@@ -17,6 +17,37 @@ public sealed class ControllerManagerTests
     private const string HostApplication = @"C:\Program Files\WSGM\WSGM.exe";
 
     [Fact]
+    public async Task MotionIsWantedOnlyWhileADeckConsumerAsksOrADualShockTargetIsActive()
+    {
+        Harness harness = new();
+        await using var manager = harness.Manager;
+        List<bool> changes = [];
+        manager.MotionWantedChanged += changes.Add;
+
+        await manager.StartAsync(Enabled(ManagedControllerTarget.SteamDeckComposite), [Device()], null, null,
+            CancellationToken.None);
+        Assert.False(manager.MotionWanted);
+        harness.Backend.RequestMotion(true);
+        Assert.True(manager.MotionWanted);
+        harness.Backend.RequestMotion(false);
+        Assert.False(manager.MotionWanted);
+
+        Assert.Equal([true, false], changes);
+    }
+
+    [Fact]
+    public async Task AnXboxTargetNeverWantsMotion()
+    {
+        Harness harness = new();
+        await using var manager = harness.Manager;
+        await StartActiveAsync(manager);
+
+        harness.Backend.RequestMotion(true);
+
+        Assert.False(manager.MotionWanted);
+    }
+
+    [Fact]
     public async Task AThrowingStatusSubscriberCannotKeepTheReleaseGateHeld()
     {
         Harness harness = new();

@@ -53,6 +53,7 @@ internal sealed class DesktopReturn(SessionModes modes, ExplorerDesktopHost host
                 if (restored)
                 {
                     modes.SteamLifecycle.EnsureDesktop();
+                    modes.NotifyDesktopShellRestored();
                 }
                 else
                 {

@@ -11,10 +11,14 @@
     <AssemblyName>WSGM</AssemblyName>
     <RootNamespace>WSGM</RootNamespace>
     <Version>3.0.0</Version>
-    <!-- Self-contained JIT publish. Built-in handheld and GPU libraries own native mechanics;
+    <!-- Self-contained publish. Built-in handheld and GPU libraries own native mechanics;
          the resident process owns policy and uses managed Windows APIs where possible. -->
     <SelfContained>true</SelfContained>
     <PublishSingleFile>false</PublishSingleFile>
+    <!-- Precompiled code: a JIT-only publish kept about 105 MB of private, doubly mapped code
+         heaps resident on the idle Atlas (2026-11-02). ReadyToRun pages are file-backed and
+         shareable, and startup stops compiling Avalonia from IL. Hot methods still tier up. -->
+    <PublishReadyToRun>true</PublishReadyToRun>
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
 
     <!-- A resident shell on an 8-16 GB handheld: favor small heap over GC

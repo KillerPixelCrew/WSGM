@@ -364,6 +364,13 @@ internal sealed class DeterministicFakeControllerBackend : IControllerTargetBack
 
     public event EventHandler<long>? TargetLost;
 
+    public event EventHandler<bool>? MotionRequested;
+
+    internal void RequestMotion(bool requested)
+    {
+        MotionRequested?.Invoke(this, requested);
+    }
+
     public Task<ControllerBackendHealth> DiscoverAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

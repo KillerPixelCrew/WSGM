@@ -109,6 +109,15 @@ internal sealed class GameModeSurfaces(
         messageWindow()?.DeregisterShellHook();
     }
 
+    /// <summary>Registers the desktop tray icon with the taskbar Explorer just restored. UI thread.</summary>
+    internal void ShowDesktopTrayOnTaskbar()
+    {
+        if (!state.InGameMode)
+        {
+            _desktopTray?.Reregister();
+        }
+    }
+
     /// <summary>Brings Game Mode back once an entry from the desktop committed. UI thread.</summary>
     internal void EnterFromDesktop()
     {

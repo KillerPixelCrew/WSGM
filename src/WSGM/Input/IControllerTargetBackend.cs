@@ -42,6 +42,12 @@ internal interface IControllerTargetBackend : IAsyncDisposable
     /// <summary>Reports the lost target generation after releasing the backend gate; handlers must not assume a UI thread.</summary>
     event EventHandler<long>? TargetLost;
 
+    /// <summary>
+    ///     Whether a consumer of the current target reads motion, raised on a change from the backend
+    ///     callback or timer thread. Only a protocol that carries such a signal raises it.
+    /// </summary>
+    event EventHandler<bool>? MotionRequested;
+
     /// <summary>Initializes or inspects backend availability without creating a target.</summary>
     /// <param name="cancellationToken">Cancels waiting for backend serialization.</param>
     /// <returns>Readiness, supported target kinds and a diagnostic explanation.</returns>
