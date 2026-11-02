@@ -458,6 +458,62 @@ internal sealed class ControllerForwarding
         }
     }
 
+    /// <summary>Re-plugs a virtual Steam Deck pad that Steam has never opened, so Steam sees it arrive.</summary>
+    /// <param name="cancellationToken">Cancels waiting for the route.</param>
+    /// <returns>Whether the target was re-plugged.</returns>
+    /// <remarks>
+    ///     A Steam Input lease taken while Steam is still starting blocks Steam's first open of the pad.
+    ///     Steam then never opens it again, and only a fresh arrival makes it try, which is what a
+    ///     replacement is. Steam sends output to a Steam Deck pad as soon as it opens one, so a target
+    ///     that has received none was never opened; once it has, nothing is done. Other targets are
+    ///     left alone, since a game may simply never have sent them anything.
+    /// </remarks>
+    internal async Task<bool> ReplugUnopenedTargetAsync(CancellationToken cancellationToken)
+    {
+        await _routeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_router.Target is not { Kind: ManagedControllerTarget.SteamDeckComposite } target
+                || _router.Output.OutputObserved)
+            {
+                return false;
+            }
+
+            Log.Info("Steam never opened the virtual controller and a Steam Input lease was in the way; "
+                     + "re-plugging it so Steam sees it arrive.");
+            lock (_gate)
+            {
+                _forwardingBlocked = true;
+            }
+
+            try
+            {
+                await _router.ReplaceAsync(target.Kind, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                bool captured;
+                lock (_gate)
+                {
+                    _forwardingBlocked = false;
+                    captured = _uiCapture.IsCaptured;
+                    _gameLive = !captured;
+                }
+
+                if (captured)
+                {
+                    await _router.NeutralizeAsync("ui-capture", cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            return true;
+        }
+        finally
+        {
+            _routeGate.Release();
+        }
+    }
+
     /// <summary>Creates, replaces or keeps the virtual target under the route gate, then reopens forwarding.</summary>
     /// <param name="target">The target kind to drive.</param>
     /// <param name="replace">Whether an existing target is replaced rather than a first one created.</param>

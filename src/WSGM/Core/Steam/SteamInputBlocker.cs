@@ -69,6 +69,16 @@ internal sealed class SteamInputBlocker(SteamInputShim shim, Func<SteamInputPipe
     /// </summary>
     public event Action<string>? RecoveryWarningRaised;
 
+    /// <summary>
+    ///     Raised on a worker after a lease is released that found no Steam controller handle to revoke.
+    /// </summary>
+    /// <remarks>
+    ///     Either Steam had nothing open, or the lease blocked Steam's first open of a controller. The
+    ///     release asks Steam to rediscover controllers, which brings back a handle the lease revoked but
+    ///     not a device whose first open failed: Steam leaves that one alone until it sees it arrive again.
+    /// </remarks>
+    public event Action? ReleasedWithoutSteamHandles;
+
     /// <summary>Names a new surface owner, unique in this process.</summary>
     /// <param name="kind">What the surface is; the name appears in the lease log lines.</param>
     /// <returns>An owner name such as <c>settings-window#2</c>.</returns>
@@ -292,6 +302,18 @@ internal sealed class SteamInputBlocker(SteamInputShim shim, Func<SteamInputPipe
             var outcome = lease.Release();
             Log.Info($"Steam Input lease released ({reason}; {outcome.Status.LeaseCount} active " +
                      $"leases remain; recovery {DescribeRecovery(outcome)}).");
+            if (lease.InitialStatus.LastRevokedHandleCount == 0 && outcome.Status.LeaseCount == 0)
+            {
+                try
+                {
+                    ReleasedWithoutSteamHandles?.Invoke();
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Steam Input release follow-up failed: {ex.Message}");
+                }
+            }
+
             if (outcome.RecoveryRequested)
             {
                 return;

@@ -73,6 +73,19 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
     /// <summary>Feedback rejected while detached, disposed or previewing, or when enqueueing fails; not a hardware-loss count.</summary>
     internal int DroppedFrames => Volatile.Read(ref _droppedFrames);
 
+    /// <summary>Whether a consumer has sent the current target any output since it was attached.</summary>
+    /// <remarks>Steam sends output as soon as it opens a virtual Steam Deck pad, so false means it never did.</remarks>
+    internal bool OutputObserved
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _outputObserved;
+            }
+        }
+    }
+
     /// <summary>Whether the current owned sink and target support the bounded physical-motor preview.</summary>
     internal bool CanPreview
     {

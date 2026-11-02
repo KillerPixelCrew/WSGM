@@ -610,6 +610,8 @@ public sealed class ShellSession
             () => _state.InGameMode,
             () => _integrations.Device?.Controllers.Forwarding.UiPad);
         overlay.OpenSettings = settings.OpenAsync;
+        // The blocker lives as long as the process; the handler does nothing once shutdown begins.
+        _steamInput.ReleasedWithoutSteamHandles += ReplugUnopenedVirtualController;
         if (!_state.OverlayTestOnly)
         {
             // The tray menu and the activation receivers are conveniences: a failure leaves the
@@ -949,6 +951,22 @@ public sealed class ShellSession
             await earlier.ConfigureAwait(false);
             shim.Reconcile(enabled, "settings-change");
         });
+    }
+
+    /// <summary>Re-plugs the virtual controller when a released lease shows Steam never opened it.</summary>
+    /// <remarks>
+    ///     Opening the overlay while Steam is still starting takes a lease before Steam has opened the
+    ///     virtual pad, and Steam then never opens it, leaving every app but WSGM without input
+    ///     (device log, Atlas 8, 2026-11-02). See <see cref="ControllerForwarding.ReplugUnopenedTargetAsync" />.
+    /// </remarks>
+    private void ReplugUnopenedVirtualController()
+    {
+        if (_state.ShutdownRequested || _integrations.Device?.Controllers.Forwarding is not { } forwarding)
+        {
+            return;
+        }
+
+        Log.Observe(forwarding.ReplugUnopenedTargetAsync(_state.ShutdownToken), "Virtual controller re-plug", true);
     }
 
     /// <summary>Saves a profile edit under the cross-process configuration lock, on a worker.</summary>

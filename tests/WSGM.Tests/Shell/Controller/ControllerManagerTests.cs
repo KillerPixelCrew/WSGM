@@ -205,6 +205,37 @@ public sealed class ControllerManagerTests
     }
 
     [Fact]
+    public async Task ASteamDeckPadSteamNeverOpenedIsReplugged()
+    {
+        // Device log, Atlas 8, 2026-11-02: a lease taken while Steam was starting blocked its first open
+        // of the pad, and Steam never opened it again until it saw the pad arrive.
+        Harness harness = new();
+        await using var manager = harness.Manager;
+        await manager.StartAsync(Enabled(ManagedControllerTarget.SteamDeckComposite), [Device()], null, null,
+            CancellationToken.None);
+
+        Assert.True(await manager.Forwarding.ReplugUnopenedTargetAsync(CancellationToken.None));
+
+        Assert.Contains("remove:1", harness.Backend.Operations);
+        Assert.Contains("create:2:neutral", harness.Backend.Operations);
+        Assert.Equal(ManagedControllerTarget.SteamDeckComposite, manager.Snapshot().Target);
+    }
+
+    [Fact]
+    public async Task AnXboxPadWithoutOutputIsNotReplugged()
+    {
+        // Nothing may ever rumble an Xbox pad, so missing output proves nothing about Steam there.
+        Harness harness = new();
+        await using var manager = harness.Manager;
+        await manager.StartAsync(Enabled(ManagedControllerTarget.Xbox360), [Device()], null, null,
+            CancellationToken.None);
+
+        Assert.False(await manager.Forwarding.ReplugUnopenedTargetAsync(CancellationToken.None));
+
+        Assert.DoesNotContain("remove:1", harness.Backend.Operations);
+    }
+
+    [Fact]
     public async Task EnabledSelectionHidesTheDeviceAndCreatesTheSelectedTarget()
     {
         Harness harness = new();

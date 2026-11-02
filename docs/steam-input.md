@@ -234,6 +234,19 @@ handoff. The deferred close then ends the sheet's claim. Abandoning either name 
 controller blocked after the visible surface is gone (device-observed, 2026-08-15); an owner set
 that empties during the overlap drops and re-revokes the controller (device-observed, 2026-08-12).
 
+### A lease taken before Steam opened the virtual pad
+
+Release recovery asks Steam to rediscover controllers, which brings back a handle the lease revoked.
+It does not bring back a pad whose first open the lease blocked: opening the overlay seconds after a
+cold Steam start left Steam without the virtual Steam Deck pad for the whole session, so no
+application but WSGM received input (Atlas 8 device log, 2026-11-02: every lease revoked 0 handles
+and no output ever reached the target). When a released lease revoked nothing and the current target
+is a Steam Deck pad that has received no output since it was created, `SteamInputBlocker` raises
+`ReleasedWithoutSteamHandles` and the session re-plugs the pad once through
+`ControllerForwarding.ReplugUnopenedTargetAsync`, so Steam sees it arrive. Steam sends output as
+soon as it opens such a pad, so a pad it already uses is never touched. Xbox and DualShock targets
+are left alone, because missing output proves nothing there.
+
 ## Guide button chord edits
 
 Steam's guide-chord editor (the pseudo-app 443510) does not keep edits for a Steam Deck controller
