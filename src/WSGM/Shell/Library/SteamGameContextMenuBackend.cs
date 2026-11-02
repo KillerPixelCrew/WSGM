@@ -48,6 +48,7 @@ internal sealed class SteamGameContextMenuBackend : ISteamGameContextMenuBackend
     private readonly Func<uint, CancellationToken, Task<SteamUiCommandResult>>? _openGameTools;
     private readonly Func<uint, CancellationToken, Task<SteamUiCommandResult>>? _openLaunchActions;
 
+    private readonly Func<bool> _pagesAvailable;
     private readonly CommonPluginSteamUiSource? _pluginSteamUi;
 
     /// <summary>Creates the menu over WSGM's artwork browser and an optional plugin source.</summary>
@@ -57,14 +58,21 @@ internal sealed class SteamGameContextMenuBackend : ISteamGameContextMenuBackend
     /// <param name="openLaunchActions">Opens the shared launch configuration for the activating AppID.</param>
     /// <param name="openGameTools">Opens the Game Tools page state for the activating AppID.</param>
     /// <param name="gameToolsRoute">The route that shows the Game Tools page for a game.</param>
+    /// <param name="pagesAvailable">
+    ///     Whether Steam can draw a routed WSGM page right now; null means always. The page host lives in
+    ///     Big Picture's router, so the desktop client's gear menu must not offer an entry that routes to a
+    ///     page nothing draws.
+    /// </param>
     internal SteamGameContextMenuBackend(
         CommonPluginSteamUiSource? pluginSteamUi,
         Func<uint, CancellationToken, Task<SteamUiCommandResult>>? openArtwork,
         Func<uint, string>? artworkRoute,
         Func<uint, CancellationToken, Task<SteamUiCommandResult>>? openLaunchActions = null,
         Func<uint, CancellationToken, Task<SteamUiCommandResult>>? openGameTools = null,
-        Func<uint, string>? gameToolsRoute = null)
+        Func<uint, string>? gameToolsRoute = null,
+        Func<bool>? pagesAvailable = null)
     {
+        _pagesAvailable = pagesAvailable ?? (static () => true);
         _openGameTools = openGameTools;
         _gameToolsRoute = gameToolsRoute;
         _pluginSteamUi = pluginSteamUi;
@@ -133,7 +141,9 @@ internal sealed class SteamGameContextMenuBackend : ISteamGameContextMenuBackend
     internal SteamGameContextMenuState ReadState()
     {
         List<SteamGameContextMenuItem> items = [];
-        if (_openArtwork is not null)
+        // Artwork and Game Tools open routed pages; Launch Actions is a submenu and works in both clients.
+        var pages = _pagesAvailable();
+        if (pages && _openArtwork is not null)
         {
             items.Add(new SteamGameContextMenuItem(ArtworkId, "Change Artwork…"));
         }
@@ -144,7 +154,7 @@ internal sealed class SteamGameContextMenuBackend : ISteamGameContextMenuBackend
                 SteamLaunchActionsSurface.Template));
         }
 
-        if (_openGameTools is not null)
+        if (pages && _openGameTools is not null)
         {
             items.Add(new SteamGameContextMenuItem(GameToolsId, "Game Tools…"));
         }

@@ -113,7 +113,8 @@ internal sealed class SteamUiModuleCatalog
             artwork is null ? null : SteamArtworkBrowserSurface.RouteFor,
             launchActions is null ? null : launchActions.OpenAsync,
             gameTools is null ? null : gameTools.OpenAsync,
-            gameTools is null ? null : SteamGameToolsSurface.RouteFor);
+            gameTools is null ? null : SteamGameToolsSurface.RouteFor,
+            () => _switches() is { BigPicture: true });
         var libraryImport = backends.LibraryImport;
         var libraryManager = backends.LibraryManager;
         _extensionsTab = new SteamExtensionsTabBackend(
