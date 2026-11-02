@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -57,6 +58,9 @@ public sealed class ShellSession
     private readonly NativeQamPowerProfileService _powerProfiles;
     private readonly ProfileService _profiles;
     private readonly bool _serviceBoot;
+    /// <summary>The longest the session waits for the handheld and its virtual pad before starting Steam.</summary>
+    private static readonly TimeSpan DeviceStartupWait = TimeSpan.FromSeconds(20);
+
     private readonly SessionState _state;
 
     /// <summary>The process's Steam Input lease owner, shared with every surface this session opens.</summary>
@@ -246,6 +250,13 @@ public sealed class ShellSession
                 return;
             }
 
+            // Steam starts from the session built below. It must meet only the virtual pad: the
+            // physical one is hidden first, then the handheld and its virtual pad come up, then Steam.
+            if (coordinator is not null)
+            {
+                await WaitForDeviceStartupAsync(coordinator).ConfigureAwait(false);
+            }
+
             if (!_state.OverlayTestOnly)
             {
                 await _library.StartEmulatorsAsync().ConfigureAwait(false);
@@ -300,6 +311,23 @@ public sealed class ShellSession
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             Log.Error($"Session startup: {name} is unavailable; the session continues without it", ex);
+        }
+    }
+
+    /// <summary>Waits, bounded, for the handheld and its virtual pad before anything starts Steam.</summary>
+    private async Task WaitForDeviceStartupAsync(DeviceCoordinator coordinator)
+    {
+        var started = Stopwatch.GetTimestamp();
+        try
+        {
+            await coordinator.StartupReady.WaitAsync(DeviceStartupWait, _state.ShutdownToken).ConfigureAwait(false);
+            Log.Info($"Session startup: handheld and controller ready after "
+                     + $"{Stopwatch.GetElapsedTime(started).TotalMilliseconds:0} ms; starting the session.");
+        }
+        catch (TimeoutException)
+        {
+            Log.Warn($"Session startup: the handheld did not settle its controller within "
+                     + $"{DeviceStartupWait.TotalSeconds:0} s; the session starts without waiting longer.");
         }
     }
 

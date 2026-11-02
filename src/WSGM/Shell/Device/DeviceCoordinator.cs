@@ -68,6 +68,16 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     private AppConfig _config;
     private Task _controllerPublication = Task.CompletedTask;
 
+    /// <summary>Completes once the first cycle has its handheld up and its controller settled.</summary>
+    private readonly TaskCompletionSource _startupReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
+    ///     Completes when the first cycle's handheld hardware is up and, where WSGM owns the pad, controller
+    ///     management has hidden it and brought the virtual pad up; also when no pad will be taken.
+    /// </summary>
+    /// <remarks>The session starts Steam only after this, so Steam never meets the physical pad.</remarks>
+    internal Task StartupReady => _startupReady.Task;
+
     /// <summary>Cancels the controller-management start the last publication began.</summary>
     private CancellationTokenSource _controllerStartCancellation = new();
 
@@ -1877,6 +1887,10 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             Log.Info("Controller management start cancelled by a suspend.");
             return;
         }
+        finally
+        {
+            _startupReady.TrySetResult();
+        }
 
         Log.Info(
             $"Controller management: state={status.State}, target={status.Target}, "
@@ -2404,6 +2418,13 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         _state = state;
         Log.Info($"Handheld state: {state}.");
         StateChanged?.Invoke(state);
+        // No pad will be published: nothing to wait for before Steam. A cycle that owns the pad
+        // completes when its controller management start does.
+        if (state is DeviceCycleState.Disabled or DeviceCycleState.Faulted or DeviceCycleState.Passive
+            || (state is DeviceCycleState.Active or DeviceCycleState.Degraded && !_handheldOwnsController))
+        {
+            _startupReady.TrySetResult();
+        }
         if (!wasRunning && state is DeviceCycleState.Active or DeviceCycleState.Degraded && IntegrationEnabled)
         {
             // A new cycle, including one after sleep, can start with firmware defaults, so every
