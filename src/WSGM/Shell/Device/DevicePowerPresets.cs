@@ -18,13 +18,18 @@ namespace WSGM.Shell;
 ///     preset cannot interleave with them; null gives this instance a lane of its own.
 /// </param>
 /// <param name="automaticPowerOwner">Whether AutoTDP currently owns the runtime power limits.</param>
+/// <param name="userPresets">
+///     The user's saved presets for the current device family; they follow the declared presets and apply
+///     through the same ordered path as a Custom assignment.
+/// </param>
 internal sealed class DevicePowerPresets(
     Func<IReadOnlyList<DeviceCapabilityView>> snapshot,
     Func<string, CapabilityValue, bool, CancellationToken, Task<CapabilityCommandResult>> execute,
     WindowsPowerModes modes,
     Func<bool?>? readOnAc = null,
     SemaphoreSlim? powerLane = null,
-    Func<bool>? automaticPowerOwner = null)
+    Func<bool>? automaticPowerOwner = null,
+    Func<IReadOnlyList<DevicePowerUserPreset>>? userPresets = null)
 {
     private readonly SemaphoreSlim _lane = powerLane ?? new SemaphoreSlim(1, 1);
     private string _status = string.Empty;
@@ -50,7 +55,7 @@ internal sealed class DevicePowerPresets(
             try
             {
                 var mode = await Task.Run(modes.Read, cancellationToken).ConfigureAwait(false);
-                return Project(views, mode, _status, readOnAc?.Invoke(), AutomaticPowerOwned);
+                return Project(views, mode, _status, readOnAc?.Invoke(), AutomaticPowerOwned, UserPresets());
             }
             catch (OperationCanceledException)
             {
@@ -58,7 +63,8 @@ internal sealed class DevicePowerPresets(
             }
             catch (Exception ex)
             {
-                return new DevicePowerPresetState(presets, false, string.Empty,
+                return new DevicePowerPresetState(
+                    [.. presets, .. UserPresets().Select(AsPreset)], false, string.Empty,
                     $"Windows power mode is unavailable: {ex.Message}");
             }
         }
@@ -90,9 +96,36 @@ internal sealed class DevicePowerPresets(
         try
         {
             var views = snapshot();
-            var preset = id == "custom" && customValues is not null
+            // A saved preset applies its values exactly as a Custom assignment does.
+            DevicePowerUserPreset? saved = null;
+            if (DevicePowerUserPresets.IsUserId(id))
+            {
+                saved = UserPresets().FirstOrDefault(item => item.Id == id);
+                if (saved?.Values is null)
+                {
+                    _status = "This saved power preset no longer exists.";
+                    return new PowerPresetApplyResult(false, _status);
+                }
+
+                customValues = saved.Values;
+            }
+            else if (id != "custom")
+            {
+                customValues = null;
+            }
+
+            var preset = customValues is not null
                 ? customValues.ToPreset()
                 : Presets(views).FirstOrDefault(item => item.Id == id);
+            if (saved is not null && Presets(views).Length > 0 && TryPair(views, out _, out _)
+                && !ValidTarget(views, preset!, true))
+            {
+                // Never clamped: a preset saved under other limits is refused, and says which one.
+                _status = $"“{saved.Name}” does not fit this device's current power limits, so it was not applied.";
+                Log.Warn($"Power preset {id}: {_status}");
+                return new PowerPresetApplyResult(false, _status);
+            }
+
             if (preset is not null && !ValidTarget(views, preset, customValues is not null))
             {
                 preset = null;
@@ -228,25 +261,37 @@ internal sealed class DevicePowerPresets(
     /// <param name="status">Existing operation detail to retain when the controls are available.</param>
     /// <param name="onAc">Current power source, required when presets declare source-dependent scenarios.</param>
     /// <param name="automaticPowerOwner">Whether AutoTDP owns the runtime limits and selection must show custom.</param>
+    /// <param name="userPresets">The user's saved presets for this device family, listed after the declared ones.</param>
     /// <returns>Available choices, matching/custom selection, and any reason that commands are unavailable.</returns>
     internal static DevicePowerPresetState Project(IReadOnlyList<DeviceCapabilityView> views, Guid mode,
         string status = "", bool? onAc = null,
-        bool automaticPowerOwner = false)
+        bool automaticPowerOwner = false, IReadOnlyList<DevicePowerUserPreset>? userPresets = null)
     {
-        var presets = Presets(views);
-        if (!TryPair(views, out var sustained, out var slow)
+        var declared = Presets(views);
+        IReadOnlyList<DevicePowerUserPreset> saved = declared.Length == 0
+            ? []
+            : [.. (userPresets ?? []).Where(item => item.Values is not null)];
+        // Declared presets come first, so a saved preset with the same values never hides the device's own.
+        DevicePowerPreset[] presets = [.. declared, .. saved.Select(AsPreset)];
+        var paired = TryPair(views, out var sustained, out var slow);
+        IReadOnlyList<DevicePowerSavedPreset> savedStates =
+        [
+            .. saved.Select(item =>
+                new DevicePowerSavedPreset(item, paired && ValidTarget(views, item.Values!.ToPreset(), true)))
+        ];
+        if (!paired
             || !FastCurrent(views)
-            || (presets.Any(preset => preset.ScenarioOnAc is not null)
+            || (declared.Any(preset => preset.ScenarioOnAc is not null)
                 && !Current(ScenarioView(views))))
         {
             return new DevicePowerPresetState(presets, false, string.Empty,
-                "The device's power controls are not available.");
+                "The device's power controls are not available.", Saved: savedStates);
         }
 
-        if (presets.Any(preset => preset.ScenarioOnAc is not null) && onAc is null)
+        if (declared.Any(preset => preset.ScenarioOnAc is not null) && onAc is null)
         {
             return new DevicePowerPresetState(presets, false, string.Empty,
-                "Waiting for Windows to report the power source.");
+                "Waiting for Windows to report the power source.", Saved: savedStates);
         }
 
         var match = presets.FirstOrDefault(preset =>
@@ -270,7 +315,7 @@ internal sealed class DevicePowerPresets(
                 SlowWatts = slowWatts,
                 FastWatts = FastView(views)?.Projection.State.ObservedValue?.IntegerValue,
                 WindowsMode = knownMode,
-                Scenario = presets.Any(preset => preset.ScenarioOnAc is not null)
+                Scenario = declared.Any(preset => preset.ScenarioOnAc is not null)
                     ? ScenarioView(views)!.Projection.State.ObservedValue?.ChoiceValue
                     : null
             }
@@ -278,14 +323,43 @@ internal sealed class DevicePowerPresets(
         if (automaticPowerOwner)
         {
             return new DevicePowerPresetState(presets, presets.Length > 0, "custom",
-                "Custom: AutoTDP controls the runtime power limits.", values);
+                "Custom: AutoTDP controls the runtime power limits.", values, savedStates);
         }
 
+        // Only a complete Custom reading that the device would accept back can become a preset.
+        var savable = match is null && values is not null && values.IsValid()
+                      && ValidTarget(views, values.ToPreset(), true);
         return new DevicePowerPresetState(presets, presets.Length > 0, match?.Id ?? "custom", status.Length > 0 ? status
             : match is null ? "Custom: current power limits, firmware scenario or Windows mode do not match a preset."
-            : $"{match.SustainedWatts}/{match.SlowWatts}"
-              + (FastView(views) is null ? string.Empty : $"/{match.FastWatts ?? match.SlowWatts}")
-              + $" W · {WindowsPowerModes.Label(match.WindowsMode)}", values);
+            : Describe(match.SustainedWatts, match.SlowWatts,
+                FastView(views) is null ? null : match.FastWatts ?? match.SlowWatts, match.WindowsMode),
+            values, savedStates, savable);
+    }
+
+    /// <summary>A preset's values in one line, as both surfaces show them.</summary>
+    /// <param name="values">The values.</param>
+    /// <returns>Such as "17/18 W · Balanced", with the fast limit third when the device has one.</returns>
+    internal static string Describe(DevicePowerCustomValues values)
+    {
+        return Describe(values.SustainedWatts, values.SlowWatts, values.FastWatts, values.WindowsMode);
+    }
+
+    private static string Describe(int sustained, int slow, int? fast, DevicePowerMode mode)
+    {
+        return $"{sustained}/{slow}" + (fast is { } watts ? $"/{watts}" : string.Empty)
+                                     + $" W · {WindowsPowerModes.Label(mode)}";
+    }
+
+    private IReadOnlyList<DevicePowerUserPreset> UserPresets()
+    {
+        return userPresets?.Invoke() ?? [];
+    }
+
+    // A saved preset as a choice beside the declared ones. It is never validated as a declaration, so a
+    // name of any length or character set is listed as the user wrote it.
+    private static DevicePowerPreset AsPreset(DevicePowerUserPreset saved)
+    {
+        return saved.Values!.ToPreset() with { Id = saved.Id, Name = saved.Name };
     }
 
     private static DevicePowerPreset[] Presets(IReadOnlyList<DeviceCapabilityView> views)

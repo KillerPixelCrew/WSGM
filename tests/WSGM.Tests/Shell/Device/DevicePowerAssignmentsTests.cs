@@ -551,6 +551,137 @@ public sealed class DevicePowerAssignmentsTests
         Assert.Equal("balanced", Assert.Single(restored.Games).Values.AcPowerPreset!.PresetId);
     }
 
+    private static DevicePowerUserPreset SavedPreset(string id, string name, int sustained, int slow)
+    {
+        return new DevicePowerUserPreset
+        {
+            PluginId = "fixture",
+            Id = id,
+            Name = name,
+            Values = new DevicePowerCustomValues
+                { SustainedWatts = sustained, SlowWatts = slow, WindowsMode = DevicePowerMode.Balanced }
+        };
+    }
+
+    [Fact]
+    public async Task SavingACustomReadingStoresItAsAPresetWithoutWritingHardware()
+    {
+        Rig rig = new();
+        var assignments = rig.Create();
+        await assignments.ReconcileAsync(CancellationToken.None);
+        ChangeValue(rig, 0, new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 29 });
+        var writes = rig.Device.Calls.Count;
+        var modeWrites = rig.Device.Api.Writes;
+
+        var id = await assignments.SaveUserPresetAsync("  Mine  ", CancellationToken.None);
+
+        var saved = Assert.Single(rig.Device.Saved);
+        Assert.Equal((id, "Mine", "fixture"), (saved.Id, saved.Name, saved.PluginId));
+        Assert.Equal(new DevicePowerCustomValues
+            { SustainedWatts = 29, SlowWatts = 31, WindowsMode = DevicePowerMode.BestPerformance }, saved.Values);
+        Assert.Equal(writes, rig.Device.Calls.Count);
+        Assert.Equal(modeWrites, rig.Device.Api.Writes);
+        var rows = await PowerPresetRows.ReadAsync(rig.Device.Create(), assignments);
+        Assert.Equal("Mine", rows.Current);
+        Assert.Contains(rows.Options, option => option.Id == id && option.Label == "Mine");
+    }
+
+    [Fact]
+    public async Task SavingIsRefusedWhenTheReadingIsAPresetWhileAutoTdpMovesItOrWithoutIntegration()
+    {
+        Rig rig = new();
+        var assignments = rig.Create();
+        await assignments.ReconcileAsync(CancellationToken.None);
+        var match = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            assignments.SaveUserPresetAsync("Same", CancellationToken.None));
+        Assert.Contains("already match a preset", match.Message);
+
+        ChangeValue(rig, 0, new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 29 });
+        rig.AutoTdpOwnsPower = true;
+        var automatic = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            assignments.SaveUserPresetAsync("Auto", CancellationToken.None));
+        Assert.Contains("AutoTDP", automatic.Message);
+
+        rig.AutoTdpOwnsPower = false;
+        rig.Enabled = false;
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            assignments.SaveUserPresetAsync("Off", CancellationToken.None));
+        Assert.Empty(rig.Device.Saved);
+        Assert.Equal(0, rig.Edits);
+    }
+
+    [Fact]
+    public async Task DeletingAnAssignedPresetKeepsItsValuesAsCustomAndWritesNothing()
+    {
+        Rig rig = new();
+        rig.Device.Saved.Add(SavedPreset("user.quiet", "Quiet", 12, 15));
+        rig.Config.Global.AcPowerPreset = Reference("user.quiet");
+        var assignments = rig.Create();
+        await assignments.ReconcileAsync(CancellationToken.None);
+        Assert.Equal(12, rig.Device.Views[0].Projection.State.ObservedValue!.IntegerValue);
+        var writes = rig.Device.Calls.Count;
+        var modeWrites = rig.Device.Api.Writes;
+
+        await assignments.DeleteUserPresetAsync("user.quiet", CancellationToken.None);
+        await assignments.ReconcileAsync(CancellationToken.None);
+
+        Assert.Empty(rig.Device.Saved);
+        Assert.Equal("custom", rig.Config.Global.AcPowerPreset!.PresetId);
+        Assert.Equal(new DevicePowerCustomValues
+                { SustainedWatts = 12, SlowWatts = 15, WindowsMode = DevicePowerMode.Balanced },
+            rig.Config.Global.AcPowerPreset.CustomValues);
+        Assert.Equal("battery", rig.Config.Global.BatteryPowerPreset!.PresetId);
+        Assert.Equal(writes, rig.Device.Calls.Count);
+        Assert.Equal(modeWrites, rig.Device.Api.Writes);
+        Assert.Equal("custom", assignments.Snapshot().AcPreset);
+    }
+
+    [Fact]
+    public async Task UpdatingAnAssignedPresetKeepsTheAssignmentAndWritesNothingNow()
+    {
+        Rig rig = new();
+        rig.Device.Saved.Add(SavedPreset("user.quiet", "Quiet", 12, 15));
+        rig.Config.Global.AcPowerPreset = Reference("user.quiet");
+        var assignments = rig.Create();
+        await assignments.ReconcileAsync(CancellationToken.None);
+        ChangeValue(rig, 0, new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 13 });
+        var writes = rig.Device.Calls.Count;
+
+        await assignments.UpdateUserPresetAsync("user.quiet", CancellationToken.None);
+        await assignments.ReconcileAsync(CancellationToken.None);
+
+        var updated = Assert.Single(rig.Device.Saved);
+        Assert.Equal(("user.quiet", "Quiet", 13), (updated.Id, updated.Name, updated.Values!.SustainedWatts));
+        Assert.Equal("user.quiet", rig.Config.Global.AcPowerPreset!.PresetId);
+        Assert.Equal(writes, rig.Device.Calls.Count);
+        Assert.Equal(0, rig.Saves);
+        Assert.Equal("user.quiet", (await rig.Device.Create().ReadAsync()).Current);
+    }
+
+    [Fact]
+    public async Task TheBridgeCommandsAnswerWithTheOwnersRefusal()
+    {
+        Rig rig = new();
+        rig.Device.Saved.Add(SavedPreset("user.quiet", "Quiet", 12, 15));
+        rig.Device.Saved.Add(SavedPreset("user.loud", "Loud", 20, 25));
+        var assignments = rig.Create();
+
+        var duplicate = await PowerPresetRows.RenameAsync(assignments, "user.loud", "quiet", CancellationToken.None);
+        Assert.False(duplicate.Succeeded);
+        Assert.Equal("A preset named “quiet” already exists.", duplicate.Error);
+        Assert.True((await PowerPresetRows.RenameAsync(assignments, "user.loud", "Louder", CancellationToken.None))
+            .Succeeded);
+        Assert.Equal("Louder", rig.Device.Saved[1].Name);
+        var gone = await PowerPresetRows.DeleteAsync(assignments, "user.gone", CancellationToken.None);
+        Assert.Equal("This preset no longer exists.", gone.Error);
+        var nothing = await PowerPresetRows.UpdateAsync(assignments, "user.quiet", CancellationToken.None);
+        Assert.False(nothing.Succeeded);
+        Assert.Equal("Device power presets are unavailable.",
+            (await PowerPresetRows.SaveAsync(null, "x", CancellationToken.None)).Error);
+        Assert.Equal(2, rig.Device.Saved.Count);
+    }
+
+
     private sealed class Rig
     {
         internal readonly DevicePowerPresetRig Device = new();
@@ -566,6 +697,7 @@ public sealed class DevicePowerAssignmentsTests
 
         internal bool Enabled = true;
         internal string Plugin = "fixture";
+        internal int Edits;
         internal int Saves;
         private long _generation;
         private ProfileConfig? _seen;
@@ -590,6 +722,19 @@ public sealed class DevicePowerAssignmentsTests
                         values.BatteryPowerPreset = reference;
                     }
 
+                    _generation++;
+                    return Task.CompletedTask;
+                }, editPresets: (context, edit) =>
+                {
+                    Assert.Equal(Plugin, context.PluginId);
+                    if (edit.Kind == DevicePowerUserPresetEditKind.Delete
+                        && Device.Saved.FirstOrDefault(preset => preset.Id == edit.Id) is { } deleted)
+                    {
+                        DevicePowerUserPresets.ReplaceReferences(Config, deleted);
+                    }
+
+                    DevicePowerUserPresets.Apply(Device.Saved, edit);
+                    Edits++;
                     _generation++;
                     return Task.CompletedTask;
                 });

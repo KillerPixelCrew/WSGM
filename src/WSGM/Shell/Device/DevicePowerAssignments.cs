@@ -14,11 +14,16 @@ namespace WSGM.Shell;
 ///     Optional task indicating initial desired-value restoration; incomplete restoration defers
 ///     reconciliation.
 /// </param>
+/// <param name="editPresets">
+///     Persists one change to the device family's saved presets in the captured context; null when saved presets
+///     cannot be edited.
+/// </param>
 internal sealed class DevicePowerAssignments(
     DevicePowerPresets presets,
     Func<DevicePowerAssignmentContext> context,
     Func<DevicePowerAssignmentContext, bool, DevicePowerPresetReference?, Task> save,
-    Func<Task>? restoreFirst = null)
+    Func<Task>? restoreFirst = null,
+    Func<DevicePowerAssignmentContext, DevicePowerUserPresetEdit, Task>? editPresets = null)
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private bool _applied;
@@ -113,6 +118,134 @@ internal sealed class DevicePowerAssignments(
             _gate.Release();
             Changed?.Invoke();
         }
+    }
+
+    /// <summary>Saves the current Custom reading as a new preset of this device family. Nothing is written to hardware.</summary>
+    /// <param name="name">The name the user chose; trimmed, and unique per device family.</param>
+    /// <param name="cancellationToken">Cancels admission and the read.</param>
+    /// <returns>The new preset's identifier.</returns>
+    /// <exception cref="InvalidOperationException">There is nothing to save, or the name or context is refused.</exception>
+    internal Task<string> SaveUserPresetAsync(string name, CancellationToken cancellationToken)
+    {
+        return EditUserPresetAsync(async (current, state) =>
+        {
+            var values = SavableValues(state);
+            var id = DevicePowerUserPresets.NewId();
+            await EditPresetsAsync(current, new DevicePowerUserPresetEdit(
+                DevicePowerUserPresetEditKind.Save, current.PluginId!, id, name, values)).ConfigureAwait(false);
+            Log.Info($"Power preset {id} saved from the current values.");
+            return id;
+        }, cancellationToken);
+    }
+
+    /// <summary>Renames a saved preset; its identifier and assignments stay.</summary>
+    /// <param name="id">The saved preset.</param>
+    /// <param name="name">The new name; trimmed, and unique per device family.</param>
+    /// <param name="cancellationToken">Cancels admission.</param>
+    /// <returns>Completion once the name is saved.</returns>
+    /// <exception cref="InvalidOperationException">The preset is gone, or the name or context is refused.</exception>
+    internal Task RenameUserPresetAsync(string id, string name, CancellationToken cancellationToken)
+    {
+        return EditUserPresetAsync(async (current, _) =>
+        {
+            await EditPresetsAsync(current, new DevicePowerUserPresetEdit(
+                DevicePowerUserPresetEditKind.Rename, current.PluginId!, id, name)).ConfigureAwait(false);
+            return id;
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    ///     Replaces a saved preset's values with the current Custom reading, keeping its identifier and name.
+    ///     Nothing is written to hardware: an assignment naming the preset keeps naming it, and the new values
+    ///     apply the next time that assignment is applied.
+    /// </summary>
+    /// <param name="id">The saved preset.</param>
+    /// <param name="cancellationToken">Cancels admission and the read.</param>
+    /// <returns>Completion once the values are saved.</returns>
+    /// <exception cref="InvalidOperationException">There is nothing to save, the preset is gone or the context changed.</exception>
+    internal Task UpdateUserPresetAsync(string id, CancellationToken cancellationToken)
+    {
+        return EditUserPresetAsync(async (current, state) =>
+        {
+            var values = SavableValues(state);
+            await EditPresetsAsync(current, new DevicePowerUserPresetEdit(
+                DevicePowerUserPresetEditKind.Update, current.PluginId!, id, Values: values)).ConfigureAwait(false);
+            Log.Info($"Power preset {id} updated with the current values.");
+            return id;
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    ///     Deletes a saved preset. Every assignment naming it becomes Custom holding its values, so nothing changes
+    ///     on the device.
+    /// </summary>
+    /// <param name="id">The saved preset.</param>
+    /// <param name="cancellationToken">Cancels admission.</param>
+    /// <returns>Completion once the preset and its assignments are saved.</returns>
+    /// <exception cref="InvalidOperationException">The preset is gone or the context changed.</exception>
+    internal Task DeleteUserPresetAsync(string id, CancellationToken cancellationToken)
+    {
+        return EditUserPresetAsync(async (current, _) =>
+        {
+            await EditPresetsAsync(current, new DevicePowerUserPresetEdit(
+                DevicePowerUserPresetEditKind.Delete, current.PluginId!, id)).ConfigureAwait(false);
+            Log.Info($"Power preset {id} deleted; its assignments keep its values as Custom.");
+            return id;
+        }, cancellationToken);
+    }
+
+    private async Task<string> EditUserPresetAsync(
+        Func<DevicePowerAssignmentContext, DevicePowerPresetState, Task<string>> edit,
+        CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var current = context();
+            if (!current.Enabled || current.PluginId is null)
+            {
+                throw new InvalidOperationException("Power presets need Device Integration and a supported device.");
+            }
+
+            var state = await presets.ReadAsync(cancellationToken).ConfigureAwait(false);
+            if (state.Presets.Count == 0)
+            {
+                throw new InvalidOperationException("This device offers no power presets.");
+            }
+
+            var confirmed = context();
+            if (confirmed.PluginId != current.PluginId || confirmed.Enabled != current.Enabled)
+            {
+                throw new InvalidOperationException("The device changed before the preset was saved.");
+            }
+
+            return await edit(current, state).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+            Changed?.Invoke();
+        }
+    }
+
+    private DevicePowerCustomValues SavableValues(DevicePowerPresetState state)
+    {
+        if (presets.AutomaticPowerOwned)
+        {
+            throw new InvalidOperationException(
+                "AutoTDP is moving the power limits. Pause it with a manual change before saving a preset.");
+        }
+
+        return state is { Savable: true, Values: { } values }
+            ? values
+            : throw new InvalidOperationException(
+                "The current power values already match a preset or are not complete, so there is nothing to save.");
+    }
+
+    private Task EditPresetsAsync(DevicePowerAssignmentContext current, DevicePowerUserPresetEdit edit)
+    {
+        return editPresets?.Invoke(current, edit)
+               ?? throw new InvalidOperationException("Saved power presets are unavailable.");
     }
 
     /// <summary>Assigns the next device preset for the current power source, in the layer in force.</summary>
@@ -238,10 +371,14 @@ internal sealed class DevicePowerAssignments(
         }
 
         // Reuse a successful matching assignment across application switches on the same device cycle/source.
+        // A deleted saved preset turns into Custom holding its values, which the device already runs.
         if (_applied
             && _attempted is { } previous
             && previous.Ac == ac
-            && previous.Assignment == assignment
+            && (previous.Assignment == assignment
+                || (assignment.CustomValues is not null
+                    && previous.Assignment?.PluginId == assignment.PluginId
+                    && DevicePowerUserPresets.IsUserId(previous.Assignment?.PresetId)))
             && (assignment.CustomValues is { } customValues
                 ? state.Values == customValues
                 : state.Current == assignment.PresetId))

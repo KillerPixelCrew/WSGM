@@ -311,6 +311,64 @@ Custom values:
   manual change.
 - Custom is a reading; selecting a named preset replaces that source's Custom values.
 
+## Saved presets
+
+A Custom reading can be kept as a named preset of the device. Saved presets sit after the device's
+own presets in both assignment lists and in the OEM "next performance profile" cycle, and are
+assigned to AC or battery exactly like them.
+
+Storage and identity:
+
+- `AppConfig.DeviceIntegration.PowerPresets` holds them, each with the device family's `PluginId`
+  (the same identity `DevicePowerPresetReference` uses), an `Id` beginning `user.`, a `Name` and the
+  `Values` a Custom assignment keeps: sustained and slow watts, the independent fast limit when the
+  device declares one, the Windows power mode and the firmware scenario when the device's presets
+  carry one. Another handheld never sees them.
+- Normalization trims ids and names and drops entries that are incomplete, use a non-`user.` id,
+  repeat an id or repeat a name on the same device (ignoring case).
+- A name is trimmed, must be non-empty and a single line, and must be unique per device ignoring
+  case. There is no length limit; the surfaces wrap or ellipsize it.
+
+Reading and applying:
+
+- `DevicePowerPresets.Project` matches declared presets first, then saved ones, against the same
+  observed PL1, PL2, fast limit, scenario and Windows mode. A match shows the saved preset's name
+  instead of Custom.
+- A saved preset applies through the declared presets' ordered path: scenario, the watt pair in its
+  safe order, fast limit, Windows mode, with the same generation, power-source and AutoTDP pause
+  behaviour as a Custom assignment.
+- Values that no longer fit the device's current limits or scenario choices are listed with "Does
+  not fit this device's current power limits" and refused on apply with the preset's name. Nothing
+  is clamped or written. A deleted preset still named by an assignment is refused the same way.
+- With Device Integration off, or a device without declared presets, there are no saved presets.
+
+Commands, in `DevicePowerAssignments` and persisted by `DevicePowerPolicy` under the transition
+gate:
+
+- **Save as preset** stores the current Custom reading under a name. It is offered only while the
+  reading is complete, matches no preset, fits the device and AutoTDP is not moving the limits. The
+  suggested name is the first free "Custom preset N". Nothing changes on the device.
+- **Rename** keeps the id, so assignments are untouched.
+- **Update** replaces the values with the current Custom reading and keeps the id and name. An
+  assignment that names the preset keeps naming it and applies the new values the next time it is
+  applied; the update itself writes nothing.
+- **Delete** first turns every AC and battery assignment naming the preset, in Global and every game
+  profile, into Custom holding its values, then removes it. Reconciliation sees the device already
+  running those values and writes nothing.
+- A refused name, a changed device or a missing preset raises the reason, which both surfaces show
+  where the command was made.
+
+Surfaces:
+
+- The Overlay's power assignments show **Save as preset…** with the current values while the profile
+  reads Custom, and **Saved presets** once there is one. That opens an in-window utility listing
+  each preset's name, values and status with Rename…, Update… and Delete…. Names are typed on the
+  in-window keyboard; Update and Delete ask in the centred confirmation with Cancel focused.
+- Steam's Quick Access and the Power settings page show **Save as preset…** under the assignments,
+  which asks for the name in the toolkit's prompt. The Power page's **Saved presets** section lists
+  each preset as one action row with Rename…, Update… and Delete… buttons (`SteamSettingsAction`),
+  and says when there are none.
+
 ## Game Mode display layouts
 
 `AppConfig.GameModeLaunch` says what entering and leaving Game Mode do to displays. It has two
@@ -931,6 +989,7 @@ write is verified; the split itself is not.
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Windows scheme, mode and processor policy  | [WindowsPowerPolicy](../src/WSGM/Core/Power/WindowsPowerPolicy.cs), [PowerSchemes](../src/WSGM/Core/Power/PowerSchemes.cs), [WindowsPowerModes](../src/WSGM/Core/Power/WindowsPowerModes.cs)                                                                                                                     |
 | Device presets and AC/DC assignments       | [DevicePowerPolicy](../src/WSGM/Shell/Device/DevicePowerPolicy.cs), [DevicePowerPresets](../src/WSGM/Shell/Device/DevicePowerPresets.cs), [DevicePowerAssignments](../src/WSGM/Shell/Device/DevicePowerAssignments.cs), [IntegerRangeProjection](../src/WSGM/Shell/Device/IntegerRangeProjection.cs)             |
+| Saved presets                              | [DevicePowerUserPresets](../src/WSGM/Core/Device/DevicePowerUserPresets.cs), [PowerPresetRows](../src/WSGM/Shell/Device/PowerPresetRows.cs), [DevicePowerSavedPresetsView](../src/WSGM/Overlay/DevicePowerSavedPresetsView.cs)                                                                                   |
 | Display entry and return                   | [GameModeEntryTransaction](../src/WSGM/Shell/Desktop/GameModeEntryTransaction.cs), [DesktopReturnSequence](../src/WSGM/Shell/Desktop/DesktopReturnSequence.cs), [GameModeReturnRecovery](../src/WSGM/Shell/Desktop/GameModeReturnRecovery.cs)                                                                    |
 | Connected-display settling and diagnostics | [DisplayArrivalWaiter](../src/WSGM/Shell/Display/DisplayArrivalWaiter.cs), [DisplayLayoutDiagnostics](../src/WSGM/Shell/Display/DisplayLayoutDiagnostics.cs)                                                                                                                                                     |
 | Resolution, cadence and scaling            | [DisplayResolutionService](../src/WSGM/Core/Display/DisplayResolutionService.cs), [RefreshRatePairingService](../src/WSGM/Core/Display/RefreshRatePairingService.cs), [DisplayScale](../src/WSGM/Core/Display/DisplayScale.cs)                                                                                   |

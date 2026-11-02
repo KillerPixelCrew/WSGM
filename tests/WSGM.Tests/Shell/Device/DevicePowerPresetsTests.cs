@@ -477,4 +477,112 @@ public sealed class DevicePowerPresetsTests
             Descriptors = [.. set.Descriptors.Take(2)]
         }, out _));
     }
+
+    private static DevicePowerUserPreset Saved(string id, string name, int sustained, int slow,
+        DevicePowerMode mode = DevicePowerMode.Balanced, string? scenario = null)
+    {
+        return new DevicePowerUserPreset
+        {
+            PluginId = "fixture",
+            Id = id,
+            Name = name,
+            Values = new DevicePowerCustomValues
+                { SustainedWatts = sustained, SlowWatts = slow, WindowsMode = mode, Scenario = scenario }
+        };
+    }
+
+    [Fact]
+    public async Task SavedPresetsFollowTheDeclaredOnesAndShowInsteadOfCustomWhenTheyMatch()
+    {
+        DevicePowerPresetRig rig = new();
+        rig.Api.Mode = WindowsPowerModes.Id(DevicePowerMode.Balanced);
+        rig.Views[0] = DevicePowerPresetRig.View(CapabilityRole.PowerSustainedLimit, 12);
+        rig.Views[1] = DevicePowerPresetRig.View(CapabilityRole.PowerSlowLimit, 15);
+        var service = rig.Create();
+        var custom = await service.ReadAsync();
+        Assert.Equal("custom", custom.Current);
+        Assert.True(custom.Savable, "a complete Custom reading can be saved");
+
+        rig.Saved.Add(Saved("user.quiet", "A name far longer than any declared preset would ever use", 12, 15));
+        var state = await service.ReadAsync();
+        Assert.Equal(["battery", "balanced", "extreme", "user.quiet"], state.Presets.Select(preset => preset.Id));
+        Assert.Equal("user.quiet", state.Current);
+        Assert.False(state.Savable, "a reading that is a preset has nothing to save");
+        var rows = await PowerPresetRows.ReadAsync(service, null);
+        Assert.Equal("A name far longer than any declared preset would ever use", rows.Current);
+        Assert.Contains(rows.Saved!, row => row is { Id: "user.quiet", Active: true, Fits: true });
+    }
+
+    [Fact]
+    public async Task ADeclaredPresetWinsOverASavedOneWithTheSameValues()
+    {
+        DevicePowerPresetRig rig = new();
+        rig.Api.Mode = WindowsPowerModes.Id(DevicePowerMode.Balanced);
+        rig.Saved.Add(Saved("user.copy", "Copy", 17, 18));
+        Assert.Equal("balanced", (await rig.Create().ReadAsync()).Current);
+    }
+
+    [Fact]
+    public async Task ASavedPresetAppliesThroughTheOrderedPresetPath()
+    {
+        DevicePowerPresetRig rig = new();
+        rig.Saved.Add(Saved("user.travel", "Travel", 10, 12, DevicePowerMode.BetterBattery));
+        var service = rig.Create();
+        Assert.True((await service.ApplyAsync("user.travel", CancellationToken.None)).Succeeded);
+        Assert.Equal([("PowerSustainedLimit", 10), ("PowerSlowLimit", 12)], rig.Calls);
+        Assert.Equal(WindowsPowerModes.Id(DevicePowerMode.BetterBattery), rig.Api.Mode);
+        Assert.Equal("user.travel", (await service.ReadAsync()).Current);
+    }
+
+    [Fact]
+    public async Task ASavedPresetBeyondTheCurrentLimitsIsListedButRefusedByNameWithoutWriting()
+    {
+        DevicePowerPresetRig rig = new();
+        rig.Saved.Add(Saved("user.big", "Big", 40, 45));
+        var service = rig.Create();
+        var state = await service.ReadAsync();
+        Assert.Contains(state.Presets, preset => preset.Id == "user.big");
+        Assert.Contains(state.Saved!, saved => saved is { Fits: false, Preset.Id: "user.big" });
+
+        var result = await service.ApplyAsync("user.big", CancellationToken.None);
+        Assert.False(result.Succeeded);
+        Assert.Equal("“Big” does not fit this device's current power limits, so it was not applied.", result.Error);
+        Assert.Empty(rig.Calls);
+        Assert.Equal(0, rig.Api.Writes);
+        Assert.Contains("Does not fit", (await PowerPresetRows.ReadAsync(service, null)).Saved![0].Detail);
+    }
+
+    [Fact]
+    public async Task ADeletedSavedPresetIsRefusedWithoutWriting()
+    {
+        DevicePowerPresetRig rig = new();
+        var result = await rig.Create().ApplyAsync("user.gone", CancellationToken.None);
+        Assert.False(result.Succeeded);
+        Assert.Equal("This saved power preset no longer exists.", result.Error);
+        Assert.Empty(rig.Calls);
+    }
+
+    [Fact]
+    public async Task ASavedScenarioPresetUsesItsOneScenarioOnEitherSource()
+    {
+        DevicePowerPresetRig rig = new() { OnAc = false };
+        rig.AddScenarios();
+        rig.Saved.Add(Saved("user.eco", "Eco", 9, 10, DevicePowerMode.BetterBattery, "eco"));
+        var service = rig.Create();
+        Assert.True((await service.ApplyAsync("user.eco", CancellationToken.None)).Succeeded);
+        Assert.Equal("eco", rig.LastScenario);
+        Assert.Equal("user.eco", (await service.ReadAsync()).Current);
+    }
+
+    [Fact]
+    public async Task WithoutDeclaredPresetsSavedOnesAreNotOffered()
+    {
+        DevicePowerPresetRig rig = new();
+        rig.Views =
+        [
+            .. rig.Views.Select(view => view with { Descriptor = view.Descriptor with { PowerPresets = [] } })
+        ];
+        rig.Saved.Add(Saved("user.quiet", "Quiet", 12, 15));
+        Assert.Empty((await rig.Create().ReadAsync()).Presets);
+    }
 }

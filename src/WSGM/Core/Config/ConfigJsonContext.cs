@@ -23,6 +23,7 @@ namespace WSGM.Core;
 [JsonSerializable(typeof(NativeTabConfig))]
 [JsonSerializable(typeof(DeviceIntegrationConfig))]
 [JsonSerializable(typeof(DeviceProfileScope))]
+[JsonSerializable(typeof(DevicePowerUserPreset))]
 [JsonSerializable(typeof(DeviceAuthoredProfile))]
 [JsonSerializable(typeof(AuthoredCurvePoint))]
 [JsonSerializable(typeof(PerformanceConfig))]

@@ -676,6 +676,7 @@ public sealed class DevicePageCaptureTests
         }
 
         internal FakeDevice Device { get; }
+        internal DevicePowerPresetSelection Selection => _selection;
         internal DeviceCapabilityView[] Views { get; }
         internal PerformanceOverlayBridge PerformanceBridge { get; }
         internal OverlayWindow Window { get; }
@@ -698,8 +699,9 @@ public sealed class DevicePageCaptureTests
         /// <param name="height">The window height.</param>
         /// <param name="autoTdp">Whether AutoTDP is switched on, so Power carries the target slider.</param>
         /// <param name="gpu">The graphics package the GPU page draws.</param>
+        /// <param name="saved">The user's saved power presets for the Claw, or null for none.</param>
         internal static async Task<ClawOverlay> CreateAsync(int width, int height, bool autoTdp = false,
-            ClawGpu gpu = ClawGpu.None)
+            ClawGpu gpu = ClawGpu.None, IReadOnlyList<DevicePowerUserPreset>? saved = null)
         {
             var publication = JsonSerializer.Deserialize<Publication>(await File.ReadAllTextAsync(
                 Path.Combine(AppContext.BaseDirectory, "Fixtures", "claw-ui-publication.json"),
@@ -749,7 +751,8 @@ public sealed class DevicePageCaptureTests
             UiFixture fixture = new();
             var presets = new DevicePowerPresets(() => views,
                 (_, _, _, _) => throw new InvalidOperationException("Unexpected hardware write"),
-                new WindowsPowerModes(new PowerSchemes(new FakePower()), new ReadOnlyPowerModeApi()), () => true);
+                new WindowsPowerModes(new PowerSchemes(new FakePower()), new ReadOnlyPowerModeApi()), () => true,
+                userPresets: () => saved ?? []);
             ProfileConfig config = new()
             {
                 Global = new ProfileValues
@@ -784,6 +787,87 @@ public sealed class DevicePageCaptureTests
             return new ClawOverlay(hostControls, graphics, ReferenceEquals(source, graphics) ? null : source, device,
                 views, performance, performanceBridge, fixture, selection, schemes, window);
         }
+    }
+
+    /// <summary>
+    ///     Saved power presets: the Save and Saved presets rows under the assignments while the Claw reads Custom,
+    ///     and the management utility with a long name that wraps and a preset beyond the device's limits.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData("rows", 980, 640)]
+    [InlineData("utility", 980, 640)]
+    [InlineData("utility", 1280, 800)]
+    [InlineData("empty", 980, 640)]
+    public async Task SavedPowerPresets(string view, int width, int height)
+    {
+        List<DevicePowerUserPreset> saved = view == "empty"
+            ? []
+            :
+            [
+                SavedPreset("user.quiet", "Quiet evening on the couch with the fans as low as they will go", 12,
+                    15, DevicePowerMode.Balanced),
+                SavedPreset("user.travel", "Travel", 10, 12, DevicePowerMode.BetterBattery),
+                SavedPreset("user.big", "Docked", 60, 70, DevicePowerMode.BestPerformance)
+            ];
+        await using var claw = await ClawOverlay.CreateAsync(width, height, saved: saved);
+        var window = claw.Window;
+        UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.power"));
+        UiFixture.OpenSections(window);
+        Dispatcher.UIThread.RunJobs();
+        var save = UiFixture.Tagged<Button>(window, "device.power-preset.save");
+        Assert.True(save.IsEffectivelyVisible, "a Custom reading offers Save as preset");
+        var manage = window.GetVisualDescendants().OfType<Button>()
+            .SingleOrDefault(button => button.IsEffectivelyVisible && Equals(button.Tag, "device.power-preset.manage"));
+        Assert.Equal(view != "empty", manage is not null);
+        if (view == "rows")
+        {
+            save.GetVisualAncestors().OfType<DeviceGroupView>().First().BringIntoView();
+            Dispatcher.UIThread.RunJobs();
+            VisualBaseline.Verify(window, $"claw-saved-preset-rows-{width}x{height}");
+            return;
+        }
+
+        if (view == "utility")
+        {
+            UiFixture.Click(window, manage!);
+        }
+        else
+        {
+            // The utility's own empty state, as it reads once its last preset is deleted.
+            window.Surfaces.ShowUtility(new DevicePowerSavedPresetsView(claw.Selection), "Saved presets", null);
+        }
+
+        Dispatcher.UIThread.RunJobs();
+        var utility = window.GetVisualDescendants().OfType<DevicePowerSavedPresetsView>().Single();
+        Assert.True(utility.IsEffectivelyVisible);
+        if (view == "utility")
+        {
+            Assert.Contains(utility.GetVisualDescendants().OfType<TextBlock>(),
+                text => text.Text?.Contains("Does not fit", StringComparison.Ordinal) == true);
+            var deletes = utility.GetVisualDescendants().OfType<Button>()
+                .Where(button => (button.Tag as string)?.EndsWith(":delete", StringComparison.Ordinal) == true)
+                .ToArray();
+            Assert.Equal(3, deletes.Length);
+            Assert.All(deletes, button => Assert.True(
+                button.TranslatePoint(new Point(button.Bounds.Width, 0), window)!.Value.X <= width,
+                "every command fits the window"));
+        }
+
+        VisualBaseline.Verify(window, $"claw-saved-presets-{view}-{width}x{height}");
+    }
+
+    private static DevicePowerUserPreset SavedPreset(string id, string name, int sustained, int slow,
+        DevicePowerMode mode)
+    {
+        return new DevicePowerUserPreset
+        {
+            PluginId = "claw",
+            Id = id,
+            Name = name,
+            // The Claw's presets carry a firmware scenario, so a preset saved on it does too.
+            Values = new DevicePowerCustomValues
+                { SustainedWatts = sustained, SlowWatts = slow, WindowsMode = mode, Scenario = "green" }
+        };
     }
 
     /// <summary>

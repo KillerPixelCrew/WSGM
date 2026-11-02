@@ -151,13 +151,15 @@ internal sealed class DevicePowerPolicy
         // manual funnel; saving an AC scenario as desired state would replay it on battery later.
         PowerPresets = new DevicePowerPresets(() => IntegrationEnabled ? _capabilities.Snapshot() : [],
             ExecutePresetCapabilityAsync, powerModes, _readOnAcPower, Lane,
-            () => AutoTdp.OwnsPower);
+            () => AutoTdp.OwnsPower,
+            () => DevicePowerUserPresets.For(_config().DeviceIntegration.PowerPresets, _definition()?.FamilyId));
         PowerAssignments = new DevicePowerAssignments(PowerPresets,
             () => new DevicePowerAssignmentContext(_profiles.Current,
                 _definition()?.FamilyId,
                 IntegrationEnabled, _readOnAcPower()),
             SavePowerAssignmentAsync,
-            cycleRestore);
+            cycleRestore,
+            EditUserPresetsAsync);
     }
 
     /// <summary>
@@ -695,6 +697,40 @@ internal sealed class DevicePowerPolicy
                 }
             }, $"{(ac ? "AC" : "battery")} power preset {reference?.PresetId ?? "(none)"}",
             cancellationToken: _lifetime).ConfigureAwait(false);
+    }
+
+    /// <summary>Persists one change to the device family's saved presets.</summary>
+    /// <param name="selection">The context the change was made in; a changed device or switch refuses it.</param>
+    /// <param name="edit">The change.</param>
+    /// <returns>Completion once it is saved.</returns>
+    /// <remarks>
+    ///     A delete first turns every assignment naming the preset into Custom holding its values, in every profile
+    ///     layer, and only then removes the preset. Stopping between the two leaves an unused preset, never an
+    ///     assignment naming nothing.
+    /// </remarks>
+    private async Task EditUserPresetsAsync(DevicePowerAssignmentContext selection, DevicePowerUserPresetEdit edit)
+    {
+        using var transition = await _enterTransition(_lifetime).ConfigureAwait(false);
+        ObjectDisposedException.ThrowIf(_closed(), typeof(DeviceCoordinator));
+        if (_definition()?.FamilyId != selection.PluginId || IntegrationEnabled != selection.Enabled
+                                                           || !selection.Enabled)
+        {
+            throw new InvalidOperationException("The device changed before the preset was saved.");
+        }
+
+        if (edit.Kind == DevicePowerUserPresetEditKind.Delete)
+        {
+            var deleted = DevicePowerUserPresets.For(_config().DeviceIntegration.PowerPresets, edit.PluginId)
+                              .FirstOrDefault(preset => preset.Id == edit.Id)
+                          ?? throw new InvalidOperationException("This preset no longer exists.");
+            await _profiles.EditAllAsync(profiles => DevicePowerUserPresets.ReplaceReferences(profiles, deleted),
+                $"assignments of power preset {deleted.Id} kept as Custom", _lifetime).ConfigureAwait(false);
+        }
+
+        await _persistConfiguration(
+            config => DevicePowerUserPresets.Apply(config.DeviceIntegration.PowerPresets, edit),
+            _lifetime).ConfigureAwait(false);
+        RequestAssignmentReconcile();
     }
 
     /// <summary>Writes a stored per-application limit; called inside the power lane.</summary>

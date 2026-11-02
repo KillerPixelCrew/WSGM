@@ -13,6 +13,10 @@ namespace WSGM.Shell;
 /// <param name="UnsetLabel">What the empty assignment is called.</param>
 /// <param name="AcAccent">Whether the running game's profile supplies the plugged-in assignment.</param>
 /// <param name="BatteryAccent">Whether the running game's profile supplies the battery assignment.</param>
+/// <param name="CanSave">Whether the current Custom reading can be saved as a preset, or used to update one.</param>
+/// <param name="SaveName">The suggested name for a new preset, unique for this device.</param>
+/// <param name="CurrentValues">The current reading in one line, or empty when it is unknown.</param>
+/// <param name="Saved">The user's saved presets for this device, in saved order.</param>
 internal sealed record PowerPresetRowState(
     bool Available,
     IReadOnlyList<ChoiceRowOption> Options,
@@ -23,4 +27,8 @@ internal sealed record PowerPresetRowState(
     string Scope,
     string UnsetLabel,
     bool AcAccent = false,
-    bool BatteryAccent = false);
+    bool BatteryAccent = false,
+    bool CanSave = false,
+    string SaveName = "",
+    string CurrentValues = "",
+    IReadOnlyList<PowerPresetSavedRow>? Saved = null);

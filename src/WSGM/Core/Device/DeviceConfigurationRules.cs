@@ -80,6 +80,8 @@ internal static class DeviceConfigurationRules
             });
         }
 
+        device.PowerPresets ??= [];
+        DevicePowerUserPresets.Normalize(device.PowerPresets);
         HashSet<(string DeviceDefinitionId, string FamilyId)> scopeKeys = [];
         device.DeviceProfiles.RemoveAll(scope => !scopeKeys.Add((scope.DeviceDefinitionId, scope.FamilyId)));
         device.OemAssignments.RemoveAll(static assignment => assignment is null

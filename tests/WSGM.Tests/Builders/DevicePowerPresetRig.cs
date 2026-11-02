@@ -45,6 +45,9 @@ internal sealed class DevicePowerPresetRig
         Views = [.. Views, View(CapabilityRole.PowerFastLimit, 20)];
     }
 
+    /// <summary>The user's saved presets the created owner lists after the declared ones.</summary>
+    internal readonly List<DevicePowerUserPreset> Saved = [];
+
     internal DevicePowerPresets Create(Func<bool>? automaticPowerOwner = null)
     {
         return new DevicePowerPresets(() => Views, async (id, value, persist, token) =>
@@ -79,7 +82,7 @@ internal sealed class DevicePowerPresetRig
                 AfterDeviceWrite?.Invoke(id);
                 return Completed(CommandOutcome.AppliedVerified);
             }, new WindowsPowerModes(new PowerSchemes(new UnusedPowerSchemeApi()), Api), () => OnAc,
-            automaticPowerOwner: automaticPowerOwner);
+            automaticPowerOwner: automaticPowerOwner, userPresets: () => [.. Saved]);
     }
 
     private static CapabilityCommandResult Completed(CommandOutcome outcome)

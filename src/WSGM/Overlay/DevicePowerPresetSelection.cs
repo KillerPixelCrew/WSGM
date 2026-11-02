@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using SteamUiToolkit;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -69,27 +70,72 @@ internal sealed class DevicePowerPresetSelection : IDisposable
     /// <summary>Raised on the captured UI context when projected state or busy status changes.</summary>
     internal event Action? Changed;
 
+    /// <summary>The last command's refusal, kept until the next command so a management view can show it.</summary>
+    internal string? LastError { get; private set; }
+
     /// <summary>Changes one AC/battery preset assignment through the shared assignment owner.</summary>
     /// <param name="ac">True for AC power, false for battery.</param>
     /// <param name="id">Preset ID, or null to clear that source assignment.</param>
     /// <returns>Completion of assignment and refresh; unavailable/read-only/busy state is a no-op.</returns>
-    internal async Task AssignAsync(bool ac, string? id)
+    internal Task AssignAsync(bool ac, string? id)
     {
-        if (!CanAssign)
-        {
-            return;
-        }
+        return CanAssign
+            ? RunAsync(token => PowerPresetRows.AssignAsync(_assignments, ac, id, token))
+            : Task.CompletedTask;
+    }
 
+    /// <summary>Whether saved presets can be created, renamed, updated or deleted now.</summary>
+    internal bool CanEdit => !_disposed && !_readOnly && !Busy && _assignments is not null
+                             && State.Options.Count > 0;
+
+    /// <summary>Saves the current Custom reading as a new preset; nothing changes on the device.</summary>
+    /// <param name="name">The name the user typed.</param>
+    /// <returns>Completion of the save and refresh; a refusal is shown in the status line.</returns>
+    internal Task SaveAsync(string name)
+    {
+        return CanEdit ? RunAsync(token => PowerPresetRows.SaveAsync(_assignments, name, token)) : Task.CompletedTask;
+    }
+
+    /// <summary>Renames a saved preset.</summary>
+    /// <param name="id">The saved preset.</param>
+    /// <param name="name">The name the user typed.</param>
+    /// <returns>Completion of the rename and refresh; a refusal is shown in the status line.</returns>
+    internal Task RenameAsync(string id, string name)
+    {
+        return CanEdit
+            ? RunAsync(token => PowerPresetRows.RenameAsync(_assignments, id, name, token))
+            : Task.CompletedTask;
+    }
+
+    /// <summary>Replaces a saved preset's values with the current Custom reading.</summary>
+    /// <param name="id">The saved preset.</param>
+    /// <returns>Completion of the update and refresh; a refusal is shown in the status line.</returns>
+    internal Task UpdateAsync(string id)
+    {
+        return CanEdit ? RunAsync(token => PowerPresetRows.UpdateAsync(_assignments, id, token)) : Task.CompletedTask;
+    }
+
+    /// <summary>Deletes a saved preset; assignments that use it keep its values as Custom.</summary>
+    /// <param name="id">The saved preset.</param>
+    /// <returns>Completion of the delete and refresh; a refusal is shown in the status line.</returns>
+    internal Task DeleteAsync(string id)
+    {
+        return CanEdit ? RunAsync(token => PowerPresetRows.DeleteAsync(_assignments, id, token)) : Task.CompletedTask;
+    }
+
+    private async Task RunAsync(Func<CancellationToken, Task<SteamUiCommandResult>> command)
+    {
         _revision++;
         Busy = true;
         Changed?.Invoke();
         var token = _lifetime.Token;
         try
         {
-            var result = await PowerPresetRows.AssignAsync(_assignments, ac, id, token);
+            var result = await command(token);
             var state = await PowerPresetRows.ReadAsync(_service, _assignments);
             if (!_disposed)
             {
+                LastError = result.Succeeded ? null : result.Error;
                 State = result.Succeeded || string.IsNullOrEmpty(result.Error)
                     ? state
                     : state with { StatusText = result.Error };
@@ -102,6 +148,7 @@ internal sealed class DevicePowerPresetSelection : IDisposable
         {
             if (!_disposed)
             {
+                LastError = ex.Message;
                 State = State with { StatusText = ex.Message };
             }
         }

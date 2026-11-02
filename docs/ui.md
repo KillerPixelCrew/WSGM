@@ -225,12 +225,13 @@ folds on its own after it. Pinned sections keep their independent folds. The sha
 integration disabled and devices without firmware power controls; Windows plans remain independently
 available.
 
-The device integration defines the preset list; both surfaces list every published preset in order.
-Atlas assignments offer Battery Saver, Efficiency, Light, Quiet, Balanced, Turbo, Full Power and
-Custom through the shared Overlay and Steam backend. Each preset writes explicit PL1/PL2 through
-Manual, from 8/8 W up to Full Power at the firmware-advertised 40/65 W maxima, with its Windows
-power mode. Custom uses the manual controls. Selecting a firmware scenario pauses AutoTDP so its
-next write cannot overwrite that selection.
+The device integration defines the preset list; both surfaces list every published preset in order,
+followed by the user's saved presets ([saved presets](power-and-display.md#saved-presets)). Atlas
+assignments offer Battery Saver, Efficiency, Light, Quiet, Balanced, Turbo, Full Power and Custom
+through the shared Overlay and Steam backend. Each preset writes explicit PL1/PL2 through Manual,
+from 8/8 W up to Full Power at the firmware-advertised 40/65 W maxima, with its Windows power mode.
+Custom uses the manual controls. Selecting a firmware scenario pauses AutoTDP so its next write
+cannot overwrite that selection.
 
 The Device Overview shows the per-application profile switch, then the Power page's groups (the
 Power and Fans folds, Performance and Processor cores) under the same ids and keys, beside the

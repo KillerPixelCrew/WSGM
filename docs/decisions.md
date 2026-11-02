@@ -203,6 +203,15 @@ that source restores those custom values. Per-game changes override only that ga
 source and global defaults remain unchanged. The assignment mechanism and validation boundaries are
 in [power and display](power-and-display.md).
 
+**A Custom reading can become a named preset of the device (2026-11-02).** The maintainer asked for
+the current Custom profile to be savable as a new power preset before 3.0. A saved preset holds the
+same values a Custom assignment keeps, belongs to the device family it was saved on, and is listed
+after the device's own presets, selectable and assignable to AC and battery in the same way. A
+declared preset wins over a saved one with the same values. Saving, renaming and updating never
+write hardware; deleting turns every assignment of the preset into Custom holding its values, so the
+device keeps running what it runs. A preset that no longer fits the device's limits is refused by
+name, never clamped. Mechanism in [power and display](power-and-display.md#saved-presets).
+
 **CPU boost is HC's control, carried per game (2026-09-26).** An Xbox Ally X tester asked for
 Armoury Crate's and Handheld Companion's CPU boost option in the Performance quick settings, since
 some games want it on and others off. WSGM ports HC's mechanism unchanged, HC's five modes written

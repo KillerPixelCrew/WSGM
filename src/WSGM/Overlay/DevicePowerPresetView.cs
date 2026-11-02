@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Layout;
 using Avalonia.Media;
 using WSGM.Shell;
 
@@ -15,6 +16,19 @@ public sealed class DevicePowerPresetView : UserControl
     private readonly TextBlock _active = new() { Classes = { "setting-title" }, Tag = "device.power-preset.active" };
     private readonly StackPanel _assignments = new() { Spacing = 6 };
     private readonly ChoiceRowView _battery = new();
+
+    private readonly OverlayActionButton _manage = new()
+        {
+            Title = "Saved presets", Tag = "device.power-preset.manage", IsVisible = false,
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+
+    private readonly OverlayActionButton _save = new()
+        {
+            Title = "Save as preset…", Tag = "device.power-preset.save", IsVisible = false,
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+
     private readonly TextBlock _scope = new() { Classes = { "caption" } };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Classes = { "caption" } };
     private DevicePowerPresetSelection? _model;
@@ -25,6 +39,10 @@ public sealed class DevicePowerPresetView : UserControl
         _assignments.Children.Add(_scope);
         _assignments.Children.Add(_ac);
         _assignments.Children.Add(_battery);
+        _assignments.Children.Add(_save);
+        _assignments.Children.Add(_manage);
+        _save.Activate = RequestSave;
+        _manage.Activate = ShowSaved;
         Content = new Border
         {
             Classes = { "tile" },
@@ -87,5 +105,42 @@ public sealed class DevicePowerPresetView : UserControl
         _battery.Render("device.power-assignment.battery", "On battery",
             new ChoiceRowState(state.Available, options, state.Battery, string.Empty, state.BatteryAccent),
             model.CanAssign, string.Empty, id => _ = model.AssignAsync(false, id.Length == 0 ? null : id));
+        // Saving is offered where the profile reads Custom; managing saved presets is a focused utility
+        // rather than a stack of commands under every preset.
+        _save.IsVisible = state.CanSave;
+        _save.Description = "Current values: " + state.CurrentValues;
+        _save.IsEnabled = model.CanEdit;
+        // With nothing saved yet the Save row is the way in; the management utility appears once there is
+        // something to manage, and says so itself when its last preset is deleted.
+        var count = state.Saved?.Count ?? 0;
+        _manage.IsVisible = count > 0;
+        _manage.Description = count == 1
+            ? "1 preset · Rename, update or delete"
+            : $"{count} presets · Rename, update or delete";
+        _manage.IsEnabled = model.CanEdit;
+    }
+
+    private void RequestSave()
+    {
+        if (_model is not { } model || model.State is not { CanSave: true } state)
+        {
+            return;
+        }
+
+        if (!OverlayWindow.RequestTextFor(this, "Preset name", state.SaveName, 0, name => _ = model.SaveAsync(name)))
+        {
+            _status.Text = "Keyboard unavailable. Reopen the overlay to retry.";
+        }
+    }
+
+    private void ShowSaved()
+    {
+        if (_model is not { } model || TopLevel.GetTopLevel(this) is not OverlayWindow window)
+        {
+            return;
+        }
+
+        var view = new DevicePowerSavedPresetsView(model);
+        window.Surfaces.ShowUtility(view, "Saved presets", view.DefaultFocusTarget);
     }
 }

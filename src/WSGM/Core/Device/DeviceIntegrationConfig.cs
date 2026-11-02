@@ -50,4 +50,7 @@ public sealed class DeviceIntegrationConfig
 
     /// <summary>Authored fan and lighting profiles keyed by exact device definition and family.</summary>
     public List<DeviceProfileScope> DeviceProfiles { get; set; } = [];
+
+    /// <summary>Power presets the user saved from Custom readings, each bound to its device family.</summary>
+    public List<DevicePowerUserPreset> PowerPresets { get; set; } = [];
 }

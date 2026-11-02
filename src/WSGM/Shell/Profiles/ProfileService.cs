@@ -361,6 +361,24 @@ internal sealed class ProfileService
         return saved;
     }
 
+    /// <summary>Edits every layer at once, such as replacing a reference that is about to stop existing.</summary>
+    /// <param name="edit">Changes the fresh store in place and answers whether it changed anything.</param>
+    /// <param name="description">What changed, for the log.</param>
+    /// <param name="cancellationToken">Cancels waiting and cooperative persistence stages.</param>
+    /// <returns>The snapshot after the save.</returns>
+    internal async Task<ProfileSnapshot> EditAllAsync(Func<ProfileConfig, bool> edit, string description,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        var result = await MutateAsync((config, _) => edit(config), cancellationToken).ConfigureAwait(false);
+        if (result.Changed)
+        {
+            Log.Info($"Profile: {description}.");
+        }
+
+        return result.Snapshot;
+    }
+
     /// <summary>Deletes a game profile. Matching applications then use Global.</summary>
     /// <param name="id">Profile identifier to remove.</param>
     /// <param name="cancellationToken">Cancels waiting and cooperative persistence stages.</param>

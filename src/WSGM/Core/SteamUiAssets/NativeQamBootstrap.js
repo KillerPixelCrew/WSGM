@@ -5882,6 +5882,69 @@
   const steamSettingIcon = (ui, row) =>
     row.icon && typeof ui.icon === "function" ? (ui.icon(row.icon) ?? undefined) : undefined;
   /**
+   * Draws an action row's own buttons. Each sends under its own key through `change`, after its prompt
+   * or confirmation when it has one, so one row can name an item and carry the item's commands.
+   * @param ui Steam's resolved React and native control components.
+   * @param row The action row.
+   * @param actions Its buttons.
+   * @param change The draft keeper's commit, answered by the host.
+   * @returns The focusable row of buttons.
+   */
+  const renderSteamSettingActions = (ui, row, actions, change) => {
+    const h = ui.react.createElement;
+    // Several commands on one row use Steam's small buttons, as the order rows do, so they fit beside
+    // the label; one keeps the dialog button every other action row has.
+    const Button = actions.length > 1 ? (ui.smallButton ?? ui.dialogButton) : ui.dialogButton;
+    const run = (item) => {
+      const send = (value) => change({ ...row, key: item.key }, value);
+      const prompt = item.prompt;
+      if (prompt) {
+        const shown = showSteamUiPrompt(ui, {
+          title: prompt.title,
+          text: prompt.text ?? undefined,
+          label: prompt.label,
+          initial: prompt.initial ?? "",
+          confirmLabel: prompt.confirmLabel,
+          onConfirm: (text) => send(text),
+        });
+        // Without a modal the suggestion is the answer, so the command still reaches the host.
+        if (!shown && String(prompt.initial ?? "").trim()) send(String(prompt.initial).trim());
+        return;
+      }
+      if (item.confirm) {
+        showSteamUiConfirm(ui, {
+          title: item.confirm.title,
+          text: item.confirm.description,
+          confirmLabel: item.confirm.confirmLabel,
+          destructive: item.confirm.destructive !== false,
+          focusCancel: item.confirm.destructive !== false,
+          onConfirm: () => send(true),
+        });
+        return;
+      }
+      send(true);
+    };
+    return h(
+      ui.focusable,
+      {
+        "flow-children": "row",
+        style: { display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "flex-end" },
+      },
+      ...actions.map((item) =>
+        h(
+          Button,
+          {
+            key: item.key,
+            disabled: !!row.disabled || !!item.disabled,
+            "aria-label": `${item.label} ${row.label}`,
+            onClick: () => run(item),
+          },
+          item.label,
+        ),
+      ),
+    );
+  };
+  /**
    * Renders one typed host setting with native fields and shared refusal/draft handling.
    * @param ui Steam's resolved React and native control components.
    * @param row Published SteamSettingsRow descriptor.
@@ -6157,7 +6220,18 @@
           ),
         );
       }
-      case "action":
+      case "action": {
+        const actions = Array.isArray(row.actions) && row.actions.length > 0 ? row.actions : null;
+        if (actions) {
+          return h(ui.valueField, {
+            key,
+            name: label,
+            icon,
+            description: common.description,
+            focusable: false,
+            value: renderSteamSettingActions(ui, row, actions, change),
+          });
+        }
         return h(ui.valueField, {
           key,
           name: label,
@@ -6170,6 +6244,7 @@
             row.buttonLabel ?? row.label,
           ),
         });
+      }
       case "note":
         return h(ui.valueField, {
           key,
@@ -6267,11 +6342,16 @@
       const entry = state.drafts[row.key];
       return entry && entry.base === steamSettingPublished(row) ? entry.value : undefined;
     };
+    // An action row's own buttons send under their own keys; their refusal is still said on the row.
     const shown = (row) => {
-      const refusal = state.refusals[row.key];
-      return refusal && refusal.base === steamSettingPublished(row)
-        ? { ...row, description: refusal.text }
-        : row;
+      const keys = [
+        row.key,
+        ...(Array.isArray(row.actions) ? row.actions.map((action) => action.key) : []),
+      ];
+      const refusal = keys
+        .map((key) => state.refusals[key])
+        .find((entry) => entry && entry.base === steamSettingPublished(row));
+      return refusal ? { ...row, description: refusal.text } : row;
     };
     return { change, draft, row: shown };
   };

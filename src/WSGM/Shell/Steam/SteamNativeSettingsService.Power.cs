@@ -13,6 +13,7 @@ namespace WSGM.Shell;
 internal sealed partial class SteamNativeSettingsService
 {
     private const string NoDevice = "Device Integration is not active in this session.";
+    private const string PresetSaveKey = "power.preset-save:name";
 
     /// <summary>Builds the power rows: presets, TDP and AutoTDP, Windows power, sleep and CPU behavior.</summary>
     /// <param name="power">The Settings page's sections, appended in order.</param>
@@ -156,7 +157,27 @@ internal sealed partial class SteamNativeSettingsService
             active is null && detail.Length > 0 ? detail : null, true);
         Assignment("power.preset-battery", "On battery", "battery", presets.Battery, presets.BatteryAccent, null,
             false);
+        var assignments = coordinator?.Power.PowerAssignments;
+        if (presets.CanSave)
+        {
+            // Quick Access and the page both offer saving a Custom reading; managing saved presets is the
+            // page's alone, a focused place away from the panel's frequent controls.
+            var save = new SteamSettingsRow("power.preset-save", SteamSettingsRowKind.Action, "Current values",
+                presets.CurrentValues, Icon: "star", Actions:
+                [
+                    new SteamSettingsAction(PresetSaveKey, "Save as preset…", new SteamSettingsPrompt(
+                        "Save as preset", "Preset name", "Save",
+                        "Saves the current power limits and Windows power mode as a preset for this device. "
+                        + "Nothing on the device changes.", presets.SaveName))
+                ]);
+            rows.Add(save);
+            offer.Quick("powerPreset", save);
+            offer.Add(null, new SteamSettingsRow(PresetSaveKey, SteamSettingsRowKind.Text, "Preset name"),
+                (value, token) => PowerPresetRows.SaveAsync(assignments, value.GetString()!, token));
+        }
+
         Section(power, "Device performance", "presets", rows);
+        AddSavedPresetRows(power, offer, presets, assignments);
 
         void Assignment(string key, string label, string icon, string selected, bool accent, string? description,
             bool ac)
@@ -179,6 +200,56 @@ internal sealed partial class SteamNativeSettingsService
                 ? string.Empty
                 : $"{label} {options.FirstOrDefault(option => option.Id == id)?.Label ?? id}";
         }
+    }
+
+    /// <summary>The user's saved presets, each a row naming it with its Rename, Update and Delete commands.</summary>
+    /// <param name="power">The Settings page's sections.</param>
+    /// <param name="offer">The read's offered command set.</param>
+    /// <param name="presets">The device's presets and assignments.</param>
+    /// <param name="assignments">The owner the commands run through, or null when it is unavailable.</param>
+    private static void AddSavedPresetRows(List<SteamSettingsSection> power, OfferedRows offer,
+        PowerPresetRowState presets, DevicePowerAssignments? assignments)
+    {
+        var saved = presets.Saved ?? [];
+        List<SteamSettingsRow> rows = [];
+        if (saved.Count == 0)
+        {
+            rows.Add(new SteamSettingsRow("power.saved-presets.empty", SteamSettingsRowKind.Note, "No saved presets",
+                "When the active profile reads Custom, Save as preset keeps those values under a name of your own.",
+                Text: string.Empty));
+        }
+
+        foreach (var item in saved)
+        {
+            var key = "power.saved-preset:" + item.Id;
+            List<SteamSettingsAction> actions =
+            [
+                new(key + ":rename", "Rename…", new SteamSettingsPrompt("Rename preset", "Preset name", "Rename",
+                    Initial: item.Name))
+            ];
+            offer.Add(null, new SteamSettingsRow(key + ":rename", SteamSettingsRowKind.Text, "Preset name"),
+                (value, token) => PowerPresetRows.RenameAsync(assignments, item.Id, value.GetString()!, token));
+            if (presets.CanSave)
+            {
+                actions.Add(new SteamSettingsAction(key + ":update", "Update…",
+                    Confirm: new SteamSettingsConfirmation(When: true, $"Update “{item.Name}”?",
+                    $"Its values become the current ones ({presets.CurrentValues}). An assignment that uses it keeps "
+                    + "it and applies the new values the next time it applies.", "Update", Destructive: false)));
+                offer.Add(null, new SteamSettingsRow(key + ":update", SteamSettingsRowKind.Action, "Update"),
+                    (_, token) => PowerPresetRows.UpdateAsync(assignments, item.Id, token));
+            }
+
+            actions.Add(new SteamSettingsAction(key + ":delete", "Delete…", Confirm: new SteamSettingsConfirmation(
+                When: true, $"Delete “{item.Name}”?",
+                "A plugged-in or battery assignment that uses it keeps its values as Custom, so nothing on the "
+                + "device changes.", "Delete")));
+            offer.Add(null, new SteamSettingsRow(key + ":delete", SteamSettingsRowKind.Action, "Delete"),
+                (_, token) => PowerPresetRows.DeleteAsync(assignments, item.Id, token));
+            rows.Add(new SteamSettingsRow(key, SteamSettingsRowKind.Action, item.Name,
+                item.Active ? item.Detail + " · Active" : item.Detail, Actions: actions));
+        }
+
+        Section(power, "Saved presets", "saved-presets", rows);
     }
 
     /// <summary>The unified-mode switch and the sustained and boost sliders.</summary>
