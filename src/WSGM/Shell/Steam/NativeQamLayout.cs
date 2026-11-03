@@ -26,13 +26,13 @@ internal static class NativeQamLayout
             new SteamQuickAccessSection("Power profiles", "Power profiles", "sliders", true,
                 ["powerPreset", "powerProfile", "hybridCores", "cpuBoost"]),
             new SteamQuickAccessSection("Display and frame rate", "Display and frame rate", "timer", true,
-                ["frameLimit", "vrr"]),
+                ["frameLimit", "refreshRate", "vrr"]),
             new SteamQuickAccessSection("Power limits", "Power limits", "gauge", true, ["powerLimit", "autoTdp"]),
             new SteamQuickAccessSection("Controller", "Controller", "controller", true, ["controllerTarget"])
         ],
         [new SteamQuickAccessSection("Reset", string.Empty, "reset", false, ["valveReset"])],
         [
-            new SteamQuickAccessSection("Display", "Display", "display", true, ["resolution", "valveRefreshRate"]),
+            new SteamQuickAccessSection("Display", "Display", "display", true, ["resolution"]),
             new SteamQuickAccessSection("Audio", "Audio", "audio", true, ["audioFormat"])
         ],
         [

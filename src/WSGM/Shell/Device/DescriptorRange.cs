@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace WSGM.Shell;
@@ -11,13 +12,30 @@ namespace WSGM.Shell;
 ///     Lowest nonzero accepted value, or zero when every position is valid. Lower slider positions
 ///     read and commit as zero (off), preserving the same value domain as the Steam projection.
 /// </param>
-internal readonly record struct DescriptorRange(int Minimum, int Maximum, int Step, string Unit, int OffBelow = 0)
+/// <param name="Stops">
+///     The values a slider position stands for, or null when a position is the value itself. A control that
+///     takes only listed values, such as a refresh rate, then moves along their indexes.
+/// </param>
+internal readonly record struct DescriptorRange(
+    int Minimum,
+    int Maximum,
+    int Step,
+    string Unit,
+    int OffBelow = 0,
+    IReadOnlyList<int>? Stops = null)
 {
     /// <summary>The value as the slider's label reads it.</summary>
     /// <param name="value">A slider position.</param>
     /// <returns>"Off" for zero and every position below <see cref="OffBelow" />, otherwise the value and unit.</returns>
     internal string Label(int value)
     {
+        if (Stops is { } stops)
+        {
+            return value >= 0 && value < stops.Count
+                ? string.Create(CultureInfo.InvariantCulture, $"{stops[value]} {Unit}")
+                : string.Empty;
+        }
+
         return value < OffBelow || value == 0
             ? "Off"
             : string.Create(CultureInfo.InvariantCulture, $"{value} {Unit}");

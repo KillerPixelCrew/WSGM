@@ -47,9 +47,6 @@ internal static class NativeQamPerfProjection
             ? values.FrameLimit is > 0 ? values.FrameLimit : HighestOption(support.FrameLimitOptions)
             : null;
         bool? frameLimitEnabled = frameLimitOptions is not null ? values.FrameLimit is > 0 : null;
-        int? manualRefreshHz = support.RefreshRatesSelectable
-            ? support.CurrentRefreshRateHz ?? support.RefreshRateMaxHz ?? 0
-            : null;
 
         return new SteamPerformanceState
         {
@@ -59,20 +56,7 @@ internal static class NativeQamPerfProjection
                 // SteamPerformanceLimits.FpsLimitOptionsExternal.
                 FpsLimitOptions = frameLimitOptions,
                 FpsLimitOptionsExternal = frameLimitOptions,
-                IsVrrSupported = support.VariableRefreshRateSupported ? true : null,
-                IsManualDisplayRefreshRateAvailable = support.RefreshRatesSelectable ? true : null,
-                DisplayRefreshManualHzMin = support.RefreshRatesSelectable
-                    ? support.RefreshRateMinHz
-                    : null,
-                DisplayRefreshManualHzMax = support.RefreshRatesSelectable
-                    ? support.RefreshRateMaxHz
-                    : null,
-                DisplayExternalRefreshManualHzMin = support.RefreshRatesSelectable
-                    ? support.RefreshRateMinHz
-                    : null,
-                DisplayExternalRefreshManualHzMax = support.RefreshRatesSelectable
-                    ? support.RefreshRateMaxHz
-                    : null
+                IsVrrSupported = support.VariableRefreshRateSupported ? true : null
             },
             Global = new SteamPerformanceGlobalSettings
             {
@@ -81,8 +65,7 @@ internal static class NativeQamPerfProjection
                 // is Valve's enum, not the notch WSGM's levels are defined on.
                 PerfOverlayLevel = SteamOverlayLevelWire.ToSteam(
                     Math.Clamp(values.OverlayLevel ?? 0, 0, SteamOverlayLevelWire.MaximumNotch)),
-                IsAdvancedSettingsEnabled = true,
-                AllowExternalDisplayRefreshControl = support.RefreshRatesSelectable ? true : null
+                IsAdvancedSettingsEnabled = true
             },
             PerApp = new SteamPerformanceApplicationSettings
             {
@@ -102,8 +85,6 @@ internal static class NativeQamPerfProjection
                 IsVrrEnabled = support.VariableRefreshRateSupported
                     ? support.VariableRefreshRateEnabled
                     : null,
-                DisplayRefreshManualHz = manualRefreshHz,
-                DisplayExternalRefreshManualHz = manualRefreshHz,
                 IsGamePerfProfileEnabled = gameId == SteamPerformanceState.NoGame
                     ? null
                     : perApplicationProfileEnabled

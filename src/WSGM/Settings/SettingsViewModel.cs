@@ -131,7 +131,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         DeviceAutoTdpEnabled = _config.DeviceIntegration.AutoTdpEnabled;
         DeviceGlyphSelectionIndex = (int)_config.DeviceIntegration.GlyphSelection;
         PerformanceEnabled = _config.Performance.Enabled;
-        FrameLimitStrategyIndex = (int)_config.Performance.FrameLimitStrategy;
         OsdCustomOrder = _config.Performance.OsdCustomOrder;
         OsdCustomTimeIndex = Math.Clamp(_config.Performance.OsdCustomTime, 0, 2);
         OsdCustomFpsIndex = Math.Clamp(_config.Performance.OsdCustomFps, 0, 2);

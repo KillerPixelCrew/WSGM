@@ -226,43 +226,4 @@ internal static class PrimaryDisplayModes
     {
         return DisplayModes.ReadPrimaryMode()?.RefreshHz;
     }
-
-    /// <summary>
-    ///     The refresh rates the primary panel advertises in its own EDID.
-    /// </summary>
-    /// <returns>Advertised rates, ascending; empty when the EDID cannot be read.</returns>
-    /// <remarks>
-    ///     Distinct from <see cref="EnumerateRefreshRates" />, and the difference is the point:
-    ///     the driver lists rates the panel never advertised, so only the EDID can say which modes are
-    ///     the panel's own. An empty result makes the native-modes strategy offer nothing rather than
-    ///     guess, which is the correct failure: a wrong list would pair caps against timings the panel
-    ///     does not really have.
-    /// </remarks>
-    public static IReadOnlyList<int> ReadAdvertisedRefreshRates()
-    {
-        var point = ReadPrimaryOperatingPoint();
-        if (point is null)
-        {
-            Log.Warn("Display modes: primary monitor identity unreadable; no advertised rates.");
-            return [];
-        }
-
-        try
-        {
-            var edid = DisplayEdid.ReadModes(point.Target);
-            if (edid.Status != DisplayEdidStatus.Read)
-            {
-                Log.Warn($"Display modes: no EDID for '{point.Target.DevicePath}': {edid.Status}.");
-            }
-
-            var rates = edid.Modes.Select(mode => mode.RefreshHz).Distinct().Order().ToArray();
-            Log.Change("display.modes.panel", $"Display modes: panel advertises [{string.Join(",", rates)}].");
-            return rates;
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            Log.Warn($"Display modes: EDID unreadable for '{point.Target.DevicePath}': {ex.Message}");
-            return [];
-        }
-    }
 }

@@ -100,7 +100,6 @@ internal static class SettingsSaveMerge
         config.DeviceIntegration.ControllerManagementEnabled = values.DeviceIntegration.ControllerManagementEnabled;
         config.DeviceIntegration.KeepGuideChordEdits = values.DeviceIntegration.KeepGuideChordEdits;
         config.Performance.Enabled = values.Performance.Enabled;
-        config.Performance.FrameLimitStrategy = values.Performance.FrameLimitStrategy;
         config.Performance.OsdCustomOrder = values.Performance.OsdCustomOrder;
         config.Performance.OsdCustomTime = values.Performance.OsdCustomTime;
         config.Performance.OsdCustomFps = values.Performance.OsdCustomFps;

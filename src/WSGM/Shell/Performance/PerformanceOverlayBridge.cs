@@ -35,7 +35,9 @@ internal sealed class PerformanceOverlayBridge : IDisposable
 
     private readonly CpuBoostService? _cpuBoost;
 
+    private const string RefreshRateRowId = "refresh-rate";
     private readonly Func<(int Minimum, int Maximum)?> _panelFrameLimitRange;
+    private readonly Func<RefreshRateService?> _refreshRates;
     private readonly ProfileService _profiles;
     private readonly PerformanceService _service;
     private bool _disposed;
@@ -44,23 +46,26 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     /// <param name="service">The session-owned RTSS service this projects.</param>
     /// <param name="profiles">The profile owner the per-game switch, reset and profile editor write to.</param>
     /// <param name="panelFrameLimitRange">
-    ///     The caps the display can actually be asked for, from the same pairing policy that bookends
-    ///     the Quick Access row. Null while no display has been enumerated — overlay-test has no
-    ///     pairing service at all — and the slider then falls back to what RTSS alone will accept.
+    ///     The caps the display can actually be asked for, the same bounds as the Quick Access row. Null
+    ///     while no display has been enumerated, as in overlay-test, and the slider then falls back to what
+    ///     RTSS alone will accept.
     /// </param>
     /// <param name="cpuBoost">
     ///     The owner of Windows' processor boost mode, which this projects as a third row. Null, or one
     ///     without processor boost, leaves the section to RTSS alone.
     /// </param>
+    /// <param name="refreshRates">The display's refresh rates, read each time because the owner starts later.</param>
     internal PerformanceOverlayBridge(
         PerformanceService service,
         ProfileService profiles,
         Func<(int Minimum, int Maximum)?>? panelFrameLimitRange = null,
-        CpuBoostService? cpuBoost = null)
+        CpuBoostService? cpuBoost = null,
+        Func<RefreshRateService?>? refreshRates = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
         _panelFrameLimitRange = panelFrameLimitRange ?? (static () => null);
+        _refreshRates = refreshRates ?? (static () => null);
         _cpuBoost = cpuBoost is { Available: true } ? cpuBoost : null;
         _service.StateChanged += OnStateChanged;
         _profiles.Changed += OnProfilesChanged;
@@ -207,7 +212,8 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     {
         var state = Current;
         var cpuBoost = BuildCpuBoostRow(state);
-        if (!_service.Enabled && cpuBoost is null)
+        var refreshRate = BuildRefreshRateRow();
+        if (!_service.Enabled && cpuBoost is null && refreshRate is null)
         {
             return new PerformanceOverlaySnapshot(false, string.Empty, [], []);
         }
@@ -222,6 +228,12 @@ internal sealed class PerformanceOverlayBridge : IDisposable
 
         if (!_service.Enabled)
         {
+            // The refresh rate is a Windows mode, so it needs no RTSS.
+            if (refreshRate is not null)
+            {
+                rows.Insert(0, refreshRate);
+            }
+
             return new PerformanceOverlaySnapshot(true, "RTSS integration is off.", rows, BuildProfileRows(state));
         }
 
@@ -351,6 +363,18 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             if (Current.Target is { } target && value is 0 or 1)
             {
                 await SetProfileScopeAsync(target.ApplicationId, value == 1, cancellationToken).ConfigureAwait(false);
+            }
+
+            return;
+        }
+
+        if (rowId == RefreshRateRowId)
+        {
+            // A Windows mode change takes a moment, and the slider runs on the UI thread.
+            if (_refreshRates() is { } refresh && refresh.ListedRates() is var rates && value >= 0
+                && value < rates.Count)
+            {
+                await Task.Run(() => refresh.TryApply(rates[value]), cancellationToken).ConfigureAwait(false);
             }
 
             return;
@@ -612,7 +636,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
 
     /// <summary>The slider bounds, agreeing with the Quick Access row about what a legal cap is.</summary>
     /// <remarks>
-    ///     RTSS accepts 0 to 1000 and the pairing policy offers a much narrower band — 30 up to the
+    ///     RTSS accepts 0 to 1000 and WSGM offers a much narrower band — 30 up to the
     ///     highest rate the display accepted. Running the slider over RTSS's range instead let the
     ///     overlay set a 12 FPS cap that the Quick Access row could not represent, and that row
     ///     disappeared rather than drawing it (Claw, 2026-09-03). The two now bookend the same way.
@@ -629,6 +653,34 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         return fromPanel
             ? new DescriptorRange(0, maximum, 1, "FPS", minimum)
             : new DescriptorRange(minimum, maximum, 1, "FPS");
+    }
+
+    /// <summary>The refresh slider: one stop per rate Windows lists, or null with nothing to choose between.</summary>
+    private DescriptorRow? BuildRefreshRateRow()
+    {
+        if (_refreshRates() is not { } refresh || refresh.ListedRates() is not { Count: > 1 } rates)
+        {
+            return null;
+        }
+
+        var current = refresh.CurrentRate();
+        return new DescriptorRow(
+                RefreshRateRowId,
+                "Refresh rate",
+                string.Empty,
+                current is { } hz ? $"{hz} Hz" : "Unknown",
+                true,
+                DescriptorStatus.Available) with
+            {
+                Range = new DescriptorRange(0, rates.Count - 1, 1, "Hz", Stops: rates),
+                Value = RefreshRateService.PositionOf(rates, current)
+            };
+    }
+
+    /// <summary>Says the rows may have changed, for an owner this bridge only borrows.</summary>
+    internal void RaiseChanged()
+    {
+        Changed?.Invoke();
     }
 
     /// <summary>The named notches this RTSS build accepts, in order.</summary>

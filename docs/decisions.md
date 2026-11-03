@@ -429,6 +429,13 @@ The choice follows the profile like any other target, so a game profile can cros
 WSGM hands the pad over in either direction (maintainer, 2026-10-20). See
 [device integration](device-integration.md#wsgm-owns-the-cloak).
 
+**The frame limit and the refresh rate are separate controls (2026-11-03).** The frame limit is a
+cap and changes no display state. The refresh rate is a second slider limited to the rates Windows
+lists for the mode, written as a Windows mode change. This replaces the unified row whose slider
+changed meaning with the cap, the pairing strategies, and holding any whole rate through the Arc
+Sync Custom profile (maintainer, 2026-11-03). See
+[power and display](power-and-display.md#refresh-rates-what-a-panel-advertises-is-not-what-a-driver-accepts).
+
 **Visibility is decided at start (2026-10-21).** Nothing is hidden at runtime: a control that is on
 screen stays there for the session, whatever its value or the outcome of a write. Each service
 settles what it can as it starts: it reads a readable setting, and writes a write-only one's neutral

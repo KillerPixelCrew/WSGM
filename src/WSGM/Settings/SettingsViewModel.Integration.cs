@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using WSGM.Core;
 
 namespace WSGM.Settings;
 
@@ -70,19 +69,6 @@ public sealed partial class SettingsViewModel
         get;
         set => SetField(ref field, value, nameof(OsdCustomBatteryIndex));
     } = 2;
-
-    /// <summary>Gets or sets how a frame cap is paired with the panel's refresh rate.</summary>
-    /// <remarks>
-    ///     Index into <see cref="FrameLimitStrategy" />, in declaration order, so the combo box needs no
-    ///     converter. It decides both what the cap does to the display and which caps are offered at
-    ///     all: uncoupled offers a free range, and the two coupled strategies offer only caps that
-    ///     divide a real mode exactly.
-    /// </remarks>
-    public int FrameLimitStrategyIndex
-    {
-        get;
-        set => SetField(ref field, value, nameof(FrameLimitStrategyIndex));
-    }
 
     /// <summary>
     ///     Gets or sets the master Steam CEF integration switch. Off closes the

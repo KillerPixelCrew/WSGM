@@ -7,13 +7,11 @@ public sealed class NativeQamPerfProjectionTests
 {
     private static NativeQamPerfSupport Support(
         bool vrr = false,
-        bool refreshSelectable = false,
         int[]? options = null,
         bool vrrEnabled = false,
         int? refreshHz = null)
     {
-        return new NativeQamPerfSupport(options ?? [30, 60, 120], vrr, refreshSelectable, 30, 120, vrrEnabled,
-            refreshHz);
+        return new NativeQamPerfSupport(options ?? [30, 60, 120], vrr, vrrEnabled, null, refreshHz);
     }
 
     private static string Serialize(SteamPerformanceState state)
@@ -22,9 +20,9 @@ public sealed class NativeQamPerfProjectionTests
     }
 
     [Theory]
-    [InlineData(true, true)]
-    [InlineData(false, false)]
-    public void EveryAdvertisedControlAlsoCarriesAValue(bool refreshSelectable, bool vrr)
+    [InlineData(true)]
+    [InlineData(false)]
+    public void EveryAdvertisedControlAlsoCarriesAValue(bool vrr)
     {
         // THE rule this file exists to protect. Hiding a control by omitting its limits field is
         // safe; advertising it in limits and omitting its settings value is not — Valve's component
@@ -35,15 +33,15 @@ public sealed class NativeQamPerfProjectionTests
         // shipped broken.
         var state = NativeQamProjection(
             PerformanceValues.Empty,
-            Support(vrr, refreshSelectable));
+            Support(vrr));
 
         Assert.Equal(state.Limits?.FpsLimitOptions is not null, state.PerApp?.FpsLimit is not null);
         Assert.Equal(
             state.Limits?.FpsLimitOptions is not null,
             state.PerApp?.IsFpsLimitEnabled is not null);
-        Assert.Equal(
-            state.Limits?.IsManualDisplayRefreshRateAvailable is not null,
-            state.PerApp?.DisplayRefreshManualHz is not null);
+        // Valve's own refresh row offers every whole rate; WSGM's slider offers the listed ones instead.
+        Assert.Null(state.Limits?.IsManualDisplayRefreshRateAvailable);
+        Assert.Null(state.PerApp?.DisplayRefreshManualHz);
         Assert.Equal(
             state.Limits?.IsVrrSupported is not null,
             state.PerApp?.IsVrrEnabled is not null);
@@ -84,7 +82,7 @@ public sealed class NativeQamPerfProjectionTests
     {
         var json = Serialize(NativeQamPerfProjection.Project(
             new PerformanceValues(60, 2),
-            Support(true, true, vrrEnabled: true, refreshHz: 120),
+            Support(true, vrrEnabled: true, refreshHz: 120),
             42,
             true));
 
@@ -92,7 +90,6 @@ public sealed class NativeQamPerfProjectionTests
         Assert.Contains("\"fps_limit_options\":[30,60,120]", json);
         Assert.Contains("\"is_vrr_supported\":true", json);
         Assert.Contains("\"is_vrr_enabled\":true", json);
-        Assert.Contains("\"display_refresh_manual_hz\":120", json);
         // Notch 2 travels as Valve's enum value Basic=1 (see SteamOverlayLevelWire).
         Assert.Contains("\"perf_overlay_level\":1", json);
         Assert.Contains("\"currentGameId\":\"42\"", json);

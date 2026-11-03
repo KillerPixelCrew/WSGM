@@ -176,7 +176,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _backends.DeviceCoordinator?.Power.AutoTdp.StatusChanged += OnAutoTdpStatusChanged;
         _backends.Performance.StateChanged += OnPerformanceStateChanged;
         // A refresh write answered later, or one that changed nothing, still moves Valve's refresh row.
-        _backends.RefreshPairing?.Changed += QueueStatePublication;
+        _backends.RefreshRates?.Changed += QueueStatePublication;
         _backends.ExtendedVrr?.Changed += QueueStatePublication;
         _backends.DeviceCoordinator?.Controllers.StatusChanged += OnControllerStatusChanged;
         // A profile change moves the game-override markers even when no device value changed.
@@ -230,7 +230,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _backends.DeviceCoordinator?.ConfigurationChanged -= QueueStatePublication;
         _backends.DeviceCoordinator?.Power.AutoTdp.StatusChanged -= OnAutoTdpStatusChanged;
         _backends.Performance.StateChanged -= OnPerformanceStateChanged;
-        _backends.RefreshPairing?.Changed -= QueueStatePublication;
+        _backends.RefreshRates?.Changed -= QueueStatePublication;
         _backends.ExtendedVrr?.Changed -= QueueStatePublication;
         _backends.DeviceCoordinator?.Controllers.StatusChanged -= OnControllerStatusChanged;
         _backends.Profiles.Changed -= OnProfilesChanged;

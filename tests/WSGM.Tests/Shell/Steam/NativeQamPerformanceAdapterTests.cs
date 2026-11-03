@@ -23,7 +23,7 @@ public sealed class NativeQamPerformanceAdapterTests
     }
 
     [Fact]
-    public async Task ARefreshRateChangeReachesTheDisplay()
+    public void ARefreshRateChangeReachesTheDisplay()
     {
         List<int> applied = [];
         var adapter = Adapter(hz =>
@@ -32,43 +32,32 @@ public sealed class NativeQamPerformanceAdapterTests
             return true;
         });
 
-        var result = await adapter.ApplyPerfChangeAsync(
-            new SteamPerformanceChange(SteamPerformanceSetting.RefreshRateHz, 60),
-            "test",
-            CancellationToken.None);
+        var result = adapter.SetRefreshRate(60);
 
         Assert.True(result.Succeeded);
         Assert.Equal(60, Assert.Single(applied));
     }
 
     [Fact]
-    public async Task ADisplayThatRefusesTheRateIsReportedAsAFailure()
+    public void ADisplayThatRefusesTheRateIsReportedAsAFailure()
     {
         var adapter = Adapter(_ => false);
 
-        var result = await adapter.ApplyPerfChangeAsync(
-            new SteamPerformanceChange(SteamPerformanceSetting.RefreshRateHz, 48),
-            "test",
-            CancellationToken.None);
+        var result = adapter.SetRefreshRate(48);
 
         Assert.False(result.Succeeded);
         Assert.Contains("48", result.Error);
     }
 
     [Fact]
-    public async Task WithNoApplierTheChangeIsRefusedByNameRatherThanDropped()
+    public void WithNoApplierTheChangeIsRefusedByNameRatherThanDropped()
     {
-        // Under the pairing strategies the frame cap owns the refresh rate, so the session supplies
-        // no applier and the write must say so rather than appear to succeed.
         var adapter = Adapter(null);
 
-        var result = await adapter.ApplyPerfChangeAsync(
-            new SteamPerformanceChange(SteamPerformanceSetting.RefreshRateHz, 60),
-            "test",
-            CancellationToken.None);
+        var result = adapter.SetRefreshRate(60);
 
         Assert.False(result.Succeeded);
-        Assert.Contains("RefreshRateHz", result.Error);
+        Assert.Contains("cannot change the refresh rate", result.Error);
     }
 
     [Fact]

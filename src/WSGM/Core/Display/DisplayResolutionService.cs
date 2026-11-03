@@ -9,9 +9,8 @@ namespace WSGM.Core;
 ///     Offers the resolutions Windows lists and applies the one the user chooses.
 /// </summary>
 /// <remarks>
-///     Separate from <see cref="RefreshRatePairingService" /> even though both move the display, because
-///     they are owned by different things: the pairing service moves the refresh rate as a consequence
-///     of a frame cap and puts it back, while this moves the resolution because the user asked it to.
+///     Separate from <see cref="RefreshRateService" /> even though both move the display: a rate is a
+///     transient mode change among the rates listed for this resolution, and this saves the resolution.
 ///     The choice is saved, as Windows Settings saves it, and nothing puts it back. Restoring the mode
 ///     found before the first change undid the user's own choice when WSGM exited, and a dynamic change
 ///     ended at the next restart, so the display kept returning to an old saved resolution (an Ally X

@@ -40,22 +40,24 @@ internal sealed partial class SteamNativeSettingsService
 
         var frame = performance.FrameLimit;
         var support = performance.PerfSupport?.Invoke();
-        if (frame.RefreshRates is { Count: > 1 } rates && performance.ApplyRefreshRate is not null)
+        if (support?.RefreshRates is { Count: > 1 } rates && performance.ApplyRefreshRate is not null)
         {
-            var selectable = !frame.LimitEnabled || support?.RefreshRatesSelectable == true;
-            offer.Add(displayRows, new SteamSettingsRow("display.refresh", SteamSettingsRowKind.Choice, "Refresh rate",
-                    selectable
-                        ? "Current display mode."
-                        : "The frame limit currently owns the paired refresh rate.",
-                    Text: frame.CurrentRefreshHz?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
-                    Choices:
-                    [
-                        .. rates.Select(rate => new SteamSettingsChoice(rate.ToString(CultureInfo.InvariantCulture),
-                            $"{rate} Hz"))
-                    ], Disabled: !selectable),
-                (value, token) => performance.SetRefreshRateAsync(
-                    int.Parse(value.GetString()!, CultureInfo.InvariantCulture),
-                    token), true);
+            // Its own slider, notched to the rates Windows lists: a mode the user picks, whatever the cap.
+            var refreshHz = support.Value.CurrentRefreshRateHz;
+            offer.Quick("refreshRate", offer.Add(displayRows, new SteamSettingsRow("display.refresh",
+                    SteamSettingsRowKind.Range, "Refresh rate",
+                    Number: RefreshRateService.PositionOf(rates, refreshHz),
+                    Minimum: 0, Maximum: rates.Count - 1, Step: 1,
+                    Labels: [.. rates.Select(rate => rate.ToString(CultureInfo.InvariantCulture))],
+                    Icon: "frameRate", LabelToken: "#QuickAccess_Tab_Perf_RefreshRate",
+                    Summary: refreshHz is { } hz ? $"{hz} Hz" : null),
+                (value, _) =>
+                {
+                    var position = Integer(value);
+                    return Task.FromResult(position >= 0 && position < rates.Count
+                        ? performance.SetRefreshRate(rates[position])
+                        : new SteamUiCommandResult(false, "The refresh rate is not one this display lists."));
+                }));
         }
 
         if (frame.Available && frame.MinimumFps is { } minFps && frame.MaximumFps is { } maxFps)

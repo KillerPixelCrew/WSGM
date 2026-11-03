@@ -181,7 +181,6 @@ public sealed class ConfigurationTests
 
         Assert.NotNull(config);
         Assert.Equal("#FF00AA", config.AccentColor);
-        Assert.Equal(FrameLimitStrategy.FrameLimitOnly, config.Performance.FrameLimitStrategy);
         Assert.Empty(config.DeviceIntegration.DeviceProfiles);
     }
 

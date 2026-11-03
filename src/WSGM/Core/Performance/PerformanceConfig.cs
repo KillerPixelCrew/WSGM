@@ -6,13 +6,6 @@ public sealed class PerformanceConfig
     /// <summary>Whether WSGM may observe and change supported RTSS profile properties.</summary>
     public bool Enabled { get; set; }
 
-    /// <summary>How a frame limit relates to the panel's refresh rate.</summary>
-    /// <remarks>
-    ///     Global rather than per-application: it decides whether WSGM changes display modes at all,
-    ///     which is a tolerance for mode-change risk the user holds once, not per game.
-    /// </remarks>
-    public FrameLimitStrategy FrameLimitStrategy { get; set; } = FrameLimitStrategy.FrameLimitOnly;
-
     /// <summary>
     ///     Custom overlay (level 4) widget order — HandheldCompanion's widget names,
     ///     comma-separated; unknown names are ignored.

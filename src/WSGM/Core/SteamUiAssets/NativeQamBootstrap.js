@@ -15251,45 +15251,6 @@
           if (fps > highestFps) highestFps = fps;
         }
       }
-      // Cap to refresh rate, for the "(60 Hz)" half of the label. Absent under the uncoupled
-      // strategy, where a cap moves no display mode and there is nothing to name.
-      const refreshForCap = new Map();
-      if (value.refreshForCap && typeof value.refreshForCap === "object") {
-        for (const [cap, hz] of Object.entries(value.refreshForCap)) {
-          const capValue = Number(cap);
-          const hzValue = Number(hz);
-          if (Number.isInteger(capValue) && Number.isInteger(hzValue) && hzValue > 0) {
-            refreshForCap.set(capValue, hzValue);
-          }
-        }
-      }
-      const refreshMinHz = value.refreshMinHz === null ? null : Number(value.refreshMinHz);
-      const refreshMaxHz = value.refreshMaxHz === null ? null : Number(value.refreshMaxHz);
-      const currentRefreshHz =
-        value.currentRefreshHz === null ? null : Number(value.currentRefreshHz);
-      // The refresh half is a pair like the cap half, and it is OPTIONAL: a display that offers no
-      // rates leaves the row with only its frame-limit mode rather than rejecting the state.
-      // The stops the refresh mode slides between. Windows takes a MODE or refuses: a panel that
-      // has 60 and 75 does not have 72, so this mode is notched to exactly what the display
-      // accepted, unlike the frame cap, where the limiter really does hold any integer.
-      const refreshRates = [];
-      if (Array.isArray(value.refreshRates)) {
-        for (const item of value.refreshRates) {
-          const hz = Number(item);
-          if (Number.isInteger(hz) && hz > 0 && !refreshRates.includes(hz)) refreshRates.push(hz);
-        }
-        refreshRates.sort((left, right) => left - right);
-      }
-      const refreshUsable =
-        refreshRates.length > 0 &&
-        refreshMinHz !== null &&
-        refreshMaxHz !== null &&
-        currentRefreshHz !== null &&
-        Number.isInteger(refreshMinHz) &&
-        Number.isInteger(refreshMaxHz) &&
-        Number.isInteger(currentRefreshHz) &&
-        refreshMinHz > 0 &&
-        refreshMaxHz >= refreshMinHz;
       return Object.freeze({
         ...common,
         minimumFps: lowestFps,
@@ -15297,11 +15258,6 @@
         desiredFps,
         observedFps,
         limitEnabled: value.limitEnabled === true,
-        refreshForCap,
-        refreshMinHz: refreshUsable ? refreshMinHz : null,
-        refreshMaxHz: refreshUsable ? refreshMaxHz : null,
-        currentRefreshHz: refreshUsable ? currentRefreshHz : null,
-        refreshRates: refreshUsable ? Object.freeze(refreshRates) : Object.freeze([]),
       });
     };
     const isBusy = (progress) =>
@@ -15390,29 +15346,11 @@
       const text = textOf(localized);
       return text && text.length > 0 && text[0] !== "#" ? localized : fallback;
     };
-    // Which notch the display is currently sitting on. A rate that is not one of the listed modes —
-    // something else can leave the panel on one — takes the nearest notch at or below it rather
-    // than snapping the handle to the start and reporting a rate the display is not at.
-    const currentRefreshNotch = (state) => {
-      if (!state || !state.refreshRates || state.refreshRates.length === 0) return null;
-      const current = state.currentRefreshHz;
-      if (!Number.isInteger(current)) return null;
-      let notch = 0;
-      for (let index = 0; index < state.refreshRates.length; index += 1) {
-        if (state.refreshRates[index] <= current) notch = index;
-      }
-      return notch;
-    };
     const createFrameLimitControl = (controlRuntime) =>
       function SteamUiFrameLimitControl() {
         const state = acceptedStates.get("frameLimit") ?? null;
         const value = state ? (state.observedFps ?? state.desiredFps) : null;
         const echoed = useEchoedValue(controlRuntime, value);
-        // Its own echo, because the two modes are two different numbers on one slider: reusing one
-        // would make the handle jump to a frame cap the moment the rate mode took over. It echoes
-        // the notch INDEX, which is what a notch slider reports while it is being dragged.
-        // Unconditional, ahead of every early return — these are hooks.
-        const refreshEchoed = useEchoedValue(controlRuntime, currentRefreshNotch(state));
         const [refusal, setRefusal] = controlRuntime.react.useState("");
         if (!state) return note("frameLimit", "no state");
         if (!state.available)
@@ -15436,13 +15374,6 @@
             return;
           send("setFrameLimit", nextValue);
         };
-        // Takes a NOTCH INDEX, not a rate: the refresh mode is a notch slider, so what the control
-        // hands back is a position in the accepted list.
-        const setRefresh = (notchIndex) => {
-          const hz = state.refreshRates[notchIndex];
-          if (!Number.isInteger(hz)) return;
-          send("setRefreshRate", hz);
-        };
         // Off is zero, and the slider never shows it: the cap the user chose has to survive being
         // switched off and back on, so the switch below writes zero and the slider keeps sitting
         // where it was. That is how SteamOS's own "Disable Frame Limit" behaves next to its Frame
@@ -15450,23 +15381,7 @@
         // the most the display can run, so switching the limit on costs nothing until it is moved.
         const capped = state.limitEnabled && echoed.value > 0;
         const cappedValue = echoed.value > 0 ? echoed.value : (state.maximumFps ?? 0);
-        // Recomputed every render, which is what makes it track a value still being dragged.
-        const pairedHz = state.refreshForCap.get(cappedValue);
-        // The row's second mode. With the cap off the slider IS the refresh rate — the whole reason
-        // SteamOS merged the two rows is that they are one decision: the frame cap and the rate it
-        // is presented at are the same frametime question, and vsync is what makes the pacing hold.
-        // Switching the cap off does not leave a dead control behind, it hands the same slider over
-        // to the rate.
-        const refreshMode = !capped && state.refreshRates.length > 0;
-        const sliderValue = refreshMode ? (refreshEchoed.value ?? 0) : cappedValue;
-        summarize(
-          "frameLimit",
-          capped
-            ? `${cappedValue} fps cap`
-            : refreshMode
-              ? `${state.refreshRates[refreshEchoed.value ?? 0] ?? "?"} Hz`
-              : "No frame limit",
-        );
+        summarize("frameLimit", capped ? `${cappedValue} fps cap` : "No frame limit");
         // Guarded like the AutoTDP row: a client whose ToggleField cannot be located loses the
         // switch and keeps the slider, rather than losing the whole row silently.
         const disableSwitch = controlRuntime.toggle
@@ -15476,9 +15391,6 @@
               // subject once it is a switch of its own. SteamOS names this switch outright.
               label: "Disable frame limit",
               icon: controlRuntime.icon("infinity"),
-              description: refreshMode
-                ? "The slider sets the refresh rate while the limit is off."
-                : undefined,
               checked: !capped,
               controlled: true,
               disabled: isBusy(state.progress),
@@ -15488,58 +15400,35 @@
             })
           : note("frameLimitSwitch", "Steam ToggleField was not resolved");
         const slider = controlRuntime.react.createElement(controlRuntime.slider, {
-          // A notch list of another length is another slider: Steam's keeps its notch in its own
-          // state, and reading it against a shorter list indexes past the end.
-          key: refreshMode ? `refresh:${state.refreshRates.join(",")}` : "cap",
           // Live-verified 2026-08-30: these are tokens the client actually carries.
           // "#QuickAccess_Tab_Perf_FramerateLimit" appears nowhere in the bundle, so the row it was
           // written against fell back to English on every localized client.
-          label: refreshMode
-            ? localizeOr(controlRuntime, "#QuickAccess_Tab_Perf_RefreshRate", "Refresh rate")
-            : localizeOr(
-                controlRuntime,
-                "#QuickAccess_Tab_Perf_LimitFrameRate",
-                "Frame rate limit",
-              ),
+          label: localizeOr(
+            controlRuntime,
+            "#QuickAccess_Tab_Perf_LimitFrameRate",
+            "Frame rate limit",
+          ),
           icon: controlRuntime.icon("frameRate"),
           // SliderField would otherwise put the glyph beside the track, which is where Valve keeps
           // the Quick Settings brightness icon on a slider that has no label at all. These sliders
           // are labelled, and the icon belongs with the label so every row in a section lines its
           // glyph up in one column.
           iconLocation: "front",
-          // The two modes are two different sliders sharing one row. The frame cap is NOTCHLESS
-          // under every strategy — the limiter holds any integer and the pairing is what snaps —
-          // while the refresh rate is notched to exactly the modes the display accepted, because
-          // Windows takes a mode or refuses and there is no continuum between 60 and 75.
-          min: 0,
-          max: refreshMode ? state.refreshRates.length - 1 : state.maximumFps,
-          ...(refreshMode
-            ? {
-                notchCount: state.refreshRates.length,
-                notchLabels: state.refreshRates.map((hz, notchIndex) => ({
-                  notchIndex,
-                  label: `${hz}`,
-                  value: hz,
-                })),
-                notchTicksVisible: true,
-              }
-            : { min: state.minimumFps }),
+          // NOTCHLESS: the limiter holds any integer.
+          min: state.minimumFps,
+          max: state.maximumFps,
           step: 1,
-          value: sliderValue,
-          // "60 FPS (60 Hz)" is how SteamOS's unified row names a cap and the rate it will be
-          // presented at. In refresh mode the notch label already carries the number.
-          valueSuffix: refreshMode ? " Hz" : pairedHz ? ` FPS (${pairedHz} Hz)` : " FPS",
-          showValue: !refreshMode && echoed.value !== null,
-          showBookendLabels: !refreshMode,
-          disabled: isBusy(state.progress),
+          value: cappedValue,
+          valueSuffix: " FPS",
+          showValue: capped,
+          showBookendLabels: true,
+          // Off keeps the cap the switch would restore, so the slider stays where it is.
+          disabled: !capped || isBusy(state.progress),
           description:
             refusal ||
             accentDescription(controlRuntime, state.accent, state.fault || state.statusText),
-          onChange: refreshMode ? refreshEchoed.onChange : echoed.onChange,
-          onChangeComplete: (next) =>
-            refreshMode
-              ? refreshEchoed.onChangeComplete(next, setRefresh)
-              : echoed.onChangeComplete(next, setCap),
+          onChange: echoed.onChange,
+          onChangeComplete: (next) => echoed.onChangeComplete(next, setCap),
         });
         return controlRuntime.react.createElement(
           controlRuntime.react.Fragment,

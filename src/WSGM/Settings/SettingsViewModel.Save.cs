@@ -97,10 +97,6 @@ public sealed partial class SettingsViewModel
             0, Enum.GetValues<DeviceGlyphSelection>().Length - 1);
 
         config.Performance.Enabled = PerformanceEnabled;
-        config.Performance.FrameLimitStrategy = (FrameLimitStrategy)Math.Clamp(
-            FrameLimitStrategyIndex,
-            0,
-            Enum.GetValues<FrameLimitStrategy>().Length - 1);
         config.Performance.OsdCustomOrder = OsdCustomOrder;
         config.Performance.OsdCustomTime = Math.Clamp(OsdCustomTimeIndex, 0, 2);
         config.Performance.OsdCustomFps = Math.Clamp(OsdCustomFpsIndex, 0, 2);

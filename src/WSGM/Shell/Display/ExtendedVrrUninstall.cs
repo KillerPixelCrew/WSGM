@@ -50,7 +50,7 @@ internal static class ExtendedVrrUninstall
             await using var driver = BuiltinGpuDrivers.Create(intel, BuiltinGpuDrivers.StateDirectory(store.Context, intel));
             var health = await driver.StartAsync().ConfigureAwait(false);
             Log.Info($"Uninstall restore: Intel graphics driver session {health} for the extended VRR range.");
-            var calls = new GpuFixedRefreshRate(() => [driver], static () => true);
+            var calls = new GpuExtendedVrrDriver(() => [driver]);
             ExtendedVrrService service = new(() => panel, new WindowsExtendedVrrMachine(), calls,
                 () => store.Read().Config?.ExtendedVrrOriginal, original => store.Update(config =>
                 {

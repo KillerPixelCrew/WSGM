@@ -9,10 +9,10 @@ threshold.
 
 What WSGM does with the display and the power state of a handheld: Windows power schemes and
 processor policy, device power presets and their assignments, Game Mode display layouts and audio
-profiles, muting during screen-off downloads, the keep-awake wake lock, refresh-rate pairing for the
-frame limit, and variable refresh over IGCL. The established display and wake-lock paths were
-verified on the reference MSI Claw. Boot and shell transitions are in
-[boot and shell](boot-and-shell.md); the frame limit itself in [RTSS](rtss.md).
+profiles, muting during screen-off downloads, the keep-awake wake lock, the refresh rate slider, and
+variable refresh over IGCL. The established display and wake-lock paths were verified on the
+reference MSI Claw. Boot and shell transitions are in [boot and shell](boot-and-shell.md); the frame
+limit itself in [RTSS](rtss.md).
 
 Windows Device Control owns the first reusable CCD display-profile primitives. `DisplayTopology`
 captures active paths in Windows priority order, identifies monitors by EDID manufacturer/product
@@ -771,8 +771,7 @@ switch cannot land between another owner's read of the active scheme and its wri
 
 ## Refresh rates: what a panel advertises is not what a driver accepts
 
-Verified on the reference MSI Claw 8 AI+ A2VM, 2026-08-30. The two lists differ, and every
-frame-limit strategy depends on the difference.
+Verified on the reference MSI Claw 8 AI+ A2VM, 2026-08-30. The two lists differ.
 
 `EnumDisplaySettings` reports 30/48/60/75/100/120 Hz at 1920x1200, and
 `ChangeDisplaySettingsEx(CDS_TEST)` accepts all six. The panel's EDID advertises only 60 and 120:
@@ -790,56 +789,40 @@ reconstructs display state on reboot.
 A resolution or mode the user picks is different: it is their choice, so it is saved with
 `CDS_UPDATEREGISTRY`, as Windows Settings saves it, from the Steam menu and the Overlay alike, and
 nothing puts it back. The Steam menu's write keeps the current refresh rate on screen and the saved
-refresh rate in the saved mode, so a rate the frame-limit pairing holds never becomes the default.
+refresh rate in the saved mode, so a rate chosen on the refresh slider never becomes the default.
 Both writes were dynamic before, with the menu restoring the mode found before its first change when
 WSGM exited. An Ally X with 1120x630 saved came back at 1120x630 on every boot, and WSGM's exit put
 1120x630 back over the 1920x1080 the user had just picked (2026-10-20).
 
-Consequences encoded in `Core\Display\FrameLimitPairing.cs`, `Core\Display\PrimaryDisplayModes.cs`
-and `Core\Display\RefreshRatePairingService.cs`:
+Consequences encoded in `Core\Display\RefreshRateService.cs`, `Core\Display\FrameLimitCaps.cs` and
+`Core\Display\PrimaryDisplayModes.cs`:
 
-- Enumeration alone cannot tell an advertised mode from a synthesized one, so the native-modes
-  strategy needs the EDID. Without it that strategy would silently equal full frame doubling.
-- One decision per display says how a rate applies, and manual writes, Valve's Quick Settings row
-  and the frame-limit pairing all follow it. Where Intel's driver offers an Arc Sync range for the
-  display, every whole rate in that range applies, capped at the fastest Windows mode (48-120 Hz on
-  the Atlas, whose Arc Sync reports 48-121). The rate is written through LibGPUDriverInteract as the
-  Custom Arc Sync profile with its minimum and maximum both at the rate, without a Windows mode
-  change; a Windows mode below the requested rate is first raised to the fastest listed one.
-  Everywhere else, NVIDIA, AMD and Intel without Arc Sync, only the rates Windows lists for the
-  current mode apply, through a Windows mode change.
+- The frame limit and the refresh rate are two separate controls (maintainer, 2026-11-03). A frame
+  limit is a cap in RTSS and changes no display state. It no longer selects a refresh rate, and no
+  strategy setting exists any more.
+- The refresh slider offers exactly the rates Windows lists for the current mode, 48/60/75/100/120
+  on the Atlas, and writes a Windows mode change through
+  `PrimaryDisplayModes.TryRestoreRefreshRate`. WSGM holds no rate between them: the Arc Sync Custom
+  profile is no longer used for the refresh rate. LibGPUDriverInteract still puts back a rate a
+  previous build left fixed, at the next start of its Intel session.
+- A rate that does not come from the list, which only injected JavaScript could send, goes to the
+  nearest listed rate, the higher of two equally near. The rate is the user's: it is not saved in a
+  profile and nothing puts it back.
 - Windows rates are enumerated, never tested with `CDS_TEST`. Right after a resume the test refused
   every mode but the current one, the cached refusal shrank the list from 48-120 Hz to 120 Hz, and
   Valve's refresh slider, reading its stored notch against the shorter list, threw inside Quick
   Settings (Atlas, 2026-11-01). The listed modes are the same before and after a resume; a listed
   mode the driver then refuses is reported by the write itself. Resolutions follow the same rule.
-- Valve's refresh row always offers every whole rate between its bounds. Where only listed Windows
-  rates apply, a rate between two listed ones goes to the nearest listed rate (the higher of two
-  equally near), and the next publication shows it. The row and the unified frame-limit row's notch
-  slider are keyed on their range, so a range that changes mounts a new slider rather than one
-  holding a notch past the end of its list.
-- A rate held through Arc Sync is shared driver state. The pairing releases the rate it set when it
-  stops owning it (cap-only strategy, no cap, shutdown); choosing the Windows mode's own rate on the
-  row releases a manual one. LibGPUDriverInteract puts the profile in use before the first fixed
-  rate back whenever its Intel session closes, which covers exit, upgrade, uninstall and switching
-  the Intel graphics driver off, and restores a rate a crashed process left behind at the next
-  start. A write through an Arc Sync row hands the profile back to the user. Every Arc Sync write
-  logs the profile, its bounds and the driver result. This path has no attended hardware pass yet.
-- Discovery is cached for the primary target, resolution and colour depth because each read costs a
-  driver round trip. A graphics driver that starts later triggers one new discovery; an Arc Sync
-  range once found stays while the Intel driver is configured, so a driver paused across a suspend
-  never shrinks the list. Display-change notifications and resume invalidate the snapshot; routine
-  Overlay and Steam state reads reuse it without querying display topology. Concurrent readers share
-  discovery, and stale results are discarded. Actual refresh-rate writes revalidate the operating
-  point. Original rates are captured and restored per target.
-- The frame-doubling strategy prefers the lowest mode at least twice the cap (30 FPS at 60 Hz, 60 at
-  120). A 1:1 cadence keeps adaptive sync's low-framerate compensation out of reach, and a 30 Hz
-  panel visibly flickers. Where no doubled multiple exists, and under native modes always, pairing
-  takes the lowest exact multiple, since refresh rate is a power cost.
-- A cap with no exact multiple leaves the refresh rate alone. Forcing a near-miss mode adds judder
-  rather than removing it.
-- A mode change is not free: an exclusive-fullscreen title can hitch, minimize or drop out across
-  one. Cap-only is therefore the default wherever variable refresh already covers the range.
+- Valve's own refresh row is not offered, because it offers every whole rate between its bounds. The
+  slider is a row of WSGM's on the Performance tab beside the frame limit, and the same row on
+  Steam's Display settings page; the Overlay draws it through `DescriptorRange.Stops`. A list of
+  another length mounts a new slider rather than one holding a notch past the end.
+- Discovery is cached for the primary target, resolution and colour depth. Display-change
+  notifications and resume invalidate the snapshot; routine Overlay and Steam state reads reuse it
+  without querying display topology. Concurrent readers share discovery, and stale results are
+  discarded. A write revalidates the operating point first.
+- One display change arrives as a burst of notifications, and each graphics topology refresh rereads
+  every driver feature. `CoalescedRefresh` runs one at a time and at most one more after it.
 
 ## Variable refresh over IGCL
 
@@ -903,7 +886,7 @@ override another tool wrote, shows a refusal and changes nothing.
   restore that fails keeps the record, so switching it off again retries.
 
 Arc Sync keeps one owner. These writes never go through the user's Arc Sync rows, which would end a
-fixed refresh rate and hand the profile to the user, and they share `GpuFixedRefreshRate`'s ordered
+fixed refresh rate and hand the profile to the user, and they share `GpuExtendedVrrDriver`'s ordered
 queue off the UI thread. While the range is active WSGM supplies Excellent across the panel's range
 as the profile a released fixed refresh rate returns to (`SetRefreshRateBaselineAsync`), so a
 refresh write never leaves the panel without its floor. While a fixed rate holds the panel, the
@@ -992,7 +975,7 @@ write is verified; the split itself is not.
 | Saved presets                              | [DevicePowerUserPresets](../src/WSGM/Core/Device/DevicePowerUserPresets.cs), [PowerPresetRows](../src/WSGM/Shell/Device/PowerPresetRows.cs), [DevicePowerSavedPresetsView](../src/WSGM/Overlay/DevicePowerSavedPresetsView.cs)                                                                                   |
 | Display entry and return                   | [GameModeEntryTransaction](../src/WSGM/Shell/Desktop/GameModeEntryTransaction.cs), [DesktopReturnSequence](../src/WSGM/Shell/Desktop/DesktopReturnSequence.cs), [GameModeReturnRecovery](../src/WSGM/Shell/Desktop/GameModeReturnRecovery.cs)                                                                    |
 | Connected-display settling and diagnostics | [DisplayArrivalWaiter](../src/WSGM/Shell/Display/DisplayArrivalWaiter.cs), [DisplayLayoutDiagnostics](../src/WSGM/Shell/Display/DisplayLayoutDiagnostics.cs)                                                                                                                                                     |
-| Resolution, cadence and scaling            | [DisplayResolutionService](../src/WSGM/Core/Display/DisplayResolutionService.cs), [RefreshRatePairingService](../src/WSGM/Core/Display/RefreshRatePairingService.cs), [DisplayScale](../src/WSGM/Core/Display/DisplayScale.cs)                                                                                   |
+| Resolution, cadence and scaling            | [DisplayResolutionService](../src/WSGM/Core/Display/DisplayResolutionService.cs), [RefreshRateService](../src/WSGM/Core/Display/RefreshRateService.cs), [DisplayScale](../src/WSGM/Core/Display/DisplayScale.cs)                                                                                                 |
 | Audio profile capture/apply                | [AudioProfileService](../src/WSGM/Shell/Audio/AudioProfileService.cs)                                                                                                                                                                                                                                            |
 | Session display signals and download mute  | [ShellDisplayPresence](../src/WSGM/Shell/Display/ShellDisplayPresence.cs), [ShellDisplayChangeSignal](../src/WSGM/Shell/Display/ShellDisplayChangeSignal.cs), [DisplayPowerSignal](../src/WSGM/Shell/Display/DisplayPowerSignal.cs), [DisplayOffMuteService](../src/WSGM/Shell/Display/DisplayOffMuteService.cs) |
 | Keep awake and timeout choices             | [KeepAwakeService](../src/WSGM/Shell/Power/KeepAwakeService.cs), [WakeLockHolders](../src/WSGM/Core/Power/WakeLockHolders.cs), [DisplayTimeouts](../src/WSGM/Shell/Display/DisplayTimeouts.cs)                                                                                                                   |

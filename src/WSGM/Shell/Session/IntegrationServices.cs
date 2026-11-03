@@ -24,6 +24,7 @@ namespace WSGM.Shell;
 internal sealed class IntegrationServices
 {
     private readonly SessionState _state;
+    private CoalescedRefresh? _graphicsTopologyRefresh;
 
     /// <summary>Creates the set's plugin host; nothing is discovered or started until <see cref="StartPlugins" />.</summary>
     /// <param name="state">The session's live state.</param>
@@ -331,8 +332,9 @@ internal sealed class IntegrationServices
     {
         if (BuiltinGpu is { } drivers)
         {
-            Log.Observe(drivers.RefreshTopologyAsync(_state.Config, _state.ShutdownToken),
-                "Graphics adapter topology refresh", true);
+            _graphicsTopologyRefresh ??= new CoalescedRefresh(() =>
+                drivers.RefreshTopologyAsync(_state.Config, _state.ShutdownToken));
+            Log.Observe(_graphicsTopologyRefresh.RequestAsync(), "Graphics adapter topology refresh", true);
         }
     }
 

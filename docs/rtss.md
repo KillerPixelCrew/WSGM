@@ -200,12 +200,12 @@ not something a button can usefully do.
 
 ### The overlay slider and the Quick Access row bookend the same way
 
-Both ask `FrameLimitPairing.FrameLimitRange`: 30 FPS up to the highest rate the display accepted,
-capped at 280 because the slider has to stay crossable on a thumbstick. The overlay used to run over
-RTSS's own 0-1000 instead, so a stray thumbstick on the Device page set a 12 FPS cap that RTSS
-honoured and the Quick Access row could not represent. That row's injected half validates the state
-it is handed against its own bookends, so it discarded the whole thing and the frame-limit slider
-disappeared from the Quick Access Menu entirely (Claw, 2026-09-03).
+Both ask `FrameLimitCaps.Range`: 30 FPS up to the highest rate Windows lists for the mode, capped at
+280 because the slider has to stay crossable on a thumbstick. The overlay used to run over RTSS's
+own 0-1000 instead, so a stray thumbstick on the Device page set a 12 FPS cap that RTSS honoured and
+the Quick Access row could not represent. That row's injected half validates the state it is handed
+against its own bookends, so it discarded the whole thing and the frame-limit slider disappeared
+from the Quick Access Menu entirely (Claw, 2026-09-03).
 
 Both halves changed. The overlay's slider spans the panel's range, and because it has no separate
 off switch the way SteamOS's row does, it keeps zero and treats everything under the floor as zero.

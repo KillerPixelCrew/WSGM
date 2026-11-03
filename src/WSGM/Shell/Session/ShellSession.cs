@@ -479,7 +479,7 @@ public sealed class ShellSession
             return;
         }
 
-        _performance.StartDisplayPairing();
+        _performance.StartDisplay();
         // The transport was created closed with the session; the gate decides when it opens.
         _steamUi.StartTransportGate();
         _performance.StartRunningApplications(
@@ -798,8 +798,8 @@ public sealed class ShellSession
             HybridCores = _hybridCores,
             DeviceCoordinator = _integrations.Device,
             PerfSupport = _performance.ReadNativeQamPerfSupport,
-            ApplyRefreshRate = _performance.ApplyManualRefreshRate,
-            RefreshPairing = _performance.RefreshPairing,
+            ApplyRefreshRate = _performance.ApplyRefreshRate,
+            RefreshRates = _performance.RefreshRates,
             ExtendedVrr = _performance.ExtendedVrr,
             // Null when nothing can publish VRR, which is also when the projection omits
             // is_vrr_supported and Valve's row does not render. One fact, one source. The
@@ -848,7 +848,7 @@ public sealed class ShellSession
 
         _performance.Resolutions?.InvalidateOptions();
         _integrations.ScaledResolutions?.Invalidate();
-        _performance.RefreshPairing?.Invalidate();
+        _performance.RefreshRates?.Invalidate();
         _steamUi.Host?.QueueStatePublication();
         // Steam can rebuild its window for a new display; ask the page whether WSGM is still in it.
         _steamUi.RequestHealthCheck();

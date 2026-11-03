@@ -82,13 +82,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
     /// </remarks>
     internal Func<NativeQamPerfSupport>? PerfSupport { get; init; }
 
-    /// <summary>Applies a manually chosen refresh rate, when the session allows one.</summary>
-    /// <remarks>
-    ///     Set only where a manual refresh rate is meaningful. Under the pairing strategies the frame
-    ///     cap owns the refresh rate, so this stays unset and a write is refused by name rather than
-    ///     fighting the pairing on the user's behalf — the row is hidden there anyway, because the
-    ///     projection omits its limits.
-    /// </remarks>
+    /// <summary>Applies a chosen refresh rate; unset where this session has no display to move.</summary>
     internal Func<int, bool>? ApplyRefreshRate { get; init; }
 
     /// <summary>Turns variable refresh rate on or off, when a device publishes it.</summary>
@@ -106,15 +100,14 @@ internal sealed class PerformanceServiceNativeQamAdapter :
         {
             var current = _service.Current;
             var support = PerfSupport?.Invoke()
-                          ?? new NativeQamPerfSupport([], false, false, null, null);
+                          ?? new NativeQamPerfSupport([], false);
 
             return NativeQamPerfProjection.Project(
                 current.Desired,
                 support,
                 current.Target?.SteamAppId,
-                // The VRR state and the refresh rate in force are read from `support` inside, so
-                // the manual refresh row cannot be advertised in `limits` without its value in
-                // `settings`, which is half of what once crashed the Performance tab.
+                // The VRR state is read from `support` inside, so its row cannot be advertised in
+                // `limits` without its value in `settings`, which once crashed the Performance tab.
                 current.ApplicationProfileEnabled);
         }
     }
@@ -132,17 +125,21 @@ internal sealed class PerformanceServiceNativeQamAdapter :
             cancellationToken);
     }
 
-    /// <inheritdoc />
-    /// <remarks>
-    ///     The unified row's other mode. With the frame limit off there is no cap to pair a rate to, so
-    ///     the slider becomes the refresh rate itself and writes here — which is why this is available
-    ///     under every strategy, unlike the manual-refresh row, whose whole problem was fighting a
-    ///     pairing that was still active.
-    /// </remarks>
-    public Task<SteamUiCommandResult> SetRefreshRateAsync(int hz, CancellationToken cancellationToken)
+    /// <summary>Applies a refresh rate from the refresh slider.</summary>
+    /// <param name="hz">The rate.</param>
+    /// <returns>Success, or the refusal with its reason.</returns>
+    internal SteamUiCommandResult SetRefreshRate(int hz)
     {
-        _ = cancellationToken;
-        return Task.FromResult(SetRefreshRate(hz));
+        if (ApplyRefreshRate is null)
+        {
+            const string reason = "This session cannot change the refresh rate.";
+            Log.Warn($"Refresh rate {hz} Hz refused: {reason}");
+            return new SteamUiCommandResult(false, reason);
+        }
+
+        return ApplyRefreshRate(hz)
+            ? new SteamUiCommandResult(true, null)
+            : new SteamUiCommandResult(false, $"The display refused {hz} Hz.");
     }
 
     /// <inheritdoc />
@@ -263,23 +260,6 @@ internal sealed class PerformanceServiceNativeQamAdapter :
         return Task.FromResult(new SteamUiCommandResult(false, reason));
     }
 
-    /// <summary>Applies a refresh rate from either of Steam's refresh controls.</summary>
-    /// <param name="hz">The rate the control sent.</param>
-    /// <returns>Success, or the refusal with its reason.</returns>
-    private SteamUiCommandResult SetRefreshRate(int hz)
-    {
-        if (ApplyRefreshRate is null)
-        {
-            const string reason = "This session cannot change the refresh rate.";
-            Log.Warn($"Native QAM refresh rate {hz} Hz refused: {reason}");
-            return new SteamUiCommandResult(false, reason);
-        }
-
-        return ApplyRefreshRate(hz)
-            ? new SteamUiCommandResult(true, null)
-            : new SteamUiCommandResult(false, $"The display refused {hz} Hz.");
-    }
-
     /// <summary>The cap the enable toggle applies when no cap is set yet.</summary>
     /// <remarks>
     ///     The last cap the service still holds when there is one, else the highest offered notch —
@@ -369,9 +349,6 @@ internal sealed class PerformanceServiceNativeQamAdapter :
             SteamPerformanceSetting.VariableRefreshRate when
                 ApplyVariableRefreshRate is { } applyVrr =>
                 ApplyFlagAsync(applyVrr, change.AsFlag, "variable refresh rate", cancellationToken),
-
-            SteamPerformanceSetting.RefreshRateHz when ApplyRefreshRate is not null =>
-                Task.FromResult(SetRefreshRate(change.Value)),
 
             _ => Task.FromResult(
                 new SteamUiCommandResult(
@@ -507,18 +484,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
             // slider never has to spend a position on it and the cap the user last chose survives
             // being switched off and back on.
             state.Desired.FrameLimit is > 0,
-            support?.RefreshForCap,
-            // The bounds of the row's OTHER mode. Present whenever the display has rates to offer,
-            // independent of RefreshRatesSelectable — that flag governs Valve's separate manual
-            // row, which must stay hidden while a cap owns the rate. Here the cap is off, so there
-            // is nothing to fight.
-            support?.RefreshRateMinHz,
-            support?.RefreshRateMaxHz,
-            support?.CurrentRefreshRateHz,
-            // The stops that mode slides between. Windows accepts a MODE, not a rate: it either
-            // has 75 Hz or it does not, and asking for 72 gets a refusal, not the nearest thing.
-            support?.RefreshRates,
-            state.FrameLimitLayer is ProfileSource.Game);
+            Accent: state.FrameLimitLayer is ProfileSource.Game);
     }
 
     private static int? ValidValue(

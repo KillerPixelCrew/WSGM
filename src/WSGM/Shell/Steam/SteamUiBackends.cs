@@ -47,11 +47,11 @@ internal sealed record SteamUiBackends
     /// </summary>
     internal Func<NativeQamPerfSupport>? PerfSupport { get; init; }
 
-    /// <summary>Applies a manually chosen refresh rate, or null.</summary>
+    /// <summary>Applies a chosen refresh rate, or null.</summary>
     internal Func<int, bool>? ApplyRefreshRate { get; init; }
 
     /// <summary>The refresh-rate owner whose changes republish the refresh rows, or null in overlay-test.</summary>
-    internal RefreshRatePairingService? RefreshPairing { get; init; }
+    internal RefreshRateService? RefreshRates { get; init; }
 
     /// <summary>The extended VRR range of the running device's panel, or null without one.</summary>
     internal ExtendedVrrService? ExtendedVrr { get; init; }
