@@ -8,7 +8,7 @@
   <!-- About: version and licence on top, then the project links in the left column and the
          people and projects WSGM thanks in the right one. Everything shown comes from
          Core\Credits, which the overlay's About page shares. -->
-  <Border Padding="16,10,16,10">
+  <Border Padding="28,0,28,20">
     <Grid RowDefinitions="Auto,*">
       <Border Classes="hc-device-card">
         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
@@ -24,12 +24,12 @@
         </Grid>
       </Border>
 
-      <Grid Grid.Row="1" ColumnDefinitions="*,24,*">
-        <StackPanel Grid.Column="0">
+      <StackPanel Grid.Row="1">
+        <StackPanel>
           <Border Classes="section-header">
-            <TextBlock Text="PROJECT" />
+            <TextBlock Text="Project" />
           </Border>
-          <Border Classes="setting-row alt">
+          <Border Classes="setting-row">
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
               <StackPanel VerticalAlignment="Center" Spacing="1">
                 <TextBlock Text="WSGM on GitHub" Classes="setting-title" />
@@ -43,14 +43,14 @@
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
               <StackPanel VerticalAlignment="Center" Spacing="1">
                 <TextBlock Text="Report a problem" Classes="setting-title" />
-                <TextBlock Text="Attach wsgm.log from the diagnostics folder on the System page." Classes="caption"
+                <TextBlock Text="Attach the log from Diagnostics." Classes="caption"
                            TextWrapping="Wrap" />
               </StackPanel>
               <Button Grid.Column="1" Content="Open" Click="OnOpenLink" Tag="{x:Static core:Credits.IssuesUrl}"
                       VerticalAlignment="Center" />
             </Grid>
           </Border>
-          <Border Classes="setting-row alt">
+          <Border Classes="setting-row">
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
               <StackPanel VerticalAlignment="Center" Spacing="1">
                 <TextBlock Text="Licence" Classes="setting-title" />
@@ -72,14 +72,14 @@
           </Border>
         </StackPanel>
 
-        <StackPanel Grid.Column="2">
+        <StackPanel>
           <Border Classes="section-header">
-            <TextBlock Text="THANKS" />
+            <TextBlock Text="Thanks" />
           </Border>
           <ItemsControl ItemsSource="{x:Static core:Credits.People}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="core:Credit">
-                <Border Classes="setting-row alt">
+                <Border Classes="setting-row">
                   <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                     <StackPanel VerticalAlignment="Center" Spacing="1">
                       <TextBlock Text="{Binding Name}" Classes="setting-title" />
@@ -94,7 +94,7 @@
           </ItemsControl>
 
           <Border Classes="section-header">
-            <TextBlock Text="BUILT ON" />
+            <TextBlock Text="Built on" />
           </Border>
           <ItemsControl ItemsSource="{x:Static core:Credits.Projects}">
             <ItemsControl.ItemTemplate>
@@ -113,7 +113,7 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
         </StackPanel>
-      </Grid>
+      </StackPanel>
     </Grid>
   </Border>
 </UserControl>

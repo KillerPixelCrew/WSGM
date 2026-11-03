@@ -6,7 +6,11 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
+using Avalonia.Interactivity;
+using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Input;
@@ -16,9 +20,9 @@ using WSGM.Themes;
 namespace WSGM.Settings;
 
 /// <summary>
-///     The interactive settings window for shell and game-mode configuration:
-///     a bumper <see cref="TabStrip" /> over its always-alive pages (toggled by
-///     visibility so their state survives switching) and a bottom status strip.
+///     The interactive settings window for shell and game-mode configuration: a section rail with
+///     search over its always-alive pages (toggled by visibility so their state survives switching)
+///     and a footer with Save and the status line.
 /// </summary>
 public partial class SettingsWindow : Window
 {
@@ -44,7 +48,8 @@ public partial class SettingsWindow : Window
     // this window's release must end only its own claim, never the block a
     // surface still on screen needs; see docs\steam-input.md.
     private readonly string _leaseOwner = SteamInputBlocker.NewOwner("settings-window");
-    private readonly Control[] _pages;
+    private readonly SettingsSection[] _sections;
+    private readonly Button[] _railButtons;
     private readonly SettingsWindowServices _services;
     private readonly SettingsViewModel _viewModel;
     private int _chordGeneration;
@@ -65,6 +70,7 @@ public partial class SettingsWindow : Window
     private Window? _keyboardDialog;
     private GamepadNavigation? _navigation;
     private bool _opened;
+    private int _section;
     private BootSplashWindow? _splashPreview;
 
     // In game mode WSGM hosts the only taskbar, and it excludes own-process windows
@@ -75,7 +81,7 @@ public partial class SettingsWindow : Window
     private IDisposable? _testOverlay;
 
     /// <summary>
-    ///     Creates the settings window, builds the tab strip and connects
+    ///     Creates the settings window, builds the section rail and connects
     ///     controller navigation and the shortcut recorders. Every Settings window leases while focused.
     /// </summary>
     /// <param name="viewModel">The view model the window edits.</param>
@@ -92,28 +98,56 @@ public partial class SettingsWindow : Window
             ? clipboard.SetTextAsync(text)
             : throw new InvalidOperationException("this window has no clipboard");
 
-        // The one page table: it drives the tab strip, the visibility toggle and
-        // the focus landing alike (the XAML hosts the same pages in this order).
-        (string Title, StreamGeometry Icon, Control Page)[] pages =
+        // The one section table: it drives the rail, the heading, the visibility toggle, the focus landing
+        // and the search. A nested level names the rail entry it belongs to.
+        _sections =
         [
-            ("System", Icons.Monitor, PageSystem),
-            ("Steam", Icons.SteamLike, PageSteam),
-            ("Integration", Icons.Wrench, PageIntegration),
-            ("Device setup", Icons.SteamLike, PageDevice),
-            ("Startup", Icons.Rocket, PageStartup),
-            ("Quick access", Icons.Panel, PageQuickAccess),
-            ("Display", Icons.Monitor, PageDisplay),
-            ("Appearance", Icons.Palette, PageAppearance),
-            ("About", Icons.Info, PageAbout),
-            ("Plugins", Icons.Wrench, PagePlugins),
-            ("Device profiles", Icons.Wrench, PageDeviceProfiles)
+            new SettingsSection("General", "How WSGM starts, updates and looks after Steam and this device.",
+                PageGeneral),
+            new SettingsSection("Steam", "How Steam runs, what WSGM adds inside it, and defaults for new titles.",
+                PageSteam),
+            new SettingsSection("Device", "What WSGM may take over on this handheld, and how its controller appears.",
+                PageDevice),
+            new SettingsSection("Quick access", "How the Overlay opens and how it looks over a game.",
+                PageQuickAccess),
+            new SettingsSection("Performance",
+                "Frame limiting, the performance overlay and the graphics drivers WSGM manages.", PagePerformance),
+            new SettingsSection("Display", "How your screens are set up in each mode. Applied on the next switch.",
+                PageDisplay),
+            new SettingsSection("Startup", "Programs that run at sign-in, in order, before Steam starts.",
+                PageStartup),
+            new SettingsSection("Appearance", "The accent colour and the splash shown while WSGM starts Steam.",
+                PageAppearance),
+            new SettingsSection("Plugins", "Plugins bundled with this release. Changes apply when WSGM restarts.",
+                PagePlugins),
+            new SettingsSection("Diagnostics", "What to send with a bug report, and how to get back to the desktop.",
+                PageDiagnostics),
+            new SettingsSection("About", string.Empty, PageAbout),
+            new SettingsSection("Fan curves and colours",
+                "Make profiles here. Pick the active one in the Overlay or Steam.", PageDeviceProfiles, DeviceSection)
         ];
-        _pages = [.. pages.Select(static entry => entry.Page)];
-        Tabs.Tabs = [.. pages.Select((entry, index) => new TabStripItem(entry.Title, entry.Icon, index))];
-        Tabs.SelectionChanged += OnTabSelectionChanged;
+        _railButtons =
+        [
+            .. _sections.Where(static section => section.Parent is null).Select((section, index) =>
+            {
+                var button = new Button
+                {
+                    Content = section.Title, Classes = { "settings-rail-item" },
+                    Tag = "rail." + section.Title.ToLowerInvariant().Replace(' ', '-')
+                };
+                button.Click += (_, _) => SelectSection(index);
+                return button;
+            })
+        ];
+        SectionRail.Children.AddRange(_railButtons);
+        ShowSection(0);
+        PageDevice.OpenProfilesRequested += () => SelectSection(ProfilesSection);
+        SearchBox.TextChanged += (_, _) => UpdateSearch();
+        SearchBox.KeyDown += OnSearchKeyDown;
+        SearchBox.LostFocus += (_, _) => Dispatcher.UIThread.Post(CloseSearchWhenFocusLeft);
 
-        // Controller navigation for the settings window itself. LB/RB cycle the
-        // tab strip (which wraps at both ends).
+        // Controller navigation for the settings window itself. LB/RB step through the
+        // sections (wrapping at both ends).
         // Focus changes drive the lease; the opt-out is snapshotted once and stays
         // fixed for this window's life. Turning the lease off on the Quick access
         // page therefore takes effect at the NEXT surface open, not on this
@@ -217,22 +251,156 @@ public partial class SettingsWindow : Window
         };
     }
 
+    /// <summary>The rail entry of the Device section, which the profile editor nests under.</summary>
+    private const int DeviceSection = 2;
+
+    /// <summary>The profile editor's entry in the section table.</summary>
+    private const int ProfilesSection = 11;
+
     /// <summary>
-    ///     One selection path for touch, mouse, keyboard and the LB/RB
-    ///     shoulder buttons: the TabStrip owns the index, this toggles the
-    ///     always-alive pages' visibility.
+    ///     One selection path for touch, mouse, keyboard, search and the LB/RB shoulder buttons: shows the
+    ///     section and lands focus inside it. Without the landing the next D-pad press falls back to the
+    ///     window's first focusable, which is always the search box.
     /// </summary>
-    private void OnTabSelectionChanged(object? sender, TabStripSelectionChangedEventArgs e)
+    /// <param name="index">The section's index in the table.</param>
+    private void SelectSection(int index)
     {
-        for (var index = 0; index < _pages.Length; index++)
+        ShowSection(index);
+        FocusFirstControl(_sections[index].Page);
+    }
+
+    private void ShowSection(int index)
+    {
+        _section = index;
+        var section = _sections[index];
+        for (var other = 0; other < _sections.Length; other++)
         {
-            _pages[index].IsVisible = index == e.NewIndex;
+            _sections[other].Page.IsVisible = other == index;
         }
 
-        // Land controller focus inside the newly shown page — without this the
-        // next D-pad press falls back to the window's first focusable, which is
-        // always the "System" tab button regardless of the active tab.
-        FocusFirstControl(_pages[Math.Clamp(e.NewIndex, 0, _pages.Length - 1)]);
+        var railIndex = section.Parent ?? index;
+        for (var other = 0; other < _railButtons.Length; other++)
+        {
+            _railButtons[other].Classes.Set("selected", other == railIndex);
+        }
+
+        SectionTitle.Text = section.Parent is { } parent
+            ? $"{_sections[parent].Title}  ›  {section.Title}"
+            : section.Title;
+        SectionCaption.Text = section.Caption;
+        SectionCaption.IsVisible = section.Caption.Length > 0;
+    }
+
+    /// <summary>Steps through the rail, from a nested level as from the section it belongs to; wraps at both ends.</summary>
+    /// <param name="step">One forward or back.</param>
+    private void StepSection(int step)
+    {
+        var railIndex = _sections[_section].Parent ?? _section;
+        SelectSection((railIndex + step + _railButtons.Length) % _railButtons.Length);
+    }
+
+    /// <summary>Rebuilds the suggestions for what the search box holds.</summary>
+    private void UpdateSearch()
+    {
+        var query = SearchBox.Text ?? string.Empty;
+        var found = SettingsSearch.Find(
+            _sections.SelectMany((section, index) =>
+                SettingsSearch.Collect(index, section.Parent is { } parent
+                    ? $"{_sections[parent].Title} › {section.Title}"
+                    : section.Title, section.Page)),
+            query);
+        SearchList.Children.Clear();
+        foreach (var entry in found)
+        {
+            SearchList.Children.Add(SearchRow(entry));
+        }
+
+        SearchCount.Text = found.Count == 1 ? "1 setting" : $"{found.Count} settings";
+        SearchResults.IsVisible = query.Trim().Length > 0;
+    }
+
+    private Button SearchRow(SettingsSearchEntry entry)
+    {
+        var titles = new StackPanel { Spacing = 1 };
+        titles.Children.Add(new TextBlock
+            { Text = entry.Title, Classes = { "setting-title" }, TextWrapping = TextWrapping.Wrap });
+        titles.Children.Add(new TextBlock { Text = entry.Path, Classes = { "caption" } });
+        var layout = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12 };
+        layout.Children.Add(titles);
+        var value = new TextBlock
+            { Text = entry.Value, Classes = { "caption" }, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(value, 1);
+        layout.Children.Add(value);
+        var row = new Button { Content = layout, Classes = { "settings-search-row" } };
+        row.Click += (_, _) => GoToSetting(entry);
+        return row;
+    }
+
+    /// <summary>Shows the section, scrolls to the row and focuses it, leaving the search closed.</summary>
+    /// <param name="entry">The chosen setting.</param>
+    private void GoToSetting(SettingsSearchEntry entry)
+    {
+        CloseSearch();
+        ShowSection(entry.SectionIndex);
+        // After layout: the page has only just become visible, so the row has no place to scroll to yet.
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_closed)
+            {
+                return;
+            }
+
+            entry.Row?.BringIntoView();
+            if (entry.Row is { } row)
+            {
+                (FocusSearch.FirstNavigable(row) ?? FocusSearch.FirstNavigable(_sections[entry.SectionIndex].Page))
+                    ?.Focus(NavigationMethod.Directional);
+            }
+        }, DispatcherPriority.Loaded);
+    }
+
+    private void CloseSearch()
+    {
+        SearchBox.Text = string.Empty;
+        SearchResults.IsVisible = false;
+    }
+
+    private void CloseSearchWhenFocusLeft()
+    {
+        if (SearchResults.IsVisible && FocusManager?.GetFocusedElement() is Visual focused
+                                    && !SearchResults.IsVisualAncestorOf(focused) && !ReferenceEquals(focused, SearchBox))
+        {
+            CloseSearch();
+        }
+    }
+
+    private void OnSearchKeyDown(object? sender, KeyEventArgs e)
+    {
+        var first = SearchList.Children.OfType<Button>().FirstOrDefault();
+        switch (e.Key)
+        {
+            case Key.Enter when first is not null:
+                first.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                e.Handled = true;
+                break;
+            case Key.Down when first is not null:
+                first.Focus(NavigationMethod.Directional);
+                e.Handled = true;
+                break;
+        }
+    }
+
+    /// <summary>The controller's way into search: a text box takes no pad input, so Y opens the on-screen keyboard.</summary>
+    private void OpenSearchKeyboard()
+    {
+        ShowOnScreenKeyboard(SearchBox.Text ?? string.Empty, 0, "Search settings", value =>
+        {
+            SearchBox.Text = value;
+            Dispatcher.UIThread.Post(
+                () => SearchList.Children.OfType<Button>().FirstOrDefault()?.Focus(NavigationMethod.Directional),
+                DispatcherPriority.Loaded);
+            return null;
+        });
     }
 
     private static void FocusFirstControl(Control page)
@@ -329,18 +497,34 @@ public partial class SettingsWindow : Window
     {
         return new GamepadNavigation(_gamepad, this, BackOrClose,
             IsNintendoLayout,
-            tabPrevious: Tabs.SelectPrevious,
-            tabNext: Tabs.SelectNext);
+            tabPrevious: () => StepSection(-1),
+            tabNext: () => StepSection(1),
+            tertiary: _ => OpenSearchKeyboard(),
+            focusScope: () => SearchResults.IsVisible ? SearchResults : null);
     }
 
     /// <summary>
-    ///     The controller Back action. A color-picker flyout the Appearance
-    ///     page has open takes B first: its content lives in a popup root that
-    ///     gamepad navigation cannot enter, so without this B would close the whole
-    ///     window and discard every unsaved edit on every page.
+    ///     The controller Back action. Open search suggestions close first and a nested level returns to
+    ///     its section. A color-picker flyout the Appearance page has open also takes B first: its content
+    ///     lives in a popup root that gamepad navigation cannot enter, so without this B would close the
+    ///     whole window and discard every unsaved edit on every page.
     /// </summary>
     private void BackOrClose()
     {
+        if (SearchResults.IsVisible)
+        {
+            CloseSearch();
+            SearchBox.Focus(NavigationMethod.Directional);
+            return;
+        }
+
+        if (_sections[_section].Parent is { } parent)
+        {
+            ShowSection(parent);
+            PageDevice.FocusOpenProfiles();
+            return;
+        }
+
         if (PageAppearance.TryCloseColorFlyout())
         {
             return;

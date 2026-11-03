@@ -7,17 +7,13 @@ using Avalonia.VisualTree;
 
 namespace WSGM.Settings.Pages;
 
-/// <summary>
-///     The System settings page: shell status hero row, sign-in start, Steam start,
-///     device-manager takeover and start mode, updates, recovery help, power and diagnostics.
-///     Inherits the window's <see cref="SettingsViewModel" /> DataContext.
-/// </summary>
-public partial class SystemPage : UserControl
+/// <summary>The Diagnostics section: the log, its upload, verbose logging, recovery and the last standby.</summary>
+public partial class DiagnosticsPage : UserControl
 {
     private SettingsViewModel? _model;
 
     /// <summary>Loads the compiled page XAML.</summary>
-    public SystemPage()
+    public DiagnosticsPage()
     {
         InitializeComponent();
         DataContextChanged += (_, _) =>

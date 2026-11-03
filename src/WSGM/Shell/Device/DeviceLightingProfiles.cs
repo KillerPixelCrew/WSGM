@@ -138,7 +138,7 @@ internal sealed class DeviceLightingProfiles
             (next is not null && !selection.Value.Profiles.Any(profile => profile.ProfileId == next)))
         {
             SetStatus(
-                "The lighting profile no longer exists. Create or select a profile in Settings, Device profiles.",
+                "The lighting profile no longer exists. Create or select a profile in Settings, Device, Fan curves and colours.",
                 DescriptorStatus.Warning);
             return;
         }
@@ -295,7 +295,7 @@ internal sealed class DeviceLightingProfiles
         if (profile?.Color is not (>= 0 and <= 0xFFFFFF))
         {
             SetStatus(
-                "The selected profile has no valid color. Edit its color in Settings, Device profiles.",
+                "The selected profile has no valid color. Edit its color in Settings, Device, Fan curves and colours.",
                 DescriptorStatus.Warning);
             return;
         }

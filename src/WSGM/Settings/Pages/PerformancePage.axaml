@@ -1,0 +1,111 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:s="using:WSGM.Settings"
+             x:Class="WSGM.Settings.Pages.PerformancePage"
+             x:DataType="s:SettingsViewModel">
+  <!-- Frame limiting, the performance overlay and the graphics drivers WSGM manages. -->
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Classes="settings-page">
+        <Border Classes="section-header">
+          <TextBlock Text="Frame limit" />
+        </Border>
+        <Border Classes="setting-row">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="RTSS performance controls" Classes="setting-title" />
+              <TextBlock
+                Text="Use the verified RTSS profile API for the shared frame limiter in the overlay and native Quick Access. RTSS remains optional; setup installs it when you choose Full."
+                Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding PerformanceEnabled}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+
+        <Border Classes="section-header" IsVisible="{Binding PerformanceEnabled}">
+          <TextBlock Text="Performance overlay widgets" />
+        </Border>
+        <Border Classes="setting-row" IsVisible="{Binding PerformanceEnabled}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Widget order" Classes="setting-title" />
+              <TextBlock
+                Text="Rows of the Quick Access overlay selector's Custom level, top to bottom. Names: Time, GPU, CPU, VRAM, RAM, BATT, FPS; unknown names are ignored."
+                Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <TextBox Grid.Column="1" Width="230" VerticalAlignment="Center" Text="{Binding OsdCustomOrder}" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row" IsVisible="{Binding PerformanceEnabled}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <TextBlock Text="Clock" Classes="setting-title" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}"
+                      SelectedIndex="{Binding OsdCustomTimeIndex}" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row" IsVisible="{Binding PerformanceEnabled}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <TextBlock Text="Framerate" Classes="setting-title" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}"
+                      SelectedIndex="{Binding OsdCustomFpsIndex}" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row" IsVisible="{Binding PerformanceEnabled}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <TextBlock Text="CPU" Classes="setting-title" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}"
+                      SelectedIndex="{Binding OsdCustomCpuIndex}" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row" IsVisible="{Binding PerformanceEnabled}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <TextBlock Text="GPU" Classes="setting-title" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}"
+                      SelectedIndex="{Binding OsdCustomGpuIndex}" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row" IsVisible="{Binding PerformanceEnabled}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <TextBlock Text="Memory" Classes="setting-title" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}"
+                      SelectedIndex="{Binding OsdCustomRamIndex}" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row" IsVisible="{Binding PerformanceEnabled}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <TextBlock Text="Video memory" Classes="setting-title" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}"
+                      SelectedIndex="{Binding OsdCustomVramIndex}" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row" IsVisible="{Binding PerformanceEnabled}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <TextBlock Text="Battery" Classes="setting-title" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}"
+                      SelectedIndex="{Binding OsdCustomBatteryIndex}" />
+          </Grid>
+        </Border>
+
+        <Border Classes="section-header">
+          <TextBlock Text="Graphics drivers" />
+        </Border>
+        <TextBlock
+          Text="Let WSGM manage graphics settings for matching adapters. Changes apply after Save without restarting WSGM."
+          Classes="caption" TextWrapping="Wrap" Margin="12,4,12,8" />
+        <ItemsControl ItemsSource="{Binding GraphicsDrivers}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="s:CommonPluginInstanceRow">
+              <Border Classes="setting-row">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                  <StackPanel VerticalAlignment="Center" Spacing="1">
+                    <TextBlock Text="{Binding Name}" Classes="setting-title" />
+                    <TextBlock Text="{Binding Detail}" Classes="caption" TextWrapping="Wrap" />
+                  </StackPanel>
+                  <ToggleSwitch Grid.Column="1" IsChecked="{Binding Enabled}" VerticalAlignment="Center" />
+                </Grid>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

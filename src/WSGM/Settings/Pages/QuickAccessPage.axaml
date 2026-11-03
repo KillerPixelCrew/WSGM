@@ -7,13 +7,13 @@
          sheet test → blur slider → lease toggle → glyph style → hotkey recorder → chord
          recorder → top edge → bottom edge → Steam menu edge → Steam QAM edge. -->
   <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-  <Border Padding="16,10,16,10">
-    <Grid ColumnDefinitions="*,24,*">
-      <StackPanel Grid.Column="0">
+  <Border Padding="28,0,28,20">
+    <StackPanel>
+      <StackPanel>
         <Border Classes="section-header">
-          <TextBlock Text="QUICK ACCESS" />
+          <TextBlock Text="Sheet" />
         </Border>
-        <Border Classes="setting-row alt">
+        <Border Classes="setting-row">
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <StackPanel VerticalAlignment="Center" Spacing="1">
               <TextBlock Text="Quick access sheet" Classes="setting-title" />
@@ -37,7 +37,7 @@
                        HorizontalAlignment="Right" />
           </Grid>
         </Border>
-        <Border Classes="setting-row alt">
+        <Border Classes="setting-row">
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <StackPanel VerticalAlignment="Center" Spacing="1">
               <TextBlock Text="Block Steam Input while the sheet is open" Classes="setting-title" />
@@ -59,9 +59,9 @@
           </Grid>
         </Border>
         <Border Classes="section-header">
-          <TextBlock Text="BROWSER" />
+          <TextBlock Text="Browser" />
         </Border>
-        <Border Classes="setting-row alt">
+        <Border Classes="setting-row">
           <StackPanel Spacing="8">
             <TextBlock Text="Browser memory behavior" Classes="setting-title" />
             <TextBlock Text="Unload releases memory and opens a fresh page next time. Keep alive retains your guide for faster reopening. Site sign-in stays saved. Steam controls its own in-game browser."
@@ -74,11 +74,11 @@
         </Border>
       </StackPanel>
 
-      <StackPanel Grid.Column="2">
+      <StackPanel>
         <Border Classes="section-header">
-          <TextBlock Text="SHORTCUTS &amp; SWIPES" />
+          <TextBlock Text="Open with" />
         </Border>
-        <Border Classes="setting-row alt">
+        <Border Classes="setting-row">
           <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
             <StackPanel VerticalAlignment="Center" Spacing="1">
               <TextBlock Text="Keyboard shortcut" Classes="setting-title" />
@@ -98,7 +98,7 @@
             <Button Grid.Column="2" Content="Clear" Click="OnClearChord" VerticalAlignment="Center" />
           </Grid>
         </Border>
-        <Border Classes="setting-row alt">
+        <Border Classes="setting-row">
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <StackPanel VerticalAlignment="Center" Spacing="1">
               <TextBlock Text="Swipe from the top edge" Classes="setting-title" />
@@ -118,7 +118,7 @@
             <ToggleSwitch Grid.Column="1" IsChecked="{Binding GestureBottom}" VerticalAlignment="Center" />
           </Grid>
         </Border>
-        <Border Classes="setting-row alt">
+        <Border Classes="setting-row">
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <StackPanel VerticalAlignment="Center" Spacing="1">
               <TextBlock Text="Swipe from the left edge" Classes="setting-title" />
@@ -140,7 +140,7 @@
           </Grid>
         </Border>
       </StackPanel>
-    </Grid>
+    </StackPanel>
   </Border>
   </ScrollViewer>
 </UserControl>

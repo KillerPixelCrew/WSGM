@@ -124,14 +124,19 @@ public sealed class VisualTests
     }
 
     [AvaloniaTheory]
-    [InlineData("settings-system-1024", 0, 1024, 700)]
-    [InlineData("settings-system-1280", 0, 1280, 800)]
-    [InlineData("settings-quick-access-1024", 5, 1024, 700)]
-    [InlineData("settings-quick-access-1280", 5, 1280, 800)]
+    [InlineData("settings-general-1024", 0, 1024, 700)]
+    [InlineData("settings-general-1280", 0, 1280, 800)]
+    [InlineData("settings-steam-1024", 1, 1024, 700)]
+    [InlineData("settings-device-1024", 2, 1024, 700)]
+    [InlineData("settings-quick-access-1024", 3, 1024, 700)]
+    [InlineData("settings-performance-1024", 4, 1024, 700)]
+    [InlineData("settings-startup-1024", 6, 1024, 700)]
+    [InlineData("settings-diagnostics-1024", 9, 1024, 700)]
+    [InlineData("settings-quick-access-1280", 3, 1280, 800)]
     [InlineData("settings-appearance-1024", 7, 1024, 700)]
     [InlineData("settings-appearance-1280", 7, 1280, 800)]
-    [InlineData("settings-about-1024", 8, 1024, 700)]
-    [InlineData("settings-about-1280", 8, 1280, 800)]
+    [InlineData("settings-about-1024", 10, 1024, 700)]
+    [InlineData("settings-about-1280", 10, 1280, 800)]
     public void Settings(string name, int page, int width, int height)
     {
         using UiFixture fixture = new();
@@ -147,13 +152,13 @@ public sealed class VisualTests
         VisualBaseline.Verify(window, name);
     }
 
-    // System > Diagnostics with the log upload asking for confirmation, and after both files went up, both
+    // Diagnostics with the log upload asking for confirmation, and after both files went up, both
     // scrolled into view at the Settings floor and at a larger window.
     [AvaloniaTheory]
-    [InlineData("settings-system-log-confirm-1024", false, 1024, 700)]
-    [InlineData("settings-system-log-confirm-1280", false, 1280, 800)]
-    [InlineData("settings-system-log-uploaded-1024", true, 1024, 700)]
-    [InlineData("settings-system-log-uploaded-1280", true, 1280, 800)]
+    [InlineData("settings-diagnostics-log-confirm-1024", false, 1024, 700)]
+    [InlineData("settings-diagnostics-log-confirm-1280", false, 1280, 800)]
+    [InlineData("settings-diagnostics-log-uploaded-1024", true, 1024, 700)]
+    [InlineData("settings-diagnostics-log-uploaded-1280", true, 1280, 800)]
     public async Task SettingsLogUpload(string name, bool uploaded, int width, int height)
     {
         using UiFixture fixture = new();
@@ -165,6 +170,7 @@ public sealed class VisualTests
         fixture.UploadLogs = (_, _) => Task.FromResult("https://filebin.net/wsgm-0123456789abcdef0123456789abcdef");
         var window = fixture.Settings(width, height);
         FreezeUpdateStatus(window);
+        UiFixture.Click(window, UiFixture.Tab(window, 9));
         var model = Assert.IsType<SettingsViewModel>(window.DataContext);
         model.Clipboard = _ => Task.CompletedTask;
         await model.PrepareLogUploadAsync();
@@ -201,7 +207,7 @@ public sealed class VisualTests
             }).Add(row);
         }
 
-        UiFixture.Click(window, UiFixture.Tab(window, 9));
+        UiFixture.Click(window, UiFixture.Tab(window, 8));
         VisualBaseline.Verify(window, name);
     }
 

@@ -2,55 +2,62 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:s="using:WSGM.Settings"
         xmlns:pages="using:WSGM.Settings.Pages"
-        xmlns:c="using:WSGM.Controls"
         xmlns:ov="using:WSGM.Overlay"
+        xmlns:core="using:WSGM.Core"
         x:Class="WSGM.Settings.SettingsWindow"
         x:DataType="s:SettingsViewModel"
         Title="WSGM"
         Icon="/Assets/wsgm.ico"
         Width="1280" Height="720" MinWidth="1024" MinHeight="640"
         WindowStartupLocation="CenterScreen"
-        Background="{StaticResource HcBackgroundBrush}">
+        Background="{StaticResource HcHeaderBrush}">
 
-  <!-- Dense two-column utility layout: bumper
-         TabStrip on top, always-alive pages toggled by IsVisible (scroll
-         positions survive), status strip at the bottom. The setting-row family
-         shared by every page lives in Themes/SettingsPages.axaml. -->
+  <!-- A section rail with search over always-alive pages toggled by IsVisible, so scroll positions
+       survive. The section table in the code-behind drives the rail, the page and the heading. The
+       setting-row family shared by every page lives in Themes/SettingsPages.axaml. -->
+  <Grid x:Name="SettingsRoot" ColumnDefinitions="232,*">
+    <Border Grid.Column="0" Classes="settings-rail">
+      <Grid RowDefinitions="Auto,Auto,*,Auto">
+        <TextBlock Text="WSGM Settings" Classes="settings-rail-title" />
+        <TextBox x:Name="SearchBox" Grid.Row="1" PlaceholderText="Search settings" Margin="16,0,16,14"
+                 AutomationProperties.Name="Search settings" />
+        <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+          <StackPanel x:Name="SectionRail" Spacing="2" Margin="12,0" />
+        </ScrollViewer>
+        <TextBlock Grid.Row="3" Classes="caption" Margin="24,12">
+          <Run Text="WSGM " /><Run Text="{x:Static core:Credits.VersionText}" />
+        </TextBlock>
+      </Grid>
+    </Border>
 
-  <Grid>
-    <Grid RowDefinitions="Auto,*,Auto" x:Name="SettingsRoot">
-      <Border Grid.Row="0"
-              Background="{StaticResource HcBackgroundBrush}"
-              BorderBrush="{StaticResource HcCardBorderBrush}"
-              BorderThickness="0,0,0,1"
-              Padding="14,6">
-        <!-- Tab descriptors (labels + Icons geometries) are assigned in
-                 code-behind; LB/RB cycle via GamepadNavigation. -->
-        <c:TabStrip x:Name="Tabs" Classes="compact" />
-      </Border>
+    <Grid Grid.Column="1" RowDefinitions="Auto,*,Auto">
+      <StackPanel Margin="28,20,28,12" Spacing="2">
+        <TextBlock x:Name="SectionTitle" Classes="settings-page-title" />
+        <TextBlock x:Name="SectionCaption" Classes="caption" TextWrapping="Wrap" />
+      </StackPanel>
 
-      <Grid Grid.Row="1" Background="{StaticResource HcHeaderBrush}">
-        <pages:SystemPage x:Name="PageSystem" IsVisible="True" />
+      <Grid Grid.Row="1">
+        <pages:GeneralPage x:Name="PageGeneral" IsVisible="True" />
         <pages:SteamPage x:Name="PageSteam" IsVisible="False" />
-        <pages:IntegrationPage x:Name="PageIntegration" IsVisible="False" />
         <pages:DeviceOwnershipPage x:Name="PageDevice" IsVisible="False" />
-        <pages:StartupPage x:Name="PageStartup" IsVisible="False" />
-        <pages:QuickAccessPage x:Name="PageQuickAccess" IsVisible="False" />
-        <pages:DisplayPage x:Name="PageDisplay" IsVisible="False" />
-        <pages:AppearancePage x:Name="PageAppearance" IsVisible="False" />
-        <pages:AboutPage x:Name="PageAbout" IsVisible="False" />
-        <pages:PluginsPage x:Name="PagePlugins" IsVisible="False" />
         <pages:DeviceProfilesPage x:Name="PageDeviceProfiles" IsVisible="False" />
+        <pages:QuickAccessPage x:Name="PageQuickAccess" IsVisible="False" />
+        <pages:PerformancePage x:Name="PagePerformance" IsVisible="False" />
+        <pages:DisplayPage x:Name="PageDisplay" IsVisible="False" />
+        <pages:StartupPage x:Name="PageStartup" IsVisible="False" />
+        <pages:AppearancePage x:Name="PageAppearance" IsVisible="False" />
+        <pages:PluginsPage x:Name="PagePlugins" IsVisible="False" />
+        <pages:DiagnosticsPage x:Name="PageDiagnostics" IsVisible="False" />
+        <pages:AboutPage x:Name="PageAbout" IsVisible="False" />
       </Grid>
 
       <Border Grid.Row="2" Classes="hc-footer">
-        <Grid Margin="12,5" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="16">
+        <Grid Margin="16,6" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
           <Button Classes="primary" Content="Save changes" Command="{Binding SaveCommand}"
                   IsEnabled="{Binding CanSaveLayouts}" MinWidth="120" />
-          <TextBlock Grid.Column="1" Text="{Binding ServiceStateText}" Classes="caption" VerticalAlignment="Center" />
-          <TextBlock Grid.Column="2" Text="{Binding StatusText}" Classes="caption"
+          <TextBlock Grid.Column="1" Text="{Binding StatusText}" Classes="caption"
                      VerticalAlignment="Center" TextWrapping="Wrap" MaxLines="2" />
-          <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
             <StackPanel Orientation="Horizontal" Spacing="5">
               <ov:GlyphIcon Width="18" Height="18" Button="a" GlyphStyle="{Binding GlyphStyle}"
                             VerticalAlignment="Center" />
@@ -61,11 +68,27 @@
                             VerticalAlignment="Center" />
               <TextBlock Text="Back" Classes="caption" VerticalAlignment="Center" />
             </StackPanel>
-            <TextBlock Text="LB/RB  Tab" Classes="caption" VerticalAlignment="Center" />
-            <TextBlock Text="D-pad  Navigate" Classes="caption" VerticalAlignment="Center" />
+            <StackPanel Orientation="Horizontal" Spacing="5">
+              <ov:GlyphIcon Width="18" Height="18" Button="y" GlyphStyle="{Binding GlyphStyle}"
+                            VerticalAlignment="Center" />
+              <TextBlock Text="Search" Classes="caption" VerticalAlignment="Center" />
+            </StackPanel>
+            <TextBlock Text="LB / RB  Section" Classes="caption" VerticalAlignment="Center" />
           </StackPanel>
         </Grid>
       </Border>
     </Grid>
+
+    <!-- Live suggestions. In-window and above both columns, so the rail and pages stay where they were. -->
+    <Border x:Name="SearchResults" Grid.Column="0" Grid.ColumnSpan="2" Classes="settings-search-results"
+            IsVisible="False" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="16,96,0,0"
+            Width="480" MaxHeight="440">
+      <Grid RowDefinitions="Auto,*">
+        <TextBlock x:Name="SearchCount" Classes="caption" Margin="14,10,14,6" />
+        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+          <StackPanel x:Name="SearchList" Spacing="2" Margin="6,0,6,6" />
+        </ScrollViewer>
+      </Grid>
+    </Border>
   </Grid>
 </Window>

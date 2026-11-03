@@ -5,10 +5,7 @@
              x:Class="WSGM.Settings.Pages.DeviceProfilesPage"
              x:DataType="s:SettingsViewModel">
   <ScrollViewer>
-    <StackPanel Margin="0,0,0,16">
-      <TextBlock Text="DEVICE PROFILES" Classes="page-title" />
-      <TextBlock Text="Create fan curves and lighting colours here. Choose the active profile from the overlay or Steam."
-                 Classes="caption" TextWrapping="Wrap" Margin="0,8,0,16" />
+    <StackPanel Classes="settings-page">
       <Panel>
         <TextBlock Text="{Binding DeviceProfilesEmptyReason}"
                    Classes="caption"
@@ -23,7 +20,7 @@
                     device's own descriptor when the overlay applies it, not here.
                 -->
             <Border Classes="section-header">
-              <TextBlock Text="PROFILES" />
+              <TextBlock Text="Profiles" />
             </Border>
             <Border Classes="setting-row">
               <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
@@ -47,7 +44,7 @@
                         VerticalAlignment="Center" />
               </Grid>
             </Border>
-            <Border Classes="setting-row alt" IsVisible="{Binding HasSelectedDeviceProfile}">
+            <Border Classes="setting-row" IsVisible="{Binding HasSelectedDeviceProfile}">
               <Panel DataContext="{Binding SelectedDeviceProfile}">
                 <StackPanel Spacing="8" x:DataType="s:DeviceProfileRowViewModel">
                   <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">

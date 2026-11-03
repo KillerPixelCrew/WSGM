@@ -17,13 +17,13 @@
       <Setter Property="Margin" Value="0,4,0,4" />
     </Style>
   </UserControl.Styles>
-  <Border Padding="16,10,16,10">
-    <Grid ColumnDefinitions="*,24,*">
-      <StackPanel Grid.Column="0">
+  <Border Padding="28,0,28,20">
+    <StackPanel>
+      <StackPanel>
         <Border Classes="section-header">
-          <TextBlock Text="ACCENT" />
+          <TextBlock Text="Accent" />
         </Border>
-        <Border Classes="setting-row alt">
+        <Border Classes="setting-row">
           <!-- Swatch buttons (44x44, check overlay on the active color)
                          are built in code-behind from the preset list. -->
           <StackPanel x:Name="SwatchPanel" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" />
@@ -41,9 +41,9 @@
         </Border>
 
         <Border Classes="section-header">
-          <TextBlock Text="SPLASH · CONTENT" />
+          <TextBlock Text="Splash" />
         </Border>
-        <Border Classes="setting-row alt">
+        <Border Classes="setting-row">
           <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
             <TextBlock Text="Preset" Classes="setting-title" VerticalAlignment="Center" />
             <ComboBox Grid.Column="1" x:Name="PresetCombo" Width="150" VerticalAlignment="Center" />
@@ -62,7 +62,7 @@
                           ToolTip.Tip="Show the text block (title and caption)" />
           </Grid>
         </Border>
-        <Border Classes="setting-row alt">
+        <Border Classes="setting-row">
           <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
             <TextBlock Text="Caption" Classes="setting-title" VerticalAlignment="Center" />
             <TextBox Grid.Column="1" x:Name="SplashCaptionBox" Width="170" Text="{Binding Splash.Caption}"
@@ -83,7 +83,7 @@
                            VerticalAlignment="Center" ToolTip.Tip="Caption size (px)" />
           </Grid>
         </Border>
-        <Border Classes="setting-row alt">
+        <Border Classes="setting-row">
           <!-- The sweep-edge ComboBox shares this row (it only applies to the
                          Sweep line style): one row fewer keeps this column inside the
                          1024x640 minimum window's ~511px content height. -->
@@ -107,7 +107,7 @@
             <ComboBox Grid.Column="1" Width="104"
                       ItemsSource="{x:Static s:SettingsViewModel.TextPlacementModeValues}"
                       SelectedItem="{Binding TextPlacement.Mode}" VerticalAlignment="Center" />
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
+            <StackPanel Orientation="Horizontal" Spacing="6">
               <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding TextPlacement.IsAnchor}">
                 <ComboBox Width="122"
                           ItemsSource="{x:Static s:SettingsViewModel.PlacementAnchorValues}"
@@ -130,13 +130,13 @@
             </StackPanel>
           </Grid>
         </Border>
-        <Border Classes="setting-row alt">
+        <Border Classes="setting-row">
           <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
             <TextBlock Text="Spinner position" Classes="setting-title" VerticalAlignment="Center" />
             <ComboBox Grid.Column="1" Width="104"
                       ItemsSource="{x:Static s:SettingsViewModel.PlacementModeValues}"
                       SelectedItem="{Binding SpinnerPlacement.Mode}" VerticalAlignment="Center" />
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
+            <StackPanel Orientation="Horizontal" Spacing="6">
               <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding SpinnerPlacement.IsAnchor}">
                 <ComboBox Width="122"
                           ItemsSource="{x:Static s:SettingsViewModel.PlacementAnchorValues}"
@@ -165,7 +165,7 @@
             <ComboBox Grid.Column="1" Width="104"
                       ItemsSource="{x:Static s:SettingsViewModel.PlacementModeValues}"
                       SelectedItem="{Binding LogoPlacement.Mode}" VerticalAlignment="Center" />
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
+            <StackPanel Orientation="Horizontal" Spacing="6">
               <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding LogoPlacement.IsAnchor}">
                 <ComboBox Width="122"
                           ItemsSource="{x:Static s:SettingsViewModel.PlacementAnchorValues}"
@@ -190,11 +190,11 @@
         </Border>
       </StackPanel>
 
-      <StackPanel Grid.Column="2">
+      <StackPanel>
         <Border Classes="section-header">
           <TextBlock Text="SPLASH · COLORS &amp; IMAGES" />
         </Border>
-        <Border Classes="setting-row alt">
+        <Border Classes="setting-row">
           <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
             <TextBlock Text="Background color" Classes="setting-title" VerticalAlignment="Center" />
             <!-- The swatch is the touch path; the adjacent Edit action opens
@@ -225,7 +225,7 @@
             <ToggleSwitch Grid.Column="1" IsChecked="{Binding Splash.VignetteEnabled}" VerticalAlignment="Center" />
           </Grid>
         </Border>
-        <Border Classes="setting-row alt">
+        <Border Classes="setting-row">
           <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
             <TextBlock Text="Text color" Classes="setting-title" VerticalAlignment="Center" />
             <Button Grid.Column="1" Width="44" Height="44" MinWidth="44" MinHeight="44" Padding="0"
@@ -257,7 +257,7 @@
                     AutomationProperties.Name="Edit splash caption color with controller" />
           </Grid>
         </Border>
-        <Border Classes="setting-row alt">
+        <Border Classes="setting-row">
           <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
             <TextBlock Text="Spinner color" Classes="setting-title" VerticalAlignment="Center" />
             <Button Grid.Column="1" Width="44" Height="44" MinWidth="44" MinHeight="44" Padding="0"
@@ -286,7 +286,7 @@
             <Button Grid.Column="3" Content="Clear" Tag="Logo" Click="OnClearImage" VerticalAlignment="Center" />
           </Grid>
         </Border>
-        <Border Classes="setting-row alt">
+        <Border Classes="setting-row">
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
             <TextBlock Text="Logo max size" Classes="setting-title" VerticalAlignment="Center" />
             <NumericUpDown Grid.Column="1" Width="110" Value="{Binding Splash.LogoMaxSize}"
@@ -309,9 +309,9 @@
         </Border>
 
         <Border Classes="section-header">
-          <TextBlock Text="ACTIONS" />
+          <TextBlock Text="Actions" />
         </Border>
-        <Border Classes="setting-row alt">
+        <Border Classes="setting-row">
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
             <StackPanel VerticalAlignment="Center" Spacing="1">
               <TextBlock Text="Preview splash" Classes="setting-title" />
@@ -332,6 +332,6 @@
           </Grid>
         </Border>
       </StackPanel>
-    </Grid>
+    </StackPanel>
   </Border>
 </UserControl>

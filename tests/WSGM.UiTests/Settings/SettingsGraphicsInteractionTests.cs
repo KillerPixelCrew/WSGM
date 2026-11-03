@@ -22,8 +22,8 @@ public sealed class SettingsGraphicsInteractionTests
         var model = Assert.IsType<SettingsViewModel>(window.DataContext);
         var intel = AddIntelRow(model);
         Assert.True(model.DeviceIntegrationEnabled);
-        UiFixture.Click(window, UiFixture.Tab(window, 2));
-        var toggle = UiFixture.Named<Control>(window, "PageIntegration").GetVisualDescendants()
+        UiFixture.Click(window, UiFixture.Tab(window, 4));
+        var toggle = UiFixture.Named<Control>(window, "PagePerformance").GetVisualDescendants()
             .OfType<ToggleSwitch>().Single(control => ReferenceEquals(control.DataContext, intel));
         UiFixture.Click(window, toggle);
         Assert.True(intel.Enabled);
@@ -37,7 +37,7 @@ public sealed class SettingsGraphicsInteractionTests
         Assert.Equal(ManagedControllerTarget.SteamDeckComposite, fixture.Saved.Profiles.Global.ControllerTarget);
         Save(window);
         Assert.True(fixture.Saved.DeviceIntegration.Enabled);
-        UiFixture.Click(window, UiFixture.Tab(window, 3));
+        UiFixture.Click(window, UiFixture.Tab(window, 2));
         var master = UiFixture.Named<Control>(window, "PageDevice").GetVisualDescendants()
             .OfType<ToggleSwitch>().First();
         Assert.True(master.IsChecked);
@@ -53,8 +53,8 @@ public sealed class SettingsGraphicsInteractionTests
         var intel = AddIntelRow(model);
         fixture.Saved.DeviceIntegration.Enabled = true;
         fixture.Saved.Profiles.Global.ControllerTarget = ManagedControllerTarget.SteamDeckComposite;
-        UiFixture.Click(window, UiFixture.Tab(window, 2));
-        var toggle = UiFixture.Named<Control>(window, "PageIntegration").GetVisualDescendants()
+        UiFixture.Click(window, UiFixture.Tab(window, 4));
+        var toggle = UiFixture.Named<Control>(window, "PagePerformance").GetVisualDescendants()
             .OfType<ToggleSwitch>().Single(control => ReferenceEquals(control.DataContext, intel));
         UiFixture.Click(window, toggle);
         Save(window);

@@ -70,6 +70,9 @@ public sealed partial class SettingsViewModel
         set => SetField(ref field, value, nameof(OsdCustomBatteryIndex));
     } = 2;
 
+    /// <summary>Gets whether the carousel's sub-option shows: its feature is on, and so is the master switch.</summary>
+    public bool ShowCarouselUninstalledRow => CefEnabled && CefConnectedLibraryCarousel;
+
     /// <summary>
     ///     Gets or sets the master Steam CEF integration switch. Off closes the
     ///     debug port, injects nothing, and hides the sub-toggles below and the overlay
@@ -78,7 +81,11 @@ public sealed partial class SettingsViewModel
     public bool CefEnabled
     {
         get;
-        set => SetField(ref field, value, nameof(CefEnabled));
+        set
+        {
+            SetField(ref field, value, nameof(CefEnabled));
+            Raise(nameof(ShowCarouselUninstalledRow));
+        }
     } = true;
 
     /// <summary>Gets or sets the injected library filter tabs, tab order, and native-tab hiding.</summary>
@@ -156,7 +163,11 @@ public sealed partial class SettingsViewModel
     public bool CefConnectedLibraryCarousel
     {
         get;
-        set => SetField(ref field, value, nameof(CefConnectedLibraryCarousel));
+        set
+        {
+            SetField(ref field, value, nameof(CefConnectedLibraryCarousel));
+            Raise(nameof(ShowCarouselUninstalledRow));
+        }
     } = true;
 
     /// <summary>

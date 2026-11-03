@@ -8,8 +8,13 @@ Those belong on the overlay's relevant page or in Steam QAM; Windows power-schem
 Performance. Configuring how WSGM manages a feature is a WSGM setting; manually changing the external system's current
 state is not.
 
-- Keep the established tab structure and the 1024 by 640 minimum window size. Pages may scroll when their content
-  requires it; do not hide controls to satisfy an arbitrary no-scroll rule.
+- The window is a section rail with search over eleven sections (#245): General, Steam, Device, Quick access,
+  Performance, Display, Startup, Appearance, Plugins, Diagnostics, About. `SettingsWindow`'s section table drives the
+  rail, heading, focus landing and search; a larger editor is a nested entry that names its rail parent. Keep the 1024
+  by 640 minimum window size. Pages may scroll when their content requires it; do not hide controls to satisfy an
+  arbitrary no-scroll rule.
+- A setting is a `Border.setting-row`: title and one line of help on the left, the editor on the right, in a
+  `section-header` group. Search reads these from the pages, so a new row is searchable without a second list.
 - A save operation reads fresh configuration, applies the page's owned fields, validates, and commits through
   ConfigStore. Do not overwrite fields owned by another page or hold the config lock while doing external work.
 - WSGM's page in Steam writes some of the same fields while this window may be open. Those are listed in

@@ -299,7 +299,7 @@ internal static class DeviceHostRows
     {
         var row = AuthoredProfileView(profiles, selected.Value, selected.Source)
                   ?? new DescriptorRow(DeviceHostRowIds.LightingProfile, "Lighting profile",
-                      "Create a color profile in Settings, Device profiles.", "NONE", false);
+                      "Create a color profile in Settings, Device, Fan curves and colours.", "NONE", false);
         return row with
         {
             Id = DeviceHostRowIds.LightingProfile,

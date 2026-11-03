@@ -4,7 +4,7 @@ using WSGM.Testing;
 
 namespace WSGM.Tests.Settings;
 
-/// <summary>Settings > System > Upload log: confirm, upload off the UI thread, copy the link, or say why not.</summary>
+/// <summary>Settings > Diagnostics > Upload log: confirm, upload off the UI thread, copy the link, or say why not.</summary>
 public sealed class SettingsViewModelLogUploadTests
 {
     private const string Bin = "https://filebin.net/wsgm-0123456789abcdef0123456789abcdef";

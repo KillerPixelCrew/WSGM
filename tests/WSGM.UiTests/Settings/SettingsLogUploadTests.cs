@@ -23,6 +23,7 @@ public sealed class SettingsLogUploadTests
         TaskCompletionSource<string> answer = new();
         fixture.UploadLogs = (_, _) => answer.Task;
         var window = fixture.Settings();
+        UiFixture.Click(window, UiFixture.Tab(window, 9));
         var model = Assert.IsType<SettingsViewModel>(window.DataContext);
         List<string> copied = [];
         model.Clipboard = text =>
@@ -74,6 +75,7 @@ public sealed class SettingsLogUploadTests
                     TaskScheduler.Default);
         };
         var window = fixture.Settings();
+        UiFixture.Click(window, UiFixture.Tab(window, 9));
         var model = Assert.IsType<SettingsViewModel>(window.DataContext);
         await model.PrepareLogUploadAsync();
         var upload = model.UploadLogAsync();

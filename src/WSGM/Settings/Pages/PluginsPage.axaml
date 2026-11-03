@@ -37,21 +37,17 @@
   </UserControl.Styles>
   <!-- One scrolling page: plugins first, then the device plugin's own settings. The two short fixed-height
        lists this replaces hid most of each card. -->
-  <ScrollViewer Padding="16,10,16,10">
+  <ScrollViewer Padding="28,0,28,20">
     <StackPanel Spacing="4">
         <!--
             Installed package files and what the installed release bundles. Installing copies a bundled
             file into the Plugins folder and removing deletes one; both apply at the next start, because
             a loaded package is held open. A device plugin is offered only when its hardware rules match.
         -->
-        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" Margin="0,0,0,4">
-          <TextBlock Classes="caption" TextWrapping="Wrap" VerticalAlignment="Center"
-                     Text="Plugins WSGM has installed, and the ones this release brings for your hardware. Changes apply after WSGM restarts." />
-          <Button Grid.Column="1" Content="Repair installation" Command="{Binding RepairCommand}"
-                  IsVisible="{Binding CanRepair}" VerticalAlignment="Center" />
-        </Grid>
+        <Button Content="Repair installation" Command="{Binding RepairCommand}" IsVisible="{Binding CanRepair}"
+                HorizontalAlignment="Right" />
           <Border Classes="section-header" IsVisible="{Binding HasInstalledPackages}">
-            <TextBlock Text="INSTALLED" />
+            <TextBlock Text="Installed" />
           </Border>
           <ItemsControl ItemsSource="{Binding InstalledPackages}" IsVisible="{Binding HasInstalledPackages}">
             <ItemsControl.ItemsPanel>
@@ -98,7 +94,7 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
           <Border Classes="section-header" IsVisible="{Binding HasAvailablePackages}">
-            <TextBlock Text="AVAILABLE" />
+            <TextBlock Text="Available" />
           </Border>
           <ItemsControl ItemsSource="{Binding AvailablePackages}" IsVisible="{Binding HasAvailablePackages}">
             <ItemsControl.ItemsPanel>
@@ -145,7 +141,7 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
           <Border Classes="section-header" IsVisible="{Binding HasUnavailablePackages}">
-            <TextBlock Text="NOT FOR THIS DEVICE" />
+            <TextBlock Text="Not for this device" />
           </Border>
           <TextBlock Classes="caption" TextWrapping="Wrap" Margin="2,0,0,4"
                      Text="Bundled with this release for other hardware, or community plugins this release could not build." />
@@ -194,7 +190,7 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
         <Border Classes="section-header">
-          <TextBlock Text="INDEPENDENT PLUGINS" />
+          <TextBlock Text="Independent plugins" />
         </Border>
         <TextBlock Classes="caption" TextWrapping="Wrap" Margin="2,0,0,4"
                    Text="Enable installed integrations here, then Save. They run independently of Device integration. External controls appear in the overlay." />

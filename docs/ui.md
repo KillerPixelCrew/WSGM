@@ -297,8 +297,9 @@ Widget actions use shared command buttons and readable labels. Each widget has o
 arrangement controls live under an expander, and unavailable providers stay visible. Internal plugin
 identities are persistence keys, not widget headings.
 
-Settings uses compact natural-width tabs with horizontal scrolling when necessary, and selecting a
-tab brings its full label into view. Display modes show resolution and refresh, scaling has an
-explicit percentage label, and secondary-display coordinates live under Display position. Session
-actions are expandable, with one unavailable-provider hint rather than a repeated message for each
-event.
+Settings has a section rail with search over eleven sections, and LB/RB step through them. A larger
+editor nests under its section with Back returning to the row that opened it. Search suggests rows
+as you type, read from the pages, and choosing one shows its section and focuses the row. Display
+modes show resolution and refresh, scaling has an explicit percentage label, and secondary-display
+coordinates live under Display position. Session actions are expandable, with one
+unavailable-provider hint rather than a repeated message for each event.

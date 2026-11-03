@@ -1,10 +1,6 @@
-<!-- Setting-row family shared by the Settings window and every Settings page:
-     zebra rows on the page surface (HcHeaderBrush) with HcBackgroundBrush "alt"
-     stripes, a 2 px transparent border that turns accent when the row's focusable
-     control holds focus, accent uppercase section headers with a hairline rule,
-     and compact "mini" control metrics. Included last at application level so
-     these rules keep overriding the shared control and text styles; the overlay
-     does not use these class names. -->
+<!-- The Settings window's shell and the setting-row family shared by every Settings page. Included
+     last at application level so these rules keep overriding the shared control and text styles; the
+     overlay does not use these class names. -->
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <Styles.Resources>
@@ -15,49 +11,90 @@
     </ResourceDictionary>
   </Styles.Resources>
 
-  <Style Selector="Border.section-header">
+  <!-- The window: a rail on the darker surface, pages on the header surface. -->
+  <Style Selector="Border.settings-rail">
+    <Setter Property="Background" Value="{StaticResource HcBackgroundBrush}" />
     <Setter Property="BorderBrush" Value="{StaticResource HcCardBorderBrush}" />
-    <Setter Property="BorderThickness" Value="0,0,0,1" />
-    <Setter Property="Padding" Value="2,0,0,4" />
-    <Setter Property="Margin" Value="0,8,0,4" />
+    <Setter Property="BorderThickness" Value="0,0,1,0" />
   </Style>
-  <Style Selector="Border.section-header TextBlock">
-    <Setter Property="Foreground" Value="{DynamicResource HcAccentBrush}" />
-    <Setter Property="FontSize" Value="11" />
-    <Setter Property="FontWeight" Value="SemiBold" />
-    <Setter Property="LetterSpacing" Value="1.5" />
+  <Style Selector="TextBlock.settings-rail-title">
+    <Setter Property="FontSize" Value="18" />
+    <Setter Property="FontWeight" Value="Bold" />
+    <Setter Property="Margin" Value="24,22,24,14" />
   </Style>
-
-  <Style Selector="Border.setting-row">
-    <Setter Property="MinHeight" Value="38" />
-    <Setter Property="Padding" Value="10,5" />
-    <Setter Property="CornerRadius" Value="4" />
+  <Style Selector="Button.settings-rail-item">
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Left" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="16,0" />
+    <Setter Property="FontSize" Value="15" />
     <Setter Property="Background" Value="Transparent" />
-    <Setter Property="BorderThickness" Value="2" />
     <Setter Property="BorderBrush" Value="Transparent" />
   </Style>
-  <Style Selector="Border.setting-row.alt">
+  <Style Selector="Button.settings-rail-item.selected">
+    <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource HcAccentBrush}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="TextBlock.settings-page-title">
+    <Setter Property="FontSize" Value="26" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="StackPanel.settings-page">
+    <Setter Property="Margin" Value="28,0,28,20" />
+  </Style>
+
+  <!-- Search suggestions float over the rail and the page. -->
+  <Style Selector="Border.settings-search-results">
     <Setter Property="Background" Value="{StaticResource HcBackgroundBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource HcControlBorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="BoxShadow" Value="0 8 24 0 #80000000" />
+  </Style>
+  <Style Selector="Button.settings-search-row">
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="Padding" Value="10,6" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+  </Style>
+
+  <Style Selector="Border.section-header">
+    <Setter Property="Margin" Value="2,16,0,6" />
+  </Style>
+  <Style Selector="Border.section-header TextBlock">
+    <Setter Property="FontSize" Value="15" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+
+  <!-- One row style: title and one line of help on the left, the editor on the right. -->
+  <Style Selector="Border.setting-row">
+    <Setter Property="MinHeight" Value="48" />
+    <Setter Property="Padding" Value="14,8" />
+    <Setter Property="Margin" Value="0,0,0,4" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="BorderBrush" Value="Transparent" />
   </Style>
   <Style Selector="Border.setting-row:focus-within">
     <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
   </Style>
-
-  <!-- Mini controls inside rows: one step tighter than the app-wide metrics. -->
   <Style Selector="Border.setting-row TextBlock.setting-title">
-    <Setter Property="FontSize" Value="13" />
+    <Setter Property="FontSize" Value="14" />
   </Style>
   <Style Selector="Border.setting-row Button">
-    <Setter Property="MinHeight" Value="24" />
-    <Setter Property="Padding" Value="8,1" />
-    <Setter Property="FontSize" Value="12" />
+    <Setter Property="MinHeight" Value="30" />
+    <Setter Property="Padding" Value="12,2" />
+    <Setter Property="FontSize" Value="13" />
   </Style>
   <Style Selector="Border.setting-row TextBox, Border.setting-row ComboBox, Border.setting-row NumericUpDown">
-    <Setter Property="MinHeight" Value="26" />
-    <Setter Property="FontSize" Value="12" />
+    <Setter Property="MinHeight" Value="30" />
+    <Setter Property="FontSize" Value="13" />
   </Style>
   <Style Selector="Border.setting-row ToggleSwitch, Border.setting-row CheckBox">
-    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontSize" Value="13" />
   </Style>
 
   <!-- A caption that reports a failure where it happened. -->

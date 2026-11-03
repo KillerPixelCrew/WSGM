@@ -69,7 +69,7 @@ after the host checks that the publishing plugin is still current.
 
 ## Verbosity
 
-Off by default. `Settings → System → Diagnostics → Verbose logging` persists the choice as
+Off by default. `Settings → Diagnostics → Verbose logging` persists the choice as
 `AppConfig.LogVerbosity` and takes effect on the next configuration reload without a restart, which
 matters because the process being diagnosed is the shell. `--verbose` sets it for one run and wins
 over the stored value.
@@ -139,12 +139,12 @@ primitive only with explicit temporary paths. Lifecycle flow and its early recov
 
 ## Uploading the log
 
-`Settings → System → Diagnostics → Upload log` puts `wsgm.log`, and `wsgm.old.log` as a second file
-when it exists, into one new bin on [filebin.net](https://filebin.net/), with no account or key. A
-tester then pastes one link into a report instead of finding and attaching files. One confirmation
-names both files with their sizes and says what stays in them: game names, the device model, file
-paths below the user folder and hardware details. It also says that the link expires after about a
-week and that anyone with it can read the log until then.
+`Settings → Diagnostics → Upload log` puts `wsgm.log`, and `wsgm.old.log` as a second file when it
+exists, into one new bin on [filebin.net](https://filebin.net/), with no account or key. A tester
+then pastes one link into a report instead of finding and attaching files. One confirmation names
+both files with their sizes and says what stays in them: game names, the device model, file paths
+below the user folder and hardware details. It also says that the link expires after about a week
+and that anyone with it can read the log until then.
 
 [`LogUploader`](../src/WSGM/Core/Infrastructure/LogUploader.cs) reads each file once with
 `FileShare.ReadWrite | FileShare.Delete` while WSGM keeps writing it, and

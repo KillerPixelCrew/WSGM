@@ -3,13 +3,13 @@
              xmlns:s="using:WSGM.Settings"
              x:Class="WSGM.Settings.Pages.DeviceOwnershipPage"
              x:DataType="s:SettingsViewModel">
-  <Border Padding="16,10,16,10">
-    <Grid ColumnDefinitions="*,24,*">
-      <StackPanel Grid.Column="0">
+  <Border Padding="28,0,28,20">
+    <StackPanel>
+      <StackPanel>
         <Border Classes="section-header">
-          <TextBlock Text="OWNERSHIP" />
+          <TextBlock Text="Ownership" />
         </Border>
-        <Border Classes="setting-row alt">
+        <Border Classes="setting-row">
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <StackPanel VerticalAlignment="Center" Spacing="1">
               <TextBlock Text="Device Integration" Classes="setting-title" />
@@ -32,7 +32,7 @@
                           IsEnabled="{Binding DeviceIntegrationEnabled}" VerticalAlignment="Center" />
           </Grid>
         </Border>
-        <Border Classes="setting-row alt">
+        <Border Classes="setting-row">
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <StackPanel VerticalAlignment="Center" Spacing="1">
               <TextBlock Text="Keep guide button chord edits" Classes="setting-title" />
@@ -57,9 +57,9 @@
           </Grid>
         </Border>
         <Border Classes="section-header">
-          <TextBlock Text="RUNNING OWNER" />
+          <TextBlock Text="Running owner" />
         </Border>
-        <Border Classes="setting-row alt">
+        <Border Classes="setting-row">
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <TextBlock Text="{Binding DeviceOwnerStatusText}" Classes="caption" TextWrapping="Wrap"
                        VerticalAlignment="Center" />
@@ -68,11 +68,11 @@
         </Border>
       </StackPanel>
 
-      <StackPanel Grid.Column="2">
+      <StackPanel>
         <Border Classes="section-header">
-          <TextBlock Text="POLICY" />
+          <TextBlock Text="Policy" />
         </Border>
-        <Border Classes="setting-row alt">
+        <Border Classes="setting-row">
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <TextBlock Text="Managed controller target" Classes="setting-title" VerticalAlignment="Center" />
             <ComboBox Grid.Column="1" Width="190" SelectedIndex="{Binding DeviceControllerTargetIndex}">
@@ -82,7 +82,7 @@
             </ComboBox>
           </Grid>
         </Border>
-        <Border Classes="setting-row alt">
+        <Border Classes="setting-row">
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <TextBlock Text="Physical glyphs" Classes="setting-title" VerticalAlignment="Center" />
             <ComboBox Grid.Column="1" Width="190" SelectedIndex="{Binding DeviceGlyphSelectionIndex}">
@@ -92,9 +92,23 @@
             </ComboBox>
           </Grid>
         </Border>
+        <Border Classes="section-header">
+          <TextBlock Text="Profiles" />
+        </Border>
+        <Border Classes="setting-row">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Fan curves and colours" Classes="setting-title" />
+              <TextBlock Text="Make profiles here. Pick the active one in the Overlay or Steam." Classes="caption"
+                         TextWrapping="Wrap" />
+            </StackPanel>
+            <Button x:Name="OpenProfiles" Grid.Column="1" Content="Open" Click="OnOpenProfiles"
+                    VerticalAlignment="Center" />
+          </Grid>
+        </Border>
         <TextBlock Margin="10,10,10,0" Classes="caption" TextWrapping="Wrap"
                    Text="Hardware controls and profiles live in the overlay's Device destination. Settings owns only startup and top-level ownership policy." />
       </StackPanel>
-    </Grid>
+    </StackPanel>
   </Border>
 </UserControl>

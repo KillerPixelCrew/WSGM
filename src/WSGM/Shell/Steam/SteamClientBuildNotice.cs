@@ -65,7 +65,7 @@ internal sealed class SteamClientBuildNotice
     {
         return $"Steam updated to a build this version of WSGM hasn't been checked with ({ChannelName(build.Channel)} "
                + $"{build.Version}). If anything in Steam misbehaves, please report it at {ReportUrl} with your log: "
-               + "WSGM Settings > System > Upload log gives you a link to paste.";
+               + "WSGM Settings > Diagnostics > Upload log gives you a link to paste.";
     }
 
     /// <summary>Reads the running client's build and compares it with the checked builds.</summary>

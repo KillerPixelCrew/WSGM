@@ -20,7 +20,7 @@ public sealed class SettingsInteractionTests
         using UiFixture fixture = new();
         var window = fixture.Settings();
         var model = Assert.IsType<SettingsViewModel>(window.DataContext);
-        var toggle = UiFixture.Named<Control>(window, "PageSystem").GetVisualDescendants().OfType<ToggleSwitch>()
+        var toggle = UiFixture.Named<Control>(window, "PageGeneral").GetVisualDescendants().OfType<ToggleSwitch>()
             .First();
         UiFixture.Click(window, toggle);
         UiFixture.Click(window,
@@ -37,19 +37,19 @@ public sealed class SettingsInteractionTests
         var window = fixture.Settings();
         foreach (var (index, name) in new[]
                  {
-                     (3, "PageDevice"), (9, "PagePlugins"), (10, "PageDeviceProfiles"), (5, "PageQuickAccess")
+                     (2, "PageDevice"), (8, "PagePlugins"), (3, "PageQuickAccess")
                  })
         {
             UiFixture.Click(window, UiFixture.Tab(window, index));
             var page = UiFixture.Named<Control>(window, name);
             Assert.True(page.IsVisible);
-            Assert.Equal(index, UiFixture.Named<TabStrip>(window, "Tabs").SelectedIndex);
+            Assert.True(UiFixture.Tab(window, index).Classes.Contains("selected"));
         }
 
         var system = UiFixture.Tab(window, 0);
         system.Focus();
         UiFixture.Key(window, Key.Enter);
-        Assert.True(UiFixture.Named<Control>(window, "PageSystem").IsVisible);
+        Assert.True(UiFixture.Named<Control>(window, "PageGeneral").IsVisible);
         Assert.NotNull(window.FocusManager.GetFocusedElement());
     }
 
@@ -66,7 +66,7 @@ public sealed class SettingsInteractionTests
         };
         var window = fixture.Settings();
         var model = Assert.IsType<SettingsViewModel>(window.DataContext);
-        var toggle = UiFixture.Named<Control>(window, "PageSystem").GetVisualDescendants().OfType<ToggleSwitch>()
+        var toggle = UiFixture.Named<Control>(window, "PageGeneral").GetVisualDescendants().OfType<ToggleSwitch>()
             .First();
         var before = model.StartAtSignIn;
         UiFixture.Click(window, toggle);

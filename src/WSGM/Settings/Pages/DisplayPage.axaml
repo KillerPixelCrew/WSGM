@@ -20,7 +20,7 @@
     </DataTemplate>
 
     <DataTemplate x:Key="PluginActionStepRow" x:DataType="s:PluginActionStepEditorRow">
-      <Border Classes="setting-row alt">
+      <Border Classes="setting-row">
         <StackPanel Spacing="4">
           <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="6">
             <TextBlock Text="{Binding Title}" Classes="setting-title" VerticalAlignment="Center" />
@@ -65,14 +65,10 @@
     </DataTemplate>
   </UserControl.Resources>
   <ScrollViewer>
-    <StackPanel Margin="20,16" Spacing="16">
+    <StackPanel Margin="28,0,28,20" Spacing="16">
 
       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
-        <StackPanel Spacing="4">
-          <TextBlock Text="Display layouts" FontSize="22" FontWeight="SemiBold" />
-          <TextBlock Text="Choose how your screens work when you switch modes." Classes="caption" />
-        </StackPanel>
-        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
           <Button Content="Game Mode" Command="{Binding EditGameLayoutCommand}"
                   Classes.primary="{Binding !EditingDesktopLayout}" Padding="16,8" />
           <Button Content="Desktop" Command="{Binding EditDesktopLayoutCommand}"

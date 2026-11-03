@@ -18,7 +18,7 @@ internal static class PreviewScaledResolutions
     internal static SettingsWindow Create(UiFixture fixture, int width, bool intel)
     {
         var window = fixture.Settings(width, width == 1024 ? 640 : 800);
-        UiFixture.Click(window, UiFixture.Tab(window, 6));
+        UiFixture.Click(window, UiFixture.Tab(window, 5));
         var model = (SettingsViewModel)window.DataContext!;
         var display = new GpuDisplayTarget
         {

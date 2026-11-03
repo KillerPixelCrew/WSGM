@@ -22,7 +22,7 @@ public sealed class SettingsInputLeaseTests
         Dispatcher.UIThread.RunJobs();
         var owner = Assert.Single(calls.Where(call => call.Hold).Select(call => call.Owner).Distinct());
 
-        UiFixture.Click(window, UiFixture.Tab(window, 5));
+        UiFixture.Click(window, UiFixture.Tab(window, 3));
         Assert.True(UiFixture.Named<Control>(window, "PageQuickAccess").IsVisible);
         UiFixture.Key(window, Key.Escape);
         Dispatcher.UIThread.RunJobs();

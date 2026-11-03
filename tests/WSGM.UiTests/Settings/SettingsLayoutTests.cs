@@ -40,21 +40,27 @@ public sealed class SettingsLayoutTests
     }
 
     [AvaloniaFact]
-    public void SettingsTabsScrollToTheirFullLabels()
+    public void EverySectionFitsTheRailAndKeepsSaveReachableAtTheFloor()
     {
         using UiFixture fixture = new();
-        Window window = fixture.Settings(1024, 700);
-        var tabs = UiFixture.Named<TabStrip>(window, "Tabs");
-        for (var i = 0; i < tabs.Tabs!.Count; i++)
+        Window window = fixture.Settings(1024, 640);
+        var rail = UiFixture.Named<StackPanel>(window, "SectionRail");
+        Assert.Equal(
+            ["General", "Steam", "Device", "Quick access", "Performance", "Display", "Startup", "Appearance", "Plugins",
+                "Diagnostics", "About"],
+            rail.Children.OfType<Button>().Select(button => button.Content as string));
+        var save = window.GetVisualDescendants().OfType<Button>()
+            .Single(button => Equals(button.Content, "Save changes"));
+        for (var i = 0; i < rail.Children.Count; i++)
         {
             UiFixture.Click(window, UiFixture.Tab(window, i));
             Dispatcher.UIThread.RunJobs();
             var button = UiFixture.Tab(window, i);
-            var label = button.GetVisualDescendants().OfType<TextBlock>().Single();
-            Assert.Equal(tabs.Tabs[i].Label, label.Text);
-            Assert.True(button.Bounds.Width >= label.Bounds.Width + 12);
-            var origin = button.TranslatePoint(default, tabs)!.Value;
-            Assert.InRange(origin.X, 0, tabs.Bounds.Width - button.Bounds.Width);
+            Assert.True(button.Classes.Contains("selected"));
+            Assert.InRange(button.TranslatePoint(new Point(button.Bounds.Width, button.Bounds.Height), window)!.Value.Y,
+                0, 640);
+            var bottom = save.TranslatePoint(new Point(0, save.Bounds.Height), window)!.Value.Y;
+            Assert.InRange(bottom, 0, 640);
         }
     }
 }

@@ -76,7 +76,7 @@ public sealed class BrowserLayoutTests
     {
         using var fixture = new UiFixture();
         var window = fixture.Settings(width, height);
-        UiFixture.Click(window, UiFixture.Tab(window, 5));
+        UiFixture.Click(window, UiFixture.Tab(window, 3));
         Dispatcher.UIThread.RunJobs();
         var page = UiFixture.Named<Control>(window, "PageQuickAccess");
         var memory = Assert.Single(page.GetVisualDescendants().OfType<ComboBox>(),

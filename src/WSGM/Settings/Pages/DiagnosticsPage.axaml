@@ -1,0 +1,89 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:s="using:WSGM.Settings"
+             x:Class="WSGM.Settings.Pages.DiagnosticsPage"
+             x:DataType="s:SettingsViewModel">
+  <!-- What to send with a bug report, and how to get back to the desktop. -->
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Classes="settings-page">
+        <Border Classes="section-header">
+          <TextBlock Text="Log" />
+        </Border>
+        <!-- Upload: confirm what is sent, upload in the background, then the link, already copied.
+             The Cancel button serves both the confirmation and the running upload. -->
+        <Border x:Name="LogRow" Classes="setting-row">
+          <StackPanel Spacing="6">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+              <StackPanel VerticalAlignment="Center" Spacing="1">
+                <TextBlock Text="wsgm.log" Classes="setting-title" />
+                <TextBlock
+                  Text="Everything WSGM does. Your user folder and name are masked before upload."
+                  Classes="caption" TextWrapping="Wrap" />
+              </StackPanel>
+              <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Button x:Name="UploadLogButton" Content="Upload log" Command="{Binding UploadLogCommand}"
+                        IsEnabled="{Binding !LogUploadBusy}" />
+                <Button Content="Open folder" Command="{Binding OpenLogLocationCommand}" />
+              </StackPanel>
+            </Grid>
+            <TextBlock Text="{Binding LogUploadConfirmText}" IsVisible="{Binding LogUploadConfirmPending}"
+                       Classes="caption" TextWrapping="Wrap" />
+            <TextBlock Text="{Binding LogUploadStatusText}" IsVisible="{Binding HasLogUploadStatus}"
+                       Classes="caption" Classes.problem="{Binding LogUploadProblem}" TextWrapping="Wrap" />
+            <SelectableTextBlock Text="{Binding LogUploadLink}" IsVisible="{Binding HasLogUploadLink}"
+                                 FontSize="12" TextWrapping="Wrap" />
+            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasLogUploadActions}">
+              <Button x:Name="ConfirmLogUploadButton" Classes="primary" Content="Upload"
+                      Command="{Binding ConfirmLogUploadCommand}" IsVisible="{Binding LogUploadConfirmPending}" />
+              <Button x:Name="CopyLogLinkButton" Content="Copy again" Command="{Binding CopyLogLinkCommand}"
+                      IsVisible="{Binding CanCopyLogLink}" />
+              <Button x:Name="CancelLogUploadButton" Content="Cancel" Command="{Binding CancelLogUploadCommand}"
+                      IsVisible="{Binding CanCancelLogUpload}" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+        <Border Classes="setting-row">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Verbose logging" Classes="setting-title" />
+              <TextBlock
+                Text="Extra detail while you reproduce a problem. Turn it off afterwards."
+                Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding VerboseLogging}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="AutoTDP trace" Classes="setting-title" />
+              <TextBlock
+                Text="A CSV of every AutoTDP decision, saved beside the log."
+                Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding AutoTdpTrace}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+
+        <Border Classes="section-header">
+          <TextBlock Text="If Game mode does not come up" />
+        </Border>
+        <Border Classes="setting-row">
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+            <TextBlock Text="!" FontSize="18" FontWeight="Bold" Foreground="{StaticResource HcWarningBrush}"
+                       VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1"
+                       Text="If game mode does not come up, press Ctrl+Alt+Del, open Task Manager, then run explorer.exe. Run WSGM.exe --restore-shell to turn off the sign-in start and bring the desktop back; re-enable it here afterwards."
+                       Classes="caption" VerticalAlignment="Center" TextWrapping="Wrap" />
+          </Grid>
+        </Border>
+
+        <Border Classes="section-header">
+          <TextBlock Text="Last standby" />
+        </Border>
+        <Border Classes="setting-row">
+          <TextBlock Text="{Binding ModernStandbyStatusText}" Classes="caption" TextWrapping="Wrap" />
+        </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

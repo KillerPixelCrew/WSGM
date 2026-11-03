@@ -60,7 +60,7 @@ internal static class PreviewDisplaySettings
         fixture.DisplayFacts[target.DevicePath] =
             new DisplayCatalogFacts([new DisplayMode(1920, 1200, 120), new DisplayMode(1280, 800, 60)], true, 225);
         var window = fixture.Settings(width);
-        UiFixture.Click(window, UiFixture.Tab(window, 6));
+        UiFixture.Click(window, UiFixture.Tab(window, 5));
         var model = (SettingsViewModel)window.DataContext!;
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
         if (!model.CopyCurrentLayoutCommand.CanExecute(null))

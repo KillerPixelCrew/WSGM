@@ -278,6 +278,11 @@ internal sealed class UiFixture : IDisposable
 
     internal static Button Tab(Window window, int index)
     {
+        if (window is SettingsWindow)
+        {
+            return Named<StackPanel>(window, "SectionRail").Children.OfType<Button>().ElementAt(index);
+        }
+
         return Named<TabStrip>(window, "Tabs").GetVisualDescendants().OfType<Button>().ElementAt(index);
     }
 

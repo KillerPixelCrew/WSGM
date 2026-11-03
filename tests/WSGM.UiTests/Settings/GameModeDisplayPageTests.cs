@@ -345,7 +345,7 @@ public sealed class GameModeDisplayPageTests
     private static SettingsWindow Open(UiFixture fixture)
     {
         var window = fixture.Settings();
-        UiFixture.Click(window, UiFixture.Tab(window, 6));
+        UiFixture.Click(window, UiFixture.Tab(window, 5));
         return window;
     }
 
