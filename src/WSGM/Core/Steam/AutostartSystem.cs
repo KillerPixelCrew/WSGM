@@ -146,15 +146,12 @@ public sealed class AutostartSystem : IAutostartSystem
     {
         var arguments = taskPath is null ? "/Query /XML ONE" : $"/Query /TN \"{taskPath}\" /XML ONE";
         var result = ConsoleTool.RunAsync(
-            ConsoleTool.System32("schtasks.exe"), arguments, TaskQueryTimeoutMs).GetAwaiter().GetResult();
+            ConsoleTool.System32("schtasks.exe"), arguments, TaskQueryTimeoutMs,
+            failureExpected: taskPath is not null).GetAwaiter().GetResult();
         var output = result.Output;
         if (result.Outcome != ConsoleToolRunOutcome.Succeeded || output.Length == 0)
         {
-            if (taskPath is not null)
-            {
-                Log.Info($"Autostart: task \"{taskPath}\" was not found or could not be read.");
-            }
-
+            // Most named tasks belong to apps this device does not have.
             yield break;
         }
 

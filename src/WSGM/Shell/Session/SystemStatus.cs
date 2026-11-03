@@ -147,7 +147,7 @@ public sealed class SystemStatus : ObservableObject, IDisposable
         Radios.Start();
         Audio.Start();
         Drives.Start();
-        Log.Info($"System status started (battery: {(HasBattery ? BatteryText : "none")}).");
+        Log.Debug($"System status started (battery: {(HasBattery ? BatteryText : "none")}).");
         // Parameterless ctor + explicit Start: the 3-arg ctor auto-starts.
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _timer.Tick += OnTick;

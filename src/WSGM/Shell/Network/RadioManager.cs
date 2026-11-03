@@ -724,7 +724,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
         }
 
         // One line per change set, written only when the logical identities changed.
-        Log.Change("bluetooth-identities", $"Bluetooth logical devices: {identities}.");
+        Log.Change("bluetooth-identities", $"Bluetooth logical devices: {identities}.", LogLevel.Debug);
 
         if (change == WindowsRadio.BluetoothChangeKind.EnumerationCompleted)
         {

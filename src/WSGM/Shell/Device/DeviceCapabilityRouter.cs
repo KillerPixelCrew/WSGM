@@ -621,14 +621,14 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     {
         if (state.Available)
         {
-            Log.Info($"{_label} capability available: {key}.");
+            Log.Change($"capability.{_label}.{key}", $"{_label} capability available: {key}.", LogLevel.Info);
             return;
         }
 
         var reason = state.Reason?.Detail is { Length: > 0 } detail
             ? $"{state.Reason.Code}: {detail}"
             : state.Reason?.Code.ToString() ?? "no reason given";
-        Log.Warn($"{_label} capability unavailable: {key} — {reason}");
+        Log.Change($"capability.{_label}.{key}", $"{_label} capability unavailable: {key} — {reason}", LogLevel.Warn);
     }
 
     /// <summary>A change key namespaced by publisher, so two publishers never share one.</summary>

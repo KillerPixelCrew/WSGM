@@ -268,7 +268,7 @@ internal sealed class OverlayPlacement
         ApplyGlassTransparency();
         if (_backdrop?.IsActive == true)
         {
-            Log.Info($"Quick access live backdrop active (blur {_blurRadius:0.##} px).");
+            Log.Debug($"Quick access live backdrop active (blur {_blurRadius:0.##} px).");
         }
         else if (_backdrop?.FailureReason is { } failure)
         {

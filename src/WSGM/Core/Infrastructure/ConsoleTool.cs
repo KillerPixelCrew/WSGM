@@ -27,14 +27,15 @@ internal static class ConsoleTool
     /// <param name="cancellationToken">Cancels the operation and requests termination of a started process tree.</param>
     /// <param name="workingDirectory">The tool's current directory, or the Windows system directory.</param>
     /// <param name="environment">Overrides applied only to the child process.</param>
+    /// <param name="failureExpected">Whether a nonzero exit is a normal answer the caller reads, not a warning.</param>
     /// <returns>The observed outcome; timeout after process start is unknown, not proof of no effects.</returns>
     /// <exception cref="OperationCanceledException">The caller canceled the operation.</exception>
     internal static Task<ConsoleToolResult> RunAsync(string exe, string arguments, int timeoutMs = 15_000,
         CancellationToken cancellationToken = default, string? workingDirectory = null,
-        IReadOnlyDictionary<string, string>? environment = null)
+        IReadOnlyDictionary<string, string>? environment = null, bool failureExpected = false)
     {
         return RunAsync(exe, arguments, DateTimeOffset.UtcNow.AddMilliseconds(timeoutMs), cancellationToken,
-            workingDirectory, environment);
+            workingDirectory, environment, failureExpected);
     }
 
     /// <summary>
@@ -48,6 +49,7 @@ internal static class ConsoleTool
     /// <param name="cancellationToken">Cancels the command and requests termination of its process tree.</param>
     /// <param name="workingDirectory">The tool's current directory, or the Windows system directory.</param>
     /// <param name="environment">Overrides applied only to the child process.</param>
+    /// <param name="failureExpected">Whether a nonzero exit is a normal answer the caller reads, not a warning.</param>
     /// <returns>
     ///     Whether the tool did not start, completed successfully, completed with a known
     ///     failure, or crossed process start without a verifiable result.
@@ -57,7 +59,7 @@ internal static class ConsoleTool
         string arguments,
         DateTimeOffset deadline,
         CancellationToken cancellationToken, string? workingDirectory = null,
-        IReadOnlyDictionary<string, string>? environment = null)
+        IReadOnlyDictionary<string, string>? environment = null, bool failureExpected = false)
     {
         return RunAsync(
             exe,
@@ -68,7 +70,7 @@ internal static class ConsoleTool
                 var process = Process.Start(startInfo);
                 return process is null ? null : new SystemConsoleToolProcess(process);
             },
-            cancellationToken, workingDirectory, environment);
+            cancellationToken, workingDirectory, environment, failureExpected);
     }
 
     /// <summary>
@@ -82,6 +84,7 @@ internal static class ConsoleTool
     /// <param name="cancellationToken">Cancels the operation; a started process tree receives a termination request.</param>
     /// <param name="workingDirectory">The tool's current directory, or the Windows system directory.</param>
     /// <param name="environment">Overrides applied only to the child process.</param>
+    /// <param name="failureExpected">Whether a nonzero exit is a normal answer the caller reads, not a warning.</param>
     /// <returns>The dispatch-aware outcome; process start or wait failures are logged and classified.</returns>
     /// <exception cref="ArgumentNullException">The process factory is null.</exception>
     /// <exception cref="OperationCanceledException">The caller canceled the operation.</exception>
@@ -91,7 +94,7 @@ internal static class ConsoleTool
         DateTimeOffset deadline,
         Func<ProcessStartInfo, IConsoleToolProcess?> startProcess,
         CancellationToken cancellationToken, string? workingDirectory = null,
-        IReadOnlyDictionary<string, string>? environment = null)
+        IReadOnlyDictionary<string, string>? environment = null, bool failureExpected = false)
     {
         ArgumentNullException.ThrowIfNull(startProcess);
         var what = $"{exe} {FirstToken(arguments)}";
@@ -178,7 +181,11 @@ internal static class ConsoleTool
                     await ReadOutputAsync(process, deadline).ConfigureAwait(false));
             }
 
-            Log.Warn($"{what} exited with {process.ExitCode}.");
+            if (!failureExpected)
+            {
+                Log.Warn($"{what} exited with {process.ExitCode}.");
+            }
+
             return new ConsoleToolResult(ConsoleToolRunOutcome.Failed, process.ExitCode,
                 await ReadOutputAsync(process, deadline).ConfigureAwait(false));
         }

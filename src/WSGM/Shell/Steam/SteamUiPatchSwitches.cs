@@ -122,7 +122,7 @@ internal static class SteamUiPatchSwitches
             + $"stableResources={presentation?.StableResources.Count ?? 0}, "
             + $"controllerImages={presentation?.ControllerImages.Count ?? 0}, "
             + $"absentControls={presentation?.AbsentControls.Count ?? 0}",
-            deliver ? LogLevel.Info : LogLevel.Warn);
+            LogLevel.Info);
         patches.SetPatchEnabled(SteamInputGlyphStylePatch.PatchId, deliver);
         return deliver;
     }

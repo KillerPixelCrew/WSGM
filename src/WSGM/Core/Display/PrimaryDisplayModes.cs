@@ -95,7 +95,8 @@ internal static class PrimaryDisplayModes
         }
 
         var resolutions = ResolutionsOf(current, DisplayModes.EnumeratePrimaryModes());
-        Log.Info(
+        Log.Change(
+            "display.modes.resolutions",
             $"Display modes: {current.Width}x{current.Height} at {current.RefreshHz} Hz, "
             + $"resolutions [{string.Join(",", resolutions.Select(mode => $"{mode.Width}x{mode.Height}"))}]");
         return resolutions;
@@ -123,7 +124,8 @@ internal static class PrimaryDisplayModes
         }
 
         var rates = RefreshRatesOf(current, DisplayModes.EnumeratePrimaryModes());
-        Log.Info(
+        Log.Change(
+            "display.modes.rates",
             $"Display modes: {current.Width}x{current.Height} at {current.RefreshHz} Hz, "
             + $"rates [{string.Join(",", rates)}]");
         return rates;
@@ -254,7 +256,7 @@ internal static class PrimaryDisplayModes
             }
 
             var rates = edid.Modes.Select(mode => mode.RefreshHz).Distinct().Order().ToArray();
-            Log.Info($"Display modes: panel advertises [{string.Join(",", rates)}].");
+            Log.Change("display.modes.panel", $"Display modes: panel advertises [{string.Join(",", rates)}].");
             return rates;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)

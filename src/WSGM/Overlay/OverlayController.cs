@@ -521,7 +521,7 @@ public sealed partial class OverlayController : IDisposable
         _overlay.RadioPanelRequested += ShowRadioPanel;
         _overlay.AudioPanelRequested += ShowAudioPanel;
         _overlay.EjectPanelRequested += ShowEjectPanel;
-        Log.Info("Quick access shown (Open apps snapshot queued).");
+        Log.Debug("Quick access shown (Open apps snapshot queued).");
         WireOverlayRequests(_overlay, vm);
         var openedOverlay = _overlay;
         openedOverlay.Closed += (_, _) =>

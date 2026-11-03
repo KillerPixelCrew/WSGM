@@ -98,7 +98,7 @@ internal sealed class GamepadService : IUiButtonSource, IDisposable
         _loggedFirstPress = false;
         SdlGamepads.EnsureInitialized();
         _timer.Start();
-        Log.Info("Gamepad polling started.");
+        Log.Debug("Gamepad polling started.");
     }
 
     /// <summary>Stops polling on the UI thread without shutting down SDL or emitting releases; Start resets the baseline.</summary>

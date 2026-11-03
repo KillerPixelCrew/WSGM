@@ -16,7 +16,7 @@
 // becomes the new session. Setup, answer export, Settings and other non-shell starts are ignored.
 //
 // Every patch logs `Steam UI patch <id>: <State>[ — <reason>][ (previous state held for N more
-// polls)]` when its state changes. A patch passes when its last state in the session is Verified, or
+// polls)]` when its state changes, apart from the transitional Applying and Applied and a Retrying that only waits for the bridge. A patch passes when its last state in the session is Verified, or
 // Disabled: by its setting, or, for the Big Picture-only steam-ui.pages and steam-ui.home-carousel,
 // because Big Picture is closed (WSGM wants those only while it is up). Anything else fails: a final Incompatible, RemoveFailed, AbsentTarget,
 // Degraded, Retrying, Applying or Applied, with the last reason it gave. The patch manager's

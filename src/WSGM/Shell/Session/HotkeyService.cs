@@ -93,7 +93,7 @@ public sealed class HotkeyService : IDisposable
         _registered = NativeMethods.RegisterHotKey(_window.Handle, _hotkeyId, modifiers, (uint)config.VirtualKey);
         if (_registered)
         {
-            Log.Info($"Hotkey registered (id {_hotkeyId}, vk 0x{config.VirtualKey:X}, mods 0x{modifiers:X})");
+            Log.Change("hotkey.registered", $"Hotkey registered (vk 0x{config.VirtualKey:X}, mods 0x{modifiers:X})");
         }
         else
         {

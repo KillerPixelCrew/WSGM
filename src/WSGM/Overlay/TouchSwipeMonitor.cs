@@ -105,7 +105,7 @@ internal sealed class TouchSwipeMonitor : IDisposable
         // Reset the one-shot so every arm cycle proves whether raw reports
         // still flow — swipes reportedly die when specific apps take focus.
         RawTouchInput.LogNextArrival();
-        Log.Info($"Touch edge swipes armed (foreground {WindowFinder.DescribeForeground()}).");
+        Log.Debug($"Touch edge swipes armed (foreground {WindowFinder.DescribeForeground()}).");
     }
 
     /// <summary>Suspend gesture detection (overlay open).</summary>
@@ -119,7 +119,7 @@ internal sealed class TouchSwipeMonitor : IDisposable
         _armed = false;
         _tracking = false;
         _diagnosticPending = false;
-        Log.Info("Touch edge swipes disarmed.");
+        Log.Debug("Touch edge swipes disarmed.");
     }
 
     private void OnReport(TouchContactReport report)
@@ -228,7 +228,7 @@ internal sealed class TouchSwipeMonitor : IDisposable
                 return;
             }
 
-            Log.Info($"{edge} touch edge swipe triggered.");
+            Log.Debug($"{edge} touch edge swipe triggered.");
             Triggered?.Invoke(edge);
         });
     }

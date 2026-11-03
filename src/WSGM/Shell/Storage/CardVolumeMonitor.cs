@@ -237,7 +237,9 @@ internal sealed class CardVolumeMonitor : IDisposable
                              + "its library list.");
                 }
 
-                ArmReadyWait(lifetimeToken);
+                // Readiness can already hold here, and waiting for "ready" would then answer at once and
+                // rescan the drives in a tight loop until Steam ran. Steam starting kicks a pass itself.
+                ArmReadyWait(true, lifetimeToken);
                 return;
             }
 
@@ -267,19 +269,20 @@ internal sealed class CardVolumeMonitor : IDisposable
         }
     }
 
-    private void ArmReadyWait(CancellationToken cancellationToken)
+    private void ArmReadyWait(bool nextEdge, CancellationToken cancellationToken)
     {
         if (Interlocked.Exchange(ref _readyWaitArmed, 1) == 0)
         {
-            _ = ResumeWhenReadyAsync(cancellationToken);
+            _ = ResumeWhenReadyAsync(nextEdge, cancellationToken);
         }
     }
 
-    private async Task ResumeWhenReadyAsync(CancellationToken cancellationToken)
+    private async Task ResumeWhenReadyAsync(bool nextEdge, CancellationToken cancellationToken)
     {
         try
         {
-            await _readiness.WhenReadyAsync(cancellationToken).ConfigureAwait(false);
+            await (nextEdge ? _readiness.WhenNextReadyAsync(cancellationToken) : _readiness.WhenReadyAsync(cancellationToken))
+                .ConfigureAwait(false);
             Volatile.Write(ref _readyWaitArmed, 0);
             Kick("Steam UI ready");
         }
@@ -311,7 +314,7 @@ internal sealed class CardVolumeMonitor : IDisposable
                          + "before changing Steam's library list.");
             }
 
-            ArmReadyWait(_lifetime.Token);
+            ArmReadyWait(false, _lifetime.Token);
             return false;
         }
 

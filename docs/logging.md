@@ -39,6 +39,11 @@ Two measured examples of what this is for, both real:
 - One day's log was 40% `plugin/motion`, 7,619 lines, from two messages alternating either side of a
   freshness threshold about 1.3 times a second.
 
+- One tester's six hours on the Atlas 8 wrote 24,949 lines, 2.6 MB. 5,183 were call stacks from
+  Steam's own console, 2,036 came from a card monitor spinning while it waited for Steam, and about
+  3,000 restated the Intel driver's unchanged feature table on every refresh. A repeating line is
+  often the first sign of work that is repeating, so check for that before quieting it.
+
 The second one is the more instructive failure, because `Change` would not have saved it. Two
 messages alternating under one key both differ from what came before, so both write every time. The
 fix was to stop reporting a crossing that was not news. **Reach for the threshold before the level:
@@ -71,6 +76,12 @@ over the stored value.
 
 Raising verbosity must not turn the log into the thing `Debug` exists to prevent. If a verbose log
 is unreadable, the fix is a `Change` key or a threshold, not a quieter default.
+
+Steam's own console reaches the log as follows: an exception is an `Error` with its stack, a
+`console.error` or warning is a `Warn` (only errors keep a stack), and a failed resource load and
+everything else appear only at `Debug`. A patch logs its settled states; `Applying`, `Applied` and a
+`Retrying` that only waits for the bridge are not written, and a patch that never holds is reported
+by the retry exhaustion warning.
 
 ## Files and retention
 

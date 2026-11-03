@@ -134,6 +134,11 @@ internal sealed class SteamInputBlocker(SteamInputShim shim, Func<SteamInputPipe
                     CheckHostRecoveryBestEffort(_lease);
                 }
             }
+            catch (SteamInterop.SteamInputLeaseException ex)
+            {
+                // Expected while Steam is not up, and the next claim tries again. Not a stack trace each time.
+                Log.Change("steam-input.lease", $"Steam Input lease not acquired: {ex.Message}", LogLevel.Warn);
+            }
             catch (Exception ex)
             {
                 Log.Error("Steam Input lease acquisition failed.", ex);

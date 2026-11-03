@@ -259,9 +259,13 @@ internal sealed partial class GpuCoordinator
                     _lastSyncFingerprint = fingerprint;
                 }
 
-                Log.Info($"Graphics {ProfileKey}: per-application sync {sync.Revision} ({reason}): "
-                         + $"games={profiles.Count}, written={result.Written}, removed={result.Removed}, "
-                         + $"refused={result.Failures.Count}.");
+                if (result.Written + result.Removed + result.Failures.Count > 0)
+                {
+                    Log.Info($"Graphics {ProfileKey}: per-application sync {sync.Revision} ({reason}): "
+                             + $"games={profiles.Count}, written={result.Written}, removed={result.Removed}, "
+                             + $"refused={result.Failures.Count}.");
+                }
+
                 foreach (var failure in result.Failures)
                 {
                     if (string.IsNullOrEmpty(failure.ProfileId) && string.IsNullOrEmpty(failure.Executable))

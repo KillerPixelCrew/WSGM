@@ -107,9 +107,14 @@ internal static class CapabilityDesiredReconciler
                 + $"{result.Reason?.Detail ?? "no detail"}.");
         }
 
-        Log.Info(
-            $"Desired-value reconciliation ({pass.Label}, {reason}): applied={applied}, unchanged={unchanged}, "
-            + $"refused={refused}, skipped={skipped}.");
+        // A pass that found everything already right changed nothing, and runs on every profile change.
+        if (applied + refused + skipped > 0)
+        {
+            Log.Info(
+                $"Desired-value reconciliation ({pass.Label}, {reason}): applied={applied}, unchanged={unchanged}, "
+                + $"refused={refused}, skipped={skipped}.");
+        }
+
         return new CapabilityReconcileCounts(applied, unchanged, refused, skipped);
     }
 

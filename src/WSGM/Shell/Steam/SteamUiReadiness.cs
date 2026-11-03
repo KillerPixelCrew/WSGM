@@ -127,6 +127,17 @@ internal sealed class SteamUiReadiness
         }
     }
 
+    /// <summary>Completes at the next ready edge, even when the gate holds the transport open now.</summary>
+    /// <param name="cancellationToken">Cancels the wait.</param>
+    /// <returns>A task that completes when the transport next opens.</returns>
+    internal Task WhenNextReadyAsync(CancellationToken cancellationToken)
+    {
+        lock (_sync)
+        {
+            return _nextReady.Task.WaitAsync(cancellationToken);
+        }
+    }
+
     /// <summary>
     ///     Runs one automatic CEF operation once the transport is open, and again at each later ready edge.
     /// </summary>

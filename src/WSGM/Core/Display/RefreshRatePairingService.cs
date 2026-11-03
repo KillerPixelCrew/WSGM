@@ -248,7 +248,7 @@ internal sealed class RefreshRatePairingService
                 : [.. Enumerable.Range(range.MinimumHz, range.MaximumHz - range.MinimumHz + 1)];
             if (range is not null)
             {
-                Log.Info($"Display modes: the graphics driver holds any rate in {range.MinimumHz}-{range.MaximumHz} Hz"
+                Log.Change("display.modes.driver-range", $"Display modes: the graphics driver holds any rate in {range.MinimumHz}-{range.MaximumHz} Hz"
                          + (range.FixedHz is { } held ? $", {held} Hz now." : "."));
             }
 
