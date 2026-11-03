@@ -81,6 +81,11 @@ internal static class CapabilityRowProjection
             _ when descriptor.SupportsAction && ActionExplanation(descriptor) is { Length: > 0 } explanation =>
                 explanation,
             _ when actionOnlyReady => "Ready",
+            // Each surface's slider says the value is unknown and how to set it.
+            _ when displayed is null && descriptor is
+            {
+                ValueKind: CapabilityValueKind.Integer, SupportsWrite: true, Minimum: not null, Maximum: not null
+            } => string.Empty,
             // A healthy value has nothing to explain; the row shows it without a caption.
             _ when state.Quality is HardwareStateQuality.Verified or HardwareStateQuality.Observed => string.Empty,
             _ => $"{QualityLabel(state.Quality)} · {PersistenceLabel(descriptor.Persistence)}"

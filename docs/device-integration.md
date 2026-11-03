@@ -46,7 +46,10 @@ and BIOS, so the next start leaves it out. A wake re-acquires the service but re
 settle nor the decision. An offset at its neutral value stays published across the wake without a
 write. A value the user chose is forgotten, so the desired-value pass writes it again in case the
 wake lost it. Busy (170), prerequisite (1359) and timeout (121) answers are not definite and change
-nothing. A slider without a known value stays visible as "Unknown".
+nothing. A slider without a known value stays visible as "Unknown" with a hint to adjust it, its
+thumb at 0 where the range includes 0 and otherwise at the minimum, so an offset never looks like
+its strongest setting. If the firmware refuses the Cache half of a CPU undervolt, Core goes back to
+0 and the row reports the setting as unsupported.
 
 [Profiles](profiles.md) resolves Global and per-application preferences. Power presets and AC/DC
 assignments use the serialized power lane of the coordinator's `DevicePowerPolicy`. Native firmware

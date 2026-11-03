@@ -434,11 +434,11 @@ screen stays there for the session, whatever its value or the outcome of a write
 settles what it can as it starts: it reads a readable setting, and writes a write-only one's neutral
 value (curve offsets and undervolts at 0) and publishes it. A setting the firmware refuses outright
 during that start (SMU "unknown command" or "failed", or a nonzero Intel OC mailbox status) is not
-offered. A refusal of a later write is
-answered as unsupported, leaves the control in place and is remembered per processor and BIOS, so
-the next start hides it from the first frame; a BIOS update forgets the record. A slider without a
-known value stays visible as "Unknown". Writes are never gated on readback (maintainer, 2026-10-21).
-See [device integration](device-integration.md#shared-controls-and-profiles).
+offered. A refusal of a later write is answered as unsupported, leaves the control in place and is
+remembered per processor and BIOS, so the next start hides it from the first frame; a BIOS update
+forgets the record. A slider without a known value stays visible as "Unknown", resting at 0 where
+its range includes 0. Writes are never gated on readback (maintainer, 2026-10-21). See
+[device integration](device-integration.md#shared-controls-and-profiles).
 
 **Claw chord suppression retains the working state machine (2026-10-01).** The incomplete firmware
 sequence cannot be handled by ordinary shortcut remapping. The orphan-only rewrite opened Game Bar

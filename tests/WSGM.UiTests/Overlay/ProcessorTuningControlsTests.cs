@@ -27,7 +27,7 @@ public sealed class ProcessorTuningControlsTests
                      ("processor.gpu-clock", "GPU clock", 100, 2900, CapabilityUnit.Megahertz)
                  })
         {
-            body.Children.Add(new DeviceSliderRow(id, label, "Adjust to set a value", min, max, 1, unit,
+            body.Children.Add(new DeviceSliderRow(id, label, string.Empty, min, max, 1, unit,
                 null, true, _ => throw new InvalidOperationException("Unexpected hardware write")));
         }
 
@@ -61,7 +61,10 @@ public sealed class ProcessorTuningControlsTests
         window.Show();
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(2, window.GetVisualDescendants().OfType<TextBlock>().Count(text => text.Text == "Unknown"));
+        Assert.Equal(2, window.GetVisualDescendants().OfType<TextBlock>().Count(text => text.Text == "Adjust to set a value"));
         Assert.All(window.GetVisualDescendants().OfType<Slider>(), slider => Assert.True(slider.IsEnabled));
+        // An offset rests at 0 rather than its strongest setting; a range without 0 rests at its lowest.
+        Assert.Equal(new double[] { 0, 100 }, window.GetVisualDescendants().OfType<Slider>().Select(slider => slider.Value));
         VisualBaseline.Verify(window, restartRequired ? "processor-reset-restart" : "processor-unknown-values");
         window.Close();
     }

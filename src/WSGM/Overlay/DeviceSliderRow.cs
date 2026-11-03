@@ -32,6 +32,7 @@ namespace WSGM.Overlay;
 /// </remarks>
 internal sealed class DeviceSliderRow : Border
 {
+    private const string UnknownHint = "Adjust to set a value";
     private static readonly TimeSpan CommitDelay = TimeSpan.FromMilliseconds(250);
     private readonly DispatcherTimer _commit;
     private readonly TextBlock _description;
@@ -41,8 +42,10 @@ internal sealed class DeviceSliderRow : Border
     private readonly Slider _slider;
     private readonly CapabilityUnit _unit;
     private readonly TextBlock _value;
+    private string _descriptionText;
     private bool _pointerEditing;
     private bool _refreshing;
+    private bool _unknown;
 
     /// <summary>Builds the row for one capability.</summary>
     /// <param name="key">Stable focus key, mirrored onto the slider for focus restore.</param>
@@ -80,7 +83,9 @@ internal sealed class DeviceSliderRow : Border
         _commit.Tick += OnCommitTick;
 
         var tick = Math.Max(1, step);
-        var clamped = Math.Clamp(valueNow ?? minimum, minimum, maximum);
+        var clamped = Math.Clamp(valueNow ?? RestingValue(minimum, maximum), minimum, maximum);
+        _descriptionText = description;
+        _unknown = valueNow is null;
 
         Tag = key;
 
@@ -135,11 +140,7 @@ internal sealed class DeviceSliderRow : Border
             { Text = title, Classes = { "setting-title" }, TextWrapping = TextWrapping.Wrap });
         Grid.SetColumn(_value, 1);
         titleRow.Children.Add(_value);
-        _description = new TextBlock
-        {
-            Text = description, TextWrapping = TextWrapping.Wrap, Classes = { "caption" },
-            IsVisible = !string.IsNullOrWhiteSpace(description)
-        };
+        _description = new TextBlock { TextWrapping = TextWrapping.Wrap, Classes = { "caption" } };
         var footer = new StackPanel { Spacing = 2, Children = { titleRow, _description, _slider } };
         var setting = new FASettingsExpanderItem
         {
@@ -150,7 +151,7 @@ internal sealed class DeviceSliderRow : Border
             Classes = { "device-setting", "device-setting-primary" }
         };
         AutomationProperties.SetName(_slider, title);
-        AutomationProperties.SetHelpText(_slider, description);
+        ShowDescription();
         Child = setting;
         DetachedFromVisualTree += (_, _) => CommitPendingChange();
     }
@@ -185,8 +186,10 @@ internal sealed class DeviceSliderRow : Border
             _slider.Minimum = minimum;
             _slider.Maximum = maximum;
             _slider.TickFrequency = Math.Max(1, step);
-            _slider.Value = Math.Clamp(value ?? minimum, minimum, maximum);
+            _slider.Value = Math.Clamp(value ?? RestingValue(minimum, maximum), minimum, maximum);
             _value.Text = value is null ? "Unknown" : Format((int)Math.Round(_slider.Value));
+            _unknown = value is null;
+            ShowDescription();
         }
         finally
         {
@@ -196,9 +199,22 @@ internal sealed class DeviceSliderRow : Border
 
     internal void RefreshDescription(string description)
     {
-        _description.Text = description;
-        _description.IsVisible = !string.IsNullOrWhiteSpace(description);
-        AutomationProperties.SetHelpText(_slider, description);
+        _descriptionText = description;
+        ShowDescription();
+    }
+
+    /// <summary>Where the thumb rests without a value: 0 where the range has one, so an offset does not read as its strongest setting.</summary>
+    private static int RestingValue(int minimum, int maximum)
+    {
+        return Math.Clamp(0, minimum, maximum);
+    }
+
+    private void ShowDescription()
+    {
+        var text = _unknown && string.IsNullOrWhiteSpace(_descriptionText) ? UnknownHint : _descriptionText;
+        _description.Text = text;
+        _description.IsVisible = !string.IsNullOrWhiteSpace(text);
+        AutomationProperties.SetHelpText(_slider, text);
     }
 
     private void OnSliderValueChanged(object? sender, RangeBaseValueChangedEventArgs e)
@@ -209,6 +225,8 @@ internal sealed class DeviceSliderRow : Border
         }
 
         _value.Text = Format((int)Math.Round(_slider.Value));
+        _unknown = false;
+        ShowDescription();
 
         // Restart the settle window on every change so a drag or a held press commits once.
         _commit.Stop();

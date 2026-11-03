@@ -11,6 +11,29 @@ namespace WSGM.Tests.Shell;
 /// <summary>How the Device overlay bridge projects plugin capabilities and WSGM's own Device rows.</summary>
 public sealed class DeviceOverlayBridgeTests
 {
+    [Fact]
+    public void UnknownRangeHasNoCaptionBesideTheUnknownValue()
+    {
+        CapabilityDescriptor descriptor = new()
+        {
+            CapabilityId = "processor.cpu-undervolt", Role = CapabilityRole.GenericRange,
+            ValueKind = CapabilityValueKind.Integer,
+            Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "CPU core/cache undervolt" },
+            SupportsWrite = true, Minimum = -50, Maximum = 50, Step = 1, Persistence = CapabilityPersistence.Volatile
+        };
+        CapabilityState state = new()
+        {
+            CapabilityId = descriptor.CapabilityId, Available = true, Quality = HardwareStateQuality.Unknown
+        };
+
+        var row = CapabilityRowProjection.ToOverlayCapability(
+            new DeviceCapabilityView(descriptor, new CapabilityProjection { State = state }, null),
+            new HashSet<string>(), FanCurvePresetTable.HandheldCompanion);
+
+        Assert.Equal(string.Empty, row.Description);
+        Assert.Null(row.CurrentValue);
+    }
+
     [Theory]
     [InlineData("firmware", false)]
     [InlineData("cpu", true)]

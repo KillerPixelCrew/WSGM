@@ -6071,13 +6071,16 @@
         // A range with labels is one of them by index: Steam's slider names each notch and the
         // value is the notch, not a number worth printing beside the track.
         const labels = Array.isArray(row.labels) && row.labels.length > 1 ? row.labels : null;
+        // Steam's slider always draws a thumb. Without a value it rests at 0 where the range has one,
+        // so an offset slider does not read as its strongest setting.
+        const resting = Math.min(Math.max(0, row.minimum ?? 0), row.maximum ?? 100);
         return h(ui.sliderField, {
           key,
           ...common,
           // A labelled slider keeps its glyph with the label, so every row of a section lines its
           // glyph up in one column; Steam would otherwise put it beside the track.
           iconLocation: icon ? "front" : undefined,
-          value: draft !== undefined ? draft : (row.number ?? row.minimum ?? 0),
+          value: draft !== undefined ? draft : (row.number ?? resting),
           min: labels ? 0 : (row.minimum ?? 0),
           max: labels ? labels.length - 1 : (row.maximum ?? 100),
           step: labels ? 1 : (row.step ?? 1),
