@@ -433,7 +433,8 @@ WSGM hands the pad over in either direction (maintainer, 2026-10-20). See
 screen stays there for the session, whatever its value or the outcome of a write. Each service
 settles what it can as it starts: it reads a readable setting, and writes a write-only one's neutral
 value (curve offsets and undervolts at 0) and publishes it. A setting the firmware refuses outright
-during that start (SMU "unknown command" or "failed") is not offered. A refusal of a later write is
+during that start (SMU "unknown command" or "failed", or a nonzero Intel OC mailbox status) is not
+offered. A refusal of a later write is
 answered as unsupported, leaves the control in place and is remembered per processor and BIOS, so
 the next start hides it from the first frame; a BIOS update forgets the record. A slider without a
 known value stays visible as "Unknown". Writes are never gated on readback (maintainer, 2026-10-21).

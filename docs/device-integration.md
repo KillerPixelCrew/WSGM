@@ -39,12 +39,14 @@ measured telemetry. Uncertain writes are not automatically retried.
 Visibility is decided when a service first starts, never at runtime, so nothing appears and then
 vanishes when touched. The processor service reads what it can and writes curve offsets and
 undervolts to 0. A definite firmware refusal during that start, the AMD SMU's "unknown command"
-(PawnIO Win32 87) or "failed" (31), leaves the setting out. A refusal of a later write is reported
-as unsupported, keeps the control on screen and is recorded in `unsupported-settings.json` in the
-device state folder, bound to the processor and BIOS, so the next start leaves it out. A wake
-re-acquires the service but repeats neither the settle nor the decision. Busy (170), prerequisite
-(1359) and timeout (121) answers are not definite and change nothing. A slider without a known value
-stays visible as "Unknown".
+(PawnIO Win32 87) or "failed" (31) or a nonzero completion status from Intel's OC mailbox, leaves
+the setting out. A refusal of a later write is reported as unsupported, keeps the control on screen
+and is recorded in `unsupported-settings.json` in the device state folder, bound to the processor
+and BIOS, so the next start leaves it out. A wake re-acquires the service but repeats neither the
+settle nor the decision. An offset at its neutral value stays published across the wake without a
+write. A value the user chose is forgotten, so the desired-value pass writes it again in case the
+wake lost it. Busy (170), prerequisite (1359) and timeout (121) answers are not definite and change
+nothing. A slider without a known value stays visible as "Unknown".
 
 [Profiles](profiles.md) resolves Global and per-application preferences. Power presets and AC/DC
 assignments use the serialized power lane of the coordinator's `DevicePowerPolicy`. Native firmware
