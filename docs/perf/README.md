@@ -215,6 +215,64 @@ VIIPER's Deck device now reports the mean gyro rate since the previous report, h
 until the next one arrives, so the sum of the reported rates equals the rotation the samples
 described for any sensor and poll cadence (`device/steamdeck/gyroresampler.go`, VIIPER wsgm).
 
+## Steam CEF memory, 2026-11-06
+
+Issue #247. The report: on the Atlas in Game Mode, Big Picture idle at the library after about 40
+minutes (2026-10-30), the `steamwebhelper.exe` processes held 1,656 MB private, 800 MB of it in the
+main renderer (SharedJSContext and Big Picture) and 553 MB in the GPU process.
+
+What was measured on 2026-11-06, on the maintainer's laptop, with Steam Stable 1792618285 and WSGM
+3.0.0.1968:
+
+| Point                                          | Main renderer | GPU process | SharedJSContext JS heap               |
+| ---------------------------------------------- | ------------: | ----------: | ------------------------------------- |
+| Desktop Mode, 22 min after Steam start         |        473 MB |      196 MB | not read                              |
+| Big Picture, 2.5 min after the renderer opened |        308 MB |      512 MB | 98 MB used, 119 MB total, 63 MB graph |
+
+Private bytes come from `Get-Process`. The heap numbers come from one `performance.memory` read and
+one heap snapshot through the Steam CEF debugger, taken after Steam's logs showed Big Picture fully
+started. The snapshot's 63 MB is the live object graph after a full GC: 16.5 MB code, 10.5 MB
+strings, 10.8 MB native (62,704 `CSSStyleRule` objects among them), 7 MB arrays.
+
+### What WSGM held in that heap
+
+- **Two copies of the injected asset source, 2.23 MB each.** V8 keeps an evaluated script's source
+  while any of its functions lives, and it stored this one two bytes per character because about 280
+  characters in it were not ASCII. The second copy was the reinstall described next. The older copy
+  was still reachable through `window.webpackChunksteamui[14][2]`. That is the closure the module
+  resolver pushes into Steam's chunk array to capture `require`, and webpack keeps every pushed
+  entry. The array held six of those entries: one per bundle instance and one per standalone patch
+  probe. Each one pinned its whole script, and for a bridge, the scope of every gate it had.
+- **A reinstall of every patch per foreign inspector session.** The transport treated every
+  `Runtime.executionContextCreated` and `Destroyed` as a new generation, including the isolated
+  world any other CDP client creates when it attaches. Attaching the debugger to take these numbers
+  did it (wsgm.log 21:55:56.936,
+  `Steam UI patch steam-ui.bridge: Retrying — Steam UI generation changed; reapply required`,
+  followed by every other patch). Each such event re-evaluated the asset, and with the leak above it
+  added another pinned copy of the source and the old bridge.
+
+### What changed (steam-ui-toolkit e8e2226, 32441e3, c635ff6, e791de0)
+
+| Change                                                  | Expected effect, estimated offline                                                                                                   |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| The resolver removes its chunk entry after the capture  | A replaced bridge and every probe script become collectable. Saves at least 2.2 MB of source per reinstall, plus that bridge's state |
+| Only the page's default world advances the generations  | Another debugger, extension or tool no longer reinstalls every patch. A real reload or context replacement still does (tested)       |
+| The asset is emitted in ASCII (`\uXXXX` escapes)        | Resident source drops from 2,340,714 bytes (two-byte) to 1,170,357 (one-byte). Saves 1.17 MB per live copy                           |
+| Plugin frontends forget closed windows and their styles | A closed popup's Window, document and DOM are no longer kept by a loaded frontend                                                    |
+
+These are offline figures (asset bytes, snapshot arithmetic). WSGM's resident share of the
+SharedJSContext heap was about 4.5 MB of 63 MB in the snapshot. Most of the 800 MB renderer and the
+GPU process is Steam's own, so the numbers above do not explain the report on their own. They remove
+the growth that happens each time the bundle is reinstalled inside one document.
+
+### Still to measure, attended
+
+- The same Big Picture scenario after deployment: one snapshot should show one asset source of 1.17
+  MB and only Steam's own chunk entries.
+- Private bytes of the main renderer and GPU process at start, 15, 30 and 60 minutes, with the Steam
+  integration (`cef.enabled`) off and on.
+- Module-group attribution, and the GPU process with themes, artwork and animations on.
+
 ## Budgets
 
 Proposed for the maintainer's decision; not agreed yet.
