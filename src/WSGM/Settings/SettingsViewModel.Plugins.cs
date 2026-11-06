@@ -165,6 +165,18 @@ public sealed partial class SettingsViewModel
         }
     }
 
+    /// <summary>
+    ///     Drops the packages WSGM retired into its own libraries (the graphics drivers in LibGPUDriverInteract, the
+    ///     device families in LibHandheld). An install updated without setup keeps an older release's bundle record
+    ///     and package folder, which still list them; they are never offered, installed or shown.
+    /// </summary>
+    /// <param name="rows">The page's rows.</param>
+    /// <returns>The rows of packages that still exist as packages.</returns>
+    internal static IReadOnlyList<PluginPackageRowState> WithoutRetired(IEnumerable<PluginPackageRowState> rows)
+    {
+        return [.. rows.Where(static row => !NeutralLibraryRetirement.PackageIds.Contains(row.Id, StringComparer.OrdinalIgnoreCase))];
+    }
+
     /// <summary>Reads the installed packages and what the installed release bundles for this machine.</summary>
     /// <returns>The catalog, the adapters, the bundle when it could be read, and the page's rows.</returns>
     /// <remarks>Opens and hashes every package and enumerates the display adapters: call it on a worker.</remarks>
@@ -192,8 +204,8 @@ public sealed partial class SettingsViewModel
             Log.Warn("Plugins: the installed bundle could not be read: " + ex.Message);
         }
 
-        var rows = PluginPackageManager.Rows(catalog, bundle, InstallLayout.SetupPackages, offers,
-            new PendingPluginRemovalStore(InstallLayout.PendingPluginRemovals));
+        var rows = WithoutRetired(PluginPackageManager.Rows(catalog, bundle, InstallLayout.SetupPackages, offers,
+            new PendingPluginRemovalStore(InstallLayout.PendingPluginRemovals)));
         return new PluginPackagePage(catalog, adapters, bundle, rows.Select(row =>
         {
             if (string.IsNullOrEmpty(row.PackagePath))
