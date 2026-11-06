@@ -4281,7 +4281,7 @@
         pending: [],
         verifiers: [],
         contributionIds: new Set(),
-        styles: new Set(),
+        styles: new Map(),
         ready: false,
       };
       pluginFrontendEntries.set(spec.id, entry);
@@ -4293,18 +4293,28 @@
         event.preventDefault?.();
         report(entry, spec.module, event.error ?? event.reason ?? event.message);
       };
+      // The documents of the last pass. Steam's popup list rarely changes between ticks, so an
+      // unchanged list costs one comparison and allocates nothing.
+      let lastDocuments = [];
       const refreshDocuments = () => {
         if (entry.closed || entry.failed) return;
         const current = documents();
+        if (
+          current.length === lastDocuments.length &&
+          current.every((doc, index) => doc === lastDocuments[index])
+        )
+          return;
+        lastDocuments = current;
         // A closed popup keeps its Window, its Document and its whole DOM alive for as long as this
         // entry refers to it, so a window or style no longer among Steam's documents is let go here.
         // A session opens and closes hundreds of popups (toasts, menus, the keyboard).
+        const docs = new Set(current);
         const views = new Set(current.map((doc) => doc.defaultView));
         for (const target of knownWindows) {
           if (!views.has(target)) knownWindows.delete(target);
         }
-        for (const style of entry.styles) {
-          if (!current.includes(style.ownerDocument)) entry.styles.delete(style);
+        for (const doc of entry.styles.keys()) {
+          if (!docs.has(doc)) entry.styles.delete(doc);
         }
         for (const doc of current) {
           const target = doc.defaultView;
@@ -4313,12 +4323,12 @@
             target.addEventListener("error", asyncError);
             target.addEventListener("unhandledrejection", asyncError);
           }
-          if (entry.style && ![...entry.styles].some((style) => style.ownerDocument === doc)) {
+          if (entry.style && !entry.styles.has(doc)) {
             const style = doc.createElement("style");
             style.dataset.steamUiPlugin = spec.id;
             style.textContent = entry.style;
             (doc.head ?? doc.documentElement).appendChild(style);
-            entry.styles.add(style);
+            entry.styles.set(doc, style);
           }
         }
       };
@@ -4330,7 +4340,7 @@
           target.removeEventListener("error", asyncError);
           target.removeEventListener("unhandledrejection", asyncError);
         }
-        for (const style of entry.styles) style.remove();
+        for (const style of entry.styles.values()) style.remove();
         entry.styles.clear();
       };
       const register = (kind, id, value, render, gate) => {
@@ -4525,7 +4535,9 @@
          */
         addStyle: (css) => {
           entry.style = `${entry.style ?? ""}\n${css}`;
-          for (const style of entry.styles) style.textContent = entry.style;
+          for (const style of entry.styles.values()) style.textContent = entry.style;
+          // The documents are the same, but the first style still has to reach every one of them.
+          lastDocuments = [];
           refreshDocuments();
         },
         /**
@@ -13180,6 +13192,183 @@
     return gate;
   }
   registerGate("network", createNetworkGate());
+  // @fragment gates/notices.ts
+  // Native Steam notices: a host-supplied title, body and route drawn with Valve's own notification
+  // template in the toast and the notification tray, opened by mouse, touch or controller activation.
+  // The store, renderer and template classes are each found by a unique source fingerprint (mapped
+  // from Stable and Beta, 2026-11-01); nothing here names a module id.
+  function createNotices() {
+    const patchId = "steam-ui.notices";
+    const marker = "__steamUiNotice";
+    const StoreTokens = [
+      "m_nNextTestNotificationID",
+      "ProcessNotification(",
+      "RemoveGroupFromTray(",
+    ];
+    const RendererTokens = ['controller:"notification",method:', "Missing activate function"];
+    const ClassTokens = ["StandardTemplateContainer", "ShortTemplate", "TwoLine"];
+    // Valve's client-sourced notification (eSource k_Client = 1) of the generic type, which goes
+    // straight into the toast queue and the tray; a server-sourced one would wait for server data.
+    const ClientSource = 1;
+    const GenericType = 7;
+    const ToastMilliseconds = 5000;
+    let handles = null;
+    const noticeOf = (group) => group?.notifications?.[0]?.[marker] ?? null;
+    // Steam's tray is the one record of what is shown: a notice Steam dropped, or one the user
+    // dismissed, opened or cleared, is simply not there, so the same id can be shown again.
+    const trayGroups = (store, id) =>
+      (Array.isArray(store?.m_rgNotificationTray) ? store.m_rgNotificationTray : []).filter(
+        (group) => {
+          const notice = noticeOf(group);
+          return notice !== null && (id === undefined || notice.id === id);
+        },
+      );
+    const NativeNotice = (props) => {
+      if (!handles) return null;
+      const notification = props.group.notifications[0];
+      const notice = notification[marker];
+      const { react, template, classes, store } = handles;
+      const activate = () => {
+        if (!gate.status().held) return;
+        // Over a running game the overlay window that drew the notice navigates itself.
+        navigateSteamRoute(notice.route, steamInteractionWindow());
+        props.onDismiss?.();
+        store.RemoveGroupFromTray(props.group);
+      };
+      return react.createElement(template, {
+        location: props.location,
+        onActivate: activate,
+        onDismiss: props.onDismiss,
+        bNewIndicator: notification.bNewIndicator,
+        children: [
+          react.createElement(
+            "div",
+            { className: classes.Header, key: "header" },
+            react.createElement("div", { className: classes.Title }, notice.title),
+          ),
+          react.createElement("div", { className: classes.Body, key: "body" }, notice.body),
+        ],
+      });
+    };
+    const transform = (_create, type, props) => {
+      if (!handles || type !== handles.renderer || !noticeOf(props?.group)) return undefined;
+      return handles.react.createElement(NativeNotice, props);
+    };
+    const validNotice = (notice) =>
+      typeof notice?.id === "string" &&
+      notice.id.length > 0 &&
+      typeof notice.title === "string" &&
+      notice.title.length <= 160 &&
+      typeof notice.body === "string" &&
+      notice.body.length <= 800 &&
+      isNavigableRoute(notice.route);
+    // True once Steam holds the notice in its tray, false when it refused it or the gate is off.
+    const show = (notice) => {
+      if (!handles || !gate.status().held || !validNotice(notice)) return false;
+      const store = handles.store;
+      if (trayGroups(store, notice.id).length > 0) return true;
+      const notification = {
+        notificationID: store.m_nNextTestNotificationID++,
+        rtCreated: Math.floor(Date.now() / 1000),
+        eType: GenericType,
+        eSource: ClientSource,
+        bNewIndicator: true,
+        nToastDurationMS: ToastMilliseconds,
+        data: { type: () => 1 },
+        [marker]: { id: notice.id, title: notice.title, body: notice.body, route: notice.route },
+      };
+      const group = { eType: notification.eType, notifications: [notification] };
+      try {
+        store.ProcessNotification(
+          {
+            showToast: true,
+            sound: 6,
+            eFeature: 0,
+            toastDurationMS: ToastMilliseconds,
+            fnTray: (_notification, tray) => tray.unshift(group),
+          },
+          notification,
+          0,
+        );
+      } catch {
+        return false;
+      }
+      return store.m_rgNotificationTray.includes(group);
+    };
+    // The store is the module's one export carrying Valve's notification store members.
+    const storeOf = (exports) =>
+      uniqueSteamExport(
+        exports,
+        (value) =>
+          typeof value?.ProcessNotification === "function" &&
+          typeof value?.RemoveGroupFromTray === "function" &&
+          Array.isArray(value?.m_rgNotificationTray) &&
+          Number.isSafeInteger(value?.m_nNextTestNotificationID),
+      );
+    // The renderer and the template live in one module; one pass over its exports sorts both.
+    const rendererExports = (exports) => {
+      const renderers = new Set();
+      const templates = new Set();
+      for (const value of Object.values(exports ?? {})) {
+        if (typeof value !== "function") continue;
+        const source = String(value);
+        if (source.includes(RendererTokens[0])) renderers.add(value);
+        if (source.includes(RendererTokens[1])) templates.add(value);
+      }
+      return {
+        renderer: renderers.size === 1 ? [...renderers][0] : null,
+        template: templates.size === 1 ? [...templates][0] : null,
+      };
+    };
+    const gate = defineGate({
+      name: "notices",
+      find: (runtime) => {
+        const storeFactory = runtime.findUnique(StoreTokens);
+        const rendererFactory = runtime.findUnique(RendererTokens);
+        const classesFactory = runtime.findUnique(ClassTokens);
+        const facts = {
+          store: storeFactory ? 1 : 0,
+          renderer: rendererFactory ? 1 : 0,
+          classes: classesFactory ? 1 : 0,
+        };
+        if (!storeFactory || !rendererFactory || !classesFactory)
+          return gateIncompatible(
+            "Steam's notification store, renderer or styles are not one match each",
+            facts,
+          );
+        const store = storeOf(runtime(storeFactory[0]));
+        const { renderer, template } = rendererExports(runtime(rendererFactory[0]));
+        const classes = runtime(classesFactory[0]);
+        const react = resolveReact(runtime);
+        const jsx = runtime.resolve([...JsxRuntimeTokens]);
+        if (!store || !renderer || !template || !classes?.Title || !classes?.Body || !react || !jsx)
+          return gateIncompatible("Steam's notification exports are unavailable", facts);
+        return gateReady({ store, renderer, template, classes, react, jsx }, facts);
+      },
+      bind: (found, ledger) => {
+        handles = found;
+        const claim = ledger.elements(found.jsx, patchId, transform);
+        if (!claim.ok) return claim.error;
+        ledger.cleanup("owned notices", () => {
+          for (const group of trayGroups(found.store)) found.store.RemoveGroupFromTray(group);
+          // A client notice is queued as the notification object itself; the pending queue
+          // holds server notices only and is cleared as well in case that ever changes.
+          for (const field of ["m_rgNotificationToasts", "m_rgPendingToasts"]) {
+            const queue = found.store[field];
+            if (!Array.isArray(queue)) continue;
+            for (let i = queue.length - 1; i >= 0; --i) if (queue[i]?.[marker]) queue.splice(i, 1);
+          }
+          found.store.DispatchNextToast?.();
+        });
+      },
+      unbind: () => {
+        handles = null;
+      },
+      api: { show },
+    });
+    return gate;
+  }
+  registerGate("notices", createNotices());
   // @fragment gates/pages.ts
   // Custom pages inside Steam's Game Mode UI.
   //
@@ -14969,168 +15158,6 @@
     return gate;
   }
   registerGate("themeStyles", createThemeStyles());
-  // @fragment gates/update-notifications.ts
-  // Native notification store/renderer contracts mapped from Stable and Beta, 2026-11-01.
-  // Literal ids are admitted only after the exact source fingerprint resolves to that id.
-  function createUpdateNotifications() {
-    const patchId = "steam-ui.update-notifications";
-    const storeTokens = [
-      "m_nNextTestNotificationID",
-      "ProcessNotification(",
-      "RemoveGroupFromTray(",
-    ];
-    const rendererTokens = ['controller:"notification",method:', "Missing activate function"];
-    let handles = null;
-    const owned = new Map();
-    const NativeNotice = (props) => {
-      if (!handles) return null;
-      const notification = props.group.notifications[0];
-      const notice = notification.__steamUiUpdate;
-      const { react, template, classes, store } = handles;
-      const activate = () => {
-        if (!gate.status().held) return;
-        const history = window.tempNavStore?.m_history;
-        if (typeof history?.push === "function") history.push(notice.route);
-        props.onDismiss?.();
-        store.RemoveGroupFromTray(props.group);
-      };
-      return react.createElement(template, {
-        location: props.location,
-        onActivate: activate,
-        onDismiss: props.onDismiss,
-        bNewIndicator: notification.bNewIndicator,
-        children: [
-          react.createElement(
-            "div",
-            { className: classes.Header, key: "header" },
-            react.createElement("div", { className: classes.Title }, notice.title),
-          ),
-          react.createElement("div", { className: classes.Body, key: "body" }, notice.body),
-        ],
-      });
-    };
-    const transform = (_create, type, props) => {
-      if (
-        !handles ||
-        type !== handles.renderer ||
-        !props?.group?.notifications?.[0]?.__steamUiUpdate
-      )
-        return undefined;
-      return handles.react.createElement(NativeNotice, props);
-    };
-    const show = (notice) => {
-      if (
-        !handles ||
-        !gate.status().held ||
-        typeof notice?.id !== "string" ||
-        !notice.id ||
-        typeof notice.title !== "string" ||
-        notice.title.length > 160 ||
-        typeof notice.body !== "string" ||
-        notice.body.length > 800 ||
-        typeof notice.route !== "string" ||
-        !notice.route.startsWith("/") ||
-        /[\r\n\0]/u.test(notice.route)
-      )
-        return false;
-      if (owned.has(notice.id)) return true;
-      const store = handles.store;
-      const notification = {
-        notificationID: store.m_nNextTestNotificationID++,
-        rtCreated: Math.floor(Date.now() / 1000),
-        eType: 7,
-        eSource: 1,
-        bNewIndicator: true,
-        nToastDurationMS: 5000,
-        data: { type: () => 1 },
-        __steamUiUpdate: { ...notice },
-      };
-      const group = { eType: notification.eType, notifications: [notification] };
-      try {
-        store.ProcessNotification(
-          {
-            showToast: true,
-            sound: 6,
-            eFeature: 0,
-            toastDurationMS: 5000,
-            fnTray: (_notification, tray) => tray.unshift(group),
-          },
-          notification,
-          0,
-        );
-        owned.set(notice.id, group);
-        return store.m_rgNotificationTray.includes(group);
-      } catch {
-        return false;
-      }
-    };
-    const gate = defineGate({
-      name: "update-notifications",
-      find: (runtime) => {
-        const storeFactory = runtime.findUnique(storeTokens);
-        const rendererFactory = runtime.findUnique(rendererTokens);
-        const facts = { store: storeFactory?.[0], renderer: rendererFactory?.[0] };
-        if (String(storeFactory?.[0]) !== "7474")
-          return gateIncompatible("The native notification store contract changed", facts);
-        const storeModule = runtime("7474");
-        let rendererModule;
-        if (String(rendererFactory?.[0]) === "25666") rendererModule = runtime("25666");
-        else if (String(rendererFactory?.[0]) === "3285") rendererModule = runtime("3285");
-        else return gateIncompatible("The native notification renderer contract changed", facts);
-        const store = Object.values(storeModule).find(
-          (value) =>
-            typeof value?.ProcessNotification === "function" &&
-            typeof value?.RemoveGroupFromTray === "function" &&
-            Array.isArray(value?.m_rgNotificationTray) &&
-            Number.isSafeInteger(value?.m_nNextTestNotificationID),
-        );
-        const renderer = Object.values(rendererModule).find(
-          (value) =>
-            typeof value === "function" &&
-            String(value).includes('controller:"notification",method:'),
-        );
-        const template = Object.values(rendererModule).find(
-          (value) =>
-            typeof value === "function" && String(value).includes("Missing activate function"),
-        );
-        const classesFactory = runtime.findUnique([
-          "StandardTemplateContainer",
-          "ShortTemplate",
-          "TwoLine",
-        ]);
-        if (String(classesFactory?.[0]) !== "21728")
-          return gateIncompatible("The native notification style contract changed", facts);
-        const classes = runtime("21728");
-        const react = resolveReact(runtime);
-        const jsx = runtime.resolve([...JsxRuntimeTokens]);
-        if (!store || !renderer || !template || !classes?.Title || !classes?.Body || !react || !jsx)
-          return gateIncompatible("Native notification exports are unavailable", facts);
-        return gateReady({ store, renderer, template, classes, react, jsx }, facts);
-      },
-      bind: (found, ledger) => {
-        handles = found;
-        const claim = ledger.elements(found.jsx, patchId, transform);
-        if (!claim.ok) return claim.error;
-        ledger.cleanup("owned notifications", () => {
-          for (const group of owned.values()) found.store.RemoveGroupFromTray(group);
-          for (const field of ["m_rgNotificationToasts", "m_rgPendingToasts"]) {
-            const queue = found.store[field];
-            if (!Array.isArray(queue)) continue;
-            for (let i = queue.length - 1; i >= 0; --i)
-              if (queue[i]?.__steamUiUpdate) queue.splice(i, 1);
-          }
-          found.store.DispatchNextToast?.();
-          owned.clear();
-        });
-      },
-      unbind: () => {
-        handles = null;
-      },
-      api: { show },
-    });
-    return gate;
-  }
-  registerGate("updateNotifications", createUpdateNotifications());
   // @fragment components.ts
   /**
    * Owns every host row in Steam's Quick Access Performance and Quick Settings tabs: the host's rows

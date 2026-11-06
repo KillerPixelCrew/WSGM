@@ -372,7 +372,7 @@ internal sealed class SteamUiModuleCatalog
         // The controller's capabilities as Steam's pages read them. Declared unconditionally: the
         // state carries an empty mask until a profile marks a whole pair of controls absent.
         modules.Add(SteamControllerCapsSurface.Module(HostSteamUiEnabled, () => GlyphDelivery.Current));
-        modules.Add(SteamUpdateNotifications.Module());
+        modules.Add(SteamNotices.Module());
 
         // Steam's game menu. Declared unconditionally: WSGM's own Change Artwork entry is in it
         // whether or not a plugin contributes anything.
