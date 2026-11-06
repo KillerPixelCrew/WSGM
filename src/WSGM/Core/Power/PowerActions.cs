@@ -1,7 +1,6 @@
 using System;
 using System.Threading.Tasks;
 using WindowsDeviceControl;
-using WSGM.Interop;
 
 namespace WSGM.Core;
 
@@ -45,7 +44,7 @@ public static class PowerActions
         }
 
         Log.Info("Power: standby (Modern Standby)");
-        if (MonitorPower.TurnOff())
+        if (WindowsPower.TurnOffDisplay())
         {
             return true;
         }

@@ -6,8 +6,8 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using WindowsDeviceControl;
 using WSGM.Core;
-using WSGM.Interop;
 
 namespace WSGM.Shell;
 
@@ -207,12 +207,12 @@ internal static class Diskpart
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            foreach (var path in NativeStorage.ListVolumeInterfaces())
+            foreach (var path in WindowsStorage.ListVolumeInterfaces())
             {
-                using var volume = NativeStorage.OpenVolumeForQueryPath(path);
+                using var volume = WindowsStorage.OpenVolumeForQueryPath(path);
                 if (!volume.IsInvalid
-                    && NativeStorage.TryGetDeviceNumber(volume, out var type, out var disk)
-                    && type == NativeStorage.FileDeviceDisk && disk == diskNumber)
+                    && WindowsStorage.TryGetDeviceNumber(volume, out var type, out var disk)
+                    && type == WindowsStorage.FileDeviceDisk && disk == diskNumber)
                 {
                     return (int)(Environment.TickCount64 - started);
                 }
@@ -242,7 +242,7 @@ internal static class Diskpart
         for (var attempt = 0; attempt < attempts; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            foreach (var volume in NativeStorage.MountedVolumes()
+            foreach (var volume in WindowsStorage.MountedVolumes()
                          .Where(candidate => candidate.Disk == diskNumber && candidate.Ready))
             {
                 return volume.Letter;
@@ -259,14 +259,14 @@ internal static class Diskpart
     /// <returns>The volume GUID root and disk number, or (null, -1) when the letter maps to no disk volume.</returns>
     internal static (string? Root, int Disk) ReadVolume(char letter)
     {
-        if (!NativeStorage.TryGetVolumeGuidPath(letter, out var root) || root is null)
+        if (!WindowsStorage.TryGetVolumeGuidPath(letter, out var root) || root is null)
         {
             return (null, -1);
         }
 
-        using var volume = NativeStorage.OpenVolumeForQueryPath(root);
-        return !volume.IsInvalid && NativeStorage.TryGetDeviceNumber(volume, out var type, out var disk)
-                                 && type == NativeStorage.FileDeviceDisk
+        using var volume = WindowsStorage.OpenVolumeForQueryPath(root);
+        return !volume.IsInvalid && WindowsStorage.TryGetDeviceNumber(volume, out var type, out var disk)
+                                 && type == WindowsStorage.FileDeviceDisk
             ? (root, disk)
             : (null, -1);
     }
@@ -282,8 +282,8 @@ internal static class Diskpart
     /// <returns>The mounted letters in ascending order, empty when the disk has none.</returns>
     internal static List<char> LettersOnDisk(int diskNumber)
     {
-        var letters = NativeStorage.MountedVolumes()
-            .Where(volume => volume.DeviceType == NativeStorage.FileDeviceDisk && volume.Disk == diskNumber)
+        var letters = WindowsStorage.MountedVolumes()
+            .Where(volume => volume.DeviceType == WindowsStorage.FileDeviceDisk && volume.Disk == diskNumber)
             .Select(volume => volume.Letter)
             .ToList();
         letters.Sort();

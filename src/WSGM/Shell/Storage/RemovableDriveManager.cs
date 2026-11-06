@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using Microsoft.Win32.SafeHandles;
+using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Interop;
 
@@ -296,9 +297,9 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
             return null;
         }
 
-        using var handle = NativeStorage.OpenDiskForQuery(disk);
+        using var handle = WindowsStorage.OpenDiskForQuery(disk);
         return !handle.IsInvalid
-               && NativeStorage.TryGetHotplugInfo(handle, out var media, out var hotplug)
+               && WindowsStorage.TryGetHotplugInfo(handle, out var media, out var hotplug)
             ? Classify(hotplug, media)
             : null;
     }
@@ -424,9 +425,9 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
                 continue;
             }
 
-            using var volume = NativeStorage.OpenVolumeForQuery(char.ToUpperInvariant(root[0]));
+            using var volume = WindowsStorage.OpenVolumeForQuery(char.ToUpperInvariant(root[0]));
             if (!volume.IsInvalid
-                && NativeStorage.TryGetDeviceNumber(volume, out _, out var disk))
+                && WindowsStorage.TryGetDeviceNumber(volume, out _, out var disk))
             {
                 disks.Add(disk);
             }
@@ -603,8 +604,8 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
 
     private static EjectResult EjectUnletteredMedia(string path)
     {
-        using var query = NativeStorage.OpenVolumeForQueryPath(path);
-        if (query.IsInvalid || !NativeStorage.TryGetDeviceNumber(query, out _, out var disk)
+        using var query = WindowsStorage.OpenVolumeForQueryPath(path);
+        if (query.IsInvalid || !WindowsStorage.TryGetDeviceNumber(query, out _, out var disk)
                             || ClassifyDisk(disk, ResolveSystemDisks()) != EjectKind.Media)
         {
             return new EjectResult(false, "The removable medium changed. Refresh and try again.");
@@ -614,31 +615,31 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
         var locks = new List<SafeFileHandle>();
         try
         {
-            foreach (var volumePath in NativeStorage.ListVolumeInterfaces())
+            foreach (var volumePath in WindowsStorage.ListVolumeInterfaces())
             {
-                using var volume = NativeStorage.OpenVolumeForQueryPath(volumePath);
-                if (volume.IsInvalid || !NativeStorage.TryGetDeviceNumber(volume, out _, out var volumeDisk)
+                using var volume = WindowsStorage.OpenVolumeForQueryPath(volumePath);
+                if (volume.IsInvalid || !WindowsStorage.TryGetDeviceNumber(volume, out _, out var volumeDisk)
                                      || volumeDisk != disk)
                 {
                     continue;
                 }
 
-                var locked = NativeStorage.OpenDeviceForMediaEject(volumePath);
+                var locked = WindowsStorage.OpenDeviceForMediaEject(volumePath);
                 locks.Add(locked);
-                if (locked.IsInvalid || !NativeStorage.LockVolume(locked))
+                if (locked.IsInvalid || !WindowsStorage.LockVolume(locked))
                 {
                     return new EjectResult(false,
                         "The card is still in use. Close its applications before ejecting it.");
                 }
             }
 
-            if (locks.Any(locked => !NativeStorage.DismountVolume(locked)))
+            if (locks.Any(locked => !WindowsStorage.DismountVolume(locked)))
             {
                 return new EjectResult(false, "Windows could not dismount the card. It has not been ejected.");
             }
 
-            using var handle = NativeStorage.OpenDeviceForMediaEject(path);
-            if (handle.IsInvalid || !NativeStorage.EjectMedia(handle))
+            using var handle = WindowsStorage.OpenDeviceForMediaEject(path);
+            if (handle.IsInvalid || !WindowsStorage.EjectMedia(handle))
             {
                 return new EjectResult(false,
                     "Windows could not eject this medium. No safe-removal confirmation was received.");
@@ -667,21 +668,21 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
             return new EjectResult(false, "Windows could not identify this device.");
         }
 
-        var target = NativeStorage.FindEjectTarget(diskDevInst);
+        var target = WindowsStorage.FindEjectTarget(diskDevInst);
         Log.Info($"Eject: requesting device eject for {name} "
-                 + $"(devnode {NativeStorage.GetDeviceInstanceId(target)}).");
-        var vetoType = NativeStorage.PnpVetoType.TypeUnknown;
+                 + $"(devnode {WindowsStorage.GetDeviceInstanceId(target)}).");
+        var vetoType = WindowsStorage.PnpVetoType.TypeUnknown;
         var vetoName = "";
         for (var attempt = 1; attempt <= EjectAttempts; attempt++)
         {
-            var code = NativeStorage.RequestDeviceEject(target, out vetoType, out vetoName);
-            if (code == NativeStorage.CrSuccess)
+            var code = WindowsStorage.RequestDeviceEject(target, out vetoType, out vetoName);
+            if (code == WindowsStorage.CrSuccess)
             {
                 Log.Info($"Eject: {name} ejected (attempt {attempt}).");
                 return new EjectResult(true, "");
             }
 
-            if (code != NativeStorage.CrRemoveVetoed)
+            if (code != WindowsStorage.CrRemoveVetoed)
             {
                 Log.Warn($"Eject: {name} failed with CONFIGRET {code}.");
                 return new EjectResult(false,
@@ -706,11 +707,11 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     private static EjectResult EjectMediaVolume(char letter, string name)
     {
         Log.Info($"Eject: dismounting media volume {letter}: ({name}).");
-        using var volume = NativeStorage.OpenVolumeForEject(letter);
+        using var volume = WindowsStorage.OpenVolumeForEject(letter);
         if (volume.IsInvalid)
         {
             Log.Warn($"Eject: could not open {letter}: "
-                     + $"(Win32 {NativeStorage.LastWin32Error()}).");
+                     + $"(Win32 {WindowsStorage.LastWin32Error()}).");
             return new EjectResult(false, $"Could not open drive {letter}:.");
         }
 
@@ -719,14 +720,14 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
         var locked = false;
         for (var attempt = 1; attempt <= EjectAttempts; attempt++)
         {
-            if (NativeStorage.LockVolume(volume))
+            if (WindowsStorage.LockVolume(volume))
             {
                 locked = true;
                 break;
             }
 
             Log.Info($"Eject: volume {letter}: still in use "
-                     + $"(attempt {attempt}, Win32 {NativeStorage.LastWin32Error()}).");
+                     + $"(attempt {attempt}, Win32 {WindowsStorage.LastWin32Error()}).");
             if (attempt < EjectAttempts)
             {
                 Thread.Sleep(RetryDelay);
@@ -740,19 +741,19 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
                 + "files open on this card. Close it and try again.");
         }
 
-        if (!NativeStorage.DismountVolume(volume))
+        if (!WindowsStorage.DismountVolume(volume))
         {
             Log.Warn($"Eject: dismount of {letter}: failed "
-                     + $"(Win32 {NativeStorage.LastWin32Error()}).");
+                     + $"(Win32 {WindowsStorage.LastWin32Error()}).");
             return new EjectResult(false, $"Could not dismount drive {letter}:.");
         }
 
         // Many readers have no motorized eject and fail this call; the lock and
         // dismount above are what makes the card safe to pull.
-        if (!NativeStorage.EjectMedia(volume))
+        if (!WindowsStorage.EjectMedia(volume))
         {
             Log.Info($"Eject: media-eject call for {letter}: not supported "
-                     + $"(Win32 {NativeStorage.LastWin32Error()}); dismount succeeded.");
+                     + $"(Win32 {WindowsStorage.LastWin32Error()}); dismount succeeded.");
         }
 
         Log.Info($"Eject: {letter}: dismounted and safe to remove.");
@@ -765,22 +766,22 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     /// <param name="vetoType">The veto reason Windows reported.</param>
     /// <param name="vetoName">The vetoing module/service/path, possibly empty.</param>
     /// <returns>A refusal message; generic open-handle guidance suggests possible holders without identifying one.</returns>
-    internal static string DescribeVeto(NativeStorage.PnpVetoType vetoType, string vetoName)
+    internal static string DescribeVeto(WindowsStorage.PnpVetoType vetoType, string vetoName)
     {
         return vetoType switch
         {
-            NativeStorage.PnpVetoType.WindowsApp when vetoName.Length > 0 =>
+            WindowsStorage.PnpVetoType.WindowsApp when vetoName.Length > 0 =>
                 $"Still in use by {vetoName}. Close it and try again.",
-            NativeStorage.PnpVetoType.WindowsApp
-                or NativeStorage.PnpVetoType.OutstandingOpen
-                or NativeStorage.PnpVetoType.PendingClose =>
+            WindowsStorage.PnpVetoType.WindowsApp
+                or WindowsStorage.PnpVetoType.OutstandingOpen
+                or WindowsStorage.PnpVetoType.PendingClose =>
                 "Still in use — a running game or an active Steam download may have "
                 + "files open on this drive. Close it and try again.",
-            NativeStorage.PnpVetoType.WindowsService when vetoName.Length > 0 =>
+            WindowsStorage.PnpVetoType.WindowsService when vetoName.Length > 0 =>
                 $"The Windows service '{vetoName}' is blocking removal.",
-            NativeStorage.PnpVetoType.WindowsService =>
+            WindowsStorage.PnpVetoType.WindowsService =>
                 "A Windows service is blocking removal.",
-            NativeStorage.PnpVetoType.InsufficientRights =>
+            WindowsStorage.PnpVetoType.InsufficientRights =>
                 "Windows denied the removal (insufficient rights).",
             _ => "Windows refused to remove this drive right now. Try again in a moment."
         };

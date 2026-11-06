@@ -12,6 +12,12 @@ namespace WSGM.Tests.Shell;
 /// <summary>The graphics publishers' channels, their cycle restore and their per-application sync.</summary>
 public sealed class GpuCoordinatorTests
 {
+    /// <summary>AMD Fluid Motion Frames, as LibGPUDriverInteract publishes it.</summary>
+    private const string Afmf = "graphics.afmf";
+
+    /// <summary>Radeon Anti-Lag, which AFMF names as its prerequisite.</summary>
+    private const string AntiLag = "graphics.anti-lag";
+
     private static PluginManifest Manifest()
     {
         return new PluginManifest
@@ -260,13 +266,13 @@ public sealed class GpuCoordinatorTests
         await using var coordinator = Coordinator(profiles);
         await OpenFrameGenerationAsync(coordinator, plugin, false);
 
-        var result = await coordinator.ExecuteAsync(GpuInstance.PluginId, GraphicsPrerequisites.Afmf, null,
+        var result = await coordinator.ExecuteAsync(GpuInstance.PluginId, Afmf, null,
             Flag(true));
 
         Assert.Equal(CommandOutcome.AppliedUnverified, result.Outcome);
-        Assert.Equal([GraphicsPrerequisites.AntiLag, GraphicsPrerequisites.Afmf], plugin.Received);
-        Assert.True(Saved(profiles, GraphicsPrerequisites.AntiLag));
-        Assert.True(Saved(profiles, GraphicsPrerequisites.Afmf));
+        Assert.Equal([AntiLag, Afmf], plugin.Received);
+        Assert.True(Saved(profiles, AntiLag));
+        Assert.True(Saved(profiles, Afmf));
     }
 
     [Fact]
@@ -277,10 +283,10 @@ public sealed class GpuCoordinatorTests
         await using var coordinator = Coordinator(profiles);
         await OpenFrameGenerationAsync(coordinator, plugin, true);
 
-        await coordinator.ExecuteAsync(GpuInstance.PluginId, GraphicsPrerequisites.Afmf, null, Flag(true));
+        await coordinator.ExecuteAsync(GpuInstance.PluginId, Afmf, null, Flag(true));
 
-        Assert.Equal([GraphicsPrerequisites.Afmf], plugin.Received);
-        Assert.True(Saved(profiles, GraphicsPrerequisites.AntiLag));
+        Assert.Equal([Afmf], plugin.Received);
+        Assert.True(Saved(profiles, AntiLag));
     }
 
     [Fact]
@@ -291,18 +297,18 @@ public sealed class GpuCoordinatorTests
         await using var coordinator = Coordinator(profiles);
         await OpenFrameGenerationAsync(coordinator, plugin, true);
 
-        await coordinator.ExecuteAsync(GpuInstance.PluginId, GraphicsPrerequisites.Afmf, null, Flag(false));
+        await coordinator.ExecuteAsync(GpuInstance.PluginId, Afmf, null, Flag(false));
 
-        Assert.Equal([GraphicsPrerequisites.Afmf], plugin.Received);
-        Assert.Null(Saved(profiles, GraphicsPrerequisites.AntiLag));
-        Assert.False(Saved(profiles, GraphicsPrerequisites.Afmf));
+        Assert.Equal([Afmf], plugin.Received);
+        Assert.Null(Saved(profiles, AntiLag));
+        Assert.False(Saved(profiles, Afmf));
     }
 
     [Fact]
     public async Task AProfilePassWritesAntiLagBeforeAfmf()
     {
         var profiles = Profiles();
-        foreach (var id in new[] { GraphicsPrerequisites.Afmf, GraphicsPrerequisites.AntiLag })
+        foreach (var id in new[] { Afmf, AntiLag })
         {
             Assert.True(await CapabilityUserWrites.PersistAsync(profiles, GpuPublisher,
                 View(Toggle(CapabilityProfileScope.Switched, id), null, null), Flag(true), CancellationToken.None));
@@ -316,10 +322,10 @@ public sealed class GpuCoordinatorTests
         // both, and the published states leave the other nothing to write.
         await coordinator.ApplyProfilesAsync(profiles.Current, CancellationToken.None);
 
-        Assert.Equal([GraphicsPrerequisites.AntiLag, GraphicsPrerequisites.Afmf], plugin.Received);
+        Assert.Equal([AntiLag, Afmf], plugin.Received);
     }
 
-    /// <summary>Opens a cycle publishing AFMF (off) and Anti-Lag; every command publishes what it set.</summary>
+    /// <summary>Opens a cycle publishing AFMF (off), which names Anti-Lag as its prerequisite, and Anti-Lag; every command publishes what it set.</summary>
     private static async Task OpenFrameGenerationAsync(GpuCoordinator coordinator, FakeCapabilityPlugin plugin,
         bool antiLag)
     {
@@ -328,11 +334,11 @@ public sealed class GpuCoordinatorTests
             Observed(command.CapabilityId, command.RequestedValue!.BooleanValue == true), CancellationToken.None);
         channel.Open();
         await channel.PublishDescriptorsAsync(Set(1, Toggle(CapabilityProfileScope.Switched,
-                GraphicsPrerequisites.Afmf),
-            Toggle(CapabilityProfileScope.Switched, GraphicsPrerequisites.AntiLag)), CancellationToken.None);
-        await channel.PublishCapabilityStateAsync(Observed(GraphicsPrerequisites.Afmf, false),
+                Afmf) with { Prerequisite = AntiLag },
+            Toggle(CapabilityProfileScope.Switched, AntiLag)), CancellationToken.None);
+        await channel.PublishCapabilityStateAsync(Observed(Afmf, false),
             CancellationToken.None);
-        await channel.PublishCapabilityStateAsync(Observed(GraphicsPrerequisites.AntiLag, antiLag),
+        await channel.PublishCapabilityStateAsync(Observed(AntiLag, antiLag),
             CancellationToken.None);
     }
 

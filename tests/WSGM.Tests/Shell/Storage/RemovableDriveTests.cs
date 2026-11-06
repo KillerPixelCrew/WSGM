@@ -1,4 +1,4 @@
-using WSGM.Interop;
+using WindowsDeviceControl;
 using WSGM.Shell;
 
 namespace WSGM.Tests.Shell;
@@ -42,41 +42,13 @@ public sealed class RemovableDriveTests
     }
 
     [Fact]
-    public void DeviceNumberRecordsDecodeTheFixedLayout()
-    {
-        var buffer = new byte[NativeStorage.DeviceNumberRecordSize];
-        BitConverter.GetBytes(7).CopyTo(buffer, 0);
-        BitConverter.GetBytes(2).CopyTo(buffer, 4);
-        BitConverter.GetBytes(1).CopyTo(buffer, 8);
-
-        var (deviceType, deviceNumber, partition) = NativeStorage.ReadDeviceNumber(buffer);
-
-        Assert.Equal(NativeStorage.FileDeviceDisk, deviceType);
-        Assert.Equal(2, deviceNumber);
-        Assert.Equal(1, partition);
-    }
-
-    [Fact]
-    public void HotplugRecordsDecodeTheFixedLayout()
-    {
-        var buffer = new byte[NativeStorage.HotplugRecordSize];
-        buffer[4] = 1; // MediaRemovable
-        buffer[6] = 0; // DeviceHotplug
-
-        var (mediaRemovable, deviceHotplug) = NativeStorage.ReadHotplugInfo(buffer);
-
-        Assert.True(mediaRemovable);
-        Assert.False(deviceHotplug);
-    }
-
-    [Fact]
     public void OpenHandleVetoesBlameTheLikelyHolders()
     {
-        NativeStorage.PnpVetoType[] openHandleVetoes =
+        WindowsStorage.PnpVetoType[] openHandleVetoes =
         [
-            NativeStorage.PnpVetoType.OutstandingOpen,
-            NativeStorage.PnpVetoType.PendingClose,
-            NativeStorage.PnpVetoType.WindowsApp
+            WindowsStorage.PnpVetoType.OutstandingOpen,
+            WindowsStorage.PnpVetoType.PendingClose,
+            WindowsStorage.PnpVetoType.WindowsApp
         ];
         foreach (var veto in openHandleVetoes)
         {
@@ -88,16 +60,16 @@ public sealed class RemovableDriveTests
     public void NamedVetoesNameTheBlocker()
     {
         Assert.Contains("steam.exe", RemovableDriveManager.DescribeVeto(
-            NativeStorage.PnpVetoType.WindowsApp, "steam.exe"));
+            WindowsStorage.PnpVetoType.WindowsApp, "steam.exe"));
         Assert.Contains("StorSvc", RemovableDriveManager.DescribeVeto(
-            NativeStorage.PnpVetoType.WindowsService, "StorSvc"));
+            WindowsStorage.PnpVetoType.WindowsService, "StorSvc"));
     }
 
     [Fact]
     public void UnknownVetoesStillProduceAMessage()
     {
         Assert.False(string.IsNullOrWhiteSpace(RemovableDriveManager.DescribeVeto(
-            NativeStorage.PnpVetoType.Device, "")));
+            WindowsStorage.PnpVetoType.Device, "")));
     }
 
     [Fact]
@@ -219,16 +191,5 @@ public sealed class RemovableDriveTests
         RemovableDriveManager.AddUnletteredDisk(volumes, 3, 0);
         RemovableDriveManager.AddUnletteredDisk(volumes, -1, 200);
         Assert.Equal(('E', 2, 100L), Assert.Single(volumes));
-    }
-
-    [Fact]
-    public void GeometryCapacityUsesFullDiskSizeAndRejectsTruncatedOrNegativeRecords()
-    {
-        var record = new byte[32];
-        BitConverter.GetBytes(4_000_000_000_000L).CopyTo(record, 24);
-        Assert.Equal(4_000_000_000_000L, NativeStorage.ReadGeometryCapacity(record));
-        Assert.Equal(0, NativeStorage.ReadGeometryCapacity(record.AsSpan(0, 31)));
-        BitConverter.GetBytes(-1L).CopyTo(record, 24);
-        Assert.Equal(0, NativeStorage.ReadGeometryCapacity(record));
     }
 }

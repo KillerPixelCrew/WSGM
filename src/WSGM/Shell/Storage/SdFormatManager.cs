@@ -7,8 +7,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using SteamUiToolkit;
+using WindowsDeviceControl;
 using WSGM.Core;
-using WSGM.Interop;
 
 namespace WSGM.Shell;
 
@@ -178,7 +178,7 @@ public sealed class SdFormatManager : ObservableObject
                 ? new SteamLibraryAddResult(SteamLibraryAddStatus.NotSent, "No Steam client in this window.")
                 : client.InstallFolders.AddAsync(path, label, replace).GetAwaiter().GetResult(),
             Retrim = Diskpart.RetrimAsync,
-            BroadcastVolumeArrival = NativeStorage.BroadcastVolumeArrival,
+            BroadcastVolumeArrival = WindowsStorage.BroadcastVolumeArrival,
             Delay = (milliseconds, token) => Task.Delay(milliseconds, token),
             WriteLog = (level, message, exception) =>
             {
@@ -323,8 +323,8 @@ public sealed class SdFormatManager : ObservableObject
     {
         return busType switch
         {
-            NativeStorage.BusTypeSd or NativeStorage.BusTypeMmc => "SD card",
-            NativeStorage.BusTypeUsb => "USB",
+            WindowsStorage.BusTypeSd or WindowsStorage.BusTypeMmc => "SD card",
+            WindowsStorage.BusTypeUsb => "USB",
             _ => ""
         };
     }
@@ -800,17 +800,17 @@ public sealed class SdFormatManager : ObservableObject
     private static DiskIdentitySnapshot ReadDiskIdentity(int diskNumber)
     {
         var systemDisk = RemovableDriveManager.ResolveSystemDisks().Contains(diskNumber);
-        using var handle = NativeStorage.OpenDiskForRead(diskNumber);
+        using var handle = WindowsStorage.OpenDiskForRead(diskNumber);
         var handleOpened = !handle.IsInvalid;
         if (!handleOpened
-            || !NativeStorage.TryGetHotplugInfo(handle, out var media, out var hotplug))
+            || !WindowsStorage.TryGetHotplugInfo(handle, out var media, out var hotplug))
         {
             return new DiskIdentitySnapshot(systemDisk, handleOpened, false, 0, -1);
         }
 
         var removable = RemovableDriveManager.Classify(hotplug, media) is not null;
-        var size = NativeStorage.GetDiskLength(handle);
-        NativeStorage.TryGetDeviceDescriptor(handle, out var busType, out _);
+        var size = WindowsStorage.GetDiskLength(handle);
+        WindowsStorage.TryGetDeviceDescriptor(handle, out var busType, out _);
         return new DiskIdentitySnapshot(systemDisk, handleOpened, removable, size, busType);
     }
 

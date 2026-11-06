@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using SteamUiToolkit;
+using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Interop;
 
@@ -313,7 +314,7 @@ internal sealed class ShortcutAvailabilityTracker : IAsyncDisposable
         {
             token.ThrowIfCancellationRequested();
             var removable = inventory.FindDisk(volume.Disk) is not null || volume.DriveType == DriveType.Removable;
-            var label = volume.Label.Length > 0 || !NativeStorage.TryGetVolumeInformation(volume.MountPath,
+            var label = volume.Label.Length > 0 || !WindowsStorage.TryGetVolumeInformation(volume.MountPath,
                 out var read, out _)
                 ? volume.Label
                 : read;

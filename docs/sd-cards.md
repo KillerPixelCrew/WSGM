@@ -139,8 +139,8 @@ registrations select on, which is a worse failure than the naming bug above.
 So `FindMountedVolume` resolves the letter to a volume GUID path
 (`GetVolumeNameForVolumeMountPoint`, `\\?\Volume{...}\`) once, reads the marker through it to
 confirm the identity, and returns that path. Every write afterwards addresses the volume: the
-marker, and the Windows volume label through
-`NativeStorage.TryGetVolumeInformation`/`TrySetVolumeLabel` rather than `DriveInfo`. A volume GUID
+marker, and the Windows volume label through WindowsDeviceControl's
+`WindowsStorage.TryGetVolumeInformation`/`TrySetVolumeLabel` rather than `DriveInfo`. A volume GUID
 names the medium, so a letter that moves cannot redirect a write, and a volume that goes away makes
 the open fail instead of landing somewhere else. Steam's own label is selected by content id and was
 never exposed to this.
@@ -239,7 +239,7 @@ destructive operation.
 
 | Area                      | Source under `src/WSGM`                                                                                                                                                                                                | Responsibility                                                                                                                               |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Inventory                 | `Shell/Storage/StorageInventory.cs`, `Interop/NativeStorage.cs`                                                                                                                                                        | Detached mounted-volume and physical-interface inventory; Windows disk, volume and ejection calls.                                           |
+| Inventory                 | `Shell/Storage/StorageInventory.cs`; `WindowsStorage` in WindowsDeviceControl                                                                                                                                          | Detached mounted-volume and physical-interface inventory; Windows disk, volume and ejection calls.                                           |
 | Eject                     | `Shell/Storage/RemovableDriveManager.cs`, `RemovableDriveEntry.cs`, `EjectableDevice.cs`                                                                                                                               | Reconcile eject rows, revalidate targets and invoke the library observer before media leaves.                                                |
 | Registration policy       | `Shell/Library/LibraryPolicy.cs`, `Shell/Storage/CardVolumeMonitor.cs`, `CardAcfWatcher.cs`                                                                                                                            | Decide registration and retained eject intent, detect volume/manifest changes, and recheck scanned identity before acting.                   |
 | Library identity and tabs | `Shell/Library/SdCardLibraryCatalog.cs`, `LibraryTabManager.cs`, `LibraryManagerService.cs`, `Shell/Storage/SteamLibraryMarker.cs`, `Core/Library/SteamLibraryFolders.cs`, `SteamLibraryVdf.cs`, `SteamLibraryTabs.cs` | Follow medium-owned labels and content IDs, edit guarded VDF structures and materialize custom tabs; the manager owns every sync's lifetime. |

@@ -463,7 +463,7 @@ internal sealed partial class GpuCoordinator : IAsyncDisposable
         var view = publisher.Router.TryGetView(new DeviceCapabilityKey(capabilityId, instanceId));
         if (origin is CapabilityCommandOrigin.User && value is not null && view is not null)
         {
-            if (GraphicsPrerequisites.Required(capabilityId, value) is { } prerequisite)
+            if (GraphicsPrerequisites.Required(view, value) is { } prerequisite)
             {
                 await EnablePrerequisiteAsync(publisher, prerequisite, capabilityId, instanceId, cancellationToken)
                     .ConfigureAwait(false);

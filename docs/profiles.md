@@ -97,8 +97,9 @@ changes live applies to the running game at once.
 Turning AMD Fluid Motion Frames on from the overlay or Steam first turns Radeon Anti-Lag on for the
 same GPU and saves it to the layer the AFMF edit lands in, as Handheld Companion does with every
 AFMF change. One already on is only saved. A profile pass writes Anti-Lag before AFMF, and turning
-AFMF off leaves Anti-Lag as it is. `Shell\Graphics\GraphicsPrerequisites.cs` holds the rule;
-`GpuCoordinator` applies it.
+AFMF off leaves Anti-Lag as it is. LibGPUDriverInteract declares the pair as AFMF's descriptor
+`Prerequisite`, carried by the SDK `CapabilityDescriptor.Prerequisite`; `Shell\Graphics\GraphicsPrerequisites.cs`
+holds WSGM's rule for any declared prerequisite and `GpuCoordinator` applies it.
 
 ## Where an edit lands
 

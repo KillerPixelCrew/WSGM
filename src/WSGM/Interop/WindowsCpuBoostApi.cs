@@ -1,5 +1,5 @@
 using System;
-using System.Runtime.InteropServices;
+using System.ComponentModel;
 using WindowsDeviceControl;
 
 namespace WSGM.Interop;
@@ -25,33 +25,35 @@ internal interface ICpuBoostApi
 }
 
 /// <summary>Adapts the reusable library to WSGM's policy test seam.</summary>
-internal sealed partial class WindowsCpuBoostApi : ICpuBoostApi
+internal sealed class WindowsCpuBoostApi : ICpuBoostApi
 {
-    /// <summary>HC's <c>SetAttribute(..., 2u)</c>: <c>POWER_ATTRIBUTE_SHOW_AOAC</c>, which also clears the hidden bit.</summary>
-    private const uint ShowAttributes = 2;
-
-    /// <summary>Processor performance boost mode, HC <c>PowerSetting.PERFBOOSTMODE</c>.</summary>
-    internal static readonly Guid BoostModeSetting = new("be337238-0d82-4146-a960-4f3749d470c7");
-
     /// <inheritdoc />
     public uint Read(Guid scheme, bool onBattery)
     {
-        return WindowsPower.ReadSetting(scheme, WindowsPower.SubgroupProcessor, BoostModeSetting, onBattery);
+        return WindowsPower.ReadSetting(scheme, WindowsPower.SubgroupProcessor, WindowsPower.SettingProcessorBoostMode,
+            onBattery);
     }
 
     /// <inheritdoc />
     public void Write(Guid scheme, bool onBattery, uint value)
     {
-        WindowsPower.WriteSetting(scheme, WindowsPower.SubgroupProcessor, BoostModeSetting, onBattery, value);
+        WindowsPower.WriteSetting(scheme, WindowsPower.SubgroupProcessor, WindowsPower.SettingProcessorBoostMode,
+            onBattery, value);
     }
 
     /// <inheritdoc />
+    /// <remarks>HC's <c>SetAttribute(..., 2u)</c>: <c>POWER_ATTRIBUTE_SHOW_AOAC</c>, which also clears the hidden bit.</remarks>
     public bool TryReveal()
     {
-        return PowerWriteSettingAttributes(
-            in WindowsPower.SubgroupProcessor, in BoostModeSetting, ShowAttributes) == 0;
+        try
+        {
+            WindowsPower.WriteSettingAttributes(WindowsPower.SubgroupProcessor, WindowsPower.SettingProcessorBoostMode,
+                PowerSettingAttributes.ShowAoac);
+            return true;
+        }
+        catch (Win32Exception)
+        {
+            return false;
+        }
     }
-
-    [LibraryImport("powrprof.dll")]
-    private static partial uint PowerWriteSettingAttributes(in Guid subgroup, in Guid setting, uint attributes);
 }

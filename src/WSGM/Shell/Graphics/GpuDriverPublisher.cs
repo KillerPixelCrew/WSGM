@@ -356,7 +356,8 @@ internal sealed class GpuDriverPublisher : ICapabilityPublisher, IBuiltinGpuDriv
                 _ => throw new ArgumentOutOfRangeException(nameof(descriptor))
             },
             Choices = descriptor.Choices.Select(choice => new CapabilityChoice(choice.Value,
-                new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = choice.Label })).ToArray()
+                new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = choice.Label })).ToArray(),
+            Prerequisite = descriptor.Prerequisite
         };
     }
 

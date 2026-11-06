@@ -5,8 +5,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
+using WindowsDeviceControl;
 using WSGM.Core;
-using WSGM.Interop;
 
 namespace WSGM.Shell;
 
@@ -201,10 +201,10 @@ internal sealed class SdCardLibraryCatalog(ConfigStore store)
                 // Resolve the volume BEFORE reading the marker, and read through the
                 // volume: validating a letter and then writing to that letter is the
                 // race this exists to close.
-                if (!NativeStorage.TryGetVolumeGuidPath(letter, out var root) || root is null)
+                if (!WindowsStorage.TryGetVolumeGuidPath(letter, out var root) || root is null)
                 {
                     Log.Warn($"Card rename: {letter}: has no volume path (Win32 error "
-                             + $"{NativeStorage.LastWin32Error()}); it cannot be written safely.");
+                             + $"{WindowsStorage.LastWin32Error()}); it cannot be written safely.");
                     continue;
                 }
 
@@ -317,11 +317,11 @@ internal sealed class SdCardLibraryCatalog(ConfigStore store)
         const string labelBehind = "The Windows volume label could not be changed.";
         try
         {
-            if (!NativeStorage.TryGetVolumeInformation(
+            if (!WindowsStorage.TryGetVolumeInformation(
                     volume.Root, out var current, out var fileSystem))
             {
                 Log.Warn($"Card rename: {volume.Letter}: could not be queried for its label "
-                         + $"(Win32 error {NativeStorage.LastWin32Error()}); it is unchanged.");
+                         + $"(Win32 error {WindowsStorage.LastWin32Error()}); it is unchanged.");
                 return labelBehind;
             }
 
@@ -341,10 +341,10 @@ internal sealed class SdCardLibraryCatalog(ConfigStore store)
                 return null;
             }
 
-            if (!NativeStorage.TrySetVolumeLabel(volume.Root, capped))
+            if (!WindowsStorage.TrySetVolumeLabel(volume.Root, capped))
             {
                 Log.Warn($"Card rename: could not label {volume.Letter}: '{capped}' "
-                         + $"(Win32 error {NativeStorage.LastWin32Error()}).");
+                         + $"(Win32 error {WindowsStorage.LastWin32Error()}).");
                 return labelBehind;
             }
 
@@ -543,7 +543,7 @@ internal sealed class SdCardLibraryCatalog(ConfigStore store)
             return markerLabel.Trim();
         }
 
-        if (NativeStorage.TryGetVolumeInformation($@"{letter}:\", out var volumeLabel, out _)
+        if (WindowsStorage.TryGetVolumeInformation($@"{letter}:\", out var volumeLabel, out _)
             && !string.IsNullOrWhiteSpace(volumeLabel)
             && !string.Equals(volumeLabel, SdFormatManager.DefaultLabel, StringComparison.OrdinalIgnoreCase))
         {

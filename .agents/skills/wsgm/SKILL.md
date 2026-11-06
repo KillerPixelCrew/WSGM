@@ -38,7 +38,7 @@ the overlay and Steam Big Picture. The maintainer's instructions take precedence
 | Device lifecycle, capabilities, controller reports or package authoring                 | LibHandheld public contracts and family protocols; `Shell/Device/` host policy                                                                       | [Device SDK](../wsgm-device-sdk/SKILL.md)                                                                                                                                  |
 | Unknown hardware, OEM protocols, controller/motion/haptics evidence                     | Attended observations recorded in the family `PROVENANCE.md` beside its LibHandheld code; evidence, not a runtime driver                             | [Device SDK](../wsgm-device-sdk/SKILL.md)                                                                                                                                  |
 | Common plugin, session action or GPU driver feature                                     | `WSGM.Plugin.Sdk`, `Shell/Plugins/CommonPlugin*`, `Shell/Graphics/GpuCoordinator` and `WSGM.Plugin.*`; independent of the selected handheld lifetime | [Plugin system](../../../docs/plugin-system.md), [Plugin SDK reference](../../../src/WSGM.Plugin.Sdk/docs/reference.md), and Core/Device SDK as appropriate                |
-| Reusable Windows audio, radios, brightness, display or power primitive                  | `external/windows-device-control`; the caller owns UI, user policy and persistent recovery                                                           | [Windows library](../../../external/windows-device-control/docs/README.md)                                                                                                 |
+| Reusable Windows audio, radios, brightness, display, power or storage primitive         | `external/windows-device-control`; the caller owns UI, user policy and persistent recovery                                                           | [Windows library](../../../external/windows-device-control/docs/README.md)                                                                                                 |
 | Installation, sign-in service or game wrappers                                          | `WSGM.Setup`, `WSGM.Install`, `WSGM.LogonService`, `WSGM.Launch`, `WSGM.PackagedLaunch`; preserve their distinct token and process lifetimes         | [Development](../../../docs/development.md), [setup](../../../docs/setup.md), [boot](../../../docs/boot-and-shell.md), [launcher](../../../docs/packaged-game-launcher.md) |
 
 The product is a .NET 10 Windows application with an Avalonia frontend and a Steam CEF frontend.
@@ -69,7 +69,10 @@ not the full application configuration. Installed plugins run in-process and are
   features remain usable.
 - **Reusable submodule**: behavior useful to another consumer, with no WSGM configuration or UI
   dependency. SteamUiToolkit owns transport/bridge/patch/surface mechanics; WindowsDeviceControl
-  owns Windows primitives. Keep WSGM adapters in WSGM instead of copying library code.
+  owns Windows device, power, display and storage primitives (WSGM's Interop keeps only its own
+  windows, hooks, processes and shell); LibGPUDriverInteract owns vendor driver behavior, including
+  pairings it declares such as a descriptor's `Prerequisite`. Keep WSGM adapters in WSGM instead of
+  copying library code.
 - **Shared source**: `src/Shared` contains explicitly linked contracts used by multiple binaries.
   Check every consuming `.csproj` before changing one. Native payload directories and generated
   frontend bundles are build outputs, not alternate implementation homes.

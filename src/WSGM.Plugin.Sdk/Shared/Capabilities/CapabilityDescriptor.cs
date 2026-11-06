@@ -113,6 +113,18 @@ public sealed record CapabilityDescriptor
     /// </remarks>
     public string? PairedPowerLimitId { get; init; }
 
+    /// <summary>
+    ///     Optional Boolean capability on the same instance that must be on before this one is turned on.
+    /// </summary>
+    /// <remarks>
+    ///     When the user turns this capability on, the host first turns the prerequisite on and saves it in
+    ///     the same profile layer, and a profile pass writes the prerequisite before this capability. A
+    ///     prerequisite that is already on is only saved, and a refused one does not stop the user's own
+    ///     write. Turning this capability off leaves the prerequisite alone. The plugin writes exactly what
+    ///     it is commanded to.
+    /// </remarks>
+    public string? Prerequisite { get; init; }
+
     /// <summary>Legal options for a choice capability.</summary>
     public IReadOnlyList<CapabilityChoice> Choices { get; init; } = [];
 

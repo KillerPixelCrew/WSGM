@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
-using WSGM.Interop;
+using WindowsDeviceControl;
 
 namespace WSGM.Shell;
 
@@ -53,19 +53,19 @@ internal sealed record StorageInventory(
     internal static StorageInventory Read()
     {
         var systemDisks = SystemDisks();
-        var mounted = NativeStorage.MountedVolumes()
-            .Where(volume => volume is { DeviceType: NativeStorage.FileDeviceDisk, Disk: >= 0 })
+        var mounted = WindowsStorage.MountedVolumes()
+            .Where(volume => volume is { DeviceType: WindowsStorage.FileDeviceDisk, Disk: >= 0 })
             .ToList();
 
         // Physical interfaces exist even when Windows cannot mount any partition, so a blank or Linux
         // card is found here and not through a volume.
         HashSet<int> seen = [];
         List<StorageDiskFacts> disks = [];
-        foreach (var path in NativeStorage.ListDiskInterfaces())
+        foreach (var path in WindowsStorage.ListDiskInterfaces())
         {
-            using var probe = NativeStorage.OpenVolumeForQueryPath(path);
-            if (probe.IsInvalid || !NativeStorage.TryGetDeviceNumber(probe, out var type, out var disk)
-                                || type != NativeStorage.FileDeviceDisk || disk < 0 || !seen.Add(disk))
+            using var probe = WindowsStorage.OpenVolumeForQueryPath(path);
+            if (probe.IsInvalid || !WindowsStorage.TryGetDeviceNumber(probe, out var type, out var disk)
+                                || type != WindowsStorage.FileDeviceDisk || disk < 0 || !seen.Add(disk))
             {
                 continue;
             }
@@ -89,12 +89,12 @@ internal sealed record StorageInventory(
         {
             var label = "";
             if (volume.Ready && disks.Any(known => known.Number == volume.Disk)
-                             && NativeStorage.TryGetVolumeInformation(volume.Letter + @":\", out var read, out _))
+                             && WindowsStorage.TryGetVolumeInformation(volume.Letter + @":\", out var read, out _))
             {
                 label = read;
             }
 
-            var volumeId = volume.Ready && NativeStorage.TryGetVolumeGuidPath(volume.Letter, out var guid) &&
+            var volumeId = volume.Ready && WindowsStorage.TryGetVolumeGuidPath(volume.Letter, out var guid) &&
                            guid is not null
                 ? guid
                 : "";
@@ -108,18 +108,18 @@ internal sealed record StorageInventory(
     /// <summary>Reads the facts the eject list and the format flow show for one external disk.</summary>
     private static StorageDiskFacts DescribeDisk(int disk, EjectKind kind, string path, SafeFileHandle probe)
     {
-        var capacity = NativeStorage.GetDiskCapacityForQuery(probe);
-        NativeStorage.TryGetDeviceDescriptor(probe, out var busType, out var product);
-        var linux = NativeStorage.TryGetPartitionTypes(probe, out var partitions)
+        var capacity = WindowsStorage.GetDiskCapacityForQuery(probe);
+        WindowsStorage.TryGetDeviceDescriptor(probe, out var busType, out var product);
+        var linux = WindowsStorage.TryGetPartitionTypes(probe, out var partitions)
                     && partitions.Any(partition => partition.IsLinux);
-        if (!NativeStorage.TryGetDevNode(path, out var devInst))
+        if (!WindowsStorage.TryGetDevNode(path, out var devInst))
         {
             return new StorageDiskFacts(disk, kind, path, 0, "", "", capacity, busType, product, linux);
         }
 
         return new StorageDiskFacts(disk, kind, path, devInst,
-            NativeStorage.GetDeviceInstanceId(devInst),
-            NativeStorage.GetDeviceDisplayName(devInst),
+            WindowsStorage.GetDeviceInstanceId(devInst),
+            WindowsStorage.GetDeviceDisplayName(devInst),
             capacity, busType, product, linux);
     }
 

@@ -1,4 +1,4 @@
-using WSGM.Interop;
+using WindowsDeviceControl;
 using WSGM.Shell;
 
 namespace WSGM.Tests.Shell;
@@ -32,7 +32,7 @@ public sealed partial class SdFormatTests
     public void TargetDetailShowsSizeBusLettersAndTheDeckHint()
     {
         var detail = SdFormatManager.DescribeTarget(new FormatTarget(
-            "id", 3, "SanDisk", 256_000_000_000L, NativeStorage.BusTypeSd, ['E'],
+            "id", 3, "SanDisk", 256_000_000_000L, WindowsStorage.BusTypeSd, ['E'],
             true));
 
         Assert.Contains("256 GB", detail);
@@ -45,7 +45,7 @@ public sealed partial class SdFormatTests
     public void ALetterlessDeckCardStillDescribesCleanly()
     {
         var detail = SdFormatManager.DescribeTarget(new FormatTarget(
-            "id", 3, "Generic", 512_000_000_000L, NativeStorage.BusTypeUsb, [],
+            "id", 3, "Generic", 512_000_000_000L, WindowsStorage.BusTypeUsb, [],
             false));
 
         Assert.Equal("512 GB — USB", detail);
@@ -62,8 +62,8 @@ public sealed partial class SdFormatTests
             FormatTargetIdentity.Same,
             SdFormatManager.CompareIdentity(
                 true, false, true,
-                256_000_000_000L, NativeStorage.BusTypeSd,
-                256_000_000_000L, NativeStorage.BusTypeSd));
+                256_000_000_000L, WindowsStorage.BusTypeSd,
+                256_000_000_000L, WindowsStorage.BusTypeSd));
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public sealed partial class SdFormatTests
             SdFormatManager.CompareIdentity(
                 true, false, true,
                 256_000_000_000L, -1,
-                256_000_000_000L, NativeStorage.BusTypeSd));
+                256_000_000_000L, WindowsStorage.BusTypeSd));
     }
 
     [Fact]
@@ -89,7 +89,7 @@ public sealed partial class SdFormatTests
             FormatTargetIdentity.Same,
             SdFormatManager.CompareIdentity(
                 true, false, true,
-                256_000_000_000L, NativeStorage.BusTypeSd,
+                256_000_000_000L, WindowsStorage.BusTypeSd,
                 256_000_000_000L, -1));
     }
 
@@ -100,8 +100,8 @@ public sealed partial class SdFormatTests
             FormatTargetIdentity.Same,
             SdFormatManager.CompareIdentity(
                 true, false, true,
-                256_000_000_000L, NativeStorage.BusTypeSd,
-                0L, NativeStorage.BusTypeSd));
+                256_000_000_000L, WindowsStorage.BusTypeSd,
+                0L, WindowsStorage.BusTypeSd));
     }
 
     [Fact]
@@ -113,8 +113,8 @@ public sealed partial class SdFormatTests
             FormatTargetIdentity.Changed,
             SdFormatManager.CompareIdentity(
                 true, false, true,
-                128_000_000_000L, NativeStorage.BusTypeSd,
-                256_000_000_000L, NativeStorage.BusTypeSd));
+                128_000_000_000L, WindowsStorage.BusTypeSd,
+                256_000_000_000L, WindowsStorage.BusTypeSd));
     }
 
     [Fact]
@@ -125,7 +125,7 @@ public sealed partial class SdFormatTests
             SdFormatManager.CompareIdentity(
                 false, false, false,
                 0L, -1,
-                256_000_000_000L, NativeStorage.BusTypeSd));
+                256_000_000_000L, WindowsStorage.BusTypeSd));
     }
 
     [Fact]
@@ -137,7 +137,7 @@ public sealed partial class SdFormatTests
         var identity = SdFormatManager.CompareIdentity(
             true, false, false,
             0L, -1,
-            256_000_000_000L, NativeStorage.BusTypeSd);
+            256_000_000_000L, WindowsStorage.BusTypeSd);
 
         Assert.Equal(FormatTargetIdentity.Unreadable, identity);
     }
@@ -149,8 +149,8 @@ public sealed partial class SdFormatTests
             FormatTargetIdentity.Unreadable,
             SdFormatManager.CompareIdentity(
                 true, false, true,
-                -1L, NativeStorage.BusTypeSd,
-                256_000_000_000L, NativeStorage.BusTypeSd));
+                -1L, WindowsStorage.BusTypeSd,
+                256_000_000_000L, WindowsStorage.BusTypeSd));
     }
 
     [Fact]
@@ -160,8 +160,8 @@ public sealed partial class SdFormatTests
             FormatTargetIdentity.Changed,
             SdFormatManager.CompareIdentity(
                 true, false, true,
-                512_000_000_000L, NativeStorage.BusTypeSd,
-                256_000_000_000L, NativeStorage.BusTypeSd));
+                512_000_000_000L, WindowsStorage.BusTypeSd,
+                256_000_000_000L, WindowsStorage.BusTypeSd));
     }
 
     [Fact]
@@ -171,8 +171,8 @@ public sealed partial class SdFormatTests
             FormatTargetIdentity.Changed,
             SdFormatManager.CompareIdentity(
                 true, false, true,
-                256_000_000_000L, NativeStorage.BusTypeUsb,
-                256_000_000_000L, NativeStorage.BusTypeSd));
+                256_000_000_000L, WindowsStorage.BusTypeUsb,
+                256_000_000_000L, WindowsStorage.BusTypeSd));
     }
 
     [Fact]
@@ -182,8 +182,8 @@ public sealed partial class SdFormatTests
             FormatTargetIdentity.Changed,
             SdFormatManager.CompareIdentity(
                 true, false, false,
-                256_000_000_000L, NativeStorage.BusTypeSd,
-                256_000_000_000L, NativeStorage.BusTypeSd));
+                256_000_000_000L, WindowsStorage.BusTypeSd,
+                256_000_000_000L, WindowsStorage.BusTypeSd));
     }
 
     [Fact]
@@ -193,8 +193,8 @@ public sealed partial class SdFormatTests
             FormatTargetIdentity.Changed,
             SdFormatManager.CompareIdentity(
                 true, true, true,
-                256_000_000_000L, NativeStorage.BusTypeSd,
-                256_000_000_000L, NativeStorage.BusTypeSd));
+                256_000_000_000L, WindowsStorage.BusTypeSd,
+                256_000_000_000L, WindowsStorage.BusTypeSd));
     }
 
     [Fact]
@@ -207,74 +207,9 @@ public sealed partial class SdFormatTests
             SdFormatManager.CompareIdentity(
                 false, true, false,
                 0L, -1,
-                256_000_000_000L, NativeStorage.BusTypeSd));
+                256_000_000_000L, WindowsStorage.BusTypeSd));
     }
 
     // ---- native struct parsing ----
 
-    [Fact]
-    public void DeviceDescriptorDecodesBusTypeAndProductStrings()
-    {
-        // Header (36 bytes) + two ANSI strings past it.
-        var buffer = new byte[64];
-        // VendorIdOffset @12, ProductIdOffset @16, BusType @28.
-        BitConverter.GetBytes(36).CopyTo(buffer, 12);
-        BitConverter.GetBytes(44).CopyTo(buffer, 16);
-        BitConverter.GetBytes(NativeStorage.BusTypeSd).CopyTo(buffer, 28);
-        "SanDisk\0"u8.CopyTo(buffer.AsSpan(36));
-        "Extreme\0"u8.CopyTo(buffer.AsSpan(44));
-
-        var (busType, product) = NativeStorage.ReadDeviceDescriptor(buffer);
-
-        Assert.Equal(NativeStorage.BusTypeSd, busType);
-        Assert.Equal("SanDisk Extreme", product);
-    }
-
-    [Fact]
-    public void GptLinuxPartitionIsRecognisedAsTheDeckHint()
-    {
-        var buffer = new byte[NativeStorage.DriveLayoutHeaderSize
-                              + NativeStorage.PartitionRecordSize];
-        BitConverter.GetBytes(1).CopyTo(buffer, 0); // PARTITION_STYLE_GPT
-        BitConverter.GetBytes(1).CopyTo(buffer, 4); // one partition
-        // GPT PartitionType GUID lives at record offset 32.
-        NativeStorage.LinuxFilesystemGuid.ToByteArray()
-            .CopyTo(buffer, NativeStorage.DriveLayoutHeaderSize + 32);
-
-        var (style, partitions) = NativeStorage.ReadDriveLayout(buffer);
-
-        Assert.Equal(1, style);
-        Assert.Single(partitions);
-        Assert.True(partitions[0].IsLinux);
-    }
-
-    [Fact]
-    public void MbrLinuxPartitionTypeByteIsRecognised()
-    {
-        var buffer = new byte[NativeStorage.DriveLayoutHeaderSize
-                              + NativeStorage.PartitionRecordSize];
-        BitConverter.GetBytes(0).CopyTo(buffer, 0); // PARTITION_STYLE_MBR
-        BitConverter.GetBytes(1).CopyTo(buffer, 4);
-        buffer[NativeStorage.DriveLayoutHeaderSize + 32] = 0x83; // Linux
-
-        var (_, partitions) = NativeStorage.ReadDriveLayout(buffer);
-
-        Assert.Single(partitions);
-        Assert.True(partitions[0].IsLinux);
-    }
-
-    [Fact]
-    public void EmptyMbrSlotsAreSkipped()
-    {
-        var buffer = new byte[NativeStorage.DriveLayoutHeaderSize
-                              + 4 * NativeStorage.PartitionRecordSize];
-        BitConverter.GetBytes(0).CopyTo(buffer, 0);
-        BitConverter.GetBytes(4).CopyTo(buffer, 4); // MBR always reports 4 slots
-        buffer[NativeStorage.DriveLayoutHeaderSize + 32] = 0x07; // one NTFS slot
-
-        var (_, partitions) = NativeStorage.ReadDriveLayout(buffer);
-
-        Assert.Single(partitions);
-        Assert.False(partitions[0].IsLinux);
-    }
 }

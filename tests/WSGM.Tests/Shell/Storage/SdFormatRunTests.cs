@@ -1,6 +1,6 @@
 using SteamUiToolkit;
+using WindowsDeviceControl;
 using WSGM.Core;
-using WSGM.Interop;
 using WSGM.Shell;
 using WSGM.Testing;
 using WSGM.Tests.Fakes;
@@ -224,7 +224,7 @@ public sealed partial class SdFormatTests
 
         run.Manager.Apply([
             new FormatTarget("card", 3, "replacement",
-                512_000_000_000L, NativeStorage.BusTypeUsb, ['F'], false)
+                512_000_000_000L, WindowsStorage.BusTypeUsb, ['F'], false)
         ]);
         Assert.Same(run.Entry, Assert.Single(run.Manager.Targets));
         run.Identity = run.Identity with { SizeBytes = run.Entry.SizeBytes, BusType = run.Entry.BusType };
@@ -258,7 +258,7 @@ public sealed partial class SdFormatTests
     {
         using var run = new FormatRunFixture();
         run.FormatResults.Enqueue(FormatRunFixture.Failed);
-        run.OnDelay = () => run.Identity = run.Identity with { BusType = NativeStorage.BusTypeUsb };
+        run.OnDelay = () => run.Identity = run.Identity with { BusType = WindowsStorage.BusTypeUsb };
 
         await run.StartAsync();
 
@@ -666,7 +666,7 @@ public sealed partial class SdFormatTests
         internal ConsoleToolResult PartitionResult { get; set; } = Succeeded;
 
         internal DiskIdentitySnapshot Identity { get; set; } = new(false, true, true,
-            256_000_000_000L, NativeStorage.BusTypeSd);
+            256_000_000_000L, WindowsStorage.BusTypeSd);
 
         internal Func<int, DiskIdentitySnapshot>? IdentityReader { get; set; }
         internal TaskCompletionSource<SteamLibraryRemoveResult>? RemovalCompletion { get; set; }

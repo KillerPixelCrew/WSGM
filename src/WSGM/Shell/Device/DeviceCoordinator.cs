@@ -7,13 +7,13 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using LibHandheld;
 using LibHandheld.Contracts;
+using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Input;
 using WSGM.Install;
-using WSGM.Interop;
 using WSGM.Shared;
 using CapabilityCommandResult = WSGM.Device.Sdk.Capabilities.CapabilityCommandResult;
 using CapabilityReasonCode = WSGM.Device.Sdk.Capabilities.CapabilityReasonCode;
@@ -487,7 +487,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
                 DeviceMachineIdentity.Collect,
                 DetectDeviceAsync,
                 HandheldDeviceRuntime.CreateAsync,
-                callback => EffectivePowerModeNotification.Register(callback),
+                callback => WindowsPower.RegisterEffectivePowerModeNotification(callback,
+                    error => Log.Warn($"Windows power mode notification failed: {error.Message}")),
                 PowerSource.ReadOnAc,
                 Task.Delay,
                 (id, snapshot) => new DeviceCoordinatorDiagnosticsServer(id, snapshot));
