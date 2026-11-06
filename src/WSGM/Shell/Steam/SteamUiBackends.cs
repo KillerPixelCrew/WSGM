@@ -128,6 +128,9 @@ internal sealed record SteamUiBackends
     /// <summary>The graphics capabilities shared by Quick Access and Steam Display, or null.</summary>
     internal SteamGraphicsService? Graphics { get; init; }
 
+    /// <summary>The GPU driver update workflow shared with Device > GPU in the Overlay.</summary>
+    internal GpuDriverUpdateService? DriverUpdates { get; init; }
+
     /// <summary>Sound-pack assets published through the shared playback override gate, or null.</summary>
     internal SoundPackService? Sounds { get; init; }
 }

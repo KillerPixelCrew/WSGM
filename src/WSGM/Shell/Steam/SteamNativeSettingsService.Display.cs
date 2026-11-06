@@ -18,6 +18,7 @@ internal sealed partial class SteamNativeSettingsService
     private async Task AddDisplayPageAsync(List<SteamSettingsSection> display, OfferedRows offer,
         ValueTask<SteamBrightnessState?> lightRead)
     {
+        AddDriverUpdates(display, offer);
         List<SteamSettingsRow> displayRows = [];
         if (await lightRead.ConfigureAwait(false) is { } light)
         {

@@ -100,7 +100,7 @@ public partial class OverlayWindow
             var graphics = graphicsChanged ? _graphicsSource?.Snapshot() ?? GraphicsOverlaySnapshot.Empty : null;
             if (graphics is not null)
             {
-                ConfigureGpuDestination(graphics.Visible);
+                ConfigureGpuDestination(graphics.Visible || _rows.Views.ContainsKey(DevicePages.DriverUpdatesId));
             }
 
             // A hidden Device panel is marked stale instead, and draws when it next shows.
@@ -243,7 +243,8 @@ public partial class OverlayWindow
 
         _devicePanelStale = false;
         var pages = DescribeDevicePages(snapshot, performance);
-        var gpu = DevicePages.Gpu(graphics ?? _graphicsSource?.Snapshot() ?? GraphicsOverlaySnapshot.Empty);
+        var gpu = DevicePages.Gpu(graphics ?? _graphicsSource?.Snapshot() ?? GraphicsOverlaySnapshot.Empty,
+            _rows.Views.ContainsKey(DevicePages.DriverUpdatesId));
         RefreshDeviceSectionRail(pages);
         RefreshDeviceSectionPins(DevicePages.PinChoices(pages, gpu));
         var page = _navigation.Page switch

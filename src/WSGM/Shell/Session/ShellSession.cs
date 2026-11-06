@@ -83,6 +83,7 @@ public sealed class ShellSession
     private SessionModes? _modes;
     private SteamMonitor? _monitor;
     private OverlayController? _overlay;
+    private string? _gpuDriverUpdateNotice;
     private PowerButtonSetting? _powerButtonSetting;
     private SettingsActivation? _settingsActivation;
     private SettingsSurface? _settingsSurface;
@@ -484,6 +485,32 @@ public sealed class ShellSession
         _steamUi.StartTransportGate();
         _performance.StartRunningApplications(
             _steamUi.Client ?? throw new InvalidOperationException("The Steam client was not created."));
+        _integrations.StartDriverUpdates(() => _performance.CurrentApplication.State switch
+        {
+            RunningApplicationTargetState.Global => false,
+            RunningApplicationTargetState.Active or RunningApplicationTargetState.IdentityOnly
+                or RunningApplicationTargetState.Ambiguous => true,
+            _ => null
+        });
+        _integrations.DriverUpdates!.UpdateFound += update =>
+            Log.Observe(NotifyGpuDriverUpdateAsync(update), "GPU driver update notice");
+    }
+
+    private async Task NotifyGpuDriverUpdateAsync(GpuDriverUpdateState update)
+    {
+        var message = $"{update.Adapter.Name}: driver {update.Package!.Version} is available. "
+            + "Open Device > GPU > Driver updates to review and install it.";
+        var native = _steamUi.Transport is { } transport && await SteamUpdateNotifications.TryShowAsync(transport,
+            update.Adapter.InstanceId + "/" + update.Package.Version, "GPU driver update available", message,
+            "/settings/display", _state.ShutdownToken).ConfigureAwait(false);
+        if (!native)
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                _gpuDriverUpdateNotice = message;
+                _overlay?.SetWarning(message);
+            });
+        }
     }
 
     /// <summary>
@@ -609,7 +636,8 @@ public sealed class ShellSession
                 GameTools: _library.GameTools,
                 HybridCores: _hybridCores,
                 Hotkeys: _tools.Hotkeys,
-                ScaledResolutions: _state.OverlayTestOnly ? null : _integrations.ScaledResolutions),
+                ScaledResolutions: _state.OverlayTestOnly ? null : _integrations.ScaledResolutions,
+                DriverUpdates: _integrations.DriverUpdates),
             _system.Audio,
             _system.AudioProfiles,
             _system.Radios,
@@ -624,6 +652,10 @@ public sealed class ShellSession
         overlay.ShowOnScreenKeyboard = _commands.ShowOnScreenKeyboardAsync;
         overlay.SteamClient = _steamUi.Client;
         overlay.BuildNotice = _steamUi.BuildNotice;
+        if (_gpuDriverUpdateNotice is { } driverNotice)
+        {
+            overlay.SetWarning(driverNotice);
+        }
         if (!_state.OverlayTestOnly)
         {
             overlay.RequestPowerAction = PowerActions.Request;
@@ -827,6 +859,7 @@ public sealed class ShellSession
             LaunchActions = _library.LaunchActions,
             GameTools = _library.GameTools,
             ScaledResolutions = _integrations.ScaledResolutions,
+            DriverUpdates = _integrations.DriverUpdates,
             WsgmSettings = _steamUi.SettingsPage,
             CpuBoost = _cpuBoost.Available ? _cpuBoost : null,
             ChordMirror = _system.ChordMirror,

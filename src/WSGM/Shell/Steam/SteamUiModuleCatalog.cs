@@ -156,7 +156,7 @@ internal sealed class SteamUiModuleCatalog
         NativeSettings = new SteamNativeSettingsService(backends.Brightness, backends.Resolution, _performance,
             backends.PowerProfiles, backends.CpuBoost, backends.HybridCores, AudioFormat,
             backends.Graphics, deviceCoordinator, backends.Profiles, backends.DisplayTimeouts,
-            backends.ScaledResolutions, backends.PowerButton, backends.ExtendedVrr);
+            backends.ScaledResolutions, backends.PowerButton, backends.ExtendedVrr, backends.DriverUpdates);
         Network = backends.Radios is { } radios
             ? new NativeQamNetworkService(
                 radios,
@@ -372,6 +372,7 @@ internal sealed class SteamUiModuleCatalog
         // The controller's capabilities as Steam's pages read them. Declared unconditionally: the
         // state carries an empty mask until a profile marks a whole pair of controls absent.
         modules.Add(SteamControllerCapsSurface.Module(HostSteamUiEnabled, () => GlyphDelivery.Current));
+        modules.Add(SteamUpdateNotifications.Module());
 
         // Steam's game menu. Declared unconditionally: WSGM's own Change Artwork entry is in it
         // whether or not a plugin contributes anything.

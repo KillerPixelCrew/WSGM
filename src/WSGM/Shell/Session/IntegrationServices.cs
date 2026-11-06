@@ -47,6 +47,28 @@ internal sealed class IntegrationServices
     /// <summary>The scaled resolutions the built-in drivers publish.</summary>
     internal ScaledResolutionService? ScaledResolutions { get; private set; }
 
+    /// <summary>The session's graphics-driver updater, independent of the device integration switch.</summary>
+    internal GpuDriverUpdateService? DriverUpdates { get; private set; }
+
+    internal void StartDriverUpdates(Func<bool?> gameRunning)
+    {
+        var definition = LibHandheld.HandheldDevice.Detect(LibHandheld.HandheldDevice.ReadIdentity());
+        DriverUpdates = new GpuDriverUpdateService(_state.Store, gameRunning,
+            () => definition?.GraphicsDriverUpdateRefusal, action => Dispatcher.UIThread.Post(action),
+            async (vendor, updating, token) =>
+            {
+                if (BuiltinGpu is { } gpu)
+                {
+                    await gpu.SetDriverUpdatingAsync(vendor, updating, token).ConfigureAwait(false);
+                }
+
+                if (!updating)
+                {
+                    ScaledResolutions?.Invalidate();
+                }
+            });
+    }
+
     /// <summary>The common plugin manager, or null in overlay-test or when it could not start.</summary>
     internal CommonPluginManager? CommonPlugins { get; private set; }
 
@@ -411,6 +433,7 @@ internal sealed class IntegrationServices
     /// <param name="steps">The shutdown's step runner.</param>
     internal void CloseAdmission(ShutdownSteps steps)
     {
+        steps.Step("Closing GPU update admission failed", () => DriverUpdates?.CloseAdmission());
         steps.Step("Closing device admission failed", () => Device?.CloseAdmission());
         steps.Step("Closing common plugin admission failed", () => CommonPlugins?.CloseAdmission());
         steps.Step("Closing GPU driver admission failed", () => BuiltinGpu?.CloseAdmission());
@@ -447,6 +470,12 @@ internal sealed class IntegrationServices
     /// <returns>Completion of the steps, which never fault.</returns>
     internal async Task StopPluginsAsync(ShutdownSteps steps)
     {
+        if (DriverUpdates is { } updates)
+        {
+            await steps.StepAsync("GPU driver updater cleanup failed", () => updates.DisposeAsync().AsTask())
+                .ConfigureAwait(false);
+        }
+
         if (CommonPlugins is { } commonPlugins)
         {
             await steps.StepAsync("Common plugin cleanup was unconfirmed; remaining shell cleanup continues",

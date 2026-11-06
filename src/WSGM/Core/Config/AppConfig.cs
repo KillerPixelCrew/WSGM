@@ -33,6 +33,12 @@ public sealed class AppConfig
     /// <summary>Explicit built-in GPU activation; null only until legacy preferences are migrated on load.</summary>
     public GpuDriverConfig? GpuDrivers { get; set; }
 
+    /// <summary>Checks the official graphics catalogs daily; downloads and installs always require a user action.</summary>
+    public bool GpuDriverUpdatesAutoCheck { get; set; }
+
+    /// <summary>The last explicit GPU installation and the version Windows can roll back to.</summary>
+    public GpuDriverInstallHistory? GpuDriverInstallHistory { get; set; }
+
     /// <summary>Whether the user accepted the initial Steam CEF plugin trust warning.</summary>
     public bool SteamCefPluginWarningAccepted { get; set; }
 

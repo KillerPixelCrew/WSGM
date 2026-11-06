@@ -25,6 +25,25 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
     private volatile bool _closed;
     private GpuVendor[] _configured = [];
     private bool _suspended;
+    private readonly HashSet<GpuVendor> _updating = [];
+
+    /// <summary>Retires a vendor's native handles before an update and recreates them after the installer completes.</summary>
+    internal Task SetDriverUpdatingAsync(GpuVendor vendor, bool updating, CancellationToken token)
+    {
+        lock (_registration)
+        {
+            if (updating)
+            {
+                _updating.Add(vendor);
+            }
+            else
+            {
+                _updating.Remove(vendor);
+            }
+        }
+
+        return ReconcileCurrentAsync(token);
+    }
 
     internal BuiltinGpuService(ConfigStore store, GpuCoordinator coordinator)
         : this(store, GpuDriver.DetectVendors,
@@ -120,7 +139,11 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
             }
 
             var installed = await Task.Run(_detectVendors, linked.Token).ConfigureAwait(false);
-            var desired = configured.Where(installed.Contains).ToArray();
+            GpuVendor[] desired;
+            lock (_registration)
+            {
+                desired = configured.Where(vendor => installed.Contains(vendor) && !_updating.Contains(vendor)).ToArray();
+            }
             ReportActivation(installed, configured, desired);
             Entry[] retiring;
             lock (_registration)

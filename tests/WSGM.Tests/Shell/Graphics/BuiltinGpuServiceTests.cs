@@ -14,6 +14,26 @@ public sealed class BuiltinGpuServiceTests
         return new AppConfig { GpuDrivers = new GpuDriverConfig { Intel = enabled } };
     }
 
+    [Fact]
+    public async Task DriverUpdateRetiresNativeOwnerAndRecreatesItOnlyAfterTheHoldEnds()
+    {
+        using var store = new TemporaryConfigStore();
+        var first = new FakeDriver();
+        first.Finish.SetResult(GpuHealth.Ready);
+        var second = new FakeDriver();
+        second.Finish.SetResult(GpuHealth.Ready);
+        await using var service = Service(store, new Queue<FakeDriver>([first, second]));
+        await service.ReconcileAsync(Enabled(), CancellationToken.None);
+        await service.SetDriverUpdatingAsync(GpuVendor.Intel, true, CancellationToken.None);
+        Assert.True(first.Closed);
+        Assert.Equal(1, first.Disposals);
+        Assert.Equal(0, second.Starts);
+        await service.ReconcileAsync(Enabled(), CancellationToken.None);
+        Assert.Equal(0, second.Starts);
+        await service.SetDriverUpdatingAsync(GpuVendor.Intel, false, CancellationToken.None);
+        Assert.Equal(1, second.Starts);
+    }
+
     [Theory]
     [InlineData(GpuHealth.Failed)]
     [InlineData(GpuHealth.Unavailable)]

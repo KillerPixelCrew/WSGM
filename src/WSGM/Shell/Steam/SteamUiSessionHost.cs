@@ -205,6 +205,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _backends.ChordMirror?.Changed += QueueStatePublication;
         _backends.WsgmSettings?.Changed += QueueStatePublication;
         _backends.Graphics?.Changed += QueueStatePublication;
+        _backends.DriverUpdates?.Changed += QueueStatePublication;
         // Each page session republishes its owner's changes along with its own.
         _modules.ThemesPage?.Changed += OnThemesChanged;
         _modules.AnimationsPage?.Changed += QueueStatePublication;
@@ -246,6 +247,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _backends.ChordMirror?.Changed -= QueueStatePublication;
         _backends.WsgmSettings?.Changed -= QueueStatePublication;
         _backends.Graphics?.Changed -= QueueStatePublication;
+        _backends.DriverUpdates?.Changed -= QueueStatePublication;
         _modules.ThemesPage?.Changed -= OnThemesChanged;
         _modules.AnimationsPage?.Changed -= QueueStatePublication;
         _backends.Sounds?.Changed -= QueueStatePublication;

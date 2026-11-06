@@ -47,6 +47,7 @@ internal static class SteamUiPatchSwitches
                 // user still wants the artwork page and the plugin tab.
                 SteamPageSurface.PatchId or SteamExtensionsTabSurface.PatchId
                     or SteamGameContextMenuSurface.PatchId or SteamPowerMenuSurface.PatchId
+                    or SteamUpdateNotifications.PatchId
                     or SteamArtworkBrowserSurface.PatchId
                     or SteamLaunchActionsSurface.PatchId or SteamGameToolsSurface.PatchId
                     or SteamCardManagerSurface.PatchId or SteamLibraryTabsSurface.PatchId

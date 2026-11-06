@@ -25,6 +25,8 @@ internal static class DevicePages
     /// <summary>The GPU page's rail key.</summary>
     internal const string GpuKey = "device.gpu";
 
+    internal const string DriverUpdatesId = "section.gpu.driver-updates";
+
     /// <summary>The focus key of the per-application toggle where it heads the Overview.</summary>
     internal const string ApplicationProfileKey = "device.application-profile";
 
@@ -131,8 +133,9 @@ internal static class DevicePages
 
     /// <summary>Describes the GPU page: each graphics section's groups, or why there are none.</summary>
     /// <param name="graphics">The graphics snapshot.</param>
+    /// <param name="driverUpdates">Whether the session offers the shared driver-update view.</param>
     /// <returns>The page.</returns>
-    internal static DevicePage Gpu(GraphicsOverlaySnapshot graphics)
+    internal static DevicePage Gpu(GraphicsOverlaySnapshot graphics, bool driverUpdates = false)
     {
         ArgumentNullException.ThrowIfNull(graphics);
         List<DeviceGroup> groups =
@@ -152,6 +155,12 @@ internal static class DevicePages
                     ? "The graphics driver has not published any settings yet."
                     : "GPU controls will appear here when a supported Intel, NVIDIA or AMD plugin is enabled.")
             ]));
+        }
+
+        if (driverUpdates)
+        {
+            groups.Insert(0, new DeviceGroup(DriverUpdatesId, "Driver updates", null, DeviceFold.Section,
+                [new DeviceRow.View(DriverUpdatesId)]));
         }
 
         var note = string.Join(" ", graphics.Publishers

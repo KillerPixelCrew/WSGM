@@ -70,6 +70,7 @@ and
 | [ui.md](ui.md)                                 | Avalonia styling and tokens, layout floors, the headless UI tests and their baselines, the splash engine           |
 | [programs.md](programs.md)                     | companion application definitions, home pins, executable identity and safe launch-or-focus handoff                 |
 | [scaled-resolutions.md](scaled-resolutions.md) | physical-display GPU source sizes, explicit driver-list edits and reapplication after driver updates               |
+| [gpu-driver-updates.md](gpu-driver-updates.md) | official GPU driver checks, verified packages, installation and rollback in Overlay and Steam                      |
 | [steam-input.md](steam-input.md)               | how the overlay takes the controller from Steam and gives it back, the OEM handoff, guide chord edits              |
 | [radios.md](radios.md)                         | what WSGM decides about Wi-Fi, Bluetooth and audio; the Windows calls live in `..\external\windows-device-control` |
 

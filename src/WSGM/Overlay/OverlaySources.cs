@@ -31,6 +31,7 @@ namespace WSGM.Overlay;
 ///     The GPU driver's custom resolution lists, shared with the WSGM section of Steam's Display settings; null
 ///     outside a resident session with a graphics owner, and in overlay-test, which must not write drivers.
 /// </param>
+/// <param name="DriverUpdates">The shared GPU updater, or null in the isolated overlay test.</param>
 internal sealed record OverlaySources(
     IDeviceOverlaySource? Device = null,
     PerformanceOverlayBridge? Performance = null,
@@ -56,4 +57,5 @@ internal sealed record OverlaySources(
     IGameToolsSource? GameTools = null,
     NativeQamHybridCoreService? HybridCores = null,
     IHotkeysSource? Hotkeys = null,
-    ScaledResolutionService? ScaledResolutions = null);
+    ScaledResolutionService? ScaledResolutions = null,
+    IGpuDriverUpdateSource? DriverUpdates = null);

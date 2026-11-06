@@ -19,6 +19,17 @@ public partial class OverlayWindow
     {
         AttachDeviceBridge(sources.Device);
         AttachGraphicsSource(sources.Graphics);
+        if (sources.DriverUpdates is { } driverUpdates)
+        {
+            _rows.Views[DevicePages.DriverUpdatesId] = () =>
+            {
+                var view = new GpuDriverUpdatesView();
+                view.Attach(driverUpdates);
+                view.DetachedFromVisualTree += (_, _) => view.Attach(null);
+                return view;
+            };
+            ConfigureGpuDestination(true);
+        }
         DevicePage.AttachPrerequisites(sources.DevicePrerequisites);
         AttachCommonPlugins(sources.CommonPlugins);
         GameLibraryHost.Attach(sources.GameLibrary);
@@ -354,7 +365,7 @@ public partial class OverlayWindow
         }
 
         var snapshot = _graphicsSource?.Snapshot() ?? GraphicsOverlaySnapshot.Empty;
-        ConfigureGpuDestination(snapshot.Visible);
+        ConfigureGpuDestination(snapshot.Visible || _rows.Views.ContainsKey(DevicePages.DriverUpdatesId));
         // Graphics groups are drawn on the GPU page, offered on the Overview and drawn on Quick access.
         RefreshDevicePanel();
         RenderPins(graphics: snapshot);

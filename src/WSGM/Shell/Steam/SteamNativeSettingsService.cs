@@ -39,6 +39,7 @@ namespace WSGM.Shell;
 /// <param name="scaledResolutions">Borrowed GPU-scaled resolution owner, or null to omit the source-mode editor.</param>
 /// <param name="powerButton">The power button's short-press choice shared with the overlay, or null.</param>
 /// <param name="extendedVrr">The extended VRR range shared with the overlay, or null without one.</param>
+/// <param name="driverUpdates">The shared GPU driver-update workflow, or null without a live session.</param>
 internal sealed partial class SteamNativeSettingsService(
     NativeQamBrightnessService brightness,
     DisplayResolutionService? resolution,
@@ -53,7 +54,8 @@ internal sealed partial class SteamNativeSettingsService(
     DisplayTimeouts? displayTimeouts = null,
     ScaledResolutionService? scaledResolutions = null,
     PowerButtonSetting? powerButton = null,
-    ExtendedVrrService? extendedVrr = null) : ISteamNativeSettingsBackend, ISteamQuickAccessRowsBackend
+    ExtendedVrrService? extendedVrr = null,
+    IGpuDriverUpdateSource? driverUpdates = null) : ISteamNativeSettingsBackend, ISteamQuickAccessRowsBackend
 {
     /// <summary>How long one build answers both surfaces when no change was queued in between.</summary>
     private static readonly TimeSpan SharedBuildLifetime = TimeSpan.FromSeconds(1);

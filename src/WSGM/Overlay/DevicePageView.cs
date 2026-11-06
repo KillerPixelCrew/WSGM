@@ -77,8 +77,7 @@ public sealed class DevicePageView : Panel
         _gpu.Children.Add(new TextBlock { Text = "GPU", Classes = { "eyebrow" } });
         _gpu.Children.Add(new TextBlock
         {
-            Text = "Graphics and driver controls for your GPU. Availability depends on the GPU, display and "
-                   + "installed driver.",
+            Text = "GPU controls depend on your adapter, display and installed driver.",
             Classes = { "caption" }, TextWrapping = TextWrapping.Wrap
         });
         _gpu.Children.Add(_gpuNote);
