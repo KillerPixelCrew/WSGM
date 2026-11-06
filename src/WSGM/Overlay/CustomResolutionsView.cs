@@ -242,6 +242,6 @@ public sealed class CustomResolutionsView : OverlaySubView
 
         var key = inside ? focused!.Tag as string : null;
         Dispatcher.UIThread.Post(() =>
-            (FocusSearch.ServiceSubView.Tagged(stack, key) ?? FocusSearch.FirstNavigable(stack))?.Focus(NavigationMethod.Directional));
+            (FocusSearch.Keyed(stack, key) ?? FocusSearch.FirstNavigable(stack))?.Focus(NavigationMethod.Directional));
     }
 }
