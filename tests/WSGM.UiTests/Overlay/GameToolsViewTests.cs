@@ -30,6 +30,10 @@ public sealed class GameToolsViewTests
     [InlineData("overlay-game-tools-anticheat-980", "anticheat", 980, 640)]
     [InlineData("overlay-game-tools-nightly-1280", "nightly", 1280, 800)]
     [InlineData("overlay-game-tools-nightly-980", "nightly", 980, 640)]
+    [InlineData("overlay-game-tools-injectors-1280", "injectors", 1280, 800)]
+    [InlineData("overlay-game-tools-injectors-980", "injectors", 980, 640)]
+    [InlineData("overlay-game-tools-disabled-1280", "disabled", 1280, 800)]
+    [InlineData("overlay-game-tools-disabled-980", "disabled", 980, 640)]
     public void Scene(string name, string scene, int width, int height)
     {
         using UiFixture fixture = new();
@@ -37,6 +41,18 @@ public sealed class GameToolsViewTests
         Assert.Equal(width, window.ClientSize.Width);
         Assert.Equal(height, window.ClientSize.Height);
         VisualBaseline.Verify(window, name);
+    }
+
+    [AvaloniaFact]
+    public async Task DisabledToolEnablesThroughItsOwnAction()
+    {
+        using UiFixture fixture = new();
+        var (window, source) = PreviewGameTools.Open(fixture, "disabled", 1280, 800);
+        UiFixture.Click(window, UiFixture.Tagged<ActionButton>(window, "tool:special-k.enable"));
+        await source.NextCommandAsync();
+        var command = Assert.Single(source.Commands);
+        Assert.Equal("enable", command.Command);
+        Assert.Equal([GameToolsFixtures.AlanWake, "special-k"], command.Arguments);
     }
 
     [AvaloniaFact]

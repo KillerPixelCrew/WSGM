@@ -5,4 +5,8 @@ namespace WSGM.Shell;
 /// <param name="Hint">When to choose it.</param>
 /// <param name="Available">Whether it can be used now.</param>
 /// <param name="Conflict">Why not, or null.</param>
-internal sealed record GameToolsProxyOption(string Name, string Hint, bool Available, string? Conflict);
+internal sealed record GameToolsProxyOption(string Name, string Hint, bool Available, string? Conflict)
+{
+    /// <summary>The supported API label, separate from guidance.</summary>
+    public string Api { get; init; } = "";
+}

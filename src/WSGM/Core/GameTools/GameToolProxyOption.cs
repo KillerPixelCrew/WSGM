@@ -9,6 +9,9 @@ internal sealed record GameToolProxyOption
     /// <summary>A short explanation of when to choose it.</summary>
     public string Hint { get; init; } = "";
 
+    /// <summary>The supported graphics APIs, empty for an ordinary proxy alias.</summary>
+    public string Api { get; init; } = "";
+
     /// <summary>Whether WSGM may pick it on its own; false for names that need something else installed first.</summary>
     public bool Suggest { get; init; } = true;
 }

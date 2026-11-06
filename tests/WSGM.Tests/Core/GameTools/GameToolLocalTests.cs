@@ -37,7 +37,7 @@ public sealed class GameToolLocalTests
 
         var file = Path.Combine(directory.Root, "setup.exe");
         File.WriteAllBytes(file, [.. prefix, .. zipBytes, .. new byte[128]]);
-        using var embedded = GameToolReleases.ReShadeZip(file);
+        using var embedded = PackageArchive.OpenEmbeddedZip(File.ReadAllBytes(file));
         using var archive = new ZipArchive(embedded, ZipArchiveMode.Read);
         var entry = Assert.Single(archive.Entries);
         Assert.Equal("ReShade64.dll", entry.FullName);
@@ -49,7 +49,7 @@ public sealed class GameToolLocalTests
     public async Task OnlyTheSelectedArchitectureAndApiReachTheGameAndTheCacheIsVerified()
     {
         using var directory = new TemporaryDirectory();
-        var tool = GameToolCatalog.Current.Find("dgvoodoo2")!;
+        var tool = GameToolCatalog.Current.Find("dgvoodoo2")! with { Identity = new GameToolIdentity() };
         byte[] bytes;
         using (var memory = new MemoryStream())
         {
@@ -122,9 +122,11 @@ public sealed class GameToolLocalTests
         var outcome = await installer.InstallAsync(tool, target, package,
             new GameToolRequest("install", "d3d11.dll", new Dictionary<string, string>()), null,
             () => null, _ => { }, CancellationToken.None);
+        File.SetAttributes(Path.Combine(game, "d3d11.dll"), FileAttributes.ReadOnly);
         installer.SetEnabled(tool, target, outcome.Manifest!, enabled: false, () => null);
         var disabled = GameToolStorage.Read(data).Find(218)!.Manifest("dxvk")!;
         Assert.False(disabled.Enabled);
+        Assert.Empty(Directory.GetDirectories(Path.Combine(data, "GameTools", "backups", "218", "dxvk"), "tx-*"));
         Assert.Equal("original game file", File.ReadAllText(Path.Combine(game, "d3d11.dll")));
         Assert.False(File.Exists(Path.Combine(game, "dxgi.dll")));
         Assert.Empty(GameToolInstaller.Inspect(tool, game, disabled).Missing);
@@ -172,7 +174,7 @@ public sealed class GameToolLocalTests
         Assert.All(tool.Modes, mode => Assert.Contains(tool.PrimaryFile, mode.Files.Values));
     }
 
-    private static byte[] Pe(Machine machine)
+    internal static byte[] Pe(Machine machine)
     {
         var image = new BlobBuilder();
         var pe = new ManagedPEBuilder(new PEHeaderBuilder(machine: machine,

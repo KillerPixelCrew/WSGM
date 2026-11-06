@@ -10,6 +10,53 @@ namespace WSGM.Core;
 /// <remarks>Shared by the emulator manager and Game Tools so both compare the same PE facts.</remarks>
 internal static class PeImage
 {
+    /// <summary>Receives an imported ASCII DLL name while its PE reader is alive.</summary>
+    internal delegate void ImportVisitor(ReadOnlySpan<byte> name);
+
+    /// <summary>Visits bounded native imports without allocating an object per name.</summary>
+    /// <param name="path">The executable or library.</param>
+    /// <param name="visit">Consumes the borrowed name span.</param>
+    internal static unsafe void VisitImports(string path, ImportVisitor visit)
+    {
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var pe = new PEReader(stream);
+            var rva = pe.PEHeaders.PEHeader?.ImportTableDirectory.RelativeVirtualAddress ?? 0;
+            if (rva == 0)
+            {
+                return;
+            }
+
+            var entries = pe.GetSectionData(rva).GetReader();
+            for (var index = 0; index < 1024 && entries.RemainingBytes >= 20; index++)
+            {
+                var lookup = entries.ReadUInt32();
+                var timestamp = entries.ReadUInt32();
+                var forwarder = entries.ReadUInt32();
+                var nameRva = entries.ReadInt32();
+                var address = entries.ReadUInt32();
+                if ((lookup | timestamp | forwarder | (uint)nameRva | address) == 0)
+                {
+                    break;
+                }
+
+                var block = pe.GetSectionData(nameRva);
+                var name = new ReadOnlySpan<byte>(block.Pointer, Math.Min(block.Length, 128));
+                var terminator = name.IndexOf((byte)0);
+                if (terminator > 0)
+                {
+                    visit(name[..terminator]);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException
+                                       or ArgumentOutOfRangeException)
+        {
+            // Unreadable metadata is absent evidence, not a guessed renderer.
+        }
+    }
+
     /// <summary>The 64-bit x86 architecture name.</summary>
     internal const string X64 = "x64";
 

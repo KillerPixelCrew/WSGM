@@ -22,6 +22,8 @@ internal static class GameToolsPhases
             GameToolPhase.Copy when operation == "removeAddon" => "Removing " + tool,
             GameToolPhase.Copy when operation == "addAddon" => "Copying " + tool,
             GameToolPhase.Copy => "Backing up game files and copying " + tool,
+            GameToolPhase.Settings when operation == "enable" => "Enabling " + tool,
+            GameToolPhase.Settings when operation == "disable" => "Disabling " + tool,
             GameToolPhase.Settings => operation == "configure" ? "Saving settings" : "Applying settings",
             GameToolPhase.Remove => "Removing " + tool + " and restoring the game's files",
             GameToolPhase.Rescan => "Checking the game folder",

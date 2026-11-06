@@ -36,7 +36,7 @@ internal sealed partial class GameToolReleases : IDisposable
     private readonly Dictionary<string, GameToolAddonSupport> _support = new(StringComparer.Ordinal);
 
     private readonly string _userRoot;
-    private int _swept;
+    private readonly HashSet<string> _swept = new(StringComparer.Ordinal);
 
     /// <summary>Creates the release owner.</summary>
     /// <param name="userRoot">The per-user data root.</param>
@@ -320,28 +320,35 @@ internal sealed partial class GameToolReleases : IDisposable
     /// <returns>The package.</returns>
     internal async Task<GameToolPackage> PrepareAsync(GameToolDefinition tool, GameToolChannel channel,
         HostedRelease release, Action<string, long, long> progress, CancellationToken cancellationToken,
-        string? architecture = null, string? proxyName = null)
+        string architecture, string proxyName)
     {
-        if (tool.Modes.Length > 0)
-        {
-            return await PrepareLocalAsync(tool, channel, release, architecture ?? tool.Architectures[0],
-                proxyName ?? tool.Proxy.Default, progress, cancellationToken).ConfigureAwait(false);
-        }
-
         SweepStages(tool);
-        var sha = UpdateChecker.ParseHash(release.Asset.Sha256)
-                  ?? throw new InvalidDataException(
-                      "The publisher didn't provide a checksum for this download, so WSGM won't install it.");
-        release = release with { Asset = release.Asset with { Sha256 = sha } };
-        if (!Path.GetExtension(release.Asset.Name).TrimStart('.').Equals(channel.Source.PackageType,
-                StringComparison.OrdinalIgnoreCase))
+        var mode = tool.InstallMode(proxyName);
+        if (!mode.Architectures.Contains(architecture, StringComparer.Ordinal))
         {
-            throw new InvalidDataException("The published package is not the expected ."
-                                           + channel.Source.PackageType + " archive.");
+            throw new InvalidDataException("This install mode does not support " + PeImage.Label(architecture) + " games.");
         }
 
-        var identity = string.Join('|', release.Version, release.Asset.Name, sha, release.Asset.Url);
-        var directory = PackageDirectory(tool, release.Version, sha);
+        var source = channel.Source;
+        var sha = UpdateChecker.ParseHash(release.Asset.Sha256);
+        if (sha is null && source.Verification.Length == 0)
+        {
+            throw new InvalidDataException("The publisher did not provide a checksum or declared verification.");
+        }
+
+        var extension = source.PackageType == "exe-zip" ? ".exe" : "." + source.PackageType;
+        if (!release.Asset.Name.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException("The published package has an unexpected archive format.");
+        }
+
+        // Signature-verified sources use a stable publisher/version identity even before their file hash is known.
+        var trust = source.Verification.Length > 0
+            ? source.Verification + ":" + source.SignerThumbprint
+            : sha!;
+        var identity = string.Join('|', release.Version, release.Asset.Name, trust, release.Asset.Url, architecture, proxyName);
+        var key = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(identity)));
+        var directory = PackageDirectory(tool, release.Version, key);
         var payload = Path.Combine(directory, "payload");
         if (File.Exists(Path.Combine(directory, IdentityFile))
             && File.ReadAllText(Path.Combine(directory, IdentityFile)) == identity && Directory.Exists(payload))
@@ -349,11 +356,14 @@ internal sealed partial class GameToolReleases : IDisposable
             progress(GameToolPhase.Verify, 0, 0);
             try
             {
-                return Validate(tool, release, Unwrap(payload)) with { Hashes = ReadHashes(directory) };
+                var recordedSha = UpdateChecker.ParseHash(File.ReadAllText(Path.Combine(directory, "asset-sha256.txt")))
+                                  ?? throw new InvalidDataException("The cached archive hash is missing.");
+                var cached = release with { Asset = release.Asset with { Sha256 = recordedSha } };
+                return ValidatePrepared(tool, mode, cached, Unwrap(payload), architecture) with { Hashes = ReadHashes(directory) };
             }
-            catch (InvalidDataException)
+            catch (Exception ex) when (ex is InvalidDataException or IOException)
             {
-                // A damaged cache is replaced by a fresh verified download below.
+                // An invalid cache is replaced only after a new package has been staged and verified.
             }
         }
 
@@ -362,54 +372,81 @@ internal sealed partial class GameToolReleases : IDisposable
         try
         {
             var archive = Path.Combine(stage, release.Asset.Name);
-            await DownloadAsync(release.Asset, archive,
-                    copied => progress(GameToolPhase.Download, copied, release.Asset.Size), cancellationToken)
-                .ConfigureAwait(false);
+            var downloadedSha = await DownloadAsync(release.Asset, archive,
+                    copied => progress(GameToolPhase.Download, copied, release.Asset.Size), cancellationToken,
+                    release.Asset.Size > 0 ? release.Asset.Size : source.MaximumDownloadBytes).ConfigureAwait(false);
             progress(GameToolPhase.Verify, 0, 0);
-            var extracted = Path.Combine(stage, "payload");
-            await Task.Run(() => PackageArchive.Extract(archive, extracted, cancellationToken), cancellationToken)
-                .ConfigureAwait(false);
-            File.Delete(archive);
-            var staged = Validate(tool, release, Unwrap(extracted));
+            byte[]? setup = null;
+            if (source.Verification.Length > 0 || source.PackageType == "exe-zip")
+            {
+                setup = await File.ReadAllBytesAsync(archive, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (source.Verification == "authenticode")
+            {
+                GameToolSignature.Verify(setup!, source);
+            }
+
+            release = release with { Asset = release.Asset with { Sha256 = downloadedSha } };
+            var extracted = Path.Combine(stage, "extracted");
+            await Task.Run(() =>
+            {
+                if (source.PackageType == "exe-zip")
+                {
+                    using var embedded = PackageArchive.OpenEmbeddedZip(setup!);
+                    PackageArchive.Extract(embedded, extracted, cancellationToken);
+                }
+                else
+                {
+                    PackageArchive.Extract(archive, extracted, cancellationToken);
+                }
+            }, cancellationToken).ConfigureAwait(false);
+            var stagedPayload = Path.Combine(stage, "payload");
+            StagePayload(mode, Unwrap(extracted), stagedPayload, architecture, cancellationToken);
+            var staged = ValidatePrepared(tool, mode, release, Unwrap(stagedPayload), architecture);
             var hashes = await Task.Run(() => HashPayload(staged.Root), cancellationToken).ConfigureAwait(false);
             WriteHashes(stage, hashes);
             File.WriteAllText(Path.Combine(stage, IdentityFile), identity);
-
-            // Promote: move the old entry aside, move the stage in, then delete the old entry.
-            var old = directory + ".old-" + Guid.NewGuid().ToString("N");
-            if (Directory.Exists(directory))
-            {
-                Directory.Move(directory, old);
-            }
-
-            try
-            {
-                Directory.Move(stage, directory);
-            }
-            catch
-            {
-                if (Directory.Exists(old))
-                {
-                    Directory.Move(old, directory);
-                }
-
-                throw;
-            }
-
-            GameToolStorage.DeleteTree(old);
-
-            // The move keeps the validated contents; only the location of the unwrapped root changes.
-            var unwrapped = Path.GetRelativePath(extracted, staged.Root);
+            File.WriteAllText(Path.Combine(stage, "asset-sha256.txt"), downloadedSha);
+            File.Delete(archive);
+            GameToolStorage.DeleteTree(extracted);
+            var relative = Path.GetRelativePath(stagedPayload, staged.Root);
+            Promote(stage, directory);
             return staged with
             {
-                Root = unwrapped == "." ? payload : Path.Combine(payload, unwrapped),
-                Hashes = hashes
+                Root = relative == "." ? payload : Path.Combine(payload, relative), Hashes = hashes
             };
         }
         finally
         {
             GameToolStorage.DeleteTree(stage);
         }
+    }
+
+    /// <summary>Publishes a complete cache entry and restores the previous one if promotion fails.</summary>
+    internal static void Promote(string stage, string directory)
+    {
+        var old = directory + ".old-" + Guid.NewGuid().ToString("N");
+        if (Directory.Exists(directory))
+        {
+            Directory.Move(directory, old);
+        }
+
+        try
+        {
+            Directory.Move(stage, directory);
+        }
+        catch
+        {
+            if (Directory.Exists(old))
+            {
+                Directory.Move(old, directory);
+            }
+
+            throw;
+        }
+
+        GameToolStorage.DeleteTree(old);
     }
 
     /// <summary>Validates an extracted payload against the definition.</summary>
@@ -469,8 +506,8 @@ internal sealed partial class GameToolReleases : IDisposable
             new ReleaseAsset(manifest.AssetName, manifest.SourceUrl, manifest.AssetSha256));
     }
 
-    private async Task DownloadAsync(ReleaseAsset asset, string destination, Action<long> copied,
-        CancellationToken cancellationToken)
+    private async Task<string> DownloadAsync(ReleaseAsset asset, string destination, Action<long> copied,
+        CancellationToken cancellationToken, long maximumBytes = long.MaxValue)
     {
         // Checked once here: an unsafe name is not a transfer failure and is never retried.
         if (!DownloadClient.IsSafeAssetName(asset.Name))
@@ -485,8 +522,15 @@ internal sealed partial class GameToolReleases : IDisposable
         {
             try
             {
-                await _client.DownloadAsync(asset, destination, cancellationToken, copied).ConfigureAwait(false);
-                return;
+                return await _client.DownloadAsync(asset, destination, cancellationToken, bytes =>
+                {
+                    if (bytes > maximumBytes)
+                    {
+                        throw new GameToolException("The download exceeds the publisher source's size limit.");
+                    }
+
+                    copied(bytes);
+                }).ConfigureAwait(false);
             }
             catch (InvalidDataException) when (mismatches++ == 0)
             {
@@ -599,9 +643,12 @@ internal sealed partial class GameToolReleases : IDisposable
 
     private void SweepStages(GameToolDefinition tool)
     {
-        if (Interlocked.Exchange(ref _swept, 1) != 0)
+        lock (_latestGate)
         {
-            return;
+            if (!_swept.Add(tool.Id))
+            {
+                return;
+            }
         }
 
         var root = Path.Combine(GameToolStorage.DataRoot(_userRoot), "packages", tool.Id);

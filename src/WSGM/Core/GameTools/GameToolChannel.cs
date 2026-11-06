@@ -36,6 +36,18 @@ internal sealed record GameToolChannel
     /// <exception cref="InvalidDataException">The asset name does not carry a version.</exception>
     internal HostedRelease Normalize(HostedRelease release)
     {
+        if (Source.TagVersionPattern.Length > 0)
+        {
+            var tag = Regex.Match(release.Version, Source.TagVersionPattern, RegexOptions.CultureInvariant,
+                TimeSpan.FromSeconds(1));
+            if (!tag.Success || tag.Groups["version"].Value.Length == 0)
+            {
+                throw new InvalidDataException("The release tag does not match its declared version format.");
+            }
+
+            release = release with { Version = tag.Groups["version"].Value.Replace('_', '.') };
+        }
+
         if (VersionPattern.Length == 0)
         {
             return release;

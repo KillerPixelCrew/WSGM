@@ -61,7 +61,7 @@ internal sealed partial class GameToolInstaller(string userRoot)
         }
 
         List<GameToolProxyStatus> proxies = [];
-        foreach (var option in tool.Proxy.Options)
+        foreach (var option in tool.ProxyOptions)
         {
             var path = Path.Combine(targetDirectory, option.Name);
             if (manifest?.ProxyName.Equals(option.Name, StringComparison.OrdinalIgnoreCase) == true
@@ -116,15 +116,30 @@ internal sealed partial class GameToolInstaller(string userRoot)
     /// </summary>
     /// <param name="proxies">The inspection's proxy states.</param>
     /// <param name="preferred">The preferred name.</param>
+    /// <param name="tool">An API-specific tool, or null for ordinary aliases.</param>
+    /// <param name="evidence">API names read once by the game scan.</param>
+    /// <param name="architecture">The game's architecture.</param>
     /// <returns>A free name, or the preferred one when none is free.</returns>
-    internal static string SuggestProxy(IReadOnlyList<GameToolProxyStatus> proxies, string preferred)
+    internal static string SuggestProxy(IReadOnlyList<GameToolProxyStatus> proxies, string preferred,
+        GameToolDefinition? tool = null, IReadOnlyList<string>? evidence = null, string? architecture = null)
     {
+        var eligible = proxies.Where(proxy => proxy is { Available: true, Suggest: true }
+            && (tool is null || tool.InstallMode(proxy.Name).Architectures.Contains(architecture))).ToArray();
+        var matchingModes = tool is null || evidence is null ? [] : tool.InstallModes.Where(mode =>
+            mode.Architectures.Contains(architecture) && mode.Apis.Intersect(evidence, StringComparer.Ordinal).Any()).ToArray();
+        var candidates = matchingModes.Length > 0
+            ? eligible.Where(proxy => matchingModes.Any(mode => mode.Proxy == proxy.Name)).ToArray()
+            : eligible;
+        if (tool is not null && candidates.Length == 0)
+        {
+            return "";
+        }
         var start = Math.Max(0, proxies.ToList().FindIndex(proxy =>
             proxy.Name.Equals(preferred, StringComparison.OrdinalIgnoreCase)));
         for (var offset = 0; offset < proxies.Count; offset++)
         {
             var candidate = proxies[(start + offset) % proxies.Count];
-            if (candidate is { Available: true, Suggest: true })
+            if (candidates.Contains(candidate))
             {
                 return candidate.Name;
             }
@@ -215,7 +230,7 @@ internal sealed partial class GameToolInstaller(string userRoot)
             throw new GameToolException("The downloaded " + tool.Name + " does not match the game's architecture.");
         }
 
-        if (tool.Proxy.Options.All(option =>
+        if (tool.ProxyOptions.All(option =>
                 !option.Name.Equals(request.ProxyName, StringComparison.OrdinalIgnoreCase)))
         {
             throw new GameToolException("Choose one of the offered file names.");
@@ -231,7 +246,7 @@ internal sealed partial class GameToolInstaller(string userRoot)
 
         phase(GameToolPhase.Copy);
         var directory = target.TargetDirectory;
-        var proxy = tool.Proxy.Options.First(option =>
+        var proxy = tool.ProxyOptions.First(option =>
             option.Name.Equals(request.ProxyName, StringComparison.OrdinalIgnoreCase)).Name;
         var plan = await Task.Run(() => Plan(tool, directory, package, proxy, request, current,
             inspection ?? Inspect(tool, directory, current)), cancellationToken).ConfigureAwait(false);
@@ -424,7 +439,7 @@ internal sealed partial class GameToolInstaller(string userRoot)
         var notices = new List<string>();
         if (proxyName is not null && !proxyName.Equals(current.ProxyName, StringComparison.OrdinalIgnoreCase))
         {
-            var option = tool.Proxy.Options.FirstOrDefault(item =>
+            var option = tool.ProxyOptions.FirstOrDefault(item =>
                              item.Name.Equals(proxyName, StringComparison.OrdinalIgnoreCase))
                          ?? throw new GameToolException("Choose one of the offered file names.");
             var source = Path.Combine(directory, current.ProxyName);

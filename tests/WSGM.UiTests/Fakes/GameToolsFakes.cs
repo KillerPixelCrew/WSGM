@@ -105,6 +105,13 @@ internal sealed class FakeGameToolsSource(IEnumerable<GameToolsState> states, Ga
     }
 
     /// <inheritdoc />
+    public Task<SteamUiCommandResult> SetEnabledAsync(uint appId, string toolId, bool enabled,
+        CancellationToken cancellationToken)
+    {
+        return Record(enabled ? "enable" : "disable", appId, toolId);
+    }
+
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SetAddonAsync(uint appId, string toolId, string addonId, bool enabled,
         CancellationToken cancellationToken)
     {
@@ -171,22 +178,19 @@ internal static class GameToolsFixtures
     /// <summary>The four local injectors projected into the production card layout for render-only review.</summary>
     internal static GameToolsState Injectors(bool disabled)
     {
-        var tools = GameToolCatalog.Current.Tools.Where(tool => tool.Modes.Length > 0).Select(tool => Tool() with
+        var tools = GameToolCatalog.Current.Tools.Where(tool => tool.UsesGraphicsApi).Select(tool => Tool() with
         {
             Id = tool.Id, Name = tool.Name, Description = tool.Description, Homepage = tool.Homepage,
-            License = tool.License, Notice = tool.Notice, ModeBased = true, Enabled = !disabled,
+            License = tool.License, Notice = tool.Notice, ProxyLabel = "Graphics API", ProxyEditable = !disabled, SettingsEditable = !disabled, Enabled = !disabled,
             Status = disabled ? "installed" : "notInstalled", InstalledVersion = disabled ? "1.0" : null,
             StatusText = disabled ? "Disabled for this game. Files and settings are kept." : "Not installed.",
             Channel = "stable",
             Channels = [new GameToolsChannel("stable", "Stable", "", true, "1.0", "1.0", null, null, false, false)],
             ProxyName = tool.Proxy.Default,
             ProxyOptions = [.. tool.Modes.Where(mode => mode.Architectures.Contains("x64")).Select(mode =>
-                new GameToolsProxyOption(mode.Proxy, mode.Api + " · Select the game's actual renderer.", true, null))],
-            Settings = disabled
-                ? [new GameToolsSetting("enabled", "Enabled for this game", "Files and settings are kept while disabled.",
-                    "off", null, [new GameToolsSettingOption("off", "Off"), new GameToolsSettingOption("on", "On")], true, null)]
-                : [],
-            Addons = [], Actions = disabled ? ["configure", "remove"] : ["install"]
+                new GameToolsProxyOption(mode.Proxy, "Select the game's actual renderer.", true, null) { Api = mode.Api })],
+            Settings = [], ProxyIntro = disabled ? "Remove and reinstall to change the graphics API." : "",
+            Addons = [], Actions = disabled ? ["enable", "remove"] : ["install"]
         }).ToArray();
         if (disabled)
         {
@@ -279,9 +283,8 @@ internal static class GameToolsFixtures
                         _ => setting with { IniValue = "auto" }
                     })
                 ],
-                ProxyIntro = "WSGM renames the installed file. Try another name when the game ignores OptiScaler or "
-                             + "crashes.",
-                Actions = ["update", "switchChannel", "configure", "repair", "remove"],
+                ProxyIntro = "Choosing another name renames the installed file.",
+                Actions = ["update", "switchChannel", "configure", "repair", "disable", "remove"],
                 Files = new GameToolsFiles("bin/x64", 14, 3, [], []),
                 Addons =
                 [
@@ -397,7 +400,7 @@ internal static class GameToolsFixtures
                 new GameToolsChannel("nightly", "Nightly", "Daily test builds of the next version; may be unstable",
                     false, "10.0.0-pre1", "10.0.0-pre1 · nightly 31 Oct 2026", "2026-10-31", null, false, false)
             ], "0.9.4", "0.9.4", null, false, false, "dxgi.dll",
-            "OptiScaler loads by taking the name of a Windows library the game loads. Try the first one first.",
+            "",
             [
                 new GameToolsProxyOption("dxgi.dll", "Most compatible. Try this first.", true, null),
                 new GameToolsProxyOption("winmm.dll", "Use for Vulkan games.", false, "ReShade uses this name."),

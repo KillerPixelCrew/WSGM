@@ -2,95 +2,96 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection.PortableExecutable;
+using System.Text;
 
 namespace WSGM.Core;
 
 /// <summary>Static graphics API evidence from the chosen executable and its paired Unity runtime.</summary>
 internal static class GameGraphicsApi
 {
-    /// <summary>Reads imported graphics libraries; dynamically selected renderers remain a user choice.</summary>
+    /// <summary>Reads native imports once; dynamically selected renderers remain a user choice.</summary>
     /// <param name="executable">The confirmed game executable.</param>
-    /// <returns>Distinct API names, or an empty list when no reliable import was found.</returns>
+    /// <returns>Distinct canonical API names.</returns>
     internal static string[] Detect(string executable)
     {
-        HashSet<string> found = new(StringComparer.OrdinalIgnoreCase);
-        Read(executable);
+        HashSet<string> found = new(StringComparer.Ordinal);
+        PeImage.VisitImports(executable, Visit);
         var unity = Path.Combine(Path.GetDirectoryName(executable)!, "UnityPlayer.dll");
         if (File.Exists(unity))
         {
-            Read(unity);
+            PeImage.VisitImports(unity, Visit);
         }
 
         return [.. found.Order(StringComparer.Ordinal)];
 
-        void Read(string path)
+        void Visit(ReadOnlySpan<byte> name)
         {
-            try
+            if (Classify(name) is { } api)
             {
-                using var stream = File.OpenRead(path);
-                using var pe = new PEReader(stream);
-                var imports = pe.PEHeaders.PEHeader?.ImportTableDirectory.RelativeVirtualAddress ?? 0;
-                if (imports == 0)
-                {
-                    return;
-                }
-
-                var entries = pe.GetSectionData(imports).GetReader();
-                for (var index = 0; index < 1024 && entries.RemainingBytes >= 20; index++)
-                {
-                    var lookup = entries.ReadUInt32();
-                    var timestamp = entries.ReadUInt32();
-                    var forwarder = entries.ReadUInt32();
-                    var nameRva = entries.ReadInt32();
-                    var address = entries.ReadUInt32();
-                    if ((lookup | timestamp | forwarder | (uint)nameRva | address) == 0)
-                    {
-                        break;
-                    }
-
-                    var name = pe.GetSectionData(nameRva).GetReader();
-                    var dll = new List<byte>();
-                    while (name.RemainingBytes > 0 && dll.Count < 128 && name.ReadByte() is var value && value != 0)
-                    {
-                        dll.Add(value);
-                    }
-
-                    var api = System.Text.Encoding.ASCII.GetString(dll.ToArray()).ToLowerInvariant() switch
-                    {
-                        "d3d8.dll" => "Direct3D 8",
-                        "d3d9.dll" => "Direct3D 9",
-                        "d3d10.dll" or "d3d10_1.dll" or "d3d10core.dll" => "Direct3D 10",
-                        "d3d11.dll" => "Direct3D 11",
-                        "d3d12.dll" => "Direct3D 12",
-                        "ddraw.dll" => "DirectDraw / Direct3D 1–7",
-                        "opengl32.dll" => "OpenGL",
-                        "vulkan-1.dll" => "Vulkan",
-                        "glide.dll" => "Glide",
-                        "glide2x.dll" => "Glide 2",
-                        "glide3x.dll" => "Glide 3",
-                        _ => null
-                    };
-                    if (api is not null)
-                    {
-                        found.Add(api);
-                    }
-                }
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException
-                                           or ArgumentOutOfRangeException)
-            {
-                // Missing evidence never turns into an invented renderer.
+                found.Add(api);
             }
         }
     }
 
-    /// <summary>Suggests only a unique API match; an unknown or multi-renderer game keeps explicit choices.</summary>
-    internal static string Suggest(GameToolDefinition tool, string executable, string architecture)
+    /// <summary>Classifies a borrowed ASCII import name without allocating.</summary>
+    internal static string? Classify(ReadOnlySpan<byte> name)
     {
-        var evidence = Detect(executable);
-        var modes = tool.Modes.Where(mode => mode.Architectures.Contains(architecture)
-                                            && evidence.Contains(mode.Api, StringComparer.Ordinal)).ToArray();
-        return modes.Length == 1 ? modes[0].Proxy : tool.Proxy.Default;
+        if (Ascii.EqualsIgnoreCase(name, "d3d8.dll"u8))
+        {
+            return "Direct3D 8";
+        }
+
+        if (Ascii.EqualsIgnoreCase(name, "d3d9.dll"u8))
+        {
+            return "Direct3D 9";
+        }
+
+        if (Ascii.EqualsIgnoreCase(name, "d3d10.dll"u8) || Ascii.EqualsIgnoreCase(name, "d3d10_1.dll"u8)
+            || Ascii.EqualsIgnoreCase(name, "d3d10core.dll"u8))
+        {
+            return "Direct3D 10";
+        }
+
+        if (Ascii.EqualsIgnoreCase(name, "d3d11.dll"u8))
+        {
+            return "Direct3D 11";
+        }
+
+        if (Ascii.EqualsIgnoreCase(name, "d3d12.dll"u8))
+        {
+            return "Direct3D 12";
+        }
+
+        if (Ascii.EqualsIgnoreCase(name, "ddraw.dll"u8))
+        {
+            return "DirectDraw / Direct3D 1–7";
+        }
+
+        if (Ascii.EqualsIgnoreCase(name, "opengl32.dll"u8))
+        {
+            return "OpenGL";
+        }
+
+        if (Ascii.EqualsIgnoreCase(name, "vulkan-1.dll"u8))
+        {
+            return "Vulkan";
+        }
+
+        if (Ascii.EqualsIgnoreCase(name, "glide.dll"u8))
+        {
+            return "Glide";
+        }
+
+        if (Ascii.EqualsIgnoreCase(name, "glide2x.dll"u8))
+        {
+            return "Glide 2";
+        }
+
+        if (Ascii.EqualsIgnoreCase(name, "glide3x.dll"u8))
+        {
+            return "Glide 3";
+        }
+
+        return null;
     }
 }

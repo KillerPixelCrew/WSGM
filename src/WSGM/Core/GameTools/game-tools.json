@@ -344,28 +344,10 @@
       "primaryFile": "WSGM-tool.dll",
       "identity": {
         "originalFilename": "DXVK.dll",
-        "tokens": ["DXVK"]
+        "productNames": ["DXVK"]
       },
       "proxy": {
-        "default": "d3d11.dll",
-        "options": [
-          {
-            "name": "d3d8.dll",
-            "hint": "Direct3D 8 Â· choose the API the game actually uses."
-          },
-          {
-            "name": "d3d9.dll",
-            "hint": "Direct3D 9 Â· choose the API the game actually uses."
-          },
-          {
-            "name": "d3d10core.dll",
-            "hint": "Direct3D 10 Â· choose the API the game actually uses."
-          },
-          {
-            "name": "d3d11.dll",
-            "hint": "Direct3D 11 Â· choose the API the game actually uses."
-          }
-        ]
+        "default": "d3d11.dll"
       },
       "payload": {
         "required": ["WSGM-tool.dll"]
@@ -374,39 +356,43 @@
       "modes": [
         {
           "proxy": "d3d8.dll",
-          "api": "Direct3D 8",
           "architectures": ["x86", "x64"],
           "files": {
-            "{arch}/d3d8.dll": "WSGM-tool.dll",
-            "{arch}/d3d9.dll": "d3d9.dll"
-          }
+            "x{bits}/d3d8.dll": "WSGM-tool.dll",
+            "x{bits}/d3d9.dll": "d3d9.dll"
+          },
+          "apis": ["Direct3D 8"],
+          "hint": "Choose the API the game actually uses."
         },
         {
           "proxy": "d3d9.dll",
-          "api": "Direct3D 9",
           "architectures": ["x86", "x64"],
           "files": {
-            "{arch}/d3d9.dll": "WSGM-tool.dll"
-          }
+            "x{bits}/d3d9.dll": "WSGM-tool.dll"
+          },
+          "apis": ["Direct3D 9"],
+          "hint": "Choose the API the game actually uses."
         },
         {
           "proxy": "d3d10core.dll",
-          "api": "Direct3D 10",
           "architectures": ["x86", "x64"],
           "files": {
-            "{arch}/d3d10core.dll": "WSGM-tool.dll",
-            "{arch}/d3d11.dll": "d3d11.dll",
-            "{arch}/dxgi.dll": "dxgi.dll"
-          }
+            "x{bits}/d3d10core.dll": "WSGM-tool.dll",
+            "x{bits}/d3d11.dll": "d3d11.dll",
+            "x{bits}/dxgi.dll": "dxgi.dll"
+          },
+          "apis": ["Direct3D 10"],
+          "hint": "Choose the API the game actually uses."
         },
         {
           "proxy": "d3d11.dll",
-          "api": "Direct3D 11",
           "architectures": ["x86", "x64"],
           "files": {
-            "{arch}/d3d11.dll": "WSGM-tool.dll",
-            "{arch}/dxgi.dll": "dxgi.dll"
-          }
+            "x{bits}/d3d11.dll": "WSGM-tool.dll",
+            "x{bits}/dxgi.dll": "dxgi.dll"
+          },
+          "apis": ["Direct3D 11"],
+          "hint": "Choose the API the game actually uses."
         }
       ]
     },
@@ -427,8 +413,12 @@
             "baseUrl": "https://reshade.me/",
             "downloadPage": "https://reshade.me/",
             "repository": "",
-            "assetPattern": "^ReShade_Setup_[0-9.]+[.]exe$",
-            "packageType": "exe-zip"
+            "assetPattern": "ReShade_Setup_(?<version>[0-9]+(?:[.][0-9]+)+)[.]exe",
+            "packageType": "exe-zip",
+            "downloadBaseUrl": "https://reshade.me/downloads/",
+            "verification": "authenticode",
+            "signerThumbprint": "589690208A5E52FB96980C4A6698F50ACD47C49F",
+            "maximumDownloadBytes": 134217728
           }
         }
       ],
@@ -436,24 +426,10 @@
       "primaryFile": "WSGM-tool.dll",
       "identity": {
         "originalFilename": "ReShade.dll",
-        "tokens": ["ReShade"]
+        "productNames": ["ReShade"]
       },
       "proxy": {
-        "default": "dxgi.dll",
-        "options": [
-          {
-            "name": "d3d9.dll",
-            "hint": "Direct3D 9 Â· choose the API the game actually uses."
-          },
-          {
-            "name": "dxgi.dll",
-            "hint": "Direct3D 10 / 11 / 12 Â· choose the API the game actually uses."
-          },
-          {
-            "name": "opengl32.dll",
-            "hint": "OpenGL Â· choose the API the game actually uses."
-          }
-        ]
+        "default": "dxgi.dll"
       },
       "payload": {
         "required": ["WSGM-tool.dll"]
@@ -462,27 +438,30 @@
       "modes": [
         {
           "proxy": "d3d9.dll",
-          "api": "Direct3D 9",
           "architectures": ["x86", "x64"],
           "files": {
             "ReShade{bits}.dll": "WSGM-tool.dll"
-          }
+          },
+          "apis": ["Direct3D 9"],
+          "hint": "Choose the API the game actually uses."
         },
         {
           "proxy": "dxgi.dll",
-          "api": "Direct3D 10 / 11 / 12",
           "architectures": ["x86", "x64"],
           "files": {
             "ReShade{bits}.dll": "WSGM-tool.dll"
-          }
+          },
+          "apis": ["Direct3D 10", "Direct3D 11", "Direct3D 12"],
+          "hint": "Choose the API the game actually uses."
         },
         {
           "proxy": "opengl32.dll",
-          "api": "OpenGL",
           "architectures": ["x86", "x64"],
           "files": {
             "ReShade{bits}.dll": "WSGM-tool.dll"
-          }
+          },
+          "apis": ["OpenGL"],
+          "hint": "Choose the API the game actually uses."
         }
       ]
     },
@@ -504,7 +483,8 @@
             "repository": "SpecialKO/SpecialK",
             "assetPattern": "^SpecialK[.]7z$",
             "channel": "stable",
-            "packageType": "7z"
+            "packageType": "7z",
+            "tagVersionPattern": "^SK_(?<version>[0-9]+_[0-9]+_[0-9]+)$"
           }
         }
       ],
@@ -512,32 +492,10 @@
       "primaryFile": "WSGM-tool.dll",
       "identity": {
         "originalFilename": "Special K.dll",
-        "tokens": ["Special K", "SpecialK"]
+        "productNames": ["Special K"]
       },
       "proxy": {
-        "default": "dxgi.dll",
-        "options": [
-          {
-            "name": "dxgi.dll",
-            "hint": "Direct3D 10 / 11 / 12 Â· choose the API the game actually uses."
-          },
-          {
-            "name": "d3d9.dll",
-            "hint": "Direct3D 9 Â· choose the API the game actually uses."
-          },
-          {
-            "name": "d3d8.dll",
-            "hint": "Direct3D 8 Â· choose the API the game actually uses."
-          },
-          {
-            "name": "ddraw.dll",
-            "hint": "DirectDraw / Direct3D 1â€“7 Â· choose the API the game actually uses."
-          },
-          {
-            "name": "OpenGL32.dll",
-            "hint": "OpenGL Â· choose the API the game actually uses."
-          }
-        ]
+        "default": "dxgi.dll"
       },
       "payload": {
         "required": ["WSGM-tool.dll"]
@@ -553,43 +511,48 @@
       "modes": [
         {
           "proxy": "dxgi.dll",
-          "api": "Direct3D 10 / 11 / 12",
           "architectures": ["x86", "x64"],
           "files": {
             "SpecialK{bits}.dll": "WSGM-tool.dll"
-          }
+          },
+          "apis": ["Direct3D 10", "Direct3D 11", "Direct3D 12"],
+          "hint": "Choose the API the game actually uses."
         },
         {
           "proxy": "d3d9.dll",
-          "api": "Direct3D 9",
           "architectures": ["x86", "x64"],
           "files": {
             "SpecialK{bits}.dll": "WSGM-tool.dll"
-          }
+          },
+          "apis": ["Direct3D 9"],
+          "hint": "Choose the API the game actually uses."
         },
         {
           "proxy": "d3d8.dll",
-          "api": "Direct3D 8",
           "architectures": ["x86"],
           "files": {
             "SpecialK{bits}.dll": "WSGM-tool.dll"
-          }
+          },
+          "apis": ["Direct3D 8"],
+          "hint": "Choose the API the game actually uses."
         },
         {
           "proxy": "ddraw.dll",
-          "api": "DirectDraw / Direct3D 1â€“7",
           "architectures": ["x86"],
           "files": {
             "SpecialK{bits}.dll": "WSGM-tool.dll"
-          }
+          },
+          "apis": ["DirectDraw / Direct3D 1Ã¢â‚¬â€œ7"],
+          "hint": "Choose the API the game actually uses."
         },
         {
           "proxy": "OpenGL32.dll",
-          "api": "OpenGL",
           "architectures": ["x86", "x64"],
           "files": {
             "SpecialK{bits}.dll": "WSGM-tool.dll"
-          }
+          },
+          "apis": ["OpenGL"],
+          "hint": "Choose the API the game actually uses."
         }
       ]
     },
@@ -619,36 +582,10 @@
       "primaryFile": "WSGM-tool.dll",
       "identity": {
         "originalFilename": "dgVoodoo2.dll",
-        "tokens": ["dgVoodoo"]
+        "productNames": ["dgVoodoo"]
       },
       "proxy": {
-        "default": "D3D9.dll",
-        "options": [
-          {
-            "name": "D3D8.dll",
-            "hint": "Direct3D 8 Â· choose the API the game actually uses."
-          },
-          {
-            "name": "D3D9.dll",
-            "hint": "Direct3D 9 Â· choose the API the game actually uses."
-          },
-          {
-            "name": "DDraw.dll",
-            "hint": "DirectDraw / Direct3D 1â€“7 Â· choose the API the game actually uses."
-          },
-          {
-            "name": "Glide.dll",
-            "hint": "Glide Â· choose the API the game actually uses."
-          },
-          {
-            "name": "Glide2x.dll",
-            "hint": "Glide 2 Â· choose the API the game actually uses."
-          },
-          {
-            "name": "Glide3x.dll",
-            "hint": "Glide 3 Â· choose the API the game actually uses."
-          }
-        ]
+        "default": "D3D9.dll"
       },
       "payload": {
         "required": ["WSGM-tool.dll"]
@@ -657,58 +594,64 @@
       "modes": [
         {
           "proxy": "D3D8.dll",
-          "api": "Direct3D 8",
           "architectures": ["x86"],
           "files": {
             "MS/{arch}/D3D8.dll": "WSGM-tool.dll",
             "dgVoodoo.conf": "dgVoodoo.conf"
-          }
+          },
+          "apis": ["Direct3D 8"],
+          "hint": "Choose the API the game actually uses."
         },
         {
           "proxy": "D3D9.dll",
-          "api": "Direct3D 9",
           "architectures": ["x86", "x64"],
           "files": {
             "MS/{arch}/D3D9.dll": "WSGM-tool.dll",
             "dgVoodoo.conf": "dgVoodoo.conf"
-          }
+          },
+          "apis": ["Direct3D 9"],
+          "hint": "Choose the API the game actually uses."
         },
         {
           "proxy": "DDraw.dll",
-          "api": "DirectDraw / Direct3D 1â€“7",
           "architectures": ["x86"],
           "files": {
             "MS/{arch}/DDraw.dll": "WSGM-tool.dll",
             "dgVoodoo.conf": "dgVoodoo.conf",
             "MS/{arch}/D3DImm.dll": "D3DImm.dll"
-          }
+          },
+          "apis": ["DirectDraw / Direct3D 1Ã¢â‚¬â€œ7"],
+          "hint": "Choose the API the game actually uses."
         },
         {
           "proxy": "Glide.dll",
-          "api": "Glide",
           "architectures": ["x86", "x64"],
           "files": {
             "3Dfx/{arch}/Glide.dll": "WSGM-tool.dll",
             "dgVoodoo.conf": "dgVoodoo.conf"
-          }
+          },
+          "apis": ["Glide"],
+          "hint": "Choose the API the game actually uses."
         },
         {
           "proxy": "Glide2x.dll",
-          "api": "Glide 2",
           "architectures": ["x86", "x64"],
           "files": {
             "3Dfx/{arch}/Glide2x.dll": "WSGM-tool.dll",
             "dgVoodoo.conf": "dgVoodoo.conf"
-          }
+          },
+          "apis": ["Glide 2"],
+          "hint": "Choose the API the game actually uses."
         },
         {
           "proxy": "Glide3x.dll",
-          "api": "Glide 3",
           "architectures": ["x86", "x64"],
           "files": {
             "3Dfx/{arch}/Glide3x.dll": "WSGM-tool.dll",
             "dgVoodoo.conf": "dgVoodoo.conf"
-          }
+          },
+          "apis": ["Glide 3"],
+          "hint": "Choose the API the game actually uses."
         }
       ]
     }

@@ -9,7 +9,18 @@ internal sealed record GameToolMode
     public string Proxy { get; init; } = "";
 
     /// <summary>The API users select.</summary>
-    public string Api { get; init; } = "";
+    public string[] Apis { get; init; } = [];
+
+    /// <summary>Guidance for choosing this mode.</summary>
+    public string Hint { get; init; } = "";
+
+    /// <summary>Whether this mode can be suggested without another loader.</summary>
+    public bool Suggest { get; init; } = true;
+
+    /// <summary>A concise display label for the supported APIs.</summary>
+    internal string Api => Apis.Length > 0 && System.Linq.Enumerable.All(Apis, api => api.StartsWith("Direct3D ", System.StringComparison.Ordinal))
+        ? "Direct3D " + string.Join(" / ", System.Linq.Enumerable.Select(Apis, api => api[9..]))
+        : string.Join(" / ", Apis);
 
     /// <summary>Supported architectures; missing architectures are refused.</summary>
     public string[] Architectures { get; init; } = [];

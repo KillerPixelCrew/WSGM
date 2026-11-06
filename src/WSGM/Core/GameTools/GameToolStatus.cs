@@ -82,21 +82,23 @@ internal static class GameToolStatus
                                                                + channel.Label.ToLowerInvariant() + " release.",
                     _ => manifest.Enabled ? "Installed as " + manifest.ProxyName + "." : "Disabled for this game. Files and settings are kept."
                 };
-                if (relation == GameToolVersionRelation.UpdateAvailable)
+                if (manifest.Enabled && relation == GameToolVersionRelation.UpdateAvailable)
                 {
                     actions.Add("update");
                 }
 
-                if (tool.Channels.Length > 1)
+                if (manifest.Enabled && tool.Channels.Length > 1)
                 {
                     actions.Add("switchChannel");
                 }
 
-                actions.AddRange(["configure", "repair", "remove"]);
-                if (!manifest.Enabled)
+                actions.Add(manifest.Enabled ? "disable" : "enable");
+                if (manifest.Enabled)
                 {
-                    actions.RemoveAll(action => action is "update" or "repair" or "switchChannel");
+                    actions.AddRange(["configure", "repair"]);
                 }
+
+                actions.Add("remove");
             }
 
             foreach (var copy in inspection?.Unmanaged ?? [])

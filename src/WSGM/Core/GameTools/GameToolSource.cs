@@ -24,6 +24,21 @@ internal sealed record GameToolSource
     /// <summary>Official download page for an upstream website source.</summary>
     public string DownloadPage { get; init; } = "";
 
+    /// <summary>The asset URL root for a website source.</summary>
+    public string DownloadBaseUrl { get; init; } = "";
+
+    /// <summary>Optional version capture over the release tag; underscores in the capture become dots.</summary>
+    public string TagVersionPattern { get; init; } = "";
+
+    /// <summary>Declared verification when the publisher does not provide an archive checksum.</summary>
+    public string Verification { get; init; } = "";
+
+    /// <summary>Pinned Authenticode signer thumbprint published by the source.</summary>
+    public string SignerThumbprint { get; init; } = "";
+
+    /// <summary>Maximum bytes for downloads without a published size.</summary>
+    public long MaximumDownloadBytes { get; init; } = 128 * 1024 * 1024;
+
     /// <summary>Builds the source the shared hosted-release lookup consumes.</summary>
     /// <returns>The hosted source.</returns>
     internal HostedReleaseSource Hosted()

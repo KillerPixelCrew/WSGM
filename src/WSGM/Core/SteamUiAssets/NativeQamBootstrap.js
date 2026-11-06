@@ -20828,6 +20828,8 @@
         switchChannel: "Switching to",
         repair: "Repairing",
         configure: "Saving settings",
+        enable: "Enabling",
+        disable: "Disabling",
         remove: "Removing",
         addAddon: "Adding plugin",
         removeAddon: "Removing plugin",
@@ -21184,7 +21186,6 @@
       notes.push(renderSteamUiBanner(ui, { text: warning }));
     // The value rows. Before installation they are a draft that goes out with Install; afterwards each
     // change is sent on its own, and the row shows what the host published until it answers.
-    const editable = idle && !!tool.canEditOptions;
     const applyNow = installed && actions.includes("configure");
     const rows = [];
     if ((tool.channels ?? []).length > 1 && (tool.showOptions || installed)) {
@@ -21211,16 +21212,9 @@
       rows.push({
         key: "proxy",
         kind: "choice",
-        label: tool.modeBased ? "Graphics API" : "Load as",
+        label: tool.proxyLabel,
         description:
-          [
-            installed
-              ? tool.modeBased
-                ? "Remove and reinstall to change the graphics API."
-                : "Choosing another name renames the installed file."
-              : hint,
-            taken.length ? `Not offered: ${taken.join(", ")}.` : "",
-          ]
+          [tool.proxyIntro || hint, taken.length ? `Not offered: ${taken.join(", ")}.` : ""]
             .filter(Boolean)
             .join(" ") || undefined,
         text: proxyName,
@@ -21228,19 +21222,16 @@
           .filter((option) => option.available || option.name === proxyName)
           .map((option) => ({
             value: option.name,
-            label: tool.modeBased
-              ? `${option.hint.split(" \u00b7 ")[0]} (${option.name})`
-              : option.name,
+            label: option.api ? `${option.api} (${option.name})` : option.name,
           })),
-        disabled: !editable || tool.enabled === false || (tool.modeBased && installed),
+        disabled: !idle || !tool.proxyEditable,
       });
       for (const setting of tool.settings ?? []) {
         const value = applyNow ? setting.value : (draft.settings?.[setting.id] ?? setting.value);
         const options = setting.options ?? [];
         const description =
           [setting.description, setting.note].filter(Boolean).join(" ") || undefined;
-        const disabled =
-          !(editable && setting.available) || (tool.enabled === false && setting.id !== "enabled");
+        const disabled = !(idle && tool.settingsEditable && setting.available);
         // A plain Off/On choice is Steam's toggle; any other choice, such as Automatic or Off, stays a dropdown.
         const toggle =
           options.length === 2 &&
@@ -21334,6 +21325,15 @@
           label: "Repair",
           disabled: !idle,
           onClick: () => void act("repair", { appId, toolId }),
+        });
+      }
+      const enabledAction = tool.enabled ? "disable" : "enable";
+      if (actions.includes(enabledAction)) {
+        secondary.push({
+          id: enabledAction,
+          label: tool.enabled ? "Disable" : "Enable",
+          disabled: !idle,
+          onClick: () => void act(enabledAction, { appId, toolId }),
         });
       }
       for (const addon of (tool.addons ?? []).filter(

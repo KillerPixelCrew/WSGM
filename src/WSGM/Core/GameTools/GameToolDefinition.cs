@@ -72,6 +72,27 @@ internal sealed record GameToolDefinition
     /// <summary>Architecture-specific local injection modes, keyed by proxy name.</summary>
     public GameToolMode[] Modes { get; init; } = [];
 
+    /// <summary>All install modes; a whole-package tool has implicit modes for its existing proxy aliases.</summary>
+    internal GameToolMode[] InstallModes => Modes.Length > 0 ? Modes :
+        [.. Proxy.Options.Select(option => new GameToolMode
+        {
+            Proxy = option.Name, Hint = option.Hint, Suggest = option.Suggest, Architectures = Architectures
+        })];
+
+    /// <summary>Options derived from the install modes, with no duplicate catalog declarations.</summary>
+    internal GameToolProxyOption[] ProxyOptions => [.. InstallModes.Select(mode => new GameToolProxyOption
+    {
+        Name = mode.Proxy, Hint = mode.Hint, Api = mode.Api, Suggest = mode.Suggest
+    })];
+
+    /// <summary>Whether selecting a proxy selects an API-specific payload.</summary>
+    internal bool UsesGraphicsApi => Modes.Any(mode => mode.Apis.Length > 0);
+
+    /// <summary>Finds the selected install mode, including whole-package aliases.</summary>
+    internal GameToolMode InstallMode(string proxy) => InstallModes.FirstOrDefault(mode =>
+        mode.Proxy.Equals(proxy, StringComparison.OrdinalIgnoreCase))
+        ?? throw new System.IO.InvalidDataException("Choose one of the offered proxy names.");
+
     /// <summary>The channel a game uses until the user chooses another.</summary>
     internal GameToolChannel DefaultChannel => Channels[0];
 

@@ -66,10 +66,10 @@ internal sealed record GameToolCatalog
                                                                       Path.GetFileName(tool.PrimaryFile) !=
                                                                       tool.PrimaryFile
                                                                       || tool.Architectures.Length == 0 ||
-                                                                      tool.Proxy.Options.Length == 0
-                                                                      || tool.Proxy.Options.All(option =>
+                                                                      tool.ProxyOptions.Length == 0
+                                                                      || tool.ProxyOptions.All(option =>
                                                                           option.Name != tool.Proxy.Default)
-                                                                      || tool.Proxy.Options.Any(option =>
+                                                                      || tool.ProxyOptions.Any(option =>
                                                                           !DownloadClient.IsSafeAssetName(option.Name))
                                                                       || tool.Identity.OriginalFilename.Length == 0
                                                                       || tool.RequiresUpscaler.Any(requirement =>
@@ -116,12 +116,18 @@ internal sealed record GameToolCatalog
         foreach (var mode in tool.Modes)
         {
             if (mode.Architectures.Length == 0 || mode.Files.Count == 0
-                || !tool.Proxy.Options.Any(option => option.Name == mode.Proxy)
+                || !DownloadClient.IsSafeAssetName(mode.Proxy)
                 || mode.Files.Any(file => !SafeRelative(file.Key) || !SafeRelative(file.Value))
                 || !mode.Files.Values.Contains(tool.PrimaryFile, StringComparer.OrdinalIgnoreCase))
             {
                 throw new InvalidDataException("Invalid Game Tools mode: " + tool.Id + "/" + mode.Proxy);
             }
+        }
+
+        if (tool.InstallModes.Select(mode => mode.Proxy).Distinct(StringComparer.OrdinalIgnoreCase).Count()
+            != tool.InstallModes.Length)
+        {
+            throw new InvalidDataException("Duplicate Game Tools install modes: " + tool.Id);
         }
 
         if (tool.Addons.Select(addon => addon.Id).Distinct(StringComparer.Ordinal).Count() != tool.Addons.Length)
@@ -183,14 +189,30 @@ internal sealed record GameToolCatalog
         var invalid = !Regex.IsMatch(channel.Id, "^[a-z][a-z0-9-]*$") || channel.Label.Length == 0
                                                                       || (source.Provider == "Website"
                                                                           ? JsonRead.HttpsUrl(source.DownloadPage).Length == 0
+                                                                            || JsonRead.HttpsUrl(source.DownloadBaseUrl).Length == 0
                                                                           : !HostedReleases.Providers.Contains(source.Provider)
                                                                             || !Regex.IsMatch(source.Repository, "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"))
                                                                       || source.PackageType is not ("7z" or "zip" or "tar.gz" or "exe-zip")
                                                                       || source.AssetPattern.Length == 0
                                                                       || source.Channel.Length == 0;
+        invalid |= source.MaximumDownloadBytes <= 0
+                   || source.Verification is not ("" or "authenticode")
+                   || (source.Verification == "authenticode"
+                       && !Regex.IsMatch(source.SignerThumbprint, "^[A-Fa-f0-9]{40}$"));
         try
         {
             _ = new Regex(source.AssetPattern, RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+            if (source.Provider == "Website")
+            {
+                invalid |= !new Regex(source.AssetPattern, RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1))
+                    .GetGroupNames().Contains("version", StringComparer.Ordinal);
+            }
+
+            if (source.TagVersionPattern.Length > 0)
+            {
+                invalid |= !new Regex(source.TagVersionPattern, RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1))
+                    .GetGroupNames().Contains("version", StringComparer.Ordinal);
+            }
             if (channel.VersionPattern.Length > 0)
             {
                 var version = new Regex(channel.VersionPattern, RegexOptions.CultureInvariant,

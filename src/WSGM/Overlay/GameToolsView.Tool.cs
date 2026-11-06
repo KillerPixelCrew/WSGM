@@ -39,7 +39,7 @@ public sealed partial class GameToolsView
         }
 
         var rows = new StackPanel { Spacing = 0, Tag = key + ".rows" };
-        var editable = idle && tool.CanEditOptions;
+        var editable = idle && tool.SettingsEditable;
         if (tool.Channels.Count > 1 && (tool.ShowOptions || installed))
         {
             // The channel is a draft for the primary action, so it locks with the commands that would use it.
@@ -49,10 +49,10 @@ public sealed partial class GameToolsView
 
         if (tool.ShowOptions)
         {
-            AddRow(rows, ProxyRow(tool, editable && tool.Enabled && !(tool.ModeBased && installed), installed));
+            AddRow(rows, ProxyRow(tool, idle && tool.ProxyEditable, installed));
             foreach (var setting in tool.Settings)
             {
-                AddRow(rows, SettingRow(tool, setting, editable && setting.Available && (tool.Enabled || setting.Id == "enabled"),
+                AddRow(rows, SettingRow(tool, setting, editable && setting.Available,
                     installed && tool.Actions.Contains("configure")));
             }
 
@@ -260,6 +260,8 @@ public sealed partial class GameToolsView
             "switchChannel" => "Switching to",
             "repair" => "Repairing",
             "configure" => "Saving settings",
+            "enable" => "Enabling",
+            "disable" => "Disabling",
             "remove" => "Removing",
             "addAddon" => "Adding plugin",
             "removeAddon" => "Removing plugin",
@@ -488,14 +490,14 @@ public sealed partial class GameToolsView
         var key = "tool:" + tool.Id + ".proxy";
         var current = ProxyFor(tool);
         var options = tool.ProxyOptions.Where(option => option.Available || option.Name == current)
-            .Select(option => (option.Name, tool.ModeBased ? option.Hint.Split(" · ")[0] + " (" + option.Name + ")" : option.Name)).ToList();
+            .Select(option => (option.Name, option.Api.Length > 0 ? option.Api + " (" + option.Name + ")" : option.Name)).ToList();
         var hint = tool.ProxyOptions.FirstOrDefault(option => option.Name == current)?.Hint ?? "";
         var taken = tool.ProxyOptions.Where(option => !option.Available && option.Name != current)
             .Select(option => option.Name + (option.Conflict is { } conflict ? " (" + conflict.TrimEnd('.') + ")" : ""))
             .ToArray();
         var description = string.Join(" ", new[]
         {
-            installed ? tool.ModeBased ? "Remove and reinstall to change the graphics API." : "Choosing another name renames the installed file." : hint,
+            tool.ProxyIntro.Length > 0 ? tool.ProxyIntro : hint,
             taken.Length > 0 ? "Not offered: " + string.Join(", ", taken) + "." : ""
         }.Where(part => part.Length > 0));
         var editor = Choice(options, current, enabled, chosen =>
@@ -515,7 +517,7 @@ public sealed partial class GameToolsView
             _draftProxy[tool.Id] = chosen;
             CurrentLevel?.Invoke();
         });
-        return ValueRow(key, tool.ModeBased ? "Graphics API" : "Load as", description, editor);
+        return ValueRow(key, tool.ProxyLabel, description, editor);
     }
 
     private Grid SettingRow(GameToolsTool tool, GameToolsSetting setting, bool enabled, bool applyNow)
@@ -649,6 +651,14 @@ public sealed partial class GameToolsView
         {
             left.Add(Command(key + ".repair", "Repair", idle
                 ? () => RunTool((service, token) => service.RepairAsync(_appId, tool.Id, token), "repair")
+                : null));
+        }
+
+        var enabledAction = tool.Enabled ? "disable" : "enable";
+        if (tool.Actions.Contains(enabledAction))
+        {
+            left.Add(Command(key + "." + enabledAction, tool.Enabled ? "Disable" : "Enable", idle
+                ? () => RunTool((service, token) => service.SetEnabledAsync(_appId, tool.Id, !tool.Enabled, token), enabledAction)
                 : null));
         }
 
@@ -806,39 +816,12 @@ public sealed partial class GameToolsView
     private void Confirm(string title, IReadOnlyList<string> paragraphs, string accept,
         Func<IGameToolsSource, Task<SteamUiCommandResult>> command)
     {
-        if (_service is null || TopLevel.GetTopLevel(this) is not OverlayWindow window)
+        if (_service is null)
         {
             return;
         }
 
-        var content = new StackPanel { Spacing = 14, Tag = "confirm" };
-        foreach (var paragraph in paragraphs)
-        {
-            content.Children.Add(new TextBlock { Text = paragraph, TextWrapping = TextWrapping.Wrap, LineHeight = 22 });
-        }
-
-        var cancel = Command("confirm.cancel", "Cancel", () => window.Surfaces.CloseActive());
-        var confirm = Command("confirm.accept", accept, () =>
-        {
-            window.Surfaces.CloseActive();
-            RunTool((service, _) => command(service), "confirm");
-        });
-        confirm.Classes.Add("danger");
-        foreach (var button in new[] { cancel, confirm })
-        {
-            button.MinWidth = 120;
-            button.Padding = new Thickness(16, 6);
-        }
-
-        var buttons = new StackPanel
-        {
-            Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(0, 6, 0, 0)
-        };
-        buttons.Children.Add(cancel);
-        buttons.Children.Add(confirm);
-        content.Children.Add(buttons);
-        window.Surfaces.ShowConfirm(content, title, cancel);
+        ShowConfirm(title, paragraphs, accept, () => RunTool((service, _) => command(service), "confirm"));
     }
 
     private GameToolsInstallRequest InstallRequest(GameToolsTool tool, bool acknowledgeRisk, bool replaceExisting)

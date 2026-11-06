@@ -35,6 +35,8 @@ internal sealed record GameToolsScan(
     long ScannedAt,
     string? RecoveryNotice = null)
 {
+    /// <summary>Graphics imports read once with this scan, reused by publications and install admission.</summary>
+    internal string[] GraphicsApis { get; init; } = [];
     /// <summary>Whether the game has a folder to work in, even while it runs.</summary>
     internal bool HasFolder => GameToolStatus.HasFolder(Availability);
 

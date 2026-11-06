@@ -72,6 +72,12 @@ internal sealed record GameToolsTool(
     /// <summary>Whether files are active in this game's persisted profile.</summary>
     public bool Enabled { get; init; } = true;
 
-    /// <summary>Whether the proxy chooses a distinct API-specific payload.</summary>
-    public bool ModeBased { get; init; }
+    /// <summary>The proxy selector's label.</summary>
+    public string ProxyLabel { get; init; } = "Load as";
+
+    /// <summary>Whether the proxy selector can change.</summary>
+    public bool ProxyEditable { get; init; } = true;
+
+    /// <summary>Whether settings can change.</summary>
+    public bool SettingsEditable { get; init; } = true;
 }

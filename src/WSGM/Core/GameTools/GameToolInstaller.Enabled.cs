@@ -29,7 +29,8 @@ internal sealed partial class GameToolInstaller
         var transaction = GameToolStorage.BackupRoot(userRoot, target.AppId, tool.Id,
             "tx-" + Guid.NewGuid().ToString("N"));
         List<GameToolJournalEntry> journal = [];
-        List<(GameToolOwnedFile File, string Destination)> moves = [];
+        List<PlanItem> items = [];
+        var originals = current.Replaced.ToDictionary(file => file.RelativePath, StringComparer.OrdinalIgnoreCase);
         foreach (var file in current.Files.Where(file => file.Kind == GameToolFileKind.Binary))
         {
             var source = Path.Combine(directory, file.RelativePath);
@@ -47,9 +48,11 @@ internal sealed partial class GameToolInstaller
             var parked = active + suffix;
             var destination = enabled ? active : parked;
             var destinationPath = Path.Combine(directory, destination);
-            var original = current.Replaced.FirstOrDefault(item => item.RelativePath == active);
-            if (File.Exists(destinationPath)
-                && (!enabled || original is null || Sha256(destinationPath) != original.OriginalSha256))
+            var original = originals.GetValueOrDefault(active);
+            var destinationExists = File.Exists(destinationPath);
+            var destinationSha = destinationExists ? Sha256(destinationPath) : "";
+            if (destinationExists
+                && (!enabled || original is null || destinationSha != original.OriginalSha256))
             {
                 throw new GameToolException(destination + " already exists or changed. It was left untouched.");
             }
@@ -68,9 +71,9 @@ internal sealed partial class GameToolInstaller
             journal.Add(new GameToolJournalEntry
             {
                 RelativePath = destination,
-                Action = File.Exists(destinationPath) ? GameToolJournalAction.Replace : GameToolJournalAction.Create,
-                BackupPath = File.Exists(destinationPath) ? Path.Combine(transaction, destination) : "",
-                PreviousSha256 = File.Exists(destinationPath) ? Sha256(destinationPath) : "",
+                Action = destinationExists ? GameToolJournalAction.Replace : GameToolJournalAction.Create,
+                BackupPath = destinationExists ? Path.Combine(transaction, destination) : "",
+                PreviousSha256 = destinationSha,
                 NewSha256 = file.Sha256
             });
             journal.Add(new GameToolJournalEntry
@@ -81,44 +84,29 @@ internal sealed partial class GameToolInstaller
                 PreviousSha256 = file.Sha256,
                 NewSha256 = !enabled && original is not null ? original.OriginalSha256 : ""
             });
-            moves.Add((file, destination));
+            items.Add(new PlanItem(destination, source,
+                destinationExists ? GameToolJournalAction.Replace : GameToolJournalAction.Create,
+                false, file.Sha256, destinationSha, GameToolFileKind.Binary));
+            items.Add(new PlanItem(file.RelativePath, !enabled ? original?.BackupPath : null,
+                !enabled && original is not null ? GameToolJournalAction.Replace : GameToolJournalAction.Delete,
+                false, !enabled && original is not null ? original.OriginalSha256 : "", file.Sha256,
+                GameToolFileKind.Binary, Restore: !enabled && original is not null));
         }
 
         var pending = current with
         {
             State = GameToolManifestState.Pending, Journal = journal, Previous = current with { Previous = null },
-            JournalDirectories = [], Operation = "configure"
+            JournalDirectories = [], Operation = enabled ? "enable" : "disable"
         };
         Persist(target.AppId, pending);
         try
         {
             RequireClosed(ensureClosed);
-            Directory.CreateDirectory(transaction);
-            // Finish all recovery copies before changing any game files.
-            foreach (var entry in journal.Where(entry => entry.BackupPath.Length > 0))
-            {
-                var path = Path.Combine(directory, entry.RelativePath);
-                Directory.CreateDirectory(Path.GetDirectoryName(entry.BackupPath)!);
-                File.Copy(path, entry.BackupPath);
-            }
-
-            List<GameToolOwnedFile> files = [.. current.Files.Where(file => file.Kind != GameToolFileKind.Binary)];
-            foreach (var (file, destination) in moves)
-            {
-                var source = Path.Combine(directory, file.RelativePath);
-                var destinationPath = Path.Combine(directory, destination);
-                CopyInto(source, destinationPath);
-                ClearReadOnly(source);
-                File.Delete(source);
-                if (!enabled && current.Replaced.FirstOrDefault(item => item.RelativePath == file.RelativePath) is { } original)
-                {
-                    CopyInto(original.BackupPath, source);
-                }
-
-                var info = new FileInfo(destinationPath);
-                files.Add(file with { RelativePath = destination, Size = info.Length, LastWriteUtc = info.LastWriteTimeUtc });
-            }
-
+            var unchanged = current.Files.Where(file => file.Kind != GameToolFileKind.Binary)
+                .ToDictionary(file => file.RelativePath, file => (string?)file.Sha256, StringComparer.OrdinalIgnoreCase);
+            var plan = new InstallPlan(items, [], unchanged);
+            Execute(directory, plan, journal);
+            var files = BuildOwned(tool, directory, plan, current);
             Persist(target.AppId, current with { Enabled = enabled, Files = files, UpdatedUtc = DateTime.UtcNow });
             GameToolStorage.DeleteTree(transaction);
             return tool.Name + (enabled ? " enabled for this game." : " disabled for this game. Files and settings are kept.");

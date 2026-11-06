@@ -121,7 +121,7 @@ public sealed class GameToolReleasesTests
 
         // The package holds no OptiScaler binary, so the check refuses it after both phases were reported.
         await Assert.ThrowsAsync<InvalidDataException>(() => releases.PrepareAsync(tool, channel, release,
-            (phase, _, _) => phases.Add(phase), CancellationToken.None));
+            (phase, _, _) => phases.Add(phase), CancellationToken.None, "x64", tool.Proxy.Default));
 
         Assert.Equal(GameToolPhase.Download, phases[0]);
         Assert.Equal(GameToolPhase.Verify, phases[^1]);

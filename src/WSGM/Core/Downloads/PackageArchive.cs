@@ -1,5 +1,9 @@
 using System;
+using System.Buffers.Binary;
+using System.Formats.Tar;
 using System.IO;
+using System.IO.Compression;
+using System.Reflection.PortableExecutable;
 using System.Threading;
 using SharpCompress.Archives;
 using SharpCompress.Common;
@@ -25,14 +29,32 @@ internal static class PackageArchive
     /// </exception>
     internal static void Extract(string archivePath, string destination, CancellationToken cancellationToken)
     {
+        if (archivePath.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase))
+        {
+            using var input = File.OpenRead(archivePath);
+            using var gzip = new GZipStream(input, CompressionMode.Decompress);
+            ExtractTar(gzip, destination, cancellationToken);
+            return;
+        }
+
         if (Path.GetExtension(archivePath).Equals(".exe", StringComparison.OrdinalIgnoreCase))
         {
             ExtractSelfExtracting(archivePath, destination, cancellationToken);
             return;
         }
 
+        using var stream = File.OpenRead(archivePath);
+        Extract(stream, destination, cancellationToken);
+    }
+
+    /// <summary>Extracts an archive stream with the same path, link and cancellation rules as file extraction.</summary>
+    /// <param name="stream">The archive bytes; no downloaded program is executed.</param>
+    /// <param name="destination">The private destination.</param>
+    /// <param name="cancellationToken">Cancels between and within entries.</param>
+    internal static void Extract(Stream stream, string destination, CancellationToken cancellationToken)
+    {
         Directory.CreateDirectory(destination);
-        using var archive = ArchiveFactory.OpenArchive(archivePath);
+        using var archive = ArchiveFactory.OpenArchive(stream);
         var buffer = new byte[81920];
         if (archive.IsSolid || archive.Type == ArchiveType.SevenZip)
         {
@@ -55,6 +77,13 @@ internal static class PackageArchive
         void CopyEntry(IEntry entry, Func<Stream> open)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var attributes = entry.Attrib ?? 0;
+            if (!string.IsNullOrEmpty(entry.LinkTarget) || ((attributes >> 16) & 0xf000) == 0xa000
+                || (attributes & 0xf000) == 0xa000)
+            {
+                throw new InvalidDataException("Archive links are not permitted.");
+            }
+
             var name = entry.Key?.Replace('/', Path.DirectorySeparatorChar) ?? "";
             var target = Path.GetFullPath(Path.Combine(destination, name));
             if (!StoragePaths.IsUnder(destination, target))
@@ -78,6 +107,88 @@ internal static class PackageArchive
                 output.Write(buffer, 0, read);
             }
         }
+    }
+
+    private static void ExtractTar(Stream stream, string destination, CancellationToken token)
+    {
+        Directory.CreateDirectory(destination);
+        using var tar = new TarReader(stream);
+        var buffer = new byte[81920];
+        while (tar.GetNextEntry() is { } entry)
+        {
+            token.ThrowIfCancellationRequested();
+            if (entry.EntryType is TarEntryType.ExtendedAttributes or TarEntryType.GlobalExtendedAttributes
+                or TarEntryType.LongLink or TarEntryType.LongPath)
+            {
+                continue;
+            }
+
+            var path = Path.GetFullPath(Path.Combine(destination, entry.Name.Replace('/', Path.DirectorySeparatorChar)));
+            if (entry.EntryType == TarEntryType.Directory && StoragePaths.Same(destination, path))
+            {
+                continue;
+            }
+
+            if (!StoragePaths.IsUnder(destination, path))
+            {
+                throw new InvalidDataException("An archive path escapes its private staging directory.");
+            }
+
+            if (entry.EntryType == TarEntryType.Directory)
+            {
+                Directory.CreateDirectory(path);
+                continue;
+            }
+
+            if (entry.EntryType is not (TarEntryType.RegularFile or TarEntryType.V7RegularFile))
+            {
+                throw new InvalidDataException("Archive links and special entries are not permitted.");
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            using var output = File.Open(path, FileMode.CreateNew, FileAccess.Write);
+            var source = entry.DataStream;
+            int read;
+            while (source is not null && (read = source.Read(buffer)) > 0)
+            {
+                token.ThrowIfCancellationRequested();
+                output.Write(buffer, 0, read);
+            }
+        }
+    }
+
+    /// <summary>Opens a ZIP embedded in a PE, without copying the verified input buffer.</summary>
+    /// <param name="bytes">The verified setup bytes.</param>
+    /// <returns>The archive-relative slice, excluding the PE prefix and trailing certificate.</returns>
+    internal static MemoryStream OpenEmbeddedZip(byte[] bytes)
+    {
+        using var pe = new PEReader(new MemoryStream(bytes));
+        var certificate = pe.PEHeaders.PEHeader?.CertificateTableDirectory.RelativeVirtualAddress ?? 0;
+        var end = certificate > 0 ? certificate : bytes.Length;
+        if (end > bytes.Length)
+        {
+            throw new InvalidDataException("The embedded archive's certificate offset is invalid.");
+        }
+
+        for (var index = end - 22; index >= Math.Max(0, end - 65557); index--)
+        {
+            if (BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(index, 4)) != 0x06054b50)
+            {
+                continue;
+            }
+
+            var comment = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(index + 20, 2));
+            var size = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(index + 12, 4));
+            var offset = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(index + 16, 4));
+            var start = (long)index - size - offset;
+            if (index + 22 + comment <= end && start >= 0 && start <= index - 4
+                && BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan((int)start, 4)) == 0x04034b50)
+            {
+                return new MemoryStream(bytes, (int)start, index + 22 + comment - (int)start, writable: false);
+            }
+        }
+
+        throw new InvalidDataException("The setup has no valid embedded ZIP.");
     }
 
     // Reads the 7-Zip payload of a self-extracting archive as data; the downloaded stub never runs.
