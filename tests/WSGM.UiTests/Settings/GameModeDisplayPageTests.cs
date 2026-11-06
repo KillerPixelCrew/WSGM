@@ -1,3 +1,4 @@
+using Avalonia.Automation;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
@@ -211,8 +212,8 @@ public sealed class GameModeDisplayPageTests
         await ExecuteDisplayCommandAsync(model.RefreshDisplaysCommand);
         Assert.Equal(new DisplayMode(1920, 1080, 60), row.Mode);
         Assert.False(row.Active);
-        UiFixture.Click(window, window.GetVisualDescendants().OfType<CheckBox>()
-            .Single(control => Equals(control.Content, "Use in this layout")));
+        UiFixture.Click(window, window.GetVisualDescendants().OfType<ToggleSwitch>()
+            .Single(control => AutomationProperties.GetName(control) == "Use in this layout"));
         Assert.Equal(new DisplayMode(1920, 1080, 60), row.Mode);
         Assert.True(model.CanSaveLayouts);
     }
@@ -235,10 +236,13 @@ public sealed class GameModeDisplayPageTests
             .Single(control => control.Name == "ResolutionChoice");
         Assert.True(resolution.IsEffectivelyEnabled);
         Assert.Equal(2, resolution.ItemCount);
-        var enabled = window.GetVisualDescendants().OfType<CheckBox>()
-            .Single(control => Equals(control.Content, "Use in this layout"));
+        var enabled = window.GetVisualDescendants().OfType<ToggleSwitch>()
+            .Single(control => AutomationProperties.GetName(control) == "Use in this layout");
+        Assert.Equal("3840 × 2160 · 120 Hz · 100 %", row.Summary);
         UiFixture.Click(window, enabled);
         Assert.False(row.Active);
+        Assert.Equal("Off in this layout", row.Summary);
+        Assert.False(row.CanMakePrimary);
         Assert.True(resolution.IsEffectivelyVisible);
         Assert.True(resolution.IsEffectivelyEnabled);
         Assert.False(model.CanSaveLayouts);

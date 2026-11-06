@@ -46,9 +46,11 @@
               <TextBlock Text="{Binding Number}" Classes="display-number" VerticalAlignment="Center" />
               <StackPanel Grid.Column="1" Spacing="2">
                 <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" TextWrapping="Wrap" />
-                <TextBlock Text="{Binding ConnectionText}" Classes="caption" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding Summary}" Classes="caption" TextWrapping="Wrap" />
               </StackPanel>
-              <TextBlock Grid.Column="2" Text="{Binding LayoutState}" Classes="caption" VerticalAlignment="Center" />
+              <Border Grid.Column="2" Classes="settings-chip" IsVisible="{Binding IsPrimary}" VerticalAlignment="Center">
+                <TextBlock Text="Primary" />
+              </Border>
             </Grid>
           </DataTemplate>
         </ListBox.ItemTemplate>
@@ -86,9 +88,16 @@
             <TextBlock Text="{Binding InspectorTitle}" FontWeight="SemiBold" TextWrapping="Wrap" />
             <TextBlock Text="{Binding ConnectionText}" Classes="caption" TextWrapping="Wrap" />
           </StackPanel>
-          <CheckBox Content="Use in this layout" IsChecked="{Binding Active}" />
-          <CheckBox Content="Make this the primary display" IsChecked="{Binding IsPrimary}"
-                    IsEnabled="{Binding Active}" />
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <TextBlock Text="Use in this layout" VerticalAlignment="Center" />
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding Active}" VerticalAlignment="Center"
+                          AutomationProperties.Name="Use in this layout" />
+          </Grid>
+          <StackPanel Spacing="2">
+            <Button Content="Make this the primary display" Click="OnMakePrimary" HorizontalAlignment="Stretch"
+                    IsEnabled="{Binding CanMakePrimary}" />
+            <TextBlock Text="{Binding PrimaryHint}" Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
           <StackPanel Spacing="4">
             <TextBlock Text="Resolution" Classes="caption" />
             <ComboBox x:Name="ResolutionChoice" ItemsSource="{Binding Resolutions}" SelectedItem="{Binding Resolution}"

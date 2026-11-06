@@ -12,6 +12,15 @@ public partial class DisplayLayoutView : UserControl
         InitializeComponent();
     }
 
+    /// <summary>Makes the edited display the primary one; the editor moves the others off primary.</summary>
+    private void OnMakePrimary(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is DisplayLayoutEditorRow row)
+        {
+            row.IsPrimary = true;
+        }
+    }
+
     private void OnUndo(object? sender, RoutedEventArgs e)
     {
         (DataContext as DisplayLayoutEditor)?.Undo();

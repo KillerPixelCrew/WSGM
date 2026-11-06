@@ -127,6 +127,22 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
     /// <summary>Gets the state of this display in the draft.</summary>
     public string LayoutState => !Active ? "Off in this layout" : IsPrimary ? "Primary" : "Enabled";
 
+    /// <summary>
+    ///     What the display does in this layout, as its card says it: its mode while it is used and connected,
+    ///     otherwise why it is not shown.
+    /// </summary>
+    public string Summary => !Active ? "Off in this layout"
+        : !Present ? "Not connected"
+        : Mode is { } mode ? $"{mode.Width} × {mode.Height} · {mode.RefreshHz} Hz · {DpiPercent} %"
+        : "Connected";
+
+    /// <summary>Whether Make primary can do anything: the display is used and is not primary yet.</summary>
+    public bool CanMakePrimary => Active && !IsPrimary;
+
+    /// <summary>What the primary-display action says: it is already primary, or it is not used in this layout.</summary>
+    public string PrimaryHint => !Active ? "Turn on Use in this layout first."
+        : IsPrimary ? "Already primary in this layout." : "Windows puts the taskbar and new windows here.";
+
     /// <summary>Gets the display connection state without hiding disconnected entries.</summary>
     public string ConnectionText => Present ? "Connected" : "Disconnected · Remembered display";
 
@@ -157,6 +173,8 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
             _isPrimary = value;
             Raise(nameof(IsPrimary));
             Raise(nameof(LayoutState));
+            Raise(nameof(PrimaryHint));
+            Raise(nameof(CanMakePrimary));
             if (value)
             {
                 PrimaryRequested?.Invoke(this);
@@ -315,6 +333,14 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
 
         field = value;
         Raise(name);
+        if (name is nameof(Active) or nameof(Mode) or nameof(DpiPercent))
+        {
+            Raise(nameof(Summary));
+            Raise(nameof(PrimaryHint));
+            Raise(nameof(LayoutState));
+            Raise(nameof(CanMakePrimary));
+        }
+
         switch (name)
         {
             case nameof(HdrEnabled):
@@ -345,7 +371,7 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
                      nameof(DpiPercent), nameof(HdrEnabled), nameof(DisplayName),
                      nameof(Resolution), nameof(RefreshHz), nameof(Scales),
                      nameof(LayoutState), nameof(InspectorTitle), nameof(ConnectionText), nameof(HdrIndex),
-                     nameof(HasModes)
+                     nameof(HasModes), nameof(Summary), nameof(PrimaryHint), nameof(CanMakePrimary)
                  })
         {
             Raise(name);
