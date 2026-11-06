@@ -1212,7 +1212,7 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
             {
                 GraphicsApi = GameGraphicsApi.Detect(chosen.FullPath) is { Length: > 0 } apis
                     ? string.Join(", ", apis) + " (static imports)"
-                    : "Unknown; choose the graphics API below"
+                    : "Unknown graphics API"
             };
         var candidates = resolution?.Candidates.Select(candidate => new GameToolsCandidate(candidate.RelativePath,
             candidate.FileName, candidate.Architecture, PeImage.Label(candidate.Architecture),

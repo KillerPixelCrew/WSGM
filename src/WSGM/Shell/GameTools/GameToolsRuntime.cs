@@ -16,5 +16,5 @@ internal sealed record GameToolsRuntime(
     string ConfidenceLabel)
 {
     /// <summary>Static import evidence; unknown and multiple renderers require an explicit API choice.</summary>
-    public string GraphicsApi { get; init; } = "Unknown; choose the graphics API below";
+    public string GraphicsApi { get; init; } = "Unknown graphics API";
 }
