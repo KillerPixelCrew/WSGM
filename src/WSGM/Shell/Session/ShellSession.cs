@@ -83,7 +83,6 @@ public sealed class ShellSession
     private SessionModes? _modes;
     private SteamMonitor? _monitor;
     private OverlayController? _overlay;
-    private string? _gpuDriverUpdateNotice;
     private PowerButtonSetting? _powerButtonSetting;
     private SettingsActivation? _settingsActivation;
     private SettingsSurface? _settingsSurface;
@@ -499,17 +498,13 @@ public sealed class ShellSession
     private async Task NotifyGpuDriverUpdateAsync(GpuDriverUpdateState update)
     {
         var message = $"{update.Adapter.Name}: driver {update.Package!.Version} is available. "
-            + "Open Device > GPU > Driver updates to review and install it.";
-        var native = _steamUi.Transport is { } transport && await SteamUpdateNotifications.TryShowAsync(transport,
+            + "Open Display settings > GPU driver updates to review and install it.";
+        var native = _steamUi.Transport is { } transport && await SteamNotices.TryShowAsync(transport,
             update.Adapter.InstanceId + "/" + update.Package.Version, "GPU driver update available", message,
             "/settings/display", _state.ShutdownToken).ConfigureAwait(false);
         if (!native)
         {
-            Dispatcher.UIThread.Post(() =>
-            {
-                _gpuDriverUpdateNotice = message;
-                _overlay?.SetWarning(message);
-            });
+            _integrations.DriverUpdates?.AnnounceFallback(update);
         }
     }
 
@@ -652,10 +647,6 @@ public sealed class ShellSession
         overlay.ShowOnScreenKeyboard = _commands.ShowOnScreenKeyboardAsync;
         overlay.SteamClient = _steamUi.Client;
         overlay.BuildNotice = _steamUi.BuildNotice;
-        if (_gpuDriverUpdateNotice is { } driverNotice)
-        {
-            overlay.SetWarning(driverNotice);
-        }
         if (!_state.OverlayTestOnly)
         {
             overlay.RequestPowerAction = PowerActions.Request;

@@ -24,6 +24,8 @@ public sealed class BuiltinGpuServiceTests
         second.Finish.SetResult(GpuHealth.Ready);
         await using var service = Service(store, new Queue<FakeDriver>([first, second]));
         await service.ReconcileAsync(Enabled(), CancellationToken.None);
+        var reattached = 0;
+        service.DriverReattached += () => Interlocked.Increment(ref reattached);
         await service.SetDriverUpdatingAsync(GpuVendor.Intel, true, CancellationToken.None);
         Assert.True(first.Closed);
         Assert.Equal(1, first.Disposals);
@@ -32,6 +34,7 @@ public sealed class BuiltinGpuServiceTests
         Assert.Equal(0, second.Starts);
         await service.SetDriverUpdatingAsync(GpuVendor.Intel, false, CancellationToken.None);
         Assert.Equal(1, second.Starts);
+        Assert.Equal(1, reattached);
     }
 
     [Theory]

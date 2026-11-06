@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
 
@@ -8,6 +9,7 @@ namespace WSGM.Shell;
 
 internal sealed partial class SteamNativeSettingsService
 {
+    private readonly Lock _driverNotesGate = new();
     private readonly HashSet<string> _driverNotes = new(StringComparer.Ordinal);
 
     private void AddDriverUpdates(List<SteamSettingsSection> display, OfferedRows offer)
@@ -20,6 +22,11 @@ internal sealed partial class SteamNativeSettingsService
         List<SteamSettingsRow> rows = [];
         var states = service.Snapshot();
         var busy = states.Any(state => state.Busy);
+        HashSet<string> notes;
+        lock (_driverNotesGate)
+        {
+            notes = new HashSet<string>(_driverNotes, StringComparer.Ordinal);
+        }
         offer.Add(rows, new SteamSettingsRow("driver-updates.check", SteamSettingsRowKind.Action,
             "Check for GPU driver updates", "Checks your GPU vendor's official catalog.",
             ButtonLabel: "Check now", Disabled: busy), (_, _) => Result(service.Check()));
@@ -33,7 +40,7 @@ internal sealed partial class SteamNativeSettingsService
         if (states.Count == 0)
         {
             rows.Add(new SteamSettingsRow("driver-updates.empty", SteamSettingsRowKind.Note, "No supported GPU",
-                Text: service.DiscoveryDetail ?? "No supported Intel, AMD or NVIDIA adapter was found."));
+                Text: service.DiscoveryDetail ?? GpuDriverUpdateState.EmptyText));
         }
 
         foreach (var state in states)
@@ -41,20 +48,23 @@ internal sealed partial class SteamNativeSettingsService
             var id = state.Adapter.InstanceId;
             rows.Add(new SteamSettingsRow("driver-updates.status:" + id, SteamSettingsRowKind.Note,
                 state.Adapter.Name, Text: $"Installed: {state.Adapter.Version} · {state.Adapter.Date?.ToString("d") ?? "Date unknown"}\n"
-                    + state.Stage + ": " + state.Detail, Summary: state.Stage + "/" + state.Progress));
+                    + state.StatusText, Summary: state.Stage + "/" + state.Progress));
             if (state.Package is { } package)
             {
                 offer.Add(rows, new SteamSettingsRow("driver-updates.notes:" + id, SteamSettingsRowKind.Action,
-                    "Release notes and license", ButtonLabel: _driverNotes.Contains(id) ? "Hide" : "Show"), (_, _) =>
+                    "Release notes and license", ButtonLabel: notes.Contains(id) ? "Hide" : "Show"), (_, _) =>
                 {
-                    if (!_driverNotes.Remove(id))
+                    lock (_driverNotesGate)
                     {
-                        _driverNotes.Add(id);
+                        if (!_driverNotes.Remove(id))
+                        {
+                            _driverNotes.Add(id);
+                        }
                     }
 
                     return Task.FromResult(SteamUiCommandResult.Applied);
                 });
-                if (_driverNotes.Contains(id))
+                if (notes.Contains(id))
                 {
                     rows.Add(new SteamSettingsRow("driver-updates.release-notes:" + id, SteamSettingsRowKind.Note,
                         $"Driver {package.Version}", Text: package.ReleaseNotes + "\n\nLicense and details: " + package.Details));
@@ -63,10 +73,10 @@ internal sealed partial class SteamNativeSettingsService
 
             if (state.CanInstall)
             {
-                var key = "driver-updates.install:" + id;
+                var key = "driver-updates.install:" + id + "/" + state.Package!.Identity;
                 var refusal = service.InstallRefusal(state.Adapter);
                 offer.Add(null, new SteamSettingsRow(key, SteamSettingsRowKind.Action, "Install",
-                    Disabled: busy || refusal is not null), (_, _) => Result(service.Install(id)));
+                    Disabled: busy || refusal is not null), (_, _) => Result(service.Install(id, state.Package!.Identity)));
                 rows.Add(new SteamSettingsRow("driver-updates.confirm:" + id, SteamSettingsRowKind.Action,
                     "Download and install", refusal ?? GpuDriverUpdateService.InstallWarning,
                     Disabled: busy || refusal is not null,
@@ -75,7 +85,7 @@ internal sealed partial class SteamNativeSettingsService
                         GpuDriverUpdateService.InstallWarning + "\n\n" + state.Package.Details, "Download and install"))]));
             }
 
-            if (state.Stage is "Downloading" or "Checking" or "Verifying")
+            if (state.CanCancel)
             {
                 offer.Add(rows, new SteamSettingsRow("driver-updates.cancel:" + id, SteamSettingsRowKind.Action,
                     "Cancel preparation", "Stops before any driver installation starts.", ButtonLabel: "Cancel"), (_, _) =>
@@ -98,5 +108,5 @@ internal sealed partial class SteamNativeSettingsService
     }
 
     private static Task<SteamUiCommandResult> Result(bool accepted) => Task.FromResult(new SteamUiCommandResult(accepted,
-        accepted ? "Started. Progress is shown on this page." : "Wait for the current driver operation to finish."));
+        accepted ? "Started. Progress is shown on this page." : "The package changed or another driver operation is running. Check again before confirming."));
 }

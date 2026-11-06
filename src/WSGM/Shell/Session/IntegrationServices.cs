@@ -52,9 +52,8 @@ internal sealed class IntegrationServices
 
     internal void StartDriverUpdates(Func<bool?> gameRunning)
     {
-        var definition = LibHandheld.HandheldDevice.Detect(LibHandheld.HandheldDevice.ReadIdentity());
         DriverUpdates = new GpuDriverUpdateService(_state.Store, gameRunning,
-            () => definition?.GraphicsDriverUpdateRefusal, action => Dispatcher.UIThread.Post(action),
+            adapter => Device?.DeviceDefinition?.GraphicsDriverUpdateRestriction?.ReasonFor(adapter.HardwareId), action => Dispatcher.UIThread.Post(action),
             async (vendor, updating, token) =>
             {
                 if (BuiltinGpu is { } gpu)
@@ -62,10 +61,6 @@ internal sealed class IntegrationServices
                     await gpu.SetDriverUpdatingAsync(vendor, updating, token).ConfigureAwait(false);
                 }
 
-                if (!updating)
-                {
-                    ScaledResolutions?.Invalidate();
-                }
             });
     }
 
@@ -127,6 +122,7 @@ internal sealed class IntegrationServices
         {
             BuiltinGpu = new BuiltinGpuService(_state.Store, graphics);
             ScaledResolutions = new ScaledResolutionService(_state.Store, BuiltinGpu);
+            BuiltinGpu.DriverReattached += ScaledResolutions.Invalidate;
         }
 
         ShellSession.TryStart("common plugin manager", () =>

@@ -133,9 +133,9 @@ internal static class DevicePages
 
     /// <summary>Describes the GPU page: each graphics section's groups, or why there are none.</summary>
     /// <param name="graphics">The graphics snapshot.</param>
-    /// <param name="driverUpdates">Whether the session offers the shared driver-update view.</param>
+    /// <param name="registeredViews">Composite views registered by the session.</param>
     /// <returns>The page.</returns>
-    internal static DevicePage Gpu(GraphicsOverlaySnapshot graphics, bool driverUpdates = false)
+    internal static DevicePage Gpu(GraphicsOverlaySnapshot graphics, IReadOnlyCollection<string>? registeredViews = null)
     {
         ArgumentNullException.ThrowIfNull(graphics);
         List<DeviceGroup> groups =
@@ -157,7 +157,7 @@ internal static class DevicePages
             ]));
         }
 
-        if (driverUpdates)
+        if (registeredViews?.Contains(DriverUpdatesId) == true)
         {
             groups.Insert(0, new DeviceGroup(DriverUpdatesId, "Driver updates", null, DeviceFold.Section,
                 [new DeviceRow.View(DriverUpdatesId)]));

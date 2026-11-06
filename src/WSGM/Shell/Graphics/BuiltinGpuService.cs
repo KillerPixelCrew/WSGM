@@ -27,6 +27,9 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
     private bool _suspended;
     private readonly HashSet<GpuVendor> _updating = [];
 
+    /// <summary>Raised after a native vendor owner has successfully acquired fresh driver handles.</summary>
+    internal event Action? DriverReattached;
+
     /// <summary>Retires a vendor's native handles before an update and recreates them after the installer completes.</summary>
     internal Task SetDriverUpdatingAsync(GpuVendor vendor, bool updating, CancellationToken token)
     {
@@ -224,6 +227,10 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
             if (health is not GpuHealth.Ready)
             {
                 MarkStartupFailed(entry, $"Graphics {entry.Definition.Name} startup finished {health}.");
+            }
+            else
+            {
+                DriverReattached?.Invoke();
             }
         }
         catch (Exception error) when (error is not OutOfMemoryException)

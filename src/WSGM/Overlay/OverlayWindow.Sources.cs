@@ -18,18 +18,29 @@ public partial class OverlayWindow
     internal void AttachSources(OverlaySources sources)
     {
         AttachDeviceBridge(sources.Device);
-        AttachGraphicsSource(sources.Graphics);
         if (sources.DriverUpdates is { } driverUpdates)
         {
             _rows.Views[DevicePages.DriverUpdatesId] = () =>
             {
                 var view = new GpuDriverUpdatesView();
                 view.Attach(driverUpdates);
+                view.AttachedToVisualTree += (_, _) => view.Attach(driverUpdates);
                 view.DetachedFromVisualTree += (_, _) => view.Attach(null);
                 return view;
             };
-            ConfigureGpuDestination(true);
+            void ShowAnnouncement()
+            {
+                if (driverUpdates.TakeAnnouncement() is { } message)
+                {
+                    ViewModel.WarningText = message;
+                }
+            }
+
+            driverUpdates.Changed += ShowAnnouncement;
+            Closed += (_, _) => driverUpdates.Changed -= ShowAnnouncement;
+            ShowAnnouncement();
         }
+        AttachGraphicsSource(sources.Graphics);
         DevicePage.AttachPrerequisites(sources.DevicePrerequisites);
         AttachCommonPlugins(sources.CommonPlugins);
         GameLibraryHost.Attach(sources.GameLibrary);
@@ -350,6 +361,7 @@ public partial class OverlayWindow
     {
         if (ReferenceEquals(_graphicsSource, source))
         {
+            RefreshGpuDestination();
             return;
         }
 
@@ -365,10 +377,16 @@ public partial class OverlayWindow
         }
 
         var snapshot = _graphicsSource?.Snapshot() ?? GraphicsOverlaySnapshot.Empty;
-        ConfigureGpuDestination(snapshot.Visible || _rows.Views.ContainsKey(DevicePages.DriverUpdatesId));
+        RefreshGpuDestination();
         // Graphics groups are drawn on the GPU page, offered on the Overview and drawn on Quick access.
         RefreshDevicePanel();
         RenderPins(graphics: snapshot);
+    }
+
+    private void RefreshGpuDestination()
+    {
+        ConfigureGpuDestination(_rows.Views.ContainsKey(DevicePages.DriverUpdatesId)
+            || _graphicsSource?.Snapshot().Visible == true);
     }
 
     private void DetachGraphicsSource()

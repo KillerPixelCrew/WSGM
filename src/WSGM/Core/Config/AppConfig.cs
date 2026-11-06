@@ -36,6 +36,9 @@ public sealed class AppConfig
     /// <summary>Checks the official graphics catalogs daily; downloads and installs always require a user action.</summary>
     public bool GpuDriverUpdatesAutoCheck { get; set; }
 
+    /// <summary>The last explicit or automatic GPU catalog check attempt, in UTC.</summary>
+    public System.DateTimeOffset? GpuDriverUpdatesLastCheckedAt { get; set; }
+
     /// <summary>The last explicit GPU installation and the version Windows can roll back to.</summary>
     public GpuDriverInstallHistory? GpuDriverInstallHistory { get; set; }
 
