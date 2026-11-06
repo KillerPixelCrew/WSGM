@@ -283,23 +283,6 @@ public static class WindowFinder
     }
 
     /// <summary>
-    ///     Asks one exact window to close, as its own close button would, so the application can save or
-    ///     confirm first. Nothing is terminated.
-    /// </summary>
-    /// <param name="hWnd">The window that was listed.</param>
-    /// <param name="processId">The process that owned it when it was listed; a reused handle is left alone.</param>
-    /// <returns>Whether the request was posted to that window.</returns>
-    public static bool RequestClose(nint hWnd, uint processId)
-    {
-        if (hWnd == 0 || NativeMethods.GetWindowThreadProcessId(hWnd, out var owner) == 0 || owner != processId)
-        {
-            return false;
-        }
-
-        return NativeMethods.PostMessageW(hWnd, 0x0010, 0, 0); // WM_CLOSE
-    }
-
-    /// <summary>
     ///     Best-effort focus. Against an elevated window SetForegroundWindow may
     ///     fail silently under UIPI — callers should prefer protocol re-activation.
     /// </summary>
