@@ -153,7 +153,7 @@ public sealed partial class SettingsViewModel
         InstalledPackages.Clear();
         AvailablePackages.Clear();
         UnavailablePackages.Clear();
-        foreach (var state in page.Rows)
+        foreach (var state in WithoutRetired(page.Rows))
         {
             PluginPackageRow row = new(state, action => _services.ActOnPackage(action, page.Bundle));
             (state.Section switch
@@ -204,8 +204,8 @@ public sealed partial class SettingsViewModel
             Log.Warn("Plugins: the installed bundle could not be read: " + ex.Message);
         }
 
-        var rows = WithoutRetired(PluginPackageManager.Rows(catalog, bundle, InstallLayout.SetupPackages, offers,
-            new PendingPluginRemovalStore(InstallLayout.PendingPluginRemovals)));
+        var rows = PluginPackageManager.Rows(catalog, bundle, InstallLayout.SetupPackages, offers,
+            new PendingPluginRemovalStore(InstallLayout.PendingPluginRemovals));
         return new PluginPackagePage(catalog, adapters, bundle, rows.Select(row =>
         {
             if (string.IsNullOrEmpty(row.PackagePath))

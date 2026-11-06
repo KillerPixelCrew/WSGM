@@ -84,6 +84,9 @@ internal sealed class UiFixture : IDisposable
     /// <summary>Companion apps Settings offers when adding a startup app.</summary>
     internal List<(string Label, string Path, bool Elevated)> StartupSuggestions { get; } = [];
 
+    /// <summary>What the Plugins page reads: installed packages and the installed release's bundle.</summary>
+    internal PluginPackagePage PluginPage { get; set; } = new(PluginPackageCatalog.Empty, [], null, []);
+
     /// <summary>The handheld and graphics drivers the Settings inventory reports.</summary>
     internal SettingsInventory Inventory { get; set; } = new(null, []);
 
@@ -162,6 +165,7 @@ internal sealed class UiFixture : IDisposable
             ListLogs = () => LogFiles,
             DetectStartupApps = () => StartupSuggestions,
             ReadInventory = () => Inventory,
+            ReadPackages = () => PluginPage,
             ProgramExists = path => ProgramExists(path),
             UploadLogs = (files, _, cancellationToken) => UploadLogs(files, cancellationToken)
         };
