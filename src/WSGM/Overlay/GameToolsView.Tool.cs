@@ -49,10 +49,10 @@ public sealed partial class GameToolsView
 
         if (tool.ShowOptions)
         {
-            AddRow(rows, ProxyRow(tool, editable, installed));
+            AddRow(rows, ProxyRow(tool, editable && tool.Enabled && !(tool.ModeBased && installed), installed));
             foreach (var setting in tool.Settings)
             {
-                AddRow(rows, SettingRow(tool, setting, editable && setting.Available,
+                AddRow(rows, SettingRow(tool, setting, editable && setting.Available && (tool.Enabled || setting.Id == "enabled"),
                     installed && tool.Actions.Contains("configure")));
             }
 
@@ -106,7 +106,7 @@ public sealed partial class GameToolsView
                     break;
                 case "installed":
                 case "updateAvailable":
-                    chips.Add(Chip("Installed " + tool.InstalledVersion, "good"));
+                    chips.Add(Chip((tool.Enabled ? "Installed " : "Disabled · ") + tool.InstalledVersion, tool.Enabled ? "good" : ""));
                     if (tool.Status == "updateAvailable")
                     {
                         chips.Add(Chip("Update " + ShortLatest(tool.Channels.First(item => item.Current))
@@ -236,7 +236,7 @@ public sealed partial class GameToolsView
         }
 
         var from = files.TargetDirectory.Length > 0 ? " from " + files.TargetDirectory.Replace('/', '\\') : "";
-        parts.Add((parts.Count == 0 ? "Loaded as " : "loaded as ") + tool.ProxyName + from);
+        parts.Add((tool.Enabled ? parts.Count == 0 ? "Loaded as " : "loaded as " : "Disabled; configured as ") + tool.ProxyName + from);
         parts.Add(Count(files.Owned, "file") + " owned by WSGM");
         if (files.Replaced > 0)
         {
@@ -488,14 +488,14 @@ public sealed partial class GameToolsView
         var key = "tool:" + tool.Id + ".proxy";
         var current = ProxyFor(tool);
         var options = tool.ProxyOptions.Where(option => option.Available || option.Name == current)
-            .Select(option => (option.Name, option.Name)).ToList();
+            .Select(option => (option.Name, tool.ModeBased ? option.Hint.Split(" · ")[0] + " (" + option.Name + ")" : option.Name)).ToList();
         var hint = tool.ProxyOptions.FirstOrDefault(option => option.Name == current)?.Hint ?? "";
         var taken = tool.ProxyOptions.Where(option => !option.Available && option.Name != current)
             .Select(option => option.Name + (option.Conflict is { } conflict ? " (" + conflict.TrimEnd('.') + ")" : ""))
             .ToArray();
         var description = string.Join(" ", new[]
         {
-            installed ? "Choosing another name renames the installed file." : hint,
+            installed ? tool.ModeBased ? "Remove and reinstall to change the graphics API." : "Choosing another name renames the installed file." : hint,
             taken.Length > 0 ? "Not offered: " + string.Join(", ", taken) + "." : ""
         }.Where(part => part.Length > 0));
         var editor = Choice(options, current, enabled, chosen =>
@@ -515,7 +515,7 @@ public sealed partial class GameToolsView
             _draftProxy[tool.Id] = chosen;
             CurrentLevel?.Invoke();
         });
-        return ValueRow(key, "Load as", description, editor);
+        return ValueRow(key, tool.ModeBased ? "Graphics API" : "Load as", description, editor);
     }
 
     private Grid SettingRow(GameToolsTool tool, GameToolsSetting setting, bool enabled, bool applyNow)

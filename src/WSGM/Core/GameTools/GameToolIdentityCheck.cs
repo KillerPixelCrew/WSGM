@@ -20,7 +20,8 @@ internal static class GameToolIdentityCheck
             return false;
         }
 
-        return info.OriginalFilename.Equals(tool.Identity.OriginalFilename, StringComparison.OrdinalIgnoreCase);
+        return info.OriginalFilename.Equals(tool.Identity.OriginalFilename, StringComparison.OrdinalIgnoreCase)
+               || tool.Identity.Tokens.Any(info.Mentions);
     }
 
     /// <summary>Names another known mod a file belongs to.</summary>

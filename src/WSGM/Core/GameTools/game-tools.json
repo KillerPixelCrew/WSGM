@@ -44,15 +44,27 @@
         "originalFilename": "OptiScaler.dll",
         "vetoTokens": ["reshade"],
         "otherTools": [
-          { "token": "reshade", "name": "ReShade" },
-          { "token": "special k", "name": "Special K" },
-          { "token": "specialk", "name": "Special K" }
+          {
+            "token": "reshade",
+            "name": "ReShade"
+          },
+          {
+            "token": "special k",
+            "name": "Special K"
+          },
+          {
+            "token": "specialk",
+            "name": "Special K"
+          }
         ]
       },
       "proxy": {
         "default": "dxgi.dll",
         "options": [
-          { "name": "dxgi.dll", "hint": "Most compatible. Try this first." },
+          {
+            "name": "dxgi.dll",
+            "hint": "Most compatible. Try this first."
+          },
           {
             "name": "winmm.dll",
             "hint": "Use for Vulkan games. Also worth trying for Xbox and Microsoft Store games."
@@ -61,10 +73,22 @@
             "name": "version.dll",
             "hint": "Often works better for Xbox and Microsoft Store games."
           },
-          { "name": "dbghelp.dll", "hint": "An alternative when the others do not load." },
-          { "name": "d3d12.dll", "hint": "Try this when DLSS crashes with the other names." },
-          { "name": "wininet.dll", "hint": "An alternative when the others do not load." },
-          { "name": "winhttp.dll", "hint": "An alternative when the others do not load." },
+          {
+            "name": "dbghelp.dll",
+            "hint": "An alternative when the others do not load."
+          },
+          {
+            "name": "d3d12.dll",
+            "hint": "Try this when DLSS crashes with the other names."
+          },
+          {
+            "name": "wininet.dll",
+            "hint": "An alternative when the others do not load."
+          },
+          {
+            "name": "winhttp.dll",
+            "hint": "An alternative when the others do not load."
+          },
           {
             "name": "OptiScaler.asi",
             "hint": "Only with an ASI loader already installed in this game.",
@@ -88,7 +112,9 @@
       },
       "payload": {
         "required": ["OptiScaler.dll", "OptiScaler.ini"],
-        "familyDirectories": { "v10": ["OptiScaler"] },
+        "familyDirectories": {
+          "v10": ["OptiScaler"]
+        },
         "exclude": ["setup_windows.bat", "setup_linux.sh", "!! *"],
         "neverExclude": [
           "OptiScaler.ini",
@@ -126,13 +152,28 @@
         "OptiScaler/OptiScaler.log"
       ],
       "requiresUpscaler": [
-        { "family": "dlss", "label": "DLSS" },
-        { "family": "fsr", "label": "FSR" },
-        { "family": "xess", "label": "XeSS" }
+        {
+          "family": "dlss",
+          "label": "DLSS"
+        },
+        {
+          "family": "fsr",
+          "label": "FSR"
+        },
+        {
+          "family": "xess",
+          "label": "XeSS"
+        }
       ],
       "families": [
-        { "id": "v09", "pattern": "^0[.]9([.]|$)" },
-        { "id": "v10", "pattern": "^(0[.]10|10)([.]|$)" }
+        {
+          "id": "v09",
+          "pattern": "^0[.]9([.]|$)"
+        },
+        {
+          "id": "v10",
+          "pattern": "^(0[.]10|10)([.]|$)"
+        }
       ],
       "addons": [
         {
@@ -155,14 +196,19 @@
           "configOn": "true",
           "configOff": "auto",
           "vendors": ["amd", "intel"],
-          "vendorNotes": { "nvidia": "Not needed on NVIDIA graphics." },
+          "vendorNotes": {
+            "nvidia": "Not needed on NVIDIA graphics."
+          },
           "supportUrl": "https://raw.githubusercontent.com/optiscaler/OptiPatcher/main/OptiPatcher/dllmain.cpp",
           "supportRules": [
             {
               "pattern": "CHECK_UE\\s*\\(\\s*([A-Za-z0-9_]+)\\s*\\)",
               "names": ["{0}-win64-shipping.exe", "{0}-wingdk-shipping.exe"]
             },
-            { "pattern": "exeName\\s*==\\s*[\"']([^\"']+)[\"']", "names": ["{0}"] }
+            {
+              "pattern": "exeName\\s*==\\s*[\"']([^\"']+)[\"']",
+              "names": ["{0}"]
+            }
           ]
         }
       ],
@@ -175,10 +221,20 @@
           "key": "Dxgi",
           "default": "on",
           "options": [
-            { "value": "on", "label": "Automatic", "ini": "auto" },
-            { "value": "off", "label": "Off", "ini": "false" }
+            {
+              "value": "on",
+              "label": "Automatic",
+              "ini": "auto"
+            },
+            {
+              "value": "off",
+              "label": "Off",
+              "ini": "false"
+            }
           ],
-          "vendorNotes": { "nvidia": "Not needed on NVIDIA graphics." }
+          "vendorNotes": {
+            "nvidia": "Not needed on NVIDIA graphics."
+          }
         },
         {
           "id": "menuScale",
@@ -188,16 +244,56 @@
           "key": "Scale",
           "default": "auto",
           "options": [
-            { "value": "auto", "label": "Automatic", "ini": "auto" },
-            { "value": "0.8", "label": "0.8", "ini": "0.8" },
-            { "value": "0.9", "label": "0.9", "ini": "0.9" },
-            { "value": "1.0", "label": "1.0", "ini": "1.0" },
-            { "value": "1.1", "label": "1.1", "ini": "1.1" },
-            { "value": "1.2", "label": "1.2", "ini": "1.2" },
-            { "value": "1.3", "label": "1.3", "ini": "1.3" },
-            { "value": "1.4", "label": "1.4", "ini": "1.4" },
-            { "value": "1.5", "label": "1.5", "ini": "1.5" },
-            { "value": "1.6", "label": "1.6", "ini": "1.6" }
+            {
+              "value": "auto",
+              "label": "Automatic",
+              "ini": "auto"
+            },
+            {
+              "value": "0.8",
+              "label": "0.8",
+              "ini": "0.8"
+            },
+            {
+              "value": "0.9",
+              "label": "0.9",
+              "ini": "0.9"
+            },
+            {
+              "value": "1.0",
+              "label": "1.0",
+              "ini": "1.0"
+            },
+            {
+              "value": "1.1",
+              "label": "1.1",
+              "ini": "1.1"
+            },
+            {
+              "value": "1.2",
+              "label": "1.2",
+              "ini": "1.2"
+            },
+            {
+              "value": "1.3",
+              "label": "1.3",
+              "ini": "1.3"
+            },
+            {
+              "value": "1.4",
+              "label": "1.4",
+              "ini": "1.4"
+            },
+            {
+              "value": "1.5",
+              "label": "1.5",
+              "ini": "1.5"
+            },
+            {
+              "value": "1.6",
+              "label": "1.6",
+              "ini": "1.6"
+            }
           ]
         },
         {
@@ -208,9 +304,411 @@
           "key": "DisableSplash",
           "default": "off",
           "options": [
-            { "value": "off", "label": "Off", "ini": "auto" },
-            { "value": "on", "label": "On", "ini": "true" }
+            {
+              "value": "off",
+              "label": "Off",
+              "ini": "auto"
+            },
+            {
+              "value": "on",
+              "label": "On",
+              "ini": "true"
+            }
           ]
+        }
+      ]
+    },
+    {
+      "id": "dxvk",
+      "name": "DXVK",
+      "description": "Translates Direct3D 8, 9, 10 and 11 to Vulkan. Requires a Vulkan-capable GPU and driver; Windows game compatibility varies. Only the selected API and architecture are installed.",
+      "homepage": "https://github.com/doitsujin/dxvk",
+      "license": "Zlib",
+      "notice": "Downloaded directly from the official publisher. No binaries are bundled with WSGM.",
+      "antiCheatWarning": "Graphics injectors can be rejected by anti-cheat or result in an online account ban. Only install when the game permits modifications.",
+      "channels": [
+        {
+          "id": "stable",
+          "label": "Stable",
+          "source": {
+            "provider": "GitHub",
+            "baseUrl": "https://api.github.com/",
+            "repository": "doitsujin/dxvk",
+            "assetPattern": "^dxvk-[0-9.]+[.]tar[.]gz$",
+            "channel": "stable",
+            "packageType": "tar.gz"
+          }
+        }
+      ],
+      "architectures": ["x86", "x64"],
+      "primaryFile": "WSGM-tool.dll",
+      "identity": {
+        "originalFilename": "DXVK.dll",
+        "tokens": ["DXVK"]
+      },
+      "proxy": {
+        "default": "d3d11.dll",
+        "options": [
+          {
+            "name": "d3d8.dll",
+            "hint": "Direct3D 8 Â· choose the API the game actually uses."
+          },
+          {
+            "name": "d3d9.dll",
+            "hint": "Direct3D 9 Â· choose the API the game actually uses."
+          },
+          {
+            "name": "d3d10core.dll",
+            "hint": "Direct3D 10 Â· choose the API the game actually uses."
+          },
+          {
+            "name": "d3d11.dll",
+            "hint": "Direct3D 11 Â· choose the API the game actually uses."
+          }
+        ]
+      },
+      "payload": {
+        "required": ["WSGM-tool.dll"]
+      },
+      "configFiles": ["dxvk.conf"],
+      "modes": [
+        {
+          "proxy": "d3d8.dll",
+          "api": "Direct3D 8",
+          "architectures": ["x86", "x64"],
+          "files": {
+            "{arch}/d3d8.dll": "WSGM-tool.dll",
+            "{arch}/d3d9.dll": "d3d9.dll"
+          }
+        },
+        {
+          "proxy": "d3d9.dll",
+          "api": "Direct3D 9",
+          "architectures": ["x86", "x64"],
+          "files": {
+            "{arch}/d3d9.dll": "WSGM-tool.dll"
+          }
+        },
+        {
+          "proxy": "d3d10core.dll",
+          "api": "Direct3D 10",
+          "architectures": ["x86", "x64"],
+          "files": {
+            "{arch}/d3d10core.dll": "WSGM-tool.dll",
+            "{arch}/d3d11.dll": "d3d11.dll",
+            "{arch}/dxgi.dll": "dxgi.dll"
+          }
+        },
+        {
+          "proxy": "d3d11.dll",
+          "api": "Direct3D 11",
+          "architectures": ["x86", "x64"],
+          "files": {
+            "{arch}/d3d11.dll": "WSGM-tool.dll",
+            "{arch}/dxgi.dll": "dxgi.dll"
+          }
+        }
+      ]
+    },
+    {
+      "id": "reshade",
+      "name": "ReShade",
+      "description": "Post-processing injector. Downloaded from reshade.me and verified against its published signing certificate. Press Home in-game to configure effects. Vulkan uses a system layer rather than a game-local DLL and is not offered here.",
+      "homepage": "https://reshade.me/",
+      "license": "BSD-3-Clause",
+      "notice": "Downloaded directly from the official publisher. No binaries are bundled with WSGM.",
+      "antiCheatWarning": "Graphics injectors can be rejected by anti-cheat or result in an online account ban. Only install when the game permits modifications.",
+      "channels": [
+        {
+          "id": "stable",
+          "label": "Stable",
+          "source": {
+            "provider": "Website",
+            "baseUrl": "https://reshade.me/",
+            "downloadPage": "https://reshade.me/",
+            "repository": "",
+            "assetPattern": "^ReShade_Setup_[0-9.]+[.]exe$",
+            "packageType": "exe-zip"
+          }
+        }
+      ],
+      "architectures": ["x86", "x64"],
+      "primaryFile": "WSGM-tool.dll",
+      "identity": {
+        "originalFilename": "ReShade.dll",
+        "tokens": ["ReShade"]
+      },
+      "proxy": {
+        "default": "dxgi.dll",
+        "options": [
+          {
+            "name": "d3d9.dll",
+            "hint": "Direct3D 9 Â· choose the API the game actually uses."
+          },
+          {
+            "name": "dxgi.dll",
+            "hint": "Direct3D 10 / 11 / 12 Â· choose the API the game actually uses."
+          },
+          {
+            "name": "opengl32.dll",
+            "hint": "OpenGL Â· choose the API the game actually uses."
+          }
+        ]
+      },
+      "payload": {
+        "required": ["WSGM-tool.dll"]
+      },
+      "configFiles": ["ReShade.ini", "ReShadePreset.ini"],
+      "modes": [
+        {
+          "proxy": "d3d9.dll",
+          "api": "Direct3D 9",
+          "architectures": ["x86", "x64"],
+          "files": {
+            "ReShade{bits}.dll": "WSGM-tool.dll"
+          }
+        },
+        {
+          "proxy": "dxgi.dll",
+          "api": "Direct3D 10 / 11 / 12",
+          "architectures": ["x86", "x64"],
+          "files": {
+            "ReShade{bits}.dll": "WSGM-tool.dll"
+          }
+        },
+        {
+          "proxy": "opengl32.dll",
+          "api": "OpenGL",
+          "architectures": ["x86", "x64"],
+          "files": {
+            "ReShade{bits}.dll": "WSGM-tool.dll"
+          }
+        }
+      ]
+    },
+    {
+      "id": "special-k",
+      "name": "Special K",
+      "description": "Per-game performance, presentation and HDR tools. Press Ctrl+Shift+Backspace in-game to configure. This installs a local wrapper; no global injection service is started.",
+      "homepage": "https://github.com/SpecialKO/SpecialK",
+      "license": "GPL-3.0",
+      "notice": "Downloaded directly from the official publisher. No binaries are bundled with WSGM.",
+      "antiCheatWarning": "Graphics injectors can be rejected by anti-cheat or result in an online account ban. Only install when the game permits modifications.",
+      "channels": [
+        {
+          "id": "stable",
+          "label": "Stable",
+          "source": {
+            "provider": "GitHub",
+            "baseUrl": "https://api.github.com/",
+            "repository": "SpecialKO/SpecialK",
+            "assetPattern": "^SpecialK[.]7z$",
+            "channel": "stable",
+            "packageType": "7z"
+          }
+        }
+      ],
+      "architectures": ["x86", "x64"],
+      "primaryFile": "WSGM-tool.dll",
+      "identity": {
+        "originalFilename": "Special K.dll",
+        "tokens": ["Special K", "SpecialK"]
+      },
+      "proxy": {
+        "default": "dxgi.dll",
+        "options": [
+          {
+            "name": "dxgi.dll",
+            "hint": "Direct3D 10 / 11 / 12 Â· choose the API the game actually uses."
+          },
+          {
+            "name": "d3d9.dll",
+            "hint": "Direct3D 9 Â· choose the API the game actually uses."
+          },
+          {
+            "name": "d3d8.dll",
+            "hint": "Direct3D 8 Â· choose the API the game actually uses."
+          },
+          {
+            "name": "ddraw.dll",
+            "hint": "DirectDraw / Direct3D 1â€“7 Â· choose the API the game actually uses."
+          },
+          {
+            "name": "OpenGL32.dll",
+            "hint": "OpenGL Â· choose the API the game actually uses."
+          }
+        ]
+      },
+      "payload": {
+        "required": ["WSGM-tool.dll"]
+      },
+      "configFiles": [
+        "dxgi.ini",
+        "d3d9.ini",
+        "d3d8.ini",
+        "ddraw.ini",
+        "OpenGL32.ini",
+        "SpecialK.ini"
+      ],
+      "modes": [
+        {
+          "proxy": "dxgi.dll",
+          "api": "Direct3D 10 / 11 / 12",
+          "architectures": ["x86", "x64"],
+          "files": {
+            "SpecialK{bits}.dll": "WSGM-tool.dll"
+          }
+        },
+        {
+          "proxy": "d3d9.dll",
+          "api": "Direct3D 9",
+          "architectures": ["x86", "x64"],
+          "files": {
+            "SpecialK{bits}.dll": "WSGM-tool.dll"
+          }
+        },
+        {
+          "proxy": "d3d8.dll",
+          "api": "Direct3D 8",
+          "architectures": ["x86"],
+          "files": {
+            "SpecialK{bits}.dll": "WSGM-tool.dll"
+          }
+        },
+        {
+          "proxy": "ddraw.dll",
+          "api": "DirectDraw / Direct3D 1â€“7",
+          "architectures": ["x86"],
+          "files": {
+            "SpecialK{bits}.dll": "WSGM-tool.dll"
+          }
+        },
+        {
+          "proxy": "OpenGL32.dll",
+          "api": "OpenGL",
+          "architectures": ["x86", "x64"],
+          "files": {
+            "SpecialK{bits}.dll": "WSGM-tool.dll"
+          }
+        }
+      ]
+    },
+    {
+      "id": "dgvoodoo2",
+      "name": "dgVoodoo2",
+      "description": "Runs older DirectDraw, Direct3D and Glide games through modern Direct3D. Only the selected wrapper is copied; existing dgVoodoo.conf settings survive updates.",
+      "homepage": "https://github.com/dege-diosg/dgVoodoo2",
+      "license": "Freeware",
+      "notice": "Downloaded directly from the official publisher. No binaries are bundled with WSGM.",
+      "antiCheatWarning": "Graphics injectors can be rejected by anti-cheat or result in an online account ban. Only install when the game permits modifications.",
+      "channels": [
+        {
+          "id": "stable",
+          "label": "Stable",
+          "source": {
+            "provider": "GitHub",
+            "baseUrl": "https://api.github.com/",
+            "repository": "dege-diosg/dgVoodoo2",
+            "assetPattern": "^dgVoodoo[0-9_]+[.]zip$",
+            "channel": "stable",
+            "packageType": "zip"
+          }
+        }
+      ],
+      "architectures": ["x86", "x64"],
+      "primaryFile": "WSGM-tool.dll",
+      "identity": {
+        "originalFilename": "dgVoodoo2.dll",
+        "tokens": ["dgVoodoo"]
+      },
+      "proxy": {
+        "default": "D3D9.dll",
+        "options": [
+          {
+            "name": "D3D8.dll",
+            "hint": "Direct3D 8 Â· choose the API the game actually uses."
+          },
+          {
+            "name": "D3D9.dll",
+            "hint": "Direct3D 9 Â· choose the API the game actually uses."
+          },
+          {
+            "name": "DDraw.dll",
+            "hint": "DirectDraw / Direct3D 1â€“7 Â· choose the API the game actually uses."
+          },
+          {
+            "name": "Glide.dll",
+            "hint": "Glide Â· choose the API the game actually uses."
+          },
+          {
+            "name": "Glide2x.dll",
+            "hint": "Glide 2 Â· choose the API the game actually uses."
+          },
+          {
+            "name": "Glide3x.dll",
+            "hint": "Glide 3 Â· choose the API the game actually uses."
+          }
+        ]
+      },
+      "payload": {
+        "required": ["WSGM-tool.dll"]
+      },
+      "configFiles": ["dgVoodoo.conf"],
+      "modes": [
+        {
+          "proxy": "D3D8.dll",
+          "api": "Direct3D 8",
+          "architectures": ["x86"],
+          "files": {
+            "MS/{arch}/D3D8.dll": "WSGM-tool.dll",
+            "dgVoodoo.conf": "dgVoodoo.conf"
+          }
+        },
+        {
+          "proxy": "D3D9.dll",
+          "api": "Direct3D 9",
+          "architectures": ["x86", "x64"],
+          "files": {
+            "MS/{arch}/D3D9.dll": "WSGM-tool.dll",
+            "dgVoodoo.conf": "dgVoodoo.conf"
+          }
+        },
+        {
+          "proxy": "DDraw.dll",
+          "api": "DirectDraw / Direct3D 1â€“7",
+          "architectures": ["x86"],
+          "files": {
+            "MS/{arch}/DDraw.dll": "WSGM-tool.dll",
+            "dgVoodoo.conf": "dgVoodoo.conf",
+            "MS/{arch}/D3DImm.dll": "D3DImm.dll"
+          }
+        },
+        {
+          "proxy": "Glide.dll",
+          "api": "Glide",
+          "architectures": ["x86", "x64"],
+          "files": {
+            "3Dfx/{arch}/Glide.dll": "WSGM-tool.dll",
+            "dgVoodoo.conf": "dgVoodoo.conf"
+          }
+        },
+        {
+          "proxy": "Glide2x.dll",
+          "api": "Glide 2",
+          "architectures": ["x86", "x64"],
+          "files": {
+            "3Dfx/{arch}/Glide2x.dll": "WSGM-tool.dll",
+            "dgVoodoo.conf": "dgVoodoo.conf"
+          }
+        },
+        {
+          "proxy": "Glide3x.dll",
+          "api": "Glide 3",
+          "architectures": ["x86", "x64"],
+          "files": {
+            "3Dfx/{arch}/Glide3x.dll": "WSGM-tool.dll",
+            "dgVoodoo.conf": "dgVoodoo.conf"
+          }
         }
       ]
     }

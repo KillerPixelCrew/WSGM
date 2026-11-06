@@ -1,13 +1,33 @@
 # Game Tools
 
 Game Tools installs, updates, configures and removes third-party per-game modifications in a game's
-own folder, from Steam's game menu or from the Overlay. The first delivery ships one tool,
-OptiScaler, from a stable and a nightly release channel. This guide covers the owners, how a game's
-program is found, the tool catalog and its channels, the game list, the install transaction and its
-manifest, conflicts, revalidation and the policies around third-party code. The product decisions
-behind it are in [decisions.md](decisions.md#steam).
+own folder, from Steam's game menu or from the Overlay. DXVK, ReShade, Special K and dgVoodoo2 use
+API-specific local payloads alongside the existing OptiScaler stable and nightly channels. This
+guide covers the owners, how a game's program is found, the tool catalog and its channels, the game
+list, the install transaction and its manifest, conflicts, revalidation and the policies around
+third-party code. The product decisions behind it are in [decisions.md](decisions.md#steam).
 
 ## Owners
+
+The four local injectors use `GameToolMode` entries in the bundled catalog. Each mode names its
+supported architectures, API and exact source-to-destination file mapping. DXVK's official tar.gz,
+Special K's 7z and dgVoodoo2's ZIP come from their publishers' GitHub releases and require published
+SHA-256 digests. ReShade comes directly from reshade.me; its appended ZIP is read without running
+the setup. Its self-signed Authenticode CMS signature and PE digest are checked against the
+certificate thumbprint published by ReShade. No third-party binaries are redistributed with WSGM.
+
+PE imports from the selected executable and paired UnityPlayer.dll provide graphics API evidence.
+Dynamic loading and multi-renderer games still need the user's API choice. Only the selected mode's
+DLLs reach the game folder. ReShade's Vulkan system-layer installation is outside this game-local
+DLL workflow; its Direct3D and OpenGL wrappers are supported. Unknown proxy collisions are refused.
+
+The existing AppID/shortcut record is the per-game profile authority. Its installed manifest records
+the selected API proxy, release, settings and enabled state. Changing WSGM's active performance
+profile does not silently install an injector. **Enabled for this game** parks all owned binaries
+with a tool-specific suffix and restores backed-up originals; enabling reverses that journaled
+transaction. Configuration stays in place. Both operations require the game closed, revalidate
+hashes and refuse changed or occupied destinations. Enable before update or repair. Remove and
+reinstall to change API.
 
 | Part                         | Files                                                                                 | Owns                                                                                                        |
 | ---------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
@@ -818,8 +838,8 @@ generation. WSGM installs the stable `.7z` release of
 
 , downloaded with its GitHub digest checked like every package and refused unless it is a PE of the
 game's architecture. It is cached under
-`<data>\GameTools\packages\optiscaler\addons\optipatcher-<hash>`. The build date shown is the asset's
-upload date.
+`<data>\GameTools\packages\optiscaler\addons\optipatcher-<hash>`. The build date shown is the
+asset's upload date.
 
 - **Placement.** `plugins/OptiPatcher.asi` beside the program and OptiScaler's proxy DLL, for 0.9.x
   and 10.x alike: both load ASI plugins from the relative `plugins` folder, as OptiPatcher's README
@@ -950,13 +970,14 @@ No line is written per file scanned or copied.
 
 ## Known limits
 
-- OptiScaler is the only tool. DXVK, dgVoodoo2, ReShade and ReScaleFrame are deferred; the catalog,
-  manifest and conflict model are meant to take them without changing the transaction.
+- ReScaleFrame and other tools remain outside this increment; the existing OptiScaler integration is
+  preserved.
 - Deferred OptiScaler options: FPS overlay and limit (WSGM covers both), FSR4 INT8, frame-generation
   input and output, interpolation count, and ASI plugins other than OptiPatcher.
 - Stable and nightly are the only channels. A move between 0.9.x and 10.x, by update or by channel
   switch, is a family change the user confirms. Nightlies are untested upstream builds.
-- 32-bit and Arm64 games are incompatible.
+- The four local tools support x86 and x64 where their chosen modes do. OptiScaler remains x64-only;
+  Arm64 is not offered.
 - The running check covers the program and the executables at the top of its folder and the install
   root; a game started from a deeper launcher path is caught by Steam's running AppID.
 - No live Steam, real game folder or hardware pass has been recorded yet, and the transaction has no

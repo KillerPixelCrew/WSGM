@@ -31,7 +31,7 @@ public sealed class GameToolsLibraryProjectionTests
                 Record(6, "Death Stranding", Installed(directory.Root, "death", "nightly", "10.0.0-pre1",
                     "nightly-20261030:1:a", "OptiScaler_v10.0.0-pre1_20261030.7z")),
                 new GameToolRecord { AppId = 7, Name = "No tools", Runtime = new GameRuntimeChoice() },
-                Record(8, "Retired tool", Installed(directory.Root, "retired") with { ToolId = "dxvk" })
+                Record(8, "Retired tool", Installed(directory.Root, "retired") with { ToolId = "retired-fixture-tool" })
             ]
         };
 

@@ -39,6 +39,9 @@ internal sealed record GameToolManifest
     /// <summary>The name the primary file is installed as.</summary>
     public string ProxyName { get; init; } = "";
 
+    /// <summary>Whether the per-game injection files are active; false keeps them parked with ownership intact.</summary>
+    public bool Enabled { get; init; } = true;
+
     /// <summary>The game's install root when this manifest was last written, used to detect a moved game.</summary>
     public string InstallRoot { get; init; } = "";
 

@@ -21,6 +21,11 @@ internal static class GameToolAdmission
     {
         foreach (var (id, value) in settings)
         {
+            if (id == "enabled" && value is "on" or "off")
+            {
+                continue;
+            }
+
             var setting = tool.Settings.FirstOrDefault(item => item.Id == id);
             if (setting is null || setting.Options.All(option => option.Value != value))
             {

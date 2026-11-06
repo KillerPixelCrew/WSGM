@@ -113,6 +113,17 @@ internal sealed record GameToolCatalog
             Validate(tool, channel);
         }
 
+        foreach (var mode in tool.Modes)
+        {
+            if (mode.Architectures.Length == 0 || mode.Files.Count == 0
+                || !tool.Proxy.Options.Any(option => option.Name == mode.Proxy)
+                || mode.Files.Any(file => !SafeRelative(file.Key) || !SafeRelative(file.Value))
+                || !mode.Files.Values.Contains(tool.PrimaryFile, StringComparer.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException("Invalid Game Tools mode: " + tool.Id + "/" + mode.Proxy);
+            }
+        }
+
         if (tool.Addons.Select(addon => addon.Id).Distinct(StringComparer.Ordinal).Count() != tool.Addons.Length)
         {
             throw new InvalidDataException("Invalid Game Tools definition: " + tool.Id);
@@ -170,11 +181,11 @@ internal sealed record GameToolCatalog
     {
         var source = channel.Source;
         var invalid = !Regex.IsMatch(channel.Id, "^[a-z][a-z0-9-]*$") || channel.Label.Length == 0
-                                                                      || !HostedReleases.Providers.Contains(
-                                                                          source.Provider)
-                                                                      || !Regex.IsMatch(source.Repository,
-                                                                          "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-                                                                      || source.PackageType is not ("7z" or "zip")
+                                                                      || (source.Provider == "Website"
+                                                                          ? JsonRead.HttpsUrl(source.DownloadPage).Length == 0
+                                                                          : !HostedReleases.Providers.Contains(source.Provider)
+                                                                            || !Regex.IsMatch(source.Repository, "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"))
+                                                                      || source.PackageType is not ("7z" or "zip" or "tar.gz" or "exe-zip")
                                                                       || source.AssetPattern.Length == 0
                                                                       || source.Channel.Length == 0;
         try

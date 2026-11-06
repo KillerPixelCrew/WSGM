@@ -80,7 +80,7 @@ internal static class GameToolStatus
                                                                + " is available.",
                     GameToolVersionRelation.NewerThanLatest => "Newer than the latest "
                                                                + channel.Label.ToLowerInvariant() + " release.",
-                    _ => "Installed as " + manifest.ProxyName + "."
+                    _ => manifest.Enabled ? "Installed as " + manifest.ProxyName + "." : "Disabled for this game. Files and settings are kept."
                 };
                 if (relation == GameToolVersionRelation.UpdateAvailable)
                 {
@@ -93,6 +93,10 @@ internal static class GameToolStatus
                 }
 
                 actions.AddRange(["configure", "repair", "remove"]);
+                if (!manifest.Enabled)
+                {
+                    actions.RemoveAll(action => action is "update" or "repair" or "switchChannel");
+                }
             }
 
             foreach (var copy in inspection?.Unmanaged ?? [])

@@ -280,7 +280,7 @@ public sealed partial class GameToolsView
                     : state.Loading
                         ? ""
                         : "Several programs could be the game"
-                : string.Join(" · ", new[] { runtime.ArchitectureLabel, runtime.ConfidenceLabel }
+                : string.Join(" · ", new[] { runtime.ArchitectureLabel, runtime.ConfidenceLabel, runtime.GraphicsApi }
                     .Where(part => part.Length > 0)), null));
         var upscalers = UpscalerLabels(state);
         Control? chips = null;

@@ -21,7 +21,7 @@ public static class PreviewGameTools
 {
     /// <summary>Every scene, in the order the page reaches them.</summary>
     internal static readonly string[] Scenes =
-        ["list", "game", "installed", "addons", "installing", "program", "anticheat", "nightly"];
+        ["list", "game", "installed", "addons", "installing", "program", "anticheat", "nightly", "injectors", "disabled"];
 
     /// <summary>Exports every Game Tools scene at one viewport.</summary>
     /// <param name="directory">The output folder.</param>
@@ -70,8 +70,12 @@ public static class PreviewGameTools
         {
             case "list":
                 break;
-            case "game" or "nightly":
+            case "game" or "nightly" or "injectors" or "disabled":
                 Open(window, "game:" + GameToolsFixtures.AlanWake);
+                if (scene is "injectors" or "disabled")
+                {
+                    source.Publish(GameToolsFixtures.Injectors(scene == "disabled"));
+                }
                 break;
             case "installed" or "addons":
                 Open(window, "tools:" + GameToolsFixtures.Cyberpunk);

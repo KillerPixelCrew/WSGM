@@ -6,6 +6,9 @@ internal sealed record GameToolIdentity
     /// <summary>The version resource OriginalFilename every copy of the tool carries.</summary>
     public string OriginalFilename { get; init; } = "";
 
+    /// <summary>Distinct publisher/product tokens for tools whose filename varies by architecture or API.</summary>
+    public string[] Tokens { get; init; } = [];
+
     /// <summary>Tokens that make a file another product even if its OriginalFilename matches.</summary>
     public string[] VetoTokens { get; init; } = [];
 

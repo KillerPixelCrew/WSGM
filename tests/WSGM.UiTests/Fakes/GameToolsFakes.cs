@@ -1,5 +1,6 @@
 using SkiaSharp;
 using SteamUiToolkit;
+using WSGM.Core;
 using WSGM.Shell;
 using WSGM.Testing;
 
@@ -167,6 +168,37 @@ internal sealed class FakeGameToolsSource(IEnumerable<GameToolsState> states, Ga
 /// <summary>The synthetic games, states and capsule images every Game Tools capture draws.</summary>
 internal static class GameToolsFixtures
 {
+    /// <summary>The four local injectors projected into the production card layout for render-only review.</summary>
+    internal static GameToolsState Injectors(bool disabled)
+    {
+        var tools = GameToolCatalog.Current.Tools.Where(tool => tool.Modes.Length > 0).Select(tool => Tool() with
+        {
+            Id = tool.Id, Name = tool.Name, Description = tool.Description, Homepage = tool.Homepage,
+            License = tool.License, Notice = tool.Notice, ModeBased = true, Enabled = !disabled,
+            Status = disabled ? "installed" : "notInstalled", InstalledVersion = disabled ? "1.0" : null,
+            StatusText = disabled ? "Disabled for this game. Files and settings are kept." : "Not installed.",
+            Channel = "stable",
+            Channels = [new GameToolsChannel("stable", "Stable", "", true, "1.0", "1.0", null, null, false, false)],
+            ProxyName = tool.Proxy.Default,
+            ProxyOptions = [.. tool.Modes.Where(mode => mode.Architectures.Contains("x64")).Select(mode =>
+                new GameToolsProxyOption(mode.Proxy, mode.Api + " · Select the game's actual renderer.", true, null))],
+            Settings = disabled
+                ? [new GameToolsSetting("enabled", "Enabled for this game", "Files and settings are kept while disabled.",
+                    "off", null, [new GameToolsSettingOption("off", "Off"), new GameToolsSettingOption("on", "On")], true, null)]
+                : [],
+            Addons = [], Actions = disabled ? ["configure", "remove"] : ["install"]
+        }).ToArray();
+        if (disabled)
+        {
+            tools = [.. tools.OrderBy(tool => tool.Id == "special-k" ? 0 : 1)];
+        }
+
+        return NotInstalled with
+        {
+            Runtime = NotInstalled.Runtime! with { GraphicsApi = "Direct3D 11 (static imports)" }, Tools = tools
+        };
+    }
+
     internal const uint AlanWake = 2_388_300;
     internal const uint Cyberpunk = 1_091_500;
     internal const uint EldenRing = 1_245_620;

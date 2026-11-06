@@ -379,6 +379,27 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
                 var (target, manifest) = await InstalledAsync(tool, appId).ConfigureAwait(false);
                 await RequireClosedAsync(target).ConfigureAwait(false);
                 context.Phase(GameToolPhase.Settings, false);
+                if (settings.TryGetValue("enabled", out var enabled))
+                {
+                    if (settings.Count != 1 || proxyName is not null)
+                    {
+                        throw new GameToolException("Change enabled state separately from other settings.");
+                    }
+
+                    return await Task.Run(() => _installer.SetEnabled(tool, target, manifest, enabled == "on",
+                        () => _running.ClosedMessage(target)), CancellationToken.None).ConfigureAwait(false);
+                }
+
+                if (!manifest.Enabled)
+                {
+                    throw new GameToolException("Enable the tool before changing its configuration.");
+                }
+
+                if (tool.Modes.Length > 0 && proxyName is not null && proxyName != manifest.ProxyName)
+                {
+                    throw new GameToolException("Remove and reinstall the tool to change its graphics API.");
+                }
+
                 var outcome = await Task.Run(() => _installer.Configure(tool, target, manifest, proxyName, settings,
                     () => _running.ClosedMessage(target)), CancellationToken.None).ConfigureAwait(false);
                 return outcome.Notice;
@@ -533,7 +554,10 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         var channel = tool.ChannelOrDefault(request.Channel);
         var release = await LatestReleaseAsync(tool, channel, token).ConfigureAwait(false);
         context.Release(channel, release);
-        var package = await Releases.PrepareAsync(tool, channel, release, context.Progress, token)
+        var suggested = GameGraphicsApi.Suggest(tool, target.RuntimeExecutable, target.Architecture);
+        var proxy = request.ProxyName ?? suggested;
+        var package = await Releases.PrepareAsync(tool, channel, release, context.Progress, token,
+                target.Architecture, proxy)
             .ConfigureAwait(false);
         package = await WithAddonsAsync(tool, package,
             await InstallAddonsAsync(tool, request, Path.GetFileName(target.RuntimeExecutable), token)
@@ -543,7 +567,10 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         // Inspected after the download, right before planning, so the install sees the folder as it is now.
         var inspection = await Task.Run(() => GameToolInstaller.Inspect(tool, target.TargetDirectory, null), token)
             .ConfigureAwait(false);
-        var proxy = request.ProxyName ?? GameToolInstaller.SuggestProxy(inspection.Proxies, tool.Proxy.Default);
+        if (tool.Modes.Length == 0)
+        {
+            proxy = request.ProxyName ?? GameToolInstaller.SuggestProxy(inspection.Proxies, tool.Proxy.Default);
+        }
         var outcome = await _installer.InstallAsync(tool, target, package,
                 new GameToolRequest(request.ReplaceExisting ? "replaceExisting" : "install", proxy, request.Settings,
                     Channel: channel.Id),
@@ -559,10 +586,15 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     {
         var (target, manifest) = await InstalledAsync(tool, appId).ConfigureAwait(false);
         GameToolAdmission.RequireCompleted(manifest);
+        if (!manifest.Enabled)
+        {
+            throw new GameToolException("Enable the tool before updating or repairing it.");
+        }
         await RequireClosedAsync(target).ConfigureAwait(false);
         var (chosen, channel) = await release(manifest, token).ConfigureAwait(false);
         context.Release(channel, chosen);
-        var package = await Releases.PrepareAsync(tool, channel, chosen, context.Progress, token)
+        var package = await Releases.PrepareAsync(tool, channel, chosen, context.Progress, token,
+                target.Architecture, manifest.ProxyName)
             .ConfigureAwait(false);
 
         // Installed add-ons go along with the latest build, so an update or repair keeps what the user chose.
@@ -1176,7 +1208,12 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
             ? null
             : new GameToolsRuntime(chosen.RelativePath, chosen.FileName, chosen.Architecture,
                 PeImage.Label(chosen.Architecture), GameToolStatus.ConfidenceId(resolution!.Confidence),
-                GameToolStatus.ConfidenceLabel(resolution.Confidence));
+                GameToolStatus.ConfidenceLabel(resolution.Confidence))
+            {
+                GraphicsApi = GameGraphicsApi.Detect(chosen.FullPath) is { Length: > 0 } apis
+                    ? string.Join(", ", apis) + " (static imports)"
+                    : "Unknown; choose the graphics API below"
+            };
         var candidates = resolution?.Candidates.Select(candidate => new GameToolsCandidate(candidate.RelativePath,
             candidate.FileName, candidate.Architecture, PeImage.Label(candidate.Architecture),
             GameToolStatus.RoleId(candidate.Role), GameToolStatus.RoleLabel(candidate.Role), candidate.Reasons,
@@ -1232,6 +1269,16 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
                         ?? (inspection is null
                             ? tool.Proxy.Default
                             : GameToolInstaller.SuggestProxy(inspection.Proxies, tool.Proxy.Default));
+        if (manifest is null && tool.Modes.Length > 0 && chosen is not null)
+        {
+            proxyName = GameGraphicsApi.Suggest(tool, chosen.FullPath, chosen.Architecture);
+            proxies = [.. proxies.Select(option => option with
+            {
+                Available = option.Available && tool.Modes.Any(mode => mode.Proxy == option.Name
+                    && mode.Architectures.Contains(chosen.Architecture)),
+                Hint = tool.Modes.First(mode => mode.Proxy == option.Name).Api + " · " + option.Hint
+            })];
+        }
         var settings = tool.Settings.Select(setting =>
         {
             var value = GameToolStatus.SettingValue(setting, manifest, iniValues, _vendors.Value);
@@ -1239,6 +1286,14 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
                 [.. setting.Options.Select(option => new GameToolsSettingOption(option.Value, option.Label))],
                 value.Available, value.Note);
         }).ToArray();
+        if (manifest is not null)
+        {
+            settings = [new GameToolsSetting("enabled", "Enabled for this game",
+                "Close the game before changing this. Disabled tools keep their files and settings for later.",
+                manifest.Enabled ? "on" : "off", null,
+                [new GameToolsSettingOption("off", "Off"), new GameToolsSettingOption("on", "On")], true, null),
+                .. settings];
+        }
         var relativeTarget = targetDirectory is null
             ? ""
             : GameToolPaths.RelativeDirectory(scan.InstallFolder, targetDirectory);
@@ -1267,7 +1322,11 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
             ],
             evaluation.Warnings, evaluation.Actions,
             new GameToolsFiles(relativeTarget, manifest?.Files.Count ?? 0, manifest?.Replaced.Count ?? 0,
-                inspection?.Missing ?? [], inspection?.Modified ?? []), addons);
+                inspection?.Missing ?? [], inspection?.Modified ?? []), addons)
+        {
+            Enabled = manifest?.Enabled ?? true,
+            ModeBased = tool.Modes.Length > 0
+        };
     }
 
     private static IReadOnlyList<string> DetectVendors(Func<IReadOnlyList<GpuVendor>> detect)

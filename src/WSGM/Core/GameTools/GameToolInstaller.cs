@@ -24,7 +24,7 @@ namespace WSGM.Core;
 ///         retried; they roll back and report that a file is in use or protected.
 ///     </para>
 /// </remarks>
-internal sealed class GameToolInstaller(string userRoot)
+internal sealed partial class GameToolInstaller(string userRoot)
 {
     /// <summary>The notice for an operation stopped by Cancel.</summary>
     /// <remarks>
@@ -600,6 +600,11 @@ internal sealed class GameToolInstaller(string userRoot)
 
             if (File.Exists(path))
             {
+                if (!current.Enabled && Sha256(path).Equals(original.OriginalSha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
                 unrestored.Add(original);
                 continue;
             }

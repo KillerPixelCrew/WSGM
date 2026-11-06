@@ -69,6 +69,9 @@ internal sealed record GameToolDefinition
     /// <summary>Optional plugins the tool loads, offered for the games their publishers support.</summary>
     public GameToolAddon[] Addons { get; init; } = [];
 
+    /// <summary>Architecture-specific local injection modes, keyed by proxy name.</summary>
+    public GameToolMode[] Modes { get; init; } = [];
+
     /// <summary>The channel a game uses until the user chooses another.</summary>
     internal GameToolChannel DefaultChannel => Channels[0];
 

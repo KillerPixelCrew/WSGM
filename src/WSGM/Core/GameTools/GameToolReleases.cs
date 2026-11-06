@@ -22,7 +22,7 @@ namespace WSGM.Core;
 ///     extracted under <c>&lt;root&gt;\GameTools\packages\&lt;tool&gt;\&lt;release&gt;</c>, keyed by version, asset,
 ///     hash and URL, with the hash of every payload file recorded beside them.
 /// </remarks>
-internal sealed class GameToolReleases : IDisposable
+internal sealed partial class GameToolReleases : IDisposable
 {
     private const string IdentityFile = "identity.txt";
     private const string HashesFile = "hashes.txt";
@@ -288,8 +288,9 @@ internal sealed class GameToolReleases : IDisposable
         {
             try
             {
-                var release = await _releases.FindAsync(source.Hosted(), architecture, cancellationToken)
-                    .ConfigureAwait(false);
+                var release = source.Provider == "Website"
+                    ? await WebsiteReleaseAsync(source, cancellationToken).ConfigureAwait(false)
+                    : await _releases.FindAsync(source.Hosted(), architecture, cancellationToken).ConfigureAwait(false);
                 return new GameToolLatest(normalize(release), null, DateTime.UtcNow);
             }
             catch (Exception ex) when (attempt < 3 && Transient(ex) && !cancellationToken.IsCancellationRequested)
@@ -314,10 +315,19 @@ internal sealed class GameToolReleases : IDisposable
     ///     <see cref="GameToolPhase.Verify" />), the bytes copied and the expected total.
     /// </param>
     /// <param name="cancellationToken">Cancels the download and extraction.</param>
+    /// <param name="architecture">The selected game's architecture for a local injection mode.</param>
+    /// <param name="proxyName">The selected API proxy for a local injection mode.</param>
     /// <returns>The package.</returns>
     internal async Task<GameToolPackage> PrepareAsync(GameToolDefinition tool, GameToolChannel channel,
-        HostedRelease release, Action<string, long, long> progress, CancellationToken cancellationToken)
+        HostedRelease release, Action<string, long, long> progress, CancellationToken cancellationToken,
+        string? architecture = null, string? proxyName = null)
     {
+        if (tool.Modes.Length > 0)
+        {
+            return await PrepareLocalAsync(tool, channel, release, architecture ?? tool.Architectures[0],
+                proxyName ?? tool.Proxy.Default, progress, cancellationToken).ConfigureAwait(false);
+        }
+
         SweepStages(tool);
         var sha = UpdateChecker.ParseHash(release.Asset.Sha256)
                   ?? throw new InvalidDataException(

@@ -67,4 +67,11 @@ internal sealed record GameToolsTool(
     IReadOnlyList<string> Warnings,
     IReadOnlyList<string> Actions,
     GameToolsFiles Files,
-    IReadOnlyList<GameToolsAddon> Addons);
+    IReadOnlyList<GameToolsAddon> Addons)
+{
+    /// <summary>Whether files are active in this game's persisted profile.</summary>
+    public bool Enabled { get; init; } = true;
+
+    /// <summary>Whether the proxy chooses a distinct API-specific payload.</summary>
+    public bool ModeBased { get; init; }
+}

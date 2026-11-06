@@ -312,7 +312,7 @@
   };
   // Stamped on every namespace the host defines on SteamClient, so a later probe can tell OUR namespace
   // from a real backend. Without it the two are indistinguishable and the compatibility check reads
-  // its own successful install as "a native backend exists", refuses, and tears the patch down —
+  // its own successful install as "a native backend exists", refuses, and tears the patch down \u2014
   // which is exactly what left this client with an empty audio page and a crashing Performance tab.
   //
   // A string key rather than a Symbol: it has to survive being read back from a probe evaluated in
@@ -320,7 +320,7 @@
   const ownedMarker = "__steamUiOwnedNamespace";
   // Gates register themselves rather than being named here. The bridge used to construct each one
   // by name and publish it under a fixed property, which meant this file had to list every surface
-  // its consumer happened to have — the one thing a reusable bridge cannot do.
+  // its consumer happened to have \u2014 the one thing a reusable bridge cannot do.
   //
   // Registration is a top-level statement in each fragment, so it runs after this file and before
   // anything asks for a gate. It also inherits the reuse check for free: when this file returns
@@ -409,8 +409,8 @@
     const stored = storedOriginal(value, keys);
     return isPropertySnapshot(stored) ? stored.value : stored;
   };
-  // An accessor-backed field is one whose value lives BEHIND the property — a MobX observable, a
-  // store's computed flag — and the only safe way to change it is through its own setter.
+  // An accessor-backed field is one whose value lives BEHIND the property \u2014 a MobX observable, a
+  // store's computed flag \u2014 and the only safe way to change it is through its own setter.
   // Redefining or deleting the accessor destroys the store's bookkeeping while leaving the getter in
   // place: Steam's settings message (a MobX object) then throws
   // `Cannot read properties of undefined (reading 'get')` on every later read, which crashed the
@@ -439,7 +439,7 @@
     const descriptor = Object.getOwnPropertyDescriptor(host, property);
     if (descriptor) {
       if (!("value" in descriptor)) {
-        // Through the setter, never by redefinition — see accessorSetter. Read back because a
+        // Through the setter, never by redefinition \u2014 see accessorSetter. Read back because a
         // setter is free to ignore the write, and a claim that did not take must not be marked.
         if (typeof descriptor.set !== "function") {
           throw new TypeError("claim target is a read-only accessor");
@@ -540,7 +540,7 @@
       const next = replacement(original.value);
       // Functions as well as objects: every member claim so far replaces a METHOD, and `typeof` a
       // function is "function", not "object". Excluding it left the replacement unmarked, so the
-      // release found nothing of ours and handed nothing back — the overlay outlived its own
+      // release found nothing of ours and handed nothing back \u2014 the overlay outlived its own
       // removal.
       if (!next || (typeof next !== "object" && typeof next !== "function")) {
         return { ok: false, error: "claim replacement cannot carry its marker" };
@@ -851,7 +851,7 @@
   // found by that provider's source and by the shape of the client.
   //
   // Failure is swallowed on purpose. A client whose query layer moved keeps the stale answer and the
-  // row simply does not update — which is a degraded surface, not a broken one, and never a reason to
+  // row simply does not update \u2014 which is a degraded surface, not a broken one, and never a reason to
   // tear down a gate that is otherwise working.
   const QueryClientTokens = ["ReactQueryDevtools", "offlineFirst"];
   const isQueryClient = (value) =>
@@ -1961,7 +1961,7 @@
   };
   // Walks mounted fibers breadth-first over the child and sibling links, bounded, until `visit`
   // answers true. Breadth-first because a router sits near the top of its tree, and a depth-first
-  // walk can spend the whole bound inside the first large subtree — a mounted library grid — before
+  // walk can spend the whole bound inside the first large subtree \u2014 a mounted library grid \u2014 before
   // it gets there. Answers how many fibers were seen and whether the walk stopped on a match.
   const walkFibers = (roots, bound, visit) => {
     const queue = roots.slice();
@@ -2478,7 +2478,7 @@
     return tokens.every((token) => source.includes(token));
   };
   // @fragment icons.ts
-  // Original 24×24 glyphs for native Steam rows; filled with currentColor and sized by the host.
+  // Original 24\u00d724 glyphs for native Steam rows; filled with currentColor and sized by the host.
   // Each row has a distinct shape so controller navigation retains recognizable landmarks.
   /** Named glyph shapes expressed as React SVG tags and attributes. */
   const SteamUiIconShapes = Object.freeze({
@@ -2686,7 +2686,7 @@
         },
       ],
     ],
-    // Variable refresh: an uneven trace rather than a steady one. Stroked, not filled — a 2px line is
+    // Variable refresh: an uneven trace rather than a steady one. Stroked, not filled \u2014 a 2px line is
     // the only honest way to draw a waveform at this size.
     pulse: [
       [
@@ -2938,7 +2938,7 @@
   /**
    * Renders host-supplied SVG path data as a decorative current-color glyph.
    * @param react Steam's React runtime, which owns cached elements.
-   * @param d SVG path commands and numbers on a 24×24 grid; markup is rejected.
+   * @param d SVG path commands and numbers on a 24\u00d724 grid; markup is rejected.
    * @returns A cached or new SVG element, or null when the path fails validation.
    */
   const renderSteamGlyph = (react, d) => {
@@ -3212,13 +3212,25 @@
    */
   function createSteamUiModuleResolver(scope) {
     let runtime;
-    window.webpackChunksteamui?.push([
+    const chunks = window.webpackChunksteamui;
+    const capture = [
       [`steam_ui_${scope}_${Date.now()}`],
       {},
       (value) => {
         runtime = value;
       },
-    ]);
+    ];
+    chunks?.push(capture);
+    // Webpack's push runs the callback at once and then keeps the entry in the array for good. The
+    // callback is a closure of the evaluated script, so the entry pinned that whole script: every
+    // probe, and every replaced bridge with its 2.2 MB source and the state of all its gates. The
+    // runtime never reads an entry again after it has run, so ours is taken back out.
+    try {
+      const index = Array.prototype.lastIndexOf.call(chunks ?? [], capture);
+      if (index >= 0) Array.prototype.splice.call(chunks, index, 1);
+    } catch {
+      // An array that refuses the splice keeps the entry, as before.
+    }
     if (!runtime?.m) throw new Error("Steam modules unavailable");
     // Standalone probes and the bridge inspect the same runtime. Repeating every fingerprint's
     // text search in each probe stalls Steam's UI thread during a synchronization pass.
@@ -4027,7 +4039,7 @@
           ui,
           refusal
             ? { kind: "unavailable", text: refusal }
-            : { kind: "loading", text: definition.loading ?? `Loading ${title}…` },
+            : { kind: "loading", text: definition.loading ?? `Loading ${title}\u2026` },
         );
       }
       if (!tabs) return h(definition.Page, { context, state, tab: "", page: props.page });
@@ -4066,7 +4078,7 @@
               opacity: 0.8,
             },
           },
-          gate.status().lastError || "Loading…",
+          gate.status().lastError || "Loading\u2026",
         );
       }
       const h = react.createElement;
@@ -4283,7 +4295,18 @@
       };
       const refreshDocuments = () => {
         if (entry.closed || entry.failed) return;
-        for (const doc of documents()) {
+        const current = documents();
+        // A closed popup keeps its Window, its Document and its whole DOM alive for as long as this
+        // entry refers to it, so a window or style no longer among Steam's documents is let go here.
+        // A session opens and closes hundreds of popups (toasts, menus, the keyboard).
+        const views = new Set(current.map((doc) => doc.defaultView));
+        for (const target of knownWindows) {
+          if (!views.has(target)) knownWindows.delete(target);
+        }
+        for (const style of entry.styles) {
+          if (!current.includes(style.ownerDocument)) entry.styles.delete(style);
+        }
+        for (const doc of current) {
           const target = doc.defaultView;
           if (target && !knownWindows.has(target)) {
             knownWindows.add(target);
@@ -4648,7 +4671,7 @@
     if (!ui.listBuilder) {
       return h(ui.valueField, { name: row.label, value: "Steam's native list is unavailable." });
     }
-    const dimensions = size.match(/^\s*(\d{3,5})\s*[x×X]\s*(\d{3,5})\s*$/);
+    const dimensions = size.match(/^\s*(\d{3,5})\s*[x\u00d7X]\s*(\d{3,5})\s*$/);
     const width = Number(dimensions?.[1]);
     const height = Number(dimensions?.[2]);
     const valid = dimensions && width >= 100 && width <= 15999 && height >= 100 && height <= 15999;
@@ -4668,7 +4691,7 @@
             value: size,
             disabled,
             maxLength: 13,
-            placeholder: "Width × height",
+            placeholder: "Width \u00d7 height",
             "aria-label": "Custom resolution in pixels",
             onChange: (event) => setSize(event?.target?.value ?? ""),
           },
@@ -4716,7 +4739,7 @@
         "p",
         { className: "steam-ui-kit-resolution-note" },
         editor.nativeWidth && editor.nativeHeight
-          ? `5% steps: native ${editor.nativeWidth} × ${editor.nativeHeight}, 100% down to 50%.`
+          ? `5% steps: native ${editor.nativeWidth} \u00d7 ${editor.nativeHeight}, 100% down to 50%.`
           : "Native size unavailable; add custom dimensions instead.",
       ),
     );
@@ -5703,7 +5726,7 @@
             kind: "action",
             label: "Custom screensavers",
             description: count
-              ? `${count} ${count === 1 ? "source" : "sources"}${selected ? ` · ${selected.name} selected` : ""}`
+              ? `${count} ${count === 1 ? "source" : "sources"}${selected ? ` \u00b7 ${selected.name} selected` : ""}`
               : "Create a slideshow from your photos or import a local scene pack.",
             buttonLabel: count ? "Manage sources" : "Add sources",
           },
@@ -5997,7 +6020,7 @@
           ...points.map((point, index) =>
             h(ui.sliderField, {
               key: `${key}-${point.input}`,
-              label: `${point.input} °C`,
+              label: `${point.input} \u00b0C`,
               value: point.output,
               min: row.minimum ?? 0,
               max: row.maximum ?? 100,
@@ -6091,9 +6114,9 @@
                 showValue: false,
                 description: steamSettingDescription(ui, {
                   ...row,
-                  description: [row.description, "Unknown · adjust to set a value"]
+                  description: [row.description, "Unknown \u00b7 adjust to set a value"]
                     .filter(Boolean)
-                    .join(" · "),
+                    .join(" \u00b7 "),
                 }),
               }
             : {}),
@@ -6566,7 +6589,7 @@
           : renderSteamUiGrid(ui, drawn)
         : null,
       loading
-        ? renderSteamUiEmpty(ui, { kind: "loading", text: props.loadingText ?? "Loading…" })
+        ? renderSteamUiEmpty(ui, { kind: "loading", text: props.loadingText ?? "Loading\u2026" })
         : null,
       empty,
       more && !loading
@@ -6627,7 +6650,7 @@
             if (!props.busy && !props.disabled) props.onAcquire();
           },
         },
-        props.busy ? (props.busyLabel ?? "Working…") : props.label,
+        props.busy ? (props.busyLabel ?? "Working\u2026") : props.label,
       ),
       props.note ? h("div", { className: "steam-ui-kit-muted" }, props.note) : null,
     );
@@ -6643,7 +6666,7 @@
   const renderSteamUiItem = (ui, props) => {
     const h = ui.react.createElement;
     const description = props.loading
-      ? "Loading…"
+      ? "Loading\u2026"
       : props.error
         ? props.error
         : props.description || (props.noDescription ?? "No description provided.");
@@ -7977,7 +8000,7 @@
                 if (!props.cancelling) props.onCancel?.();
               },
             },
-            props.cancelling ? "Cancelling…" : (props.cancelLabel ?? "Cancel"),
+            props.cancelling ? "Cancelling\u2026" : (props.cancelLabel ?? "Cancel"),
           )
         : null,
       ...(!ended && props.note
@@ -8684,11 +8707,11 @@
     // Steam's audio identities are NUMBERS: the live store keeps m_activeOutputDeviceId as a
     // uint32 with 0xFFFFFFFF for none (read off the running client, 2026-08-30). The host's endpoint
     // ids are Windows GUID strings, so devices listed by name but nothing could ever match as
-    // active — which reads as "no default device" and disables the volume slider. Each GUID gets a
+    // active \u2014 which reads as "no default device" and disables the volume slider. Each GUID gets a
     // stable small number for Steam's side of the wire, translated back on every command.
     const NO_DEVICE = 4294967295;
     // The key m_mapVolumes is keyed by, and the second argument of both SetDeviceVolume and
-    // OnAudioDeviceVolumeChanged. INPUT IS ZERO — read out of the client's own enum (Input=0,
+    // OnAudioDeviceVolumeChanged. INPUT IS ZERO \u2014 read out of the client's own enum (Input=0,
     // Output=1) on 2026-08-30, after assuming the opposite: with the values swapped the
     // output slider's writes were filtered out as "input" and the speaker volume was stored under
     // the input key, which put it on the microphone slider. Named because it has now been confused
@@ -8712,7 +8735,7 @@
     };
     const guidFor = (value) => deviceGuids.get(Number(value)) ?? null;
     // The store's device constructor ingests flOutputVolume/flInputVolume (0..1) into the map the
-    // sliders bind — omit them and that direction renders a grey bar over undefined. The host observes
+    // sliders bind \u2014 omit them and that direction renders a grey bar over undefined. The host observes
     // the two Windows defaults, so every endpoint of a direction carries that direction's current
     // default value; exposing a per-device number for an inactive endpoint would be invented.
     const toDevice = (entry, flOutputVolume, flInputVolume) => ({
@@ -8756,7 +8779,7 @@
     // Volume-changed dispatches fire ONLY when the volume moved. Steam shows its volume OSD on
     // every dispatch, and firing one per publish made the OSD pop up over and over while nothing
     // had changed. Null means no volume has been reported yet, so the first publish never counts
-    // as a change either — construction already carries it.
+    // as a change either \u2014 construction already carries it.
     let lastFlOutputVolume = null;
     let lastFlInputVolume = null;
     const onState = (state) => {
@@ -8785,10 +8808,10 @@
         if (callbacks.deviceAdded) {
           callbacks.deviceAdded(toDevice(device, flOutputVolume, flInputVolume));
         }
-        // (deviceId, DIRECTION, volume) — in that order. Read off the store's own methods
+        // (deviceId, DIRECTION, volume) \u2014 in that order. Read off the store's own methods
         // 2026-08-30: OnAudioDeviceVolumeChanged(e,t,r) forwards to OnVolumeUpdated(t,r), which is
         // m_mapVolumes.set(t, r). The direction is the KEY and the volume is the VALUE, and the host
-        // was passing them the other way round — every entry it wrote was keyed by a float volume
+        // was passing them the other way round \u2014 every entry it wrote was keyed by a float volume
         // with 1 or 0 as its value, so getDeviceVolume(direction) found nothing and the slider had
         // no number to sit on.
         //
@@ -8826,8 +8849,8 @@
         }
         for (const device of state.devices) {
           store.RegisterOrUpdateDevice(toDevice(device, flOutputVolume, flInputVolume));
-          // Update() copies the name, the directions and the CEC flags and nothing else — read
-          // live 2026-08-30 — so registration never fills m_mapVolumes and this is its only path.
+          // Update() copies the name, the directions and the CEC flags and nothing else \u2014 read
+          // live 2026-08-30 \u2014 so registration never fills m_mapVolumes and this is its only path.
           //
           // But writing on every publish is wrong in both directions at once. It dispatches a
           // volume change once a second, which is Steam's OSD popping up forever; and while the
@@ -8835,7 +8858,7 @@
           // not-yet-observed one snaps the handle back under their thumb.
           //
           // So: seed a direction that has no value at all, and otherwise write only when the host's
-          // OWN reading moved — something outside Steam changed the volume — and the store has not
+          // OWN reading moved \u2014 something outside Steam changed the volume \u2014 and the store has not
           // already caught up. Both are suppressed, because neither is the user acting inside
           // Steam: a hardware button already shows the host's own overlay.
           const deviceId = numberFor(device.id);
@@ -8913,7 +8936,7 @@
           input: direction === AudioDirection.Input,
         });
       },
-      // (deviceId, DIRECTION, volume) — three arguments. Read off the store's own device class
+      // (deviceId, DIRECTION, volume) \u2014 three arguments. Read off the store's own device class
       // 2026-08-30: setDeviceVolume(e,t) calls SetDeviceVolume(this.m_id, e, t). The host declared
       // two parameters and so read the DIRECTION as the volume: dragging the slider sent
       // Math.round(1 * 100) or Math.round(0 * 100), which is why every drag set 100% or 0% and
@@ -9210,7 +9233,7 @@
     // evaluation where nothing from this scope is reachable. Without it this gate ran the
     // self-incompatibility teardown loop the audio namespace already paid for: the probe required
     // the flag to be hidden, a successful apply made it visible, and the patch manager tore down
-    // its own work every poll — the row flickered in and out on a ~25-second cycle on the device.
+    // its own work every poll \u2014 the row flickered in and out on a ~25-second cycle on the device.
     const availability = {
       marker: "__steamUiBrightnessRevealed",
       original: "__steamUiOriginalBrightnessAvailability",
@@ -9779,7 +9802,7 @@
         );
       };
       const detailOf = (item) =>
-        [item.version, item.status, item.detail].filter((part) => !!part).join(" · ");
+        [item.version, item.status, item.detail].filter((part) => !!part).join(" \u00b7 ");
       const isFolded = (id) => folds.isFolded(openSections, id);
       const foldHeading = (id, props) =>
         renderSteamUiHeader(ui, {
@@ -9881,8 +9904,8 @@
         return descend(type(props), 0, props?.visible);
       };
     // One traversal: the tab list stops it, a function component is entered through a wrapper that
-    // keeps descending, and anything else — a context provider, a host element, the portal the
-    // menu's body is drawn through — is descended through its children.
+    // keeps descending, and anything else \u2014 a context provider, a host element, the portal the
+    // menu's body is drawn through \u2014 is descended through its children.
     const descend = (element, depth, visible) => {
       if (depth > MaximumDescent) return element;
       if (isPortal(element)) {
@@ -10792,8 +10815,8 @@
       typeof type === "object" &&
       type.$$typeof === ReactMemoType &&
       sourceMatches(unclaimedValue(type.type, claimKeys), HomeTokens);
-    // Home from the router's route list. The list is found by content — the array holding a route for
-    // /library/home — and the page element under that route names the Home memo. Bounded and
+    // Home from the router's route list. The list is found by content \u2014 the array holding a route for
+    // /library/home \u2014 and the page element under that route names the Home memo. Bounded and
     // read-only; the memo is one object whichever window renders it, so claiming it reaches them all.
     // What the walk saw is answered with it, so a miss on a new client says which assumption failed
     // without anyone attaching to Steam.
@@ -10961,7 +10984,7 @@
   // Mapped against the September 2026 client beta on 2026-09-11. One module carries the library tile
   // and everything it draws:
   //
-  //   tile  an exported React.memo (mobx observer): the app tile, props { app, bFeatured, context, … }
+  //   tile  an exported React.memo (mobx observer): the app tile, props { app, bFeatured, context, \u2026 }
   //         rendered by Home's carousel, the library grid and three other callers, all through the
   //         export, and keyed in Steam's focus tree as `appportrait_<appid>`
   //     Focusable, navKey "appportrait_<appid>"
@@ -10972,14 +10995,14 @@
   //
   // The badge is exported but the tile calls it by its module-local name, so claiming the badge export
   // changes nothing the tile draws. The claim is on the tile memo's `type` instead, and the badge is
-  // found in what the tile RENDERS by element type — identity with the export, never a class name or
-  // a minified name — and replaced by a row of two: this badge, then Valve's. The tile is drawn
+  // found in what the tile RENDERS by element type \u2014 identity with the export, never a class name or
+  // a minified name \u2014 and replaced by a row of two: this badge, then Valve's. The tile is drawn
   // through the export by every caller, so one claim reaches the carousel and the grid alike, and
   // the badge inherits the row's own visibility: Valve shows the icon row on the focused tile only,
   // and this badge appears and disappears with it.
   //
   // The badge names the library and says whether the game is installed, by colour: green when the
-  // game is installed, grey when it is not — which is what a card being disconnected amounts to. The
+  // game is installed, grey when it is not \u2014 which is what a card being disconnected amounts to. The
   // text is the library's name alone, and the host names every library. A game that no published
   // library holds gets no badge, because there is no library to name.
   //
@@ -11105,8 +11128,8 @@
     const TileTokens = ["ControllerSupportIcon", "appportrait_"];
     // The tile stylesheet's class map: Valve's own names for the icon row and the Steam Input badge,
     // mapped to whatever hashes this build emitted. Read by name, so the hashes are never written
-    // down here. The badge's visibility comes from Valve's rules on the badge class — hidden until
-    // the tile is focused or hovered — and the row wearing that class inherits them.
+    // down here. The badge's visibility comes from Valve's rules on the badge class \u2014 hidden until
+    // the tile is focused or hovered \u2014 and the row wearing that class inherits them.
     const ClassMapTokens = SteamLibraryClassTokens;
     const BigArtSetting = "library_home_big_art";
     const MaximumDescent = 12;
@@ -11181,8 +11204,8 @@
     // land at the row's far left; one flex box holding both keeps this badge immediately left of the
     // icon wherever the row puts it.
     //
-    // The box wears two of Valve's own classes. The badge class carries the visibility rule — opacity
-    // zero until the tile is focused or hovered — and the end-of-row margin, so the pair appears and
+    // The box wears two of Valve's own classes. The badge class carries the visibility rule \u2014 opacity
+    // zero until the tile is focused or hovered \u2014 and the end-of-row margin, so the pair appears and
     // disappears with Valve's icon instead of sitting on every tile; its size, padding and pill
     // background are overridden inline because they are drawn for a 34-pixel glyph. The row class
     // keeps Valve's icon a direct child of a row, which is what its pill background is written
@@ -11298,7 +11321,7 @@
       const ours = !!memo && memberClaimed(memo, "type", claimKeys);
       // The class map is wanted, not required: without it the badge still draws, on every tile
       // rather than the focused one, and `status.classesResolved` says so. Read as the tile reads
-      // it — the module's export, unwrapped if it is an ES default.
+      // it \u2014 the module's export, unwrapped if it is an ES default.
       let foundClasses = null;
       const classMapFactory = runtime.findUnique([...ClassMapTokens]);
       if (classMapFactory) {
@@ -12484,7 +12507,7 @@
       original: "__steamUiNavigationHostOriginal",
     };
     // The two tokens that identify the panel root. `#MainMenu_Title` occurs in exactly one module of
-    // the 2581 the client loads, and `RunnningAppSeparator` — Valve's own typo — occurs in three, so
+    // the 2581 the client loads, and `RunnningAppSeparator` \u2014 Valve's own typo \u2014 occurs in three, so
     // the pair is unique where neither is alone. Deliberately not the localized title: that changes
     // with the user's language, and this has to match on a client running in any of them.
     const PanelRootTokens = ["#MainMenu_Title", "RunnningAppSeparator"];
@@ -13063,7 +13086,7 @@
     };
     // Steam's own UI calls these when its network page opens and closes, so they are exactly the
     // signal for when a scan is worth running. The host's radio manager is otherwise driven by the host's
-    // own panel, and a list refreshed only then would be stale on Steam's page — which is worse
+    // own panel, and a list refreshed only then would be stale on Steam's page \u2014 which is worse
     // than an empty one, because the user picks a network that is gone and the join fails silently.
     //
     // Both originals are always called through: this observes the lifetime, it does not take it
@@ -13327,7 +13350,7 @@
     };
     // Finds the route list in the router's returned element tree and replaces it.
     //
-    // The list is found by content — the array holding a route for a path the client always has —
+    // The list is found by content \u2014 the array holding a route for a path the client always has \u2014
     // rather than by an index chain into props. decky-loader's gamepad path indexes
     // children.props.children[0].props.children, which is exactly the kind of selector that breaks on
     // a client update with no diagnostic; its own desktop path searches by /library/home instead, and
@@ -13562,7 +13585,7 @@
       typeof value === "function" &&
       typeof value.Get === "function" &&
       String(value).includes("m_msgState");
-    // The message class is never named here — it is taken from an instance the store builds, so
+    // The message class is never named here \u2014 it is taken from an instance the store builds, so
     // this stays correct across minification and client updates. An object argument is still
     // accepted because that is what a caller other than the store would pass. Anything that cannot
     // be decoded answers null, and the update is refused rather than sent as an empty delta that the
@@ -13618,8 +13641,8 @@
           per_app: state.perApp ?? {},
         };
         // Steam identifies the per-game profile by comparing these two: equal means the running
-        // game's own profile is the one being edited. "No game" is 769 — the Steam client's own
-        // pseudo-app, the id Valve's components compare against — never "0".
+        // game's own profile is the one being edited. "No game" is 769 \u2014 the Steam client's own
+        // pseudo-app, the id Valve's components compare against \u2014 never "0".
         target.m_msgState.current_game_id = state.currentGameId ?? "769";
         target.m_msgState.active_profile_game_id = state.activeProfileGameId ?? "769";
       } catch (error) {
@@ -13632,7 +13655,7 @@
     const buildApi = () => ({
       // Decode first, always. SystemPerfStore's setters all end in
       // `UpdateSettings(request.serializeBase64String())`, so what arrives here is a BASE64
-      // STRING, not the message — live-verified 2026-08-30 by round-tripping a request built by
+      // STRING, not the message \u2014 live-verified 2026-08-30 by round-tripping a request built by
       // the store itself. Forwarding it verbatim made the host's reader reject every write as
       // "carried no delta object", which is why no control on the Performance tab did anything:
       // the overlay-level selector snapped back to off, the frame cap never took, VRR never
@@ -13706,7 +13729,7 @@
           displacedTarget = null;
           return { ok: true };
         });
-        // Stand aside for a real backend, reclaim one of our own — the primitive's rules, and it
+        // Stand aside for a real backend, reclaim one of our own \u2014 the primitive's rules, and it
         // marks the namespace before publishing it so nothing can observe an unmarked one. An
         // orphaned Perf namespace is worse than an orphaned audio one: it leaves SystemPerfStore
         // holding half-written state, which renders Valve's controls with no values behind them.
@@ -14409,7 +14432,7 @@
     // k_EResultOK. The action methods do not read the body at all: they return
     // `(await ...).GetEResult()` and the caller compares it against OK, so a response without that
     // method throws "GetEResult is not a function" inside an async click handler with nothing
-    // attached to it. The button then does precisely nothing, with no error anywhere — which is what
+    // attached to it. The button then does precisely nothing, with no error anywhere \u2014 which is what
     // eject did until this was found, while the read paths worked because the hooks use BSuccess and
     // Body instead.
     const ResultOk = 1;
@@ -14452,7 +14475,7 @@
         case "TrimAll": {
           const command = method.toLowerCase();
           // Unmount names the volume, the drive-level actions name the drive, and Adopt is Steam's
-          // "make this drive a library" — its Format Drive modal sends Adopt, not Format, with the
+          // "make this drive a library" \u2014 its Format Drive modal sends Adopt, not Format, with the
           // typed name and a validate flag. All of it travels; the host decides what each means.
           const payload = {
             driveId: asId(fields.drive_id),
@@ -14968,7 +14991,7 @@
     // wrapped tab roots read it on every render, so a removed host draws Valve's tab untouched.
     let bound = null;
     // The Quick Settings panel Steam rendered, captured at render time. S14 puts resolution and
-    // refresh rate in Quick Settings, not Performance — but the panel is a LOCAL function of the
+    // refresh rate in Quick Settings, not Performance \u2014 but the panel is a LOCAL function of the
     // tabs module, not an export, so it is only ever known once the tab array passes through the
     // patched memo. Null means it has not been seen yet, which the status reports.
     let quickSettingsRoot = null;
@@ -15066,7 +15089,7 @@
       const label = accent ? normalizeText(acceptedStates.get("layout")?.accentLabel) : "";
       return steamAccentDescription(
         controlRuntime.react,
-        [label, text].filter(Boolean).join(" · "),
+        [label, text].filter(Boolean).join(" \u00b7 "),
         accent === true,
       );
     };
@@ -15133,7 +15156,7 @@
       rowsOfSection(section)
         .map((row) => normalizeText(row.summary))
         .filter(Boolean)
-        .join(" · ");
+        .join(" \u00b7 ");
     const publishedSection = (id) =>
       acceptedStates.get("rows")?.sections.find((section) => section.id === id) ?? null;
     // The lighting editor's zones. A zone with a malformed id, label or colour rejects the state, as
@@ -15180,7 +15203,7 @@
     const normalizePerformanceCommon = (value) => {
       if (!value || typeof value !== "object" || typeof value.available !== "boolean") return null;
       // Only what a row actually reads. This validator once also demanded readbackQuality,
-      // policyLayer and adapterAvailability — enums no component consumed and, after the review
+      // policyLayer and adapterAvailability \u2014 enums no component consumed and, after the review
       // simplification deleted their only publisher, no state carried: every frame-limit
       // delivery was rejected and the row silently vanished from the QAM (device-observed
       // 2026-09-02, the first dogfooding find).
@@ -15189,12 +15212,12 @@
         "queued",
         "applying",
         // A write the host accepted and stored but has not made yet, because what it applies to
-        // is not addressable right now — a host reports it when Steam has named a running game
+        // is not addressable right now \u2014 a host reports it when Steam has named a running game
         // whose executable Windows has not exposed, so the cap is saved against the game rather
         // than sprayed onto the global profile. It was missing from this list, and a settled
         // outcome the host can legitimately report was therefore rejected as malformed: adjusting
         // the frame-limit slider while a game was starting deleted the row the user had just
-        // touched (2026-09-04). Not busy — the value is stored, and the row stays live.
+        // touched (2026-09-04). Not busy \u2014 the value is stored, and the row stays live.
         "deferred",
         "applied",
         "rejected",
@@ -15223,7 +15246,7 @@
       if ((minimumFps === null) !== (maximumFps === null)) return null;
       // A cap only has to be something the limiter could hold. It is deliberately NOT required to
       // sit between the bookends: a host that raised its floor, or a limiter written behind the
-      // host's back, would otherwise publish a state that deleted the whole row — and this row is
+      // host's back, would otherwise publish a state that deleted the whole row \u2014 and this row is
       // the only place the user could have corrected the value. Observed on a handheld (2026-09-03),
       // where a 12 FPS cap under a floor of 30 took the Quick Access slider away entirely and left
       // no way to put it back. The bookends stretch to reach the value instead.
@@ -15268,7 +15291,7 @@
     /// handle snapped back to that value on every render: dragging did nothing at all, and a single
     /// press moved exactly one step because only onChangeComplete ever committed. The echo holds
     /// what the user is pointing at until the release, then clears so the observed value governs
-    /// again — including when the device refuses the write and the handle must spring back to what
+    /// again \u2014 including when the device refuses the write and the handle must spring back to what
     /// the hardware really is.
     const useEchoedValue = (controlRuntime, observed) => {
       const [echo, setEcho] = controlRuntime.react.useState(null);
@@ -15328,7 +15351,7 @@
     // their token text. A bare localize() call here is a bug waiting for the next missing string.
     //
     // Live-probed 2026-08-30, which found the reason: neither token exists anywhere in the bundle.
-    // They were never SteamOS strings absent from the Windows set — they were wrong names. The
+    // They were never SteamOS strings absent from the Windows set \u2014 they were wrong names. The
     // client carries "#QuickAccess_Tab_Perf_LimitFrameRate" and "#QuickAccess_Tab_Perf_Overlay_Level",
     // and those localize. Both call sites now use the real names, so those two rows are translated
     // rather than permanently English.
@@ -15532,7 +15555,7 @@
                       .join(", "),
                   ]
                     .filter(Boolean)
-                    .join(" · ")
+                    .join(" \u00b7 ")
                 : undefined),
             checked: editingColor,
             controlled: true,
@@ -15589,7 +15612,7 @@
             max: 360,
             step: 1,
             value: hueEcho.value,
-            valueSuffix: "°",
+            valueSuffix: "\u00b0",
             showValue: true,
             disabled: isBusy(zone.progress),
             trackStyleOverride: {
@@ -15746,7 +15769,7 @@
     ///
     /// Descends through RENDERED output, not just props.children. The rows sit about ten levels
     /// inside Steam's panel behind component elements, and a component's children do not exist
-    /// until React renders it — so a walk over props.children alone reaches nothing, which is why
+    /// until React renders it \u2014 so a walk over props.children alone reaches nothing, which is why
     /// the filter previously ran and hid zero rows. Each function component met on the way down is
     /// replaced by a wrapper that renders the original and filters what it returns, which is the
     /// same mechanism Decky's createReactTreePatcher uses to reach into this panel.
@@ -15884,7 +15907,7 @@
           return [summaries[kind], group ? rowsSummary(group) : ""];
         })
         .filter(Boolean)
-        .join(" · ");
+        .join(" \u00b7 ");
     // A section is a kit group: a heading with the section's glyph, its title and, folded, what its
     // rows report, over the rows. A section with no title has no heading, and one the host does not
     // fold stays open. A section whose rows all draw nothing stays mounted, so those rows keep their
@@ -16167,7 +16190,7 @@
         valve: {
           profileHeader: valve("#QuickAccess_Tab_Perf_GameSpecificSettings"),
           // The toggle reads current_game_id for availability, current==active for its checked
-          // state, and writes through SetGameSpecificProfileEnabled — all state the host already
+          // state, and writes through SetGameSpecificProfileEnabled \u2014 all state the host already
           // backs. Without this row nothing in the tab can enable a per-game profile.
           profileToggle: valve("#QuickAccess_Tab_Perf_ToggleGameSettings"),
           reset: valve("#QuickAccess_Tab_Perf_ResetToDefault"),
@@ -16293,9 +16316,9 @@
         return bound ? appendControls(bound, tree, "perf") : tree;
       }
       // One wrapper per wrapped tab, matched by root identity in the same memoized tab array.
-      // Each root must match exactly once or it is left alone — the discipline that kept the
+      // Each root must match exactly once or it is left alone \u2014 the discipline that kept the
       // performance wrap honest, applied per root rather than to the array as a whole.
-      // The performance panel is matched by export identity; the Quick Settings panel CANNOT be —
+      // The performance panel is matched by export identity; the Quick Settings panel CANNOT be \u2014
       // a tap on the tab array (2026-08-30) showed its type is a local function no module exports.
       // It is matched by its own source instead, on two Valve strings the host's gates never touch: the
       // Other-section title and the reorder-controllers button. Deliberately NOT the brightness
@@ -16314,7 +16337,7 @@
               "#QuickAccess_Tab_Settings_Section_Other_Title",
               "#QuickAccess_ReorderControllers_Button",
             ]),
-          // The original is only known at match time, so the wrapper is built then — and cached by
+          // The original is only known at match time, so the wrapper is built then \u2014 and cached by
           // original, because a fresh component identity on every memo pass would remount the whole
           // tab on each render.
           component: (original) => {
@@ -16515,7 +16538,9 @@
         poster: item.thumbnailUrl,
         empty: item.custom ? "Your file has no preview here" : "No preview",
       }),
-      byline: [item.author ? `By ${item.author}` : "", item.updated].filter(Boolean).join(" · "),
+      byline: [item.author ? `By ${item.author}` : "", item.updated]
+        .filter(Boolean)
+        .join(" \u00b7 "),
       description: item.description ?? "",
       acquire: item.downloaded
         ? {
@@ -16527,7 +16552,7 @@
           }
         : {
             title: `Download ${item.name}`,
-            meta: `${item.downloads ?? 0} downloads · ${item.likes ?? 0} likes`,
+            meta: `${item.downloads ?? 0} downloads \u00b7 ${item.likes ?? 0} likes`,
             label: "Download",
             busy: !!state.busy,
             onAcquire: () => void context.act("download", { id: item.id }),
@@ -16583,7 +16608,7 @@
           },
         ],
         loading: !!browse.loading,
-        loadingText: "Asking the repository…",
+        loadingText: "Asking the repository\u2026",
         error: browse.error ?? null,
         onRetry: () => void context.act("refresh"),
         empty: {
@@ -16649,7 +16674,7 @@
           },
           {
             id: "add",
-            label: "Add a video file…",
+            label: "Add a video file\u2026",
             disabled: !!state.busy,
             pick: { title: "Choose a WebM movie", mode: "file", extensions: [".webm"] },
             onPick: (path) => void context.act("addFile", { path }),
@@ -16749,7 +16774,7 @@
     title: "Boot animation",
     id: "wsgm-animations",
     style: animationsStyles,
-    loading: "Loading boot movies…",
+    loading: "Loading boot movies\u2026",
     tabs: { source: "host", list: animationsTabs },
     status: () => ({ tab: animationsPage.state()?.activeTab ?? "" }),
     Page: AnimationsPage,
@@ -16789,7 +16814,7 @@
           : ["image/png", "image/jpeg", "image/webp"],
   });
   const readableFilter = (value) =>
-    value.replace("image/", "").replaceAll("_", " ").replace("x", "×");
+    value.replace("image/", "").replaceAll("_", " ").replace("x", "\u00d7");
   // Where an artwork provider that needs a key is set up inside Steam: WSGM's settings page.
   const ArtworkSettingsRoute = "/wsgm/settings/artwork";
   /**
@@ -16899,9 +16924,13 @@
           h(
             "span",
             { className: "meta" },
-            [asset.format, asset.style, asset.width > 0 ? `${asset.width}×${asset.height}` : null]
+            [
+              asset.format,
+              asset.style,
+              asset.width > 0 ? `${asset.width}\u00d7${asset.height}` : null,
+            ]
               .filter(Boolean)
-              .join(" • "),
+              .join(" \u2022 "),
           ),
           asset.author
             ? h(Focusable, { className: "author" }, h("span", null, asset.author))
@@ -16987,7 +17016,7 @@
                       : [...(filter[name] || []), value],
                   }),
               },
-              `${selected ? "✓ " : ""}${readableFilter(value)}`,
+              `${selected ? "\u2713 " : ""}${readableFilter(value)}`,
             );
           }),
         ),
@@ -17036,7 +17065,7 @@
             )
           : null,
       ),
-      state?.gameSearching ? renderSteamUiStatus(ui, ["Searching every provider…"]) : null,
+      state?.gameSearching ? renderSteamUiStatus(ui, ["Searching every provider\u2026"]) : null,
       state?.gameSearchError
         ? renderSteamUiStatus(ui, [
             { key: "search", text: String(state.gameSearchError), error: true },
@@ -17053,7 +17082,7 @@
               h(
                 Button,
                 { key: match.id, onClick: () => void artworkAct("selectGame", { id: match.id }) },
-                `${match.name} · ${match.provider}`,
+                `${match.name} \u00b7 ${match.provider}`,
               ),
             ),
           )
@@ -17306,7 +17335,7 @@
           { className: "filter-buttons", "flow-children": "row" },
           toolbarButton({
             id: "filter",
-            label: filtersActive ? "Filter · Active" : "Filter",
+            label: filtersActive ? "Filter \u00b7 Active" : "Filter",
             onClick: openArtworkFilters,
           }),
           officialAssets.length
@@ -17363,7 +17392,10 @@
           )
         : null,
       state.loading
-        ? renderSteamUiEmpty(ui, { kind: "loading", text: `Asking for ${label.toLowerCase()}…` })
+        ? renderSteamUiEmpty(ui, {
+            kind: "loading",
+            text: `Asking for ${label.toLowerCase()}\u2026`,
+          })
         : null,
       empty,
       state.hasMore && !state.loading
@@ -17481,7 +17513,7 @@
     title: "Artwork",
     id: "sgdb-wrap",
     style: artworkBrowserStyles,
-    loading: "Loading artwork…",
+    loading: "Loading artwork\u2026",
     // The search's error and the providers' notices are drawn beside the results they belong to.
     banner: false,
     tabs: {
@@ -17545,7 +17577,7 @@
             text: error,
             action: { label: "Try again", onClick: open },
           })
-        : renderSteamUiEmpty(ui, { kind: "loading", text: "Opening Steam's browser…" }),
+        : renderSteamUiEmpty(ui, { kind: "loading", text: "Opening Steam's browser\u2026" }),
     );
   }
   const browserGuidePage = registerSteamPage({
@@ -17554,7 +17586,7 @@
     patchId: BrowserPatchId,
     title: "Browser",
     id: "wsgm-browser",
-    loading: "Opening Steam's browser…",
+    loading: "Opening Steam's browser\u2026",
     // The page publishes no notice of its own; a handoff failure is said on the page with its retry.
     banner: false,
     prepare: (ui, runtime) => {
@@ -17599,7 +17631,7 @@
     }
     if (!card.enabled) bits.push("tab off");
     if (card.hidden) bits.push("hidden");
-    return bits.join(" · ");
+    return bits.join(" \u00b7 ");
   };
   const cardManagerRow = (react, card) => {
     const h = react.createElement;
@@ -17643,8 +17675,8 @@
         page: true,
         title: "SD Card Manager",
         detail: state.loaded
-          ? `${cards.length} tracked · ${connected} connected`
-          : "Scanning cards…",
+          ? `${cards.length} tracked \u00b7 ${connected} connected`
+          : "Scanning cards\u2026",
       }),
       renderSteamUiCollection(ui, {
         id: "wsgm-cards:list",
@@ -17676,7 +17708,7 @@
           },
         ],
         loading: !state.loaded,
-        loadingText: "Scanning cards…",
+        loadingText: "Scanning cards\u2026",
         // A read failure is never dressed up as "no cards": that invites re-formatting a card that is
         // in fact still tracked.
         error: cards.length === 0 ? state.error : null,
@@ -17698,7 +17730,7 @@
     const busy = !!state.busy;
     const used = Math.max(0, card.capacityBytes - card.freeBytes);
     const space = card.hasCapacity
-      ? `${wsgmFormatBytes(used)} used · ${wsgmFormatBytes(card.freeBytes)} free · ` +
+      ? `${wsgmFormatBytes(used)} used \u00b7 ${wsgmFormatBytes(card.freeBytes)} free \u00b7 ` +
         `${wsgmFormatBytes(card.capacityBytes)} in all${card.inserted ? "" : " (last reading)"}`
       : "Not read yet; connect the card once.";
     const rows = [
@@ -17730,7 +17762,7 @@
         kind: "action",
         label: "Name",
         description: card.name,
-        buttonLabel: "Rename…",
+        buttonLabel: "Rename\u2026",
         disabled: busy,
       },
       {
@@ -17745,7 +17777,7 @@
         kind: "action",
         label: "Forget card",
         description: "Remove its tab and tracking; the games on the card stay",
-        buttonLabel: "Forget…",
+        buttonLabel: "Forget\u2026",
         disabled: busy,
       },
     ];
@@ -17814,7 +17846,7 @@
     const games = state.games && state.games.contentId === card.contentId ? state.games : null;
     let body = null;
     if (!games || games.loading) {
-      body = renderSteamUiEmpty(ui, { kind: "loading", text: "Reading the library…" });
+      body = renderSteamUiEmpty(ui, { kind: "loading", text: "Reading the library\u2026" });
     } else if (games.games.length > 0) {
       body = h(
         "div",
@@ -17831,7 +17863,7 @@
       { bounded: true, onBack },
       renderSteamUiHeader(ui, {
         page: true,
-        title: `${card.name} — Games`,
+        title: `${card.name} \u2014 Games`,
         detail: `${card.gameCount} installed`,
       }),
       games?.error
@@ -17906,7 +17938,7 @@
     title: "SD Card Manager",
     id: "wsgm-cards",
     style: cardManagerStyles,
-    loading: "Loading cards…",
+    loading: "Loading cards\u2026",
     status: () => ({ cards: cardManagerPage.state()?.cards?.length ?? 0 }),
     Page: CardManagerPage,
   });
@@ -18300,7 +18332,7 @@
         return section(
           "themes",
           "Themes",
-          waiting("themes-wait", "Loading themes…"),
+          waiting("themes-wait", "Loading themes\u2026"),
           () => {},
           () => {},
         );
@@ -18311,7 +18343,7 @@
       const summary = !on
         ? "Off: Steam's own look. Your themes stay installed and come back when this is on."
         : themes.length
-          ? `${enabled} of ${themes.length} themes on${state.selectedPreset ? ` · Profile: ${state.selectedPreset}` : ""}`
+          ? `${enabled} of ${themes.length} themes on${state.selectedPreset ? ` \u00b7 Profile: ${state.selectedPreset}` : ""}`
           : "No themes installed yet.";
       const rows = [
         {
@@ -18346,7 +18378,7 @@
           description:
             theme.status === "outdated"
               ? `Update available (${theme.latestVersion})`
-              : [theme.version, theme.author].filter(Boolean).join(" · "),
+              : [theme.version, theme.author].filter(Boolean).join(" \u00b7 "),
           checked: !!theme.enabled,
           disabled: !on || !!state.busy,
           nested: true,
@@ -18394,7 +18426,7 @@
         return section(
           "sounds",
           "UI sounds",
-          waiting("sounds-wait", "Loading sound packs…"),
+          waiting("sounds-wait", "Loading sound packs\u2026"),
           () => {},
           () => {},
         );
@@ -18443,7 +18475,7 @@
         return section(
           "animations",
           "Boot animation",
-          waiting("animations-wait", "Loading boot movies…"),
+          waiting("animations-wait", "Loading boot movies\u2026"),
           () => {},
           () => {},
         );
@@ -18818,7 +18850,7 @@
       const start = 0;
       const definition = keys.filter((key) => key.id === keyId)[0];
       const sorted = items.slice().sort((a, b) => definition.cmp(a, b, current.dir));
-      // One SetQueueIndex per pace, as on the device pass (docs/steam-cef.md §12): a fifty-entry
+      // One SetQueueIndex per pace, as on the device pass (docs/steam-cef.md \u00a712): a fifty-entry
       // re-queue takes about 6 s with the buttons dimmed. A rejected index does not stop the run; the
       // run ends by telling WSGM how many Steam refused.
       const paceMs = 120;
@@ -18890,7 +18922,7 @@
                 opacity: current.busy ? 0.5 : 1,
               },
             },
-            key.label + (on ? (current.dir > 0 ? " ↑" : " ↓") : ""),
+            key.label + (on ? (current.dir > 0 ? " \u2191" : " \u2193") : ""),
           ),
         );
       });
@@ -19116,7 +19148,7 @@
   const emulatorProgressBlock = (ui, progress, inline) => {
     const installing = progress.operation === "install";
     return renderSteamUiProgress(ui, {
-      phase: progress.status || "Working…",
+      phase: progress.status || "Working\u2026",
       done: progress.total > 0 ? progress.bytes : null,
       total: progress.total > 0 ? progress.total : null,
       count: emulatorAmount(progress) || null,
@@ -19362,7 +19394,7 @@
           emulatorFolder(installation),
         ]
           .filter(Boolean)
-          .join(" · "),
+          .join(" \u00b7 "),
       });
       const banners = offer?.error
         ? [
@@ -19431,7 +19463,7 @@
           value = rowActions([
             {
               id: "file",
-              label: entry.ready ? "Replace…" : "Choose file…",
+              label: entry.ready ? "Replace\u2026" : "Choose file\u2026",
               name: `${entry.ready ? "Replace" : "Choose"} ${entry.name}`,
               disabled: busy,
               onClick: () =>
@@ -19442,7 +19474,7 @@
             entry.allowDirectory
               ? {
                   id: "folder",
-                  label: "Choose folder…",
+                  label: "Choose folder\u2026",
                   name: `Choose a folder for ${entry.name}`,
                   disabled: busy,
                   onClick: () =>
@@ -19569,7 +19601,7 @@
           actions([
             {
               id: "remove",
-              label: `${installation.managed ? "Remove" : "Forget"} ${installation.name}…`,
+              label: `${installation.managed ? "Remove" : "Forget"} ${installation.name}\u2026`,
               disabled: busy,
               onClick: () => {
                 const shown = showSteamUiConfirm(ui, {
@@ -19636,7 +19668,7 @@
           ? "Check for updates to read the latest release."
           : offer.error
             ? offer.error
-            : `Latest ${offer.version}${channels.length > 1 ? ` (${channel})` : ""} · from ${definition.source}`,
+            : `Latest ${offer.version}${channels.length > 1 ? ` (${channel})` : ""} \u00b7 from ${definition.source}`,
       });
       const main = [];
       const notes = offer?.notesUrl
@@ -19757,7 +19789,7 @@
               rowActions([
                 {
                   id: "external",
-                  label: "Use my installation…",
+                  label: "Use my installation\u2026",
                   disabled: busy,
                   onClick: () =>
                     pick(`Choose ${definition.name}'s program`, "file", [".exe"], (path) =>
@@ -19779,7 +19811,7 @@
               renderSteamUiSelectRow(ui, {
                 key: copy.id,
                 title: `${copy.name} ${copy.version}`.trim(),
-                detail: `${copy.channel} · ${copy.managed ? "managed by WSGM" : "your own installation"}`,
+                detail: `${copy.channel} \u00b7 ${copy.managed ? "managed by WSGM" : "your own installation"}`,
                 autoFocus: returnTo === `copy:${copy.id}`,
                 onClick: () => open("installation", copy.id, `copy:${copy.id}`),
               }),
@@ -19886,7 +19918,10 @@
                 text: "Get one from the catalogue, or open one there and choose Use my installation for a copy you already have.",
                 action: { label: "Get emulators", onClick: () => toTab("catalog") },
               })
-            : renderSteamUiEmpty(ui, { kind: "loading", text: "Reading the installed emulators…" }),
+            : renderSteamUiEmpty(ui, {
+                kind: "loading",
+                text: "Reading the installed emulators\u2026",
+              }),
         );
       } else {
         view.push(
@@ -20064,7 +20099,7 @@
                 label: "RetroArch installation",
                 rgOptions: frontends.map((item) => ({
                   data: item.id,
-                  label: `${item.name} ${item.version} · ${item.channel}`,
+                  label: `${item.name} ${item.version} \u00b7 ${item.channel}`,
                 })),
                 selectedOption: id,
                 onChange: (option) => {
@@ -20100,7 +20135,7 @@
             ui.focusable,
             { key: "summary", className: "wsgm-emu-toolbar", "flow-children": "row" },
             muted(
-              `${emulatorCount(cores.length, "installed", "installed")} · ${emulatorCount(cores.filter(needsFiles).length, "needs files", "need files")}`,
+              `${emulatorCount(cores.length, "installed", "installed")} \u00b7 ${emulatorCount(cores.filter(needsFiles).length, "needs files", "need files")}`,
             ),
             actions([
               {
@@ -20116,8 +20151,8 @@
           const missingFiles = status.get(core.id)?.missingFiles ?? [];
           const systems = (core.systems ?? [])
             .map((system) => emulatorSystemName(state, system))
-            .join(" · ");
-          const prefix = systems ? `${systems} · ` : "";
+            .join(" \u00b7 ");
+          const prefix = systems ? `${systems} \u00b7 ` : "";
           const attention = needsFiles(core);
           return renderSteamUiSelectRow(ui, {
             key: core.id,
@@ -20340,19 +20375,19 @@
           actions([
             {
               id: "add",
-              label: "Add BIOS files…",
+              label: "Add BIOS files\u2026",
               disabled: busy,
               onClick: () => addFiles("", false, "Choose local BIOS files"),
             },
             {
               id: "add-folder",
-              label: "Add a folder…",
+              label: "Add a folder\u2026",
               disabled: busy,
               onClick: () => addFiles("", true, "Choose local BIOS folder"),
             },
             {
               id: "folder",
-              label: "Change folder…",
+              label: "Change folder\u2026",
               disabled: busy,
               onClick: () =>
                 pick("Choose BIOS folder", "folder", [], (path) => act("setBiosFolder", { path })),
@@ -20384,11 +20419,11 @@
             `bios:${id}`,
             system.name,
             (system.usedBy || "No installed emulator uses it") +
-              (system.optional ? " · optional" : ""),
+              (system.optional ? " \u00b7 optional" : ""),
             rowActions([
               {
                 id: "add",
-                label: "Add files…",
+                label: "Add files\u2026",
                 disabled: busy,
                 onClick: () => addFiles(id, false, `Choose ${system.name} files`),
               },
@@ -20413,7 +20448,7 @@
               ? rowActions([
                   {
                     id: "choose",
-                    label: "Choose file…",
+                    label: "Choose file\u2026",
                     name: `Choose ${file.label}`,
                     disabled: busy,
                     onClick: () => addFiles(id, false, `Choose ${file.label}`),
@@ -20500,7 +20535,7 @@
         actions([
           {
             id: "refresh",
-            label: refreshing ? "Checking…" : "Check for updates",
+            label: refreshing ? "Checking\u2026" : "Check for updates",
             disabled: busy,
             onClick: () => act("refreshEmulators"),
           },
@@ -20702,10 +20737,12 @@
     const from = files.targetDirectory
       ? ` from ${files.targetDirectory.replace(/\//gu, "\\")}`
       : "";
-    parts.push(`${parts.length ? "loaded as" : "Loaded as"} ${tool.proxyName}${from}`);
+    parts.push(
+      `${tool.enabled === false ? "Disabled; configured as" : parts.length ? "loaded as" : "Loaded as"} ${tool.proxyName}${from}`,
+    );
     parts.push(`${gameToolsCount(files.owned, "file")} owned by WSGM`);
     if (files.replaced > 0) parts.push(`${gameToolsCount(files.replaced, "game file")} backed up`);
-    return parts.join(" · ");
+    return parts.join(" \u00b7 ");
   };
   /** The status tags of a tool's heading. */
   const gameToolsTags = (tool, channel, working, busy) => {
@@ -20715,7 +20752,10 @@
     } else if (tool.status === "notInstalled") {
       tags.push({ text: "Not installed" });
     } else if (tool.status === "installed" || tool.status === "updateAvailable") {
-      tags.push({ text: `Installed ${tool.installedVersion}`, tone: "success" });
+      tags.push({
+        text: `${tool.enabled === false ? "Disabled \u00b7" : "Installed"} ${tool.installedVersion}`,
+        tone: tool.enabled === false ? "neutral" : "success",
+      });
       if (tool.status === "updateAvailable") {
         const current = (tool.channels ?? []).find((item) => item.current) ?? channel;
         tags.push({ text: `Update ${gameToolsShortLatest(current)} available`, tone: "update" });
@@ -20772,7 +20812,7 @@
           : wsgmFormatBytes(busy.bytes)
         : "";
     return renderSteamUiProgress(ui, {
-      phase: `${busy.detail || "Working"}…`,
+      phase: `${busy.detail || "Working"}\u2026`,
       done: busy.bytes,
       total: busy.total,
       count: amount,
@@ -20902,7 +20942,7 @@
       installed && (tool.channels ?? []).find((item) => item.current)?.id !== channel.id;
     const version = channel.latestVersion ? ` ${channel.latestVersion}` : "";
     if (actions.includes("replaceExisting")) {
-      primary = { label: "Replace existing installation…", run: replace };
+      primary = { label: "Replace existing installation\u2026", run: replace };
     } else if (tool.status === "notInstalled") {
       const named =
         tool.channels?.[0] && channel.id !== tool.channels[0].id
@@ -20927,7 +20967,7 @@
       primary = { label: "Repair", run: () => void act("repair", { appId, toolId }) };
     }
     const latest = channel.checkingLatest
-      ? "Checking for the latest release…"
+      ? "Checking for the latest release\u2026"
       : channel.latestLabel
         ? `Latest ${channel.latestLabel}`
         : (channel.latestError ?? "");
@@ -20982,10 +21022,14 @@
       rows.push({
         key: "proxy",
         kind: "choice",
-        label: "Load as",
+        label: tool.modeBased ? "Graphics API" : "Load as",
         description:
           [
-            installed ? "Choosing another name renames the installed file." : hint,
+            installed
+              ? tool.modeBased
+                ? "Remove and reinstall to change the graphics API."
+                : "Choosing another name renames the installed file."
+              : hint,
             taken.length ? `Not offered: ${taken.join(", ")}.` : "",
           ]
             .filter(Boolean)
@@ -20993,15 +21037,21 @@
         text: proxyName,
         choices: options
           .filter((option) => option.available || option.name === proxyName)
-          .map((option) => ({ value: option.name, label: option.name })),
-        disabled: !editable,
+          .map((option) => ({
+            value: option.name,
+            label: tool.modeBased
+              ? `${option.hint.split(" \u00b7 ")[0]} (${option.name})`
+              : option.name,
+          })),
+        disabled: !editable || tool.enabled === false || (tool.modeBased && installed),
       });
       for (const setting of tool.settings ?? []) {
         const value = applyNow ? setting.value : (draft.settings?.[setting.id] ?? setting.value);
         const options = setting.options ?? [];
         const description =
           [setting.description, setting.note].filter(Boolean).join(" ") || undefined;
-        const disabled = !(editable && setting.available);
+        const disabled =
+          !(editable && setting.available) || (tool.enabled === false && setting.id !== "enabled");
         // A plain Off/On choice is Steam's toggle; any other choice, such as Automatic or Off, stays a dropdown.
         const toggle =
           options.length === 2 &&
@@ -21084,7 +21134,7 @@
       if (installed || !channel.latestVersion) {
         secondary.push({
           id: "check-updates",
-          label: checking ? "Checking…" : "Check for updates",
+          label: checking ? "Checking\u2026" : "Check for updates",
           disabled: !idle || checking,
           onClick: () => void act("checkUpdates", { appId }),
         });
@@ -21110,7 +21160,7 @@
     }
     const removable = !working && actions.includes("remove");
     const homepage = String(tool.homepage ?? "").replace(/^https:\/\//iu, "");
-    const about = [tool.license, homepage, tool.notice].filter(Boolean).join(" · ");
+    const about = [tool.license, homepage, tool.notice].filter(Boolean).join(" \u00b7 ");
     return h(
       ui.focusable,
       { key: `tool-${toolId}`, className: "wsgm-game-tools-tool", "flow-children": "column" },
@@ -21157,7 +21207,14 @@
             { className: "wsgm-game-tools-remove" },
             renderSteamUiActions(
               ui,
-              [{ id: "remove", label: `Remove ${tool.name}…`, disabled: !idle, onClick: remove }],
+              [
+                {
+                  id: "remove",
+                  label: `Remove ${tool.name}\u2026`,
+                  disabled: !idle,
+                  onClick: remove,
+                },
+              ],
               {
                 compact: true,
               },
@@ -21175,7 +21232,7 @@
   function GameToolsUnavailableTool({ ui, tool }) {
     const h = ui.react.createElement;
     const homepage = String(tool.homepage ?? "").replace(/^https:\/\//iu, "");
-    const about = [tool.license, homepage, tool.notice].filter(Boolean).join(" · ");
+    const about = [tool.license, homepage, tool.notice].filter(Boolean).join(" \u00b7 ");
     return h(
       "div",
       { className: "wsgm-game-tools-tool" },
@@ -21188,7 +21245,7 @@
     );
   }
   /**
-   * The "This game" panel: the program with Change program…, the upscalers and anti-cheat found in
+   * The "This game" panel: the program with Change program\u2026, the upscalers and anti-cheat found in
    * the folder, the GPU, and the folder itself.
    * @param props Resolved components, published state, whether the program may change now and the
    * change callback.
@@ -21205,9 +21262,11 @@
           {
             key: "program",
             label: "Program",
-            value: runtime?.fileName ?? (state.loading ? "Looking…" : "Not chosen"),
+            value: runtime?.fileName ?? (state.loading ? "Looking\u2026" : "Not chosen"),
             detail: runtime
-              ? [runtime.architectureLabel, runtime.confidenceLabel].filter(Boolean).join(" · ")
+              ? [runtime.architectureLabel, runtime.confidenceLabel, runtime.graphicsApi]
+                  .filter(Boolean)
+                  .join(" \u00b7 ")
               : state.rememberedMissing
                 ? "The program chosen earlier is gone"
                 : state.loading
@@ -21215,7 +21274,7 @@
                   : "Several programs could be the game",
             error: !runtime && !state.loading,
             action: {
-              label: runtime ? "Change program…" : "Choose the program…",
+              label: runtime ? "Change program\u2026" : "Choose the program\u2026",
               disabled: !canChange,
               onClick: onChange,
             },
@@ -21310,8 +21369,8 @@
                 detail: [
                   [candidate.architectureLabel, gameToolsLocation(path)]
                     .filter(Boolean)
-                    .join(" · "),
-                  (candidate.reasons ?? []).join(" · "),
+                    .join(" \u00b7 "),
+                  (candidate.reasons ?? []).join(" \u00b7 "),
                 ]
                   .filter(Boolean)
                   .join("\n"),
@@ -21324,7 +21383,7 @@
         : renderSteamUiEmpty(ui, {
             kind: state.loading ? "loading" : "empty",
             text: state.loading
-              ? "Looking for programs in the game folder…"
+              ? "Looking for programs in the game folder\u2026"
               : "No programs were found in the game folder. Use Browse to choose it.",
           }),
       state.scanTruncated
@@ -21337,7 +21396,14 @@
         { className: "wsgm-game-tools-browse", "flow-children": "row" },
         renderSteamUiActions(
           ui,
-          [{ id: "browse", label: "Browse for the program…", disabled: !idle, onClick: onBrowse }],
+          [
+            {
+              id: "browse",
+              label: "Browse for the program\u2026",
+              disabled: !idle,
+              onClick: onBrowse,
+            },
+          ],
           { compact: true },
         ),
         h(
@@ -21382,7 +21448,9 @@
         key: "hero",
         eyebrow: "Game Tools",
         title: game,
-        detail: compact ? undefined : `Add upscaler mods to ${game}. ${GameToolsPurpose}`,
+        detail: compact
+          ? undefined
+          : `Manage compatibility and graphics tools for ${game}. ${GameToolsPurpose}`,
         images: steamAppHeroImages(appId),
       });
     const root = (...children) =>
@@ -21393,7 +21461,7 @@
         h(
           "div",
           { className: "wsgm-game-tools-body" },
-          renderSteamUiEmpty(ui, { kind: "loading", text: "Reading this game…" }),
+          renderSteamUiEmpty(ui, { kind: "loading", text: "Reading this game\u2026" }),
         ),
       );
     }
@@ -21485,7 +21553,7 @@
     const main = [];
     let progressShown = false;
     if (scanning) {
-      main.push(renderSteamUiProgress(ui, { phase: "Scanning the game folder…" }));
+      main.push(renderSteamUiProgress(ui, { phase: "Scanning the game folder\u2026" }));
       progressShown = true;
     } else {
       for (const tool of state.tools ?? []) {
@@ -21514,7 +21582,7 @@
     if (!progressShown && busy)
       main.push(gameToolsProgress(ui, busy, () => void act("cancel", { appId })));
     else if (!progressShown && state.loading)
-      main.push(renderSteamUiProgress(ui, { phase: "Scanning the game folder…" }));
+      main.push(renderSteamUiProgress(ui, { phase: "Scanning the game folder\u2026" }));
     main.push(
       renderSteamUiActions(
         ui,
@@ -21642,7 +21710,10 @@
       const section = [renderSteamUiHeader(ui, { title: "With tools" })];
       if (!library || library.loading) {
         section.push(
-          renderSteamUiEmpty(ui, { kind: "loading", text: "Reading the games that have tools…" }),
+          renderSteamUiEmpty(ui, {
+            kind: "loading",
+            text: "Reading the games that have tools\u2026",
+          }),
         );
       } else if (!rows.length) {
         section.push(
@@ -21670,7 +21741,7 @@
                 key: `tools-${game.appId}`,
                 title: steamNames.get(game.appId)?.name ?? game.name,
                 status: renderSteamUiTags(react, tags),
-                detail: (game.tools ?? []).map((tool) => tool.detail).join(" · "),
+                detail: (game.tools ?? []).map((tool) => tool.detail).join(" \u00b7 "),
                 media: art(game.appId),
                 description: "Open",
                 onClick: () => open(game.appId),
@@ -21719,7 +21790,7 @@
                   detail: tools.length
                     ? tools.map((tool) => `${tool.toolName} ${tool.version}`).join(", ")
                     : game.shortcut
-                      ? "Non-Steam game · no tools"
+                      ? "Non-Steam game \u00b7 no tools"
                       : "No tools",
                   media: art(game.appId),
                   description: "Open",
@@ -21748,7 +21819,7 @@
       renderSteamUiHero(ui, {
         key: "hero",
         title: "Game Tools",
-        detail: `Add upscaler mods such as OptiScaler to a game's own folder. ${GameToolsPurpose}`,
+        detail: `Manage compatibility and graphics tools in each game's folder. ${GameToolsPurpose}`,
       }),
       h(
         "div",
@@ -21783,7 +21854,7 @@
     title: "Game Tools",
     id: "wsgm-game-tools",
     style: gameToolsStyles,
-    loading: "Reading this game…",
+    loading: "Reading this game\u2026",
     // The page asks for its game itself and draws until the host publishes it.
     waitForState: false,
     // The host's error and notice belong to the game they were published for, so the page draws them
@@ -21884,7 +21955,7 @@
       if (
         !showSteamUiConfirm(ui, {
           title: label,
-          text: `${state.name} · ${appId}: replace the current launch action? ${state.canRestore ? "The recorded original will remain available." : "The original will be recorded before anything changes."}`,
+          text: `${state.name} \u00b7 ${appId}: replace the current launch action? ${state.canRestore ? "The recorded original will remain available." : "The original will be recorded before anything changes."}`,
           confirmLabel: label,
           onConfirm: () => {
             if (active()) void act(command, payload);
@@ -21897,7 +21968,7 @@
       if (!active()) return;
       try {
         const path = await showSteamFilePicker(ui, {
-          title: `Custom launch action for ${state.name} · ${appId}`,
+          title: `Custom launch action for ${state.name} \u00b7 ${appId}`,
           mode: "file",
           extensions: [".exe", ".cmd", ".bat", ".ps1"],
           signal: lifetime?.signal,
@@ -21910,7 +21981,7 @@
     };
     const unavailable = busy || !!state?.error || !state;
     const details = [
-      row("identity", state ? `${state.name} · ${appId}` : `Game ${appId}`, undefined, true),
+      row("identity", state ? `${state.name} \u00b7 ${appId}` : `Game ${appId}`, undefined, true),
     ];
     if (state) {
       details.push(row("current", `Current: ${state.ownership}`, undefined, true));
@@ -21949,7 +22020,7 @@
       launchActionsMenuRefusal ||
       state?.error ||
       state?.notice ||
-      (!state ? "Reading this game's launch configuration…" : "");
+      (!state ? "Reading this game's launch configuration\u2026" : "");
     if (reason) rows.push(row("status", reason, undefined, true));
     for (const action of state?.actions || [])
       rows.push(
@@ -21965,7 +22036,7 @@
     rows.push(
       row(
         "custom",
-        "Custom executable…",
+        "Custom executable\u2026",
         () => {
           if (selected()) void custom();
         },
@@ -21975,15 +22046,15 @@
     rows.push(
       row(
         "custom-arguments",
-        "Custom executable with arguments…",
+        "Custom executable with arguments\u2026",
         () => {
           if (!selected()) return;
           if (
             !showSteamUiPrompt(ui, {
-              title: `Custom launch arguments · ${state.name}`,
+              title: `Custom launch arguments \u00b7 ${state.name}`,
               label: "Arguments",
               text: "Enter arguments, then choose the executable. Use Custom executable for no arguments.",
-              confirmLabel: "Choose executable…",
+              confirmLabel: "Choose executable\u2026",
               onConfirm: (value) => {
                 if (active()) void custom(value);
               },
@@ -22085,7 +22156,7 @@
       "div",
       { key, className: "wsgm-import-fact" },
       importUi.react.createElement("span", {}, label),
-      importUi.react.createElement("span", {}, value || "—"),
+      importUi.react.createElement("span", {}, value || "\u2014"),
     );
   // The resolved components, for the modals drawn outside the page's tree. Both pages resolve the
   // same components through the toolkit's one resolver, so whichever page drew last supplies them.
@@ -22314,9 +22385,9 @@
       case "keep":
         return "Keeps current";
       case "none":
-        return slot.count ? `None · ${slot.count} found` : "No image";
+        return slot.count ? `None \u00b7 ${slot.count} found` : "No image";
       case "loading":
-        return "Finding images…";
+        return "Finding images\u2026";
       default:
         // A pick that is no longer among the candidates has no position to show.
         return slot.index > 0 ? `${slot.provider} ${slot.index}/${slot.count}` : slot.provider;
@@ -22467,23 +22538,26 @@
           : null;
     const artwork = (entry.artwork ?? [])
       .map((slot) => `${importAsset(slot.asset).short}: ${importSlotCaption(slot) ?? "none"}`)
-      .join(" · ");
+      .join(" \u00b7 ");
     const facts = [
       [
         "Launch route",
         details ? `${entry.launchLabel}. ${details.launchEvidence}` : entry.launchLabel,
       ],
-      ["Multiplayer", details ? `${details.multiplayer}. ${details.multiplayerEvidence}` : "…"],
+      [
+        "Multiplayer",
+        details ? `${details.multiplayer}. ${details.multiplayerEvidence}` : "\u2026",
+      ],
       ["Saving would", `${entry.actionLabel}: ${entry.reason}`],
-      ["Artwork", artwork || importArtworkLine(entry) || "—"],
+      ["Artwork", artwork || importArtworkLine(entry) || "\u2014"],
       [
         "Matched to",
-        entry.matchName ? `${entry.matchName}${entry.matchFixed ? " (fixed)" : ""}` : "—",
+        entry.matchName ? `${entry.matchName}${entry.matchFixed ? " (fixed)" : ""}` : "\u2014",
       ],
       ["Installed at", details?.installPath || "unknown"],
       ...(entry.managedId || tracked
         ? [
-            ["Location", entry.location || entry.contentPath || "—"],
+            ["Location", entry.location || entry.contentPath || "\u2014"],
             [
               "Availability",
               entry.unavailable && entry.availabilityDetail
@@ -22492,7 +22566,7 @@
             ],
           ]
         : []),
-      ["Identity", details?.identity ?? "…"],
+      ["Identity", details?.identity ?? "\u2026"],
       ...(details?.notes ?? []).map((note) => ["Note", note]),
     ];
     const grid = (entry.artwork ?? []).find((slot) => slot.asset === "grid");
@@ -22503,10 +22577,10 @@
             run: () => void importAct("recheckAvailability"),
           }
         : null,
-      tracked ? { label: "Storage…", run: () => showImportStorage(openTitle) } : null,
+      tracked ? { label: "Storage\u2026", run: () => showImportStorage(openTitle) } : null,
       entry.systemId
         ? {
-            label: "Rename title…",
+            label: "Rename title\u2026",
             run: () =>
               showSteamUiPrompt(importUi, {
                 title: "Title",
@@ -22526,7 +22600,7 @@
         : null,
       entry.systemId
         ? {
-            label: "Launch arguments…",
+            label: "Launch arguments\u2026",
             run: () =>
               showSteamModal(importUi, {
                 title: "Launch arguments",
@@ -22550,7 +22624,7 @@
               run: () => void importAct("setCleanup", { id: entry.id, enabled: false }),
             }
           : {
-              label: "Stage shortcut removal…",
+              label: "Stage shortcut removal\u2026",
               run: () =>
                 showSteamUiConfirm(importUi, {
                   title: "Stage shortcut removal?",
@@ -22564,11 +22638,11 @@
             }
         : null,
       entry.editable
-        ? { label: "Choose artwork…", run: () => (close(), openTitle(entry, "grid")) }
+        ? { label: "Choose artwork\u2026", run: () => (close(), openTitle(entry, "grid")) }
         : null,
       entry.appId > 0 && entry.action !== "Remove"
         ? {
-            label: "Open Steam's artwork page…",
+            label: "Open Steam's artwork page\u2026",
             run: () => {
               close();
               void importAct("openArtwork", { id: entry.id }).then((answer) => {
@@ -22611,7 +22685,7 @@
           h(
             "span",
             {},
-            `${entry.source} · ${entry.actionLabel} · ${entry.appId > 0 ? "in Steam" : "not in Steam yet"}`,
+            `${entry.source} \u00b7 ${entry.actionLabel} \u00b7 ${entry.appId > 0 ? "in Steam" : "not in Steam yet"}`,
           ),
         ),
       ),
@@ -22634,7 +22708,7 @@
   const importStorageAttention = (storage) =>
     !!storage.canRepair || !!storage.canAcceptBinding || storage.status !== "Connected";
   const importStorageLine = (storage) =>
-    `${storage.status} · ${storage.titleCount} title${storage.titleCount === 1 ? "" : "s"}`;
+    `${storage.status} \u00b7 ${storage.titleCount} title${storage.titleCount === 1 ? "" : "s"}`;
   const importShortcutLine = (shortcut) =>
     [
       shortcut.label,
@@ -22642,7 +22716,7 @@
       shortcut.available ? "" : shortcut.detail,
     ]
       .filter(Boolean)
-      .join(" · ");
+      .join(" \u00b7 ");
   const importStorageSummary = (state) => {
     const shortcuts = state?.shortcuts ?? [];
     const attention = (state?.storageLibraries ?? []).filter(importStorageAttention).length;
@@ -22655,7 +22729,7 @@
       attention ? `${attention} card${attention === 1 ? " needs" : "s need"} attention` : "",
     ]
       .filter(Boolean)
-      .join(" · ");
+      .join(" \u00b7 ");
   };
   // Card libraries first by name, then every other location; a library groups its shortcuts by id.
   const importStorageGroups = (shortcuts, storages) => {
@@ -22705,7 +22779,7 @@
             group.library?.detail ?? "",
           ]
             .filter(Boolean)
-            .join(" · "),
+            .join(" \u00b7 "),
           `group:${group.name}`,
         ),
       );
@@ -22874,7 +22948,7 @@
         h(
           importUi.dialogButton,
           { onClick: choose, style: { width: "280px" } },
-          h("span", { className: "wsgm-import-path" }, path || "Choose…"),
+          h("span", { className: "wsgm-import-path" }, path || "Choose\u2026"),
         ),
       ),
       h(importUi.toggleField, {
@@ -23069,7 +23143,14 @@
       });
     const actions = [
       ...(draft.id
-        ? [{ id: "remove", label: "Remove source…", disabled: state?.loading, onClick: remove }]
+        ? [
+            {
+              id: "remove",
+              label: "Remove source\u2026",
+              disabled: state?.loading,
+              onClick: remove,
+            },
+          ]
         : []),
       { id: "cancel", label: "Cancel", onClick: close },
       {
@@ -23091,7 +23172,7 @@
       h(
         importUi.dialogButton,
         { onClick: choosePath },
-        draft.root.absolutePath || (singleFile ? "Choose ROM…" : "Choose folder…"),
+        draft.root.absolutePath || (singleFile ? "Choose ROM\u2026" : "Choose folder\u2026"),
       ),
       h(importUi.dropdown, {
         label: "System",
@@ -23153,8 +23234,8 @@
             }),
         },
         draft.arguments.length
-          ? `Launch arguments (${draft.arguments.length})…`
-          : "Launch arguments: emulator default…",
+          ? `Launch arguments (${draft.arguments.length})\u2026`
+          : "Launch arguments: emulator default\u2026",
       ),
     );
   }
@@ -23211,7 +23292,7 @@
       {
         error,
         actions: [
-          ...(draft.id ? [{ id: "remove", label: "Remove source…", onClick: remove }] : []),
+          ...(draft.id ? [{ id: "remove", label: "Remove source\u2026", onClick: remove }] : []),
           { id: "cancel", label: "Cancel", onClick: close },
           {
             id: "save",
@@ -23235,7 +23316,7 @@
       h(
         importUi.dialogButton,
         { onClick: () => pick("target", "Choose executable", "file") },
-        draft.target || "Choose executable…",
+        draft.target || "Choose executable\u2026",
       ),
       renderSteamUiGroup(
         importUi,
@@ -23248,12 +23329,12 @@
         h(
           importUi.dialogButton,
           { onClick: () => pick("workingDirectory", "Choose working folder", "folder") },
-          draft.workingDirectory || "Working folder (optional)…",
+          draft.workingDirectory || "Working folder (optional)\u2026",
         ),
         h(
           importUi.dialogButton,
           { onClick: () => pick("contentPath", "Choose backing game file", "file") },
-          draft.contentPath || "Backing game file (optional)…",
+          draft.contentPath || "Backing game file (optional)\u2026",
         ),
         field("Location name (optional)", "location"),
         h(importUi.toggleField, {
@@ -23416,7 +23497,7 @@
     const empty = answer?.failed
       ? "The images could not be listed."
       : answer?.status === "loading" || answer?.status === "pending" || !answer
-        ? "Finding images…"
+        ? "Finding images\u2026"
         : importArtworkLine(entry) ||
           "No images were found for this. Fix the match to search for the right game.";
     const content = h(
@@ -23459,7 +23540,7 @@
                         renderSteamUiIcon(react, "check", 16),
                       )
                     : null,
-                caption: option.width ? `${option.width} × ${option.height}` : null,
+                caption: option.width ? `${option.width} \u00d7 ${option.height}` : null,
                 focus: {
                   autoFocus: groupIndex === 0 && index === 0,
                   onActivate: () =>
@@ -23485,7 +23566,12 @@
         chosen?.thumb
           ? h("img", { src: chosen.thumb, alt: "", loading: "lazy", draggable: false, style: size })
           : h("span", { className: "wsgm-import-thumb", style: size }),
-        h("div", {}, h("span", {}, type.label), h("span", {}, importSlotCaption(chosen) ?? "—")),
+        h(
+          "div",
+          {},
+          h("span", {}, type.label),
+          h("span", {}, importSlotCaption(chosen) ?? "\u2014"),
+        ),
       );
     });
     // Fixing a match searches every provider at once and lists them together, the way the artwork
@@ -23507,7 +23593,7 @@
         "div",
         { className: "wsgm-import-muted", style: { lineHeight: 1.45 } },
         entry.matchName
-          ? `Matched as “${entry.matchName}”. Wrong game?`
+          ? `Matched as \u201c${entry.matchName}\u201d. Wrong game?`
           : "Not matched to a game yet.",
       ),
       ui.textField
@@ -23520,7 +23606,7 @@
       h(
         ui.dialogButton,
         { disabled: searching, onClick: runSearch },
-        searching ? "Searching…" : "Fix match",
+        searching ? "Searching\u2026" : "Fix match",
       ),
       entry.matchFixed
         ? h(
@@ -23539,7 +23625,7 @@
           ? h(
               "div",
               { className: "wsgm-import-muted" },
-              `Searching every provider for “${matchSearch.query}”…`,
+              `Searching every provider for \u201c${matchSearch.query}\u201d\u2026`,
             )
           : null,
         matchSearch?.error
@@ -23679,7 +23765,7 @@
       ui.dialogButtonPrimary,
       { disabled: !state.selectedCount || busy, onClick: () => void importAct("apply") },
       state.phase === "applying"
-        ? `Saving ${state.progress ?? 0}/${state.progressTotal ?? 0}…`
+        ? `Saving ${state.progress ?? 0}/${state.progressTotal ?? 0}\u2026`
         : !state.selectedCount
           ? "Save to Steam"
           : `Save to Steam (${saveCount})`,
@@ -23703,7 +23789,7 @@
         h(
           "span",
           { className: "wsgm-import-muted" },
-          "Choose artwork · applied when you save to Steam",
+          "Choose artwork \u00b7 applied when you save to Steam",
         ),
       );
       body = h(ImportTitleArtwork, {
@@ -23729,7 +23815,7 @@
         h(
           "span",
           { className: "wsgm-import-muted" },
-          `${rows.length} selected title${rows.length === 1 ? "" : "s"} · applied when you save to Steam`,
+          `${rows.length} selected title${rows.length === 1 ? "" : "s"} \u00b7 applied when you save to Steam`,
         ),
       );
       const back = () => setView({ name: "grid", title: "", asset: "grid", from: "grid" });
@@ -23806,7 +23892,11 @@
                     width: type.cell,
                     image: slot?.thumb ?? "",
                     placeholder:
-                      slot?.kind === "loading" ? "…" : slot?.kind === "keep" ? "Current" : "None",
+                      slot?.kind === "loading"
+                        ? "\u2026"
+                        : slot?.kind === "keep"
+                          ? "Current"
+                          : "None",
                     caption: type.id === "icon" ? null : importSlotCaption(slot),
                     focus: {
                       autoFocus: rowIndex === 0 && columnIndex === 0,
@@ -23876,7 +23966,7 @@
               h(
                 "span",
                 { className: "wsgm-import-muted" },
-                `${group.items.length} title${group.items.length === 1 ? "" : "s"} · ` +
+                `${group.items.length} title${group.items.length === 1 ? "" : "s"} \u00b7 ` +
                   `${group.items.filter((entry) => entry.selected).length} selected`,
               ),
             ),
@@ -23938,7 +24028,7 @@
                 render: (close) => h(ImportRomSourceBody, { close }),
               }),
           },
-          "Add ROM library…",
+          "Add ROM library\u2026",
         ),
         h(
           ui.dialogButton,
@@ -23950,7 +24040,7 @@
                 render: (close) => h(ImportRomSourceBody, { singleFile: true, close }),
               }),
           },
-          "Add a ROM…",
+          "Add a ROM\u2026",
         ),
         h(
           ui.dialogButton,
@@ -23962,7 +24052,7 @@
                 render: (close) => h(ImportManualSourceBody, { close }),
               }),
           },
-          "Add manual shortcut…",
+          "Add manual shortcut\u2026",
         ),
         h(
           ui.dialogButton,
@@ -23974,7 +24064,7 @@
                 render: (close) => h(ImportFolderBody, { close }),
               }),
           },
-          "Add folder…",
+          "Add folder\u2026",
         ),
       );
       const sidebar = h(
@@ -24022,7 +24112,7 @@
                         }),
                     }),
                 },
-                "Configure source…",
+                "Configure source\u2026",
               ),
             ),
           ),
@@ -24044,7 +24134,7 @@
                     }),
                 }),
             },
-            `Configure ${source.name}…`,
+            `Configure ${source.name}\u2026`,
           ),
         ),
         entries.length ? sourceActions : null,
@@ -24141,10 +24231,10 @@
           "span",
           { className: "wsgm-import-muted" },
           entries.length
-            ? `${installed} source${installed === 1 ? "" : "s"} found · ${entries.length} title${entries.length === 1 ? "" : "s"} · ` +
+            ? `${installed} source${installed === 1 ? "" : "s"} found \u00b7 ${entries.length} title${entries.length === 1 ? "" : "s"} \u00b7 ` +
                 `${state.selectedCount ?? 0} selected`
             : busy
-              ? "Scanning…"
+              ? "Scanning\u2026"
               : "Scan to find games in your launchers.",
         ),
       );
@@ -24174,7 +24264,7 @@
                 h(
                   "div",
                   { className: "steam-ui-kit-box wsgm-import-empty" },
-                  h("h2", {}, busy ? "Finding your games…" : "Add games to Steam"),
+                  h("h2", {}, busy ? "Finding your games\u2026" : "Add games to Steam"),
                   h(
                     "p",
                     {},
@@ -24207,7 +24297,7 @@
     title: "Game Library",
     id: "wsgm-import",
     style: importStyles,
-    loading: "Loading your game library…",
+    loading: "Loading your game library\u2026",
     // The host's error, notice and launcher detail are lines in the review's status stack.
     banner: false,
     // Steam's checkbox and bare dropdown are wanted, not required: the sidebar falls back to Steam's
@@ -24242,7 +24332,7 @@
     title: "Emulators",
     id: "wsgm-emulators",
     style: emulatorStyles,
-    loading: "Loading emulators…",
+    loading: "Loading emulators\u2026",
     // The emulator tool publishes no notice of its own; a refused command is the frame's banner.
     banner: false,
     // Steam's tabs are the Overlay's five views; L1 and R1 switch them.
@@ -24346,7 +24436,7 @@
   };
   const libraryTabsKindLabel = (state, kind) =>
     (state.filterKinds ?? []).find((entry) => entry.kind === kind)?.label ?? kind;
-  const libraryTabsCondition = (node) => (node.condition === "Above" ? "≥" : "<");
+  const libraryTabsCondition = (node) => (node.condition === "Above" ? "\u2265" : "<");
   /**
    * One line naming a filter, the way the overlay's editor lists it.
    * @param state Published state, for tag, collection and card names.
@@ -24441,7 +24531,7 @@
       choices.push({ value: current, label: label(current) });
     return choices;
   };
-  // A value with − and + beside it, the overlay's stepper: a slider has no place for a count of days.
+  // A value with \u2212 and + beside it, the overlay's stepper: a slider has no place for a count of days.
   const libraryTabsStepper = (ui, key, label, value, min, max, step, onChange) => {
     const h = ui.react.createElement;
     const clamp = (next) => Math.min(max, Math.max(min, next));
@@ -24455,7 +24545,7 @@
         h(
           ui.smallButton,
           { onClick: () => onChange(clamp(value - step)), disabled: value <= min },
-          "−",
+          "\u2212",
         ),
         h("span", null, Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })),
         h(
@@ -24505,7 +24595,7 @@
           { id: "order", label: "Tab order & Steam tabs", onClick: onOrder },
         ],
         loading: !state.loaded,
-        loadingText: "Reading your tabs…",
+        loadingText: "Reading your tabs\u2026",
         empty: {
           title: "Make the library your own",
           text: "Create a tab from filters such as installed games, collections or SD cards. Use Tab order & Steam tabs to arrange the library strip.",
@@ -24531,7 +24621,7 @@
       h(ui.valueField, {
         key: entry.key,
         name: entry.title,
-        description: entry.hidden ? `${kindLabel(entry)} · hidden` : kindLabel(entry),
+        description: entry.hidden ? `${kindLabel(entry)} \u00b7 hidden` : kindLabel(entry),
         focusable: false,
         value: renderSteamUiActions(
           ui,
@@ -24571,7 +24661,7 @@
       "Top to bottom here is left to right in Steam. Steam's own tabs can be hidden; WSGM tabs disappear when disabled in their editors.",
       order.length
         ? h(ui.settingsSection, { label: "Strip" }, ...rows)
-        : renderSteamUiEmpty(ui, { kind: "loading", text: "Reading Steam's library strip…" }),
+        : renderSteamUiEmpty(ui, { kind: "loading", text: "Reading Steam's library strip\u2026" }),
       renderSteamUiActions(ui, [{ id: "back", label: "Done", onClick: onBack }], { compact: true }),
     );
   }
@@ -24630,7 +24720,7 @@
     const shown = items.slice(current * libraryTabsPageSize, (current + 1) * libraryTabsPageSize);
     const body =
       picker?.loading && !items.length
-        ? renderSteamUiEmpty(ui, { kind: "loading", text: "Reading from Steam…" })
+        ? renderSteamUiEmpty(ui, { kind: "loading", text: "Reading from Steam\u2026" })
         : picker?.error && !items.length
           ? renderSteamUiEmpty(ui, {
               kind: "error",
@@ -24682,7 +24772,7 @@
             ? [
                 {
                   id: "prev",
-                  label: `Page ${current + 1} of ${pageCount} · previous`,
+                  label: `Page ${current + 1} of ${pageCount} \u00b7 previous`,
                   disabled: current === 0,
                   onClick: () => setPage(current - 1),
                 },
@@ -24714,7 +24804,7 @@
       "Collection",
       picker?.error && items.length ? picker.error : undefined,
       picker?.loading && !items.length
-        ? renderSteamUiEmpty(ui, { kind: "loading", text: "Reading from Steam…" })
+        ? renderSteamUiEmpty(ui, { kind: "loading", text: "Reading from Steam\u2026" })
         : picker?.error && !items.length
           ? renderSteamUiEmpty(ui, {
               kind: "error",
@@ -24724,7 +24814,7 @@
           : !items.length
             ? renderSteamUiEmpty(ui, {
                 kind: "empty",
-                text: "No collections found — is Steam open?",
+                text: "No collections found \u2014 is Steam open?",
               })
             : h(
                 ui.focusable,
@@ -24837,7 +24927,7 @@
               description: node.tagIds?.length
                 ? `${node.tagIds.length} selected`
                 : "Choose one or more",
-              buttonLabel: "Choose…",
+              buttonLabel: "Choose\u2026",
             },
             undefined,
             () => {},
@@ -24868,7 +24958,7 @@
               description: node.collectionId
                 ? libraryTabsDescribe(state, { ...node, inverted: false })
                 : "Choose one",
-              buttonLabel: "Choose…",
+              buttonLabel: "Choose\u2026",
             },
             undefined,
             () => {},
@@ -24886,7 +24976,7 @@
               kind: "action",
               label: "Games",
               description: node.appIds?.length ? `${node.appIds.length} selected` : "Choose games",
-              buttonLabel: "Choose…",
+              buttonLabel: "Choose\u2026",
             },
             undefined,
             () => {},
@@ -25040,7 +25130,7 @@
                   title: libraryTabsDescribe(state, child),
                   detail:
                     libraryTabsKindLabel(state, child.kind) +
-                    (libraryTabsIncomplete(child) ? " · ⚠ incomplete" : ""),
+                    (libraryTabsIncomplete(child) ? " \u00b7 \u26a0 incomplete" : ""),
                   onClick: () => onEditChild(child),
                 }),
               ),
@@ -25170,7 +25260,7 @@
         ui,
         { key: "filters", title: "Filters" },
         filters.length === 0
-          ? renderSteamUiEmpty(ui, { kind: "empty", text: "No filters yet — add one below." })
+          ? renderSteamUiEmpty(ui, { kind: "empty", text: "No filters yet \u2014 add one below." })
           : h(
               ui.focusable,
               { className: "wsgm-tabs-list", "flow-children": "column" },
@@ -25180,7 +25270,7 @@
                   title: libraryTabsDescribe(state, node),
                   detail:
                     libraryTabsKindLabel(state, node.kind) +
-                    (libraryTabsIncomplete(node) ? " · ⚠ incomplete" : ""),
+                    (libraryTabsIncomplete(node) ? " \u00b7 \u26a0 incomplete" : ""),
                   onClick: () => onEditFilter(node),
                 }),
               ),
@@ -25265,7 +25355,7 @@
     } else if (top.kind === "order") {
       body = h(LibraryTabsOrder, { ui, state, act, onBack: toList });
     } else if (!draft) {
-      body = renderSteamUiEmpty(ui, { kind: "loading", text: "Loading…" });
+      body = renderSteamUiEmpty(ui, { kind: "loading", text: "Loading\u2026" });
     } else if (top.kind === "editor") {
       body = h(LibraryTabsEditor, {
         ui,
@@ -25398,7 +25488,7 @@
     title: "Library Tab Manager",
     id: "wsgm-library-tabs",
     style: libraryTabsStyles,
-    loading: "Loading library tabs…",
+    loading: "Loading library tabs\u2026",
     status: () => ({ tabs: libraryTabsPage.state()?.tabs?.length ?? 0 }),
     Page: LibraryTabsPage,
   });
@@ -25628,7 +25718,11 @@
     const line = String(text ?? "")
       .split("\n", 1)[0]
       .trim();
-    return line.length === 0 ? "Empty text" : line.length > 80 ? `${line.slice(0, 80)}…` : line;
+    return line.length === 0
+      ? "Empty text"
+      : line.length > 80
+        ? `${line.slice(0, 80)}\u2026`
+        : line;
   };
   // Images arrive by request, one per asset, and live only in memory while their page is open.
   /**
@@ -25826,7 +25920,7 @@
           : h(
               "div",
               { ...common, className: `wsgm-notes-image-missing${selected}` },
-              url === null ? "Loading…" : "Image missing",
+              url === null ? "Loading\u2026" : "Image missing",
             );
       }
       // Plain text, never markup: React escapes it, so note content cannot run as web content.
@@ -25957,7 +26051,7 @@
         renderSteamUiHeader(ui, {
           page: true,
           title: "Screenshot pending",
-          detail: capture.phase === "countdown" ? `${capture.remaining} s left` : "Capturing…",
+          detail: capture.phase === "countdown" ? `${capture.remaining} s left` : "Capturing\u2026",
         }),
         renderSteamUiActions(
           ui,
@@ -26256,7 +26350,7 @@
         },
         {
           id: "capture",
-          label: "Add screenshot…",
+          label: "Add screenshot\u2026",
           primary: false,
           disabled: false,
           onClick: () => setCapturing(true),
@@ -26281,7 +26375,7 @@
           },
           {
             id: "clear",
-            label: "Clear ink…",
+            label: "Clear ink\u2026",
             disabled: page.strokes.length === 0,
             onClick: () =>
               showSteamUiConfirm(ui, {
@@ -26340,7 +26434,7 @@
           [
             {
               id: "rename",
-              label: "Rename…",
+              label: "Rename\u2026",
               onClick: () =>
                 showSteamUiPrompt(ui, {
                   title: "Rename page",
@@ -26368,11 +26462,11 @@
             },
             {
               id: "deletePage",
-              label: "Delete page…",
+              label: "Delete page\u2026",
               onClick: () =>
                 showSteamUiConfirm(ui, {
                   title: "Delete page",
-                  text: `Delete “${page.title}”? This removes its text, drawings and screenshots and cannot be undone.`,
+                  text: `Delete \u201c${page.title}\u201d? This removes its text, drawings and screenshots and cannot be undone.`,
                   confirmLabel: "Delete",
                   onConfirm: () =>
                     void notesSend("deletePage", { pageId: page.id, revision }).then(report),
@@ -26409,10 +26503,10 @@
                   },
                 ]
               : []),
-            { id: "left", label: "◀", onClick: () => nudge(-40, 0, 1) },
-            { id: "up", label: "▲", onClick: () => nudge(0, -40, 1) },
-            { id: "down", label: "▼", onClick: () => nudge(0, 40, 1) },
-            { id: "right", label: "▶", onClick: () => nudge(40, 0, 1) },
+            { id: "left", label: "\u25c0", onClick: () => nudge(-40, 0, 1) },
+            { id: "up", label: "\u25b2", onClick: () => nudge(0, -40, 1) },
+            { id: "down", label: "\u25bc", onClick: () => nudge(0, 40, 1) },
+            { id: "right", label: "\u25b6", onClick: () => nudge(40, 0, 1) },
             { id: "smaller", label: "Smaller", onClick: () => nudge(0, 0, 0.85) },
             { id: "bigger", label: "Bigger", onClick: () => nudge(0, 0, 1.15) },
             {
@@ -26453,7 +26547,7 @@
         h(
           "div",
           { className: "wsgm-notes-row-title" },
-          `${item.id === selected ? "● " : ""}${item.kind === "image" ? `Screenshot ${item.pixelWidth}×${item.pixelHeight}` : notesFirstLine(item.text)}`,
+          `${item.id === selected ? "\u25cf " : ""}${item.kind === "image" ? `Screenshot ${item.pixelWidth}\u00d7${item.pixelHeight}` : notesFirstLine(item.text)}`,
         ),
       ),
     );
@@ -26493,7 +26587,7 @@
       renderSteamUiHeader(ui, {
         page: true,
         title: page.title,
-        detail: `${state.scopeTitle}${readOnly ? " · read-only (saved by a newer WSGM)" : ""}`,
+        detail: `${state.scopeTitle}${readOnly ? " \u00b7 read-only (saved by a newer WSGM)" : ""}`,
       }),
       conflict
         ? renderSteamUiBanner(ui, {
@@ -26586,7 +26680,7 @@
       h(
         "div",
         { className: "wsgm-notes-status" },
-        `Saved on this PC · ${new Date(page.modified).toLocaleString()}`,
+        `Saved on this PC \u00b7 ${new Date(page.modified).toLocaleString()}`,
       ),
     );
   }
@@ -26636,7 +26730,7 @@
             page.strokes ? "Ink" : "",
           ]
             .filter(Boolean)
-            .join(" · ") || "Empty page",
+            .join(" \u00b7 ") || "Empty page",
           "Edited " +
             new Date(page.modified).toLocaleDateString(undefined, { dateStyle: "medium" }),
         ],
@@ -26657,7 +26751,7 @@
           selectedOption: state.scope,
           rgOptions: state.notebooks.map((book) => ({
             data: book.scope,
-            label: `${book.title}${book.scope === game.scope ? " · Running now" : ""} · ${book.pages} ${book.pages === 1 ? "page" : "pages"}`,
+            label: `${book.title}${book.scope === game.scope ? " \u00b7 Running now" : ""} \u00b7 ${book.pages} ${book.pages === 1 ? "page" : "pages"}`,
           })),
           onChange: (option) => void notesSend("selectScope", { scope: option.data }),
         }),
@@ -26697,7 +26791,7 @@
     let body;
     if (!state.loaded) {
       // The host reads Notes only once the page has said it opened.
-      body = renderSteamUiEmpty(ui, { kind: "loading", text: "Opening your notes…" });
+      body = renderSteamUiEmpty(ui, { kind: "loading", text: "Opening your notes\u2026" });
     } else if (state.page) {
       body = h(NotesPageLevel, {
         key: state.page.id,
@@ -26732,7 +26826,7 @@
     title: "Notes",
     id: "wsgm-notes",
     style: notesStyles,
-    loading: "Opening your notes…",
+    loading: "Opening your notes\u2026",
     banner: notesBanner,
     status: () => ({
       loaded: !!notesPage.state()?.loaded,
@@ -26749,7 +26843,7 @@
     { id: "browse", title: "Browse" },
   ];
   const soundsPackLine = (pack) =>
-    [pack.author ? `By ${pack.author}` : "", pack.version].filter(Boolean).join(" · ");
+    [pack.author ? `By ${pack.author}` : "", pack.version].filter(Boolean).join(" \u00b7 ");
   // A card in the store's grid: the screenshot, counts, an Installed or Update badge, author and date.
   const soundsCard = (ui, item, open) => {
     const react = ui.react;
@@ -26791,7 +26885,7 @@
         item.updated ? `Last Updated ${item.updated}` : "",
       ]
         .filter(Boolean)
-        .join(" · "),
+        .join(" \u00b7 "),
       sections: [
         {
           title: installed ? "In your library" : "About",
@@ -26970,7 +27064,7 @@
           },
           {
             id: "import",
-            label: "Import a ZIP…",
+            label: "Import a ZIP\u2026",
             disabled: busy,
             pick: { title: "Choose an Audio Loader ZIP", mode: "file", extensions: [".zip"] },
             onPick: (path) => void context.act("import", { path }),
@@ -27015,7 +27109,7 @@
         // The store's answer arrives through the service's busy state; before the first one the tab
         // is asking, unless the asking failed, which the page's banner says.
         loading: (busy && items.length === 0) || (!browse.page && !state.error),
-        loadingText: "Asking the store…",
+        loadingText: "Asking the store\u2026",
         empty: { text: "The store lists no sound packs right now." },
         noMatch: { text: "Nothing matched." },
         filtered: !!search,
@@ -27059,7 +27153,7 @@
     title: "UI sounds",
     id: "wsgm-sounds",
     style: soundsStyles,
-    loading: "Loading sound packs…",
+    loading: "Loading sound packs\u2026",
     tabs: { source: "local", list: soundsTabs, initial: "installed" },
     // The service reports the last refusal until its next operation; Dismiss asks it to look again.
     banner: (state) =>
@@ -27118,9 +27212,9 @@
     const rows = [];
     const description =
       theme.status === "outdated"
-        ? `Update available (${theme.latestVersion}) · ${theme.author}`
+        ? `Update available (${theme.latestVersion}) \u00b7 ${theme.author}`
         : theme.author
-          ? `${theme.version} · ${theme.author}`
+          ? `${theme.version} \u00b7 ${theme.author}`
           : theme.version;
     rows.push({
       key: themesKey("theme", theme.name),
@@ -27238,7 +27332,7 @@
         item.updated ? `Last Updated ${item.updated}` : "",
       ]
         .filter(Boolean)
-        .join(" · "),
+        .join(" \u00b7 "),
       description: detail.description ?? "",
       loading: !!detail.loading,
       error: detail.error ?? null,
@@ -27350,7 +27444,7 @@
         search: { value: browse.search ?? "", onSubmit: (search) => ask({ search }) },
         actions: [{ id: "refresh", label: "Refresh", onClick: () => ask({}) }],
         loading: !!browse.loading,
-        loadingText: "Asking the store…",
+        loadingText: "Asking the store\u2026",
         error: browse.error ?? null,
         onRetry: () => ask({}),
         empty: { text: "The store has no themes to show right now." },
@@ -27487,7 +27581,7 @@
         kind: "action",
         label: "New Profile",
         description: `Combines the ${enabledCount} theme${enabledCount === 1 ? "" : "s"} you have enabled now, with their settings.`,
-        buttonLabel: "Create…",
+        buttonLabel: "Create\u2026",
       },
       ...presets.map((preset) => ({
         key: themesKey("preset", preset.name),
@@ -27614,7 +27708,7 @@
     title: "Themes",
     id: "wsgm-themes",
     style: themesStyles,
-    loading: "Loading themes…",
+    loading: "Loading themes\u2026",
     tabs: { source: "host", list: themesTabs },
     status: () => ({ tab: themesPage.state()?.activeTab ?? "" }),
     Page: ThemesPage,
@@ -27647,7 +27741,7 @@
     id: "wsgm-settings",
     // Steam's routed settings layout draws its own header area and sidebar.
     header: false,
-    loading: "Loading WSGM settings…",
+    loading: "Loading WSGM settings\u2026",
     required: [...SteamUiPageRequired, "routedPages"],
     // Every refusal is shown on the row that asked.
     banner: false,
@@ -27658,7 +27752,7 @@
   // The last fragment in the bundle, and the only thing in it.
   //
   // bridge.ts opens the IIFE and every other fragment is concatenated into it, so the value the
-  // injected script evaluates to has to be returned AFTER the last of them — a gate registers with a
+  // injected script evaluates to has to be returned AFTER the last of them \u2014 a gate registers with a
   // top-level call, and a return placed before those calls makes every one of them unreachable. That
   // is not a hypothetical: it shipped, and it published a bridge whose registry was empty while the
   // bootstrap patch still verified, so every gate reported "bridge unavailable" with nothing in the

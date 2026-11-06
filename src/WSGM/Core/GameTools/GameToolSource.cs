@@ -21,6 +21,9 @@ internal sealed record GameToolSource
     /// <summary>The archive type the selected asset must have.</summary>
     public string PackageType { get; init; } = "";
 
+    /// <summary>Official download page for an upstream website source.</summary>
+    public string DownloadPage { get; init; } = "";
+
     /// <summary>Builds the source the shared hosted-release lookup consumes.</summary>
     /// <returns>The hosted source.</returns>
     internal HostedReleaseSource Hosted()

@@ -13,6 +13,12 @@ internal static class GameToolVersions
     /// <returns>The token, or an empty string.</returns>
     internal static string NumericToken(string? version)
     {
+        // Special K's official release tags encode the calendar version with underscores.
+        if (version?.StartsWith("SK_", StringComparison.Ordinal) == true)
+        {
+            version = version[3..].Replace('_', '.');
+        }
+
         var match = Regex.Match(version ?? "", @"\d+(?:\.\d+)*", RegexOptions.CultureInvariant,
             TimeSpan.FromSeconds(1));
         return match.Success ? match.Value : "";

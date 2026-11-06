@@ -168,7 +168,7 @@ const gameToolsSummary = (tool, working: boolean) => {
   const parts: string[] = [];
   if (tool.installedLabel && tool.installedLabel !== tool.installedVersion) parts.push(tool.installedLabel);
   const from = files.targetDirectory ? ` from ${files.targetDirectory.replace(/\//gu, "\\")}` : "";
-  parts.push(`${parts.length ? "loaded as" : "Loaded as"} ${tool.proxyName}${from}`);
+  parts.push(`${tool.enabled === false ? "Disabled; configured as" : parts.length ? "loaded as" : "Loaded as"} ${tool.proxyName}${from}`);
   parts.push(`${gameToolsCount(files.owned, "file")} owned by WSGM`);
   if (files.replaced > 0) parts.push(`${gameToolsCount(files.replaced, "game file")} backed up`);
   return parts.join(" · ");
@@ -182,7 +182,7 @@ const gameToolsTags = (tool, channel, working: boolean, busy) => {
   } else if (tool.status === "notInstalled") {
     tags.push({ text: "Not installed" });
   } else if (tool.status === "installed" || tool.status === "updateAvailable") {
-    tags.push({ text: `Installed ${tool.installedVersion}`, tone: "success" });
+    tags.push({ text: `${tool.enabled === false ? "Disabled ·" : "Installed"} ${tool.installedVersion}`, tone: tool.enabled === false ? "neutral" : "success" });
     if (tool.status === "updateAvailable") {
       const current = (tool.channels ?? []).find((item) => item.current) ?? channel;
       tags.push({ text: `Update ${gameToolsShortLatest(current)} available`, tone: "update" });
@@ -420,22 +420,22 @@ function GameToolsTool({ ui, state, tool, draft, game, idle, act, setDraft, conf
     rows.push({
       key: "proxy",
       kind: "choice",
-      label: "Load as",
+      label: tool.modeBased ? "Graphics API" : "Load as",
       description:
-        [installed ? "Choosing another name renames the installed file." : hint, taken.length ? `Not offered: ${taken.join(", ")}.` : ""]
+        [installed ? (tool.modeBased ? "Remove and reinstall to change the graphics API." : "Choosing another name renames the installed file.") : hint, taken.length ? `Not offered: ${taken.join(", ")}.` : ""]
           .filter(Boolean)
           .join(" ") || undefined,
       text: proxyName,
       choices: options
         .filter((option) => option.available || option.name === proxyName)
-        .map((option) => ({ value: option.name, label: option.name })),
-      disabled: !editable,
+        .map((option) => ({ value: option.name, label: tool.modeBased ? `${option.hint.split(" · ")[0]} (${option.name})` : option.name })),
+      disabled: !editable || tool.enabled === false || (tool.modeBased && installed),
     });
     for (const setting of tool.settings ?? []) {
       const value = applyNow ? setting.value : (draft.settings?.[setting.id] ?? setting.value);
       const options = setting.options ?? [];
       const description = [setting.description, setting.note].filter(Boolean).join(" ") || undefined;
-      const disabled = !(editable && setting.available);
+      const disabled = !(editable && setting.available) || (tool.enabled === false && setting.id !== "enabled");
       // A plain Off/On choice is Steam's toggle; any other choice, such as Automatic or Off, stays a dropdown.
       const toggle =
         options.length === 2 &&
@@ -593,7 +593,7 @@ function GameToolsGamePanel({ ui, state, canChange, onChange }: any) {
           label: "Program",
           value: runtime?.fileName ?? (state.loading ? "Looking…" : "Not chosen"),
           detail: runtime
-            ? [runtime.architectureLabel, runtime.confidenceLabel].filter(Boolean).join(" · ")
+            ? [runtime.architectureLabel, runtime.confidenceLabel, runtime.graphicsApi].filter(Boolean).join(" · ")
             : state.rememberedMissing
               ? "The program chosen earlier is gone"
               : state.loading
@@ -737,7 +737,7 @@ function GameToolsGame({ context, appId, published }: any) {
       key: "hero",
       eyebrow: "Game Tools",
       title: game,
-      detail: compact ? undefined : `Add upscaler mods to ${game}. ${GameToolsPurpose}`,
+      detail: compact ? undefined : `Manage compatibility and graphics tools for ${game}. ${GameToolsPurpose}`,
       images: steamAppHeroImages(appId),
     });
   const root = (...children) =>
@@ -1061,7 +1061,7 @@ function GameToolsList({ context }: any) {
     renderSteamUiHero(ui, {
       key: "hero",
       title: "Game Tools",
-      detail: `Add upscaler mods such as OptiScaler to a game's own folder. ${GameToolsPurpose}`,
+      detail: `Manage compatibility and graphics tools in each game's folder. ${GameToolsPurpose}`,
     }),
     h("div", { className: "wsgm-game-tools-body" }, h("div", { className: "wsgm-game-tools-main" }, ...content)),
   );
