@@ -429,39 +429,9 @@ public sealed class HotkeysView : ServiceSubView
 
     private void ConfirmDelete(string id, string name)
     {
-        if (TopLevel.GetTopLevel(this) is not OverlayWindow window)
-        {
-            return;
-        }
-
-        var content = new StackPanel { Spacing = 14, Tag = "confirm" };
-        content.Children.Add(new TextBlock
-        {
-            Text = "WSGM forgets this hotkey and removes its Quick access tile. The game and its own key bindings "
-                   + "are not changed.",
-            TextWrapping = TextWrapping.Wrap, LineHeight = 22
-        });
-        var cancel = Command("confirm.cancel", "Cancel", () => window.Surfaces.CloseActive());
-        var delete = Command("confirm.accept", "Delete", () =>
-        {
-            window.Surfaces.CloseActive();
-            _ = RunSafelyAsync(DeleteAsync(id), "delete");
-        });
-        delete.Classes.Add("danger");
-        var buttons = new StackPanel
-        {
-            Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(0, 6, 0, 0)
-        };
-        foreach (var button in new[] { cancel, delete })
-        {
-            button.MinWidth = 120;
-            button.Padding = new Thickness(16, 6);
-            buttons.Children.Add(button);
-        }
-
-        content.Children.Add(buttons);
-        window.Surfaces.ShowConfirm(content, "Delete “" + name + "”?", cancel);
+        ShowConfirm("Delete “" + name + "”?",
+            "WSGM forgets this hotkey and removes its Quick access tile. The game and its own key bindings "
+            + "are not changed.", "Delete", () => _ = RunSafelyAsync(DeleteAsync(id), "delete"));
     }
 
     private async Task SaveAsync(string id)

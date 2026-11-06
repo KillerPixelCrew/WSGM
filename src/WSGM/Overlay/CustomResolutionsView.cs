@@ -4,8 +4,6 @@ using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
-using Avalonia.Layout;
-using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using FluentAvalonia.UI.Controls;
@@ -120,14 +118,14 @@ public sealed class CustomResolutionsView : OverlaySubView
         {
             stack.Children.Add(Banner("resolutions.unavailable", FAInfoBarSeverity.Informational,
                 editor.Busy ? "Reading the display" : "Resolutions unavailable", editor.Status));
-            stack.Children.Add(Keyed(Row("Refresh", "Read the displays and their driver again", Icons.Restart,
+            stack.Children.Add(ServiceSubView.Tagged(Row("Refresh", "Read the displays and their driver again", Icons.Restart,
                 WhenIdle(editor, () => editor.RefreshCommand.Execute(null))), "resolutions.refresh"));
             SetContent(stack);
             return;
         }
 
         stack.Children.Add(SectionLabel("Add"));
-        stack.Children.Add(Keyed(PrimaryRow("Add a resolution", "Type a width × height, such as 1760 × 1100",
+        stack.Children.Add(ServiceSubView.Tagged(PrimaryRow("Add a resolution", "Type a width × height, such as 1760 × 1100",
             Icons.FolderPlus, WhenIdle(editor, () => EditText("Resolution in pixels (width × height)", "", 13, size =>
             {
                 editor.Size = size;
@@ -140,7 +138,7 @@ public sealed class CustomResolutionsView : OverlaySubView
                     Toast("Enter width × height, for example 1760 × 1100. Each side is 100 to 15999 pixels.");
                 }
             }))), "resolutions.add"));
-        stack.Children.Add(Keyed(Row("Add 5% steps", "Native 100% down to 50%. Sizes already listed stay.",
+        stack.Children.Add(ServiceSubView.Tagged(Row("Add 5% steps", "Native 100% down to 50%. Sizes already listed stay.",
             Icons.ListLines, editor.CanAddSteps ? WhenIdle(editor, () => editor.AddStepsCommand.Execute(null)) : null),
             "resolutions.steps"));
 
@@ -154,7 +152,7 @@ public sealed class CustomResolutionsView : OverlaySubView
         {
             // Every size is listed so the user sees the whole list; only the removable ones open their actions.
             var removable = editor.IsRemovable(item);
-            stack.Children.Add(Keyed(Row(item.Label, removable ? "Remove…" : "Protected or set by the driver",
+            stack.Children.Add(ServiceSubView.Tagged(Row(item.Label, removable ? "Remove…" : "Protected or set by the driver",
                 Icons.Monitor, removable ? WhenIdle(editor, () => ConfirmRemove(item)) : null),
                 "resolutions.item:" + item.Width + "x" + item.Height));
         }
@@ -162,7 +160,7 @@ public sealed class CustomResolutionsView : OverlaySubView
         stack.Children.Add(SectionLabel("Driver"));
         if (editor.CanRestore)
         {
-            stack.Children.Add(Keyed(Row("Restore original list", "Puts back the list saved before your first edit",
+            stack.Children.Add(ServiceSubView.Tagged(Row("Restore original list", "Puts back the list saved before your first edit",
                 Icons.Restart, WhenIdle(editor, () => Ask("Restore the original list?",
                     "Sizes you added since your first edit are removed from the driver's list.", "Restore",
                     () => editor.RestoreCommand.Execute(null)))), "resolutions.restore"));
@@ -170,14 +168,14 @@ public sealed class CustomResolutionsView : OverlaySubView
 
         if (editor.HasMissing)
         {
-            stack.Children.Add(Keyed(Row("Restore missing resolutions",
+            stack.Children.Add(ServiceSubView.Tagged(Row("Restore missing resolutions",
                 "Adds your sizes again, for example after a driver update", Icons.FolderPlus,
                 WhenIdle(editor, () => editor.ReapplyCommand.Execute(null))), "resolutions.reapply"));
         }
 
         if (editor.NeedsRestart)
         {
-            stack.Children.Add(Keyed(DangerRow("Restart graphics driver",
+            stack.Children.Add(ServiceSubView.Tagged(DangerRow("Restart graphics driver",
                 "Activates changes. Displays may go blank and games may be interrupted.", Icons.Power,
                 WhenIdle(editor, () => Ask("Restart the graphics driver?",
                     "This activates your resolution changes. Displays may go blank and games may be interrupted. "
@@ -185,7 +183,7 @@ public sealed class CustomResolutionsView : OverlaySubView
             "resolutions.restart"));
         }
 
-        stack.Children.Add(Keyed(Row("Refresh", "Read the displays and their driver again", Icons.Restart,
+        stack.Children.Add(ServiceSubView.Tagged(Row("Refresh", "Read the displays and their driver again", Icons.Restart,
             WhenIdle(editor, () => editor.RefreshCommand.Execute(null))), "resolutions.refresh"));
         stack.Children.Add(Caption(editor.Busy ? "Working…" : editor.Status));
         SetContent(stack);
@@ -205,38 +203,7 @@ public sealed class CustomResolutionsView : OverlaySubView
     /// <summary>Asks in the centred confirmation surface, with Cancel focused, and runs the operation on yes.</summary>
     private void Ask(string title, string text, string accept, Action operation)
     {
-        if (TopLevel.GetTopLevel(this) is not OverlayWindow window)
-        {
-            return;
-        }
-
-        var content = new StackPanel { Spacing = 14, Tag = "confirm" };
-        content.Children.Add(new TextBlock
-        {
-            Text = text, TextWrapping = TextWrapping.Wrap, LineHeight = 22
-        });
-        var cancel = Command("confirm.cancel", "Cancel", () => window.Surfaces.CloseActive());
-        var confirm = Command("confirm.accept", accept, () =>
-        {
-            window.Surfaces.CloseActive();
-            operation();
-        });
-        confirm.Classes.Add("danger");
-        var buttons = new StackPanel
-        {
-            Orientation = Orientation.Horizontal, Spacing = 10,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(0, 6, 0, 0)
-        };
-        foreach (var button in new[] { cancel, confirm })
-        {
-            button.MinWidth = 120;
-            button.Padding = new Thickness(16, 6);
-            buttons.Children.Add(button);
-        }
-
-        content.Children.Add(buttons);
-        window.Surfaces.ShowConfirm(content, title, cancel);
+        ServiceSubView.ShowConfirm(this, title, [text], accept, operation);
     }
 
     /// <summary>
@@ -257,12 +224,6 @@ public sealed class CustomResolutionsView : OverlaySubView
         };
     }
 
-    private static ActionButton Keyed(ActionButton row, string key)
-    {
-        row.Tag = key;
-        return row;
-    }
-
     /// <summary>
     ///     Replaces the content. Opening the page focuses its first row; a redraw keeps focus on the same row, and
     ///     leaves it alone when it is outside the page, on the rail or in a confirmation.
@@ -281,6 +242,6 @@ public sealed class CustomResolutionsView : OverlaySubView
 
         var key = inside ? focused!.Tag as string : null;
         Dispatcher.UIThread.Post(() =>
-            (FocusSearch.Keyed(stack, key) ?? FocusSearch.FirstNavigable(stack))?.Focus(NavigationMethod.Directional));
+            (FocusSearch.ServiceSubView.Tagged(stack, key) ?? FocusSearch.FirstNavigable(stack))?.Focus(NavigationMethod.Directional));
     }
 }

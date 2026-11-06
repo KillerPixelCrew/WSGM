@@ -150,34 +150,6 @@ internal sealed class DevicePowerSavedPresetsView : UserControl
     // The centred in-window confirmation with the safe answer focused, as every overlay confirmation is.
     private void Confirm(string title, string text, string accept, bool danger, System.Action onAccept)
     {
-        if (TopLevel.GetTopLevel(this) is not OverlayWindow window)
-        {
-            return;
-        }
-
-        var content = new StackPanel { Spacing = 14, Tag = "confirm" };
-        content.Children.Add(new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, LineHeight = 22 });
-        var cancel = new OverlayActionButton
-        {
-            Title = "Cancel", Tag = "confirm.cancel", Activate = () => window.Surfaces.CloseActive(), MinWidth = 120,
-            Padding = new Thickness(16, 6)
-        };
-        var confirm = new OverlayActionButton
-        {
-            Title = accept, Tag = "confirm.accept", MinWidth = 120, Padding = new Thickness(16, 6),
-            Activate = () =>
-            {
-                window.Surfaces.CloseActive();
-                onAccept();
-            }
-        };
-        confirm.Classes.Add(danger ? "danger" : "primary");
-        var buttons = new StackPanel
-        {
-            Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(0, 6, 0, 0), Children = { cancel, confirm }
-        };
-        content.Children.Add(buttons);
-        window.Surfaces.ShowConfirm(content, title, cancel);
+        ServiceSubView.ShowConfirm(this, title, [text], accept, onAccept, danger);
     }
 }

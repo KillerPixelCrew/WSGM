@@ -362,7 +362,7 @@ public sealed partial class EmulatorManagerView
     /// </summary>
     private void ConfirmRemove(EmulatorShown shown, EmulatorInstallation installation)
     {
-        if (_service is null || TopLevel.GetTopLevel(this) is not OverlayWindow window)
+        if (_service is null)
         {
             return;
         }
@@ -387,17 +387,8 @@ public sealed partial class EmulatorManagerView
                        + (dependency?.Summary ?? "")
                        + " Imported games stay in Steam and need another emulator before they start.");
         var title = (installation.Managed ? "Remove " : "Forget ") + installation.Name + "?";
-        var content = new StackPanel { Spacing = 14, Tag = "confirm" };
-        foreach (var paragraph in paragraphs)
+        ShowConfirm(title, paragraphs.Select(paragraph => paragraph.Trim()), installation.Managed ? "Remove" : "Forget", () =>
         {
-            content.Children.Add(new TextBlock
-                { Text = paragraph.Trim(), TextWrapping = TextWrapping.Wrap, LineHeight = 22 });
-        }
-
-        var cancel = Command("confirm.cancel", "Cancel", () => window.Surfaces.CloseActive());
-        var accept = Command("confirm.accept", installation.Managed ? "Remove" : "Forget", () =>
-        {
-            window.Surfaces.CloseActive();
             _ = RunCommandAsync(token => _service!.RemoveEmulatorAsync(id, token), "remove", () =>
             {
                 // The emulator is gone: return to the list it was opened from.
@@ -407,22 +398,6 @@ public sealed partial class EmulatorManagerView
                 }
             });
         });
-        accept.Classes.Add("danger");
-        foreach (var button in new[] { cancel, accept })
-        {
-            button.MinWidth = 120;
-            button.Padding = new Thickness(16, 6);
-        }
-
-        var buttons = new StackPanel
-        {
-            Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(0, 6, 0, 0)
-        };
-        buttons.Children.Add(cancel);
-        buttons.Children.Add(accept);
-        content.Children.Add(buttons);
-        window.Surfaces.ShowConfirm(content, title, cancel);
     }
 
     // ---- A catalogue emulator ----

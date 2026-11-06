@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Layout;
 using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -433,10 +434,60 @@ public abstract class ServiceSubView : OverlaySubView
     /// <param name="control">The control.</param>
     /// <param name="tag">Its stable tag.</param>
     /// <returns>The control.</returns>
-    private protected static T Tagged<T>(T control, string tag) where T : Control
+    internal static T Tagged<T>(T control, string tag) where T : Control
     {
         control.Tag = tag;
         return control;
+    }
+
+    /// <summary>Shows the shared centred confirmation with Cancel focused and stable action tags.</summary>
+    private protected void ShowConfirm(string title, string body, string acceptLabel, Action onAccept)
+    {
+        ShowConfirm(this, title, [body], acceptLabel, onAccept);
+    }
+
+    /// <summary>Shows paragraph content using the same confirmation layout.</summary>
+    private protected void ShowConfirm(string title, IEnumerable<string> body, string acceptLabel, Action onAccept)
+    {
+        ShowConfirm(this, title, body, acceptLabel, onAccept);
+    }
+
+    /// <summary>Shares confirmation layout with composite views that do not own a navigation stack.</summary>
+    internal static void ShowConfirm(Control owner, string title, IEnumerable<string> body, string acceptLabel,
+        Action onAccept, bool danger = true)
+    {
+        if (TopLevel.GetTopLevel(owner) is not OverlayWindow window)
+        {
+            return;
+        }
+
+        var content = new StackPanel { Spacing = 14, Tag = "confirm" };
+        foreach (var paragraph in body)
+        {
+            content.Children.Add(new TextBlock { Text = paragraph, TextWrapping = TextWrapping.Wrap, LineHeight = 22 });
+        }
+
+        var cancel = Command("confirm.cancel", "Cancel", () => window.Surfaces.CloseActive());
+        var accept = Command("confirm.accept", acceptLabel, () =>
+        {
+            window.Surfaces.CloseActive();
+            onAccept();
+        });
+        accept.Classes.Add(danger ? "danger" : "primary");
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Avalonia.Thickness(0, 6, 0, 0)
+        };
+        foreach (var button in new[] { cancel, accept })
+        {
+            button.MinWidth = 120;
+            button.Padding = new Avalonia.Thickness(16, 6);
+            buttons.Children.Add(button);
+        }
+
+        content.Children.Add(buttons);
+        window.Surfaces.ShowConfirm(content, title, cancel);
     }
 
     /// <summary>Runs one of the service's commands; a refusal is shown, a failure logged.</summary>
