@@ -1,13 +1,15 @@
 # GPU-scaled source resolutions
 
-WSGM Settings > Display and Steam's native Display Settings share `ScaledResolutionService`. Choose
-a connected display to see its GPU and one resolution list. Enter a custom size as width × height
-and choose Add, or choose Add 5% steps to add native 100% down to 50% in one action. Each percentage
-applies to both dimensions, rounded to the nearest pixel. Existing resolutions are preserved.
-Selecting a list entry does not activate it. Remove deletes the selected driver-list entry,
-including entries created outside WSGM; the display's reported native size is protected. Adding only
-makes sizes available; the existing Overlay and Steam Quick Access pickers select the active mode
-once Windows exposes it.
+The Overlay's Tools > Display > Custom resolutions and Steam's native Display Settings share
+`ScaledResolutionService` through `Shell/Display/ScaledResolutionEditor`; Settings has no copy,
+because the driver list is system state rather than WSGM configuration. Remove, Restore original
+list and Restart graphics driver ask first on both surfaces. Choose a connected display to see its
+GPU and one resolution list. Enter a custom size as width × height and choose Add, or choose Add 5%
+steps to add native 100% down to 50% in one action. Each percentage applies to both dimensions,
+rounded to the nearest pixel. Existing resolutions are preserved. Selecting a list entry does not
+activate it. Remove deletes the selected driver-list entry, including entries created outside WSGM;
+the display's reported native size is protected. Adding only makes sizes available; the existing
+Overlay and Steam Quick Access pickers select the active mode once Windows exposes it.
 
 CEF uses Steam's native inline list-builder, with a width × height input and the list actions beside
 it. Settings uses the same list and operations, with its custom dimensions in one text field. Both

@@ -27,6 +27,10 @@ namespace WSGM.Overlay;
 /// <param name="GameTools">Per-game Game Tools shared with the Steam page, outside overlay-test.</param>
 /// <param name="HybridCores">The session's shared processor core-preference workflow, which Steam's row also uses.</param>
 /// <param name="Hotkeys">The key combinations the Overlay sends to the game in front.</param>
+/// <param name="ScaledResolutions">
+///     The GPU driver's custom resolution lists, shared with the WSGM section of Steam's Display settings; null
+///     outside a resident session with a graphics owner, and in overlay-test, which must not write drivers.
+/// </param>
 internal sealed record OverlaySources(
     IDeviceOverlaySource? Device = null,
     PerformanceOverlayBridge? Performance = null,
@@ -51,4 +55,5 @@ internal sealed record OverlaySources(
     ScreensaverService? Screensavers = null,
     IGameToolsSource? GameTools = null,
     NativeQamHybridCoreService? HybridCores = null,
-    IHotkeysSource? Hotkeys = null);
+    IHotkeysSource? Hotkeys = null,
+    ScaledResolutionService? ScaledResolutions = null);

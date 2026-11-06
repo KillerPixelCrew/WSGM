@@ -45,7 +45,9 @@ internal static class SettingsSearch
         {
             foreach (var child in parent.LogicalChildren)
             {
-                if (child is not Control { IsVisible: true } control)
+                // A tab panel stays searchable while another tab is shown; choosing a result selects its tab.
+                if (child is not Control control
+                    || (!control.IsVisible && !control.Classes.Contains("settings-tab-panel")))
                 {
                     continue;
                 }

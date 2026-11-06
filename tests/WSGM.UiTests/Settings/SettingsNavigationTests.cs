@@ -62,6 +62,27 @@ public sealed class SettingsNavigationTests
     }
 
     [AvaloniaFact]
+    public void ASearchResultOnAHiddenTabSelectsThatTab()
+    {
+        using UiFixture fixture = new();
+        var window = fixture.Settings(1024, 640);
+        var appearance = UiFixture.Named<Control>(window, "PageAppearance");
+        var colours = UiFixture.Named<Control>(appearance, "SplashColoursTab");
+        Assert.False(colours.IsVisible);
+
+        UiFixture.Named<TextBox>(window, "SearchBox").Text = "vignette";
+        Dispatcher.UIThread.RunJobs();
+        var row = Assert.Single(UiFixture.Named<StackPanel>(window, "SearchList").Children.OfType<Button>());
+        UiFixture.Click(window, row);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(appearance.IsVisible);
+        Assert.True(colours.IsVisible);
+        Assert.False(UiFixture.Named<Control>(appearance, "SplashTextTab").IsVisible);
+        Assert.IsType<ToggleSwitch>(window.FocusManager!.GetFocusedElement());
+    }
+
+    [AvaloniaFact]
     public void BackClosesSuggestionsBeforeItClosesTheWindow()
     {
         using UiFixture fixture = new();

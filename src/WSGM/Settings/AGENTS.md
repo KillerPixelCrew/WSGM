@@ -15,6 +15,15 @@ state is not.
   arbitrary no-scroll rule.
 - A setting is a `Border.setting-row`: title and one line of help on the left, the editor on the right, in a
   `section-header` group. Search reads these from the pages, so a new row is searchable without a second list.
+- Save stays. The footer counts what Save would write (`SettingsViewModel.Changes`, a diff of the captured request
+  against the last load or save) and `SettingsRowMarks` marks each row whose editors no longer show the saved state.
+  A row that shows its state as text, like a startup app card, gives those TextBlocks `settings-row-state`.
+- A row button tagged `open:<title>` opens that nested page; Back returns to the button. Code that opens one itself
+  uses `SettingsWindow.OpenNested` with the focus to return to. An editor that shows one selected item (the startup
+  app editor) is left out of row marks and search, because its rows change with the selection.
+- Controller actions on a focused item use the window's pad roles: Y reorders a performance overlay widget (else
+  searches) and X shows a startup app's actions in its card. Keep their footer hints in step with `UpdateHints`.
+  Popups are out of the pad's reach, so in-window disclosure replaces menus and flyouts.
 - A save operation reads fresh configuration, applies the page's owned fields, validates, and commits through
   ConfigStore. Do not overwrite fields owned by another page or hold the config lock while doing external work.
 - WSGM's page in Steam writes some of the same fields while this window may be open. Those are listed in

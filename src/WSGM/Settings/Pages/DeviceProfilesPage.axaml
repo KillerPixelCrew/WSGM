@@ -4,80 +4,104 @@
              xmlns:c="using:WSGM.Controls"
              x:Class="WSGM.Settings.Pages.DeviceProfilesPage"
              x:DataType="s:SettingsViewModel">
-  <ScrollViewer>
-    <StackPanel Classes="settings-page">
-      <Panel>
-        <TextBlock Text="{Binding DeviceProfilesEmptyReason}"
-                   Classes="caption"
-                   TextWrapping="Wrap"
-                   IsVisible="{Binding !DeviceProfilesAvailable}" />
+  <!-- Device › Fan curves and colours: the profiles on the left, the selected one in the editor on the right.
+       Authoring only. Settings does not activate device hardware, so there is no live temperature to plot; the
+       device checks a curve against its own limits when the Overlay or Steam applies it. -->
+  <Panel Margin="28,0,28,20">
+    <TextBlock Text="{Binding DeviceProfilesEmptyReason}" Classes="caption" TextWrapping="Wrap"
+               IsVisible="{Binding !DeviceProfilesAvailable}" Margin="0,12,0,0" />
 
-        <Panel IsVisible="{Binding DeviceProfilesAvailable}" Margin="0,12,0,0">
-          <StackPanel>
-            <!--
-                    Authoring only. Settings mode does not activate device hardware, so there is no
-                    live temperature or RPM to plot against; the curve is checked against the
-                    device's own descriptor when the overlay applies it, not here.
-                -->
-            <Border Classes="section-header">
-              <TextBlock Text="Profiles" />
-            </Border>
-            <Border Classes="setting-row">
-              <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
-                <ComboBox ItemsSource="{Binding DeviceProfiles}"
-                          SelectedItem="{Binding SelectedDeviceProfile}"
-                          DisplayMemberBinding="{Binding Name}"
-                          MinWidth="180"
-                          VerticalAlignment="Center" />
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                  <Button Content="Add curve"
-                          Click="OnAddProfile"
-                          VerticalAlignment="Center" />
-                  <Button Content="Add colour"
-                          Click="OnAddColorProfile"
-                          VerticalAlignment="Center" />
-                </StackPanel>
-                <Button Grid.Column="2"
-                        Content="Remove"
-                        Click="OnRemoveProfile"
-                        IsEnabled="{Binding HasSelectedDeviceProfile}"
-                        VerticalAlignment="Center" />
-              </Grid>
-            </Border>
-            <Border Classes="setting-row" IsVisible="{Binding HasSelectedDeviceProfile}">
-              <Panel DataContext="{Binding SelectedDeviceProfile}">
-                <StackPanel Spacing="8" x:DataType="s:DeviceProfileRowViewModel">
-                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                    <TextBox Text="{Binding Name}"
-                             PlaceholderText="Profile name" />
-                    <Button Grid.Column="1" Content="Edit" Click="OnEditProfileName"
-                            AutomationProperties.Name="Edit profile name with controller" />
+    <Grid ColumnDefinitions="240,*" ColumnSpacing="16" IsVisible="{Binding DeviceProfilesAvailable}">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,4,0,8">
+          <Button Content="Add curve" Click="OnAddProfile" />
+          <Button Content="Add colour" Click="OnAddColorProfile" />
+        </StackPanel>
+        <TextBlock DockPanel.Dock="Top" Classes="caption" TextWrapping="Wrap"
+                   Text="No profiles yet. Add a fan curve or a colour." IsVisible="{Binding !DeviceProfiles.Count}" />
+        <ListBox x:Name="ProfileList" Classes="settings-list" ItemsSource="{Binding DeviceProfiles}"
+                 SelectedItem="{Binding SelectedDeviceProfile}" AutomationProperties.Name="Profiles">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="s:DeviceProfileRowViewModel">
+              <StackPanel Spacing="1" Margin="2,4">
+                <TextBlock Text="{Binding Name}" Classes="setting-title" TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="Fan curve" Classes="caption" IsVisible="{Binding IsCurveProfile}" />
+                <TextBlock Text="{Binding ColorHex, StringFormat='Colour · {0}'}" Classes="caption"
+                           IsVisible="{Binding IsColorProfile}" />
+              </StackPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+
+      <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="8">
+          <Border Classes="settings-card" IsVisible="{Binding !HasSelectedDeviceProfile}" Margin="0,4,0,0">
+            <TextBlock Text="Pick a profile to edit it." Classes="caption" />
+          </Border>
+          <Panel IsVisible="{Binding HasSelectedDeviceProfile}">
+          <Panel DataContext="{Binding SelectedDeviceProfile}">
+            <StackPanel Spacing="8" x:DataType="s:DeviceProfileRowViewModel" Margin="0,4,0,0">
+              <Border Classes="setting-row">
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+                  <TextBlock Text="Name" Classes="setting-title" VerticalAlignment="Center" Width="60" />
+                  <TextBox Grid.Column="1" x:Name="ProfileName" Text="{Binding Name}" PlaceholderText="Profile name"
+                           AutomationProperties.Name="Profile name" />
+                  <Button Grid.Column="2" Content="Type" Click="OnEditProfileName"
+                          AutomationProperties.Name="Type the profile name with the on-screen keyboard" />
+                  <Button Grid.Column="3" x:Name="RemoveProfile" Classes="danger" Content="Remove…"
+                          Click="OnRemoveProfile" />
+                </Grid>
+              </Border>
+              <Border x:Name="RemoveConfirm" Classes="settings-card" IsVisible="False">
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                  <TextBlock Text="{Binding Name, StringFormat='Remove {0}?'}"
+                             Classes="caption" TextWrapping="Wrap" VerticalAlignment="Center" />
+                  <Button Grid.Column="1" Classes="danger" Content="Remove" Click="OnConfirmRemove" />
+                  <Button Grid.Column="2" x:Name="KeepProfile" Content="Keep" Click="OnKeepProfile" />
+                </Grid>
+              </Border>
+
+              <Border Classes="setting-row" IsVisible="{Binding IsCurveProfile}">
+                <StackPanel Spacing="8">
+                  <Grid ColumnDefinitions="Auto,*" RowDefinitions="*,Auto" ColumnSpacing="6">
+                    <TextBlock Text="100 %" Classes="caption" VerticalAlignment="Top" />
+                    <TextBlock Text="Fan" Classes="caption" VerticalAlignment="Center" />
+                    <TextBlock Text="0 %" Classes="caption" VerticalAlignment="Bottom" />
+                    <c:CurveEditor x:Name="ProfileCurve" Grid.Column="1" Height="240"
+                                   Points="{Binding Curve, Mode=TwoWay}" AutomationProperties.Name="Fan curve" />
+                    <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="Auto,*,Auto">
+                      <TextBlock Text="0 °C" Classes="caption" />
+                      <TextBlock Grid.Column="1" Text="Temperature" Classes="caption" HorizontalAlignment="Center" />
+                      <TextBlock Grid.Column="2" Text="100 °C" Classes="caption" />
+                    </Grid>
                   </Grid>
-                  <c:CurveEditor x:Name="ProfileCurve"
-                                 Height="220"
-                                 IsVisible="{Binding IsCurveProfile}"
-                                 Points="{Binding Curve, Mode=TwoWay}" />
-                  <TextBlock Classes="caption"
-                             TextWrapping="Wrap"
-                             IsVisible="{Binding IsCurveProfile}"
-                             Text="Drag a point to move it, tap the plot to add one, Delete to remove the selected point. The device checks the curve against its own limits when the profile is applied." />
-                  <StackPanel Orientation="Horizontal" Spacing="8"
-                              IsVisible="{Binding IsColorProfile}">
-                    <ColorPicker x:Name="ProfileColor"
-                                 HorizontalAlignment="Left"
-                                 Color="{Binding PickerColor, Mode=TwoWay}" />
-                    <TextBlock Text="{Binding ColorHex}"
-                               Classes="caption" VerticalAlignment="Center" />
-                    <Button Content="Edit colour" Click="OnEditProfileColor"
-                            AutomationProperties.Name="Edit profile color with controller" />
-                  </StackPanel>
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <StackPanel Spacing="1" VerticalAlignment="Center">
+                      <TextBlock x:Name="PointReadout" Classes="setting-title" />
+                      <TextBlock Classes="caption" TextWrapping="Wrap"
+                                 Text="Left and right pick a point, up and down change the fan speed. Drag a point, tap the plot to add one, Delete removes the picked one." />
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="Reset to default" Click="OnResetCurve" VerticalAlignment="Center"
+                            ToolTip.Tip="20 % up to 20 °C, rising to 100 % at 90 °C" />
+                  </Grid>
                 </StackPanel>
-              </Panel>
-            </Border>
+              </Border>
 
-          </StackPanel>
-        </Panel>
-      </Panel>
-    </StackPanel>
-  </ScrollViewer>
+              <Border Classes="setting-row" IsVisible="{Binding IsColorProfile}">
+                <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
+                  <TextBlock Text="Colour" Classes="setting-title" VerticalAlignment="Center" />
+                  <ColorPicker Grid.Column="1" x:Name="ProfileColor" Color="{Binding PickerColor, Mode=TwoWay}" />
+                  <TextBlock Grid.Column="2" Text="{Binding ColorHex}" Classes="caption" VerticalAlignment="Center" />
+                  <Button Grid.Column="3" Content="Type" Click="OnEditProfileColor"
+                          AutomationProperties.Name="Type the profile colour with the on-screen keyboard" />
+                </Grid>
+              </Border>
+            </StackPanel>
+          </Panel>
+          </Panel>
+        </StackPanel>
+      </ScrollViewer>
+    </Grid>
+  </Panel>
 </UserControl>

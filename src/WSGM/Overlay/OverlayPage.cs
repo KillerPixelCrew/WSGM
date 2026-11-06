@@ -41,6 +41,9 @@ internal enum OverlayPage
     /// <summary>Panel brightness and the display routes.</summary>
     SystemDisplay,
 
+    /// <summary>Tools › Display › Custom resolutions: the GPU driver's resolution list for each display.</summary>
+    SystemDisplayResolutions,
+
     /// <summary>Rows published by the enabled common plugins.</summary>
     SystemPlugins,
 

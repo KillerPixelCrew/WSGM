@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -283,11 +284,21 @@ public sealed partial class SettingsViewModel
         _deviceProfilesEdited = true;
     }
 
-    /// <summary>Adds an empty fan curve the user can then shape.</summary>
+    /// <summary>
+    ///     The fan curve a new profile starts from, and what Reset to default restores: HC's default table, 20 % up
+    ///     to 20 °C, then 30, 40, 50, 70, 80 and 90 % in 10 °C steps, 100 % from 90 °C.
+    /// </summary>
+    internal static IReadOnlyList<Device.Sdk.Capabilities.CurvePoint> DefaultFanCurve { get; } =
+    [
+        new(0, 20), new(10, 20), new(20, 20), new(30, 30), new(40, 40), new(50, 50), new(60, 70), new(70, 80),
+        new(80, 90), new(90, 100), new(100, 100)
+    ];
+
+    /// <summary>Adds a fan curve, starting from the default, or a colour the user can then shape.</summary>
     /// <param name="capabilityId">The capability the new profile authors.</param>
     /// <param name="color">Whether to author a colour rather than a curve.</param>
     /// <remarks>
-    ///     Seeded with two points at the ends rather than none. A curve needs at least two to be valid,
+    ///     Seeded with the default curve rather than none. A curve needs at least two points to be valid,
     ///     and an editor opening on an empty plot gives the user nothing to grab.
     /// </remarks>
     internal void AddDeviceProfile(string capabilityId, bool color = false)
@@ -308,11 +319,10 @@ public sealed partial class SettingsViewModel
             // value the user set for something else.
             Curve = color
                 ? []
-                :
-                [
-                    new AuthoredCurvePoint { Input = 0, Output = 0 },
-                    new AuthoredCurvePoint { Input = 100, Output = 100 }
-                ],
+                : [.. DefaultFanCurve.Select(static point => new AuthoredCurvePoint
+                {
+                    Input = point.Input, Output = point.Output
+                })],
             Color = color ? (int)(AccentPalette.Parse(AppConfig.DefaultAccentColor).ToUInt32() & 0xFFFFFF) : null
         });
         DeviceProfiles.Add(row);

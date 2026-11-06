@@ -298,8 +298,13 @@ arrangement controls live under an expander, and unavailable providers stay visi
 identities are persistence keys, not widget headings.
 
 Settings has a section rail with search over eleven sections, and LB/RB step through them. A larger
-editor nests under its section with Back returning to the row that opened it. Search suggests rows
-as you type, read from the pages, and choosing one shows its section and focuses the row. Display
-modes show resolution and refresh, scaling has an explicit percentage label, and secondary-display
+editor nests under its section with Back returning to the row that opened it: Steam's Library,
+Client, Steam Input and Artwork, Device's fan curves and colours, and Startup's app editor and Add
+app. Save stays; the footer counts unsaved changes and each changed row carries a mark. A row that
+opens a nested page says what it holds now, so it reads without opening it. The overlay widget table
+reorders by drag or Y then Up/Down, and a startup app card shows Edit, Move and Remove in place from
+its More button or X, because popups are out of the controller's reach. Search suggests rows as you
+type, read from the pages, and choosing one shows its section and focuses the row. Display modes
+show resolution and refresh, scaling has an explicit percentage label, and secondary-display
 coordinates live under Display position. Session actions are expandable, with one
 unavailable-provider hint rather than a repeated message for each event.

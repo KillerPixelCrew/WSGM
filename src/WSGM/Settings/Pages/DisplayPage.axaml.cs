@@ -11,21 +11,6 @@ public partial class DisplayPage : UserControl
     public DisplayPage()
     {
         InitializeComponent();
-        Loaded += (_, _) =>
-        {
-            if (DataContext is SettingsViewModel viewModel)
-            {
-                viewModel.ScaledResolutions.RefreshCommand.Execute(null);
-            }
-        };
-    }
-
-    private void OnEditScaledSize(object? sender, RoutedEventArgs e)
-    {
-        if (TopLevel.GetTopLevel(this) is SettingsWindow window)
-        {
-            window.ShowOnScreenKeyboard(ScaledSizeBox, "Resolution in pixels (width × height)");
-        }
     }
 
     private void OnRefreshAudio(object? sender, RoutedEventArgs e)

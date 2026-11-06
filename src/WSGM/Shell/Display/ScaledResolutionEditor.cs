@@ -5,9 +5,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using LibGPUDriverInteract;
 using WSGM.Core;
-using WSGM.Shell;
 
-namespace WSGM.Settings;
+namespace WSGM.Shell;
 
 /// <summary>A connected monitor offered by the scaled-resolution editor.</summary>
 public sealed record ScaledResolutionChoice(string Path, string Name)
@@ -29,7 +28,10 @@ public sealed record ScaledResolutionItem(int Width, int Height, string Label)
     }
 }
 
-/// <summary>Controller-accessible editor over the same source-mode service used by Steam Display Settings.</summary>
+/// <summary>
+///     The Overlay's custom-resolution editor (Tools › Display) over the same source-mode service as the WSGM
+///     section of Steam's Display settings.
+/// </summary>
 public sealed class ScaledResolutionEditor : ObservableObject
 {
     private readonly CancellationTokenSource _lifetime = new();
@@ -140,10 +142,7 @@ public sealed class ScaledResolutionEditor : ObservableObject
     public bool CanAddSteps => CanEdit && _state?.Native is not null;
 
     /// <summary>Whether the selected size is in the driver's editable list.</summary>
-    public bool CanRemove => CanEdit && Resolution is { } selected
-                                     && new GpuScaledResolution(selected.Width, selected.Height) != _state!.Native
-                                     && _state.Catalog!.Modes.Contains(
-                                         new GpuScaledResolution(selected.Width, selected.Height));
+    public bool CanRemove => Resolution is { } selected && IsRemovable(selected);
 
     /// <summary>Whether an original list was saved for this driver route.</summary>
     public bool CanRestore => CanEdit && _state?.Original is not null;
@@ -160,6 +159,15 @@ public sealed class ScaledResolutionEditor : ObservableObject
     /// <summary>Whether optional driver maintenance is available.</summary>
     public bool HasDriverOptions => HasMissing || NeedsRestart;
 
+    /// <summary>Whether a size is in the driver's editable list and is not the protected native size.</summary>
+    /// <param name="item">A size from <see cref="Resolutions" />.</param>
+    /// <returns>Whether Remove may take it out.</returns>
+    public bool IsRemovable(ScaledResolutionItem item)
+    {
+        var mode = new GpuScaledResolution(item.Width, item.Height);
+        return CanEdit && mode != _state!.Native && _state.Catalog!.Modes.Contains(mode);
+    }
+
     internal void Close()
     {
         _lifetime.Cancel();
@@ -175,7 +183,7 @@ public sealed class ScaledResolutionEditor : ObservableObject
             }
 
             await ReadAsync();
-            Status = _state?.Detail ?? "No GPU owner is available in this Settings session.";
+            Status = _state?.Detail ?? "No graphics driver owner is running in this session.";
         });
     }
 
@@ -183,7 +191,7 @@ public sealed class ScaledResolutionEditor : ObservableObject
     {
         if (_service is null)
         {
-            Status = "The GPU integration is unavailable in this Settings session.";
+            Status = "The graphics integration is not running in this session.";
             return;
         }
 

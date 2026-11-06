@@ -84,6 +84,9 @@ internal sealed class UiFixture : IDisposable
     /// <summary>Companion apps Settings offers when adding a startup app.</summary>
     internal List<(string Label, string Path, bool Elevated)> StartupSuggestions { get; } = [];
 
+    /// <summary>The handheld and graphics drivers the Settings inventory reports.</summary>
+    internal SettingsInventory Inventory { get; set; } = new(null, []);
+
     /// <summary>Whether a startup program's file is there.</summary>
     internal Func<string, bool> ProgramExists { get; set; } = static _ => true;
 
@@ -158,6 +161,7 @@ internal sealed class UiFixture : IDisposable
             ReadAudio = _ => Audio,
             ListLogs = () => LogFiles,
             DetectStartupApps = () => StartupSuggestions,
+            ReadInventory = () => Inventory,
             ProgramExists = path => ProgramExists(path),
             UploadLogs = (files, _, cancellationToken) => UploadLogs(files, cancellationToken)
         };

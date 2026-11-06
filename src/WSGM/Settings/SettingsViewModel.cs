@@ -41,7 +41,6 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         _store = store;
         _services = services ?? throw new ArgumentNullException(nameof(services));
-        ScaledResolutions = new ScaledResolutionEditor(services.ScaledResolutions);
         InstalledPackages.CollectionChanged += (_, _) => Raise(nameof(HasInstalledPackages));
         AvailablePackages.CollectionChanged += (_, _) => Raise(nameof(HasAvailablePackages));
         UnavailablePackages.CollectionChanged += (_, _) =>
@@ -224,19 +223,16 @@ public sealed partial class SettingsViewModel : ObservableObject
     ///     Read-only capabilities from existing resident graphics owners; standalone Settings uses
     ///     its saved catalog.
     /// </param>
-    /// <param name="scaledResolutions">Borrowed global source-resolution catalog owner shared with Steam Settings.</param>
     /// <returns>A UI-thread model with explicit production services and any configuration-read problem retained for display.</returns>
     internal static SettingsViewModel FromLoadedConfig(ConfigReadResult read, ConfigStore store,
         SteamInputShim steamInputShim, Func<IReadOnlyList<PluginActionOption>> readPluginActions,
         HandheldDefinition? definition = null,
-        Func<IReadOnlyList<DisplayGpuCapability>>? readDisplayGpu = null,
-        ScaledResolutionService? scaledResolutions = null)
+        Func<IReadOnlyList<DisplayGpuCapability>>? readDisplayGpu = null)
     {
         var viewModel = new SettingsViewModel(read.Config ?? new AppConfig(),
             SettingsServices.Windows(store, steamInputShim, readPluginActions) with
             {
-                ReadDisplayGpu = readDisplayGpu ?? (() => []),
-                ScaledResolutions = scaledResolutions
+                ReadDisplayGpu = readDisplayGpu ?? (() => [])
             }, definition, store);
         Log.Observe(viewModel.LoadPluginPackagesAsync(), "Settings plugin packages");
         viewModel.ShowConfigReadProblem(read);
@@ -322,8 +318,6 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         /// <summary>Whether a startup program's file is there; startup skips one that is not.</summary>
         internal Func<string, bool> ProgramExists { get; init; } = static _ => true;
-
-        internal ScaledResolutionService? ScaledResolutions { get; init; }
 
         /// <summary>Lists the log files an upload sends, on a worker; none unless the composer supplies them.</summary>
         internal Func<IReadOnlyList<LogUploadFile>> ListLogs { get; init; } = () => [];

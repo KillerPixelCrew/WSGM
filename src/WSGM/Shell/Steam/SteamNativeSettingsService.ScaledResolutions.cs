@@ -121,9 +121,20 @@ internal sealed partial class SteamNativeSettingsService
 
                     if (!catalog.OutputSpecific)
                     {
-                        Action("scaled.restart", "Restart graphics driver",
+                        // Asks first in Steam's confirm modal, as the Overlay's Custom resolutions page does.
+                        var restartKey = "scaled.restart/target/" + targetKey;
+                        offer.Add(null, new SteamSettingsRow(restartKey, SteamSettingsRowKind.Action, "Restart"),
+                            (_, token) => Apply(() => scaledResolutions.RestartAsync(catalog, token)));
+                        rows.Add(new SteamSettingsRow("scaled.restart-row/target/" + targetKey,
+                            SteamSettingsRowKind.Action, "Restart graphics driver",
                             "Activates changes. Displays may go blank and games may be interrupted.",
-                            token => scaledResolutions.RestartAsync(catalog, token), "Restart");
+                            Actions:
+                            [
+                                new SteamSettingsAction(restartKey, "Restart…", Confirm: new SteamSettingsConfirmation(
+                                    When: true, "Restart the graphics driver?",
+                                    "This activates your resolution changes. Displays may go blank and games may be "
+                                    + "interrupted. Save your game first.", "Restart now"))
+                            ]));
                     }
                 }
             }

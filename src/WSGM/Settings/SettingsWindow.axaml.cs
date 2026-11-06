@@ -9,6 +9,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.LogicalTree;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -463,6 +464,7 @@ public partial class SettingsWindow : Window
     {
         CloseSearch();
         ShowSection(entry.SectionIndex);
+        SelectTabOf(entry.Row);
         // After layout: the page has only just become visible, so the row has no place to scroll to yet.
         Dispatcher.UIThread.Post(() =>
         {
@@ -478,6 +480,22 @@ public partial class SettingsWindow : Window
                     ?.Focus(NavigationMethod.Directional);
             }
         }, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>Selects the tab whose panel holds a row, when that panel is hidden behind another tab.</summary>
+    /// <param name="row">The row a search result points at.</param>
+    private static void SelectTabOf(Control? row)
+    {
+        var panel = row?.GetLogicalAncestors().OfType<Control>()
+            .FirstOrDefault(static control => control.Classes.Contains("settings-tab-panel"));
+        if (panel is not { IsVisible: false, Name: { } name } || panel.Parent is not Panel host)
+        {
+            return;
+        }
+
+        var tab = host.GetLogicalDescendants().OfType<RadioButton>()
+            .FirstOrDefault(button => Equals(button.Tag, name));
+        tab?.IsChecked = true;
     }
 
     private void CloseSearch()

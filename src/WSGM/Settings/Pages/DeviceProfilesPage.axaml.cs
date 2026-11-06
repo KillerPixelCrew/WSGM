@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
+using WSGM.Controls;
 using Avalonia.Media;
 using WSGM.Device.Sdk.Capabilities;
 
@@ -21,6 +24,23 @@ public partial class DeviceProfilesPage : UserControl
         // profile list is dirty. Without the last part a curve edit is discarded at save, because
         // profiles are only written when this window actually changed them.
         ProfileCurve.CurveChanged += OnCurveChanged;
+        ProfileCurve.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == CurveEditor.SelectedIndexProperty || e.Property == CurveEditor.PointsProperty)
+            {
+                ShowPicked();
+            }
+        };
+    }
+
+    /// <summary>Says which point is picked and where it sits, so the controller edit reads without the plot.</summary>
+    private void ShowPicked()
+    {
+        var points = ProfileCurve.Points;
+        var index = ProfileCurve.SelectedIndex;
+        PointReadout.Text = index >= 0 && index < points.Count
+            ? $"Point {index + 1}:  {points[index].Input} °C  →  {points[index].Output} % fan"
+            : $"{points.Count} points";
     }
 
     private void OnCurveChanged(IReadOnlyList<CurvePoint> curve)
@@ -55,11 +75,36 @@ public partial class DeviceProfilesPage : UserControl
         }
     }
 
+    /// <summary>Asks before removing: the confirmation shows in place, with Keep focused.</summary>
     private void OnRemoveProfile(object? sender, RoutedEventArgs e)
     {
+        RemoveConfirm.IsVisible = true;
+        Dispatcher.UIThread.Post(() => KeepProfile.Focus(NavigationMethod.Directional), DispatcherPriority.Loaded);
+    }
+
+    private void OnConfirmRemove(object? sender, RoutedEventArgs e)
+    {
+        RemoveConfirm.IsVisible = false;
         if (DataContext is SettingsViewModel viewModel)
         {
             viewModel.RemoveSelectedDeviceProfile();
+        }
+
+        ProfileList.Focus(NavigationMethod.Directional);
+    }
+
+    private void OnKeepProfile(object? sender, RoutedEventArgs e)
+    {
+        RemoveConfirm.IsVisible = false;
+        RemoveProfile.Focus(NavigationMethod.Directional);
+    }
+
+    private void OnResetCurve(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is SettingsViewModel { SelectedDeviceProfile: { IsCurveProfile: true } profile } viewModel)
+        {
+            profile.Curve = SettingsViewModel.DefaultFanCurve;
+            viewModel.NoteDeviceProfileEdited();
         }
     }
 

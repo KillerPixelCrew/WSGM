@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Avalonia.Controls;
+using Avalonia.Interactivity;
 using WSGM.Controls;
 using WSGM.Shell;
 
@@ -52,6 +53,21 @@ public sealed partial class DisplayPage : StackPanel
     /// <summary>A new copy of the brightness and display mode for Quick access.</summary>
     /// <returns>The copy; it follows the same owners as the page.</returns>
     /// <exception cref="InvalidOperationException">The brightness owner has not attached.</exception>
+    /// <summary>Raised when the user opens Custom resolutions.</summary>
+    internal event Action? CustomResolutionsRequested;
+
+    /// <summary>Offers Custom resolutions once a graphics owner is attached.</summary>
+    /// <param name="available">Whether the page can edit resolution lists.</param>
+    internal void OfferCustomResolutions(bool available)
+    {
+        CustomResolutionsButton.IsVisible = available;
+    }
+
+    private void OnCustomResolutions(object? sender, RoutedEventArgs e)
+    {
+        CustomResolutionsRequested?.Invoke();
+    }
+
     internal Control CreateCopy()
     {
         if (_service is null || _displayModes is not { } modes || _display is null)

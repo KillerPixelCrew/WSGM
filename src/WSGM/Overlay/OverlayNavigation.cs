@@ -221,7 +221,7 @@ internal sealed class OverlayNavigation
                 => OverlayDestination.Device,
             OverlayPage.System or OverlayPage.SystemTools or OverlayPage.SystemPerformance
                 or OverlayPage.SteamStorageFormat
-                or OverlayPage.SystemStorage or OverlayPage.SystemDisplay
+                or OverlayPage.SystemStorage or OverlayPage.SystemDisplay or OverlayPage.SystemDisplayResolutions
                 or OverlayPage.SystemPlugins or OverlayPage.SystemThemes or OverlayPage.SystemArtwork
                 or OverlayPage.SteamGameLibrary or OverlayPage.SystemAnimations
                 or OverlayPage.EmulatorManager

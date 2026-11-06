@@ -203,6 +203,42 @@
     <Setter Property="Background" Value="{StaticResource HcCardHoverBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
   </Style>
+  <!-- Tabs over a page's sub-panels (the splash's Text, Colours and Images): a label with an accent underline. -->
+  <Style Selector="RadioButton.settings-tab">
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Name="TabBorder" Background="Transparent" BorderThickness="0,0,0,2" BorderBrush="Transparent"
+                Padding="14,6" CornerRadius="0">
+          <ContentPresenter Content="{TemplateBinding Content}" FontSize="14" FontWeight="SemiBold"
+                            Foreground="{StaticResource HcTextSecondaryBrush}" />
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="RadioButton.settings-tab:checked /template/ Border#TabBorder">
+    <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+  </Style>
+  <Style Selector="RadioButton.settings-tab:checked /template/ ContentPresenter">
+    <Setter Property="Foreground" Value="{StaticResource HcTextPrimaryBrush}" />
+  </Style>
+  <Style Selector="RadioButton.settings-tab:pointerover /template/ Border#TabBorder">
+    <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
+  </Style>
+  <Style Selector="RadioButton.settings-tab:focus-visible /template/ Border#TabBorder">
+    <Setter Property="Background" Value="{StaticResource HcCardHoverBrush}" />
+  </Style>
+
+  <!-- A list of items to pick one of, like the device profiles beside their editor. -->
+  <Style Selector="ListBox.settings-list">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+  </Style>
+  <Style Selector="ListBox.settings-list ListBoxItem">
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="Margin" Value="0,0,0,4" />
+    <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
+  </Style>
+
   <!-- An icon button that opens a web page or more actions for its row. -->
   <Style Selector="Button.settings-link, Button.settings-more">
     <Setter Property="MinWidth" Value="40" />

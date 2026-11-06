@@ -23,7 +23,6 @@ public class App : Application
     // Deliberate root for the headless shell session — without it the session
     // (and its config watcher) would survive only via incidental GC reachability.
     private ShellSession? _session;
-    private StandaloneScaledResolutionOwner? _standaloneGraphics;
 
     /// <summary>Creates the application over the configuration read during process startup.</summary>
     /// <param name="startupRead">
@@ -78,17 +77,14 @@ public class App : Application
                 case RunMode.Settings:
                 default:
                     // Standalone Settings has no plugin host; saved plugin actions remain read-only.
-                    _standaloneGraphics = new StandaloneScaledResolutionOwner(_store);
-                    var settings = SettingsViewModel.FromLoadedConfig(_startupRead, _store, _steamInput.Shim, () => [],
-                        scaledResolutions: _standaloneGraphics.Service);
+                    var settings = SettingsViewModel.FromLoadedConfig(_startupRead, _store, _steamInput.Shim, () => []);
                     desktop.MainWindow = new SettingsWindow(settings,
                         SettingsWindowServices.Create(settings, _steamInput, null,
                             SettingsSurface.TestSheet(_store, _steamInput, null)));
                     break;
             }
 
-            Runtime = new ApplicationRuntime(_session is not null ? _session.ShutdownAsync
-                : _standaloneGraphics is not null ? _standaloneGraphics.ShutdownAsync : null,
+            Runtime = new ApplicationRuntime(_session is not null ? _session.ShutdownAsync : null,
                 code => { desktop.Shutdown(code); }, UpdateExitWatcher.ReportHandoff);
             desktop.ShutdownRequested += OnShutdownRequested;
             if (_options.Mode is RunMode.Shell)

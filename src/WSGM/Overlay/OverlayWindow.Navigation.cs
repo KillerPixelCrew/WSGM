@@ -107,6 +107,8 @@ public partial class OverlayWindow
         new SubView(OverlayPage.SteamLaunchConfiguration, LaunchWrapperHost, PanelSteamLaunch,
             OverlayDestination.Steam, PanelSteamLaunch.ForgetPendingFix),
         new SubView(OverlayPage.PowerWakeLocks, WakeLockHost, PanelPowerWake, OverlayDestination.Power),
+        new SubView(OverlayPage.SystemDisplayResolutions, CustomResolutionsHost, PanelSystemDisplay,
+            OverlayDestination.System),
         new SubView(OverlayPage.DeviceColor, DeviceColorHost, DevicePage, OverlayDestination.Device)
     ];
 

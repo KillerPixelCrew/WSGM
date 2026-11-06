@@ -655,4 +655,31 @@ public partial class AppearancePage : UserControl
             button?.IsEnabled = true;
         }
     }
+
+    /// <summary>Shows or hides the custom accent colour row.</summary>
+    private void OnCustomAccent(object? sender, RoutedEventArgs e)
+    {
+        CustomAccentRow.IsVisible = !CustomAccentRow.IsVisible;
+        CustomAccentButton.Content = CustomAccentRow.IsVisible ? "Hide custom" : "Custom…";
+    }
+
+    /// <summary>Shows or hides the splash file actions under the preset row.</summary>
+    private void OnSplashMore(object? sender, RoutedEventArgs e)
+    {
+        SplashFileRow.IsVisible = !SplashFileRow.IsVisible;
+        SplashMoreButton.Content = SplashFileRow.IsVisible ? "Less" : "More";
+    }
+
+    /// <summary>Shows the splash tab whose button was chosen.</summary>
+    private void OnSplashTab(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not RadioButton { IsChecked: true, Tag: string panel })
+        {
+            return;
+        }
+
+        SplashTextTab.IsVisible = panel == nameof(SplashTextTab);
+        SplashColoursTab.IsVisible = panel == nameof(SplashColoursTab);
+        SplashImagesTab.IsVisible = panel == nameof(SplashImagesTab);
+    }
 }

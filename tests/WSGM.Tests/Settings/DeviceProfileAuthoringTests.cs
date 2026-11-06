@@ -149,14 +149,15 @@ public sealed class DeviceProfileAuthoringTests
     [Fact]
     public void AddingAProfileSeedsACurveTheUserCanGrab()
     {
-        // A curve needs two points to be valid, and an editor opening on an empty plot gives the
-        // user nothing to drag.
+        // A new curve starts from the default table, so the editor never opens on an empty plot.
         var viewModel = Model(Config());
 
         viewModel.AddDeviceProfile("thermal.fan-curve");
 
         var row = Assert.Single(viewModel.DeviceProfiles);
-        Assert.Equal(2, row.Curve.Count);
+        Assert.Equal(SettingsViewModel.DefaultFanCurve, row.Curve);
+        Assert.Equal((0, 20), (row.Curve[0].Input, row.Curve[0].Output));
+        Assert.Equal((90, 100), (row.Curve[9].Input, row.Curve[9].Output));
         Assert.Same(row, viewModel.SelectedDeviceProfile);
     }
 

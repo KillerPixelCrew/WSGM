@@ -104,6 +104,14 @@ public partial class OverlayWindow
         RenderPins();
     }
 
+    /// <summary>Offers Tools › Display › Custom resolutions over the session's editor.</summary>
+    /// <param name="editor">The editor over the shared custom-resolution service.</param>
+    internal void AttachScaledResolutions(ScaledResolutionEditor editor)
+    {
+        CustomResolutionsHost.Attach(editor);
+        PanelSystemDisplay.OfferCustomResolutions(true);
+    }
+
     internal void AttachPowerSchemes(ChoiceRowSelection selection)
     {
         _powerSchemeSelection = selection;

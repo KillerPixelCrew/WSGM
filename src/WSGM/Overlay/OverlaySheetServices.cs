@@ -75,6 +75,11 @@ internal sealed class OverlaySheetServices
                 _previewOnly ? DisplayModeAccess.Unavailable : Sources.DisplayModes ?? DisplayModeAccess.Unavailable);
         }
 
+        if (Sources.ScaledResolutions is { } scaled && !_previewOnly)
+        {
+            overlay.AttachScaledResolutions(new ScaledResolutionEditor(scaled));
+        }
+
         if (Sources.ManualTdp is { } manual)
         {
             overlay.AttachManualTdp(manual);

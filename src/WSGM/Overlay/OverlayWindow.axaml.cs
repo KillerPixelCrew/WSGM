@@ -265,6 +265,7 @@ public partial class OverlayWindow : Window
         PanelSystemController.KeyboardRequested += () => OnScreenKeyboardRequested?.Invoke();
         PanelPowerSession.Configure(_powerConfirms);
         PanelPowerWake.WakeLocksRequested += () => OpenPage(OverlayPage.PowerWakeLocks);
+        PanelSystemDisplay.CustomResolutionsRequested += () => OpenPage(OverlayPage.SystemDisplayResolutions);
         PanelPowerActions.Configure(_powerConfirms);
         PanelPowerActions.DismissRequested += () => Dismissed?.Invoke();
         PanelPowerActions.PowerMenuRequested += () => PowerMenuRequested?.Invoke();
