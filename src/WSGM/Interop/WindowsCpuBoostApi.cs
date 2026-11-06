@@ -1,5 +1,4 @@
 using System;
-using System.ComponentModel;
 using WindowsDeviceControl;
 
 namespace WSGM.Interop;
@@ -45,15 +44,7 @@ internal sealed class WindowsCpuBoostApi : ICpuBoostApi
     /// <remarks>HC's <c>SetAttribute(..., 2u)</c>: <c>POWER_ATTRIBUTE_SHOW_AOAC</c>, which also clears the hidden bit.</remarks>
     public bool TryReveal()
     {
-        try
-        {
-            WindowsPower.WriteSettingAttributes(WindowsPower.SubgroupProcessor, WindowsPower.SettingProcessorBoostMode,
-                PowerSettingAttributes.ShowAoac);
-            return true;
-        }
-        catch (Win32Exception)
-        {
-            return false;
-        }
+        return WindowsPower.TryWriteSettingAttributes(WindowsPower.SubgroupProcessor,
+            WindowsPower.SettingProcessorBoostMode, PowerSettingAttributes.ShowAoac, out _);
     }
 }

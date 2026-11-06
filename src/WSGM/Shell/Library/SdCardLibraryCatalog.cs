@@ -201,10 +201,10 @@ internal sealed class SdCardLibraryCatalog(ConfigStore store)
                 // Resolve the volume BEFORE reading the marker, and read through the
                 // volume: validating a letter and then writing to that letter is the
                 // race this exists to close.
-                if (!WindowsStorage.TryGetVolumeGuidPath(letter, out var root) || root is null)
+                if (!WindowsStorage.TryGetVolumeGuidPath(letter, out var root, out var pathError) || root is null)
                 {
                     Log.Warn($"Card rename: {letter}: has no volume path (Win32 error "
-                             + $"{WindowsStorage.LastWin32Error()}); it cannot be written safely.");
+                             + $"{pathError}); it cannot be written safely.");
                     continue;
                 }
 
@@ -318,10 +318,10 @@ internal sealed class SdCardLibraryCatalog(ConfigStore store)
         try
         {
             if (!WindowsStorage.TryGetVolumeInformation(
-                    volume.Root, out var current, out var fileSystem))
+                    volume.Root, out var current, out var fileSystem, out var queryError))
             {
                 Log.Warn($"Card rename: {volume.Letter}: could not be queried for its label "
-                         + $"(Win32 error {WindowsStorage.LastWin32Error()}); it is unchanged.");
+                         + $"(Win32 error {queryError}); it is unchanged.");
                 return labelBehind;
             }
 
@@ -341,10 +341,10 @@ internal sealed class SdCardLibraryCatalog(ConfigStore store)
                 return null;
             }
 
-            if (!WindowsStorage.TrySetVolumeLabel(volume.Root, capped))
+            if (!WindowsStorage.TrySetVolumeLabel(volume.Root, capped, out var labelError))
             {
                 Log.Warn($"Card rename: could not label {volume.Letter}: '{capped}' "
-                         + $"(Win32 error {WindowsStorage.LastWin32Error()}).");
+                         + $"(Win32 error {labelError}).");
                 return labelBehind;
             }
 
@@ -543,7 +543,7 @@ internal sealed class SdCardLibraryCatalog(ConfigStore store)
             return markerLabel.Trim();
         }
 
-        if (WindowsStorage.TryGetVolumeInformation($@"{letter}:\", out var volumeLabel, out _)
+        if (WindowsStorage.TryGetVolumeInformation($@"{letter}:\", out var volumeLabel, out _, out _)
             && !string.IsNullOrWhiteSpace(volumeLabel)
             && !string.Equals(volumeLabel, SdFormatManager.DefaultLabel, StringComparison.OrdinalIgnoreCase))
         {

@@ -13,6 +13,9 @@ internal static partial class NativeMethods
     internal const uint ModNoRepeat = 0x4000;
     internal const uint WmHotkey = 0x0312;
 
+    /// <summary>WM_CLOSE, the request a window's close button sends.</summary>
+    internal const uint WmClose = 0x0010;
+
     // ---- Low-level keyboard hook (shortcut recording only — see KeyRecorder) ----
     internal const int WhKeyboardLl = 13;
 

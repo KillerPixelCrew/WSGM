@@ -425,9 +425,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
                 continue;
             }
 
-            using var volume = WindowsStorage.OpenVolumeForQuery(char.ToUpperInvariant(root[0]));
-            if (!volume.IsInvalid
-                && WindowsStorage.TryGetDeviceNumber(volume, out _, out var disk))
+            if (WindowsStorage.DiskNumberFor(root[0]) is var disk and >= 0)
             {
                 disks.Add(disk);
             }
@@ -604,9 +602,8 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
 
     private static EjectResult EjectUnletteredMedia(string path)
     {
-        using var query = WindowsStorage.OpenVolumeForQueryPath(path);
-        if (query.IsInvalid || !WindowsStorage.TryGetDeviceNumber(query, out _, out var disk)
-                            || ClassifyDisk(disk, ResolveSystemDisks()) != EjectKind.Media)
+        var disk = WindowsStorage.DiskOfVolume(path);
+        if (disk < 0 || ClassifyDisk(disk, ResolveSystemDisks()) != EjectKind.Media)
         {
             return new EjectResult(false, "The removable medium changed. Refresh and try again.");
         }
@@ -615,31 +612,24 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
         var locks = new List<SafeFileHandle>();
         try
         {
-            foreach (var volumePath in WindowsStorage.ListVolumeInterfaces())
+            foreach (var volumePath in WindowsStorage.VolumesOnDisk(disk))
             {
-                using var volume = WindowsStorage.OpenVolumeForQueryPath(volumePath);
-                if (volume.IsInvalid || !WindowsStorage.TryGetDeviceNumber(volume, out _, out var volumeDisk)
-                                     || volumeDisk != disk)
-                {
-                    continue;
-                }
-
                 var locked = WindowsStorage.OpenDeviceForMediaEject(volumePath);
                 locks.Add(locked);
-                if (locked.IsInvalid || !WindowsStorage.LockVolume(locked))
+                if (locked.IsInvalid || !WindowsStorage.LockVolume(locked, out _))
                 {
                     return new EjectResult(false,
                         "The card is still in use. Close its applications before ejecting it.");
                 }
             }
 
-            if (locks.Any(locked => !WindowsStorage.DismountVolume(locked)))
+            if (locks.Any(locked => !WindowsStorage.DismountVolume(locked, out _)))
             {
                 return new EjectResult(false, "Windows could not dismount the card. It has not been ejected.");
             }
 
             using var handle = WindowsStorage.OpenDeviceForMediaEject(path);
-            if (handle.IsInvalid || !WindowsStorage.EjectMedia(handle))
+            if (handle.IsInvalid || !WindowsStorage.EjectMedia(handle, out _))
             {
                 return new EjectResult(false,
                     "Windows could not eject this medium. No safe-removal confirmation was received.");
@@ -670,7 +660,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
 
         var target = WindowsStorage.FindEjectTarget(diskDevInst);
         Log.Info($"Eject: requesting device eject for {name} "
-                 + $"(devnode {WindowsStorage.GetDeviceInstanceId(target)}).");
+                 + $"(devnode {DeviceNodes.GetDeviceInstanceId(target)}).");
         var vetoType = WindowsStorage.PnpVetoType.TypeUnknown;
         var vetoName = "";
         for (var attempt = 1; attempt <= EjectAttempts; attempt++)
@@ -707,11 +697,11 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     private static EjectResult EjectMediaVolume(char letter, string name)
     {
         Log.Info($"Eject: dismounting media volume {letter}: ({name}).");
-        using var volume = WindowsStorage.OpenVolumeForEject(letter);
+        using var volume = WindowsStorage.OpenVolumeForEject(letter, out var openError);
         if (volume.IsInvalid)
         {
             Log.Warn($"Eject: could not open {letter}: "
-                     + $"(Win32 {WindowsStorage.LastWin32Error()}).");
+                     + $"(Win32 {openError}).");
             return new EjectResult(false, $"Could not open drive {letter}:.");
         }
 
@@ -720,14 +710,14 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
         var locked = false;
         for (var attempt = 1; attempt <= EjectAttempts; attempt++)
         {
-            if (WindowsStorage.LockVolume(volume))
+            if (WindowsStorage.LockVolume(volume, out var lockError))
             {
                 locked = true;
                 break;
             }
 
             Log.Info($"Eject: volume {letter}: still in use "
-                     + $"(attempt {attempt}, Win32 {WindowsStorage.LastWin32Error()}).");
+                     + $"(attempt {attempt}, Win32 {lockError}).");
             if (attempt < EjectAttempts)
             {
                 Thread.Sleep(RetryDelay);
@@ -741,19 +731,19 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
                 + "files open on this card. Close it and try again.");
         }
 
-        if (!WindowsStorage.DismountVolume(volume))
+        if (!WindowsStorage.DismountVolume(volume, out var dismountError))
         {
             Log.Warn($"Eject: dismount of {letter}: failed "
-                     + $"(Win32 {WindowsStorage.LastWin32Error()}).");
+                     + $"(Win32 {dismountError}).");
             return new EjectResult(false, $"Could not dismount drive {letter}:.");
         }
 
         // Many readers have no motorized eject and fail this call; the lock and
         // dismount above are what makes the card safe to pull.
-        if (!WindowsStorage.EjectMedia(volume))
+        if (!WindowsStorage.EjectMedia(volume, out var ejectError))
         {
             Log.Info($"Eject: media-eject call for {letter}: not supported "
-                     + $"(Win32 {WindowsStorage.LastWin32Error()}); dismount succeeded.");
+                     + $"(Win32 {ejectError}); dismount succeeded.");
         }
 
         Log.Info($"Eject: {letter}: dismounted and safe to remove.");

@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using WindowsDeviceControl;
 using WSGM.Interop;
 
 namespace WSGM.Core;
@@ -125,7 +126,7 @@ internal sealed class DesktopAppProcessBackend(UserDataContext context) : IDeskt
                         }
 
                         // Prefer its ordinary application exit before enforcing the requested switch.
-                        posted = NativeMethods.PostMessageW(window, 0x0010, 0, 0); // WM_CLOSE
+                        posted = DesktopWindows.RequestClose(window, (uint)instance.ProcessId);
                         break;
                     }
 

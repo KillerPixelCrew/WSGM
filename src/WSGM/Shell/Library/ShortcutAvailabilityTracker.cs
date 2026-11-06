@@ -315,7 +315,7 @@ internal sealed class ShortcutAvailabilityTracker : IAsyncDisposable
             token.ThrowIfCancellationRequested();
             var removable = inventory.FindDisk(volume.Disk) is not null || volume.DriveType == DriveType.Removable;
             var label = volume.Label.Length > 0 || !WindowsStorage.TryGetVolumeInformation(volume.MountPath,
-                out var read, out _)
+                out var read, out _, out _)
                 ? volume.Label
                 : read;
             var (name, contentId) = removable

@@ -29,8 +29,6 @@ internal sealed class SteamLifecycle
     /// <summary>The warning shown when the windowed desktop Steam client could not be started.</summary>
     private const string SteamStartFailedWarning = "Couldn't start Steam.";
 
-    private const uint WmClose = 0x0010;
-
     private static readonly TimeSpan HomeLaunchCooldown = TimeSpan.FromSeconds(5);
 
     /// <summary>How long Steam stays closed before an automatic relaunch.</summary>
@@ -296,7 +294,7 @@ internal sealed class SteamLifecycle
         var hung = NativeMethods.IsHungAppWindow(window);
         Log.Warn($"Steam's Big Picture window (hwnd 0x{window:X}) outlived the close request "
                  + $"(hung={hung}); posting WM_CLOSE to it directly.");
-        NativeMethods.PostMessageW(window, WmClose, 0, 0);
+        NativeMethods.PostMessageW(window, NativeMethods.WmClose, 0, 0);
         if (await WaitForBigPictureToCloseAsync(BigPictureCloseTimeout).ConfigureAwait(false))
         {
             return;

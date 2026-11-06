@@ -207,15 +207,9 @@ internal static class Diskpart
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            foreach (var path in WindowsStorage.ListVolumeInterfaces())
+            if (WindowsStorage.VolumesOnDisk(diskNumber).Count > 0)
             {
-                using var volume = WindowsStorage.OpenVolumeForQueryPath(path);
-                if (!volume.IsInvalid
-                    && WindowsStorage.TryGetDeviceNumber(volume, out var type, out var disk)
-                    && type == WindowsStorage.FileDeviceDisk && disk == diskNumber)
-                {
-                    return (int)(Environment.TickCount64 - started);
-                }
+                return (int)(Environment.TickCount64 - started);
             }
 
             if (Environment.TickCount64 - started >= VolumeWaitMs)
@@ -259,16 +253,13 @@ internal static class Diskpart
     /// <returns>The volume GUID root and disk number, or (null, -1) when the letter maps to no disk volume.</returns>
     internal static (string? Root, int Disk) ReadVolume(char letter)
     {
-        if (!WindowsStorage.TryGetVolumeGuidPath(letter, out var root) || root is null)
+        if (!WindowsStorage.TryGetVolumeGuidPath(letter, out var root, out _) || root is null)
         {
             return (null, -1);
         }
 
-        using var volume = WindowsStorage.OpenVolumeForQueryPath(root);
-        return !volume.IsInvalid && WindowsStorage.TryGetDeviceNumber(volume, out var type, out var disk)
-                                 && type == WindowsStorage.FileDeviceDisk
-            ? (root, disk)
-            : (null, -1);
+        var disk = WindowsStorage.DiskOfVolume(root);
+        return disk >= 0 ? (root, disk) : (null, -1);
     }
 
     /// <summary>

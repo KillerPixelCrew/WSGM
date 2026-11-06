@@ -212,6 +212,6 @@ internal static class LibraryBadges
 
     private static string? ReadVolumeLabel(string root)
     {
-        return WindowsStorage.TryGetVolumeInformation(root, out var label, out _) ? label : null;
+        return WindowsStorage.TryGetVolumeInformation(root, out var label, out _, out _) ? label : null;
     }
 }

@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
-using Microsoft.Win32.SafeHandles;
 using WindowsDeviceControl;
 
 namespace WSGM.Shell;
@@ -63,16 +62,15 @@ internal sealed record StorageInventory(
         List<StorageDiskFacts> disks = [];
         foreach (var path in WindowsStorage.ListDiskInterfaces())
         {
-            using var probe = WindowsStorage.OpenVolumeForQueryPath(path);
-            if (probe.IsInvalid || !WindowsStorage.TryGetDeviceNumber(probe, out var type, out var disk)
-                                || type != WindowsStorage.FileDeviceDisk || disk < 0 || !seen.Add(disk))
+            var disk = WindowsStorage.DiskOfVolume(path);
+            if (disk < 0 || !seen.Add(disk))
             {
                 continue;
             }
 
             if (RemovableDriveManager.ClassifyDisk(disk, systemDisks) is { } kind)
             {
-                disks.Add(DescribeDisk(disk, kind, path, probe));
+                disks.Add(DescribeDisk(disk, kind, path));
             }
         }
 
@@ -89,12 +87,12 @@ internal sealed record StorageInventory(
         {
             var label = "";
             if (volume.Ready && disks.Any(known => known.Number == volume.Disk)
-                             && WindowsStorage.TryGetVolumeInformation(volume.Letter + @":\", out var read, out _))
+                             && WindowsStorage.TryGetVolumeInformation(volume.Letter + @":\", out var read, out _, out _))
             {
                 label = read;
             }
 
-            var volumeId = volume.Ready && WindowsStorage.TryGetVolumeGuidPath(volume.Letter, out var guid) &&
+            var volumeId = volume.Ready && WindowsStorage.TryGetVolumeGuidPath(volume.Letter, out var guid, out _) &&
                            guid is not null
                 ? guid
                 : "";
@@ -106,20 +104,21 @@ internal sealed record StorageInventory(
     }
 
     /// <summary>Reads the facts the eject list and the format flow show for one external disk.</summary>
-    private static StorageDiskFacts DescribeDisk(int disk, EjectKind kind, string path, SafeFileHandle probe)
+    private static StorageDiskFacts DescribeDisk(int disk, EjectKind kind, string path)
     {
+        using var probe = WindowsStorage.OpenVolumeForQueryPath(path);
         var capacity = WindowsStorage.GetDiskCapacityForQuery(probe);
         WindowsStorage.TryGetDeviceDescriptor(probe, out var busType, out var product);
         var linux = WindowsStorage.TryGetPartitionTypes(probe, out var partitions)
                     && partitions.Any(partition => partition.IsLinux);
-        if (!WindowsStorage.TryGetDevNode(path, out var devInst))
+        if (!DeviceNodes.TryGetDevNode(path, out var devInst))
         {
             return new StorageDiskFacts(disk, kind, path, 0, "", "", capacity, busType, product, linux);
         }
 
         return new StorageDiskFacts(disk, kind, path, devInst,
-            WindowsStorage.GetDeviceInstanceId(devInst),
-            WindowsStorage.GetDeviceDisplayName(devInst),
+            DeviceNodes.GetDeviceInstanceId(devInst),
+            DeviceNodes.GetDeviceDisplayName(devInst),
             capacity, busType, product, linux);
     }
 
