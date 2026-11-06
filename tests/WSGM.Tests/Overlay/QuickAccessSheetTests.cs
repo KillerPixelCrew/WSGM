@@ -28,7 +28,7 @@ public sealed class QuickAccessSheetTests
     [Theory]
     [InlineData(ScreenEdge.Top, false, OverlayActivation.SwipeAction.QuickAccess)]
     [InlineData(ScreenEdge.Top, true, OverlayActivation.SwipeAction.QuickAccess)]
-    [InlineData(ScreenEdge.Bottom, false, OverlayActivation.SwipeAction.QuickAccessApps)]
+    [InlineData(ScreenEdge.Bottom, false, OverlayActivation.SwipeAction.Taskbar)]
     [InlineData(ScreenEdge.Bottom, true, OverlayActivation.SwipeAction.None)] // desktop: explorer owns the edge
     [InlineData(ScreenEdge.Left, false, OverlayActivation.SwipeAction.SteamMenu)]
     [InlineData(ScreenEdge.Left, true, OverlayActivation.SwipeAction.SteamMenu)]

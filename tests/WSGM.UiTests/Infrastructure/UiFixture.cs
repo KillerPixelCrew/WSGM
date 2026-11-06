@@ -236,6 +236,20 @@ internal sealed class UiFixture : IDisposable
         return window;
     }
 
+    /// <summary>The Game Mode taskbar over the given strip state, sized to the display instead of docked.</summary>
+    internal TaskbarWindow Taskbar(AppSwitcherViewModel switcher, IProgramsSource? programs, int width = 1280,
+        int height = 800)
+    {
+        TaskbarWindow window = new(switcher, dock: w =>
+        {
+            w.Width = width;
+            w.Height = height;
+        });
+        window.AttachPrograms(programs);
+        Show(window);
+        return window;
+    }
+
     private void Show(Window window, Func<bool>? busy = null)
     {
         _windows.Add(window);

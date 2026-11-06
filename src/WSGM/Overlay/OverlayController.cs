@@ -190,8 +190,8 @@ public sealed partial class OverlayController : IDisposable
         _previewOnly = previewOnly;
         // While the sheet shows, the strip marks the window it opened over rather than itself.
         _openApps = new OverlayOpenApps(
-            () => _overlay is { IsVisible: true } ? _restoreFocusTo : NativeMethods.GetForegroundWindow(),
-            () => _overlay is { IsVisible: true }, () => _disposed);
+            () => SurfaceShowing() ? _restoreFocusTo : NativeMethods.GetForegroundWindow(),
+            SurfaceShowing, () => _disposed);
 
         _modes.SteamStartFailed += WarnOrReopen;
         _modes.SteamExitShowOverlayRequested += ShowOverlay;
@@ -199,7 +199,7 @@ public sealed partial class OverlayController : IDisposable
 
         _activation = new OverlayActivation(config, activationWindow);
         _activation.QuickAccessRequested += ShowOverlay;
-        _activation.OpenAppsRequested += ShowOverlayOnOpenApps;
+        _activation.TaskbarRequested += ShowTaskbar;
     }
 
     internal Func<CancellationToken, Task<bool>>? ShowOnScreenKeyboard { get; set; }
@@ -273,6 +273,7 @@ public sealed partial class OverlayController : IDisposable
         _overlay?.ReleaseProgramsPresentation();
         DisposeNotes();
         _overlay?.Surfaces.CloseAll();
+        DisposeTaskbar();
         // Deliberately NOT retracting the injected Steam UI (tabs, badge, Wi-Fi AP)
         // here: both the Settings preview and session shutdown call this Dispose, and
         // retracting from the preview would tear the LIVE session's tabs out of Big
@@ -290,7 +291,7 @@ public sealed partial class OverlayController : IDisposable
         }
 
         _activation.QuickAccessRequested -= ShowOverlay;
-        _activation.OpenAppsRequested -= ShowOverlayOnOpenApps;
+        _activation.TaskbarRequested -= ShowTaskbar;
         // The hotkey and the chord, the controller polling they read, then the edge recognizer.
         _activation.Dispose();
         _openApps.Stop();
@@ -378,7 +379,7 @@ public sealed partial class OverlayController : IDisposable
         // gamepad's DispatcherTimer with no marshalling of its own. ShellSession's
         // debounced config watcher posts it after applying the session-wide accent
         // and session modes itself.
-        _activation.ApplyConfig(config, _overlay is not null);
+        _activation.ApplyConfig(config, _overlay is not null || _taskbar is not null);
         if (_overlayViewModel is not null)
         {
             // Keep the open panel's footer glyphs in step with the (already live)
@@ -395,6 +396,11 @@ public sealed partial class OverlayController : IDisposable
         if (_overlay is not null && _overlayRequiresSteamLease)
         {
             AcquireSteamInputLease();
+        }
+
+        if (_taskbar is not null)
+        {
+            AcquireSteamInputLease(_taskbarLeaseOwner);
         }
     }
 
@@ -457,9 +463,11 @@ public sealed partial class OverlayController : IDisposable
         _focusRestoreCancellation?.Cancel();
         _keyboardRequestCancellation?.Cancel();
         OverlayShown?.Invoke();
+        // The sheet replaces an open taskbar and returns to the window the taskbar opened over.
+        var handedOver = HandTaskbarToOverlay();
         if (_overlay is null)
         {
-            _restoreFocusTo = NativeMethods.GetForegroundWindow();
+            _restoreFocusTo = handedOver != 0 ? handedOver : NativeMethods.GetForegroundWindow();
             _suppressFocusRestore = false;
         }
 
@@ -639,16 +647,7 @@ public sealed partial class OverlayController : IDisposable
         _overlay = null;
         _overlayRequiresSteamLease = false;
         _overlayViewModel = null;
-        // Game mode only: call back the window that was focused before the
-        // panel opened (exclusive-fullscreen games sit minimized by now).
-        if (!_suppressFocusRestore && _restoreFocusTo != 0 && !ExplorerControl.IsDesktopShellRunning()
-            && GameReturn is { } gameReturn)
-        {
-            Log.Info("Restoring previously focused window.");
-            Log.Observe(RestoreFocusAsync(gameReturn, _restoreFocusTo), "Overlay focus restore");
-        }
-
-        _restoreFocusTo = 0;
+        RestoreFocusAfterClose();
         _activation.Arm();
         if (reopenForWarning)
         {

@@ -111,7 +111,7 @@ internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
             WsgmSharedSettings.Get("DeviceIntegration.AutoTdpEnabled")),
         new("gestures.top", "Swipe from the top", "Opens quick access. Game Mode only.",
             WsgmSharedSettings.Get("Gestures.TopEdge")),
-        new("gestures.bottom", "Swipe from the bottom", "Opens the Open apps strip. Game Mode only.",
+        new("gestures.bottom", "Swipe from the bottom", "Opens the taskbar with Start, open windows and tray icons. Game Mode only.",
             WsgmSharedSettings.Get("Gestures.BottomEdge")),
         new("gestures.left", "Swipe from the left", "Opens Steam's menu, also over a running game.",
             WsgmSharedSettings.Get("Gestures.LeftEdgeSteamMenu")),

@@ -3,14 +3,14 @@ namespace WSGM.Core;
 /// <summary>Controls the raw-input edge-swipe activation areas.</summary>
 /// <remarks>
 ///     Top opens WSGM's quick access sheet. Bottom is disabled by default; enabling it opens
-///     the Open apps strip in game mode. Explorer retains that edge in desktop mode.
+///     the Game Mode taskbar. Explorer retains that edge in desktop mode.
 ///     Left and right send Steam Big Picture's own menu shortcuts.
 /// </remarks>
 public sealed class GestureConfig
 {
     /// <summary>
-    ///     Whether a swipe up from the bottom edge opens the quick access sheet
-    ///     with focus on its Open apps strip (game mode only).
+    ///     Whether a swipe up from the bottom edge opens the taskbar with Start, the open
+    ///     windows and the tray icons (game mode only).
     /// </summary>
     public bool BottomEdge { get; set; }
 

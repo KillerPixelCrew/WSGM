@@ -19,6 +19,13 @@ public sealed partial class OverlayController
     /// </remarks>
     private void AcquireSteamInputLease()
     {
+        AcquireSteamInputLease(_leaseOwner);
+    }
+
+    /// <summary>Claims the Steam Input lease under one of this controller's surface owners.</summary>
+    /// <param name="owner">The sheet's or the taskbar's owner name.</param>
+    private void AcquireSteamInputLease(string owner)
+    {
         // User opt-out: never touch Steam at all. The config watcher replaces
         // _config wholesale on reload, so a change is picked up without a restart —
         // but it is read HERE, at the top of an open, so it takes effect at the NEXT
@@ -43,7 +50,7 @@ public sealed partial class OverlayController
         // (the settings window this panel opened). Claiming it under our own name is
         // what stops that owner's release from leaving this surface unblocked;
         // see docs\steam-input.md. Joining a live lease costs no release/re-inject churn.
-        _steamInput.Hold(_leaseOwner);
+        _steamInput.Hold(owner);
     }
 
     /// <summary>

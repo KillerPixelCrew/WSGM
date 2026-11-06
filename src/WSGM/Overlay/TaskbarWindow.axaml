@@ -1,0 +1,173 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ov="using:WSGM.Overlay"
+        xmlns:c="using:WSGM.Controls"
+        x:Class="WSGM.Overlay.TaskbarWindow"
+        x:DataType="ov:AppSwitcherViewModel"
+        Title="WSGM Taskbar"
+        Width="1280"
+        Height="800"
+        Classes="command-deck"
+        TransparencyLevelHint="Transparent"
+        TransparencyBackgroundFallback="{StaticResource DeckCanvasBrush}"
+        WindowDecorations="None"
+        CanResize="False"
+        Topmost="True"
+        ShowInTaskbar="False"
+        Background="Transparent">
+
+  <!-- The Game Mode taskbar: a slim strip on the bottom edge with Start, the open windows and the
+       tray icons. The window covers the display so the dimmed area above the strip is the
+       tap-to-close target and a tap there can never reach the game underneath. -->
+  <LayoutTransformControl x:Name="RootScale">
+    <Grid x:Name="SurfaceRoot" RowDefinitions="*,Auto">
+      <Border x:Name="Scrim" Grid.RowSpan="2" Background="{StaticResource DeckScrimBrush}" />
+
+      <!-- Start: the programs added on the Overlay's Programs page. The row above the strip bounds
+           its height, so a long list scrolls inside the menu instead of covering the strip. -->
+      <Border x:Name="StartMenu" Grid.Row="0" IsVisible="False"
+              HorizontalAlignment="Left" VerticalAlignment="Bottom"
+              Width="420" MaxHeight="560" Margin="12,12,12,8" Padding="16"
+              Background="{StaticResource DeckSurfaceBrush}"
+              BorderBrush="{StaticResource DeckDividerBrush}" BorderThickness="1"
+              CornerRadius="{StaticResource DeckGroupRadius}">
+        <Grid RowDefinitions="Auto,*,Auto">
+          <StackPanel Spacing="2">
+            <TextBlock Text="Programs" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock x:Name="StartCaption" Classes="caption" TextWrapping="Wrap"
+                       Text="Launch a program, or focus its window when it already runs." />
+            <TextBlock x:Name="StartResult" Classes="caption" TextWrapping="Wrap" IsVisible="False"
+                       Foreground="{StaticResource HcWarningBrush}" Margin="0,4,0,0" />
+          </StackPanel>
+          <ScrollViewer Grid.Row="1" x:Name="StartScroller" Margin="0,12,0,0"
+                        HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <StackPanel x:Name="StartItems" Spacing="{StaticResource DeckRowGap}" />
+          </ScrollViewer>
+          <c:ActionButton Grid.Row="2" x:Name="ManagePrograms" Tag="taskbar.manage-programs" Margin="0,12,0,0"
+                          IconGeometry="{x:Static c:Icons.Gear}" Title="Manage programs"
+                          Description="Add, edit and remove programs in the Overlay"
+                          Click="OnManagePrograms" />
+        </Grid>
+      </Border>
+
+      <Border Grid.Row="1" x:Name="Strip" Background="{StaticResource DeckCanvasBrush}"
+              BorderBrush="{StaticResource DeckDividerBrush}" BorderThickness="0,1,0,0" Padding="12,8">
+        <Border.RenderTransform>
+          <TranslateTransform />
+        </Border.RenderTransform>
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+          <Button x:Name="StartButton" Classes="pill start" Tag="taskbar.start"
+                  AutomationProperties.Name="Start" ToolTip.Tip="Programs" Click="OnStart">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Path Classes="status-icon" Data="{x:Static c:Icons.Grid4}" Width="18" Stretch="Uniform"
+                    VerticalAlignment="Center" />
+              <TextBlock Text="Start" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </StackPanel>
+          </Button>
+
+          <!-- Open windows: the Overlay's Open apps chips, each with its Close action. Chips keep a
+               fixed height and their place as windows come and go (reconcile in place); the strip
+               scrolls sideways once they no longer fit, and focus is scrolled into view. -->
+          <ScrollViewer Grid.Column="1" x:Name="TileScroller"
+                        HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled"
+                        AllowAutoHide="True" VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+              <TextBlock Text="No open windows" Classes="caption" VerticalAlignment="Center" Margin="4,0"
+                         IsVisible="{Binding !HasEntries}" />
+              <ItemsControl x:Name="AppTiles" ItemsSource="{Binding Entries}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" Spacing="10" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="ov:AppSwitcherEntry">
+                    <StackPanel Orientation="Horizontal" Spacing="2">
+                      <Button Classes="app-chip"
+                              Classes.active="{Binding IsActive}"
+                              Classes.minimized="{Binding IsMinimized}"
+                              AutomationProperties.Name="{Binding Title}"
+                              ToolTip.Tip="{Binding Title}"
+                              Click="OnPickWindow">
+                        <Panel>
+                          <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <Panel Width="18" Height="18" VerticalAlignment="Center">
+                              <Image Source="{Binding Icon}" Width="18" Height="18" />
+                              <TextBlock Text="▢" FontSize="14" HorizontalAlignment="Center"
+                                         VerticalAlignment="Center" IsVisible="{Binding HasNoIcon}" />
+                            </Panel>
+                            <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="SemiBold" MaxWidth="150"
+                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                          </StackPanel>
+                          <Border Classes="active-indicator" Height="3" CornerRadius="1.5"
+                                  VerticalAlignment="Bottom" Margin="0,0,0,-4" />
+                        </Panel>
+                      </Button>
+                      <Button Classes="pill window-close" IsVisible="{Binding !IsSteam}"
+                              AutomationProperties.Name="{Binding Title, StringFormat='Close {0}'}"
+                              ToolTip.Tip="Close window"
+                              Click="OnCloseWindow">
+                        <Path Classes="status-icon" Data="{x:Static c:Icons.Close}" Width="12" Stretch="Uniform" />
+                      </Button>
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </ScrollViewer>
+
+          <!-- Tray icons from the Game Mode tray host. The strip is budgeted against the display
+               width in code, so a long tray scrolls rather than pushing the windows away. -->
+          <ScrollViewer Grid.Column="2" x:Name="TrayScroller"
+                        HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled"
+                        AllowAutoHide="True" VerticalAlignment="Center" IsVisible="{Binding HasTrayIcons}">
+            <ItemsControl ItemsSource="{Binding TrayIcons}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <StackPanel Orientation="Horizontal" Spacing="2" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="ov:TrayIconEntry">
+                  <Button Classes="pill tray"
+                          Click="OnTrayClick"
+                          PointerReleased="OnTrayPointerReleased"
+                          AutomationProperties.Name="{Binding Tip}"
+                          ToolTip.Tip="{Binding Tip}">
+                    <Image Source="{Binding Image}" Width="18" Height="18" />
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </Grid>
+      </Border>
+    </Grid>
+  </LayoutTransformControl>
+
+  <Window.Styles>
+    <!-- Taskbar-only chrome: Start matches the chips' height, and a chip's Close sits beside it
+         as a quiet pill of the same height. -->
+    <Style Selector="Button.pill.start">
+      <Setter Property="Height" Value="48" />
+      <Setter Property="Padding" Value="12,0,14,0" />
+    </Style>
+    <Style Selector="Button.pill.start.open">
+      <Setter Property="Background" Value="{StaticResource DeckPressedBrush}" />
+    </Style>
+    <Style Selector="Button.pill.window-close">
+      <Setter Property="MinWidth" Value="32" />
+      <Setter Property="Width" Value="32" />
+      <Setter Property="Height" Value="48" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.pill.window-close:focus-visible">
+      <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+    </Style>
+    <Style Selector="Button.pill.window-close:pointerover">
+      <Setter Property="Background" Value="{StaticResource DeckHoverBrush}" />
+    </Style>
+  </Window.Styles>
+</Window>

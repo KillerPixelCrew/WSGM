@@ -39,6 +39,7 @@ else with `StaticResource`. Overlay-only tokens live in `src/WSGM/Themes/Command
 | `DeckDividerBrush`     | `#414751`   | Chrome hairlines, setting row dividers, surface and toast borders  |
 | `DeckHoverBrush`       | `#363D47`   | Pointer-over, and the fill under a focused deck action             |
 | `DeckPressedBrush`     | `#454D59`   | Pressed fill                                                       |
+| `DeckScrimBrush`       | `#59000000` | Dims the game above the Game Mode taskbar; its tap-to-close area   |
 | `DeckTextBrush`        | `#F4F5F7`   | Primary text in the Overlay; focus border on a primary button      |
 | `DeckSecondaryBrush`   | `#BEC3CC`   | Captions, descriptions, rail icons, unselected radio ring          |
 
@@ -212,6 +213,14 @@ scrolls.
 The rail pane starts with the destination title and description, then rail rows. The controls pane's
 `ContentScroller` owns scrolling and brings focus into view; pages never nest a scroller. At the
 floor the header hides `header-detail` labels; Game Tools narrows below an 820 pane.
+
+The Game Mode taskbar (`src/WSGM/Overlay/TaskbarWindow.axaml`, class `command-deck`) is one strip on
+`DeckCanvasBrush` with a top `DeckDividerBrush` hairline, padding 12 x 8: a 48px Start pill
+(`Grid4`), the Open apps chips each followed by a 32px quiet Close pill, and the tray pills. The
+Start menu is a 420-wide in-window surface (`DeckSurfaceBrush`, radius 6, padding 16) above Start,
+with a 20px heading, a caption, `ProgramActionRow` entries and Manage programs last. Header pills,
+tray pills, app chips and stroke status icons are `Window.command-deck` styles in
+`CommandDeck.axaml`, shared by the sheet and the taskbar.
 
 ## Content page anatomy
 

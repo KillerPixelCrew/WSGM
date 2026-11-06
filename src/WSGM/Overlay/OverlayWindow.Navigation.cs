@@ -747,6 +747,25 @@ public partial class OverlayWindow
         return true;
     }
 
+    /// <summary>Shows the Programs page, or the editor of one program, as the taskbar's Start menu asks.</summary>
+    /// <param name="editorId">The program whose editor explains why it cannot launch, or null for the list.</param>
+    /// <returns>Whether the Programs section exists in this window.</returns>
+    internal bool OpenPrograms(string? editorId)
+    {
+        if (!OpenSection(OverlayPage.Programs))
+        {
+            return false;
+        }
+
+        if (editorId is not null)
+        {
+            ProgramsHost.OpenEditor(editorId);
+        }
+
+        FocusFirstControl(ProgramsHost);
+        return true;
+    }
+
     /// <summary>Shows Tools > Notes, which opens on the page the overlay last showed.</summary>
     /// <returns>Whether the Notes section exists in this window.</returns>
     internal bool OpenNotes()

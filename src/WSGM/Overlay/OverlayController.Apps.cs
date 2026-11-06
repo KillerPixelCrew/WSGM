@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Threading;
 using WSGM.Core;
 using WSGM.Interop;
@@ -29,7 +30,7 @@ public sealed partial class OverlayController
     /// </summary>
     private void PickWindow(AppSwitcherEntry entry)
     {
-        if (_disposed || _overlay is not { } window)
+        if (_disposed || OpenSurface() is not { } window)
         {
             return;
         }
@@ -87,14 +88,14 @@ public sealed partial class OverlayController
     ///     Closes the sheet and runs an activation once the window has closed and the input lease is
     ///     released, by default without restoring focus to the window the sheet came from.
     /// </summary>
-    /// <param name="window">The open sheet.</param>
+    /// <param name="window">The open sheet or taskbar.</param>
     /// <param name="operation">The name failures are logged under.</param>
     /// <param name="activate">The activation; its token ends when the sheet reopens or the session shuts down.</param>
     /// <param name="restoreFocus">
     ///     Whether the close still returns focus to the window the sheet came from, for an activation that acts on
     ///     that window, such as a hotkey sent to the game.
     /// </param>
-    private void RunAfterClose(OverlayWindow window, string operation, Func<CancellationToken, Task> activate,
+    private void RunAfterClose(Window window, string operation, Func<CancellationToken, Task> activate,
         bool restoreFocus = false)
     {
         _windowReturnCancellation?.Cancel();
@@ -102,7 +103,15 @@ public sealed partial class OverlayController
         _windowReturnCancellation = cancellation;
         _suppressFocusRestore = !restoreFocus;
         Log.Observe(RunAsync(), operation);
-        CloseOverlay(true);
+        if (window is TaskbarWindow)
+        {
+            CloseTaskbar(true);
+        }
+        else
+        {
+            CloseOverlay(true);
+        }
+
         return;
 
         async Task RunAsync()
@@ -206,12 +215,16 @@ public sealed partial class OverlayController
     }
 
     /// <summary>
-    ///     Opens the sheet on its Open apps strip, or closes it when it is up. This is
-    ///     the OEM button's open apps action.
+    ///     The OEM button's taskbar action: in Game Mode it opens or closes the taskbar; on the desktop, where
+    ///     Explorer's taskbar is the bottom bar, it opens the sheet on its Open apps strip or closes the sheet.
     /// </summary>
     public void ToggleOpenApps()
     {
-        if (_overlay is null)
+        if (_taskbar is not null || (_overlay is null && !ExplorerControl.IsDesktopShellRunning()))
+        {
+            ToggleTaskbar();
+        }
+        else if (_overlay is null)
         {
             ShowOverlayOnOpenApps();
         }
@@ -243,20 +256,27 @@ public sealed partial class OverlayController
     {
         if (contextMenu)
         {
-            if (_overlay is not null)
+            if (OpenSurface() is { } surface)
             {
-                _overlay.Topmost = false;
-                _overlay.Activated -= RestoreTopmost;
-                _overlay.Activated += RestoreTopmost;
+                surface.Topmost = false;
+                surface.Activated -= RestoreTopmost;
+                surface.Activated += RestoreTopmost;
             }
         }
         else
         {
-            // A plain activation opens/shows the owning app — dismiss the sheet so it
+            // A plain activation opens/shows the owning app — dismiss the sheet or taskbar so it
             // comes forward (same rule as picking an Open apps chip). A context-menu
-            // request keeps the sheet: the menu pops over it.
+            // request keeps the surface: the menu pops over it.
             _suppressFocusRestore = true;
-            CloseOverlay();
+            if (_overlay is not null)
+            {
+                CloseOverlay();
+            }
+            else
+            {
+                CloseTaskbar();
+            }
         }
 
         _openApps.SendTrayClick(entry, contextMenu, anchor.X, anchor.Y);
@@ -264,10 +284,10 @@ public sealed partial class OverlayController
 
     private static void RestoreTopmost(object? sender, EventArgs e)
     {
-        if (sender is OverlayWindow overlay)
+        if (sender is Window surface)
         {
-            overlay.Activated -= RestoreTopmost;
-            overlay.Topmost = true;
+            surface.Activated -= RestoreTopmost;
+            surface.Topmost = true;
         }
     }
 }

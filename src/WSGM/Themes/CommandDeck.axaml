@@ -15,6 +15,8 @@
     <SolidColorBrush x:Key="DeckSecondaryBrush" Color="#BEC3CC" />
     <SolidColorBrush x:Key="DeckHoverBrush" Color="#363D47" />
     <SolidColorBrush x:Key="DeckPressedBrush" Color="#454D59" />
+    <!-- Dims the game behind the Game Mode taskbar; the dimmed area is the tap-to-close target. -->
+    <SolidColorBrush x:Key="DeckScrimBrush" Color="#59000000" />
     <x:Double x:Key="DeckContentMaxWidth">1600</x:Double>
     <x:Double x:Key="DeckControlHeight">36</x:Double>
     <x:Double x:Key="DeckActionHeight">44</x:Double>
@@ -336,5 +338,92 @@
   </Style>
   <Style Selector="Button.deck-section:pressed">
     <Setter Property="Background" Value="{StaticResource DeckPressedBrush}" />
+  </Style>
+  <!-- Deck chrome shared by the Quick access sheet and the Game Mode taskbar: header and tray
+       pills, Open apps chips and stroke status icons. Scoped to command-deck windows. -->
+  <!-- Header status pills: compact rounded buttons. The local BorderBrush
+           wins the equal-specificity tie against Shared.axaml's Button:focus-visible, so
+           the accent focus border is restated here (same workaround as
+           TabStripTheme) — otherwise a focused pill would have no cue. -->
+  <Style Selector="Window.command-deck Button.pill">
+    <Setter Property="MinWidth" Value="44" />
+    <Setter Property="Height" Value="44" />
+    <Setter Property="Padding" Value="8,0" />
+    <Setter Property="Background" Value="{StaticResource DeckGroupBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource HcCardBorderBrush}" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Window.command-deck Button.pill:focus-visible">
+    <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+  </Style>
+  <Style Selector="Window.command-deck Button.pill:pointerover">
+    <Setter Property="Background" Value="{StaticResource DeckHoverBrush}" />
+  </Style>
+  <Style Selector="Window.command-deck Button.pill.tray">
+    <Setter Property="MinWidth" Value="44" />
+    <Setter Property="Padding" Value="4,0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+  </Style>
+  <Style Selector="Window.command-deck Button.pill.tray:focus-visible">
+    <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+  </Style>
+  <Style Selector="Window.command-deck Button.pill.close">
+    <Setter Property="Foreground" Value="{StaticResource HcTextMutedBrush}" />
+    <Setter Property="FontSize" Value="16" />
+  </Style>
+  <Style Selector="Window.command-deck Button.pill.close:focus-visible">
+    <Setter Property="Foreground" Value="{StaticResource HcTextPrimaryBrush}" />
+  </Style>
+  <!-- Read-only pills (battery, clock) share the shape without a focus stop. -->
+  <Style Selector="Window.command-deck Border.pill-static">
+    <Setter Property="Height" Value="44" />
+    <Setter Property="Padding" Value="10,0" />
+    <Setter Property="Background" Value="{StaticResource DeckGroupBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource HcCardBorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="4" />
+  </Style>
+  <!-- Stroke-rendered like the TabStrip icons: the Icons geometries are
+           stroke-style, filling them collapses interior detail. -->
+  <Style Selector="Window.command-deck Path.status-icon">
+    <Setter Property="Fill" Value="{x:Null}" />
+    <Setter Property="Stroke" Value="{StaticResource HcTextMutedBrush}" />
+    <Setter Property="StrokeThickness" Value="1.5" />
+    <Setter Property="StrokeJoin" Value="Round" />
+    <Setter Property="StrokeLineCap" Value="Round" />
+  </Style>
+
+  <!-- Open apps chips: fixed 40 px height, card background, accent
+           underline when the window is foreground, dimmed when minimized. -->
+  <Style Selector="Window.command-deck Button.app-chip">
+    <Setter Property="Height" Value="48" />
+    <Setter Property="Padding" Value="10,0,12,0" />
+    <Setter Property="Background" Value="{StaticResource DeckGroupBrush}" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Window.command-deck Button.app-chip:focus-visible">
+    <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+  </Style>
+  <Style Selector="Window.command-deck Button.app-chip:pointerover">
+    <Setter Property="Background" Value="{StaticResource DeckHoverBrush}" />
+  </Style>
+  <Style Selector="Window.command-deck Button.app-chip.minimized Image">
+    <Setter Property="Opacity" Value="0.5" />
+  </Style>
+  <Style Selector="Window.command-deck Button.app-chip.minimized TextBlock">
+    <Setter Property="Opacity" Value="0.5" />
+  </Style>
+  <Style Selector="Window.command-deck Button.app-chip Border.active-indicator">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="Window.command-deck Button.app-chip.active Border.active-indicator">
+    <Setter Property="Background" Value="{DynamicResource HcAccentBrush}" />
   </Style>
 </Styles>

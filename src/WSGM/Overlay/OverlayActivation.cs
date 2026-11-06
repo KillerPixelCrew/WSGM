@@ -26,8 +26,8 @@ internal sealed class OverlayActivation : IDisposable
         /// <summary>The quick access sheet opens.</summary>
         QuickAccess,
 
-        /// <summary>The quick access sheet opens with focus on its Open apps strip.</summary>
-        QuickAccessApps,
+        /// <summary>The Game Mode taskbar opens on the bottom edge.</summary>
+        Taskbar,
 
         /// <summary>Steam Big Picture's left-side Steam menu opens.</summary>
         SteamMenu,
@@ -96,8 +96,8 @@ internal sealed class OverlayActivation : IDisposable
     /// <summary>Raised when the hotkey, the chord or the top edge asks for the sheet.</summary>
     internal event Action? QuickAccessRequested;
 
-    /// <summary>Raised when the bottom edge asks for the sheet on its Open apps strip.</summary>
-    internal event Action? OpenAppsRequested;
+    /// <summary>Raised when the bottom edge asks for the Game Mode taskbar.</summary>
+    internal event Action? TaskbarRequested;
 
     /// <summary>Whether the controller chord opens the sheet, which keeps the gamepad polled while it is closed.</summary>
     /// <param name="config">The configuration to read.</param>
@@ -141,8 +141,8 @@ internal sealed class OverlayActivation : IDisposable
 
     /// <summary>
     ///     The pure edge-routing decision — the SteamOS map: left/right open
-    ///     Steam's own menus, top opens WSGM's sheet, and bottom opens the sheet on its
-    ///     Open apps strip in game mode but is IGNORED in desktop mode — explorer's
+    ///     Steam's own menus, top opens WSGM's sheet, and bottom opens the Game Mode
+    ///     taskbar but is IGNORED in desktop mode — explorer's
     ///     real taskbar owns that edge there, and falling back to the panel read as a
     ///     regression (device-reported).
     /// </summary>
@@ -156,7 +156,7 @@ internal sealed class OverlayActivation : IDisposable
             ScreenEdge.Left => SwipeAction.SteamMenu,
             ScreenEdge.Right => SwipeAction.SteamQuickAccess,
             ScreenEdge.Top => SwipeAction.QuickAccess,
-            _ => explorerRunning ? SwipeAction.None : SwipeAction.QuickAccessApps
+            _ => explorerRunning ? SwipeAction.None : SwipeAction.Taskbar
         };
     }
 
@@ -200,8 +200,8 @@ internal sealed class OverlayActivation : IDisposable
     {
         switch (DecideSwipe(edge, ExplorerControl.IsDesktopShellRunning()))
         {
-            case SwipeAction.QuickAccessApps:
-                OpenAppsRequested?.Invoke();
+            case SwipeAction.Taskbar:
+                TaskbarRequested?.Invoke();
                 break;
             case SwipeAction.QuickAccess:
                 QuickAccessRequested?.Invoke();
