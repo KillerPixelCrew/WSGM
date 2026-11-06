@@ -18,11 +18,11 @@ public sealed class ProgramsView : ServiceSubView
     /// <inheritdoc />
     protected override string LogScope => "Programs";
 
-    /// <summary>Raised with a program to launch or whose window to focus.</summary>
+    /// <summary>
+    ///     Raised with a chosen program. The controller launches or focuses it, or opens its editor here when it
+    ///     can do neither.
+    /// </summary>
     internal event Action<string>? ActivateRequested;
-
-    /// <summary>Raised with a program that can neither launch nor is running, whose editor says why.</summary>
-    internal event Action<string>? EditorRequested;
 
     /// <summary>Raised with a program to pin to Quick access.</summary>
     internal event Action<string>? PinRequested;
@@ -51,17 +51,10 @@ public sealed class ProgramsView : ServiceSubView
         AttachSource(IsEffectivelyVisible ? service : null);
     }
 
-    /// <summary>Launches or focuses a program, or opens its editor when it can do neither.</summary>
+    /// <summary>Reports a chosen program to the controller, which launches, focuses or explains it.</summary>
     /// <param name="id">The program.</param>
     internal void Activate(string id)
     {
-        var state = _service?.ReadState().FirstOrDefault(item => item.Definition.Id == id);
-        if (state is { CanLaunch: false, Running: false })
-        {
-            EditorRequested?.Invoke(id);
-            return;
-        }
-
         ActivateRequested?.Invoke(id);
     }
 

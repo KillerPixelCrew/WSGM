@@ -9,7 +9,7 @@ public sealed partial class OverlayController
 {
     private async Task RequestOnScreenKeyboardAsync()
     {
-        if (_keyboardRequestCancellation is not null || _disposed || _overlay is not { } window)
+        if (_keyboardRequestCancellation is not null || _disposed || Sheet is not { } window)
         {
             return;
         }

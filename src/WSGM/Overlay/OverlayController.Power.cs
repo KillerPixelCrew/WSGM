@@ -15,10 +15,10 @@ public sealed partial class OverlayController
             return;
         }
 
-        var standalone = _overlay is null;
+        var standalone = Sheet is null;
         ShowOverlayCore(!ExplorerControl.IsDesktopShellRunning());
         _powerMenuOnly |= standalone;
-        _overlay?.ShowPowerMenu();
+        Sheet?.ShowPowerMenu();
     }
 
     /// <summary>Handles a repeated power-menu request as cancellation.</summary>
@@ -26,7 +26,7 @@ public sealed partial class OverlayController
     {
         if (PowerMenuOpen)
         {
-            _overlay?.Surfaces.CloseActive();
+            Sheet?.Surfaces.CloseActive();
             return;
         }
 

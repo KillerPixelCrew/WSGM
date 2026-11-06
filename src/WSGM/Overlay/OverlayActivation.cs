@@ -140,9 +140,9 @@ internal sealed class OverlayActivation : IDisposable
     }
 
     /// <summary>
-    ///     The pure edge-routing decision — the SteamOS map: left/right open
+    ///     The pure edge-routing decision, the SteamOS map: left/right open
     ///     Steam's own menus, top opens WSGM's sheet, and bottom opens the Game Mode
-    ///     taskbar but is IGNORED in desktop mode — explorer's
+    ///     taskbar but is IGNORED in desktop mode: explorer's
     ///     real taskbar owns that edge there, and falling back to the panel read as a
     ///     regression (device-reported).
     /// </summary>

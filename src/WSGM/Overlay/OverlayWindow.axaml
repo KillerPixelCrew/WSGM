@@ -284,11 +284,10 @@
           </StackPanel>
         </Border>
 
-        <!-- Open apps: the former taskbar's tile strip as a chip row pinned to
-                 the sheet bottom. Chips keep a fixed height at every count and the
-                 strip scrolls sideways once they no longer fit; a chip keeps its
-                 place as windows open and close (reconcile-in-place). Controller
-                 focus is scrolled into view explicitly (OnStripGotFocus). -->
+        <!-- Open apps: the chip row pinned to the sheet bottom, the same chips and tray pills
+                 (DeckAppChipTemplate, DeckTrayIconTemplate) as the Game Mode taskbar. The strip
+                 scrolls sideways once they no longer fit; OpenAppsStrip routes the presses and
+                 scrolls controller focus into view. -->
         <Border Grid.Row="3" x:Name="AppsStrip" DataContext="{x:Null}" x:DataType="ov:AppSwitcherViewModel"
                 BorderBrush="{StaticResource DeckDividerBrush}" BorderThickness="0,1,0,0" Padding="24,8" Background="{StaticResource DeckRailBrush}">
           <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
@@ -305,36 +304,13 @@
                            VerticalAlignment="Center"
                            Margin="4,0"
                            IsVisible="{Binding !HasEntries}" />
-                <ItemsControl x:Name="AppTiles" ItemsSource="{Binding Entries}">
+                <ItemsControl x:Name="AppTiles" ItemsSource="{Binding Entries}"
+                               ItemTemplate="{StaticResource DeckAppChipTemplate}">
                   <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
                       <StackPanel Orientation="Horizontal" Spacing="10" />
                     </ItemsPanelTemplate>
                   </ItemsControl.ItemsPanel>
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="ov:AppSwitcherEntry">
-                      <Button Classes="app-chip"
-                              Classes.active="{Binding IsActive}"
-                              Classes.minimized="{Binding IsMinimized}"
-                              Click="OnPickWindow"
-                              ToolTip.Tip="{Binding Title}">
-                        <Panel>
-                          <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <Panel Width="18" Height="18" VerticalAlignment="Center">
-                              <Image Source="{Binding Icon}" Width="18" Height="18" />
-                              <!-- Fallback glyph when no icon could be resolved. -->
-                              <TextBlock Text="▢" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                         IsVisible="{Binding HasNoIcon}" />
-                            </Panel>
-                            <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="SemiBold" MaxWidth="150"
-                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                          </StackPanel>
-                          <Border Classes="active-indicator" Height="3" CornerRadius="1.5" VerticalAlignment="Bottom"
-                                  Margin="0,0,0,-4" />
-                        </Panel>
-                      </Button>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
                 </ItemsControl>
               </StackPanel>
             </ScrollViewer>
@@ -345,23 +321,12 @@
                             AllowAutoHide="True"
                             VerticalAlignment="Center"
                             IsVisible="{Binding HasTrayIcons}">
-                <ItemsControl ItemsSource="{Binding TrayIcons}">
+                <ItemsControl ItemsSource="{Binding TrayIcons}" ItemTemplate="{StaticResource DeckTrayIconTemplate}">
                   <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
                       <StackPanel Orientation="Horizontal" Spacing="2" />
                     </ItemsPanelTemplate>
                   </ItemsControl.ItemsPanel>
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="ov:TrayIconEntry">
-                      <Button Classes="pill tray"
-                              Click="OnTrayClick"
-                              PointerReleased="OnTrayPointerReleased"
-                              AutomationProperties.Name="{Binding Tip}"
-                              ToolTip.Tip="{Binding Tip}">
-                        <Image Source="{Binding Image}" Width="18" Height="18" />
-                      </Button>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
                 </ItemsControl>
               </ScrollViewer>
 

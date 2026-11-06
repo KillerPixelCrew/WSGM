@@ -28,8 +28,15 @@ Read docs/overlay-and-input.md, "In-window surfaces", for utility, keyboard, cre
   window; a pinnable Tools section declares its pin id in its `SubViews` entry.
 - OverlayController owns lifetime and integration sequencing; `OverlayActivation`, `QuickAccessPinStore`,
   `OverlayPowerState`, `OverlayOpenApps` and `OverlaySheetServices` own summon triggers, pins, Windows power state, the
-  Open apps strip and per-sheet service wiring. Views and controls render state and report intent; they do
+  Open apps strip and per-sheet service wiring. `OverlayOpenApps` owns the strip's state for whichever surface is open,
+  the sheet's rail or the Game Mode taskbar; both render it with the `DeckAppChipTemplate` and `DeckTrayIconTemplate`
+  templates and route its presses through `OpenAppsStrip`. Views and controls render state and report intent; they do
   not mutate ConfigStore or acquire leases directly.
+- The sheet and the Game Mode taskbar (`TaskbarWindow`) are the controller's two top-level surface windows. They share
+  one lifecycle (`OverlaySurfaceSlot`, the Surfaces partial): open, re-show during the close grace, deferred close,
+  release and post-close work. They never show together; opening the sheet hands the taskbar over, and a handed-over
+  or disposed surface's close only releases its own claims. Each surface window has its own lease owner, capture claim
+  and one GamepadNavigation.
 - Capture, focus, cursor, and input-lease transitions are paired operations. Every close, cancellation, failure, and
   superseded open must release what it acquired.
 - Open apps activation waits for deferred closure and input-lease release. Preserve the selected HWND and PID through
@@ -41,16 +48,18 @@ Read docs/overlay-and-input.md, "In-window surfaces", for utility, keyboard, cre
   Avalonia transparency with an opaque fallback; it must not depend on captured desktop frames.
 - Every destination uses the persistent section rail and controls pane. Remember section selection across destination
   switches and window reopen. Selection remains visible independently of focus; telemetry preserves rail instances.
-- One GamepadNavigation owns the overlay and its in-window surfaces, with one action per edge or repeat decision.
-  LT/RT and LB/RB switch destinations; a utility or keyboard confines focus and input until dismissed. Back from primary
+- One GamepadNavigation owns each top-level surface window and its in-window surfaces, with one action per edge or
+  repeat decision. LT/RT and LB/RB switch destinations; a utility or keyboard confines focus and input until dismissed. Back from primary
   controls focuses the selected section, Back from its rail returns home, and nested editors pop one level.
 - Async searches, artwork, Steam state, and telemetry updates carry a generation or cancellation token so stale results
   cannot replace the current page.
 - UI-observable collections and properties change on the Avalonia dispatcher. High-rate telemetry is sampled or
   coalesced before reaching controls.
 - Raw-touch left and right gestures send Steam's Big Picture shortcuts even while a game is foreground. Top and bottom
-  gestures remain WSGM-owned. Keep bezel entry, early movement and directional dominance distinct; threshold changes
-  need synthetic rejection traces and attended calibration evidence, not just a recognizer test pass.
+  gestures remain WSGM-owned: top opens the sheet, and in Game Mode bottom opens the taskbar, which owns that edge
+  there; on the desktop Explorer's taskbar keeps it. Keep bezel entry, early movement and directional dominance
+  distinct; threshold changes need synthetic rejection traces and attended calibration evidence, not just a recognizer
+  test pass.
 - Use shared theme and focus tokens. Overlay-specific layout may be compact, but it must not fork the application's
   control language.
 

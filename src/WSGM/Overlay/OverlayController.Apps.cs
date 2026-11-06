@@ -103,15 +103,7 @@ public sealed partial class OverlayController
         _windowReturnCancellation = cancellation;
         _suppressFocusRestore = !restoreFocus;
         Log.Observe(RunAsync(), operation);
-        if (window is TaskbarWindow)
-        {
-            CloseTaskbar(true);
-        }
-        else
-        {
-            CloseOverlay(true);
-        }
-
+        CloseSurface(true);
         return;
 
         async Task RunAsync()
@@ -177,7 +169,7 @@ public sealed partial class OverlayController
     {
         DispatcherTimer.RunOnce(() =>
         {
-            // Only the real System32 Task Manager qualifies — never promote a
+            // Only the real System32 Task Manager qualifies; never promote a
             // same-named exe running from elsewhere to the foreground.
             var expected = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.System), "Taskmgr.exe");
@@ -202,7 +194,7 @@ public sealed partial class OverlayController
 
     /// <summary>
     ///     The bottom-swipe entry: the sheet, with controller focus landing on
-    ///     the Open apps strip rather than the selected root's first row — one gesture to
+    ///     the Open apps strip rather than the selected root's first row: one gesture to
     ///     the running programs, which is what the bottom edge used to open.
     /// </summary>
     public void ShowOverlayOnOpenApps()
@@ -211,7 +203,7 @@ public sealed partial class OverlayController
         // Background priority: after the window's own Opened focus (DefaultFocusTarget)
         // AND the first layout pass, which is what realizes the chip buttons.
         Dispatcher.UIThread.Post(
-            () => _overlay?.FocusOpenApps(), DispatcherPriority.Background);
+            () => Sheet?.FocusOpenApps(), DispatcherPriority.Background);
     }
 
     /// <summary>
@@ -220,11 +212,11 @@ public sealed partial class OverlayController
     /// </summary>
     public void ToggleOpenApps()
     {
-        if (_taskbar is not null || (_overlay is null && !ExplorerControl.IsDesktopShellRunning()))
+        if (Taskbar is not null || (Sheet is null && !ExplorerControl.IsDesktopShellRunning()))
         {
             ToggleTaskbar();
         }
-        else if (_overlay is null)
+        else if (Sheet is null)
         {
             ShowOverlayOnOpenApps();
         }
@@ -237,7 +229,7 @@ public sealed partial class OverlayController
     /// <summary>
     ///     Attaches (or detaches, with null) the game-mode tray host whose
     ///     icons render in the sheet's bottom rail. ShellSession owns the host's
-    ///     lifecycle — created per game-mode span, destroyed before explorer starts.
+    ///     lifecycle: created per game-mode span, destroyed before explorer starts.
     /// </summary>
     /// <param name="host">The live tray host, or null when leaving game mode.</param>
     public void AttachTrayHost(TrayHost? host)
@@ -249,7 +241,7 @@ public sealed partial class OverlayController
     ///     Forwards a tray-icon activation to its owner. For context menus
     ///     the sheet additionally drops Topmost until it is next activated: WinForms tray menus shown
     ///     via plain Show() (Handheld Companion since its commit c86932bc) are
-    ///     NON-topmost and never activated — over a topmost sheet they open BEHIND it,
+    ///     NON-topmost and never activated: over a topmost sheet they open BEHIND it,
     ///     which reads as "the menu doesn't appear" (device-reported).
     /// </summary>
     private void OnTrayIconActivated(TrayIconEntry entry, bool contextMenu, PixelPoint anchor)
@@ -265,18 +257,11 @@ public sealed partial class OverlayController
         }
         else
         {
-            // A plain activation opens/shows the owning app — dismiss the sheet or taskbar so it
-            // comes forward (same rule as picking an Open apps chip). A context-menu
+            // A plain activation opens/shows the owning app, so the sheet or taskbar is dismissed
+            // and it comes forward (same rule as picking an Open apps chip). A context-menu
             // request keeps the surface: the menu pops over it.
             _suppressFocusRestore = true;
-            if (_overlay is not null)
-            {
-                CloseOverlay();
-            }
-            else
-            {
-                CloseTaskbar();
-            }
+            CloseSurface(false);
         }
 
         _openApps.SendTrayClick(entry, contextMenu, anchor.X, anchor.Y);

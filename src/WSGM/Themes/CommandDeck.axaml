@@ -1,6 +1,39 @@
 <Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:c="using:WSGM.Controls" xmlns:cv="using:Avalonia.Data.Converters" xmlns:fa="using:FluentAvalonia.UI.Controls">
+        xmlns:c="using:WSGM.Controls" xmlns:cv="using:Avalonia.Data.Converters" xmlns:fa="using:FluentAvalonia.UI.Controls"
+        xmlns:ov="using:WSGM.Overlay">
   <Styles.Resources>
+    <!-- The Open apps strip's items, shared by the sheet's rail and the Game Mode taskbar. Their
+         presses are routed by OpenAppsStrip from the strip's scrollers, so the templates carry no
+         handlers. A chip keeps a fixed height and its place as windows come and go. -->
+    <DataTemplate x:Key="DeckAppChipTemplate" x:DataType="ov:AppSwitcherEntry">
+      <Button Classes="app-chip"
+              Classes.active="{Binding IsActive}"
+              Classes.minimized="{Binding IsMinimized}"
+              AutomationProperties.Name="{Binding Title}"
+              ToolTip.Tip="{Binding Title}">
+        <Panel>
+          <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <Panel Width="18" Height="18" VerticalAlignment="Center">
+              <Image Source="{Binding Icon}" Width="18" Height="18" />
+              <!-- Fallback glyph when no icon could be resolved. -->
+              <TextBlock Text="▢" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"
+                         IsVisible="{Binding HasNoIcon}" />
+            </Panel>
+            <TextBlock Classes="app-chip-title" Text="{Binding Title}" />
+          </StackPanel>
+          <Border Classes="active-indicator" Height="3" CornerRadius="1.5" VerticalAlignment="Bottom"
+                  Margin="0,0,0,-4" />
+        </Panel>
+      </Button>
+    </DataTemplate>
+    <DataTemplate x:Key="DeckTrayIconTemplate" x:DataType="ov:TrayIconEntry">
+      <Button Classes="pill tray"
+              AutomationProperties.Name="{Binding Tip}"
+              ToolTip.Tip="{Binding Tip}">
+        <Image Source="{Binding Image}" Width="18" Height="18" />
+      </Button>
+    </DataTemplate>
+
     <!-- One native window backdrop; nested surfaces add tint, never another blur pass. -->
     <SolidColorBrush x:Key="DeckGlassCanvasBrush" Color="#80171A1F" />
     <SolidColorBrush x:Key="DeckCanvasBrush" Color="#171A1F" />
@@ -344,7 +377,7 @@
   <!-- Header status pills: compact rounded buttons. The local BorderBrush
            wins the equal-specificity tie against Shared.axaml's Button:focus-visible, so
            the accent focus border is restated here (same workaround as
-           TabStripTheme) — otherwise a focused pill would have no cue. -->
+           TabStripTheme); otherwise a focused pill would have no cue. -->
   <Style Selector="Window.command-deck Button.pill">
     <Setter Property="MinWidth" Value="44" />
     <Setter Property="Height" Value="44" />
@@ -425,5 +458,36 @@
   </Style>
   <Style Selector="Window.command-deck Button.app-chip.active Border.active-indicator">
     <Setter Property="Background" Value="{DynamicResource HcAccentBrush}" />
+  </Style>
+  <Style Selector="Window.command-deck TextBlock.app-chip-title">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="MaxWidth" Value="150" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+
+  <!-- Game Mode taskbar: Start matches the chips' height, and a chip's Close sits beside it as
+       a quiet pill of the same height. -->
+  <Style Selector="Window.command-deck Button.pill.start">
+    <Setter Property="Height" Value="48" />
+    <Setter Property="Padding" Value="12,0,14,0" />
+  </Style>
+  <Style Selector="Window.command-deck Button.pill.start.open">
+    <Setter Property="Background" Value="{StaticResource DeckPressedBrush}" />
+  </Style>
+  <Style Selector="Window.command-deck Button.pill.window-close">
+    <Setter Property="MinWidth" Value="32" />
+    <Setter Property="Width" Value="32" />
+    <Setter Property="Height" Value="48" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+  </Style>
+  <Style Selector="Window.command-deck Button.pill.window-close:focus-visible">
+    <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+  </Style>
+  <Style Selector="Window.command-deck Button.pill.window-close:pointerover">
+    <Setter Property="Background" Value="{StaticResource DeckHoverBrush}" />
   </Style>
 </Styles>

@@ -109,14 +109,14 @@ public sealed class TaskbarWindowTests
     }
 
     [AvaloniaFact]
-    public void TheStartMenuLaunchesRunnableProgramsAndSendsTheRestToTheirEditor()
+    public void TheStartMenuReportsEveryChosenProgramAndManagePrograms()
     {
         using UiFixture fixture = new();
         var window = fixture.Taskbar(Switcher(1, 0), new ProgramsOverlaySource());
         List<string> chosen = [];
-        List<string?> managed = [];
+        var managed = 0;
         window.ProgramChosen += chosen.Add;
-        window.ManageProgramsRequested += managed.Add;
+        window.ManageProgramsRequested += () => managed++;
         UiFixture.Click(window, window.StartButton);
         Dispatcher.UIThread.RunJobs();
 
@@ -125,8 +125,9 @@ public sealed class TaskbarWindowTests
         UiFixture.Click(window, UiFixture.Tagged<ProgramActionRow>(window, "taskbar.program:missing"));
         UiFixture.Click(window, window.ManagePrograms);
 
-        Assert.Equal(["mod-manager", "monitor"], chosen);
-        Assert.Equal(["missing", null], managed);
+        // The controller decides launch, focus or editor for each, by the Programs page's rule.
+        Assert.Equal(["mod-manager", "monitor", "missing"], chosen);
+        Assert.Equal(1, managed);
         Assert.Equal("Unavailable · executable missing or changed",
             UiFixture.Tagged<ProgramActionRow>(window, "taskbar.program:missing").Description);
     }

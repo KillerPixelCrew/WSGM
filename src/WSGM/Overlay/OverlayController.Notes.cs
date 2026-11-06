@@ -50,7 +50,7 @@ public sealed partial class OverlayController
     {
         // Prefer the application the sheet opened over; on the desktop capture the sheet's display.
         var target = NotesGameCapture.DescribeTarget(_restoreFocusTo);
-        if (target is null && _overlay is { } overlay
+        if (target is null && Sheet is { } overlay
                            && overlay.Screens.ScreenFromWindow(overlay)?.TryGetPlatformHandle()?.Handle is { } monitor
                            && monitor != 0)
         {
@@ -74,7 +74,7 @@ public sealed partial class OverlayController
             // The sheet's own close releases its capture claim and Steam Input lease, returning input to the
             // game; in Game Mode it also brings back the window that was in front before it opened.
             _suppressFocusRestore = false;
-            var open = _overlay;
+            var open = Sheet;
             if (open is null)
             {
                 closed.TrySetResult();
@@ -104,7 +104,7 @@ public sealed partial class OverlayController
         }
 
         // A sheet summoned again after this one closed keeps the player in WSGM.
-        if (await Dispatcher.UIThread.InvokeAsync(() => _overlay is not null))
+        if (await Dispatcher.UIThread.InvokeAsync(() => Sheet is not null))
         {
             return false;
         }
@@ -136,7 +136,7 @@ public sealed partial class OverlayController
             }
 
             ShowOverlay();
-            return _overlay?.OpenNotes() == true;
+            return Sheet?.OpenNotes() == true;
         }).GetTask();
     }
 

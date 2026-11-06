@@ -128,17 +128,17 @@ public sealed partial class OverlayController
         // Native file pickers retain their own navigation while they are visible.
         overlay.SystemDialogActive += active =>
         {
-            if (!ReferenceEquals(_overlay, overlay))
+            if (!ReferenceEquals(Sheet, overlay))
             {
                 return;
             }
 
             if (active)
             {
-                _dialogPriorNavigation = _navigation?.IsEnabled ?? false;
+                _dialogPriorNavigation = _sheet.Navigation?.IsEnabled ?? false;
             }
 
-            _navigation?.IsEnabled = !active && _dialogPriorNavigation;
+            _sheet.Navigation?.IsEnabled = !active && _dialogPriorNavigation;
         };
         // Dismiss never refocuses anything: Windows hands the foreground back to
         // the previous window on close. An explicit refocus-on-dismiss once yanked

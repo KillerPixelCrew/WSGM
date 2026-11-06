@@ -160,15 +160,10 @@ public partial class OverlayWindow : Window
         StorageFormatHost.ScrollToTopRequested += () => ContentScroller.Offset = default;
         ConfigurePages(steam);
 
-        // Controller navigation moves focus with InputElement.Focus(Directional),
-        // which does NOT raise RequestBringIntoView on its own — a chip scrolled
-        // out of its strip would take focus invisibly. Ask for it explicitly:
-        // Control.BringIntoView() raises RequestBringIntoViewEvent, which the
-        // ScrollViewer's presenter handles by scrolling. Arrow keys are safe to
-        // leave to the ScrollViewer's own handler because GamepadNavigation marks
-        // them handled from a TUNNEL handler on the window.
-        TileScroller.AddHandler(GotFocusEvent, OnStripGotFocus, RoutingStrategies.Bubble);
-        TrayScroller.AddHandler(GotFocusEvent, OnStripGotFocus, RoutingStrategies.Bubble);
+        // Chip and tray presses, and keeping a directionally focused chip in view. Arrow keys are safe to
+        // leave to the ScrollViewer's own handler because GamepadNavigation marks them handled from a TUNNEL
+        // handler on the window.
+        AttachOpenAppsStrip();
         // Touch and mouse routes to pinning: a hold on a row, or a right click.
         AddHandler(HoldingEvent, OnHolding, RoutingStrategies.Bubble, true);
         AddHandler(PointerPressedEvent, OnPointerPressedForPin, RoutingStrategies.Tunnel);
@@ -270,14 +265,6 @@ public partial class OverlayWindow : Window
         PanelPowerActions.DismissRequested += () => Dismissed?.Invoke();
         PanelPowerActions.PowerMenuRequested += () => PowerMenuRequested?.Invoke();
         ProgramsHost.ProgramsChanged += () => QueueLiveRefresh(PinSourcesLiveRefresh);
-        ProgramsHost.EditorRequested += id =>
-        {
-            if (OpenSection(OverlayPage.Programs))
-            {
-                ProgramsHost.OpenEditor(id);
-                FocusFirstControl(ProgramsHost);
-            }
-        };
         ProgramsHost.PinRequested += id => PinToggleRequested?.Invoke(ProgramsService.PinPrefix + id);
         ProgramsHost.UnpinRequested += id =>
         {

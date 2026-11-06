@@ -14,7 +14,7 @@ public sealed partial class OverlayController
     /// <param name="id">The hotkey.</param>
     private void SendHotkey(string id)
     {
-        if (_disposed || _overlay is not { } window || _services.Sources.Hotkeys is not { } hotkeys)
+        if (_disposed || Sheet is not { } window || _services.Sources.Hotkeys is not { } hotkeys)
         {
             return;
         }

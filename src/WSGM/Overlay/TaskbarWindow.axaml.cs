@@ -33,8 +33,7 @@ public partial class TaskbarWindow : Window
     private readonly double _uiScale;
     private InputElement? _menuInvoker;
     private IProgramsSource? _programs;
-    private DispatcherTimer? _slideTimer;
-    private DateTime _slideStartedUtc;
+    private readonly OverlaySlide _slide;
     private double _slideFrom;
     private Point? _swipeStart;
     private bool _swipeDismissed;
@@ -58,12 +57,15 @@ public partial class TaskbarWindow : Window
         _uiScale = uiScale;
         _dock = dock ?? (static window => window.Dock());
         _preferredScreenPoint = preferredScreenPoint;
+        // The strip slides up from below the bottom edge.
+        _slide = new OverlaySlide(progress => StripSlide().Y = _slideFrom * (1 - progress));
         InitializeComponent();
         DataContext = switcher;
-        // Directional focus does not raise RequestBringIntoView on its own; see OverlayWindow.OnStripGotFocus.
-        TileScroller.AddHandler(GotFocusEvent, OnStripGotFocus, RoutingStrategies.Bubble);
-        TrayScroller.AddHandler(GotFocusEvent, OnStripGotFocus, RoutingStrategies.Bubble);
-        StartScroller.AddHandler(GotFocusEvent, OnStripGotFocus, RoutingStrategies.Bubble);
+        OpenAppsStrip.Attach(TileScroller, TrayScroller, entry => WindowPicked?.Invoke(entry),
+            (entry, contextMenu, pill) =>
+                TrayIconActivated?.Invoke(entry, contextMenu, OpenAppsStrip.AnchorAbove(pill)),
+            entry => WindowCloseRequested?.Invoke(entry));
+        StartScroller.AddHandler(GotFocusEvent, OpenAppsStrip.BringFocusedIntoView, RoutingStrategies.Bubble);
         Scrim.PointerPressed += OnScrimPressed;
         // Budget the tray against the bar's laid-out width (inside the content scale), at open and on resize.
         SurfaceRoot.SizeChanged += (_, e) =>
@@ -125,14 +127,14 @@ public partial class TaskbarWindow : Window
     /// <summary>Raised with a tray icon, whether its context menu was asked for, and the screen anchor for a menu.</summary>
     internal event Action<TrayIconEntry, bool, PixelPoint>? TrayIconActivated;
 
-    /// <summary>Raised with a program to launch or whose window to focus.</summary>
+    /// <summary>
+    ///     Raised with a chosen program. The controller launches or focuses it, or opens its editor when it can do
+    ///     neither, by the same rule as the Programs page.
+    /// </summary>
     internal event Action<string>? ProgramChosen;
 
-    /// <summary>
-    ///     Raised to open the Overlay's Programs page, with the program whose editor explains why it cannot launch,
-    ///     or null for the page itself.
-    /// </summary>
-    internal event Action<string?>? ManageProgramsRequested;
+    /// <summary>Raised to open the Overlay's Programs page, where programs are added, edited and removed.</summary>
+    internal event Action? ManageProgramsRequested;
 
     /// <summary>Raised when a tap outside, a swipe down or Back dismisses the bar.</summary>
     internal event Action? DismissRequested;
@@ -212,7 +214,7 @@ public partial class TaskbarWindow : Window
         {
             case Control { DataContext: TrayIconEntry entry } control:
                 Log.Info($"Taskbar X: tray context menu for '{entry.Tip}'.");
-                TrayIconActivated?.Invoke(entry, true, AnchorAbove(control));
+                TrayIconActivated?.Invoke(entry, true, OpenAppsStrip.AnchorAbove(control));
                 return;
             case Control { DataContext: AppSwitcherEntry window }:
                 WindowCloseRequested?.Invoke(window);
@@ -251,7 +253,8 @@ public partial class TaskbarWindow : Window
         foreach (var state in states)
         {
             var id = state.Definition.Id;
-            StartItems.Children.Add(new ProgramActionRow(state, () => ChooseProgram(id)) { Tag = ProgramTagPrefix + id });
+            StartItems.Children.Add(new ProgramActionRow(state, () => ProgramChosen?.Invoke(id))
+                { Tag = ProgramTagPrefix + id });
         }
 
         StartScroller.IsVisible = states.Length > 0;
@@ -261,19 +264,6 @@ public partial class TaskbarWindow : Window
             (FocusSearch.Keyed(StartMenu, focusedTag) ?? FocusSearch.FirstNavigable(StartMenu))
                 ?.Focus(NavigationMethod.Directional);
         }
-    }
-
-    /// <summary>Launches or focuses a program, or opens its editor when it can do neither, as the Programs page does.</summary>
-    private void ChooseProgram(string id)
-    {
-        var state = _programs?.ReadState().FirstOrDefault(item => item.Definition.Id == id);
-        if (state is { CanLaunch: false, Running: false })
-        {
-            ManageProgramsRequested?.Invoke(id);
-            return;
-        }
-
-        ProgramChosen?.Invoke(id);
     }
 
     private void ReleaseStartItems()
@@ -306,7 +296,7 @@ public partial class TaskbarWindow : Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
-        StopSlide();
+        _slide.Stop();
         AttachPrograms(null);
         ReleaseStartItems();
     }
@@ -314,68 +304,15 @@ public partial class TaskbarWindow : Window
     /// <summary>Covers the summoning window's display, renders at the desktop's DPI and slides the strip up.</summary>
     internal void Dock()
     {
-        var screens = Screens;
-        var screen = _preferredScreenPoint is { } point ? screens.ScreenFromPoint(point) : null;
-        screen ??= screens.ScreenFromWindow(this) ?? screens.Primary;
-        if (screen is null && screens.ScreenCount > 0)
-        {
-            screen = screens.All[0];
-        }
-
-        if (screen is null)
+        if (OverlayPlacement.Cover(this, RootScale, _uiScale, _preferredScreenPoint, "Taskbar") is null)
         {
             return;
         }
 
-        var bounds = screen.Bounds;
-        Position = new PixelPoint(bounds.X, bounds.Y);
-        var scaling = StatusPanel.CurrentWindowScale(this);
-        var factor = OverlayPlacement.ComputeContentScale(_uiScale, scaling, bounds.Width, bounds.Height);
-        if (Math.Abs(factor - 1.0) >= 0.01)
-        {
-            RootScale.LayoutTransform = new ScaleTransform(factor, factor);
-        }
-
-        Width = bounds.Width / scaling;
-        Height = bounds.Height / scaling;
+        // The strip's height must be final before the slide starts from it.
         UpdateLayout();
-        StartSlide();
-    }
-
-    private void StartSlide()
-    {
-        StopSlide();
         _slideFrom = Strip.Bounds.Height;
-        StripSlide().Y = _slideFrom;
-        _slideStartedUtc = DateTime.UtcNow;
-        _slideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
-        _slideTimer.Tick += OnSlideTick;
-        _slideTimer.Start();
-    }
-
-    private void OnSlideTick(object? sender, EventArgs e)
-    {
-        const double durationMs = 180;
-        var progress = Math.Clamp((DateTime.UtcNow - _slideStartedUtc).TotalMilliseconds / durationMs, 0, 1);
-        // The same cubic ease-out as the Quick access sheet.
-        StripSlide().Y = _slideFrom * Math.Pow(1 - progress, 3);
-        if (progress >= 1)
-        {
-            StopSlide();
-        }
-    }
-
-    private void StopSlide()
-    {
-        if (_slideTimer is null)
-        {
-            return;
-        }
-
-        _slideTimer.Stop();
-        _slideTimer.Tick -= OnSlideTick;
-        _slideTimer = null;
-        StripSlide().Y = 0;
+        _slide.Start();
     }
 
     private TranslateTransform StripSlide()
@@ -444,59 +381,6 @@ public partial class TaskbarWindow : Window
 
     private void OnManagePrograms(object? sender, RoutedEventArgs e)
     {
-        ManageProgramsRequested?.Invoke(null);
-    }
-
-    private void OnPickWindow(object? sender, RoutedEventArgs e)
-    {
-        if ((sender as Control)?.DataContext is AppSwitcherEntry entry)
-        {
-            WindowPicked?.Invoke(entry);
-        }
-    }
-
-    private void OnCloseWindow(object? sender, RoutedEventArgs e)
-    {
-        if ((sender as Control)?.DataContext is AppSwitcherEntry entry)
-        {
-            WindowCloseRequested?.Invoke(entry);
-        }
-    }
-
-    /// <summary>Tap, A or left click: the icon's primary activation.</summary>
-    private void OnTrayClick(object? sender, RoutedEventArgs e)
-    {
-        if (sender is Control { DataContext: TrayIconEntry entry } control)
-        {
-            TrayIconActivated?.Invoke(entry, false, AnchorAbove(control));
-        }
-    }
-
-    /// <summary>Right click: the icon's context menu. Button.Click never fires for the right button.</summary>
-    private void OnTrayPointerReleased(object? sender, PointerReleasedEventArgs e)
-    {
-        if (e.InitialPressMouseButton != MouseButton.Right
-            || sender is not Control { DataContext: TrayIconEntry entry } control)
-        {
-            return;
-        }
-
-        e.Handled = true;
-        TrayIconActivated?.Invoke(entry, true, AnchorAbove(control));
-    }
-
-    /// <summary>The screen point just above an icon's centre, where its app anchors a popup menu.</summary>
-    private static PixelPoint AnchorAbove(Control control)
-    {
-        var point = control.PointToScreen(new Point(control.Bounds.Width / 2, 0));
-        return new PixelPoint(point.X, point.Y);
-    }
-
-    private static void OnStripGotFocus(object? sender, FocusChangedEventArgs e)
-    {
-        if (e.Source is Control control and not ScrollViewer)
-        {
-            control.BringIntoView();
-        }
+        ManageProgramsRequested?.Invoke();
     }
 }

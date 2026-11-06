@@ -19,7 +19,7 @@ public sealed partial class OverlayController
     /// </remarks>
     private void AcquireSteamInputLease()
     {
-        AcquireSteamInputLease(_leaseOwner);
+        AcquireSteamInputLease(_sheet.LeaseOwner);
     }
 
     /// <summary>Claims the Steam Input lease under one of this controller's surface owners.</summary>
@@ -60,7 +60,7 @@ public sealed partial class OverlayController
     /// </summary>
     private void ReleaseSteamInputLease()
     {
-        _leaseRelease = _steamInput.Drop(_leaseOwner, "surface-closed");
+        _leaseRelease = _steamInput.Drop(_sheet.LeaseOwner, "surface-closed");
     }
 
     private void ClaimUiSurface(string surfaceId)

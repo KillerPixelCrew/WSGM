@@ -3,7 +3,6 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.LiveBackdrop;
 using Avalonia.Media;
-using Avalonia.Threading;
 using WSGM.Core;
 using WSGM.Interop;
 
@@ -37,13 +36,12 @@ internal sealed class OverlayPlacement
     private readonly LayoutTransformControl _rootScale;
     private readonly Control _tray;
     private readonly double _uiScale;
+    private readonly OverlaySlide _slide;
     private readonly Window _window;
     private LiveBackdrop? _backdrop;
     private double _blurRadius = 8;
     private PixelPoint _slideEnd;
     private PixelPoint _slideStart;
-    private DateTime _slideStartedUtc;
-    private DispatcherTimer? _slideTimer;
 
     /// <summary>Creates the placement of one sheet window.</summary>
     /// <param name="window">The sheet window that is moved, sized and given the backdrop.</param>
@@ -64,6 +62,10 @@ internal sealed class OverlayPlacement
         _tray = tray;
         _uiScale = uiScale;
         _preferredScreenPoint = preferredScreenPoint;
+        // The sheet slides down from above the display.
+        _slide = new OverlaySlide(progress => _window.Position = new PixelPoint(
+            _slideEnd.X,
+            (int)Math.Round(_slideStart.Y + (_slideEnd.Y - _slideStart.Y) * progress)));
         ApplyGlassTransparency();
         // Budget the tray against the XAML's declared width right away, so the strip is bounded even
         // on the path where Dock bails out (no primary screen); docking recomputes it against the
@@ -126,7 +128,69 @@ internal sealed class OverlayPlacement
     internal void ApplyContentScale(double factor)
     {
         ContentScale = factor;
-        _rootScale.LayoutTransform = new ScaleTransform(factor, factor);
+        ScaleContent(_rootScale, factor);
+    }
+
+    /// <summary>Lays a surface's content out at <paramref name="factor" /> times its DIP size.</summary>
+    /// <param name="rootScale">The surface's root transform.</param>
+    /// <param name="factor">The content scale from <see cref="ComputeContentScale" />.</param>
+    internal static void ScaleContent(LayoutTransformControl rootScale, double factor)
+    {
+        rootScale.LayoutTransform = new ScaleTransform(factor, factor);
+    }
+
+    /// <summary>
+    ///     Covers the summoning window's display with a surface window and renders its content at the desktop's
+    ///     DPI. Shared by the sheet and the Game Mode taskbar.
+    /// </summary>
+    /// <param name="window">The surface window, moved and sized to the display.</param>
+    /// <param name="rootScale">The surface's root transform.</param>
+    /// <param name="uiScale">The desktop-DPI scale factor for WSGM UI (1.5 for a 150% desktop).</param>
+    /// <param name="preferredScreenPoint">A physical point on the display to cover, or null for the window's own.</param>
+    /// <param name="surfaceName">The surface's name in the log.</param>
+    /// <returns>The covered display, or null when there is none.</returns>
+    internal static DisplayCover? Cover(Window window, LayoutTransformControl rootScale, double uiScale,
+        PixelPoint? preferredScreenPoint, string surfaceName)
+    {
+        var screens = window.Screens;
+        var screen = preferredScreenPoint is { } point
+            ? screens.ScreenFromPoint(point)
+            : null;
+        screen ??= screens.ScreenFromWindow(window) ?? screens.Primary;
+        if (screen is null && screens.ScreenCount > 0)
+        {
+            screen = screens.All[0];
+        }
+
+        if (screen is null)
+        {
+            return null;
+        }
+
+        var bounds = screen.Bounds;
+        // A new top-level starts on Windows' default monitor. Move its HWND onto the
+        // selected display before reading its effective DPI; otherwise a secondary
+        // display is sized using the primary display's scale. Do not use
+        // screen.Scaling: Avalonia's screen cache can retain the pre-game-mode DPI
+        // when no window existed to receive the display transition.
+        window.Position = new PixelPoint(bounds.X, bounds.Y);
+        var scaling = StatusPanel.CurrentWindowScale(window);
+        // Render at the desktop's DPI: game mode forces displays to 100%, which
+        // otherwise shrinks a DIP-sized surface to millimeters on dense handheld
+        // screens (device-reported). The content lays out in desktop-DIP space (the
+        // factor divides the available size), the window takes the scaled-up
+        // physical footprint.
+        var factor = ComputeContentScale(uiScale, scaling, bounds.Width, bounds.Height);
+        var applied = Math.Abs(factor - 1.0) >= 0.01;
+        if (applied)
+        {
+            Log.Info($"{surfaceName} UI scale {factor:0.##}x (desktop DPI over current {scaling:0.##}).");
+            ScaleContent(rootScale, factor);
+        }
+
+        window.Width = bounds.Width / scaling;
+        window.Height = bounds.Height / scaling;
+        return new DisplayCover(bounds, scaling, applied ? factor : 1.0);
     }
 
     /// <summary>
@@ -151,55 +215,18 @@ internal sealed class OverlayPlacement
     /// </summary>
     internal void Dock()
     {
-        var screens = _window.Screens;
-        var screen = _preferredScreenPoint is { } point
-            ? screens.ScreenFromPoint(point)
-            : null;
-        screen ??= screens.ScreenFromWindow(_window) ?? screens.Primary;
-        if (screen is null && screens.ScreenCount > 0)
-        {
-            screen = screens.All[0];
-        }
-
-        if (screen is null)
+        if (Cover(_window, _rootScale, _uiScale, _preferredScreenPoint, "Quick access") is not { } cover)
         {
             return;
         }
 
-        var bounds = screen.Bounds;
-        // A new top-level starts on Windows' default monitor. Move its HWND onto the
-        // selected display before reading its effective DPI; otherwise a secondary
-        // display is sized using the primary display's scale. Do not use
-        // screen.Scaling: Avalonia's screen cache can retain the pre-game-mode DPI
-        // when no window existed to receive the display transition.
-        _window.Position = new PixelPoint(bounds.X, bounds.Y);
-        var scaling = StatusPanel.CurrentWindowScale(_window);
-        // Render at the desktop's DPI: game mode forces displays to 100%, which
-        // otherwise shrinks this DIP-sized sheet to millimeters on dense
-        // handheld screens (device-reported). The content lays out in
-        // desktop-DIP space (the factor divides the available size), the window
-        // takes the scaled-up physical footprint.
-        var factor = ComputeContentScale(_uiScale, scaling, bounds.Width, bounds.Height);
-        if (Math.Abs(factor - 1.0) >= 0.01)
-        {
-            Log.Info($"Quick access UI scale {factor:0.##}x (desktop DPI over current {scaling:0.##}).");
-            ApplyContentScale(factor);
-        }
-
-        _window.Width = bounds.Width / scaling;
-        _window.Height = bounds.Height / scaling;
+        ContentScale = cover.ContentScale;
         _tray.MaxWidth = ComputeTrayMaxWidth(_window.Width, ContentScale);
-
-        var heightPx = (int)Math.Ceiling(_window.Height * scaling);
+        var bounds = cover.Bounds;
+        var heightPx = (int)Math.Ceiling(_window.Height * cover.RenderScale);
         _slideEnd = new PixelPoint(bounds.X, bounds.Y);
         _slideStart = new PixelPoint(bounds.X, bounds.Y - heightPx);
-        _window.Position = _slideStart;
-
-        StopSlide();
-        _slideStartedUtc = DateTime.UtcNow;
-        _slideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
-        _slideTimer.Tick += OnSlideTick;
-        _slideTimer.Start();
+        _slide.Start();
     }
 
     /// <summary>Updates the attached backdrop without recreating the Overlay window.</summary>
@@ -224,7 +251,7 @@ internal sealed class OverlayPlacement
     /// <summary>Stops the slide and releases the backdrop as the window closes.</summary>
     internal void Detach()
     {
-        StopSlide();
+        _slide.Stop();
         if (_backdrop is null)
         {
             return;
@@ -233,34 +260,6 @@ internal sealed class OverlayPlacement
         _backdrop.StateChanged -= OnBackdropChanged;
         _backdrop.Dispose();
         _backdrop = null;
-    }
-
-    private void OnSlideTick(object? sender, EventArgs e)
-    {
-        const double durationMs = 180;
-        var progress = Math.Clamp((DateTime.UtcNow - _slideStartedUtc).TotalMilliseconds / durationMs, 0, 1);
-        // Cubic ease-out keeps the movement quick without a sharp stop.
-        var eased = 1 - Math.Pow(1 - progress, 3);
-        _window.Position = new PixelPoint(
-            _slideEnd.X,
-            (int)Math.Round(_slideStart.Y + (_slideEnd.Y - _slideStart.Y) * eased));
-
-        if (progress >= 1)
-        {
-            StopSlide();
-        }
-    }
-
-    private void StopSlide()
-    {
-        if (_slideTimer is null)
-        {
-            return;
-        }
-
-        _slideTimer.Stop();
-        _slideTimer.Tick -= OnSlideTick;
-        _slideTimer = null;
     }
 
     private void OnBackdropChanged(object? sender, EventArgs e)
@@ -286,4 +285,10 @@ internal sealed class OverlayPlacement
         _glassCanvas.Background =
             _window.FindResource(hasBackdrop ? "DeckGlassCanvasBrush" : "DeckCanvasBrush") as IBrush;
     }
+
+    /// <summary>The display a surface window covers.</summary>
+    /// <param name="Bounds">The display's physical bounds.</param>
+    /// <param name="RenderScale">The window's render scaling on that display.</param>
+    /// <param name="ContentScale">The content scale applied, 1.0 when none was.</param>
+    internal readonly record struct DisplayCover(PixelRect Bounds, double RenderScale, double ContentScale);
 }
