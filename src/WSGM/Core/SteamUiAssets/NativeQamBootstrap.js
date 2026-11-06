@@ -14983,14 +14983,16 @@
     let handles = null;
     const owned = new Map();
     const NativeNotice = (props) => {
+      if (!handles) return null;
       const notification = props.group.notifications[0];
       const notice = notification.__steamUiUpdate;
-      const { react, template, classes } = handles;
+      const { react, template, classes, store } = handles;
       const activate = () => {
+        if (!gate.status().held) return;
         const history = window.tempNavStore?.m_history;
         if (typeof history?.push === "function") history.push(notice.route);
         props.onDismiss?.();
-        handles.store.RemoveGroupFromTray(props.group);
+        store.RemoveGroupFromTray(props.group);
       };
       return react.createElement(template, {
         location: props.location,
