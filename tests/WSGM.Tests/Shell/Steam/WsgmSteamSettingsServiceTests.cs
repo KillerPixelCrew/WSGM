@@ -47,6 +47,44 @@ public sealed class WsgmSteamSettingsServiceTests
     }
 
     [Fact]
+    public void ThePagesAreTheSettingsSectionsInTheirOrder()
+    {
+        var pages = new Harness().Create().ReadState().Pages;
+
+        Assert.Equal(
+            ["General", "Steam", "Artwork", "Device", "Quick access", "Performance", "Display", "Startup", "Appearance", "Plugins",
+                "Diagnostics", "About"],
+            pages.Select(static page => page.Title));
+        Assert.All(pages, static page => Assert.False(string.IsNullOrEmpty(page.Glyph)));
+    }
+
+    [Fact]
+    public async Task SlidersChoicesAndTheAccentWriteTheirFieldAndRefuseValuesTheyCannotHold()
+    {
+        Harness harness = new();
+        var service = harness.Create();
+
+        Assert.True((await service.SetAsync("quickAccess.blur", Json("12"), CancellationToken.None)).Succeeded);
+        Assert.Equal(12, harness.Stored.OverlayBlurRadius);
+        Assert.True((await service.SetAsync("startup.firstDelay", Json("2500"), CancellationToken.None)).Succeeded);
+        Assert.Equal(2500, harness.Stored.StartupDelayMs);
+        Assert.False((await service.SetAsync("startup.firstDelay", Json("-1"), CancellationToken.None)).Succeeded);
+
+        Assert.True((await service.SetAsync("device.target", Json("\"Xbox360\""), CancellationToken.None)).Succeeded);
+        Assert.Equal(ManagedControllerTarget.Xbox360, harness.Stored.Profiles.Global.ControllerTarget);
+        Assert.False((await service.SetAsync("device.target", Json("\"Joystick\""), CancellationToken.None)).Succeeded);
+        var target = service.ReadState().Pages.Single(static page => page.Id == "device").Sections
+            .SelectMany(static section => section.Rows).Single(static row => row.Key == "device.target");
+        Assert.Equal("Xbox360", target.Text);
+
+        Assert.True((await service.SetAsync("appearance.accent", Json("\"#4CC2FF\""), CancellationToken.None))
+            .Succeeded);
+        Assert.Equal("#4CC2FF", harness.Stored.AccentColor);
+        Assert.False((await service.SetAsync("appearance.accent", Json("\"blue\""), CancellationToken.None))
+            .Succeeded);
+    }
+
+    [Fact]
     public async Task AnUncheckedSteamBuildLeadsTheIntegrationPageUntilDismissed()
     {
         Harness harness = new();
@@ -60,10 +98,10 @@ public sealed class WsgmSteamSettingsServiceTests
         var service = harness.Create();
         var changed = 0;
         service.Changed += () => changed++;
-        Assert.DoesNotContain(service.ReadState().Pages[0].Sections, section => section.Title == "Steam update");
+        Assert.DoesNotContain(service.ReadState().Pages.Single(static page => page.Id == "steam").Sections, section => section.Title == "Steam update");
 
         harness.BuildNotice.Evaluate();
-        var notice = service.ReadState().Pages[0].Sections[0];
+        var notice = service.ReadState().Pages.Single(static page => page.Id == "steam").Sections[0];
         Assert.Equal("Steam update", notice.Title);
         var row = Assert.Single(notice.Rows);
         Assert.Equal((SteamSettingsRowKind.Action, "Dismiss"), (row.Kind, row.ButtonLabel));
@@ -73,7 +111,7 @@ public sealed class WsgmSteamSettingsServiceTests
         Assert.False((await service.SetAsync(row.Key, Json("\"yes\""), CancellationToken.None)).Succeeded);
         Assert.True((await service.SetAsync(row.Key, Json("true"), CancellationToken.None)).Succeeded);
         Assert.Equal(build.Key, harness.Stored.DismissedSteamClientBuild);
-        Assert.DoesNotContain(service.ReadState().Pages[0].Sections, section => section.Title == "Steam update");
+        Assert.DoesNotContain(service.ReadState().Pages.Single(static page => page.Id == "steam").Sections, section => section.Title == "Steam update");
         Assert.Equal(2, changed);
     }
 
@@ -242,7 +280,7 @@ public sealed class WsgmSteamSettingsServiceTests
         harness.Stored.GpuDrivers!.Intel = true;
         var service = harness.Create();
         const string key = "plugins.enabled:wsgm.gpu.intel/default";
-        var integration = service.ReadState().Pages.Single(page => page.Id == "steam");
+        var integration = service.ReadState().Pages.Single(page => page.Id == "performance");
         var graphics = integration.Sections.Single(section => section.Title == "Built-in graphics drivers");
         Assert.Equal(3, graphics.Rows.Count);
         Assert.True(Row(service.ReadState(), key).Checked);
@@ -287,7 +325,7 @@ public sealed class WsgmSteamSettingsServiceTests
     {
         Harness harness = new() { Graphics = [BuiltinGpuDrivers.All[0], BuiltinGpuDrivers.All[2]] };
 
-        var graphics = harness.Create().ReadState().Pages.Single(page => page.Id == "steam")
+        var graphics = harness.Create().ReadState().Pages.Single(page => page.Id == "performance")
             .Sections.Single(section => section.Title == "Built-in graphics drivers");
 
         Assert.Equal(["Intel graphics", "NVIDIA graphics"], graphics.Rows.Select(row => row.Label));

@@ -34,21 +34,12 @@ internal static class SettingsSaveMerge
         var managersWas = fresh.OtherManagersTakeoverAccepted;
         config.SteamAutoRelaunch = values.SteamAutoRelaunch;
         config.SteamLaunchUnelevated = values.SteamLaunchUnelevated;
-        config.StartupDelayMs = values.StartupDelayMs;
-        config.StaggerDelayMs = values.StaggerDelayMs;
-        config.BootSplashEnabled = values.BootSplashEnabled;
         config.SteamAutostartTakeoverAccepted = values.SteamAutostartTakeoverAccepted;
         config.OtherManagersTakeoverAccepted = values.OtherManagersTakeoverAccepted;
-        config.MuteWhileDisplayOff = values.MuteWhileDisplayOff;
-        config.CheckForUpdates = values.CheckForUpdates;
-        config.ResuspendUnexplainedWakes = values.ResuspendUnexplainedWakes;
         config.LogVerbosity = values.LogVerbosity;
-        config.AutoTdpTraceEnabled = values.AutoTdpTraceEnabled;
         config.Hotkey = values.Hotkey;
         config.GamepadChord = values.GamepadChord;
         config.GlyphStyle = values.GlyphStyle;
-        config.AccentColor = values.AccentColor;
-        config.OverlayBlurRadius = values.OverlayBlurRadius;
         config.StartupApps = values.StartupApps;
         config.GameModeLaunch.Kind = values.GameModeLaunch.Kind;
         config.GameModeLaunch.Return = values.GameModeLaunch.Return;
@@ -97,9 +88,7 @@ internal static class SettingsSaveMerge
         config.GameLibrary.DefaultMode = values.GameLibrary.DefaultMode;
         config.GameLibrary.ImportUnroutable = values.GameLibrary.ImportUnroutable;
         config.GameLibrary.ArtworkPreference = values.GameLibrary.ArtworkPreference;
-        config.DeviceIntegration.ControllerManagementEnabled = values.DeviceIntegration.ControllerManagementEnabled;
         config.DeviceIntegration.KeepGuideChordEdits = values.DeviceIntegration.KeepGuideChordEdits;
-        config.Performance.Enabled = values.Performance.Enabled;
         config.Performance.OsdCustomOrder = values.Performance.OsdCustomOrder;
         config.Performance.OsdCustomTime = values.Performance.OsdCustomTime;
         config.Performance.OsdCustomFps = values.Performance.OsdCustomFps;
@@ -108,10 +97,6 @@ internal static class SettingsSaveMerge
         config.Performance.OsdCustomGpu = values.Performance.OsdCustomGpu;
         config.Performance.OsdCustomVram = values.Performance.OsdCustomVram;
         config.Performance.OsdCustomBattery = values.Performance.OsdCustomBattery;
-        config.Gestures.BottomEdge = values.Gestures.BottomEdge;
-        config.Gestures.TopEdge = values.Gestures.TopEdge;
-        config.Gestures.LeftEdgeSteamMenu = values.Gestures.LeftEdgeSteamMenu;
-        config.Gestures.RightEdgeSteamQuickAccess = values.Gestures.RightEdgeSteamQuickAccess;
 
         foreach (var field in WsgmSharedSettings.All.Where(field => request.SharedEdits.Contains(field.Name)))
         {

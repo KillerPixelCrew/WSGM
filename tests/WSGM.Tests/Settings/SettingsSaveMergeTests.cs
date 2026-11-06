@@ -135,6 +135,8 @@ public sealed class SettingsSaveMergeTests
             {
                 bool boolean => !boolean,
                 string text => text + "-runtime",
+                int number => number + 1,
+                double number => number + 1,
                 _ => Enum.GetValues(current.GetType()).Cast<object>().First(item => !item.Equals(current))
             };
             field.Write(fresh, changed);
@@ -200,8 +202,8 @@ public sealed class SettingsSaveMergeTests
             "",
             "")
         {
-            // The window changed this one itself, so its value is written over the saved one.
-            SharedEdits = ["SteamStorageFormatEnabled"]
+            // The window changed these itself, so their values are written over the saved ones.
+            SharedEdits = ["SteamStorageFormatEnabled", "AccentColor"]
         };
 
         var (merged, _) = SettingsSaveMerge.Apply(fresh, request, values.Splash);

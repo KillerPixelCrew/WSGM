@@ -36,6 +36,7 @@ internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
     private const string ShimStateKey = "steamInput.shim";
     private const string SteamGridDbKeyKey = "artwork.steamGridDbKey";
     private const string BuildNoticeKey = "steamClient.buildNotice";
+    private const string AccentKey = "appearance.accent";
 
     /// <summary>The longest key Settings accepts, which this page accepts too.</summary>
     private const int MaximumKeyLength = 128;
@@ -92,7 +93,75 @@ internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
             WsgmSharedSettings.Get("SteamInputManagementEnabled"), SteamInput: true),
         new("artwork.screenscraper", "Search Screenscraper.fr",
             "A ROM database, so it answers for retro titles and rarely for PC ones.",
-            WsgmSharedSettings.Get("Artwork.ScreenscraperEnabled"))
+            WsgmSharedSettings.Get("Artwork.ScreenscraperEnabled")),
+        new("general.checkForUpdates", "Check for updates",
+            "Looks once a day. Nothing downloads until you choose Update in WSGM Settings.",
+            WsgmSharedSettings.Get("CheckForUpdates")),
+        new("general.muteScreenOff", "Mute screen-off downloads",
+            "Silence download audio while the screen is off. A mute you set yourself is left alone.",
+            WsgmSharedSettings.Get("MuteWhileDisplayOff")),
+        new("general.sleepAgain", "Sleep again after an unexplained wake",
+            "Puts the handheld back to sleep when it wakes with nobody using it.",
+            WsgmSharedSettings.Get("ResuspendUnexplainedWakes")),
+        new("device.integration", "Device Integration", "Off stops every hardware write. Other features keep working.",
+            WsgmSharedSettings.Get("DeviceIntegration.Enabled")),
+        new("device.controller", "Controller", "Take the built-in controller and present the target below.",
+            WsgmSharedSettings.Get("DeviceIntegration.ControllerManagementEnabled")),
+        new("device.autoTdp", "AutoTDP", "Offer automatic power limits in the Overlay and Quick Access.",
+            WsgmSharedSettings.Get("DeviceIntegration.AutoTdpEnabled")),
+        new("gestures.top", "Swipe from the top", "Opens quick access. Game Mode only.",
+            WsgmSharedSettings.Get("Gestures.TopEdge")),
+        new("gestures.bottom", "Swipe from the bottom", "Opens the Open apps strip. Game Mode only.",
+            WsgmSharedSettings.Get("Gestures.BottomEdge")),
+        new("gestures.left", "Swipe from the left", "Opens Steam's menu, also over a running game.",
+            WsgmSharedSettings.Get("Gestures.LeftEdgeSteamMenu")),
+        new("gestures.right", "Swipe from the right", "Opens Steam's Quick Access Menu, also over a running game.",
+            WsgmSharedSettings.Get("Gestures.RightEdgeSteamQuickAccess")),
+        new("performance.rtss", "RTSS controls", "What the frame limit rows in the Overlay and Quick Access offer.",
+            WsgmSharedSettings.Get("Performance.Enabled")),
+        new("startup.bootSplash", "Boot splash",
+            "Hides startup app windows until Big Picture is on screen. Its look is in WSGM Settings.",
+            WsgmSharedSettings.Get("BootSplashEnabled")),
+        new("diagnostics.autoTdpTrace", "AutoTDP trace", "A CSV of every AutoTDP decision, saved beside the log.",
+            WsgmSharedSettings.Get("AutoTdpTraceEnabled"))
+    ];
+
+    private static readonly SettingNumber[] Numbers =
+    [
+        new("quickAccess.blur", "Background blur", "0 leaves the game behind the sheet sharp.",
+            WsgmSharedSettings.Get("OverlayBlurRadius"), 0, 60, 1, " px"),
+        new("startup.firstDelay", "Before the first app", "Gives Windows time to settle after sign-in.",
+            WsgmSharedSettings.Get("StartupDelayMs"), 0, 30000, 250, " ms"),
+        new("startup.betweenDelay", "Between apps", "Wait after each app before the next one starts.",
+            WsgmSharedSettings.Get("StaggerDelayMs"), 0, 30000, 250, " ms")
+    ];
+
+    private static readonly SettingChoice[] ChoiceRows =
+    [
+        new("device.target", "Controller target", "How games and Steam see the controller.",
+            WsgmSharedSettings.Get("Profiles.Global.ControllerTarget"), typeof(ManagedControllerTarget),
+            nameof(ManagedControllerTarget.SteamDeckComposite),
+            [
+                new SteamSettingsChoice(nameof(ManagedControllerTarget.SteamDeckComposite), "Steam Deck Composite"),
+                new SteamSettingsChoice(nameof(ManagedControllerTarget.Xbox360), "Xbox 360"),
+                new SteamSettingsChoice(nameof(ManagedControllerTarget.DualShock4), "DualShock 4")
+            ]),
+        new("device.glyphs", "Button glyphs", "Labels Steam shows for the physical buttons.",
+            WsgmSharedSettings.Get("DeviceIntegration.GlyphSelection"), typeof(DeviceGlyphSelection),
+            nameof(DeviceGlyphSelection.Automatic),
+            [
+                new SteamSettingsChoice(nameof(DeviceGlyphSelection.Automatic), "Automatic exact profile"),
+                new SteamSettingsChoice(nameof(DeviceGlyphSelection.NativeSteam), "Steam native"),
+                new SteamSettingsChoice(nameof(DeviceGlyphSelection.ManualReviewedProfile), "Reviewed profile")
+            ]),
+        new("quickAccess.browserMemory", "Browser memory",
+            "Unload frees memory and opens a fresh page next time. Site sign-in stays saved.",
+            WsgmSharedSettings.Get("Browser.MemoryBehavior"), typeof(BrowserMemoryBehavior),
+            nameof(BrowserMemoryBehavior.UnloadWhenClosed),
+            [
+                new SteamSettingsChoice(nameof(BrowserMemoryBehavior.UnloadWhenClosed), "Unload when closed"),
+                new SteamSettingsChoice(nameof(BrowserMemoryBehavior.KeepAlive), "Keep alive")
+            ])
     ];
 
     private readonly Action<AppConfig> _applySteamInput;
@@ -200,6 +269,33 @@ internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
                 : Invalid();
         }
 
+        if (Numbers.FirstOrDefault(number => number.Key == key) is { } range)
+        {
+            return value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var number)
+                                                           && number >= range.Minimum && number <= range.Maximum
+                ? CommitAsync(config => range.Field.Write(config,
+                        range.Field.Read(config) is double ? number : (object)(int)Math.Round(number)), false, false,
+                    cancellationToken)
+                : Invalid();
+        }
+
+        if (ChoiceRows.FirstOrDefault(choice => choice.Key == key) is { } chosen)
+        {
+            return value.ValueKind == JsonValueKind.String
+                   && chosen.Choices.Any(choice => choice.Value == value.GetString())
+                   && Enum.TryParse(chosen.EnumType, value.GetString(), false, out var parsed)
+                ? CommitAsync(config => chosen.Field.Write(config, parsed), false, false, cancellationToken)
+                : Invalid();
+        }
+
+        if (key == AccentKey)
+        {
+            return value.ValueKind == JsonValueKind.String && IsHexColor(value.GetString())
+                ? CommitAsync(config => WsgmSharedSettings.Get("AccentColor").Write(config, value.GetString()!),
+                    false, false, cancellationToken)
+                : Invalid();
+        }
+
         if (key == BuildNoticeKey)
         {
             // The notice's one action: dismiss it for this build. A notice already dismissed elsewhere
@@ -299,9 +395,29 @@ internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
             revision = _revision;
         }
 
+        // The same sections as WSGM Settings, in the same order. A row here applies when it changes; an editor
+        // that needs the desktop window (startup apps, display layouts, the splash, the widget table) says so.
         return new WsgmSteamSettingsState(
         [
-            new SteamSettingsPage("steam", "Integration",
+            new SteamSettingsPage("general", "General",
+            [
+                new SteamSettingsSection("Start",
+                [
+                    Row("startup.atSignIn", config),
+                    new SteamSettingsRow(StartModeKey, SteamSettingsRowKind.Choice, "Start in",
+                        "Game mode switches to Big Picture. Desktop mode keeps Windows Explorer and waits in "
+                        + "the notification area. Takes effect at the next start.",
+                        Text: ((SessionStartMode)WsgmSharedSettings.Get("StartMode").Read(config)).ToString(),
+                        Choices:
+                        [
+                            new SteamSettingsChoice(nameof(SessionStartMode.Game), "Game mode"),
+                            new SteamSettingsChoice(nameof(SessionStartMode.Desktop), "Desktop mode")
+                        ])
+                ]),
+                new SteamSettingsSection("Updates", [Row("general.checkForUpdates", config)]),
+                new SteamSettingsSection("Power", [Row("general.muteScreenOff", config), Row("general.sleepAgain", config)])
+            ], PageGlyphs.General),
+            new SteamSettingsPage("steam", "Steam",
             [
                 .. BuildNoticeSection(),
                 new SteamSettingsSection(null, [Row("cef.enabled", config)]),
@@ -316,36 +432,15 @@ internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
                     Row("cef.wifiIndicator", config), Row("cef.nativeQuickAccess", config),
                     Row("cef.downloadKeepAwake", config), Row("cef.downloadQueueSort", config)
                 ]),
-                BuiltinGraphicsSection(config)
-            ], PageGlyphs.Integration),
-            new SteamSettingsPage("startup", "Startup",
-            [
-                new SteamSettingsSection(null,
+                new SteamSettingsSection("Steam Input",
                 [
-                    Row("startup.atSignIn", config),
-                    new SteamSettingsRow(StartModeKey, SteamSettingsRowKind.Choice, "Start in",
-                        "Game mode switches to Big Picture. Desktop mode keeps Windows Explorer and waits in "
-                        + "the notification area. Takes effect at the next start.",
-                        Text: ((SessionStartMode)WsgmSharedSettings.Get("StartMode").Read(config)).ToString(),
-                        Choices:
-                        [
-                            new SteamSettingsChoice(nameof(SessionStartMode.Game), "Game mode"),
-                            new SteamSettingsChoice(nameof(SessionStartMode.Desktop), "Desktop mode")
-                        ])
-                ])
-            ], PageGlyphs.Startup),
-            new SteamSettingsPage("steam-input", "Steam Input",
-            [
-                new SteamSettingsSection(null,
-                [
-                    Row("steamInput.lease", config),
                     Row("steamInput.management", config),
-                    new SteamSettingsRow(ShimStateKey, SteamSettingsRowKind.Note, "Status",
-                        Text: _shimStatus())
+                    new SteamSettingsRow(ShimStateKey, SteamSettingsRowKind.Note, "Status", Text: _shimStatus())
                 ])
-            ], PageGlyphs.SteamInput),
-            // The artwork providers the Game Library and the artwork page search. The key is here as
-            // well as in Settings because the page that needs it says so inside Steam.
+            ], PageGlyphs.Integration),
+            // Steam › Artwork in Settings. It has its own entry here because the Game Library's Fix match and
+            // the artwork page link straight to it (/wsgm/settings/artwork) when SteamGridDB has no key, and
+            // the renderer cannot land on a section inside a page.
             new SteamSettingsPage("artwork", "Artwork",
             [
                 new SteamSettingsSection(null,
@@ -358,7 +453,97 @@ internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
                     Row("artwork.screenscraper", config)
                 ])
             ], PageGlyphs.Artwork),
-            new SteamSettingsPage("plugins", "Plugins", PluginSections(config), PageGlyphs.Plugins)
+            new SteamSettingsPage("device", "Device",
+            [
+                new SteamSettingsSection("What WSGM manages",
+                    [Row("device.integration", config), Row("device.controller", config), Row("device.autoTdp", config)]),
+                new SteamSettingsSection("Controller", [Choice("device.target", config), Choice("device.glyphs", config)]),
+                new SteamSettingsSection("Profiles",
+                [
+                    Note("device.profilesNote", "Fan curves and colours",
+                        "Made in WSGM Settings under Device. Pick the active one in Quick Access.")
+                ])
+            ], PageGlyphs.Device),
+            new SteamSettingsPage("quick-access", "Quick access",
+            [
+                new SteamSettingsSection("Sheet",
+                [
+                    Number("quickAccess.blur", config), Row("steamInput.lease", config),
+                    Choice("quickAccess.browserMemory", config)
+                ]),
+                new SteamSettingsSection("Open with",
+                [
+                    Note("quickAccess.shortcutsNote", "Keyboard and controller shortcuts",
+                        "Recorded in WSGM Settings under Quick access, where the keys can be pressed.")
+                ]),
+                new SteamSettingsSection("Edge swipes",
+                [
+                    Row("gestures.top", config), Row("gestures.bottom", config), Row("gestures.left", config),
+                    Row("gestures.right", config)
+                ])
+            ], PageGlyphs.QuickAccess),
+            new SteamSettingsPage("performance", "Performance",
+            [
+                new SteamSettingsSection("Frame limit", [Row("performance.rtss", config)]),
+                new SteamSettingsSection("Performance overlay widgets",
+                [
+                    Note("performance.widgetsNote", "Widget order and detail",
+                        "Arranged in WSGM Settings under Performance.")
+                ]),
+                BuiltinGraphicsSection(config)
+            ], PageGlyphs.Performance),
+            new SteamSettingsPage("display", "Display",
+            [
+                new SteamSettingsSection(null,
+                [
+                    Note("display.layoutsNote", "Display layouts",
+                        "How your screens are set up in Game Mode and on the desktop is arranged in WSGM Settings "
+                        + "under Display. Custom resolutions are on the Display page of Steam's settings.")
+                ])
+            ], PageGlyphs.Display),
+            new SteamSettingsPage("startup", "Startup",
+            [
+                new SteamSettingsSection("Startup apps",
+                [
+                    Note("startup.appsNote", StartupAppsSummary(config),
+                        "Added, edited and ordered in WSGM Settings under Startup.")
+                ]),
+                new SteamSettingsSection("Timing",
+                    [Number("startup.firstDelay", config), Number("startup.betweenDelay", config)]),
+                new SteamSettingsSection("Boot splash", [Row("startup.bootSplash", config)])
+            ], PageGlyphs.Startup),
+            new SteamSettingsPage("appearance", "Appearance",
+            [
+                new SteamSettingsSection("Accent",
+                [
+                    new SteamSettingsRow(AccentKey, SteamSettingsRowKind.Color, "Accent colour",
+                        "The colour WSGM uses for focus and selection.", Text: config.AccentColor, ColorAlpha: false)
+                ]),
+                new SteamSettingsSection("Splash",
+                [
+                    Note("appearance.splashNote", "Splash", "Designed and previewed in WSGM Settings under Appearance.")
+                ])
+            ], PageGlyphs.Appearance),
+            new SteamSettingsPage("plugins", "Plugins", PluginSections(config), PageGlyphs.Plugins),
+            new SteamSettingsPage("diagnostics", "Diagnostics",
+            [
+                new SteamSettingsSection("Log",
+                [
+                    Row("diagnostics.autoTdpTrace", config),
+                    Note("diagnostics.logNote", "wsgm.log",
+                        "Upload it, or turn on verbose logging, in WSGM Settings under Diagnostics.")
+                ])
+            ], PageGlyphs.Diagnostics),
+            new SteamSettingsPage("about", "About",
+            [
+                new SteamSettingsSection(null,
+                [
+                    Note("about.version", "WSGM " + Credits.VersionText, Credits.Copyright + " · " + Credits.License),
+                    Note("about.project", "Source and problems", Credits.ProjectUrl),
+                    Note("about.thanks", "Thanks",
+                        string.Join(" · ", Credits.People.Select(static person => person.Name)))
+                ])
+            ], PageGlyphs.About)
         ], revision);
     }
 
@@ -375,6 +560,43 @@ internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
             new SteamSettingsRow(BuildNoticeKey, SteamSettingsRowKind.Action, "Steam build not checked yet", text,
                 ButtonLabel: "Dismiss")
         ]);
+    }
+
+    private static SteamSettingsRow Number(string key, AppConfig config)
+    {
+        var range = Numbers.First(candidate => candidate.Key == key);
+        return new SteamSettingsRow(key, SteamSettingsRowKind.Range, range.Label, range.Description,
+            Number: Convert.ToDouble(range.Field.Read(config), CultureInfo.InvariantCulture), Minimum: range.Minimum, Maximum: range.Maximum, Step: range.Step,
+            Suffix: range.Suffix);
+    }
+
+    private static SteamSettingsRow Choice(string key, AppConfig config)
+    {
+        var choice = ChoiceRows.First(candidate => candidate.Key == key);
+        return new SteamSettingsRow(key, SteamSettingsRowKind.Choice, choice.Label, choice.Description,
+            Text: choice.Field.Read(config)?.ToString() ?? choice.Default, Choices: choice.Choices);
+    }
+
+    private static SteamSettingsRow Note(string key, string label, string text)
+    {
+        return new SteamSettingsRow(key, SteamSettingsRowKind.Note, label, Text: text);
+    }
+
+    private static string StartupAppsSummary(AppConfig config)
+    {
+        var apps = config.StartupApps.Count(static app => app.Enabled && !string.IsNullOrWhiteSpace(app.Path));
+        return apps switch
+        {
+            0 => "No startup apps",
+            1 => "1 startup app",
+            _ => $"{apps} startup apps"
+        };
+    }
+
+    private static bool IsHexColor(string? value)
+    {
+        return value is { Length: 7 } && value[0] == '#'
+                                      && value.AsSpan(1).IndexOfAnyExcept("0123456789abcdefABCDEF") < 0;
     }
 
     private static SteamSettingsRow Row(string key, AppConfig config)
@@ -702,6 +924,27 @@ internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
         return Task.FromResult(new SteamUiCommandResult(false, "The setting value is invalid."));
     }
 
+    /// <summary>One whole-number WSGM setting the page shows as a slider.</summary>
+    private sealed record SettingNumber(
+        string Key,
+        string Label,
+        string Description,
+        WsgmSharedSetting Field,
+        double Minimum,
+        double Maximum,
+        double Step,
+        string Suffix);
+
+    /// <summary>One WSGM setting the page offers as a list of named choices.</summary>
+    private sealed record SettingChoice(
+        string Key,
+        string Label,
+        string Description,
+        WsgmSharedSetting Field,
+        Type EnumType,
+        string Default,
+        IReadOnlyList<SteamSettingsChoice> Choices);
+
     /// <summary>One boolean WSGM setting the page can change.</summary>
     /// <param name="Key">The row's key.</param>
     /// <param name="Label">Its label, worded as in WSGM Settings.</param>
@@ -733,24 +976,49 @@ internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
     /// <summary>The sidebar's icons, in the toolkit's glyph convention: one solid shape on 24x24.</summary>
     private static class PageGlyphs
     {
+        /// <summary>The power symbol, for how WSGM starts and looks after the device.</summary>
+        internal const string General =
+            "M11 2h2v10h-2ZM6.3 5.3l1.4 1.4A7 7 0 1 0 16.3 6.7l1.4-1.4A9 9 0 1 1 6.3 5.3Z";
+
         /// <summary>A plug, for what WSGM plugs into Steam.</summary>
         internal const string Integration =
             "M8 2h2v5H8ZM14 2h2v5h-2ZM5 7h14v4a7 7 0 0 1-6 6.9V22h-2v-4.1A7 7 0 0 1 5 11Z";
-
-        /// <summary>The power symbol, for how WSGM starts.</summary>
-        internal const string Startup =
-            "M11 2h2v10h-2ZM6.3 5.3l1.4 1.4A7 7 0 1 0 16.3 6.7l1.4-1.4A9 9 0 1 1 6.3 5.3Z";
-
-        /// <summary>A controller, with its d-pad and a button cut out.</summary>
-        internal const string SteamInput =
-            "M7 7h10a5 5 0 0 1 4.8 6.4l-1.3 4.4A2.5 2.5 0 0 1 16.3 19L14 16h-4l-2.3 3a2.5 2.5 0 0 1-4.2-1.2"
-            + "l-1.3-4.4A5 5 0 0 1 7 7ZM7 10v1.5H5.5V13H7v1.5h1.5V13H10v-1.5H8.5V10ZM16 10.5a1 1 0 1 0 0 2a1 1 0 1 0 0-2Z";
 
         /// <summary>A framed picture, a mountain under a sun, for the artwork providers.</summary>
         internal const string Artwork =
             "M3 4h18v16H3ZM5 6v9.6l4-4.6 3.5 4 2.5-2.8 4 4.4V6ZM16 8a1.5 1.5 0 1 0 0 3a1.5 1.5 0 1 0 0-3Z";
 
+        /// <summary>A controller, with its d-pad and a button cut out.</summary>
+        internal const string Device =
+            "M7 7h10a5 5 0 0 1 4.8 6.4l-1.3 4.4A2.5 2.5 0 0 1 16.3 19L14 16h-4l-2.3 3a2.5 2.5 0 0 1-4.2-1.2"
+            + "l-1.3-4.4A5 5 0 0 1 7 7ZM7 10v1.5H5.5V13H7v1.5h1.5V13H10v-1.5H8.5V10ZM16 10.5a1 1 0 1 0 0 2a1 1 0 1 0 0-2Z";
+
+        /// <summary>A screen with a sheet over its right side, for the Overlay.</summary>
+        internal const string QuickAccess = "M3 4h18v16H3ZM5 6v12h8V6ZM15 8h4v2h-4ZM15 12h4v2h-4Z";
+
+        /// <summary>A gauge, for frame limits and drivers.</summary>
+        internal const string Performance = "M12 4a9 9 0 0 0-9 9h2a7 7 0 0 1 14 0h2a9 9 0 0 0-9-9ZM11 13l5-5 1.4 1.4-5 5Z";
+
+        /// <summary>A monitor on its stand.</summary>
+        internal const string Display = "M2 4h20v13H2ZM4 6v9h16V6ZM8 19h8v2H8Z";
+
+        /// <summary>A list with a play mark, for apps that start in order.</summary>
+        internal const string Startup = "M4 5h11v2H4ZM4 11h11v2H4ZM4 17h7v2H4ZM17 13l5 4-5 4Z";
+
+        /// <summary>A painter's palette, for the accent and the splash.</summary>
+        internal const string Appearance =
+            "M12 3a9 9 0 1 0 0 18c1 0 1.5-.8 1.5-1.5S13 18 13 17s.8-1.5 1.8-1.5H17a4 4 0 0 0 4-4C21 6.6 17 3 12 3Z"
+            + "M7 11a1.5 1.5 0 1 1 0 3a1.5 1.5 0 0 1 0-3ZM10 7a1.5 1.5 0 1 1 0 3a1.5 1.5 0 0 1 0-3Z"
+            + "M15 7a1.5 1.5 0 1 1 0 3a1.5 1.5 0 0 1 0-3Z";
+
         /// <summary>Four blocks, for the plugins that extend WSGM.</summary>
         internal const string Plugins = "M4 4h7v7H4ZM13 4h7v7h-7ZM4 13h7v7H4ZM13 13h7v7h-7Z";
+
+        /// <summary>A page of lines, for the log.</summary>
+        internal const string Diagnostics = "M5 2h10l4 4v16H5ZM7 4v16h10V7h-3V4ZM9 10h6v2H9ZM9 14h6v2H9Z";
+
+        /// <summary>An i in a circle.</summary>
+        internal const string About =
+            "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20ZM12 4a8 8 0 1 1 0 16a8 8 0 1 1 0-16ZM11 10h2v7h-2ZM11 7h2v2h-2Z";
     }
 }

@@ -967,6 +967,10 @@ Everything is Steam's own UI, found by fingerprints checked against the live cli
   confirm modal.
 - WSGM's mark and the sidebar icons are single-colour glyphs drawn the way Valve draws its own.
 
+- The pages are WSGM Settings' sections in the same order, and their rows apply when they change. An
+  editor that needs the desktop window (startup apps, display layouts, the splash, the overlay
+  widget table, shortcut recording, the log upload) is a note saying where it is. Artwork, nested
+  under Steam in Settings, has its own entry after Steam because links land on it.
 - The Artwork page holds the SteamGridDB key, a password field that only says whether a key is set,
   and the Screenscraper switch. The Game Library's "Fix match" and the artwork page's game search
   link to it (`/wsgm/settings/artwork`) when SteamGridDB has no key. Both fields are shared with
