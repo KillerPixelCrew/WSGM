@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Interactivity;
 
 namespace WSGM.Settings.Pages;
 
@@ -9,5 +10,12 @@ public partial class PluginsPage : UserControl
     public PluginsPage()
     {
         InitializeComponent();
+    }
+
+    /// <summary>Shows or hides the plugins that do not apply to this device.</summary>
+    private void OnShowUnavailable(object? sender, RoutedEventArgs e)
+    {
+        UnavailableList.IsVisible = !UnavailableList.IsVisible;
+        ShowUnavailable.Content = UnavailableList.IsVisible ? "Hide" : "Show";
     }
 }

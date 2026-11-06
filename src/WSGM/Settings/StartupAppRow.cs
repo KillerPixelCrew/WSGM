@@ -9,15 +9,102 @@ public sealed class StartupAppRow : ObservableObject
     public string Path
     {
         get;
-        set => SetField(ref field, value, nameof(Path));
+        set
+        {
+            if (SetFieldIfChanged(ref field, value, nameof(Path)))
+            {
+                Raise(nameof(Name));
+                Raise(nameof(Detail));
+            }
+        }
     } = "";
 
     /// <summary>Gets or sets the command-line arguments passed to the program.</summary>
     public string Args
     {
         get;
-        set => SetField(ref field, value, nameof(Args));
+        set
+        {
+            if (SetFieldIfChanged(ref field, value, nameof(Args)))
+            {
+                Raise(nameof(Detail));
+            }
+        }
     } = "";
+
+    /// <summary>The name the user gave the app, or empty for its file name.</summary>
+    public string Label
+    {
+        get;
+        set
+        {
+            if (SetFieldIfChanged(ref field, value, nameof(Label)))
+            {
+                Raise(nameof(Name));
+            }
+        }
+    } = "";
+
+    /// <summary>What the card calls the app: its label, or its program's file name without the extension.</summary>
+    public string Name
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(Label))
+            {
+                return Label.Trim();
+            }
+
+            var path = Path.Trim().Trim('"');
+            var name = System.IO.Path.GetFileNameWithoutExtension(path);
+            return name.Length > 0 ? name : path.Length > 0 ? path : "New app";
+        }
+    }
+
+    /// <summary>The program and its arguments, or why it will be skipped.</summary>
+    public string Detail => Missing ? $"File not found: {Path}"
+        : Args.Length == 0 ? Path : $"{Path}  ·  {Args}";
+
+    /// <summary>Whether the program's file is missing, so startup skips it.</summary>
+    public bool Missing
+    {
+        get;
+        internal set
+        {
+            if (SetFieldIfChanged(ref field, value, nameof(Missing)))
+            {
+                Raise(nameof(Detail));
+            }
+        }
+    }
+
+    /// <summary>The program's place in the startup order, from 1.</summary>
+    public int Number
+    {
+        get;
+        internal set => SetField(ref field, value, nameof(Number));
+    }
+
+    /// <summary>Whether the card shows its actions: edit, move and remove.</summary>
+    public bool ShowActions
+    {
+        get;
+        set
+        {
+            SetField(ref field, value, nameof(ShowActions));
+            if (!value)
+            {
+                ConfirmRemove = false;
+            }
+        }
+    }
+
+    /// <summary>Whether Remove waits for its confirmation.</summary>
+    public bool ConfirmRemove
+    {
+        get;
+        set => SetField(ref field, value, nameof(ConfirmRemove));
+    }
 
     /// <summary>Gets or sets whether this program participates in startup.</summary>
     public bool Enabled

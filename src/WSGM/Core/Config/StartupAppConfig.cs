@@ -3,6 +3,9 @@ namespace WSGM.Core;
 /// <summary>Describes one optional program started as part of a shell session.</summary>
 public sealed class StartupAppConfig
 {
+    /// <summary>What Settings calls the app; empty uses the program's file name.</summary>
+    public string Name { get; set; } = "";
+
     /// <summary>Executable path or protocol URL to launch.</summary>
     public string Path { get; set; } = "";
 

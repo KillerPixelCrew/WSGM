@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
@@ -48,7 +50,9 @@ public partial class SettingsWindow : Window
     // this window's release must end only its own claim, never the block a
     // surface still on screen needs; see docs\steam-input.md.
     private readonly string _leaseOwner = SteamInputBlocker.NewOwner("settings-window");
+    private readonly SettingsRowMarks _rowMarks = new();
     private readonly SettingsSection[] _sections;
+    private bool _changeRefreshQueued;
     private readonly Button[] _railButtons;
     private readonly SettingsWindowServices _services;
     private readonly SettingsViewModel _viewModel;
@@ -124,7 +128,16 @@ public partial class SettingsWindow : Window
                 PageDiagnostics),
             new SettingsSection("About", string.Empty, PageAbout),
             new SettingsSection("Fan curves and colours",
-                "Make profiles here. Pick the active one in the Overlay or Steam.", PageDeviceProfiles, DeviceSection)
+                "Make profiles here. Pick the active one in the Overlay or Steam.", PageDeviceProfiles, DeviceSection),
+            new SettingsSection("Library", "What WSGM adds to Steam's library.", PageSteamLibrary, SteamSection),
+            new SettingsSection("Client", "What WSGM changes in the Big Picture client.", PageSteamClient, SteamSection),
+            new SettingsSection("Steam Input", "Whether WSGM may take the controller from Steam.", PageSteamInput,
+                SteamSection),
+            new SettingsSection("Artwork", "Where WSGM looks for artwork, and the order of its tabs.", PageSteamArtwork,
+                SteamSection),
+            new SettingsSection("Edit app", "What this app runs at sign-in, and how.", PageStartupApp, StartupSection),
+            new SettingsSection("Add app", "Pick a companion app found on this PC, or choose any program.",
+                PageStartupAdd, StartupSection)
         ];
         _railButtons =
         [
@@ -141,7 +154,12 @@ public partial class SettingsWindow : Window
         ];
         SectionRail.Children.AddRange(_railButtons);
         ShowSection(0);
-        PageDevice.OpenProfilesRequested += () => SelectSection(ProfilesSection);
+        PageSteam.RefreshSummaries(_viewModel);
+        // A row whose button carries "open:<title>" opens that nested page of the section it is on.
+        AddHandler(Button.ClickEvent, OnOpenNested, RoutingStrategies.Bubble);
+        // Y moves a performance overlay widget while one has focus, and searches everywhere else.
+        // X shows a startup app's actions while its card has focus.
+        AddHandler(GotFocusEvent, (_, e) => UpdateHints(e.Source as IInputElement), RoutingStrategies.Bubble);
         SearchBox.TextChanged += (_, _) => UpdateSearch();
         SearchBox.KeyDown += OnSearchKeyDown;
         SearchBox.LostFocus += (_, _) => Dispatcher.UIThread.Post(CloseSearchWhenFocusLeft);
@@ -174,10 +192,20 @@ public partial class SettingsWindow : Window
         // suppression window whether or not anything acted on the key — so an Escape
         // arriving here swallowed the next controller B press instead of going back.
         KeyDown += OnWindowKeyDown;
+        // Editors that change a row's own state without a view-model property, such as a plugin row's switch.
+        AddHandler(ToggleButton.IsCheckedChangedEvent, (_, _) => QueueChangeRefresh(), RoutingStrategies.Bubble, true);
+        AddHandler(SelectingItemsControl.SelectionChangedEvent, (_, _) => QueueChangeRefresh(), RoutingStrategies.Bubble,
+            true);
+        AddHandler(TextBox.TextChangedEvent, (_, _) => QueueChangeRefresh(), RoutingStrategies.Bubble, true);
+        AddHandler(RangeBase.ValueChangedEvent, (_, _) => QueueChangeRefresh(), RoutingStrategies.Bubble, true);
+        AddHandler(Button.ClickEvent, (_, _) => QueueChangeRefresh(), RoutingStrategies.Bubble, true);
         Closing += OnClosing;
         Opened += (_, _) =>
         {
             _opened = true;
+            // Before the window's own reads start: what they then change, such as a display they rebind,
+            // is something Save would write and counts like any other change.
+            _viewModel.RecordSavedState();
             _navigation = CreateWindowNavigation();
             _services.StartInput();
             UpdateLeaseDesired();
@@ -198,6 +226,8 @@ public partial class SettingsWindow : Window
             Log.Observe(_viewModel.StartDisplayDiscoveryAsync(), "Settings display discovery");
             _viewModel.StartAudioDiscovery();
             Log.Observe(_services.RefreshDeviceOwner(), "Settings device owner read");
+            // Once the first layout has bound every editor, the rows remember what they show.
+            Dispatcher.UIThread.Post(RecordRowState, DispatcherPriority.Loaded);
         };
         Closed += (_, _) =>
         {
@@ -251,11 +281,99 @@ public partial class SettingsWindow : Window
         };
     }
 
+    private void RecordRowState()
+    {
+        if (!_closed)
+        {
+            _rowMarks.Record(MarkedPages());
+        }
+    }
+
+    /// <summary>Counts the unsaved changes again once the current input has been handled, at most once per pass.</summary>
+    private void QueueChangeRefresh()
+    {
+        if (_changeRefreshQueued || _closed)
+        {
+            return;
+        }
+
+        _changeRefreshQueued = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _changeRefreshQueued = false;
+            if (_closed)
+            {
+                return;
+            }
+
+            _viewModel.RefreshUnsavedChanges();
+            _rowMarks.Mark(MarkedPages(), _viewModel.HasUnsavedChanges);
+            PageSteam.RefreshSummaries(_viewModel);
+        }, DispatcherPriority.Background);
+    }
+
+    /// <summary>The rail entry of the Steam section, which its library, client, Steam Input and artwork pages nest under.</summary>
+    private const int SteamSection = 1;
+
     /// <summary>The rail entry of the Device section, which the profile editor nests under.</summary>
     private const int DeviceSection = 2;
 
-    /// <summary>The profile editor's entry in the section table.</summary>
-    private const int ProfilesSection = 11;
+    /// <summary>The rail entry of the Startup section, which the app editor and Add app nest under.</summary>
+    internal const int StartupSection = 6;
+
+    /// <summary>
+    ///     The pages whose rows show pending marks. The app editor shows whichever app is open, so its rows are not
+    ///     compared; that app's card on the Startup page carries the mark instead.
+    /// </summary>
+    private IEnumerable<Control> MarkedPages()
+    {
+        return _sections.Select(static section => section.Page).Where(page => page != PageStartupApp);
+    }
+
+    /// <summary>The button that opened the nested page on screen, which Back returns focus to.</summary>
+    private Action? _returnFocus;
+
+    /// <summary>Names what X and Y do where the focus is.</summary>
+    /// <param name="focused">The focused element.</param>
+    private void UpdateHints(IInputElement? focused)
+    {
+        TertiaryHint.Text = Pages.PerformancePage.IsWidgetRow(focused) ? "Move" : "Search";
+        SecondaryHint.IsVisible = Pages.StartupPage.IsAppCard(focused);
+    }
+
+    /// <summary>Opens a nested page of a section; Back returns to the section and calls <paramref name="returnFocus" />.</summary>
+    /// <param name="parent">The section's rail entry.</param>
+    /// <param name="title">The nested page's title.</param>
+    /// <param name="returnFocus">Puts focus back where the user came from.</param>
+    internal void OpenNested(int parent, string title, Action returnFocus)
+    {
+        var index = Array.FindIndex(_sections, section => section.Parent == parent && section.Title == title);
+        if (index >= 0)
+        {
+            _returnFocus = returnFocus;
+            SelectSection(index);
+        }
+    }
+
+    private void OnOpenNested(object? sender, RoutedEventArgs e)
+    {
+        if (e.Source is not Button { Tag: string tag } button || !tag.StartsWith("open:", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var title = tag["open:".Length..];
+        var parent = _sections[_section].Parent ?? _section;
+        var index = Array.FindIndex(_sections, section => section.Parent == parent && section.Title == title);
+        if (index < 0)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        _returnFocus = () => button.Focus(NavigationMethod.Directional);
+        SelectSection(index);
+    }
 
     /// <summary>
     ///     One selection path for touch, mouse, keyboard, search and the LB/RB shoulder buttons: shows the
@@ -289,6 +407,7 @@ public partial class SettingsWindow : Window
             : section.Title;
         SectionCaption.Text = section.Caption;
         SectionCaption.IsVisible = section.Caption.Length > 0;
+        UpdateHints(FocusManager?.GetFocusedElement());
     }
 
     /// <summary>Steps through the rail, from a nested level as from the section it belongs to; wraps at both ends.</summary>
@@ -304,8 +423,10 @@ public partial class SettingsWindow : Window
     {
         var query = SearchBox.Text ?? string.Empty;
         var found = SettingsSearch.Find(
-            _sections.SelectMany((section, index) =>
-                SettingsSearch.Collect(index, section.Parent is { } parent
+            // The app editor shows whichever app is open, so its rows are reached through the app's card instead.
+            _sections.SelectMany((section, index) => section.Page == PageStartupApp
+                ? []
+                : SettingsSearch.Collect(index, section.Parent is { } parent
                     ? $"{_sections[parent].Title} › {section.Title}"
                     : section.Title, section.Page)),
             query);
@@ -456,9 +577,22 @@ public partial class SettingsWindow : Window
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName is not (nameof(SettingsViewModel.UnsavedChangeCount)
+            or nameof(SettingsViewModel.HasUnsavedChanges) or nameof(SettingsViewModel.UnsavedChangesText)
+            or nameof(SettingsViewModel.StatusText)))
+        {
+            QueueChangeRefresh();
+        }
+
         if (e.PropertyName != nameof(SettingsViewModel.IsSaving))
         {
             return;
+        }
+
+        if (!_viewModel.IsSaving)
+        {
+            // A save just finished: the rows show what is saved now, apart from edits made while it ran.
+            _rowMarks.Record(MarkedPages());
         }
 
         UpdateSettingsEnabled();
@@ -499,7 +633,15 @@ public partial class SettingsWindow : Window
             IsNintendoLayout,
             tabPrevious: () => StepSection(-1),
             tabNext: () => StepSection(1),
-            tertiary: _ => OpenSearchKeyboard(),
+            tertiary: focused =>
+            {
+                if (!PagePerformance.ToggleMove(focused))
+                {
+                    OpenSearchKeyboard();
+                }
+            },
+            navigate: PagePerformance.MovePicked,
+            secondary: focused => PageStartup.ToggleActions(focused),
             focusScope: () => SearchResults.IsVisible ? SearchResults : null);
     }
 
@@ -518,10 +660,16 @@ public partial class SettingsWindow : Window
             return;
         }
 
+        if (PagePerformance.EndMove() || PageStartup.CloseActions())
+        {
+            return;
+        }
+
         if (_sections[_section].Parent is { } parent)
         {
             ShowSection(parent);
-            PageDevice.FocusOpenProfiles();
+            _returnFocus?.Invoke();
+            _returnFocus = null;
             return;
         }
 

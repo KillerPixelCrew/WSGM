@@ -1,6 +1,4 @@
-using System;
 using Avalonia.Controls;
-using Avalonia.Input;
 using Avalonia.Interactivity;
 using WSGM.Core;
 
@@ -15,19 +13,6 @@ public partial class DeviceOwnershipPage : UserControl
         InitializeComponent();
     }
 
-    /// <summary>Returns focus to the row that opened the profile editor.</summary>
-    internal void FocusOpenProfiles()
-    {
-        OpenProfiles.Focus(NavigationMethod.Directional);
-    }
-
-    /// <summary>Raised when the profile editor is asked for; the window owns its navigation.</summary>
-    internal event Action? OpenProfilesRequested;
-
-    private void OnOpenProfiles(object? sender, RoutedEventArgs e)
-    {
-        OpenProfilesRequested?.Invoke();
-    }
 
     private void OnRefreshStatus(object? sender, RoutedEventArgs e)
     {

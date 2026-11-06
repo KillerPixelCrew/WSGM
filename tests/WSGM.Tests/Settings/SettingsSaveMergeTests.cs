@@ -45,11 +45,6 @@ public sealed class SettingsSaveMergeTests
             .Where(match => match.Success).Select(match => match.Groups["path"].Value).Distinct().ToArray();
         foreach (var path in paths)
         {
-            if (path == "SelectedSuggestionIndex")
-            {
-                continue; // Choosing an add-program suggestion is window state, not saved policy.
-            }
-
             object owner = window;
             PropertyInfo? property = null;
             var parts = path.Split('.');
@@ -80,7 +75,7 @@ public sealed class SettingsSaveMergeTests
                 double number => number + 1,
                 decimal number => number + 1,
                 string => path.Contains("Color", StringComparison.Ordinal) ? "#123456"
-                    : path == "OsdCustomOrder" ? "FPS,Time" : "edited-" + path,
+                    : "edited-" + path,
                 Enum enumeration => Enum.GetValues(enumeration.GetType()).Cast<object>()
                     .First(item => !item.Equals(current)),
                 _ => null // Selected rows and collection editors are covered by their feature tests.

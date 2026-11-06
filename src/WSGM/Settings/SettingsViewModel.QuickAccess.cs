@@ -31,6 +31,13 @@ public sealed partial class SettingsViewModel
     /// <summary>Gets the current keyboard shortcut or the key-recording prompt.</summary>
     public string HotkeyText => _hotkeyRecording ? "Press keys…" : KeyRecorder.Describe(_hotkey);
 
+    /// <summary>Gets the keyboard shortcut as keycaps, or none while recording or unset.</summary>
+    public IReadOnlyList<string> HotkeyKeys => Keycaps(_hotkeyRecording, HotkeyText);
+
+    /// <summary>Gets the controller chord as keycaps, or none while recording or unset.</summary>
+    public IReadOnlyList<string> ChordKeys =>
+        Keycaps(_chordRecording || !_chord.Enabled || _chord.Buttons == 0, ChordText);
+
     /// <summary>Gets the current controller chord or the button-recording prompt.</summary>
     public string ChordText => _chordRecording
         ? "Press buttons…"
@@ -113,6 +120,7 @@ public sealed partial class SettingsViewModel
     {
         _hotkeyRecording = recording;
         Raise(nameof(HotkeyText));
+        Raise(nameof(HotkeyKeys));
     }
 
     /// <summary>Starts or stops controller-chord recording.</summary>
@@ -121,6 +129,7 @@ public sealed partial class SettingsViewModel
     {
         _chordRecording = recording;
         Raise(nameof(ChordText));
+        Raise(nameof(ChordKeys));
     }
 
     /// <summary>Stores a recorded keyboard shortcut, already in configuration shape.</summary>
@@ -159,5 +168,13 @@ public sealed partial class SettingsViewModel
     public void ClearChord()
     {
         ApplyRecordedChord(0, false);
+    }
+
+    // "Ctrl + Alt + Home" becomes three keycaps. A prompt or "None" stays text, so no keycap reads as a key.
+    private static IReadOnlyList<string> Keycaps(bool text, string description)
+    {
+        return text || description is "None" or "Not set"
+            ? []
+            : [.. description.Split(" + ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
     }
 }

@@ -44,7 +44,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         ScaledResolutions = new ScaledResolutionEditor(services.ScaledResolutions);
         InstalledPackages.CollectionChanged += (_, _) => Raise(nameof(HasInstalledPackages));
         AvailablePackages.CollectionChanged += (_, _) => Raise(nameof(HasAvailablePackages));
-        UnavailablePackages.CollectionChanged += (_, _) => Raise(nameof(HasUnavailablePackages));
+        UnavailablePackages.CollectionChanged += (_, _) =>
+        {
+            Raise(nameof(HasUnavailablePackages));
+            Raise(nameof(UnavailablePackagesSummary));
+        };
         SaveCommand = new AsyncRelayCommand(SaveWithStatusAsync);
         OpenLogLocationCommand = new RelayCommand(OpenLogLocation);
         TakeOverSteamAutostartCommand = new AsyncRelayCommand(TakeOverSteamAutostartAsync);
@@ -76,6 +80,7 @@ public sealed partial class SettingsViewModel : ObservableObject
                 StartupApps.Remove(row);
             }
         });
+        StartupApps.CollectionChanged += OnStartupAppsChanged;
         MoveUpCommand = new RelayCommand<StartupAppRow>(row => MoveStartupApp(row, -1));
         MoveDownCommand = new RelayCommand<StartupAppRow>(row => MoveStartupApp(row, +1));
         MoveArtworkTabUpCommand = new RelayCommand<ArtworkTabRow>(row => MoveArtworkTab(row, -1));
@@ -111,6 +116,9 @@ public sealed partial class SettingsViewModel : ObservableObject
                 : $"WSGM starts Steam. {_config.SteamAutostartDisabled.Count} Windows startup entry/entries are turned off and are restored when WSGM is uninstalled.";
         OtherManagersTakeoverAccepted = _config.OtherManagersTakeoverAccepted;
         OtherManagersStatusText = DescribeOtherManagers(_config);
+        // Until a check says otherwise, a start WSGM was never allowed to own still needs attention.
+        SteamAutostartNeedsAttention = !_config.SteamAutostartTakeoverAccepted;
+        OtherManagersNeedAttention = !_config.OtherManagersTakeoverAccepted;
         SteamInputLeaseEnabled = _config.SteamInputLeaseEnabled;
         BrowserMemoryBehaviorIndex = (int)_config.Browser.MemoryBehavior;
         SteamInputManagementEnabled = _config.SteamInputManagementEnabled;
@@ -131,14 +139,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         DeviceAutoTdpEnabled = _config.DeviceIntegration.AutoTdpEnabled;
         DeviceGlyphSelectionIndex = (int)_config.DeviceIntegration.GlyphSelection;
         PerformanceEnabled = _config.Performance.Enabled;
-        OsdCustomOrder = _config.Performance.OsdCustomOrder;
-        OsdCustomTimeIndex = Math.Clamp(_config.Performance.OsdCustomTime, 0, 2);
-        OsdCustomFpsIndex = Math.Clamp(_config.Performance.OsdCustomFps, 0, 2);
-        OsdCustomCpuIndex = Math.Clamp(_config.Performance.OsdCustomCpu, 0, 2);
-        OsdCustomRamIndex = Math.Clamp(_config.Performance.OsdCustomRam, 0, 2);
-        OsdCustomGpuIndex = Math.Clamp(_config.Performance.OsdCustomGpu, 0, 2);
-        OsdCustomVramIndex = Math.Clamp(_config.Performance.OsdCustomVram, 0, 2);
-        OsdCustomBatteryIndex = Math.Clamp(_config.Performance.OsdCustomBattery, 0, 2);
+        LoadOsdWidgets(_config.Performance);
         CefEnabled = _config.Cef.Enabled;
         CefLibraryTabs = _config.Cef.LibraryTabs;
         CefCardManager = _config.Cef.CardManager;
@@ -176,6 +177,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             StartupApps.Add(new StartupAppRow
             {
+                Label = app.Name,
                 Path = app.Path,
                 Args = app.Args,
                 Enabled = app.Enabled,
@@ -318,6 +320,9 @@ public sealed partial class SettingsViewModel : ObservableObject
         /// <summary>Reads current display driver descriptors from existing enabled session owners only.</summary>
         internal Func<IReadOnlyList<DisplayGpuCapability>> ReadDisplayGpu { get; init; } = () => [];
 
+        /// <summary>Whether a startup program's file is there; startup skips one that is not.</summary>
+        internal Func<string, bool> ProgramExists { get; init; } = static _ => true;
+
         internal ScaledResolutionService? ScaledResolutions { get; init; }
 
         /// <summary>Lists the log files an upload sends, on a worker; none unless the composer supplies them.</summary>
@@ -400,6 +405,12 @@ public sealed partial class SettingsViewModel : ObservableObject
             {
                 // The files the process's own logger writes, so a standalone Settings finds the same log.
                 ListLogs = () => Log.Files is { } files ? LogUploader.Find(files.Live, files.Archive) : [],
+                ProgramExists = static path =>
+                {
+                    // A protocol or a bare command is left to Windows; only a file path can be missing.
+                    var file = Environment.ExpandEnvironmentVariables(path.Trim().Trim('"'));
+                    return !Path.IsPathFullyQualified(file) || File.Exists(file);
+                },
                 UploadLogs = (files, progress, cancellationToken) => Task.Run(async () =>
                 {
                     using DownloadClient http = new(null);

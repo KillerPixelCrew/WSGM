@@ -177,6 +177,10 @@ public static class Icons
         StreamGeometry.Parse(
             "M 3,5 L 21,5 L 21,19 L 3,19 Z M 15,5 L 15,19 M 17,8.5 L 19,8.5 M 17,11.5 L 19,11.5");
 
+    /// <summary>Box with an arrow leaving its corner: the row opens a web page.</summary>
+    public static StreamGeometry ExternalLink { get; } =
+        StreamGeometry.Parse("M 14,4 L 20,4 L 20,10 M 20,4 L 11,13 M 17,14 L 17,20 L 4,20 L 4,7 L 10,7");
+
     /// <summary>Push pin marking a row that is present on the Quick access root.</summary>
     public static StreamGeometry Pin { get; } =
         StreamGeometry.Parse(

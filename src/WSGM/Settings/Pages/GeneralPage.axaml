@@ -6,136 +6,145 @@
   <!-- How WSGM starts, updates and looks after Steam and this device. Element order is the controller order. -->
   <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <StackPanel Classes="settings-page">
-        <Border Classes="section-header">
-          <TextBlock Text="Start" />
-        </Border>
-        <Border Classes="setting-row">
-          <StackPanel Spacing="1">
-            <TextBlock Text="Windows shell" Classes="setting-title" />
-            <TextBlock Text="{Binding ShellStatusText}" Classes="caption" TextWrapping="Wrap" />
+      <Border Classes="section-header">
+        <TextBlock Text="Start" />
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Start WSGM at sign-in" Classes="setting-title" />
+            <TextBlock Text="The WSGM service starts WSGM after Windows signs you in." Classes="caption"
+                       TextWrapping="Wrap" />
           </StackPanel>
-        </Border>
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="Start WSGM at sign-in" Classes="setting-title" />
-              <TextBlock
-                Text="The WSGM service starts WSGM after Windows signs you in."
-                Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
-            <ToggleSwitch Grid.Column="1" IsChecked="{Binding StartAtSignIn}" VerticalAlignment="Center" />
-          </Grid>
-        </Border>
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="Start in" Classes="setting-title" />
-              <TextBlock Text="Game mode opens Big Picture. Desktop mode waits in the tray. Applies at the next start."
-                         Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
-            <ComboBox Grid.Column="1" SelectedIndex="{Binding StartModeIndex}" MinWidth="180" VerticalAlignment="Center">
-              <ComboBoxItem Content="Desktop mode" />
-              <ComboBoxItem Content="Game mode" />
-            </ComboBox>
-          </Grid>
-        </Border>
+          <ToggleSwitch Grid.Column="1" IsChecked="{Binding StartAtSignIn}" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Start in" Classes="setting-title" />
+            <TextBlock Text="Game mode opens Big Picture. Desktop mode waits in the tray." Classes="caption"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+          <Border Grid.Column="1" Classes="settings-chip" VerticalAlignment="Center">
+            <TextBlock Text="Applies at next start" />
+          </Border>
+          <ComboBox Grid.Column="2" SelectedIndex="{Binding StartModeIndex}" MinWidth="170" VerticalAlignment="Center">
+            <ComboBoxItem Content="Desktop mode" />
+            <ComboBoxItem Content="Game mode" />
+          </ComboBox>
+        </Grid>
+      </Border>
+      <Border Classes="setting-row">
+        <StackPanel Spacing="1">
+          <TextBlock Text="Windows shell" Classes="setting-title" />
+          <TextBlock Text="{Binding ShellStatusText}" Classes="caption" TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
 
-        <Border Classes="section-header">
+      <Border Classes="section-header">
+        <StackPanel Orientation="Horizontal" Spacing="10">
           <TextBlock Text="Ownership" />
-        </Border>
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="WSGM starts Steam" Classes="setting-title" />
-              <TextBlock Text="{Binding SteamAutostartStatusText}" Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
-            <Button Grid.Column="1" Content="Take over again" Command="{Binding TakeOverSteamAutostartCommand}"
-                    VerticalAlignment="Center" />
-          </Grid>
-        </Border>
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="WSGM is the only device manager" Classes="setting-title" />
-              <TextBlock Text="{Binding OtherManagersStatusText}" Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
-            <Button Grid.Column="1" Content="Take over again" Command="{Binding TakeOverOtherManagersCommand}"
-                    VerticalAlignment="Center" />
-          </Grid>
-        </Border>
+          <TextBlock Text="WSGM keeps these on purpose" Classes="caption" VerticalAlignment="Bottom" />
+        </StackPanel>
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="WSGM starts Steam" Classes="setting-title" />
+            <TextBlock Text="{Binding SteamAutostartStatusText}" Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
+          <Border Grid.Column="1" Classes="settings-chip good" Classes.attention="{Binding SteamAutostartNeedsAttention}"
+                  VerticalAlignment="Center">
+            <TextBlock Text="{Binding SteamAutostartChip}" />
+          </Border>
+          <Button Grid.Column="2" Content="Take over again" Command="{Binding TakeOverSteamAutostartCommand}"
+                  VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="WSGM is the only device manager" Classes="setting-title" />
+            <TextBlock Text="{Binding OtherManagersStatusText}" Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
+          <Border Grid.Column="1" Classes="settings-chip good" Classes.attention="{Binding OtherManagersNeedAttention}"
+                  VerticalAlignment="Center">
+            <TextBlock Text="{Binding OtherManagersChip}" />
+          </Border>
+          <Button Grid.Column="2" Content="Take over again" Command="{Binding TakeOverOtherManagersCommand}"
+                  VerticalAlignment="Center" />
+        </Grid>
+      </Border>
 
-        <Border Classes="section-header">
-          <TextBlock Text="Updates" />
-        </Border>
-        <Border Classes="setting-row">
+      <Border Classes="section-header">
+        <TextBlock Text="Updates" />
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Check for updates" Classes="setting-title" />
+            <TextBlock Text="Looks once a day. Nothing downloads until you choose Update." Classes="caption"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+          <ToggleSwitch Grid.Column="1" IsChecked="{Binding CheckForUpdates}" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+      <Border Classes="setting-row">
+        <StackPanel Spacing="8">
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="Check for updates" Classes="setting-title" />
-              <TextBlock
-                Text="Looks once a day. Nothing downloads until you choose Update."
-                Classes="caption" TextWrapping="Wrap" />
+              <TextBlock Text="Version" Classes="setting-title" />
+              <TextBlock Text="{Binding UpdateStatusText}" Classes="caption" TextWrapping="Wrap" />
             </StackPanel>
-            <ToggleSwitch Grid.Column="1" IsChecked="{Binding CheckForUpdates}" VerticalAlignment="Center" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+              <Button Content="Check now" Command="{Binding CheckForUpdatesNowCommand}" IsEnabled="{Binding !UpdateBusy}" />
+              <Button Classes="primary" Content="Update" Command="{Binding RequestUpdateCommand}"
+                      IsVisible="{Binding UpdateAvailable}" IsEnabled="{Binding !UpdateBusy}" />
+            </StackPanel>
           </Grid>
-        </Border>
-        <Border Classes="setting-row">
-          <StackPanel Spacing="6">
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-              <TextBlock Text="{Binding UpdateStatusText}" Classes="caption" TextWrapping="Wrap"
-                         VerticalAlignment="Center" />
-              <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <Button Content="Check now" Command="{Binding CheckForUpdatesNowCommand}"
-                        IsEnabled="{Binding !UpdateBusy}" />
-                <Button Content="Update" Command="{Binding RequestUpdateCommand}" IsVisible="{Binding UpdateAvailable}"
-                        IsEnabled="{Binding !UpdateBusy}" />
-              </StackPanel>
-            </Grid>
-            <TextBlock Text="{Binding UpdateWarningText}" IsVisible="{Binding HasUpdateWarning}" TextWrapping="Wrap"
-                       Foreground="{StaticResource HcWarningBrush}" />
-            <!-- The update closes Steam, so a game in progress would lose unsaved state. -->
-            <StackPanel Spacing="6" IsVisible="{Binding UpdateConfirmPending}">
-              <TextBlock
-                Text="Updating closes Steam and WSGM. Save and quit any game first. WSGM starts again when the update is done."
-                Classes="caption" TextWrapping="Wrap" />
-              <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button Content="Update now" Command="{Binding ApplyUpdateCommand}" />
-                <Button Content="Cancel" Command="{Binding CancelUpdateCommand}" />
-              </StackPanel>
+          <TextBlock Text="{Binding UpdateWarningText}" IsVisible="{Binding HasUpdateWarning}" TextWrapping="Wrap"
+                     Foreground="{StaticResource HcWarningBrush}" />
+          <!-- The update closes Steam, so a game in progress would lose unsaved state. -->
+          <StackPanel Spacing="6" IsVisible="{Binding UpdateConfirmPending}">
+            <TextBlock
+              Text="Updating closes Steam and WSGM. Save and quit any game first. WSGM starts again when the update is done."
+              Classes="caption" TextWrapping="Wrap" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button Content="Cancel" Command="{Binding CancelUpdateCommand}" />
+              <Button Classes="primary" Content="Update now" Command="{Binding ApplyUpdateCommand}" />
             </StackPanel>
           </StackPanel>
-        </Border>
+        </StackPanel>
+      </Border>
 
-        <Border Classes="section-header">
-          <TextBlock Text="Power" />
-        </Border>
-        <!-- Gated on the CEF master switch: muting only ever engages while Steam
-                       reports an active download, and that answer comes from the CEF download
-                       poll. With Steam integration off the row would read "on" and do nothing. -->
-        <Border Classes="setting-row" IsVisible="{Binding CefEnabled}">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="Mute screen-off downloads" Classes="setting-title" />
-              <TextBlock
-                Text="Silence download audio while the screen is off. A mute you set yourself is left alone."
-                Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
-            <ToggleSwitch Grid.Column="1" IsChecked="{Binding MuteWhileDisplayOff}" VerticalAlignment="Center" />
-          </Grid>
-        </Border>
-
-        <!-- Not gated on CEF: this reads Windows' own account of the wake and never
-                       asks Steam anything. -->
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="Sleep again after an unexplained wake" Classes="setting-title" />
-              <TextBlock
-                Text="Goes back to sleep when Windows says nobody woke the handheld. Never runs after input, and gives up after three tries."
-                Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
-            <ToggleSwitch Grid.Column="1" IsChecked="{Binding ResuspendUnexplainedWakes}" VerticalAlignment="Center" />
-          </Grid>
-        </Border>
+      <Border Classes="section-header">
+        <TextBlock Text="Power" />
+      </Border>
+      <!-- Gated on the CEF master switch: muting only engages while Steam reports an active download, and that
+           answer comes from the CEF download poll. With Steam integration off the row would do nothing. -->
+      <Border Classes="setting-row" IsVisible="{Binding CefEnabled}">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Mute screen-off downloads" Classes="setting-title" />
+            <TextBlock Text="Silence download audio while the screen is off. A mute you set yourself is left alone."
+                       Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
+          <ToggleSwitch Grid.Column="1" IsChecked="{Binding MuteWhileDisplayOff}" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+      <!-- Not gated on CEF: this reads Windows' own account of the wake and never asks Steam anything. -->
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Sleep again after an unexplained wake" Classes="setting-title" />
+            <TextBlock
+              Text="Goes back to sleep when Windows says nobody woke the handheld. Never runs after input, and gives up after three tries."
+              Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
+          <ToggleSwitch Grid.Column="1" IsChecked="{Binding ResuspendUnexplainedWakes}" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
     </StackPanel>
   </ScrollViewer>
 </UserControl>

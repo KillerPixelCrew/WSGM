@@ -44,8 +44,9 @@
             file into the Plugins folder and removing deletes one; both apply at the next start, because
             a loaded package is held open. A device plugin is offered only when its hardware rules match.
         -->
-        <Button Content="Repair installation" Command="{Binding RepairCommand}" IsVisible="{Binding CanRepair}"
-                HorizontalAlignment="Right" />
+        <Button Content="Repair…" Command="{Binding RepairCommand}" IsVisible="{Binding CanRepair}"
+                HorizontalAlignment="Right" ToolTip.Tip="Run setup's repair for missing components"
+                AutomationProperties.Name="Repair installation" />
           <Border Classes="section-header" IsVisible="{Binding HasInstalledPackages}">
             <TextBlock Text="Installed" />
           </Border>
@@ -140,12 +141,18 @@
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
-          <Border Classes="section-header" IsVisible="{Binding HasUnavailablePackages}">
-            <TextBlock Text="Not for this device" />
+          <!-- Collapsed: these do not apply here, so they wait behind Show. -->
+          <Border Classes="setting-row" IsVisible="{Binding HasUnavailablePackages}" Margin="0,12,0,4">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+              <StackPanel VerticalAlignment="Center" Spacing="1">
+                <TextBlock Text="Not for this device" Classes="setting-title" />
+                <TextBlock Text="{Binding UnavailablePackagesSummary}" Classes="caption" TextWrapping="Wrap" />
+              </StackPanel>
+              <Button x:Name="ShowUnavailable" Grid.Column="1" Content="Show" Click="OnShowUnavailable"
+                      VerticalAlignment="Center" />
+            </Grid>
           </Border>
-          <TextBlock Classes="caption" TextWrapping="Wrap" Margin="2,0,0,4"
-                     Text="Bundled with this release for other hardware, or community plugins this release could not build." />
-          <ItemsControl ItemsSource="{Binding UnavailablePackages}" IsVisible="{Binding HasUnavailablePackages}">
+          <ItemsControl x:Name="UnavailableList" ItemsSource="{Binding UnavailablePackages}" IsVisible="False">
             <ItemsControl.ItemsPanel>
               <ItemsPanelTemplate>
                 <StackPanel Spacing="8" />
@@ -190,14 +197,31 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
         <Border Classes="section-header">
-          <TextBlock Text="Independent plugins" />
+          <StackPanel Spacing="2">
+            <TextBlock Text="Steam CEF plugins" />
+            <TextBlock Text="Plugins that run inside Steam" Classes="caption" />
+          </StackPanel>
         </Border>
-        <TextBlock Classes="caption" TextWrapping="Wrap" Margin="2,0,0,4"
-                   Text="Enable installed integrations here, then Save. They run independently of Device integration. External controls appear in the overlay." />
-        <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding CommonPluginDiscoveryError}" />
-        <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding SteamCefPluginWarning}" />
-        <CheckBox Content="I understand and want to enable trusted Steam CEF plugins"
-                  IsChecked="{Binding SteamCefPluginWarningAccepted, Mode=TwoWay}" />
+        <Border Classes="setting-row">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Allow trusted Steam CEF plugins" Classes="setting-title" />
+              <TextBlock Text="{Binding SteamCefPluginWarning}" Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamCefPluginWarningAccepted, Mode=TwoWay}"
+                          VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+
+        <Border Classes="section-header">
+          <StackPanel Spacing="2">
+            <TextBlock Text="Independent plugins" />
+            <TextBlock Text="They run without Device integration. Their controls are in the Overlay." Classes="caption"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+        <TextBlock Classes="caption problem" TextWrapping="Wrap" Text="{Binding CommonPluginDiscoveryError}"
+                   IsVisible="{Binding CommonPluginDiscoveryError.Length}" />
         <ItemsControl ItemsSource="{Binding CommonPlugins}">
           <ItemsControl.ItemsPanel>
             <ItemsPanelTemplate>

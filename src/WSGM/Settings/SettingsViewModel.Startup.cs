@@ -1,14 +1,14 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
+using System.Linq;
 using WSGM.Core;
 
 namespace WSGM.Settings;
 
 public sealed partial class SettingsViewModel
 {
-    private int _selectedSuggestionIndex;
-    private List<(string Path, bool Elevated)> _startupSuggestionTargets = [];
-
     /// <summary>Gets the command that removes one startup-program row.</summary>
     public RelayCommand<StartupAppRow> RemoveAppCommand { get; }
 
@@ -18,19 +18,21 @@ public sealed partial class SettingsViewModel
     /// <summary>Gets the command that moves one startup-program row down.</summary>
     public RelayCommand<StartupAppRow> MoveDownCommand { get; }
 
-    // --- Startup app suggestions ---
-    /// <summary>
-    ///     Common handheld companions found on this PC, offered as one-click adds
-    ///     instead of making the user hunt for exe paths.
-    /// </summary>
-    public List<string> StartupSuggestions { get; private set; } = [];
+    /// <summary>Companion apps found on this PC, which Add app offers before a file picker.</summary>
+    public IReadOnlyList<StartupSuggestion> StartupSuggestions { get; private set; } = [];
 
-    /// <summary>Gets or sets the selected discovered startup-app suggestion.</summary>
-    public int SelectedSuggestionIndex
+    /// <summary>Whether no companion app was found, so Add app offers only the file picker.</summary>
+    public bool NoStartupSuggestions => StartupSuggestions.Count == 0;
+
+    /// <summary>The startup app the editor shows.</summary>
+    public StartupAppRow? EditedStartupApp
     {
-        get => _selectedSuggestionIndex;
-        set => SetField(ref _selectedSuggestionIndex, value, nameof(SelectedSuggestionIndex));
+        get;
+        set => SetField(ref field, value, nameof(EditedStartupApp));
     }
+
+    /// <summary>Whether there are no startup apps, so the list shows how to add one.</summary>
+    public bool NoStartupApps => StartupApps.Count == 0;
 
     // --- Startup apps ---
     /// <summary>Gets the ordered startup programs shown in the settings editor.</summary>
@@ -59,40 +61,60 @@ public sealed partial class SettingsViewModel
 
     private void BuildStartupSuggestions()
     {
-        var names = new List<string>();
-        var targets = new List<(string, bool)>();
-
+        List<StartupSuggestion> found = [];
         foreach (var (label, path, elevated) in _services.DetectStartupApps())
         {
-            names.Add(label);
-            targets.Add((path, elevated));
+            found.Add(new StartupSuggestion(label, path, elevated));
         }
 
-        names.Add("Choose a program…");
-        targets.Add(("", false));
-
-        StartupSuggestions = names;
-        _startupSuggestionTargets = targets;
-        _selectedSuggestionIndex = 0;
+        StartupSuggestions = found;
     }
 
-    /// <summary>Adds the selected discovered program when it has a concrete executable path.</summary>
-    /// <returns><see langword="true" /> when a startup row was added; otherwise the caller should open a file picker.</returns>
-    public bool AddSelectedStartupApp()
+    /// <summary>Adds a program to the end of the startup order, switched on.</summary>
+    /// <param name="path">The program.</param>
+    /// <param name="elevated">Whether it runs as administrator.</param>
+    /// <returns>The new row, for the editor to open.</returns>
+    /// <param name="label">What the app is called, or empty for its file name.</param>
+    public StartupAppRow AddStartupApp(string path, bool elevated, string label = "")
     {
-        if (_selectedSuggestionIndex < 0 || _selectedSuggestionIndex >= _startupSuggestionTargets.Count)
+        StartupAppRow row = new() { Label = label, Path = path, Elevated = elevated, Enabled = true };
+        StartupApps.Add(row);
+        return row;
+    }
+
+    /// <summary>Numbers the rows and checks each program's file, after a change to the list or a path.</summary>
+    private void OnStartupAppsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        foreach (var row in e.NewItems?.OfType<StartupAppRow>() ?? [])
         {
-            return false;
+            row.PropertyChanged += OnStartupAppChanged;
+            CheckStartupApp(row);
         }
 
-        var (path, elevated) = _startupSuggestionTargets[_selectedSuggestionIndex];
-        if (string.IsNullOrEmpty(path))
+        foreach (var row in e.OldItems?.OfType<StartupAppRow>() ?? [])
         {
-            return false; // caller opens the file picker
+            row.PropertyChanged -= OnStartupAppChanged;
         }
 
-        StartupApps.Add(new StartupAppRow { Path = path, Elevated = elevated, Enabled = true });
-        return true;
+        for (var index = 0; index < StartupApps.Count; index++)
+        {
+            StartupApps[index].Number = index + 1;
+        }
+
+        Raise(nameof(NoStartupApps));
+    }
+
+    private void OnStartupAppChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (sender is StartupAppRow row && e.PropertyName == nameof(StartupAppRow.Path))
+        {
+            CheckStartupApp(row);
+        }
+    }
+
+    private void CheckStartupApp(StartupAppRow row)
+    {
+        row.Missing = !string.IsNullOrWhiteSpace(row.Path) && !_services.ProgramExists(row.Path);
     }
 
     /// <summary>Moves a startup-program row by one position when the target remains in range.</summary>

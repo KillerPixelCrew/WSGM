@@ -39,6 +39,12 @@
       <Grid Grid.Row="1">
         <pages:GeneralPage x:Name="PageGeneral" IsVisible="True" />
         <pages:SteamPage x:Name="PageSteam" IsVisible="False" />
+        <pages:SteamLibraryPage x:Name="PageSteamLibrary" IsVisible="False" />
+        <pages:SteamClientPage x:Name="PageSteamClient" IsVisible="False" />
+        <pages:SteamInputPage x:Name="PageSteamInput" IsVisible="False" />
+        <pages:SteamArtworkPage x:Name="PageSteamArtwork" IsVisible="False" />
+        <pages:StartupAppPage x:Name="PageStartupApp" IsVisible="False" />
+        <pages:StartupAddPage x:Name="PageStartupAdd" IsVisible="False" />
         <pages:DeviceOwnershipPage x:Name="PageDevice" IsVisible="False" />
         <pages:DeviceProfilesPage x:Name="PageDeviceProfiles" IsVisible="False" />
         <pages:QuickAccessPage x:Name="PageQuickAccess" IsVisible="False" />
@@ -52,12 +58,15 @@
       </Grid>
 
       <Border Grid.Row="2" Classes="hc-footer">
-        <Grid Margin="16,6" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
-          <Button Classes="primary" Content="Save changes" Command="{Binding SaveCommand}"
-                  IsEnabled="{Binding CanSaveLayouts}" MinWidth="120" />
-          <TextBlock Grid.Column="1" Text="{Binding StatusText}" Classes="caption"
+        <Grid Margin="16,6" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="16">
+          <Button x:Name="SaveButton" Classes="primary" Content="Save changes" Command="{Binding SaveCommand}"
+                  IsEnabled="{Binding CanSaveLayouts}" Classes.settings-save-idle="{Binding !HasUnsavedChanges}"
+                  MinWidth="120" />
+          <TextBlock Grid.Column="1" Text="{Binding UnsavedChangesText}" Classes="caption"
+                     Classes.settings-unsaved="{Binding HasUnsavedChanges}" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="2" Text="{Binding StatusText}" Classes="caption"
                      VerticalAlignment="Center" TextWrapping="Wrap" MaxLines="2" />
-          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+          <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
             <StackPanel Orientation="Horizontal" Spacing="5">
               <ov:GlyphIcon Width="18" Height="18" Button="a" GlyphStyle="{Binding GlyphStyle}"
                             VerticalAlignment="Center" />
@@ -68,10 +77,15 @@
                             VerticalAlignment="Center" />
               <TextBlock Text="Back" Classes="caption" VerticalAlignment="Center" />
             </StackPanel>
+            <StackPanel x:Name="SecondaryHint" Orientation="Horizontal" Spacing="5" IsVisible="False">
+              <ov:GlyphIcon Width="18" Height="18" Button="x" GlyphStyle="{Binding GlyphStyle}"
+                            VerticalAlignment="Center" />
+              <TextBlock Text="More" Classes="caption" VerticalAlignment="Center" />
+            </StackPanel>
             <StackPanel Orientation="Horizontal" Spacing="5">
               <ov:GlyphIcon Width="18" Height="18" Button="y" GlyphStyle="{Binding GlyphStyle}"
                             VerticalAlignment="Center" />
-              <TextBlock Text="Search" Classes="caption" VerticalAlignment="Center" />
+              <TextBlock x:Name="TertiaryHint" Text="Search" Classes="caption" VerticalAlignment="Center" />
             </StackPanel>
             <TextBlock Text="LB / RB  Section" Classes="caption" VerticalAlignment="Center" />
           </StackPanel>

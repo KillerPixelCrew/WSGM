@@ -1,4 +1,7 @@
-using System.Collections.Generic;
+using System;
+using System.Collections.ObjectModel;
+using System.Linq;
+using WSGM.Core;
 
 namespace WSGM.Settings;
 
@@ -11,64 +14,87 @@ public sealed partial class SettingsViewModel
         set => SetField(ref field, value, nameof(PerformanceEnabled));
     }
 
-    /// <summary>The three detail options shared by every Custom-overlay widget selector.</summary>
-    public List<string> OsdCustomLevels { get; } = ["Hidden", "Minimal", "Full"];
+    /// <summary>The custom overlay level's widgets, top to bottom, each with its detail.</summary>
+    public ObservableCollection<OsdWidgetRow> OsdWidgets { get; } = [];
 
-    /// <summary>Custom overlay (level 4) widget order, comma-separated widget names.</summary>
-    public string OsdCustomOrder
+    /// <summary>The widgets the custom level knows, by their saved name, with what the rows call them.</summary>
+    private static readonly (string Key, string Name)[] OsdWidgetNames =
+    [
+        ("Time", "Clock"), ("FPS", "Framerate"), ("CPU", "CPU"), ("GPU", "GPU"), ("RAM", "Memory"),
+        ("VRAM", "Video memory"), ("BATT", "Battery")
+    ];
+
+    /// <summary>
+    ///     Lists the widgets in their saved order. A widget the saved order leaves out does not render, so it is
+    ///     listed last as hidden, which saves to the same overlay.
+    /// </summary>
+    private void LoadOsdWidgets(PerformanceConfig performance)
     {
-        get;
-        set => SetField(ref field, value, nameof(OsdCustomOrder));
+        var saved = RtssOsdCustomSettings.FromConfig(performance);
+        OsdWidgets.Clear();
+        foreach (var canonical in saved.Order)
+        {
+            var (key, name) = OsdWidgetNames.First(widget => widget.Key.Equals(canonical, StringComparison.OrdinalIgnoreCase));
+            OsdWidgets.Add(new OsdWidgetRow(key, name, LevelOf(saved, key), OsdWidgetsChanged));
+        }
+
+        foreach (var (key, name) in OsdWidgetNames.Where(widget =>
+                     !saved.Order.Contains(widget.Key.ToUpperInvariant())))
+        {
+            OsdWidgets.Add(new OsdWidgetRow(key, name, 0, OsdWidgetsChanged));
+        }
     }
 
-    /// <summary>Clock detail for the Custom overlay.</summary>
-    public int OsdCustomTimeIndex
+    /// <summary>Moves a widget up (negative) or down (positive), stopping at either end.</summary>
+    /// <param name="row">The widget.</param>
+    /// <param name="offset">How many places to move it.</param>
+    /// <returns>Whether it moved.</returns>
+    internal bool MoveOsdWidget(OsdWidgetRow row, int offset)
     {
-        get;
-        set => SetField(ref field, value, nameof(OsdCustomTimeIndex));
+        var from = OsdWidgets.IndexOf(row);
+        var to = Math.Clamp(from + offset, 0, OsdWidgets.Count - 1);
+        if (from < 0 || from == to)
+        {
+            return false;
+        }
+
+        OsdWidgets.Move(from, to);
+        OsdWidgetsChanged();
+        return true;
     }
 
-    /// <summary>Framerate detail for the Custom overlay.</summary>
-    public int OsdCustomFpsIndex
+    private void OsdWidgetsChanged()
     {
-        get;
-        set => SetField(ref field, value, nameof(OsdCustomFpsIndex));
+        Raise(nameof(OsdWidgets));
     }
 
-    /// <summary>CPU detail for the Custom overlay.</summary>
-    public int OsdCustomCpuIndex
+    /// <summary>Writes the widget order and every widget's detail.</summary>
+    private void SaveOsdWidgets(PerformanceConfig performance)
     {
-        get;
-        set => SetField(ref field, value, nameof(OsdCustomCpuIndex));
+        performance.OsdCustomOrder = string.Join(",", OsdWidgets.Select(static row => row.Key));
+        int Level(string key) => OsdWidgets.First(row => row.Key == key).Level;
+        performance.OsdCustomTime = Level("Time");
+        performance.OsdCustomFps = Level("FPS");
+        performance.OsdCustomCpu = Level("CPU");
+        performance.OsdCustomGpu = Level("GPU");
+        performance.OsdCustomRam = Level("RAM");
+        performance.OsdCustomVram = Level("VRAM");
+        performance.OsdCustomBattery = Level("BATT");
     }
 
-    /// <summary>Memory detail for the Custom overlay.</summary>
-    public int OsdCustomRamIndex
+    private static int LevelOf(RtssOsdCustomSettings saved, string key)
     {
-        get;
-        set => SetField(ref field, value, nameof(OsdCustomRamIndex));
+        return key switch
+        {
+            "Time" => saved.Time,
+            "FPS" => saved.Fps,
+            "CPU" => saved.Cpu,
+            "GPU" => saved.Gpu,
+            "RAM" => saved.Ram,
+            "VRAM" => saved.Vram,
+            _ => saved.Battery
+        };
     }
-
-    /// <summary>GPU detail for the Custom overlay.</summary>
-    public int OsdCustomGpuIndex
-    {
-        get;
-        set => SetField(ref field, value, nameof(OsdCustomGpuIndex));
-    } = 2;
-
-    /// <summary>Video-memory detail for the Custom overlay.</summary>
-    public int OsdCustomVramIndex
-    {
-        get;
-        set => SetField(ref field, value, nameof(OsdCustomVramIndex));
-    } = 2;
-
-    /// <summary>Battery detail for the Custom overlay.</summary>
-    public int OsdCustomBatteryIndex
-    {
-        get;
-        set => SetField(ref field, value, nameof(OsdCustomBatteryIndex));
-    } = 2;
 
     /// <summary>Gets whether the carousel's sub-option shows: its feature is on, and so is the master switch.</summary>
     public bool ShowCarouselUninstalledRow => CefEnabled && CefConnectedLibraryCarousel;

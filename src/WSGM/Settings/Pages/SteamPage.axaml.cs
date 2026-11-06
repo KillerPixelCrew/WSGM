@@ -1,12 +1,11 @@
+using System.Linq;
 using Avalonia.Controls;
-using Avalonia.Interactivity;
 
 namespace WSGM.Settings.Pages;
 
 /// <summary>
-///     The Steam settings page: Big Picture status, auto-relaunch, Steam Input management,
-///     artwork and the Game Library. Inherits the window's <see cref="SettingsViewModel" />
-///     DataContext.
+///     The Steam section: Big Picture status, the session, the integration switch with its nested pages, and
+///     defaults for new titles. Inherits the window's <see cref="SettingsViewModel" /> DataContext.
 /// </summary>
 public partial class SteamPage : UserControl
 {
@@ -16,26 +15,26 @@ public partial class SteamPage : UserControl
         InitializeComponent();
     }
 
-    /// <summary>Opens the controller keyboard for one of the otherwise skipped text fields.</summary>
-    /// <remarks>Gamepad navigation skips text boxes, so each one needs its own explicit way in.</remarks>
-    private void OnEditTextWithController(object? sender, RoutedEventArgs e)
+    /// <summary>Says on each nested page's row what it holds now, so the row reads without opening it.</summary>
+    /// <param name="model">The window's view model.</param>
+    internal void RefreshSummaries(SettingsViewModel model)
     {
-        if (TopLevel.GetTopLevel(this) is not SettingsWindow window)
-        {
-            return;
-        }
+        LibrarySummary.Text = "Filter tabs, SD-card libraries, card formatting, Home carousel · "
+                              + Count(model.CefLibraryTabs, model.CefCardManager, model.CefSdFormat,
+                                  model.SteamStorageFormat, model.CefConnectedLibraryCarousel,
+                                  model.CefCarouselShowUninstalled);
+        ClientSummary.Text = "Wi-Fi indicator, Quick Access bridge, keep awake, download sorting · "
+                             + Count(model.CefWifiIndicator, model.CefNativeQuickAccess, model.CefDownloadKeepAwake,
+                                 model.CefDownloadQueueSort);
+        SteamInputSummary.Text = model.SteamInputManagementEnabled ? "Managed by WSGM" : "Left to Steam";
+        ArtworkSummary.Text =
+            (string.IsNullOrWhiteSpace(model.ArtworkSteamGridDbApiKey) ? "No SteamGridDB key" : "SteamGridDB key set")
+            + " · Screenscraper " + (model.ArtworkScreenscraperEnabled ? "on" : "off");
+    }
 
-        switch ((sender as Button)?.Tag as string)
-        {
-            case "SteamGridDbKey":
-                window.ShowOnScreenKeyboard(SteamGridDbKeyBox, "SteamGridDB key");
-                break;
-            case "ScreenscraperUser":
-                window.ShowOnScreenKeyboard(ScreenscraperUserBox, "Screenscraper account");
-                break;
-            case "ScreenscraperPassword":
-                window.ShowOnScreenKeyboard(ScreenscraperPasswordBox, "Screenscraper password");
-                break;
-        }
+    private static string Count(params bool[] switches)
+    {
+        var on = switches.Count(static value => value);
+        return on == switches.Length ? "all on" : on == 0 ? "all off" : $"{on} of {switches.Length} on";
     }
 }

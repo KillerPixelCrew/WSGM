@@ -81,6 +81,12 @@ internal sealed class UiFixture : IDisposable
     /// <summary>The log files Settings would upload. None unless a test says otherwise.</summary>
     internal IReadOnlyList<LogUploadFile> LogFiles { get; set; } = [];
 
+    /// <summary>Companion apps Settings offers when adding a startup app.</summary>
+    internal List<(string Label, string Path, bool Elevated)> StartupSuggestions { get; } = [];
+
+    /// <summary>Whether a startup program's file is there.</summary>
+    internal Func<string, bool> ProgramExists { get; set; } = static _ => true;
+
     /// <summary>Answers a log upload; never a live request.</summary>
     internal Func<IReadOnlyList<LogUploadFile>, CancellationToken, Task<string>> UploadLogs { get; set; } =
         (_, _) => throw new InvalidOperationException("Unexpected log upload.");
@@ -151,6 +157,8 @@ internal sealed class UiFixture : IDisposable
             // which would put the local endpoint count into every settings baseline.
             ReadAudio = _ => Audio,
             ListLogs = () => LogFiles,
+            DetectStartupApps = () => StartupSuggestions,
+            ProgramExists = path => ProgramExists(path),
             UploadLogs = (files, _, cancellationToken) => UploadLogs(files, cancellationToken)
         };
         var model = new SettingsViewModel(ConfigJson.Clone(Saved, ConfigJsonContext.Default.AppConfig),

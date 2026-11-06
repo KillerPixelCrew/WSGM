@@ -24,7 +24,7 @@ public sealed class SettingsNavigationTests
 
         Assert.True(UiFixture.Named<Control>(window, "PageDeviceProfiles").IsVisible);
         Assert.False(UiFixture.Named<Control>(window, "PageDevice").IsVisible);
-        Assert.True(UiFixture.Tab(window, 2).Classes.Contains("selected"));
+        Assert.Contains("selected", UiFixture.Tab(window, 2).Classes);
         Assert.Contains("›", UiFixture.Named<TextBlock>(window, "SectionTitle").Text);
 
         UiFixture.Key(window, Key.Escape);
@@ -56,7 +56,7 @@ public sealed class SettingsNavigationTests
         Assert.False(results.IsVisible);
         Assert.Empty(search.Text ?? string.Empty);
         Assert.True(UiFixture.Named<Control>(window, "PageDiagnostics").IsVisible);
-        Assert.True(UiFixture.Tab(window, 9).Classes.Contains("selected"));
+        Assert.Contains("selected", UiFixture.Tab(window, 9).Classes);
         var focused = Assert.IsAssignableFrom<Control>(window.FocusManager!.GetFocusedElement());
         Assert.IsType<ToggleSwitch>(focused);
     }
@@ -96,6 +96,29 @@ public sealed class SettingsNavigationTests
         search.Text = "carousel ";
         Dispatcher.UIThread.RunJobs();
         Assert.Empty(list.Children);
+    }
+
+    [AvaloniaFact]
+    public void SteamRowsSayWhatTheyHoldAndOpenTheirOwnPage()
+    {
+        using UiFixture fixture = new();
+        var window = fixture.Settings(1024, 640);
+        UiFixture.Click(window, UiFixture.Tab(window, 1));
+        var steam = UiFixture.Named<Control>(window, "PageSteam");
+        Assert.Matches(@" · (all on|all off|\d of 6 on)$", UiFixture.Named<TextBlock>(steam, "LibrarySummary").Text);
+        var open = steam.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Tag, "open:Library"));
+
+        open.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(UiFixture.Named<Control>(window, "PageSteamLibrary").IsVisible);
+        Assert.Equal("Steam  ›  Library", UiFixture.Named<TextBlock>(window, "SectionTitle").Text);
+        VisualBaseline.Verify(window, "settings-steam-library-1024");
+
+        UiFixture.Key(window, Key.Escape);
+
+        Assert.True(steam.IsVisible);
+        Assert.Same(open, window.FocusManager!.GetFocusedElement());
     }
 
     [AvaloniaFact]

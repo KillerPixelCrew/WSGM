@@ -4,347 +4,151 @@
              xmlns:c="using:WSGM.Controls"
              x:Class="WSGM.Settings.Pages.SteamPage"
              x:DataType="s:SettingsViewModel">
-  <!-- Element order is the controller tab order: Big Picture info → Steam
-         status → auto-relaunch → Steam Input management → artwork → Game Library.
-         The artwork and
-         Game Library sections outgrow the 1024x640 floor, so the page scrolls. -->
+  <!-- How Steam runs, what WSGM adds inside it, and defaults for new titles. Library, Client, Steam Input and Artwork open as nested pages. -->
   <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-  <Border Padding="28,0,28,20">
-    <StackPanel>
-      <StackPanel>
-        <Border Classes="section-header">
-          <TextBlock Text="Big Picture" />
-        </Border>
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-            <!-- Width only: the glyph is wide and short, and a square box
-                             would park it against the box's top edge (Avalonia aligns a
-                             stretched geometry top-left). -->
-            <Path Data="{x:Static c:Icons.SteamLike}"
-                  Stroke="{StaticResource HcTextPrimaryBrush}" StrokeThickness="1.8"
-                  Width="20" Stretch="Uniform" VerticalAlignment="Center" />
-            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="Steam Big Picture" Classes="setting-title" />
-              <TextBlock
-                Text="WSGM starts Steam Big Picture at logon and returns to it when you leave the desktop. Steam is found automatically."
-                Classes="caption" />
-            </StackPanel>
-          </Grid>
-        </Border>
-        <Border Classes="setting-row">
-          <TextBlock Text="{Binding SteamStatusText}" Classes="caption" VerticalAlignment="Center" />
-        </Border>
+    <StackPanel Classes="settings-page">
+      <Border Classes="section-header">
+        <TextBlock Text="Big Picture" />
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+          <!-- Width only: the glyph is wide and short, and a square box
+                           would park it against the box's top edge (Avalonia aligns a
+                           stretched geometry top-left). -->
+          <Path Data="{x:Static c:Icons.SteamLike}"
+                Stroke="{StaticResource HcTextPrimaryBrush}" StrokeThickness="1.8"
+                Width="20" Stretch="Uniform" VerticalAlignment="Center" />
+          <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Steam Big Picture" Classes="setting-title" />
+            <TextBlock
+              Text="WSGM starts Steam Big Picture at logon and returns to it when you leave the desktop. Steam is found automatically."
+              Classes="caption" />
+          </StackPanel>
+        </Grid>
+      </Border>
+      <Border Classes="setting-row">
+        <TextBlock Text="{Binding SteamStatusText}" Classes="caption" VerticalAlignment="Center" />
+      </Border>
 
-        <Border Classes="section-header">
-          <TextBlock Text="Session" />
+      <Border Classes="section-header">
+        <TextBlock Text="Session" />
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Restart Steam when it exits" Classes="setting-title" />
+            <TextBlock
+              Text="Brings Big Picture back in game mode, or the windowed client in desktop mode. Closing Steam from the overlay is left alone."
+              Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
+          <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamAutoRelaunch}" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Start Steam unelevated" Classes="setting-title" />
+            <TextBlock
+              Text="Runs the whole Steam client at normal integrity so games it starts are not elevated. Off starts Steam at WSGM's own integrity."
+              TextWrapping="Wrap"
+              Classes="caption" />
+          </StackPanel>
+          <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamLaunchUnelevated}" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+
+      <Border Classes="section-header">
+        <TextBlock Text="Inside Steam" />
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Steam integration" Classes="setting-title" />
+            <TextBlock
+              Text="WSGM pages, Quick Access rows and library features in Big Picture. Off leaves Steam's debug port closed."
+              Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
+          <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefEnabled}" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+      <StackPanel IsVisible="{Binding CefEnabled}">
+        <Border Classes="setting-row">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Library" Classes="setting-title" />
+              <TextBlock x:Name="LibrarySummary" Text="Filter tabs, SD-card libraries, card formatting, Home carousel" Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <Button Grid.Column="1" Content="Open" Tag="open:Library" VerticalAlignment="Center" />
+          </Grid>
         </Border>
         <Border Classes="setting-row">
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="Restart Steam when it exits" Classes="setting-title" />
-              <TextBlock
-                Text="Brings Big Picture back in game mode, or the windowed client in desktop mode. Closing Steam from the overlay is left alone."
-                Classes="caption" TextWrapping="Wrap" />
+              <TextBlock Text="Client" Classes="setting-title" />
+              <TextBlock x:Name="ClientSummary" Text="Wi-Fi indicator, Quick Access bridge, keep awake, download sorting" Classes="caption" TextWrapping="Wrap" />
             </StackPanel>
-            <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamAutoRelaunch}" VerticalAlignment="Center" />
+            <Button Grid.Column="1" Content="Open" Tag="open:Client" VerticalAlignment="Center" />
           </Grid>
         </Border>
-
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="Start Steam unelevated" Classes="setting-title" />
-              <TextBlock
-                Text="Runs the whole Steam client at normal integrity so games it starts are not elevated. Off starts Steam at WSGM's own integrity."
-                TextWrapping="Wrap"
-                Classes="caption" />
-            </StackPanel>
-            <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamLaunchUnelevated}" VerticalAlignment="Center" />
-          </Grid>
-        </Border>
-
       </StackPanel>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Steam Input" Classes="setting-title" />
+            <TextBlock x:Name="SteamInputSummary" Text="Whether WSGM may take the controller from Steam" Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
+          <Button Grid.Column="1" Content="Open" Tag="open:Steam Input" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Artwork" Classes="setting-title" />
+            <TextBlock x:Name="ArtworkSummary" Text="Where WSGM looks for artwork" Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
+          <Button Grid.Column="1" Content="Open" Tag="open:Artwork" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
 
-      <StackPanel>
-        <Border Classes="section-header">
-          <TextBlock Text="Inside Steam" />
-        </Border>
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="Steam CEF integration" Classes="setting-title" />
-              <TextBlock
-                Text="Master switch for everything WSGM injects into Steam over its debug port. Off leaves the debug port closed and hides every feature below."
-                Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
-            <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefEnabled}" VerticalAlignment="Center" />
-          </Grid>
-        </Border>
-
-        <Border Classes="section-header" IsVisible="{Binding CefEnabled}">
-          <TextBlock Text="Library" />
-        </Border>
-        <Border Classes="setting-row" IsVisible="{Binding CefEnabled}">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="Library &amp; tabs" Classes="setting-title" />
-              <TextBlock Text="Custom filter tabs, tab order, and hiding native Steam tabs." Classes="caption"
-                         TextWrapping="Wrap" />
-            </StackPanel>
-            <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefLibraryTabs}" VerticalAlignment="Center" />
-          </Grid>
-        </Border>
-        <Border Classes="setting-row" IsVisible="{Binding CefEnabled}">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="SD-card library manager" Classes="setting-title" />
-              <TextBlock Text="Per-card library tabs, the library badge on game tiles, and live library labels."
-                         Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
-            <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefCardManager}" VerticalAlignment="Center" />
-          </Grid>
-        </Border>
-        <Border Classes="setting-row" IsVisible="{Binding CefEnabled}">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="Format SD Card + add library" Classes="setting-title" />
-              <TextBlock Text="Format a card as a Steam library and register it into the running Steam."
-                         Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
-            <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefSdFormat}" VerticalAlignment="Center" />
-          </Grid>
-        </Border>
-        <Border Classes="setting-row" IsVisible="{Binding CefEnabled}">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="Allow formatting from Steam's storage page" Classes="setting-title" />
-              <TextBlock
-                Text="Let Steam's own Format Drive dialog erase a card through WSGM's format flow. Off, the dialog is refused; eject and library registration from that page keep working."
-                Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
-            <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamStorageFormat}" VerticalAlignment="Center" />
-          </Grid>
-        </Border>
-        <Border Classes="setting-row" IsVisible="{Binding CefEnabled}">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="Connected-library Home carousel" Classes="setting-title" />
-              <TextBlock
-                Text="Big Picture Home shows every game on the libraries attached right now, last played first, behind recent purchases. Games on an ejected card leave the carousel."
-                Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
-            <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefConnectedLibraryCarousel}" VerticalAlignment="Center" />
-          </Grid>
-        </Border>
-        <Border Classes="setting-row" IsVisible="{Binding ShowCarouselUninstalledRow}">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="Show uninstalled games in the carousel" Classes="setting-title" />
-              <TextBlock
-                Text="Also list owned games that are not installed, greyed, after the installed ones. Selecting one opens Steam's normal install flow."
-                Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
-            <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefCarouselShowUninstalled}" VerticalAlignment="Center" />
-          </Grid>
-        </Border>
-
-        <Border Classes="section-header" IsVisible="{Binding CefEnabled}">
-          <TextBlock Text="Client" />
-        </Border>
-        <StackPanel IsVisible="{Binding CefEnabled}">
-          <Border Classes="setting-row">
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-              <StackPanel VerticalAlignment="Center" Spacing="1">
-                <TextBlock Text="Big Picture Wi-Fi indicator" Classes="setting-title" />
-                <TextBlock Text="Make Big Picture's header Wi-Fi icon reflect the real connection." Classes="caption"
-                           TextWrapping="Wrap" />
-              </StackPanel>
-              <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefWifiIndicator}" VerticalAlignment="Center" />
-            </Grid>
-          </Border>
-          <Border Classes="setting-row">
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-              <StackPanel VerticalAlignment="Center" Spacing="1">
-                <TextBlock Text="Native Quick Access bridge" Classes="setting-title" />
-                <TextBlock
-                  Text="Use the fingerprint-gated persistent Steam UI host. An incompatible Steam build stays untouched."
-                  Classes="caption" TextWrapping="Wrap" />
-              </StackPanel>
-              <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefNativeQuickAccess}" VerticalAlignment="Center" />
-            </Grid>
-          </Border>
-          <Border Classes="setting-row">
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-              <StackPanel VerticalAlignment="Center" Spacing="1">
-                <TextBlock Text="Keep awake during downloads" Classes="setting-title" />
-                <TextBlock Text="Hold a wake lock while Steam downloads, so standby cannot interrupt them."
-                           Classes="caption" TextWrapping="Wrap" />
-              </StackPanel>
-              <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefDownloadKeepAwake}" VerticalAlignment="Center" />
-            </Grid>
-          </Border>
-          <Border Classes="setting-row">
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-              <StackPanel VerticalAlignment="Center" Spacing="1">
-                <TextBlock Text="Download queue sorting" Classes="setting-title" />
-                <TextBlock Text="Add Name, Size and Type sort buttons to Big Picture's download queue." Classes="caption"
-                           TextWrapping="Wrap" />
-              </StackPanel>
-              <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefDownloadQueueSort}" VerticalAlignment="Center" />
-            </Grid>
-          </Border>
-        </StackPanel>
-      </StackPanel>
-      <StackPanel>
-        <Border Classes="section-header">
-          <TextBlock Text="Steam input" />
-        </Border>
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="Steam Input management" Classes="setting-title" />
-              <TextBlock
-                Text="Puts a small WSGM file next to Steam so WSGM can take the controller for its own panels without writing into the running Steam. Off leaves Steam's folder alone."
-                Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
-            <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamInputManagementEnabled}" VerticalAlignment="Center" />
-          </Grid>
-        </Border>
-        <Border Classes="setting-row">
-          <TextBlock Text="{Binding SteamInputShimStatusText}" Classes="caption" TextWrapping="Wrap"
-                     VerticalAlignment="Center" />
-        </Border>
-
-        <Border Classes="section-header">
-          <TextBlock Text="Artwork" />
-        </Border>
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="SteamGridDB key" Classes="setting-title" />
-              <TextBlock
-                Text="Your own key from steamgriddb.com. Without one that source is not searched, rather than searched and refused."
-                Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
-            <TextBox Grid.Column="1" x:Name="SteamGridDbKeyBox" Width="170"
-                     Text="{Binding ArtworkSteamGridDbApiKey}" MaxLength="128"
-                     PasswordChar="●" VerticalAlignment="Center" />
-            <Button Grid.Column="2" Content="Edit" Tag="SteamGridDbKey" Click="OnEditTextWithController"
-                    AutomationProperties.Name="Edit SteamGridDB key with controller" />
-          </Grid>
-        </Border>
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="Search Screenscraper.fr" Classes="setting-title" />
-              <TextBlock
-                Text="A ROM database, so it answers for retro titles and rarely for PC ones. An account is optional and only raises your own daily quota."
-                Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
-            <ToggleSwitch Grid.Column="1" IsChecked="{Binding ArtworkScreenscraperEnabled}"
-                          VerticalAlignment="Center" />
-          </Grid>
-        </Border>
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-            <TextBlock Text="Screenscraper account" Classes="setting-title" VerticalAlignment="Center" />
-            <TextBox Grid.Column="1" x:Name="ScreenscraperUserBox" Width="170"
-                     Text="{Binding ArtworkScreenscraperUser}" MaxLength="128" VerticalAlignment="Center" />
-            <Button Grid.Column="2" Content="Edit" Tag="ScreenscraperUser" Click="OnEditTextWithController"
-                    AutomationProperties.Name="Edit Screenscraper account with controller" />
-          </Grid>
-        </Border>
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-            <TextBlock Text="Screenscraper password" Classes="setting-title" VerticalAlignment="Center" />
-            <TextBox Grid.Column="1" x:Name="ScreenscraperPasswordBox" Width="170"
-                     Text="{Binding ArtworkScreenscraperPassword}" MaxLength="128"
-                     PasswordChar="●" VerticalAlignment="Center" />
-            <Button Grid.Column="2" Content="Edit" Tag="ScreenscraperPassword" Click="OnEditTextWithController"
-                    AutomationProperties.Name="Edit Screenscraper password with controller" />
-          </Grid>
-        </Border>
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="*,150" ColumnSpacing="8">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="Artwork tab opened first" Classes="setting-title" />
-              <TextBlock Text="Where the in-Steam artwork page starts. A hidden tab falls back to the first one shown."
-                         Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
-            <ComboBox Grid.Column="1" ItemsSource="{Binding ArtworkTabs}" DisplayMemberBinding="{Binding Title}"
-                      SelectedIndex="{Binding ArtworkDefaultTabIndex}" VerticalAlignment="Center"
-                      AutomationProperties.Name="Artwork tab opened first" />
-          </Grid>
-        </Border>
-        <Border Classes="setting-row">
-          <StackPanel Spacing="1">
-            <TextBlock Text="Artwork tabs" Classes="setting-title" />
-            <TextBlock Text="Which tabs the artwork page offers, and the order they appear in."
+      <Border Classes="section-header">
+        <TextBlock Text="New titles" />
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,150" ColumnSpacing="8">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="New titles launch with" Classes="setting-title" />
+            <TextBlock Text="A multiplayer title always starts controller only. You can change any title on its own."
                        Classes="caption" TextWrapping="Wrap" />
           </StackPanel>
-        </Border>
-        <ItemsControl ItemsSource="{Binding ArtworkTabs}">
-          <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="s:ArtworkTabRow">
-              <Border Classes="setting-row" Margin="0,0,0,3">
-                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="6">
-                  <ToggleSwitch Grid.Column="0" IsChecked="{Binding Visible}" OnContent="" OffContent=""
-                                MinWidth="42" VerticalAlignment="Center" />
-                  <TextBlock Grid.Column="1" Text="{Binding Title}" VerticalAlignment="Center" />
-                  <Button Grid.Column="2" Classes="icon" Content="↑" ToolTip.Tip="Move up"
-                          AutomationProperties.Name="Move artwork tab up"
-                          Command="{Binding $parent[ItemsControl].((s:SettingsViewModel)DataContext).MoveArtworkTabUpCommand, FallbackValue={x:Null}}"
-                          CommandParameter="{Binding}" />
-                  <Button Grid.Column="3" Classes="icon" Content="↓" ToolTip.Tip="Move down"
-                          AutomationProperties.Name="Move artwork tab down"
-                          Command="{Binding $parent[ItemsControl].((s:SettingsViewModel)DataContext).MoveArtworkTabDownCommand, FallbackValue={x:Null}}"
-                          CommandParameter="{Binding}" />
-                </Grid>
-              </Border>
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
-
-        <Border Classes="section-header">
-          <TextBlock Text="Game library" />
-        </Border>
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="*,150" ColumnSpacing="8">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="New titles launch with" Classes="setting-title" />
-              <TextBlock Text="A multiplayer title always starts controller only. You can change any title on its own."
-                         Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
-            <ComboBox Grid.Column="1" ItemsSource="{Binding GameLibraryModes}"
-                      SelectedIndex="{Binding GameLibraryDefaultModeIndex}" VerticalAlignment="Center"
-                      AutomationProperties.Name="Launch mode for new Game Library titles" />
-          </Grid>
-        </Border>
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="Offer titles with no launch route" Classes="setting-title" />
-              <TextBlock Text="Packages WSGM cannot give the Steam overlay. They can only be imported as controller only."
-                         Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
-            <ToggleSwitch Grid.Column="1" IsChecked="{Binding GameLibraryImportUnroutable}"
-                          VerticalAlignment="Center" />
-          </Grid>
-        </Border>
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="*,200" ColumnSpacing="8">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="New titles start with artwork from" Classes="setting-title" />
-              <TextBlock Text="Each artwork type can still be changed per title, or for every title at once, before saving."
-                         Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
-            <ComboBox Grid.Column="1" ItemsSource="{Binding GameLibraryArtworkPreferences}"
-                      SelectedIndex="{Binding GameLibraryArtworkPreferenceIndex}" VerticalAlignment="Center"
-                      AutomationProperties.Name="Where Game Library artwork starts from" />
-          </Grid>
-        </Border>
-      </StackPanel>
+          <ComboBox Grid.Column="1" ItemsSource="{Binding GameLibraryModes}"
+                    SelectedIndex="{Binding GameLibraryDefaultModeIndex}" VerticalAlignment="Center"
+                    AutomationProperties.Name="Launch mode for new Game Library titles" />
+        </Grid>
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Offer titles with no launch route" Classes="setting-title" />
+            <TextBlock Text="Packages WSGM cannot give the Steam overlay. They can only be imported as controller only."
+                       Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
+          <ToggleSwitch Grid.Column="1" IsChecked="{Binding GameLibraryImportUnroutable}"
+                        VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,200" ColumnSpacing="8">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="New titles start with artwork from" Classes="setting-title" />
+            <TextBlock Text="Each artwork type can still be changed per title, or for every title at once, before saving."
+                       Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
+          <ComboBox Grid.Column="1" ItemsSource="{Binding GameLibraryArtworkPreferences}"
+                    SelectedIndex="{Binding GameLibraryArtworkPreferenceIndex}" VerticalAlignment="Center"
+                    AutomationProperties.Name="Where Game Library artwork starts from" />
+        </Grid>
+      </Border>
     </StackPanel>
-  </Border>
   </ScrollViewer>
 </UserControl>

@@ -97,14 +97,7 @@ public sealed partial class SettingsViewModel
             0, Enum.GetValues<DeviceGlyphSelection>().Length - 1);
 
         config.Performance.Enabled = PerformanceEnabled;
-        config.Performance.OsdCustomOrder = OsdCustomOrder;
-        config.Performance.OsdCustomTime = Math.Clamp(OsdCustomTimeIndex, 0, 2);
-        config.Performance.OsdCustomFps = Math.Clamp(OsdCustomFpsIndex, 0, 2);
-        config.Performance.OsdCustomCpu = Math.Clamp(OsdCustomCpuIndex, 0, 2);
-        config.Performance.OsdCustomRam = Math.Clamp(OsdCustomRamIndex, 0, 2);
-        config.Performance.OsdCustomGpu = Math.Clamp(OsdCustomGpuIndex, 0, 2);
-        config.Performance.OsdCustomVram = Math.Clamp(OsdCustomVramIndex, 0, 2);
-        config.Performance.OsdCustomBattery = Math.Clamp(OsdCustomBatteryIndex, 0, 2);
+        SaveOsdWidgets(config.Performance);
         config.Cef.Enabled = CefEnabled;
         config.Cef.LibraryTabs = CefLibraryTabs;
         config.Cef.CardManager = CefCardManager;
@@ -137,6 +130,7 @@ public sealed partial class SettingsViewModel
                 .Where(r => !string.IsNullOrWhiteSpace(r.Path))
                 .Select(r => new StartupAppConfig
                 {
+                    Name = r.Label.Trim(),
                     Path = r.Path.Trim(),
                     Args = r.Args.Trim(),
                     Enabled = r.Enabled,
@@ -189,6 +183,15 @@ public sealed partial class SettingsViewModel
             return;
         }
 
+        // Save stays clickable while it looks idle, because a change can arrive without an event the
+        // window counts on. Counted again here, it either writes or says why it did not.
+        RefreshUnsavedChanges();
+        if (_savedState is not null && !HasUnsavedChanges)
+        {
+            StatusText = "Nothing to save.";
+            return;
+        }
+
         IsSaving = true;
         StatusText = "Saving…";
         var importLease = false;
@@ -217,6 +220,9 @@ public sealed partial class SettingsViewModel
             // preference then failed, so what follows it outside the configuration is applied too.
             AdvanceSharedBaseline(request);
             CompletePersistedSave(result, request);
+            // What this request wrote is saved; an edit made while it ran still counts.
+            RecordSavedState(request);
+            RefreshUnsavedChanges();
             var applyFailure = await ApplyAfterSaveAsync(result.Config, result.Changes);
             Raise(nameof(SteamInputShimStatusText));
             StatusText = result.Failure is not null

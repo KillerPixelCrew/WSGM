@@ -42,6 +42,38 @@ public sealed partial class SettingsViewModel
         private set => SetField(ref field, value, nameof(SteamAutostartStatusText));
     }
 
+    /// <summary>Gets whether Windows may still start Steam on its own, as far as the last look found.</summary>
+    public bool SteamAutostartNeedsAttention
+    {
+        get;
+        private set
+        {
+            if (SetFieldIfChanged(ref field, value, nameof(SteamAutostartNeedsAttention)))
+            {
+                Raise(nameof(SteamAutostartChip));
+            }
+        }
+    }
+
+    /// <summary>Gets the Steam start's status chip.</summary>
+    public string SteamAutostartChip => SteamAutostartNeedsAttention ? "Needs attention" : "Owned by WSGM";
+
+    /// <summary>Gets whether another handheld manager may still run, as far as the last look found.</summary>
+    public bool OtherManagersNeedAttention
+    {
+        get;
+        private set
+        {
+            if (SetFieldIfChanged(ref field, value, nameof(OtherManagersNeedAttention)))
+            {
+                Raise(nameof(OtherManagersChip));
+            }
+        }
+    }
+
+    /// <summary>Gets the device manager's status chip.</summary>
+    public string OtherManagersChip => OtherManagersNeedAttention ? "Needs attention" : "Owned by WSGM";
+
     /// <summary>Gets which other handheld managers WSGM turned off, refreshed on demand.</summary>
     public string OtherManagersStatusText
     {
@@ -186,6 +218,7 @@ public sealed partial class SettingsViewModel
             if (enabled.Length == 0)
             {
                 SteamAutostartStatusText = "WSGM starts Steam; Windows has no Steam startup entry of its own.";
+                SteamAutostartNeedsAttention = false;
                 return;
             }
 
@@ -195,6 +228,7 @@ public sealed partial class SettingsViewModel
             {
                 SteamAutostartStatusText = $"Windows starts Steam from {enabled.Length} place(s). "
                                            + "Turn this on and save to let WSGM own that start.";
+                SteamAutostartNeedsAttention = true;
                 SteamAutostartTakeoverAccepted = true;
                 return;
             }
@@ -204,11 +238,13 @@ public sealed partial class SettingsViewModel
                 ? $"Turned off {result.Disabled.Count} Steam startup entry/entries; WSGM starts Steam."
                 : "Some Steam startup entries are still enabled: "
                   + string.Join(", ", result.Pending.Concat(result.NeedsElevation).Select(source => source.Describe()));
+            SteamAutostartNeedsAttention = !result.Complete;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             _services.Report("Steam autostart takeover failed", ex);
             SteamAutostartStatusText = $"Could not read Windows' startup entries: {ex.Message}";
+            SteamAutostartNeedsAttention = true;
         }
     }
 
@@ -224,6 +260,7 @@ public sealed partial class SettingsViewModel
             {
                 OtherManagersStatusText = "Nothing else manages this device. "
                                           + DescribeOtherManagers(await Task.Run(_services.LoadPersisted));
+                OtherManagersNeedAttention = false;
                 return;
             }
 
@@ -235,6 +272,7 @@ public sealed partial class SettingsViewModel
             if (!(await Task.Run(_services.LoadPersisted)).OtherManagersTakeoverAccepted)
             {
                 OtherManagersStatusText = $"Found {found}. Save to let WSGM turn them off.";
+                OtherManagersNeedAttention = true;
                 OtherManagersTakeoverAccepted = true;
                 return;
             }
@@ -247,11 +285,13 @@ public sealed partial class SettingsViewModel
                       ? ""
                       : $" Still running until you close them or sign out: {string.Join(", ", result.StillRunning)}.")
                 : "Could not turn off " + string.Join(", ", result.Failed) + ".";
+            OtherManagersNeedAttention = result.Failed.Count > 0;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             _services.Report("Other managers takeover failed", ex);
             OtherManagersStatusText = $"Could not look for other managers: {ex.Message}";
+            OtherManagersNeedAttention = true;
         }
     }
 

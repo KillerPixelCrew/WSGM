@@ -1,0 +1,86 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:s="using:WSGM.Settings"
+             x:Class="WSGM.Settings.Pages.StartupAppPage"
+             x:DataType="s:SettingsViewModel">
+  <!-- Startup › Edit app: what one startup app runs and how. -->
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                DataContext="{Binding EditedStartupApp}">
+    <StackPanel Classes="settings-page" x:DataType="s:StartupAppRow">
+      <Border Classes="settings-hero">
+        <StackPanel Spacing="2">
+          <TextBlock Text="{Binding Name}" Classes="setting-title" />
+          <TextBlock Text="{Binding Detail}" Classes="caption"
+                     Classes.problem="{Binding Missing}" TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+
+      <Border Classes="section-header">
+        <TextBlock Text="Program" />
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+          <TextBlock Text="Name" Classes="setting-title" VerticalAlignment="Center" Width="100" />
+          <TextBox x:Name="NameBox" Grid.Column="1" Text="{Binding Label}" MaxLength="200"
+                   PlaceholderText="{Binding Name}" />
+          <Button Grid.Column="2" Content="Type" Tag="Label" Click="OnType"
+                  AutomationProperties.Name="Type the name with the on-screen keyboard" />
+        </Grid>
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+          <TextBlock Text="Program" Classes="setting-title" VerticalAlignment="Center" Width="100" />
+          <TextBox x:Name="PathBox" Grid.Column="1" Text="{Binding Path}"
+                   MaxLength="32767" PlaceholderText="Program or protocol" />
+          <Button Grid.Column="2" Content="Type" Tag="Path" Click="OnType"
+                  AutomationProperties.Name="Type the program with the on-screen keyboard" />
+          <Button Grid.Column="3" Content="Browse…" Click="OnBrowse" />
+        </Grid>
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+          <TextBlock Text="Arguments" Classes="setting-title" VerticalAlignment="Center" Width="100" />
+          <TextBox x:Name="ArgsBox" Grid.Column="1" Text="{Binding Args}"
+                   MaxLength="32767" PlaceholderText="None" />
+          <Button Grid.Column="2" Content="Type" Tag="Args" Click="OnType"
+                  AutomationProperties.Name="Type the arguments with the on-screen keyboard" />
+        </Grid>
+      </Border>
+
+      <Border Classes="section-header">
+        <TextBlock Text="How it runs" />
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Run at sign-in" Classes="setting-title" />
+            <TextBlock Text="Off keeps the app in the list without starting it." Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
+          <ToggleSwitch Grid.Column="1" IsChecked="{Binding Enabled}"
+                        VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Run as administrator" Classes="setting-title" />
+            <TextBlock Text="For tools that need it, like some fan and RGB controllers." Classes="caption"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+          <ToggleSwitch Grid.Column="1" IsChecked="{Binding Elevated}"
+                        VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Restart if it exits" Classes="setting-title" />
+            <TextBlock Text="Starts the app again when it closes or crashes." Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
+          <ToggleSwitch Grid.Column="1" IsChecked="{Binding AutoRelaunch}"
+                        VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

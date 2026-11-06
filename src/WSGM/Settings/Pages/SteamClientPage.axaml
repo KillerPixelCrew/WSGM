@@ -1,0 +1,52 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:s="using:WSGM.Settings"
+             x:Class="WSGM.Settings.Pages.SteamClientPage"
+             x:DataType="s:SettingsViewModel">
+  <!-- Steam › Client: what WSGM changes in the Big Picture client. -->
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Classes="settings-page">
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Big Picture Wi-Fi indicator" Classes="setting-title" />
+            <TextBlock Text="Make Big Picture's header Wi-Fi icon reflect the real connection." Classes="caption"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+          <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefWifiIndicator}" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Native Quick Access bridge" Classes="setting-title" />
+            <TextBlock
+              Text="Use the fingerprint-gated persistent Steam UI host. An incompatible Steam build stays untouched."
+              Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
+          <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefNativeQuickAccess}" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Keep awake during downloads" Classes="setting-title" />
+            <TextBlock Text="Hold a wake lock while Steam downloads, so standby cannot interrupt them."
+                       Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
+          <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefDownloadKeepAwake}" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Download queue sorting" Classes="setting-title" />
+            <TextBlock Text="Add Name, Size and Type sort buttons to Big Picture's download queue." Classes="caption"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+          <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefDownloadQueueSort}" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

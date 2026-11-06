@@ -3,7 +3,6 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using WSGM.Controls;
 using WSGM.Settings;
 using WSGM.UiTests.Infrastructure;
 using WSGM.UiTests.Visual;
@@ -56,7 +55,7 @@ public sealed class SettingsLayoutTests
             UiFixture.Click(window, UiFixture.Tab(window, i));
             Dispatcher.UIThread.RunJobs();
             var button = UiFixture.Tab(window, i);
-            Assert.True(button.Classes.Contains("selected"));
+            Assert.Contains("selected", button.Classes);
             Assert.InRange(button.TranslatePoint(new Point(button.Bounds.Width, button.Bounds.Height), window)!.Value.Y,
                 0, 640);
             var bottom = save.TranslatePoint(new Point(0, save.Bounds.Height), window)!.Value.Y;

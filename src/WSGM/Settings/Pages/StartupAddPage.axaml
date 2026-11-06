@@ -1,0 +1,47 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:s="using:WSGM.Settings"
+             x:Class="WSGM.Settings.Pages.StartupAddPage"
+             x:DataType="s:SettingsViewModel">
+  <!-- Startup › Add app: companion apps found on this PC first, then any program. Adding one opens its editor. -->
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Classes="settings-page">
+      <Border Classes="section-header">
+        <TextBlock Text="Found on this PC" />
+      </Border>
+      <Border Classes="settings-card" IsVisible="{Binding NoStartupSuggestions}">
+        <TextBlock Text="No known companion apps were found. Choose the program below." Classes="caption"
+                   TextWrapping="Wrap" />
+      </Border>
+      <ItemsControl ItemsSource="{Binding StartupSuggestions}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="s:StartupSuggestion">
+            <Border Classes="setting-row">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <StackPanel VerticalAlignment="Center" Spacing="1">
+                  <TextBlock Text="{Binding Label}" Classes="setting-title" />
+                  <TextBlock Text="{Binding Path}" Classes="caption" TextTrimming="PathSegmentEllipsis" />
+                </StackPanel>
+                <Button Grid.Column="1" Content="Add" Click="OnAddSuggestion" VerticalAlignment="Center"
+                        AutomationProperties.Name="{Binding Label, StringFormat='Add {0}'}" />
+              </Grid>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+
+      <Border Classes="section-header">
+        <TextBlock Text="Another program" />
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Choose a program" Classes="setting-title" />
+            <TextBlock Text="Any .exe on this PC. You can add arguments next." Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
+          <Button Grid.Column="1" Content="Browse…" Click="OnBrowse" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

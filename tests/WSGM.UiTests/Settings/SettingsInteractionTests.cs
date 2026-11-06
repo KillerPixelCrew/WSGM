@@ -4,7 +4,6 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.VisualTree;
-using WSGM.Controls;
 using WSGM.Settings;
 using WSGM.Testing;
 using WSGM.Themes;
@@ -43,7 +42,7 @@ public sealed class SettingsInteractionTests
             UiFixture.Click(window, UiFixture.Tab(window, index));
             var page = UiFixture.Named<Control>(window, name);
             Assert.True(page.IsVisible);
-            Assert.True(UiFixture.Tab(window, index).Classes.Contains("selected"));
+            Assert.Contains("selected", UiFixture.Tab(window, index).Classes);
         }
 
         var system = UiFixture.Tab(window, 0);
@@ -95,6 +94,7 @@ public sealed class SettingsInteractionTests
         fixture.Persist = _ => throw new IOException("fixture disk full");
         var window = fixture.Settings();
         var model = Assert.IsType<SettingsViewModel>(window.DataContext);
+        model.StartAtSignIn = !model.StartAtSignIn;
         UiFixture.Click(window,
             window.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, "Save changes")));
         Assert.Contains("fixture disk full", model.StatusText);

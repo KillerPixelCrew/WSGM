@@ -67,6 +67,11 @@ public sealed partial class SettingsViewModel
     /// <summary>Whether the release bundles plugins this machine cannot use.</summary>
     public bool HasUnavailablePackages => UnavailablePackages.Count > 0;
 
+    /// <summary>What the collapsed "Not for this device" row holds.</summary>
+    public string UnavailablePackagesSummary => UnavailablePackages.Count == 1
+        ? "1 plugin for other hardware, or one this release could not build"
+        : $"{UnavailablePackages.Count} plugins for other hardware, or ones this release could not build";
+
     /// <summary>Whether the installed setup is present to run Repair.</summary>
     /// <remarks>Read once: setup does not appear or vanish while the window is open.</remarks>
     public bool CanRepair => _repairAvailable ??= _services.RepairAvailable();

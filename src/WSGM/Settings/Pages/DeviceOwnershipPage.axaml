@@ -1,114 +1,117 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:s="using:WSGM.Settings"
+             xmlns:c="using:WSGM.Controls"
              x:Class="WSGM.Settings.Pages.DeviceOwnershipPage"
              x:DataType="s:SettingsViewModel">
-  <Border Padding="28,0,28,20">
-    <StackPanel>
-      <StackPanel>
-        <Border Classes="section-header">
-          <TextBlock Text="Ownership" />
-        </Border>
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="Device Integration" Classes="setting-title" />
-              <TextBlock
-                Text="Let the resident WSGM shell use the one administrator-installed device plugin. Off loads no plugin and touches no hardware."
-                Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
-            <ToggleSwitch Grid.Column="1" IsChecked="{Binding DeviceIntegrationEnabled}" VerticalAlignment="Center" />
-          </Grid>
-        </Border>
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="Controller management" Classes="setting-title" />
-              <TextBlock
-                Text="Remember whether WSGM may acquire the built-in controller and create the selected managed target."
-                Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
-            <ToggleSwitch Grid.Column="1" IsChecked="{Binding DeviceControllerManagementEnabled}"
-                          IsEnabled="{Binding DeviceIntegrationEnabled}" VerticalAlignment="Center" />
-          </Grid>
-        </Border>
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="Keep guide button chord edits" Classes="setting-title" />
-              <TextBlock
-                Text="Steam discards edits to the guide button chord layout on a Steam Deck type controller. With this on, WSGM keeps Steam's chord template equal to your last save while the Steam Deck target is active; the editor's reset to defaults still works."
-                Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
-            <ToggleSwitch Grid.Column="1" IsChecked="{Binding DeviceKeepGuideChordEdits}"
-                          IsEnabled="{Binding DeviceIntegrationEnabled}" VerticalAlignment="Center" />
-          </Grid>
-        </Border>
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="AutoTDP" Classes="setting-title" />
-              <TextBlock
-                Text="Move the power limit from measured frame delivery: more power when frames miss their deadline, less when they have room to spare. A manual power change pauses it until you turn it back on."
-                Classes="caption" TextWrapping="Wrap" />
-            </StackPanel>
-            <ToggleSwitch Grid.Column="1" IsChecked="{Binding DeviceAutoTdpEnabled}"
-                          IsEnabled="{Binding DeviceIntegrationEnabled}" VerticalAlignment="Center" />
-          </Grid>
-        </Border>
-        <Border Classes="section-header">
-          <TextBlock Text="Running owner" />
-        </Border>
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <TextBlock Text="{Binding DeviceOwnerStatusText}" Classes="caption" TextWrapping="Wrap"
-                       VerticalAlignment="Center" />
-            <Button Grid.Column="1" Content="Refresh" Click="OnRefreshStatus" VerticalAlignment="Center" />
-          </Grid>
-        </Border>
-      </StackPanel>
+  <!-- What WSGM may take over on this handheld, and how its controller appears. Hardware controls
+       live in the Overlay's Device destination and Steam; Settings owns only the policy. -->
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Classes="settings-page">
+      <Border Classes="settings-hero">
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+          <Path Data="{x:Static c:Icons.SteamLike}" Stroke="{StaticResource HcTextPrimaryBrush}" StrokeThickness="1.8"
+                Width="26" Stretch="Uniform" VerticalAlignment="Center" />
+          <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+            <TextBlock Text="This handheld" Classes="setting-title" />
+            <TextBlock Text="{Binding DeviceOwnerStatusText}" Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
+          <Button Grid.Column="2" Content="Refresh" Click="OnRefreshStatus" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
 
-      <StackPanel>
-        <Border Classes="section-header">
-          <TextBlock Text="Policy" />
-        </Border>
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <TextBlock Text="Managed controller target" Classes="setting-title" VerticalAlignment="Center" />
-            <ComboBox Grid.Column="1" Width="190" SelectedIndex="{Binding DeviceControllerTargetIndex}">
-              <ComboBoxItem Content="Steam Deck Composite" />
-              <ComboBoxItem Content="Xbox 360" />
-              <ComboBoxItem Content="DualShock 4" />
-            </ComboBox>
-          </Grid>
-        </Border>
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <TextBlock Text="Physical glyphs" Classes="setting-title" VerticalAlignment="Center" />
-            <ComboBox Grid.Column="1" Width="190" SelectedIndex="{Binding DeviceGlyphSelectionIndex}">
-              <ComboBoxItem Content="Automatic exact profile" />
-              <ComboBoxItem Content="Steam native" />
-              <ComboBoxItem Content="Reviewed profile" />
-            </ComboBox>
-          </Grid>
-        </Border>
-        <Border Classes="section-header">
-          <TextBlock Text="Profiles" />
-        </Border>
-        <Border Classes="setting-row">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel VerticalAlignment="Center" Spacing="1">
-              <TextBlock Text="Fan curves and colours" Classes="setting-title" />
-              <TextBlock Text="Make profiles here. Pick the active one in the Overlay or Steam." Classes="caption"
-                         TextWrapping="Wrap" />
-            </StackPanel>
-            <Button x:Name="OpenProfiles" Grid.Column="1" Content="Open" Click="OnOpenProfiles"
-                    VerticalAlignment="Center" />
-          </Grid>
-        </Border>
-        <TextBlock Margin="10,10,10,0" Classes="caption" TextWrapping="Wrap"
-                   Text="Hardware controls and profiles live in the overlay's Device destination. Settings owns only startup and top-level ownership policy." />
-      </StackPanel>
+      <Border Classes="section-header">
+        <TextBlock Text="What WSGM manages" />
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Device Integration" Classes="setting-title" />
+            <TextBlock Text="Off stops every hardware write. Other features keep working." Classes="caption"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+          <ToggleSwitch Grid.Column="1" IsChecked="{Binding DeviceIntegrationEnabled}" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Controller" Classes="setting-title" />
+            <TextBlock Text="Take the built-in controller and present the target below." Classes="caption"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+          <ToggleSwitch Grid.Column="1" IsChecked="{Binding DeviceControllerManagementEnabled}"
+                        IsEnabled="{Binding DeviceIntegrationEnabled}" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="AutoTDP" Classes="setting-title" />
+            <TextBlock Text="Offer automatic power limits in the Overlay and Steam." Classes="caption"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+          <ToggleSwitch Grid.Column="1" IsChecked="{Binding DeviceAutoTdpEnabled}"
+                        IsEnabled="{Binding DeviceIntegrationEnabled}" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Keep guide button chord edits" Classes="setting-title" />
+            <TextBlock Text="Leave your own Steam guide chord changes in place on a Steam Deck target." Classes="caption"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+          <ToggleSwitch Grid.Column="1" IsChecked="{Binding DeviceKeepGuideChordEdits}"
+                        IsEnabled="{Binding DeviceIntegrationEnabled}" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+
+      <Border Classes="section-header">
+        <TextBlock Text="Controller" />
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Controller target" Classes="setting-title" />
+            <TextBlock Text="How games and Steam see the controller." Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
+          <ComboBox Grid.Column="1" MinWidth="210" SelectedIndex="{Binding DeviceControllerTargetIndex}"
+                    VerticalAlignment="Center">
+            <ComboBoxItem Content="Steam Deck Composite" />
+            <ComboBoxItem Content="Xbox 360" />
+            <ComboBoxItem Content="DualShock 4" />
+          </ComboBox>
+        </Grid>
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Button glyphs" Classes="setting-title" />
+            <TextBlock Text="Labels Steam shows for the physical buttons." Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
+          <ComboBox Grid.Column="1" MinWidth="210" SelectedIndex="{Binding DeviceGlyphSelectionIndex}"
+                    VerticalAlignment="Center">
+            <ComboBoxItem Content="Automatic exact profile" />
+            <ComboBoxItem Content="Steam native" />
+            <ComboBoxItem Content="Reviewed profile" />
+          </ComboBox>
+        </Grid>
+      </Border>
+
+      <Border Classes="section-header">
+        <TextBlock Text="Profiles" />
+      </Border>
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Fan curves and colours" Classes="setting-title" />
+            <TextBlock Text="Make profiles here. Pick the active one in the Overlay or Steam." Classes="caption"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+          <Button x:Name="OpenProfiles" Grid.Column="1" Content="Open" Tag="open:Fan curves and colours" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
     </StackPanel>
-  </Border>
+  </ScrollViewer>
 </UserControl>

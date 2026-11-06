@@ -1,0 +1,26 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:s="using:WSGM.Settings"
+             x:Class="WSGM.Settings.Pages.SteamInputPage"
+             x:DataType="s:SettingsViewModel">
+  <!-- Steam › Steam Input: whether WSGM may take the controller from Steam. -->
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Classes="settings-page">
+      <Border Classes="setting-row">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="Steam Input management" Classes="setting-title" />
+            <TextBlock
+              Text="Puts a small WSGM file next to Steam so WSGM can take the controller for its own panels without writing into the running Steam. Off leaves Steam's folder alone."
+              Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
+          <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamInputManagementEnabled}" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+      <Border Classes="setting-row">
+        <TextBlock Text="{Binding SteamInputShimStatusText}" Classes="caption" TextWrapping="Wrap"
+                   VerticalAlignment="Center" />
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

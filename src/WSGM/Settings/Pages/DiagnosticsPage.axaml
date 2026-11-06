@@ -68,21 +68,38 @@
         <Border Classes="section-header">
           <TextBlock Text="If Game mode does not come up" />
         </Border>
-        <Border Classes="setting-row">
+        <Border Classes="settings-card">
+          <StackPanel Spacing="10">
           <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-            <TextBlock Text="!" FontSize="18" FontWeight="Bold" Foreground="{StaticResource HcWarningBrush}"
-                       VerticalAlignment="Center" />
-            <TextBlock Grid.Column="1"
-                       Text="If game mode does not come up, press Ctrl+Alt+Del, open Task Manager, then run explorer.exe. Run WSGM.exe --restore-shell to turn off the sign-in start and bring the desktop back; re-enable it here afterwards."
-                       Classes="caption" VerticalAlignment="Center" TextWrapping="Wrap" />
+            <Border Classes="settings-step">
+              <TextBlock Text="1" />
+            </Border>
+            <TextBlock Grid.Column="1" Text="Press Ctrl+Alt+Del and open Task Manager." Classes="caption" VerticalAlignment="Center" TextWrapping="Wrap" />
           </Grid>
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+            <Border Classes="settings-step">
+              <TextBlock Text="2" />
+            </Border>
+            <TextBlock Grid.Column="1" Text="Run explorer.exe to get the desktop back." Classes="caption" VerticalAlignment="Center" TextWrapping="Wrap" />
+          </Grid>
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+            <Border Classes="settings-step">
+              <TextBlock Text="3" />
+            </Border>
+            <TextBlock Grid.Column="1" Text="Run WSGM.exe --restore-shell to turn off the sign-in start. Turn it on again under General." Classes="caption" VerticalAlignment="Center" TextWrapping="Wrap" />
+          </Grid>
+          </StackPanel>
         </Border>
 
         <Border Classes="section-header">
-          <TextBlock Text="Last standby" />
+          <TextBlock Text="Standby" />
         </Border>
         <Border Classes="setting-row">
-          <TextBlock Text="{Binding ModernStandbyStatusText}" Classes="caption" TextWrapping="Wrap" />
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16">
+            <TextBlock Text="Last standby" Classes="setting-title" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1" Text="{Binding ModernStandbyStatusText}" Classes="caption" TextWrapping="Wrap"
+                       TextAlignment="Right" VerticalAlignment="Center" />
+          </Grid>
         </Border>
     </StackPanel>
   </ScrollViewer>

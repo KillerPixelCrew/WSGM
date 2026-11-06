@@ -60,12 +60,84 @@
     <Setter Property="BorderBrush" Value="Transparent" />
   </Style>
 
+  <!-- A status chip beside a row's editor; good and attention give it a tone. -->
+  <Style Selector="Border.settings-chip">
+    <Setter Property="Background" Value="{StaticResource HcBadgeBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource HcBadgeBorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Padding" Value="9,2" />
+  </Style>
+  <Style Selector="Border.settings-chip TextBlock">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Foreground" Value="{StaticResource HcTextSecondaryBrush}" />
+  </Style>
+  <Style Selector="Border.settings-chip.good">
+    <Setter Property="Background" Value="{StaticResource HcBadgeGoodBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource HcBadgeGoodBorderBrush}" />
+  </Style>
+  <Style Selector="Border.settings-chip.good TextBlock">
+    <Setter Property="Foreground" Value="{StaticResource HcSuccessBrush}" />
+  </Style>
+  <Style Selector="Border.settings-chip.attention">
+    <Setter Property="Background" Value="{StaticResource HcBadgeWarnBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource HcBadgeWarnBorderBrush}" />
+  </Style>
+  <Style Selector="Border.settings-chip.attention TextBlock">
+    <Setter Property="Foreground" Value="{StaticResource HcWarningBrush}" />
+  </Style>
+
+  <!-- A key or button of a shortcut. -->
+  <Style Selector="Border.settings-keycap">
+    <Setter Property="Background" Value="{StaticResource HcControlBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource HcControlBorderBrush}" />
+    <Setter Property="BorderThickness" Value="1,1,1,3" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="Padding" Value="8,2" />
+    <Setter Property="MinWidth" Value="30" />
+  </Style>
+  <Style Selector="Border.settings-keycap TextBlock">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+  </Style>
+
+  <!-- A numbered step of written instructions. -->
+  <Style Selector="Border.settings-step">
+    <Setter Property="Width" Value="24" />
+    <Setter Property="Height" Value="24" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Background" Value="{StaticResource HcControlBrush}" />
+  </Style>
+  <Style Selector="Border.settings-step TextBlock">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+
+  <!-- A card that holds more than one row's worth: instructions, a list, a summary of the handheld. -->
+  <Style Selector="Border.settings-card, Border.settings-hero">
+    <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="Padding" Value="14,12" />
+    <Setter Property="Margin" Value="0,0,0,4" />
+  </Style>
+  <Style Selector="Border.settings-hero">
+    <Setter Property="Margin" Value="0,4,0,4" />
+    <Setter Property="Padding" Value="16,14" />
+  </Style>
+
   <Style Selector="Border.section-header">
     <Setter Property="Margin" Value="2,16,0,6" />
   </Style>
   <Style Selector="Border.section-header TextBlock">
     <Setter Property="FontSize" Value="15" />
     <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="Border.section-header TextBlock.caption">
+    <Setter Property="FontSize" Value="12.5" />
+    <Setter Property="FontWeight" Value="Normal" />
   </Style>
 
   <!-- One row style: title and one line of help on the left, the editor on the right. -->
@@ -77,6 +149,18 @@
     <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
     <Setter Property="BorderThickness" Value="2" />
     <Setter Property="BorderBrush" Value="Transparent" />
+  </Style>
+  <!-- A changed row carries an accent edge until it is saved. -->
+  <Style Selector="Border.setting-row.pending">
+    <Setter Property="BoxShadow" Value="inset 4 0 0 0 #FFFF9D3D" />
+  </Style>
+  <!-- Save with nothing to write keeps its place and focus but steps back from the primary look. -->
+  <Style Selector="Button.primary.settings-save-idle">
+    <Setter Property="Background" Value="{StaticResource HcControlBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource HcTextMutedBrush}" />
+  </Style>
+  <Style Selector="TextBlock.caption.settings-unsaved">
+    <Setter Property="Foreground" Value="{DynamicResource HcAccentBrush}" />
   </Style>
   <Style Selector="Border.setting-row:focus-within">
     <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
@@ -95,6 +179,48 @@
   </Style>
   <Style Selector="Border.setting-row ToggleSwitch, Border.setting-row CheckBox">
     <Setter Property="FontSize" Value="13" />
+  </Style>
+
+  <!-- A card of rows sharing column headings, like the overlay widget table. -->
+  <Style Selector="Border.settings-table">
+    <Setter Property="Padding" Value="0,10,0,6" />
+  </Style>
+  <Style Selector="TextBlock.settings-column">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{StaticResource HcTextSecondaryBrush}" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.setting-row.settings-table-row">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Margin" Value="0" />
+    <Setter Property="MinHeight" Value="40" />
+    <Setter Property="Padding" Value="12,2" />
+  </Style>
+  <!-- A picked-up row, which Up and Down move. -->
+  <Style Selector="Border.setting-row.settings-table-row.moving">
+    <Setter Property="Background" Value="{StaticResource HcCardHoverBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+  </Style>
+  <!-- An icon button that opens a web page or more actions for its row. -->
+  <Style Selector="Button.settings-link, Button.settings-more">
+    <Setter Property="MinWidth" Value="40" />
+    <Setter Property="MinHeight" Value="32" />
+    <Setter Property="Padding" Value="10,6" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.settings-link">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+  </Style>
+  <Style Selector="Button.settings-grip">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="4,6" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Cursor" Value="SizeNorthSouth" />
   </Style>
 
   <!-- A caption that reports a failure where it happened. -->
