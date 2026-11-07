@@ -28,8 +28,8 @@ Read docs/overlay-and-input.md, "In-window surfaces", for utility, keyboard, cre
   window; a pinnable Tools section declares its pin id in its `SubViews` entry.
 - OverlayController owns lifetime and integration sequencing; `OverlayActivation`, `QuickAccessPinStore`,
   `OverlayPowerState`, `OverlayOpenApps` and `OverlaySheetServices` own summon triggers, pins, Windows power state, the
-  Open apps strip and per-sheet service wiring. `OverlayOpenApps` owns the strip's state for whichever surface is open,
-  the sheet's rail or the Game Mode taskbar; both render it with the `DeckAppChipTemplate` and `DeckTrayIconTemplate`
+  Open apps strip and per-sheet service wiring. `OverlayOpenApps` owns the strip's state for whichever surface is open:
+  the Game Mode taskbar, or on the desktop the sheet's rail, which Game Mode hides. Both render it with the `DeckAppChipTemplate` and `DeckTrayIconTemplate`
   templates and route its presses through `OpenAppsStrip`. Views and controls render state and report intent; they do
   not mutate ConfigStore or acquire leases directly.
 - The sheet and the Game Mode taskbar (`TaskbarWindow`) are the controller's two top-level surface windows. They share

@@ -130,7 +130,7 @@
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
           <StackPanel VerticalAlignment="Center" Spacing="1">
             <TextBlock Text="From the bottom" Classes="setting-title" />
-            <TextBlock Text="Opens the taskbar with Start, open windows and tray icons. On the desktop, Windows keeps this edge." Classes="caption"
+            <TextBlock Text="Swipe up from the bottom to open the taskbar. On the desktop, Windows keeps this edge." Classes="caption"
                        TextWrapping="Wrap" />
           </StackPanel>
           <ToggleSwitch Grid.Column="1" IsChecked="{Binding GestureBottom}" VerticalAlignment="Center" />

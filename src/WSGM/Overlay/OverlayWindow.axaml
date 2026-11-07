@@ -284,11 +284,13 @@
           </StackPanel>
         </Border>
 
-        <!-- Open apps: the chip row pinned to the sheet bottom, the same chips and tray pills
-                 (DeckAppChipTemplate, DeckTrayIconTemplate) as the Game Mode taskbar. The strip
+        <!-- Open apps, desktop mode only: the chip row pinned to the sheet bottom, the same chips
+                 and tray pills (DeckAppChipTemplate, DeckTrayIconTemplate) as the Game Mode taskbar,
+                 which owns them in Game Mode. The row is Auto, so hiding it leaves no gap. The strip
                  scrolls sideways once they no longer fit; OpenAppsStrip routes the presses and
                  scrolls controller focus into view. -->
         <Border Grid.Row="3" x:Name="AppsStrip" DataContext="{x:Null}" x:DataType="ov:AppSwitcherViewModel"
+                IsVisible="{Binding $parent[Window].((ov:OverlayViewModel)DataContext).ExplorerRunning, FallbackValue=False}"
                 BorderBrush="{StaticResource DeckDividerBrush}" BorderThickness="0,1,0,0" Padding="24,8" Background="{StaticResource DeckRailBrush}">
           <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
             <TextBlock Text="OPEN APPS" Classes="eyebrow" VerticalAlignment="Center" />

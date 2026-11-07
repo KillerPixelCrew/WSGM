@@ -537,15 +537,16 @@ lesser failure, so prefer a throttled one-shot warning over a narrower catch.
 
 In Game Mode a bottom swipe opens the slim taskbar described in
 [Overlay and input](overlay-and-input.md#game-mode-taskbar); it shows the same window chips and tray
-icons with Start, and nothing else. The quick access sheet keeps the full strip too. Switchable
-windows (`WindowFinder.ListSwitchableWindows`) form a horizontally scrolling chip strip along the
-sheet's bottom. Tray icons share that bottom rail, and `OverlayPlacement.ComputeTrayMaxWidth` limits
-their share to keep the app strip usable. Wi-Fi, Bluetooth, audio, brightness, keyboard and eject
-utilities, plus battery and clock from `Shell\Session\SystemStatus`, remain in the fixed header.
-Utility targets keep their size while secondary status labels collapse at narrow logical widths.
-Chip refreshes reconcile in place, because a wholesale rebuild destroys the focused button under the
-gamepad cursor. The radio controls open the in-window `RadioManager` panel and never invoke
-`ms-settings:`, which the immersive shell cannot activate without Explorer in the session.
+icons with Start, and nothing else, and the quick access sheet hides its own strip there. On the
+desktop, switchable windows (`WindowFinder.ListSwitchableWindows`) form a horizontally scrolling
+chip strip along the sheet's bottom. Tray icons share that bottom rail, and
+`OverlayPlacement.ComputeTrayMaxWidth` limits their share to keep the app strip usable. Wi-Fi,
+Bluetooth, audio, brightness, keyboard and eject utilities, plus battery and clock from
+`Shell\Session\SystemStatus`, remain in the fixed header. Utility targets keep their size while
+secondary status labels collapse at narrow logical widths. Chip refreshes reconcile in place,
+because a wholesale rebuild destroys the focused button under the gamepad cursor. The radio controls
+open the in-window `RadioManager` panel and never invoke `ms-settings:`, which the immersive shell
+cannot activate without Explorer in the session.
 
 ### The tray host is a window class literally named `Shell_TrayWnd`
 

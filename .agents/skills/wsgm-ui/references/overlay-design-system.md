@@ -207,7 +207,7 @@ scrolls.
 | Header (72, `DeckRailBrush`) | Back pill on nested pages, wordmark, Profile selector (176), Manage profiles; right: Wi-Fi, Bluetooth, Volume, Brightness, Eject, Keyboard, Battery, Clock, Close |
 | Tabs (44, `DeckRailBrush`)   | LT, Quick access, Steam, Device, Tools, Power, RT (`TabStrip.sheet`)                                                                                              |
 | Workspace                    | Rail pane (240, `DeckRailBrush`) and controls pane (`DeckControlsBrush`), 12 apart                                                                                |
-| Open apps                    | `OPEN APPS` eyebrow, app chips, tray icons, Y Next app                                                                                                            |
+| Open apps (desktop only)     | `OPEN APPS` eyebrow, app chips, tray icons, Y Next app; in Game Mode the taskbar owns them and the row collapses                                                  |
 | Footer hints                 | A Select, B Back, X Pin to Quick access, optional Y; right: LT/RT, D-pad, B / Esc                                                                                 |
 
 The rail pane starts with the destination title and description, then rail rows. The controls pane's

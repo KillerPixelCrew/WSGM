@@ -1150,11 +1150,42 @@ public sealed class ConfigurationTests
     }
 
     [Fact]
-    public void MissingBottomBindingIsDisabledWithoutChangingTopBinding()
+    public void MissingBottomBindingOpensTheTaskbarWithoutChangingTopBinding()
     {
         var gestures = JsonSerializer.Deserialize<GestureConfig>("{}")!;
-        Assert.False(gestures.BottomEdge);
+        Assert.True(gestures.BottomEdgeTaskbar);
         Assert.True(gestures.TopEdge);
+    }
+
+    [Fact]
+    public void TheRetiredOffByDefaultBottomKeyNoLongerDisablesTheTaskbarSwipe()
+    {
+        // Every install stored the old key's default false; the taskbar swipe must be on for them all.
+        var gestures = JsonSerializer.Deserialize<GestureConfig>(
+            "{\"BottomEdge\":false,\"TopEdge\":true,\"LeftEdgeSteamMenu\":true,\"RightEdgeSteamQuickAccess\":true}")!;
+
+        Assert.True(gestures.BottomEdgeTaskbar);
+        Assert.DoesNotContain("\"BottomEdge\"", JsonSerializer.Serialize(gestures));
+    }
+
+    [Fact]
+    public void AStoredConfigWithTheRetiredBottomKeyLoadsWithTheTaskbarSwipeOn()
+    {
+        using var temporary = new TemporaryConfigStore();
+        // A change makes the store write the file, which then carries the retired key in place of the new one.
+        temporary.Store.Update(config =>
+        {
+            config.Gestures.BottomEdgeTaskbar = false;
+            return true;
+        });
+        var path = temporary.Store.ConfigPath;
+        var json = File.ReadAllText(path);
+        Assert.Contains("\"BottomEdgeTaskbar\": false", json);
+        File.WriteAllText(path, json.Replace("\"BottomEdgeTaskbar\": false", "\"BottomEdge\": false"));
+
+        var loaded = temporary.Store.Read().RequireConfig();
+
+        Assert.True(loaded.Gestures.BottomEdgeTaskbar);
     }
 
     [Theory]
@@ -1162,16 +1193,16 @@ public sealed class ConfigurationTests
     [InlineData(false)]
     public void ExplicitBottomChoiceSurvivesConfigurationRoundTrip(bool enabled)
     {
-        var json = JsonSerializer.Serialize(new GestureConfig { BottomEdge = enabled });
-        Assert.Equal(enabled, JsonSerializer.Deserialize<GestureConfig>(json)!.BottomEdge);
+        var json = JsonSerializer.Serialize(new GestureConfig { BottomEdgeTaskbar = enabled });
+        Assert.Equal(enabled, JsonSerializer.Deserialize<GestureConfig>(json)!.BottomEdgeTaskbar);
     }
 
     [Fact]
-    public void NewConfigurationsKeepBottomDisabledAndTopAvailable()
+    public void NewConfigurationsOpenTheTaskbarFromTheBottomAndKeepTopAvailable()
     {
         var gestures = new GestureConfig();
 
-        Assert.False(gestures.BottomEdge);
+        Assert.True(gestures.BottomEdgeTaskbar);
         Assert.True(gestures.TopEdge);
         Assert.True(gestures.LeftEdgeSteamMenu);
         Assert.True(gestures.RightEdgeSteamQuickAccess);
@@ -1218,7 +1249,7 @@ public sealed class ConfigurationTests
         var apps = new List<StartupAppConfig>();
         var hotkey = new HotkeyConfig { Enabled = true, VirtualKey = 0x41 };
         var chord = new GamepadChordConfig { Enabled = true, Buttons = (int)GamepadButtons.A };
-        var gestures = new GestureConfig { BottomEdge = true };
+        var gestures = new GestureConfig { BottomEdgeTaskbar = false };
         var textPlacement = new SplashElementPlacement { Anchor = SplashPlacementAnchor.BottomCenter };
         var spinnerPlacement = new SplashElementPlacement { Mode = SplashPlacementMode.Absolute, X = 10, Y = 20 };
         var logoPlacement = new SplashElementPlacement { Mode = SplashPlacementMode.Anchor };

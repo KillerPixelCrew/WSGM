@@ -37,6 +37,6 @@ public sealed class SettingsViewModelTests
         var snapshot = viewModel.SnapshotForPreview();
 
         Assert.Equal(top, snapshot.Gestures.TopEdge);
-        Assert.Equal(bottom, snapshot.Gestures.BottomEdge);
+        Assert.Equal(bottom, snapshot.Gestures.BottomEdgeTaskbar);
     }
 }

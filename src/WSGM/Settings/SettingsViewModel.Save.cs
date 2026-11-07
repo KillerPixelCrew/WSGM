@@ -116,7 +116,7 @@ public sealed partial class SettingsViewModel
         config.AutoTdpTraceEnabled = AutoTdpTrace;
         config.Hotkey = _hotkey;
         config.GamepadChord = _chord;
-        config.Gestures.BottomEdge = GestureBottom;
+        config.Gestures.BottomEdgeTaskbar = GestureBottom;
         config.Gestures.TopEdge = GestureTop;
         config.Gestures.LeftEdgeSteamMenu = GestureLeftSteamMenu;
         config.Gestures.RightEdgeSteamQuickAccess = GestureRightSteamQuickAccess;

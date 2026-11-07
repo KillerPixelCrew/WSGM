@@ -94,10 +94,12 @@ source renderer and keep active drafts through a value refresh. An unavailable s
 removable. The Game Mode / Desktop switch (`home.desktop`) is always pinned first: configuration
 normalization restores it and a toggle never removes it.
 
-Open apps and tray icons share the bottom rail. `AppSwitcherViewModel` reconciles window chips in
-place, so a refresh does not replace the focused chip. Y cycles to the next window; X on a tray icon
-opens its context menu. Process and window enumeration runs off the UI thread, and only its detached
-snapshot returns to Avalonia.
+On the desktop, Open apps and tray icons share the sheet's bottom rail. In Game Mode the taskbar
+owns them, so the sheet hides that rail, Y does nothing and the sheet reads the windows once instead
+of every second. `AppSwitcherViewModel` reconciles window chips in place, so a refresh does not
+replace the focused chip. Y cycles to the next window; X on a tray icon opens its context menu.
+Process and window enumeration runs off the UI thread, and only its detached snapshot returns to
+Avalonia.
 
 ## Game Mode taskbar
 
@@ -421,12 +423,12 @@ window reads each report once and hands the decoded primary contact to every sub
 the last subscription to go removes the registration and frees the digitizer data on the UI thread.
 The thresholds below live in the pure `EdgeSwipeRecognizer`. Settings exposes each edge binding:
 
-| Edge   | Action                                                         |
-| ------ | -------------------------------------------------------------- |
-| top    | opens the sheet                                                |
-| bottom | disabled by default; optionally opens the taskbar in Game Mode |
-| left   | sends Steam's installed-client mapping Ctrl+1 (Steam menu)     |
-| right  | sends Ctrl+2 (Quick Access Menu)                               |
+| Edge   | Action                                                                       |
+| ------ | ---------------------------------------------------------------------------- |
+| top    | opens the sheet                                                              |
+| bottom | on by default (`Gestures.BottomEdgeTaskbar`); opens the taskbar in Game Mode |
+| left   | sends Steam's installed-client mapping Ctrl+1 (Steam menu)                   |
+| right  | sends Ctrl+2 (Quick Access Menu)                                             |
 
 A swipe must start within 2 mm of the edge. The width comes from the digitizer's HID physical
 extents, about 22 pixels on the Claw 8. A digitizer that reports no plausible length unit uses 2 %
@@ -465,6 +467,11 @@ Live device and performance publications may request a redraw while a finger or 
 down. The sheet coalesces those redraws and defers them until the routed pointer release has
 completed, because replacing a release-mode Avalonia `Button` between its press and release drops
 its `Click` and looks exactly like a control that needs a second tap.
+
+The bottom edge's key is `Gestures.BottomEdgeTaskbar`, on by default. It replaced `BottomEdge`,
+which opened the sheet on Open apps and was off by default; that key is ignored, so a stored false
+from it does not hide the taskbar. While the desktop runs, `OverlayActivation` logs once that the
+bottom edge is on but ignored.
 
 On the desktop Explorer's taskbar owns the bottom edge; falling back to the sheet there read as a
 regression (device-reported). Left and right always send their keys, including while a game is

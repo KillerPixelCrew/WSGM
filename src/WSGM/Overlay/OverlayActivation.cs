@@ -178,6 +178,13 @@ internal sealed class OverlayActivation : IDisposable
         }
 
         _touchSwipes.Configure(gestures);
+        if (gestures.BottomEdgeTaskbar && ExplorerControl.IsDesktopShellRunning())
+        {
+            // Logged once per change: a remote log must show why a bottom swipe opens nothing on the desktop.
+            Log.Change("touch.bottom-desktop",
+                "Bottom edge swipe is on but ignored while the desktop runs: Explorer's taskbar owns that edge. "
+                + "It opens the taskbar in Game Mode.");
+        }
 
         // The open sheet disarms the edges: docked on the top edge, a re-arm would
         // read touches inside its header as top-edge swipes.

@@ -533,7 +533,11 @@ public sealed partial class OverlayController : IDisposable
         var showDone = Stopwatch.GetTimestamp();
         LogOpenTimings(openStarted, setupDone, constructDone, showDone);
         _powerState.StartWakeLockRefresh();
-        _openApps.Start();
+        // In Game Mode the taskbar owns the open windows and the sheet hides its strip, so it is read once only.
+        if (explorerRunning)
+        {
+            _openApps.Start();
+        }
     }
 
     /// <summary>Brings the open sheet back to the front, cancelling a deferred close in progress.</summary>

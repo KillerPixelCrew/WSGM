@@ -76,7 +76,7 @@ internal sealed class TouchSwipeMonitor : IDisposable
     /// <param name="gestures">The persisted gesture configuration to observe.</param>
     public void Configure(GestureConfig gestures)
     {
-        _bottomEnabled = gestures.BottomEdge;
+        _bottomEnabled = gestures.BottomEdgeTaskbar;
         _rightEnabled = gestures.RightEdgeSteamQuickAccess;
         _leftEnabled = gestures.LeftEdgeSteamMenu;
         _topEnabled = gestures.TopEdge;

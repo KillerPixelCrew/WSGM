@@ -39,6 +39,8 @@ public sealed class VisualTests
     [InlineData("overlay-quick-access-980", "quick-access", 980, 640)]
     [InlineData("overlay-quick-access-1280", "quick-access", 1280, 800)]
     [InlineData("overlay-quick-access-1920", "quick-access", 1920, 1080)]
+    [InlineData("overlay-quick-access-game-mode-980", "game-mode", 980, 640)]
+    [InlineData("overlay-quick-access-game-mode-1280", "game-mode", 1280, 800)]
     [InlineData("overlay-device-core-1280", "core", 1280, 800)]
     [InlineData("overlay-device-core-1920", "core", 1920, 1080)]
     [InlineData("overlay-device-plugin-1280", "plugin", 1280, 800)]
@@ -67,6 +69,14 @@ public sealed class VisualTests
         using var schemes = UiFixture.PowerProfiles(new FakePower());
         await schemes.RefreshAsync();
         var window = fixture.Overlay(width, height, uiScale);
+        if (page == "game-mode")
+        {
+            // In Game Mode the taskbar owns the open windows and tray icons: the sheet's Open apps row collapses.
+            ((OverlayViewModel)window.DataContext!).ExplorerRunning = false;
+            Dispatcher.UIThread.RunJobs();
+            Assert.False(UiFixture.Named<Border>(window, "AppsStrip").IsVisible);
+        }
+
         // Every destination opens its selected section beside a persistent rail. With no device
         // source attached, Device is hidden and these are the remaining destination indexes.
         if (page is "steam" or "tools" or "about" or "power")
@@ -82,7 +92,7 @@ public sealed class VisualTests
                 UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SystemAbout));
             }
         }
-        else if (page != "quick-access")
+        else if (page is not ("quick-access" or "game-mode"))
         {
             window.AttachPowerSchemes(schemes);
             if (page == "plugin")
