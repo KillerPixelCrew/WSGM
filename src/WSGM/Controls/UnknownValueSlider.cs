@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Avalonia;
 using Avalonia.Automation.Peers;
 using Avalonia.Automation.Provider;
@@ -7,6 +8,7 @@ using Avalonia.Controls.Automation.Peers;
 using Avalonia.Controls.Primitives;
 using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Styling;
+using Avalonia.VisualTree;
 
 namespace WSGM.Controls;
 
@@ -29,8 +31,14 @@ internal sealed class UnknownValueSlider : Slider
     static UnknownValueSlider()
     {
         IsValueUnknownProperty.Changed.AddClassHandler<UnknownValueSlider>((slider, change) =>
-            slider.PseudoClasses.Set(UnknownClass, change.GetNewValue<bool>()));
+        {
+            slider.PseudoClasses.Set(UnknownClass, change.GetNewValue<bool>());
+            slider.SquareJoint();
+        });
     }
+
+    private RepeatButton? _decrease;
+    private RepeatButton? _increase;
 
     internal UnknownValueSlider()
     {
@@ -58,9 +66,69 @@ internal sealed class UnknownValueSlider : Slider
     protected override Type StyleKeyOverride => typeof(Slider);
 
     /// <inheritdoc />
+    protected override void OnApplyTemplate(TemplateAppliedEventArgs e)
+    {
+        base.OnApplyTemplate(e);
+        Watch(ref _decrease, e.NameScope.Find<RepeatButton>("PART_DecreaseButton"));
+        Watch(ref _increase, e.NameScope.Find<RepeatButton>("PART_IncreaseButton"));
+        SquareJoint();
+    }
+
+    /// <inheritdoc />
     protected override AutomationPeer OnCreateAutomationPeer()
     {
         return new Peer(this);
+    }
+
+    private void Watch(ref RepeatButton? field, RepeatButton? button)
+    {
+        if (field is not null)
+        {
+            field.TemplateApplied -= OnPartTemplateApplied;
+        }
+
+        field = button;
+        if (button is not null)
+        {
+            button.TemplateApplied += OnPartTemplateApplied;
+        }
+    }
+
+    private void OnPartTemplateApplied(object? sender, TemplateAppliedEventArgs e)
+    {
+        SquareJoint();
+    }
+
+    /// <summary>Squares the two track halves where they meet while the value is unknown.</summary>
+    /// <remarks>
+    ///     Each half of the track rounds both of its ends, and with no thumb between them the two rounded
+    ///     ends meet in the middle of the line as a darker notch. The radius comes from the template, so it
+    ///     is overridden locally while unknown and cleared again once a value is shown.
+    /// </remarks>
+    private void SquareJoint()
+    {
+        Square(_decrease, right: true);
+        Square(_increase, right: false);
+
+        void Square(RepeatButton? part, bool right)
+        {
+            if (part?.GetVisualDescendants().OfType<Border>().FirstOrDefault(border => border.Name == "TrackBackground")
+                is not { } track)
+            {
+                return;
+            }
+
+            track.ClearValue(Border.CornerRadiusProperty);
+            if (!IsValueUnknown)
+            {
+                return;
+            }
+
+            var radius = track.CornerRadius;
+            track.CornerRadius = right
+                ? new CornerRadius(radius.TopLeft, 0, 0, radius.BottomLeft)
+                : new CornerRadius(0, radius.TopRight, radius.BottomRight, 0);
+        }
     }
 
     /// <summary>Reports a number only while one is known; otherwise the read-only value "Unknown".</summary>
