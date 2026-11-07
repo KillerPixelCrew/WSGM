@@ -9,9 +9,11 @@ namespace WSGM.Shell;
 
 /// <summary>Pure projection that never carries a previous application's identity forward.</summary>
 /// <remarks>
-///     One Steam identity takes precedence. Foreground evidence can supply its validated executable,
-///     or supply an independent identity when Steam names no application. Multiple Steam identities
-///     remain ambiguous so policy cannot target the wrong game.
+///     Steam names the game: its one running application, which includes every title WSGM launches, since
+///     those run as Steam shortcuts. Foreground evidence can only supply that game's validated executable.
+///     It never names a game by itself: with Steam reporting nothing, the window in front is a desktop
+///     application (an editor, a browser, Orca.exe in the 3.0.0 audit) and policy stays global. Multiple
+///     Steam identities remain ambiguous so policy cannot target the wrong game.
 /// </remarks>
 internal static class RunningApplicationTargetProjection
 {
@@ -87,34 +89,22 @@ internal static class RunningApplicationTargetProjection
             };
         }
 
-        if (steam.State is not (RunningApplicationTargetState.Global
-                or RunningApplicationTargetState.IdentityOnly)
+        // Only Steam's own game takes foreground evidence. Global means Steam runs no application, and
+        // the window in front is then a desktop application, not a game; Ambiguous must stay ambiguous;
+        // Unavailable means the Steam observation itself failed, where an identity would claim knowledge
+        // WSGM does not have.
+        if (steam.State is not RunningApplicationTargetState.IdentityOnly
             || foreground?.ExecutableName is not { Length: > 0 } executable)
         {
             return steam;
         }
 
-        // Ambiguous must stay ambiguous, and Unavailable means the Steam observation itself failed,
-        // where publishing an identity would claim knowledge WSGM does not have.
         var profileName = executable.Trim();
         if (ForegroundApplicationFilter.Classify(profileName)
                 is not ForegroundApplicationKind.Application
             || !profileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
         {
             return steam;
-        }
-
-        if (steam.State is not RunningApplicationTargetState.IdentityOnly)
-        {
-            return steam with
-            {
-                State = RunningApplicationTargetState.Active,
-                ApplicationId = ProfileResolver.ProcessId(profileName),
-                SteamAppId = null,
-                ExecutablePath = null,
-                RtssProfileName = profileName,
-                Diagnostic = null
-            };
         }
 
         // Steam's own game. The foreground is whatever the user happens to have in focus — a

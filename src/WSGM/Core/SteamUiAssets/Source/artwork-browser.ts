@@ -682,9 +682,29 @@ function ArtworkManage({ ui, state }: any) {
  * @param props The frame's context, the host's state and the active tab.
  * @returns The tab's content.
  */
-function ArtworkBrowserPage({ context, state, tab }: any) {
+// The game the route names, from /wsgm/artwork/:appid, or 0 when the route carries none.
+const artworkRoutedAppId = (page: any) => {
+  const id = Number(page?.params?.appid);
+  return Number.isSafeInteger(id) && id > 0 ? id : 0;
+};
+
+// Shown until the host publishes the routed game, while the page asks for it.
+const ArtworkPendingTab = { id: "pending", title: "Artwork" };
+
+function ArtworkBrowserPage({ context, state, tab, page }: any) {
   const ui = context.ui();
-  const h = ui.react.createElement;
+  const react = ui.react;
+  const h = react.createElement;
+  const routed = artworkRoutedAppId(page);
+  const shown = state?.appId ?? 0;
+  // A direct link, Back or forward mounts the page for a game the host may not have open: ask for it.
+  // The game menu opens the game before it navigates, and the host leaves an open game as it is.
+  react.useEffect(() => {
+    if (routed && routed !== shown) void context.act("show", { appId: routed });
+  }, [routed, shown]);
+  if (!state || (routed && routed !== shown)) {
+    return renderSteamUiEmpty(ui, { kind: "loading", text: "Loading artwork…" });
+  }
   const manage = (Array.isArray(state.tabs) ? state.tabs : []).find((entry) => entry.id === tab)?.manage;
   return manage ? h(ArtworkManage, { ui, state }) : h(ArtworkAssets, { ui, state });
 }
@@ -732,16 +752,20 @@ const artworkBrowserPage = registerSteamPage({
   id: "sgdb-wrap",
   style: artworkBrowserStyles,
   loading: "Loading artwork…",
+  // The page mounts before the host publishes, so a routed page can ask for its :appid.
+  waitForState: false,
   // The search's error and the providers' notices are drawn beside the results they belong to.
   banner: false,
   tabs: {
     source: "host",
     list: (state) =>
-      (Array.isArray(state?.tabs) ? state.tabs : []).map((tab) => ({
-        id: tab.id,
-        title: tab.label,
-        footer: tab.manage ? null : { label: "Filter", onActivate: openArtworkFilters },
-      })),
+      Array.isArray(state?.tabs) && state.tabs.length
+        ? state.tabs.map((tab) => ({
+            id: tab.id,
+            title: tab.label,
+            footer: tab.manage ? null : { label: "Filter", onActivate: openArtworkFilters },
+          }))
+        : [ArtworkPendingTab],
   },
   status: () => ({ appId: artworkBrowserPage.state()?.appId ?? 0 }),
   Page: ArtworkBrowserPage,

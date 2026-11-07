@@ -17,10 +17,9 @@ namespace WSGM.Shell;
 ///     RTSS recorded in its own table is a guess about that table's format.
 /// </param>
 /// <remarks>
-///     This is the second identity source, and it exists so per-application policy works outside a
-///     Steam game: on the desktop, for a title launched from another launcher, or for anything the user
-///     picks a profile for from the overlay. It never competes with Steam — see
-///     <see cref="RunningApplicationTargetProjection" /> for the precedence rule.
+///     Supporting evidence only: it can supply the executable of the game Steam reports running, when
+///     Steam does not expose one. It never names a game on its own, because a window in front while Steam
+///     runs nothing is a desktop application. See <see cref="RunningApplicationTargetProjection" />.
 /// </remarks>
 internal sealed record ForegroundApplicationObservation(
     string? ExecutableName,

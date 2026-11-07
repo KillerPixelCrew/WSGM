@@ -123,6 +123,14 @@ internal sealed class SteamUiServices
 
         TabBootSync = new LibraryTabBootSync(libraryManager, Readiness, () => state.ShutdownRequested,
             state.ShutdownToken);
+        if (Transport is not null)
+        {
+            // Installs the tabs once Steam's UI context exists and again after Steam replaces it, as the
+            // other surfaces' patch lifecycle does. The transport's disposal ends the subscription.
+            _ = TabBootSync.Follow(Transport, () => _cefMasterEnabled && !state.ShutdownRequested
+                                                    && !HasHold(SteamUiHold.BigPictureRequest
+                                                                | SteamUiHold.BigPictureClose));
+        }
     }
 
     /// <summary>The notice for a Steam client build this WSGM was not checked with, or null in overlay-test.</summary>

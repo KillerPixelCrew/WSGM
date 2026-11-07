@@ -465,14 +465,6 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
     {
         switch (target.State)
         {
-            case RunningApplicationTargetState.Active when target.SteamAppId is null:
-                // No AppID means the foreground supplied this identity, which is worth saying
-                // outright: it is the difference between "Steam launched this" and "this is simply
-                // what the user has in front of them".
-                Log.Info(
-                    $"Foreground application is active: {target.RtssProfileName}; "
-                    + "Steam reports no running application.");
-                break;
             case RunningApplicationTargetState.Active:
                 Log.Info(
                     $"Running application started: Steam AppID {target.SteamAppId}; "

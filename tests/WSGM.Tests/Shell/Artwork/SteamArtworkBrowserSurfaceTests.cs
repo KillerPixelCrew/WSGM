@@ -61,9 +61,31 @@ public sealed class SteamArtworkBrowserSurfaceTests
         Assert.Equal(["more"], backend.Calls);
     }
 
+    [Fact]
+    public async Task ARoutedPageAsksTheHostToShowItsAppId()
+    {
+        // The 3.0.0 audit: /wsgm/artwork/<appid> opened by route waited on "Loading artwork..." forever,
+        // because only the game menu told the host which game to open.
+        var backend = new RecordingBackend();
+        var module = SteamArtworkBrowserSurface.Module(() => true,
+            () => ValueTask.FromResult<SteamArtworkBrowserState?>(null), backend);
+
+        Assert.True((await Send(module, "show", """{"appId":1091500}""")).Succeeded);
+        Assert.False((await Send(module, "show", """{"appId":0}""")).Succeeded);
+        Assert.False((await Send(module, "show", """{"appId":"1091500"}""")).Succeeded);
+        Assert.False((await Send(module, "show", """{"appId":1091500,"tab":"hero"}""")).Succeeded);
+        Assert.Equal(["show:1091500"], backend.Calls);
+    }
+
     private sealed class RecordingBackend : ISteamArtworkBrowserBackend
     {
         public List<string> Calls { get; } = [];
+
+        public Task<SteamUiCommandResult> ShowAsync(uint appId, CancellationToken cancellationToken)
+        {
+            Calls.Add("show:" + appId);
+            return Task.FromResult(SteamUiCommandResult.Applied);
+        }
 
         public Task<SteamUiCommandResult> SelectTabAsync(string tab, CancellationToken cancellationToken)
         {

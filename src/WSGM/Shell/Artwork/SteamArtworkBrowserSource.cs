@@ -557,6 +557,21 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> ShowAsync(uint appId, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            if (appId != 0 && _state?.AppId == appId)
+            {
+                // Already open, for instance by the game menu just before it navigated: keep its tab and results.
+                return Task.FromResult(SteamUiCommandResult.Applied);
+            }
+        }
+
+        return OpenAsync(appId, null, cancellationToken);
+    }
+
     /// <summary>Shows what another session applied, when this session has the same game open.</summary>
     /// <param name="appId">The game.</param>
     /// <param name="message">The outcome.</param>

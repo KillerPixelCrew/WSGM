@@ -726,6 +726,13 @@ internal sealed class FakeArtworkSource : IArtworkBrowseSession
 
     public event Action? Changed;
 
+    public Task<SteamUiCommandResult> ShowAsync(uint appId, CancellationToken cancellationToken)
+    {
+        return State.AppId == appId
+            ? Task.FromResult(SteamUiCommandResult.Applied)
+            : OpenAsync(appId, null, cancellationToken);
+    }
+
     public Task<SteamUiCommandResult> OpenAsync(uint id, string? title, CancellationToken token)
     {
         State = State with { AppId = id, AppName = title ?? State.AppName };

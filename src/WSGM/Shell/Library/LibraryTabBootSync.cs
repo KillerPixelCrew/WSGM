@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using SteamUiToolkit;
 using WSGM.Core;
 
 namespace WSGM.Shell;
@@ -67,6 +68,38 @@ internal sealed class LibraryTabBootSync(
     }
 
     /// <summary>
+    ///     Asks for a pass at every new ready SharedJsContext generation of <paramref name="transport" />: the
+    ///     first time Steam's UI context exists and again after Steam replaces it, which drops the injected
+    ///     tabs with the old document.
+    /// </summary>
+    /// <param name="transport">The session's Steam UI transport.</param>
+    /// <param name="admitted">
+    ///     Whether automatic Steam UI work may run now; read on the transport's thread, so it must be safe there.
+    /// </param>
+    /// <returns>The subscription; disposing it stops following.</returns>
+    /// <remarks>
+    ///     The readiness gate alone is not enough. On the desktop it opens on the master switch, before Steam
+    ///     has a UI context, so the first pass found no target and waited for a ready edge that never came
+    ///     while the gate stayed open: the tabs were never installed (wsgm.log, 2026-11-07 00:09:26).
+    /// </remarks>
+    internal IDisposable Follow(ISteamUiTransport transport, Func<bool> admitted)
+    {
+        ArgumentNullException.ThrowIfNull(transport);
+        ArgumentNullException.ThrowIfNull(admitted);
+        transport.GenerationChanged += OnGenerationChanged;
+        return new Subscription(() => transport.GenerationChanged -= OnGenerationChanged);
+
+        void OnGenerationChanged(object? sender, SteamUiTransportSnapshot snapshot)
+        {
+            if (snapshot is { Role: SteamUiTargetRole.SharedJsContext, Health: SteamUiTransportHealth.Ready }
+                && admitted())
+            {
+                Kick();
+            }
+        }
+    }
+
+    /// <summary>
     ///     Stops the pass in flight and drops a request not yet started, so nothing re-injects the tabs
     ///     during a retraction. The next <see cref="Kick" /> runs normally.
     /// </summary>
@@ -128,6 +161,17 @@ internal sealed class LibraryTabBootSync(
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
         {
             // Session shutdown.
+        }
+    }
+
+    /// <summary>Runs its release once.</summary>
+    private sealed class Subscription(Action release) : IDisposable
+    {
+        private Action? _release = release;
+
+        public void Dispose()
+        {
+            Interlocked.Exchange(ref _release, null)?.Invoke();
         }
     }
 }

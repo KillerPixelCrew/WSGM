@@ -8,6 +8,19 @@ namespace WSGM.Shell;
 /// <remarks>Accepted background reads and writes use the owner lifetime; observe published state for their final outcome.</remarks>
 internal interface ISteamArtworkBrowserBackend
 {
+    /// <summary>
+    ///     Shows the game a routed page was opened for: opens it when another game or none is open, and leaves
+    ///     an already open game as it is.
+    /// </summary>
+    /// <param name="appId">The route's nonzero Steam AppID.</param>
+    /// <param name="cancellationToken">Request cancellation signal; it does not revoke work already accepted by the owner.</param>
+    /// <returns>Whether the game is open; its artwork arrives through published state.</returns>
+    /// <remarks>
+    ///     The page sends it on mount and on a route change, so a direct link and Back or forward open the right
+    ///     game, not only the game menu's entry, which opens the game before it navigates.
+    /// </remarks>
+    Task<SteamUiCommandResult> ShowAsync(uint appId, CancellationToken cancellationToken);
+
     /// <summary>Selects and loads one published tab.</summary>
     /// <param name="tab">Id of a currently configured artwork or management tab.</param>
     /// <param name="cancellationToken">Request cancellation signal; it does not revoke work already accepted by the owner.</param>

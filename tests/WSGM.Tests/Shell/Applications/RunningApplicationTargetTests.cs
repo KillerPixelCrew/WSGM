@@ -168,21 +168,23 @@ public sealed class RunningApplicationTargetTests : IDisposable
             now.AddSeconds(1)));
     }
 
-    [Fact]
-    public void ForegroundApplicationSuppliesTheIdentitySteamDoesNotHave()
+    [Theory]
+    [InlineData("Orca.exe")]
+    [InlineData("Cyberpunk2077.exe")]
+    public void AWindowInFrontIsNotTheGameWhileSteamRunsNothing(string executable)
     {
-        // The whole point of the second source: on the desktop, or for a title Steam never
-        // launched, per-application policy still has something to key on.
+        // The 3.0.0 audit: with Steam running nothing, the desktop's Orca.exe became "the game" for the
+        // Notes page and the RTSS row. Only Steam names the game, WSGM's own launches included.
         var target = RunningApplicationTargetProjection.Apply(
             RunningApplicationTargetSnapshot.Initial(),
             new SteamRunningAppsObservation(true, [], 3, null),
             null,
-            new ForegroundApplicationObservation("Cyberpunk2077.exe"));
+            new ForegroundApplicationObservation(executable, @"C:\Apps\" + executable, 42),
+            [new RtssFrametimeSample(42, @"C:\Apps\" + executable, 16.7, 120, 40)]);
 
-        Assert.Equal(RunningApplicationTargetState.Active, target.State);
-        Assert.Equal("process:cyberpunk2077.exe", target.ApplicationId);
-        Assert.Equal("Cyberpunk2077.exe", target.RtssProfileName);
-        Assert.Null(target.SteamAppId);
+        Assert.Equal(RunningApplicationTargetState.Global, target.State);
+        Assert.Null(target.ApplicationId);
+        Assert.Null(target.RtssProfileName);
     }
 
     [Fact]
@@ -467,38 +469,7 @@ public sealed class RunningApplicationTargetTests : IDisposable
     }
 
     [Fact]
-    public async Task ForegroundOnlyGameExitIsObservedWhileSteamIsDisabled()
-    {
-        await using var transport = new DisabledTransport();
-        var exited = 0;
-        var active = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var global = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        await using var monitor = new RunningApplicationMonitor(new SteamClient(transport).RunningApps,
-            false, foregroundExited: (_, _) => Volatile.Read(ref exited) != 0);
-        monitor.Changed += state =>
-        {
-            if (state.State == RunningApplicationTargetState.Active)
-            {
-                active.TrySetResult();
-            }
-            else if (state.State == RunningApplicationTargetState.Global && Volatile.Read(ref exited) != 0)
-            {
-                global.TrySetResult();
-            }
-        };
-        monitor.ReportForeground("game.exe", @"D:\Games\game.exe", 42);
-        using var observation = monitor.AcquireObservation();
-        monitor.Start();
-        await active.Task.WaitAsync(TimeSpan.FromSeconds(5));
-
-        Volatile.Write(ref exited, 1);
-        await global.Task.WaitAsync(TimeSpan.FromSeconds(5));
-
-        Assert.Null(monitor.Current.ApplicationId);
-    }
-
-    [Fact]
-    public async Task DeliberatelyDisabledCefStillAllowsForegroundApplicationPolicy()
+    public async Task DeliberatelyDisabledCefLeavesAForegroundApplicationGlobal()
     {
         await using var transport = new DisabledTransport();
         var probe = new SteamClient(transport).RunningApps;
@@ -512,8 +483,8 @@ public sealed class RunningApplicationTargetTests : IDisposable
 
         Assert.True(observation.Reachable);
         Assert.Empty(observation.AppIds);
-        Assert.Equal(RunningApplicationTargetState.Active, target.State);
-        Assert.Equal("game.exe", target.RtssProfileName);
+        Assert.Equal(RunningApplicationTargetState.Global, target.State);
+        Assert.Null(target.RtssProfileName);
     }
 
     private sealed class DisabledTransport : ISteamUiTransport

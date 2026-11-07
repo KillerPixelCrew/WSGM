@@ -28,7 +28,8 @@ internal static class SteamArtworkBrowserSurface
     /// <summary>The exact command vocabulary emitted by the page.</summary>
     public static IReadOnlyList<string> Commands { get; } =
     [
-        SteamUiBrowseCommands.SetTab, SteamUiBrowseCommands.More, "apply", "applyOfficial", "clear", "applyLocal",
+        "show", SteamUiBrowseCommands.SetTab, SteamUiBrowseCommands.More, "apply", "applyOfficial", "clear",
+        "applyLocal",
         "applyInvisible", "setFilter", "searchGames", "selectGame", "saveLogoPosition", "resetLogoPosition"
     ];
 
@@ -78,6 +79,8 @@ internal static class SteamArtworkBrowserSurface
                     SetTab = backend.SelectTabAsync,
                     More = backend.LoadMoreAsync
                 }),
+                SteamUiModuleBuilder.Command<uint>(PatchId, "show", TryReadAppId,
+                    backend.ShowAsync, "A valid game AppID is required."),
                 SteamUiModuleBuilder.Command<string>(PatchId, "apply", TryReadId,
                     backend.ApplyAsync, "The artwork selection payload is invalid."),
                 SteamUiModuleBuilder.Command<string>(PatchId, "applyOfficial", TryReadId,
@@ -104,6 +107,15 @@ internal static class SteamArtworkBrowserSurface
                     "The logo position payload is invalid."),
                 SteamUiModuleBuilder.Command(PatchId, "resetLogoPosition", backend.ResetLogoPositionAsync)
             ]);
+    }
+
+    private static bool TryReadAppId(JsonElement payload, out uint appId)
+    {
+        appId = 0;
+        return payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("appId", out var id)
+                                                         && id.ValueKind == JsonValueKind.Number
+                                                         && id.TryGetUInt32(out appId) && appId > 0
+                                                         && SteamUiPayload.HasExactly(payload, 1);
     }
 
     private static bool TryReadTab(JsonElement payload, out string tab)
