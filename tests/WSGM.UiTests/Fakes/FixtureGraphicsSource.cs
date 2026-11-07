@@ -1,4 +1,5 @@
 using System.Text.Json;
+using LibGPUDriverInteract;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Plugin.Sdk;
@@ -23,11 +24,13 @@ internal sealed class FixtureGraphicsSource : IGraphicsOverlaySource
 
     private readonly Publication _publication;
     private readonly bool _published;
+    private readonly bool _unreadColor;
 
-    private FixtureGraphicsSource(Publication publication, bool published)
+    private FixtureGraphicsSource(Publication publication, bool published, bool unreadColor = false)
     {
         _publication = publication;
         _published = published;
+        _unreadColor = unreadColor;
     }
 
     internal int Subscribers { get; private set; }
@@ -62,6 +65,16 @@ internal sealed class FixtureGraphicsSource : IGraphicsOverlaySource
     internal static FixtureGraphicsSource Load()
     {
         return new FixtureGraphicsSource(Read(), true);
+    }
+
+    /// <summary>
+    ///     The publication with every colour read failing as Intel's driver answered one, a raw result code, and
+    ///     mapped through the production GPU publisher.
+    /// </summary>
+    /// <returns>A source whose colour rows have no value and a failed read.</returns>
+    internal static FixtureGraphicsSource WithUnreadColor()
+    {
+        return new FixtureGraphicsSource(Read(), true, true);
     }
 
     /// <summary>The Intel package running before its driver has published any section or setting.</summary>
@@ -111,6 +124,16 @@ internal sealed class FixtureGraphicsSource : IGraphicsOverlaySource
             {
                 var state = _publication.States.Last(state => state.CapabilityId == descriptor.CapabilityId
                                                               && state.InstanceId == descriptor.InstanceId);
+                if (_unreadColor && descriptor.CapabilityId.StartsWith("display.color-", StringComparison.Ordinal))
+                {
+                    state = GpuDriverPublisher.ToHost(new GpuState
+                    {
+                        CapabilityId = descriptor.CapabilityId, InstanceId = descriptor.InstanceId, Available = true,
+                        Reason = new GpuReason(GpuReasonCode.TransportFaulted, "the driver answered 0x4800000b"),
+                        Quality = GpuStateQuality.Unknown
+                    });
+                }
+
                 var game = descriptor.CapabilityId == GameOverride ? CapabilityValue.Choice("boost") : null;
                 DeviceCapabilityView view = new(descriptor, new CapabilityProjection
                 {

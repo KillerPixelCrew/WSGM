@@ -6,6 +6,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Overlay;
+using WSGM.Shell;
 using WSGM.Testing;
 using WSGM.UiTests.Fakes;
 using WSGM.UiTests.Infrastructure;
@@ -173,6 +174,51 @@ public sealed class GraphicsPageCaptureTests
             Directory.CreateDirectory(directory);
             DevicePageCaptureTests.Capture(window, System.IO.Path.Combine(directory, "full.png"));
         }
+    }
+
+    /// <summary>
+    ///     Colour rows whose reads the driver answered with a result code: each says the value is unknown in
+    ///     words and shows no code. Written for review beside the baselines, not as a regression reference.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(1280, 800)]
+    [InlineData(980, 640)]
+    public void UnreadColourRowsSayUnknownWithoutACode(int width, int height)
+    {
+        using var graphics = FixtureGraphicsSource.WithUnreadColor();
+        using UiFixture fixture = new();
+        var window = fixture.Overlay(width, height);
+        window.AttachGraphicsSource(graphics);
+        Dispatcher.UIThread.RunJobs();
+        UiFixture.Click(window, UiFixture.Tab(window, 2));
+        UiFixture.Click(window, UiFixture.Rail(window, "device.gpu"));
+        var list = UiFixture.Named<Panel>(window, "DevicePage");
+        UiFixture.OpenSections(window, list);
+        var colour = new[]
+        {
+            "display.color-brightness", "display.color-contrast", "display.color-gamma", "display.color-hue",
+            "display.color-saturation"
+        };
+        foreach (var id in colour)
+        {
+            var text = VisibleText(Row(list, id)).Where(line => line is not null).ToArray();
+            Assert.Contains(GpuDriverPublisher.UnreadDetail, text);
+            Assert.DoesNotContain(text, line => line!.Contains("0x", StringComparison.Ordinal));
+        }
+
+        Assert.DoesNotContain(VisibleText(list), line => line?.Contains("0x", StringComparison.Ordinal) == true);
+        var group = Row(list, colour[0]).GetVisualAncestors().OfType<CollapsibleSection>().First();
+        Assert.True(group.IsExpanded);
+        var scroll = UiFixture.Named<ScrollViewer>(window, "ContentScroller");
+        var viewport = scroll.GetVisualDescendants().OfType<ScrollContentPresenter>()
+            .Single(presenter => ReferenceEquals(presenter.TemplatedParent, scroll));
+        scroll.Offset = new Vector(scroll.Offset.X,
+            scroll.Offset.Y + group.TranslatePoint(default, viewport)!.Value.Y);
+        Dispatcher.UIThread.RunJobs();
+        var directory = System.IO.Path.Combine(RepositoryFiles.Root, "TestResults", "ui",
+            $"graphics-display-unread-colour-{width}x{height}");
+        Directory.CreateDirectory(directory);
+        DevicePageCaptureTests.Capture(window, System.IO.Path.Combine(directory, "colour.png"));
     }
 
     private static void AssertRestingGraphics(Control root, FixtureGraphicsSource graphics)
