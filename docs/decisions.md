@@ -133,6 +133,12 @@ without prompting, and Settings > System offers "Take over again" beside the Ste
 under the same recorded exception (maintainer, 2026-09-27): being the one manager of the device is
 WSGM's own behavior. Mechanism in [setup](setup.md#the-other-handheld-managers).
 
+**Predator Sense for Handheld is never kept from starting (maintainer, 2026-11-07).** Acer delivers
+Atlas 8 BIOS updates through Predator Sense's Live Update and does not post them separately, so the
+takeover leaves the app, its launcher task, services and packages alone. Only the dedicated
+controller keyboard leaf stays managed. Setup puts back the Acer changes earlier versions recorded,
+where they still hold WSGM's value.
+
 **Steam shows the volume, WSGM only applies it (maintainer, 2026-10-28).** The physical volume
 command is always applied in game mode, with the feedback sound. WSGM's own volume popup was removed
 once Steam's audio system worked again; Steam's display shows the change.

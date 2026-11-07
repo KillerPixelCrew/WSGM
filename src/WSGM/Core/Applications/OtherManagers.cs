@@ -447,13 +447,7 @@ public static class OtherManagers
 
             var targets = new OtherManagerWindowsTargets();
             var restored = Restore(records, new AutostartSystem(), new ServiceSystem(), targets);
-            HashSet<string> done = [.. restored.Select(Key)];
-            store.Update(config =>
-            {
-                config.OtherManagersDisabled =
-                    [.. config.OtherManagersDisabled.Where(entry => !done.Contains(Key(entry)))];
-                return true;
-            });
+            Forget(store, restored);
             return restored.Count != records.Count ? 1 :
                 targets.RestartRequired ? SessionProtocolNames.RestartRequired : 0;
         }
@@ -462,6 +456,95 @@ public static class OtherManagers
             Log.Error("Other managers: restore failed", ex);
             return 1;
         }
+    }
+
+    /// <summary>
+    ///     Puts back, from elevated setup, each recorded change the catalog no longer asks for, such as the
+    ///     Predator Sense services, tasks and packages that Acer's BIOS delivery needs since 2026-11-07. Only
+    ///     a setting that still holds WSGM's value is written; a restored record is removed, so this runs
+    ///     once per change, and a refused one waits for the next setup or the uninstaller.
+    /// </summary>
+    /// <param name="store">Persistence holding takeover records; only restored records are removed.</param>
+    /// <returns>Zero when nothing was left behind, 3010 when a restored device needs a restart, otherwise 1.</returns>
+    public static int RestoreRetired(ConfigStore store)
+    {
+        return RestoreRetired(store, new AutostartSystem(), new ServiceSystem(), new OtherManagerWindowsTargets());
+    }
+
+    /// <summary>Puts back retired records through the given backends.</summary>
+    /// <param name="store">Persistence holding takeover records; only restored records are removed.</param>
+    /// <param name="autostart">Task backend.</param>
+    /// <param name="services">Service backend.</param>
+    /// <param name="targets">Package/device backend.</param>
+    /// <returns>Zero when nothing was left behind, 3010 when a restored device needs a restart, otherwise 1.</returns>
+    internal static int RestoreRetired(ConfigStore store, IAutostartSystem autostart, IServiceSystem services,
+        IOtherManagerTargets targets)
+    {
+        try
+        {
+            var retired = Retired(store.Read().RequireConfig().OtherManagersDisabled);
+            if (retired.Count == 0)
+            {
+                return 0;
+            }
+
+            Log.Info("Other managers: putting back what WSGM no longer turns off: "
+                     + string.Join(", ", retired.Select(entry => $"{entry.ManagerId} {entry.Kind} {entry.Name}"))
+                     + ".");
+            var restored = Restore(retired, autostart, services, targets);
+            Forget(store, restored);
+            Log.Info($"Other managers: put back {restored.Count} of {retired.Count}.");
+            return restored.Count != retired.Count ? 1 :
+                targets.RestartRequired ? SessionProtocolNames.RestartRequired : 0;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error("Other managers: putting back retired changes failed", ex);
+            return 1;
+        }
+    }
+
+    /// <summary>The records whose change the known managers no longer make.</summary>
+    /// <param name="records">Recorded pre-change states.</param>
+    /// <returns>Records of an unknown manager, or of a service, task, package or keyboard its entry no longer names.</returns>
+    internal static IReadOnlyList<OtherManagerRecord> Retired(IReadOnlyList<OtherManagerRecord> records)
+    {
+        return [.. records.Where(entry => Known.FirstOrDefault(manager => manager.Id == entry.ManagerId) is not { } manager
+                                          || !Covers(manager, entry))];
+    }
+
+    private static bool Covers(OtherManager manager, OtherManagerRecord entry)
+    {
+        return entry.Kind switch
+        {
+            ServiceKind => manager.Services.Contains(entry.Name, StringComparer.OrdinalIgnoreCase),
+            // A logon task that runs one of the manager's programs is recorded under its own name.
+            TaskKind => manager.Processes.Count > 0
+                        || manager.Tasks.Any(task => string.Equals(@"\" + task, entry.Name,
+                            StringComparison.OrdinalIgnoreCase)),
+            PackageKind => manager.PackageFamilies.Contains(PackageFamilyName(entry.Name), StringComparer.Ordinal),
+            DeviceKind => manager.DedicatedKeyboardDeviceId is { } deviceId
+                          && OtherManagerWindowsTargets.HasDeviceId(entry.Name, deviceId),
+            _ => true
+        };
+    }
+
+    // A full name is Name_Version_Architecture_ResourceId_PublisherId; its family is Name_PublisherId.
+    private static string PackageFamilyName(string fullName)
+    {
+        var parts = fullName.Split('_');
+        return parts.Length < 2 ? fullName : parts[0] + "_" + parts[^1];
+    }
+
+    private static void Forget(ConfigStore store, IReadOnlyList<OtherManagerRecord> restored)
+    {
+        HashSet<string> done = [.. restored.Select(Key)];
+        store.Update(config =>
+        {
+            config.OtherManagersDisabled =
+                [.. config.OtherManagersDisabled.Where(entry => !done.Contains(Key(entry)))];
+            return true;
+        });
     }
 
     /// <summary>Records one change in the configuration, keeping the first previous state for an entry.</summary>
@@ -496,11 +579,12 @@ public static class OtherManagers
         {
             var ok = entry.Kind switch
             {
-                // A task the maker's uninstaller removed meanwhile has nothing left to restore either.
-                TaskKind when autostart.ReadTaskEnabled(entry.Name) is null => true,
+                // A task the maker's uninstaller removed meanwhile has nothing left to restore either, and
+                // one enabled again since was set by the user or the maker, not by WSGM.
+                TaskKind when autostart.ReadTaskEnabled(entry.Name) is null or true => true,
                 TaskKind => autostart.SetTaskEnabled(entry.Name, true),
-                // A service the maker's uninstaller removed meanwhile has nothing left to restore.
-                ServiceKind when services.ReadStart(entry.Name, out _) is null => true,
+                // Likewise a removed service, or one no longer disabled, keeps the state it has now.
+                ServiceKind when services.ReadStart(entry.Name, out _) is null or not 4 => true,
                 ServiceKind => RestoreService(services, entry),
                 PackageKind or DeviceKind => targets.Restore(entry),
                 _ => true

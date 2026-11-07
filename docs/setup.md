@@ -143,16 +143,21 @@ ended. Each change is recorded in `config.json` before it is made, and `--uninst
 back the exact start types and tasks. The profile page names what was found, Customize has the
 switch, Minimal leaves them alone, and a quiet fresh install never turns them off.
 
-On the exact Predator Atlas 8 PA08-I51 definition, takeover also handles Predator Sense for
-Handheld: the ten measured Acer services, three tasks, desktop/widget package activation and only
-the dedicated `HID\VID_0502&PID_F901&MI_02&COL01` keyboard leaf. Volume's I2C device and the
-controller's other collections stay available. The package Disabled bit and enabled keyboard state
-are recorded before changes; uninstall restores them without clearing unrelated package status
-flags. The package families include their publisher identity and allow replacement versions. Package
-helpers are asked to close normally; setup reports a restart when a blocked helper remains or PnP
-requires one. Unplugged-but-registered nodes retain their recovery ownership. Already-disabled user
-settings are preserved. Repair/setup reconciles an accepted takeover again. A change Windows refuses
-is logged and left to the re-check; it never fails or rolls back the install.
+On the exact Predator Atlas 8 PA08-I51 definition, takeover leaves Predator Sense for Handheld, its
+`PredatorHandheldLauncher` task, its services and its packages alone, because Acer delivers Atlas
+BIOS updates only through its Live Update (decided 2026-11-07). Takeover there handles only the
+dedicated `HID\VID_0502&PID_F901&MI_02&COL01` keyboard leaf, whose firmware Win+Tab hold exists with
+or without the app. Volume's I2C device and the controller's other collections stay available. The
+enabled keyboard state is recorded before the change; setup reports a restart when PnP requires one.
+
+Setup (install, update or repair, elevated) first puts back each recorded change WSGM no longer
+makes, such as the Acer services, tasks and package activation an earlier version turned off. It
+writes only a setting that still holds WSGM's value, so a state the user chose afterwards stays, and
+it clears only the package Disabled bit. Each restored record is removed and logged, so this happens
+once; a change Windows refuses stays recorded for the next setup and the uninstaller.
+Unplugged-but-registered nodes retain their recovery ownership. Already-disabled user settings are
+preserved. Repair/setup reconciles an accepted takeover again. A change Windows refuses is logged
+and left to the re-check; it never fails or rolls back the install.
 
 Once accepted, the takeover is kept, not applied once. Handheld Companion's uninstaller re-enables
 the maker's services it had turned off, and on an Ally the Armoury Crate helper then answers the

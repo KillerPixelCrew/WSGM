@@ -500,6 +500,14 @@ public static class Program
                 ex);
         }
 
+        if (config is not null)
+        {
+            // Changes WSGM made but no longer makes go back first, once and elevated: Predator Sense, its
+            // launcher task, services and packages must start again because Acer delivers Atlas BIOS
+            // updates through it. A refused change stays recorded for the next setup and the uninstaller.
+            managerRestartRequired = OtherManagers.RestoreRetired(Store) == SessionProtocolNames.RestartRequired;
+        }
+
         if (config is not null && StartupOptions.ArgumentValue(args, "--answers=") is { } answersPath)
         {
             try
@@ -530,7 +538,7 @@ public static class Program
                     // and --uninstall-restore puts it back.
                     var result = OtherManagers.Disable(OtherManagers.Detect(),
                         entry => OtherManagers.Record(Store, entry));
-                    managerRestartRequired = result.RestartRequired;
+                    managerRestartRequired |= result.RestartRequired;
                     // A manager that refuses one change must not roll back the install, and the takeover
                     // runs again on every update and repair. The recheck and Settings retry it.
                     if (result.Failed.Count > 0)

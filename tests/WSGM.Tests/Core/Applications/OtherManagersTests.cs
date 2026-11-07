@@ -110,6 +110,171 @@ public sealed class OtherManagersTests
     }
 
     [Fact]
+    public void PredatorSense_IsNoLongerTurnedOff_OnlyItsDedicatedKeyboardIs()
+    {
+        // Acer delivers Atlas BIOS updates through Predator Sense (2026-11-07).
+        var predator = OtherManagers.Known.Single(manager => manager.Id == "acer-predator-handheld");
+        FakeAutostartSystem autostart = new();
+        autostart.TaskEnabled[@"\PredatorHandheldLauncher"] = true;
+        FakeServices services = new();
+        services.Services["AcerServiceSvc"] = (2, false);
+        services.Services["AASHHSvc"] = (2, false);
+
+        Assert.Empty(predator.Processes);
+        Assert.Empty(predator.Services);
+        Assert.Empty(predator.Tasks);
+        Assert.Empty(predator.PackageFamilies);
+        Assert.NotNull(predator.DedicatedKeyboardDeviceId);
+        Assert.Empty(OtherManagers.Detect(autostart, services, ["Handheld.Desktop", "Handheld.Widget"]));
+    }
+
+    [Fact]
+    public void Retired_SelectsOnlyChangesTheCatalogNoLongerMakes()
+    {
+        OtherManagerRecord service = new()
+        {
+            ManagerId = "acer-predator-handheld", Kind = "service", Name = "AcerServiceSvc", PreviousStart = 2
+        };
+        OtherManagerRecord task = new()
+        {
+            ManagerId = "acer-predator-handheld", Kind = "task", Name = @"\PredatorHandheldLauncher"
+        };
+        OtherManagerRecord package = new()
+        {
+            ManagerId = "acer-predator-handheld", Kind = "package",
+            Name = "ULICTekInc.PredatorSenseforHandHeld_1.0.1563.0_x64__nt9dgb7efx6bt"
+        };
+        OtherManagerRecord keyboard = new()
+        {
+            ManagerId = "acer-predator-handheld", Kind = "device",
+            Name = @"HID\VID_0502&PID_F901&MI_02&COL01\7&338D4E88&0&0000"
+        };
+        OtherManagerRecord companionTask = new()
+        {
+            ManagerId = "handheld-companion", Kind = "task", Name = @"\HC Autostart"
+        };
+        OtherManagerRecord msiService = new()
+        {
+            ManagerId = "msi-center-m", Kind = "service", Name = "MSI Foundation Service", PreviousStart = 2
+        };
+        OtherManagerRecord unknown = new() { ManagerId = "retired-app", Kind = "service", Name = "Gone" };
+
+        var retired = OtherManagers.Retired([service, task, package, keyboard, companionTask, msiService, unknown]);
+
+        Assert.Equal([service, task, package, unknown], retired);
+    }
+
+    [Fact]
+    public void RestoreRetired_PutsBackPredatorSenseOnce_AndKeepsTheKeyboardAndARefusedChangeRecorded()
+    {
+        using var temporary = new TemporaryConfigStore();
+        OtherManagerRecord launcher = new()
+        {
+            ManagerId = "acer-predator-handheld", Kind = "task", Name = @"\PredatorHandheldLauncher"
+        };
+        OtherManagerRecord bridge = new()
+        {
+            ManagerId = "acer-predator-handheld", Kind = "service", Name = "AcerServiceSvc", PreviousStart = 2
+        };
+        OtherManagerRecord package = new()
+        {
+            ManagerId = "acer-predator-handheld", Kind = "package",
+            Name = "ULICTekInc.PredatorSenseforHandHeld_1.0.1563.0_x64__nt9dgb7efx6bt"
+        };
+        OtherManagerRecord keyboard = new()
+        {
+            ManagerId = "acer-predator-handheld", Kind = "device",
+            Name = @"HID\VID_0502&PID_F901&MI_02&COL01\7&338D4E88&0&0000"
+        };
+        foreach (var entry in new[] { launcher, bridge, package, keyboard })
+        {
+            OtherManagers.Record(temporary.Store, entry);
+        }
+
+        FakeAutostartSystem autostart = new();
+        autostart.TaskEnabled[launcher.Name] = false;
+        FakeServices services = new();
+        services.Services[bridge.Name] = (4, false);
+        FakeTargets targets = new() { RestoreResult = false };
+
+        Assert.Equal(1, OtherManagers.RestoreRetired(temporary.Store, autostart, services, targets));
+
+        Assert.True(autostart.TaskEnabled[launcher.Name]);
+        Assert.Equal((2, false), services.Services[bridge.Name]);
+        Assert.Equal([package.Name], targets.Restored.Select(entry => entry.Name));
+        Assert.Equal([Key(package), Key(keyboard)],
+            temporary.Store.Read().RequireConfig().OtherManagersDisabled.Select(Key));
+
+        // A second setup writes nothing the first one settled; the refused package is tried again.
+        FakeAutostartSystem again = new();
+        FakeServices untouched = new();
+        FakeTargets accepting = new();
+        Assert.Equal(0, OtherManagers.RestoreRetired(temporary.Store, again, untouched, accepting));
+        Assert.Empty(again.Writes);
+        Assert.Empty(untouched.Calls);
+        Assert.Equal([package.Name], accepting.Restored.Select(entry => entry.Name));
+        Assert.Equal([Key(keyboard)], temporary.Store.Read().RequireConfig().OtherManagersDisabled.Select(Key));
+    }
+
+    private static string Key(OtherManagerRecord entry)
+    {
+        return entry.Kind + "|" + entry.Name;
+    }
+
+    [Fact]
+    public void Restore_PutsBackOnlyWhatStillHoldsWsgmsValue()
+    {
+        FakeAutostartSystem autostart = new();
+        autostart.TaskEnabled[@"\PredatorHandheldLauncher"] = false;
+        autostart.TaskEnabled[@"\UEIPInvitation"] = true;
+        FakeServices services = new();
+        services.Services["AcerServiceSvc"] = (4, false);
+        services.Services["AASHHSvc"] = (3, false);
+        List<OtherManagerRecord> records =
+        [
+            new() { ManagerId = "acer-predator-handheld", Kind = "task", Name = @"\PredatorHandheldLauncher" },
+            new() { ManagerId = "acer-predator-handheld", Kind = "task", Name = @"\UEIPInvitation" },
+            new()
+            {
+                ManagerId = "acer-predator-handheld", Kind = "service", Name = "AcerServiceSvc", PreviousStart = 2,
+                PreviousDelayed = true
+            },
+            new() { ManagerId = "acer-predator-handheld", Kind = "service", Name = "AASHHSvc", PreviousStart = 2 }
+        ];
+
+        var restored = OtherManagers.Restore(records, autostart, services, new FakeTargets());
+
+        // Every record is settled, but the task and service the user changed afterwards keep their state.
+        Assert.Equal(records, restored);
+        Assert.Equal([@"task/\PredatorHandheldLauncher=True"], autostart.Writes);
+        Assert.Equal(["AcerServiceSvc=2 delayed", "start AcerServiceSvc"], services.Calls);
+        Assert.Equal((3, false), services.Services["AASHHSvc"]);
+    }
+
+    [Fact]
+    public void Restore_KeepsARefusedChangeRecorded_WithoutRetrying()
+    {
+        FakeServices services = new() { WritesFail = true };
+        services.Services["AcerServiceSvc"] = (4, false);
+        FakeTargets targets = new() { RestoreResult = false };
+        OtherManagerRecord service = new()
+        {
+            ManagerId = "acer-predator-handheld", Kind = "service", Name = "AcerServiceSvc", PreviousStart = 2
+        };
+        OtherManagerRecord package = new()
+        {
+            ManagerId = "acer-predator-handheld", Kind = "package",
+            Name = "ULICTekInc.PredatorSenseforHandHeld_1.0.1563.0_x64__nt9dgb7efx6bt"
+        };
+
+        var restored = OtherManagers.Restore([service, package], new FakeAutostartSystem(), services, targets);
+
+        Assert.Empty(restored);
+        Assert.Equal(["AcerServiceSvc=2"], services.Calls);
+        Assert.Equal([package], targets.Restored);
+    }
+
+    [Fact]
     public void DescribeRecords_NamesTheManagersAndCountsWhatWasTurnedOff()
     {
         List<OtherManagerRecord> records =
@@ -155,6 +320,8 @@ public sealed class OtherManagersTests
 
         internal List<string> Calls { get; } = [];
 
+        internal bool WritesFail { get; init; }
+
         public int? ReadStart(string service, out bool delayed)
         {
             delayed = Services.TryGetValue(service, out var state) && state.Delayed;
@@ -164,6 +331,11 @@ public sealed class OtherManagersTests
         public bool SetStart(string service, int start, bool delayed)
         {
             Calls.Add($"{service}={start}{(delayed ? " delayed" : "")}");
+            if (WritesFail)
+            {
+                return false;
+            }
+
             Services[service] = (start, delayed);
             return true;
         }
@@ -178,6 +350,36 @@ public sealed class OtherManagersTests
         {
             Calls.Add("start " + service);
             return true;
+        }
+    }
+
+    private sealed class FakeTargets : IOtherManagerTargets
+    {
+        internal List<OtherManagerRecord> Restored { get; } = [];
+
+        internal bool RestoreResult { get; init; } = true;
+
+        public bool RestartRequired => false;
+
+        public bool MatchesDevice(string definitionId)
+        {
+            return false;
+        }
+
+        public IReadOnlyList<OtherManagerRecord> Detect(OtherManager manager)
+        {
+            return [];
+        }
+
+        public bool Disable(OtherManagerRecord target)
+        {
+            throw new InvalidOperationException("Restore must not disable anything.");
+        }
+
+        public bool Restore(OtherManagerRecord target)
+        {
+            Restored.Add(target);
+            return RestoreResult;
         }
     }
 }

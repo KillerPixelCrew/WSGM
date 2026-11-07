@@ -360,7 +360,7 @@ public sealed class ShellSession
         // Companion's uninstaller re-enables the maker's services, and the Armoury Crate helper then
         // answers the Armoury Crate button with an install dialog. Off the boot path: it reads the task
         // scheduler and waits for windows to close. The same owned task rechecks every five minutes
-        // so replacement Acer packages do not regain activation while the session is running.
+        // so a manager that comes back while the session is running is turned off again.
         // The boot manifest refresh and the update-failure note run first on the same worker, because
         // the config read takes the cross-process mutex a Settings save can hold.
         var managerStartupCancellation = _state.ShutdownToken;
