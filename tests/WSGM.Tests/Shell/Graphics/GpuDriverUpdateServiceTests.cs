@@ -185,6 +185,25 @@ public sealed class GpuDriverUpdateServiceTests
         Assert.Equal("3.0.0.0", Assert.Single(service.Snapshot()).Package!.Version);
     }
 
+    [Fact]
+    public void PackagesAreStagedUnderProgramData()
+    {
+        Assert.Equal(
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "WSGM",
+                "DriverUpdates"), GpuDriverUpdateService.PackageRoot, ignoreCase: true);
+    }
+
+    [Fact]
+    public void IntelsInstallerAcceptsTheExtractionFolder()
+    {
+        // The installer starts from PackageRoot\<run>, so Intel checks PackageRoot itself.
+        var package = Path.Combine(GpuDriverUpdateService.PackageRoot, Guid.NewGuid().ToString("N"));
+
+        Assert.True(IntelAccepts(package));
+        Assert.False(IntelAccepts(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "WSGM", "DriverUpdates", "run")));
+    }
+
     private static GpuDriverUpdateService Service(TemporaryConfigStore config,
         Func<IReadOnlyList<GpuInstalledDriver>> read,
         Func<GpuInstalledDriver, CancellationToken, Task<GpuDriverPackage>>? check = null,
@@ -198,4 +217,28 @@ public sealed class GpuDriverUpdateServiceTests
     private static GpuDriverPackage Package(GpuInstalledDriver adapter, string version = "2.0.0.0") => new(adapter,
         version, new DateTime(2026, 11, 1), new Uri("https://downloadmirror.intel.com/driver.exe"),
         new Uri("https://www.intel.com/notes"), "Notes", 1024, null);
+
+    /// <summary>
+    ///     Intel's rule from Installer.SharedLogic PathSecureLocationChecker.IsSafeLocation (Arc driver
+    ///     32.0.101.9175), without its temporary-folder allowances, which do not apply to this root.
+    /// </summary>
+    private static bool IntelAccepts(string packageDirectory)
+    {
+        var parent = Path.GetFullPath(Path.GetDirectoryName(packageDirectory)!);
+        if (parent.StartsWith(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Intel"),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        Environment.SpecialFolder[] withSubfolders =
+        [
+            Environment.SpecialFolder.System, Environment.SpecialFolder.SystemX86, Environment.SpecialFolder.Windows,
+            Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolder.ProgramFilesX86
+        ];
+        return !withSubfolders.Any(folder =>
+                parent.StartsWith(Environment.GetFolderPath(folder), StringComparison.OrdinalIgnoreCase))
+            && !parent.Equals(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                StringComparison.OrdinalIgnoreCase);
+    }
 }

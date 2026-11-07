@@ -26,6 +26,17 @@ internal sealed class GpuDriverUpdateService : IAsyncDisposable, IGpuDriverUpdat
     private readonly Func<CancellationToken, Task> _waitForSession;
     private static readonly Lazy<bool?> ProcessElevation = new(ElevationCheck.IsCurrentProcessElevated);
     private static readonly TimeSpan CheckInterval = TimeSpan.FromHours(24);
+
+    /// <summary>Where packages are downloaded and extracted, <c>%ProgramData%WSGMDriverUpdates</c>.</summary>
+    /// <remarks>
+    ///     Intel's installer refuses to start when the parent of its package folder lies under Windows,
+    ///     System, Program Files or Program Files (x86), or is the user profile itself, unless it is under
+    ///     Program FilesIntel or a temporary folder (<c>PathSecureLocationChecker.IsSafeLocation</c>).
+    ///     ProgramData is accepted by that rule and by the AMD and NVIDIA installers.
+    /// </remarks>
+    internal static string PackageRoot =>
+        System.IO.Path.Combine(WSGM.Install.InstallLayout.MachineData, "DriverUpdates");
+
     private bool _hasDiscovery;
     private bool _channelCheckPending;
     private bool _running;
@@ -420,8 +431,7 @@ internal sealed class GpuDriverUpdateService : IAsyncDisposable, IGpuDriverUpdat
             }
 
             Set(state with { Stage = GpuDriverUpdateStage.Downloading, Detail = "Downloading from the official vendor server…", Progress = 0 });
-            var installer = new GpuDriverPackageInstaller(_catalog, System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "WSGM", "DriverUpdates"));
+            var installer = new GpuDriverPackageInstaller(_catalog, PackageRoot);
             var path = await installer.DownloadAsync(package, new DownloadProgress(percent =>
                 Set(state with { Stage = GpuDriverUpdateStage.Downloading, Detail = "Downloading from the official vendor server…", Progress = percent })), token)
                 .ConfigureAwait(false);
