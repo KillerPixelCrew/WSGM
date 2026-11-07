@@ -12,6 +12,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using FluentAvalonia.UI.Controls;
+using WSGM.Controls;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
 
@@ -39,7 +40,7 @@ internal sealed class DeviceSliderRow : Border
     private readonly Func<int, string>? _format;
     private readonly Action<int> _onCommit;
 
-    private readonly Slider _slider;
+    private readonly UnknownValueSlider _slider;
     private readonly CapabilityUnit _unit;
     private readonly TextBlock _value;
     private string _descriptionText;
@@ -100,8 +101,9 @@ internal sealed class DeviceSliderRow : Border
         // SDL path in GamepadNavigation nudges a focused Slider by its TickFrequency, so that is
         // the only step property that matters, and snap/Focusable overrides are left at Avalonia's
         // focusable defaults rather than fighting them.
-        _slider = new Slider
+        _slider = new UnknownValueSlider
         {
+            IsValueUnknown = valueNow is null,
             Minimum = minimum,
             Maximum = maximum,
             TickFrequency = tick,
@@ -189,6 +191,7 @@ internal sealed class DeviceSliderRow : Border
             _slider.Value = Math.Clamp(value ?? RestingValue(minimum, maximum), minimum, maximum);
             _value.Text = value is null ? "Unknown" : Format((int)Math.Round(_slider.Value));
             _unknown = value is null;
+            _slider.IsValueUnknown = _unknown;
             ShowDescription();
         }
         finally
@@ -226,6 +229,7 @@ internal sealed class DeviceSliderRow : Border
 
         _value.Text = Format((int)Math.Round(_slider.Value));
         _unknown = false;
+        _slider.IsValueUnknown = false;
         ShowDescription();
 
         // Restart the settle window on every change so a drag or a held press commits once.

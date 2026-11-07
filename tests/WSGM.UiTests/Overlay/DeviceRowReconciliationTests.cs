@@ -113,7 +113,7 @@ public sealed class DeviceRowReconciliationTests
             else
             {
                 var slider = Assert.IsType<DeviceSliderRow>(row);
-                Assert.IsType<Slider>(slider.FocusTarget).Value = 25;
+                Assert.IsAssignableFrom<Slider>(slider.FocusTarget).Value = 25;
                 if (withdrawn)
                 {
                     slider.RefreshReadback(8, 37, 1, 15, false);
