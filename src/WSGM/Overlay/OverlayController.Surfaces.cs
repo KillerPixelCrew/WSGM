@@ -109,6 +109,24 @@ public sealed partial class OverlayController
     }
 
     /// <summary>
+    ///     Closes the open sheet or taskbar after the display driver restarted under it, so the next summon builds
+    ///     a fresh window, backdrop and swapchain on the new driver; the dead one would stay invisible.
+    /// </summary>
+    /// <returns>Whether a close started: false when nothing is open or the open surface is already closing.</returns>
+    internal bool CloseAfterDisplayRestart()
+    {
+        var slot = _sheet.Window is not null ? _sheet : _bar;
+        if (_disposed || slot.Window is null || slot.ClosePending)
+        {
+            return false;
+        }
+
+        Log.Info($"Closing the {slot.SurfaceId} after the display driver restarted.");
+        CloseSurface(false);
+        return true;
+    }
+
+    /// <summary>
     ///     Releases what a closed surface held, then, unless it was handed over or the controller is disposed,
     ///     runs the shared post-close work: the strip closes, the pad stops unless the chord needs it, focus
     ///     returns and the edges are read again.

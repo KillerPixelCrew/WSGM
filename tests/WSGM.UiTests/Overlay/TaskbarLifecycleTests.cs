@@ -55,6 +55,31 @@ public sealed class TaskbarLifecycleTests
         Assert.Equal(["taskbar"], context.Closed);
     }
 
+    [AvaloniaFact]
+    public void ADisplayDriverRestartClosesTheOpenSurfaceOnce()
+    {
+        using var context = new Context();
+        context.Controller.ShowTaskbar();
+
+        Assert.True(context.Controller.CloseAfterDisplayRestart());
+        // The close is in its grace; a second finished install must not start another.
+        Assert.False(context.Controller.CloseAfterDisplayRestart());
+        // The next summon builds the surface again rather than keeping the closing one.
+        context.Controller.ShowTaskbar();
+        Assert.True(context.Controller.TaskbarOpen);
+    }
+
+    [AvaloniaFact]
+    public void ADisplayDriverRestartLeavesAClosedOverlayAlone()
+    {
+        using var context = new Context();
+
+        Assert.False(context.Controller.CloseAfterDisplayRestart());
+        Assert.False(context.Controller.TaskbarOpen);
+        Assert.Empty(context.Opened);
+        Assert.Empty(context.Closed);
+    }
+
     /// <summary>A controller without a Steam Input lease, recording its capture claims.</summary>
     private sealed class Context : IDisposable
     {

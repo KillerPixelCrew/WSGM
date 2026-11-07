@@ -78,6 +78,13 @@ internal sealed class GpuDriverUpdateService : IAsyncDisposable, IGpuDriverUpdat
 
     public event Action? Changed;
     internal event Action<GpuDriverUpdateState>? UpdateFound;
+
+    /// <summary>
+    ///     Raised on the UI thread once a dispatched installer has finished, whatever its outcome: the display driver
+    ///     restarted under every WSGM window, so a surface that stayed open lost its rendering.
+    /// </summary>
+    internal event Action? DriverInstallFinished;
+
     public event Action? ProgressChanged;
     public bool IncludeNonWhql => _store.Read().Config?.GpuDriverUpdatesIncludeNonWhql == true;
     public bool Automatic => _store.Read().Config?.GpuDriverUpdatesAutoCheck == true;
@@ -545,10 +552,12 @@ internal sealed class GpuDriverUpdateService : IAsyncDisposable, IGpuDriverUpdat
     private void Set(GpuDriverUpdateState state)
     {
         bool progressOnly;
+        bool installFinished;
         lock (_gate)
         {
             var previous = _state.FirstOrDefault(item => item.Adapter.InstanceId == state.Adapter.InstanceId);
             progressOnly = previous is not null && state with { Progress = previous.Progress } == previous;
+            installFinished = EndsInstallation(previous?.Stage, state.Stage);
             _state = [.. _state.Select(item => item.Adapter.InstanceId == state.Adapter.InstanceId ? state : item)];
         }
 
@@ -560,9 +569,22 @@ internal sealed class GpuDriverUpdateService : IAsyncDisposable, IGpuDriverUpdat
         {
             Publish();
         }
+
+        if (installFinished)
+        {
+            _post(() => DriverInstallFinished?.Invoke());
+        }
     }
 
     private void Publish() => _post(() => Changed?.Invoke());
+
+    /// <summary>Whether a stage change ends a dispatched installation: Installing to a terminal outcome.</summary>
+    /// <param name="previous">The adapter's stage before the change, or null for a new adapter.</param>
+    /// <param name="next">Its stage after the change.</param>
+    /// <returns>True exactly once per installer run.</returns>
+    internal static bool EndsInstallation(GpuDriverUpdateStage? previous, GpuDriverUpdateStage next) =>
+        previous == GpuDriverUpdateStage.Installing && next is GpuDriverUpdateStage.Installed
+            or GpuDriverUpdateStage.RestartRequired or GpuDriverUpdateStage.Failed;
 
     private sealed class DownloadProgress(Action<int> report) : IProgress<int>
     {

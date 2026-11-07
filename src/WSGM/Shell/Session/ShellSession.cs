@@ -493,6 +493,9 @@ public sealed class ShellSession
         });
         _integrations.DriverUpdates!.UpdateFound += update =>
             Log.Observe(NotifyGpuDriverUpdateAsync(update), "GPU driver update notice");
+        // The display driver restarted under an open sheet or taskbar; the next summon builds it fresh, and the
+        // Steam driver section and the reopened sheet show the outcome from the service's state.
+        _integrations.DriverUpdates.DriverInstallFinished += () => _overlay?.CloseAfterDisplayRestart();
     }
 
     private async Task NotifyGpuDriverUpdateAsync(GpuDriverUpdateState update)

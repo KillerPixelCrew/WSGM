@@ -185,6 +185,37 @@ public sealed class GpuDriverUpdateServiceTests
         Assert.Equal("3.0.0.0", Assert.Single(service.Snapshot()).Package!.Version);
     }
 
+    [Theory]
+    [InlineData("Installed")]
+    [InlineData("RestartRequired")]
+    [InlineData("Failed")]
+    public void EveryInstallerOutcomeEndsTheInstallationExactlyOnce(string finished)
+    {
+        var outcome = Enum.Parse<GpuDriverUpdateStage>(finished);
+        // The run as the service publishes it, then the late controls-reconnect failure that may follow.
+        GpuDriverUpdateStage[] stages =
+        [
+            GpuDriverUpdateStage.Available, GpuDriverUpdateStage.Downloading, GpuDriverUpdateStage.Verifying,
+            GpuDriverUpdateStage.Installing, outcome, GpuDriverUpdateStage.Failed
+        ];
+
+        var endings = stages.Zip(stages.Skip(1))
+            .Count(change => GpuDriverUpdateService.EndsInstallation(change.First, change.Second));
+
+        Assert.Equal(1, endings);
+    }
+
+    [Theory]
+    [InlineData(null, "Installed")]
+    [InlineData("Verifying", "Failed")]
+    [InlineData("Downloading", "Failed")]
+    [InlineData("Installing", "Installing")]
+    public void AStopBeforeTheInstallerStartsEndsNoInstallation(string? previous, string next)
+    {
+        Assert.False(GpuDriverUpdateService.EndsInstallation(
+            previous is null ? null : Enum.Parse<GpuDriverUpdateStage>(previous), Enum.Parse<GpuDriverUpdateStage>(next)));
+    }
+
     [Fact]
     public void PackagesAreStagedUnderProgramData()
     {
