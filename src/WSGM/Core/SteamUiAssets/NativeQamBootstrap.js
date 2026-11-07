@@ -1241,6 +1241,23 @@
     "Unable to find localization token",
     "LocalizeString",
   ];
+  /**
+   * Every row kind settings.ts's renderSteamSettingRow draws; the same vocabulary as C#'s SteamSettingsRowKind. A
+   * surface that validates rows accepts exactly these, so a kind the renderer can draw is never refused.
+   */
+  const SteamSettingRowKinds = new Set([
+    "boolean",
+    "choice",
+    "range",
+    "text",
+    "secret",
+    "order",
+    "action",
+    "note",
+    "color",
+    "curve",
+    "resolution-list",
+  ]);
   // Steam's React exports, or null when the module is not a unique match.
   const resolveReact = (runtime) => {
     const factory = runtime.findUnique(ReactTokens);
@@ -12157,16 +12174,8 @@
       audio: "Audio",
       controller: "Controller",
     };
-    const RowKinds = new Set([
-      "boolean",
-      "choice",
-      "range",
-      "text",
-      "color",
-      "action",
-      "note",
-      "resolution-list",
-    ]);
+    // Every kind the shared renderer draws; a curve, an ordered list and a secret were refused here once.
+    const RowKinds = SteamSettingRowKinds;
     let ui = null;
     let react = null;
     let jsxRuntime = null;
@@ -12181,18 +12190,62 @@
     // through the JSX transform, carries this claim's marked wrapper.
     let component = null;
     const installed = () => gate.installed();
-    // Bounded, whole-state validation: duplicate page/row identities are unsafe and an unsupported
-    // row must not become a control that sends a value the host did not describe.
-    const normalize = (value) => {
-      if (value === null) return { pages: [], revision: 0 };
+    // Why one row cannot be drawn, or "" when it can. An unsupported row must not become a control
+    // that sends a value the host did not describe. A range with `number: null` is a value the host
+    // could not read: it is drawn as unknown, with the thumb resting at its minimum and nothing sent
+    // until the user moves it (settings.ts).
+    const rowProblem = (row, rowIds) => {
+      if (typeof row?.key !== "string" || !row.key.trim() || row.key.length > 1024)
+        return "no usable key";
+      if (rowIds.has(row.key)) return "duplicate key";
+      if (typeof row.label !== "string") return "no label";
+      if (!RowKinds.has(row.kind)) return `unsupported kind ${String(row.kind)}`;
       if (
-        !Array.isArray(value?.pages) ||
-        value.pages.length > 4 ||
-        !Number.isSafeInteger(value.revision)
+        (row.kind === "choice" || row.kind === "resolution-list") &&
+        (!Array.isArray(row.choices) ||
+          row.choices.some(
+            (choice) => typeof choice?.value !== "string" || typeof choice.label !== "string",
+          ))
       )
-        return null;
+        return "invalid choices";
+      if (row.kind === "resolution-list") {
+        const editor = row.resolutionEditor;
+        const validDimension = (value) =>
+          Number.isSafeInteger(value) && value >= 100 && value <= 15999;
+        if (
+          !editor ||
+          !Array.isArray(editor.removable) ||
+          (editor.restoreAvailable != null && typeof editor.restoreAvailable !== "boolean") ||
+          editor.removable.some((value) => !row.choices.some((item) => item.value === value)) ||
+          !(
+            (editor.nativeWidth == null && editor.nativeHeight == null) ||
+            (validDimension(editor.nativeWidth) && validDimension(editor.nativeHeight))
+          )
+        )
+          return "invalid resolution editor";
+      }
+      if (
+        row.kind === "range" &&
+        ((row.number != null && !Number.isFinite(row.number)) ||
+          !Number.isFinite(row.minimum) ||
+          !Number.isFinite(row.maximum) ||
+          !Number.isFinite(row.step) ||
+          row.step <= 0 ||
+          row.minimum > row.maximum)
+      )
+        return "invalid range";
+      return "";
+    };
+    // Validation keeps every row it can draw. A publication whose shape is wrong is refused whole, but
+    // one bad row is dropped on its own and reported: rejecting the state for it once took every page
+    // of Settings away for two GPU rows whose values could not be read.
+    const normalize = (value) => {
+      if (value === null) return { pages: [], revision: 0, rejected: [] };
+      if (!Array.isArray(value?.pages) || !Number.isSafeInteger(value.revision)) return null;
       const pageIds = new Set();
       const rowIds = new Set();
+      const rejected = [];
+      const pages = [];
       for (const page of value.pages) {
         if (
           !Object.hasOwn(NativePages, page?.id) ||
@@ -12200,65 +12253,40 @@
           !Array.isArray(page.sections)
         )
           return null;
-        if (page.sections.length > 64) return null;
         pageIds.add(page.id);
+        const sections = [];
         for (const section of page.sections) {
-          if (!Array.isArray(section?.rows) || section.rows.length > 256) return null;
-          for (const row of section.rows) {
-            if (
-              typeof row?.key !== "string" ||
-              !row.key.trim() ||
-              row.key.length > 1024 ||
-              rowIds.has(row.key) ||
-              typeof row.label !== "string" ||
-              !RowKinds.has(row.kind)
-            )
-              return null;
-            if (
-              (row.kind === "choice" || row.kind === "resolution-list") &&
-              (!Array.isArray(row.choices) ||
-                row.choices.some(
-                  (choice) => typeof choice?.value !== "string" || typeof choice.label !== "string",
-                ))
-            )
-              return null;
-            if (row.kind === "resolution-list") {
-              const editor = row.resolutionEditor;
-              const validDimension = (value) =>
-                Number.isSafeInteger(value) && value >= 100 && value <= 15999;
-              if (
-                !editor ||
-                row.choices.length > 512 ||
-                !Array.isArray(editor.removable) ||
-                (editor.restoreAvailable != null && typeof editor.restoreAvailable !== "boolean") ||
-                editor.removable.some(
-                  (value) => !row.choices.some((item) => item.value === value),
-                ) ||
-                !(
-                  (editor.nativeWidth == null && editor.nativeHeight == null) ||
-                  (validDimension(editor.nativeWidth) && validDimension(editor.nativeHeight))
-                )
-              )
-                return null;
+          if (!Array.isArray(section?.rows)) return null;
+          const rows = section.rows.filter((row) => {
+            const problem = rowProblem(row, rowIds);
+            if (!problem) {
+              rowIds.add(row.key);
+              return true;
             }
-            if (
-              row.kind === "range" &&
-              (!Number.isFinite(row.number) ||
-                !Number.isFinite(row.minimum) ||
-                !Number.isFinite(row.maximum) ||
-                !Number.isFinite(row.step) ||
-                row.step <= 0 ||
-                row.minimum > row.maximum)
-            )
-              return null;
-            rowIds.add(row.key);
-          }
+            rejected.push({
+              key: typeof row?.key === "string" ? row.key : "",
+              reason: problem,
+            });
+            return false;
+          });
+          if (rows.length)
+            sections.push(rows.length === section.rows.length ? section : { ...section, rows });
         }
+        // The page as published only when every one of its sections came through whole.
+        const whole =
+          sections.length === page.sections.length &&
+          sections.every((section, index) => section === page.sections[index]);
+        if (sections.length) pages.push(whole ? page : { ...page, sections });
       }
-      return {
-        pages: value.pages.filter((page) => page.sections.some((section) => section.rows.length)),
-        revision: value.revision,
-      };
+      return { pages, revision: value.revision, rejected };
+    };
+    // Each distinct set of rejected rows is reported to the host once, which logs it with the keys.
+    let reportedRejection = "";
+    const reportRejected = (rejected) => {
+      const signature = JSON.stringify(rejected);
+      if (signature === reportedRejection) return;
+      reportedRejection = signature;
+      if (rejected.length) void request(patchId, "rejected", { rows: rejected }).catch(() => {});
     };
     const send = (row, value) => {
       const current = state.pages
@@ -12463,6 +12491,14 @@
           const next = normalize(published);
           if (!next) {
             publicationError = "native Settings publication is invalid";
+            // Reported like a dropped row, so the host log and the patch health check see it:
+            // the patch itself stays Verified, since the gate is installed and working.
+            reportRejected([
+              {
+                key: "(publication)",
+                reason: "its pages, sections or revision are malformed",
+              },
+            ]);
             const hadPower = state.pages.some((page) => page.id === "power");
             state = { pages: [], revision: state.revision };
             rendered.clear();
@@ -12474,7 +12510,10 @@
             lastOutcome = "invalid publication retracted native additions";
             return;
           }
-          publicationError = "";
+          publicationError = next.rejected.length
+            ? `${next.rejected.length} native Settings row(s) could not be drawn: ${next.rejected.map((row) => row.key).join(", ")}`
+            : "";
+          reportRejected(next.rejected);
           if (!publicationChanged(state, next)) return;
           const powerPresenceChanged =
             state.pages.some((page) => page.id === "power") !==

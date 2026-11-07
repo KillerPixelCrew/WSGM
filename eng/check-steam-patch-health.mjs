@@ -21,7 +21,9 @@
 // because Big Picture is closed (WSGM wants those only while it is up). Anything else fails: a final Incompatible, RemoveFailed, AbsentTarget,
 // Degraded, Retrying, Applying or Applied, with the last reason it gave. The patch manager's
 // retry-exhaustion warning ("Steam UI patches still do not [all ]hold after 8 retries; ...") fails
-// the session wherever it appears, since the manager then waits for a reload.
+// the session wherever it appears, since the manager then waits for a reload. So does the native
+// Settings host's "Steam Settings could not draw ..." warning: its patch stays Verified while the
+// page drops rows (or a whole publication) it cannot draw, so the patch state alone hides it.
 //
 // --wait re-reads the log until the newest session passes or the time runs out, and stops early
 // once that session carries a retry-exhaustion warning, which no later poll can undo. It then
@@ -37,6 +39,7 @@ const StartPattern = /^---- WSGM (\S+) started, args: \[(.*)\]$/u;
 const PatchPattern =
   /^Steam UI patch (\S+): ([A-Z][A-Za-z]*)(?: — (.*?))?(?: \(previous state held for \d+ more polls\))?$/u;
 const ExhaustionPattern = /^Steam UI patches still do not (?:all )?hold after \d+ retries\b/u;
+const SettingsRefusalPattern = /^Steam Settings could not draw /u;
 const HandoverPattern = /handed over to elevated instance/u;
 const MutexTakenPattern = /^Another WSGM shell instance is running; exiting\.$/u;
 const PassingStates = new Set(["Verified", "Disabled"]);
@@ -105,7 +108,12 @@ export const parseSessions = (text) => {
 export const assess = (session) => {
   const patches = new Map();
   const exhaustion = [];
+  const refusals = [];
   for (const entry of session.entries) {
+    if (SettingsRefusalPattern.test(entry.message)) {
+      refusals.push({ line: entry.line, timestamp: entry.timestamp, message: entry.message });
+      continue;
+    }
     if (ExhaustionPattern.test(entry.message)) {
       // The older wording names no patch, so record which ones were not holding at that moment.
       const holding = [...patches.values()]
@@ -139,8 +147,10 @@ export const assess = (session) => {
   return {
     patches: results,
     exhaustion,
+    refusals,
     failures,
-    passed: results.length > 0 && failures === 0 && exhaustion.length === 0,
+    passed:
+      results.length > 0 && failures === 0 && exhaustion.length === 0 && refusals.length === 0,
   };
 };
 
@@ -172,13 +182,18 @@ export const formatReport = (session, verdict) => {
       output.push(`     not Verified or Disabled then: ${warning.notHolding.join(", ")}`);
     }
   }
+  for (const refusal of verdict.refusals) {
+    output.push(
+      `FAIL Steam Settings rows refused at ${refusal.timestamp} (log line ${refusal.line}): ${refusal.message}`,
+    );
+  }
   const passing = verdict.patches.length - verdict.failures;
   const summary =
     verdict.patches.length === 0
       ? "no Steam UI patch has logged a state in this session yet"
       : `${passing} of ${verdict.patches.length} patches Verified or Disabled, ${verdict.failures} failing`;
   output.push(
-    `${verdict.passed ? "PASS" : "FAIL"}: ${summary}, ${verdict.exhaustion.length} retry-exhaustion warning(s).`,
+    `${verdict.passed ? "PASS" : "FAIL"}: ${summary}, ${verdict.exhaustion.length} retry-exhaustion warning(s), ${verdict.refusals.length} Steam Settings refusal(s).`,
   );
   return output;
 };
@@ -229,7 +244,8 @@ const main = async () => {
     sessions = log ? parseSessions(log.text) : [];
     const newest = sessions.at(-1);
     const verdict = newest ? assess(newest) : null;
-    const settled = verdict && (verdict.passed || verdict.exhaustion.length > 0);
+    const settled =
+      verdict && (verdict.passed || verdict.exhaustion.length > 0 || verdict.refusals.length > 0);
     if (settled || Date.now() >= deadline) break;
     await new Promise((done) => setTimeout(done, 2000));
   }

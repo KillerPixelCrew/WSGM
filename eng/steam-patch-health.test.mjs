@@ -225,3 +225,22 @@ test("activation starts that defer to the running shell open no session", () => 
     "wsgm.notes": ["Verified", true],
   });
 });
+
+test("rows Steam Settings could not draw fail the session though the patch is Verified", () => {
+  // The native Settings gate stays installed while it drops rows it cannot draw; only the host's
+  // warning shows it. Two unknown GPU colour ranges once took every WSGM row out of Settings this way.
+  const verdict = verdictOf(
+    log(
+      start(" --shell"),
+      patch("steam-ui.native-settings", "Verified"),
+      line(
+        "warn",
+        "Steam Settings could not draw gpu/wsgm.gpu.intel/display.color-hue#display0 (invalid range); the other rows are shown.",
+      ),
+    ),
+  );
+  assert.equal(verdict.failures, 0, "the patch itself holds");
+  assert.equal(verdict.refusals.length, 1);
+  assert.match(verdict.refusals[0].message, /display\.color-hue/u);
+  assert.equal(verdict.passed, false);
+});

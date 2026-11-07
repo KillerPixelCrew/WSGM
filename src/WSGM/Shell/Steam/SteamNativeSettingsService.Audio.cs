@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
 
@@ -32,26 +31,43 @@ internal sealed partial class SteamNativeSettingsService
             var endpointKey =
                 "audio/" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(endpointId)));
             List<SteamSettingsRow> rows = [];
-            AudioChoice(endpointKey + "/channels", "Channels", "audioChannels", playback.Channels,
-                playback.CurrentChannels,
-                (value, token) => audioFormat.SetFormatForEndpointAsync(endpointId, value, token));
-            AudioChoice(endpointKey + "/format", "Format", "audioEncoding", playback.Formats,
-                playback.CurrentFormat,
-                (value, token) => audioFormat.SetFormatForEndpointAsync(endpointId, value, token));
-            AudioChoice(endpointKey + "/spatial", "Spatial sound", "audioSpatial", playback.Spatial,
-                playback.CurrentSpatial,
-                (value, token) => audioFormat.SetSpatialForEndpointAsync(endpointId, value, token));
-            Section(audio, "Advanced playback", "advanced-playback", rows);
-
-            void AudioChoice(string key, string label, string icon, IReadOnlyList<ChoiceRowOption> options,
-                string current, Func<string, CancellationToken, Task<SteamUiCommandResult>> write)
+            foreach (var (row, spatial) in AudioPlaybackRows(endpointKey, playback))
             {
-                if (ChoiceRow(key, label, icon, new ChoiceRowState(true, options, current, playback.StatusText)) is
-                    { } row)
-                {
-                    offer.Quick("audioFormat",
-                        offer.Add(rows, row, (value, token) => write(value.GetString()!, token)));
-                }
+                offer.Quick("audioFormat", offer.Add(rows, row, (value, token) => spatial
+                    ? audioFormat.SetSpatialForEndpointAsync(endpointId, value.GetString()!, token)
+                    : audioFormat.SetFormatForEndpointAsync(endpointId, value.GetString()!, token)));
+            }
+
+            Section(audio, "Advanced playback", "advanced-playback", rows);
+        }
+    }
+
+    /// <summary>The Audio page's playback rows for one endpoint: channels, sample format and spatial sound.</summary>
+    /// <param name="endpointKey">The endpoint's key prefix.</param>
+    /// <param name="playback">The endpoint's choices.</param>
+    /// <returns>Each row, and whether it writes spatial sound rather than the format.</returns>
+    /// <remarks>
+    ///     The same three choices as the overlay's Audio panel. Format is the sample format of the current
+    ///     channel layout, labelled with its rate and bit depth ("48 kHz · 24-bit").
+    /// </remarks>
+    internal static IReadOnlyList<(SteamSettingsRow Row, bool Spatial)> AudioPlaybackRows(string endpointKey,
+        AudioFormatChoices playback)
+    {
+        List<(SteamSettingsRow, bool)> rows = [];
+        Add(endpointKey + "/channels", "Channels", "audioChannels", playback.Channels, playback.CurrentChannels,
+            false);
+        Add(endpointKey + "/format", "Format", "audioEncoding", playback.Formats, playback.CurrentFormat, false);
+        Add(endpointKey + "/spatial", "Spatial sound", "audioSpatial", playback.Spatial, playback.CurrentSpatial,
+            true);
+        return rows;
+
+        void Add(string key, string label, string icon, IReadOnlyList<ChoiceRowOption> options, string current,
+            bool spatial)
+        {
+            if (ChoiceRow(key, label, icon, new ChoiceRowState(true, options, current, playback.StatusText)) is
+                { } row)
+            {
+                rows.Add((row, spatial));
             }
         }
     }

@@ -109,6 +109,19 @@ internal sealed class NativeQamAudioFormatService : IDisposable
                 "Advanced audio controls are unavailable for the current output."), null);
         }
 
+        var choices = Choices(capabilities);
+        _offered = new Offered(
+            capabilities.EndpointId,
+            [.. choices.Channels.Concat(choices.Formats).Select(static option => option.Id)],
+            [.. choices.Spatial.Select(static option => option.Id)]);
+        return (choices, capabilities.EndpointId);
+    }
+
+    /// <summary>The channel, sample-format and spatial choices one endpoint's capabilities offer.</summary>
+    /// <param name="capabilities">The endpoint's formats, current format and spatial formats.</param>
+    /// <returns>The choices both Steam surfaces draw; their ids are what a command must name.</returns>
+    internal static AudioFormatChoices Choices(AudioPlaybackCapabilities capabilities)
+    {
         var channels = AudioPlaybackChoices.Channels(capabilities)
             .Select(choice => new ChoiceRowOption(FormatId(choice.Format), choice.Label)).ToArray();
         var formats = AudioPlaybackChoices.Formats(capabilities)
@@ -116,11 +129,7 @@ internal sealed class NativeQamAudioFormatService : IDisposable
         var spatial = AudioPlaybackChoices.Spatial(capabilities.SupportedSpatialFormats)
             .Select(static option => new ChoiceRowOption(option.Format.ToString(), option.Name))
             .ToArray();
-        _offered = new Offered(
-            capabilities.EndpointId,
-            [.. channels.Concat(formats).Select(static option => option.Id)],
-            [.. spatial.Select(static option => option.Id)]);
-        return (new AudioFormatChoices(
+        return new AudioFormatChoices(
             channels.Length > 0 || formats.Length > 0 || spatial.Length > 0,
             channels,
             FormatId(capabilities.CurrentFormat),
@@ -128,9 +137,8 @@ internal sealed class NativeQamAudioFormatService : IDisposable
             FormatId(capabilities.CurrentFormat),
             spatial,
             capabilities.CurrentSpatialFormat.ToString(),
-            string.Empty), capabilities.EndpointId);
+            string.Empty);
     }
-
     private static string FormatId(CoreAudio.AudioDeviceFormat format)
     {
         return string.Join(':', format.Channels, format.SampleRate, format.BitsPerSample,
