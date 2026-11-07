@@ -8722,6 +8722,24 @@
     // active \u2014 which reads as "no default device" and disables the volume slider. Each GUID gets a
     // stable small number for Steam's side of the wire, translated back on every command.
     const NO_DEVICE = 4294967295;
+    // What Steam's native audio setters resolve to. The client chains
+    // `SetDeviceVolume(...)?.then(rA)` and `SetAppVolume(...)?.then(rA)` on Stable and Beta, and
+    // rA reads `.result` against EResult OK, so a setter resolving null (the host's empty command
+    // answer) or undefined threw "Cannot read properties of null (reading 'result')" on every
+    // Quick Access volume change, and a refused command was an unhandled rejection. Every setter
+    // now resolves to that shape, a refusal included, which rA logs as Steam logs its own.
+    const ResultOk = 1;
+    const ResultFail = 2;
+    const audioResult = (work) => {
+      try {
+        return Promise.resolve(work()).then(
+          () => ({ result: ResultOk, message: "" }),
+          (error) => ({ result: ResultFail, message: String(error?.message ?? error) }),
+        );
+      } catch (error) {
+        return Promise.resolve({ result: ResultFail, message: String(error?.message ?? error) });
+      }
+    };
     // The key m_mapVolumes is keyed by, and the second argument of both SetDeviceVolume and
     // OnAudioDeviceVolumeChanged. INPUT IS ZERO \u2014 read out of the client's own enum (Input=0,
     // Output=1) on 2026-08-30, after assuming the opposite: with the values swapped the
@@ -8939,31 +8957,33 @@
       // Empty until a session mixer exists. Steam then lists no per-application entries, which is
       // the honest outcome rather than inventing volumes it cannot move.
       GetApps: () => Promise.resolve({ rgApps: [] }),
-      SetDefaultDeviceOverride: (id, direction) => {
-        // Steam hands back the number this side minted; the host only knows the GUID.
-        const guid = guidFor(id);
-        if (!guid) return Promise.resolve();
-        return request(patchId, "setDefaultDevice", {
-          id: guid,
-          input: direction === AudioDirection.Input,
-        });
-      },
+      SetDefaultDeviceOverride: (id, direction) =>
+        audioResult(() => {
+          // Steam hands back the number this side minted; the host only knows the GUID.
+          const guid = guidFor(id);
+          if (!guid) return undefined;
+          return request(patchId, "setDefaultDevice", {
+            id: guid,
+            input: direction === AudioDirection.Input,
+          });
+        }),
       // (deviceId, DIRECTION, volume) \u2014 three arguments. Read off the store's own device class
       // 2026-08-30: setDeviceVolume(e,t) calls SetDeviceVolume(this.m_id, e, t). The host declared
       // two parameters and so read the DIRECTION as the volume: dragging the slider sent
       // Math.round(1 * 100) or Math.round(0 * 100), which is why every drag set 100% or 0% and
       // the log showed "Taskbar volume set to 100%" the moment the slider was touched.
-      SetDeviceVolume: (id, direction, volume) => {
-        if (direction !== AudioDirection.Output && direction !== AudioDirection.Input) {
-          return Promise.resolve();
-        }
-        return request(patchId, "setVolume", {
-          percent: Math.round(Math.min(1, Math.max(0, Number(volume) || 0)) * 100),
-          input: direction === AudioDirection.Input,
-        });
-      },
-      SetAppVolume: () => Promise.resolve(),
-      ClearDefaultDeviceOverride: () => Promise.resolve(),
+      SetDeviceVolume: (id, direction, volume) =>
+        audioResult(() => {
+          if (direction !== AudioDirection.Output && direction !== AudioDirection.Input) {
+            return undefined;
+          }
+          return request(patchId, "setVolume", {
+            percent: Math.round(Math.min(1, Math.max(0, Number(volume) || 0)) * 100),
+            input: direction === AudioDirection.Input,
+          });
+        }),
+      SetAppVolume: () => audioResult(() => undefined),
+      ClearDefaultDeviceOverride: () => audioResult(() => undefined),
       RegisterForServiceConnectionStateChanges: register("serviceConnection"),
       RegisterForDeviceAdded: register("deviceAdded"),
       RegisterForDeviceRemoved: register("deviceRemoved"),
@@ -14107,6 +14127,69 @@
     });
   }
   registerGate("powerMenu", createPowerMenu());
+  // @fragment gates/screensaver-dismissal.ts
+  // Dismisses Big Picture's screensaver the way Steam itself does on user input: the saver view calls
+  // `Screensaver.ForceScreensaver({enabled: false})` from its blocked-input and input handlers
+  // (sp.js, Stable and Beta, 2026-11-07). After a wake nothing has given Steam input yet, so a saver
+  // that was showing when the machine slept can stay over a dark screen; a host calls `dismiss` once
+  // for that wake. The service stub is found by its authored job names and its shape, never by id.
+  function createScreensaverDismissal() {
+    const ServiceTokens = ["Screensaver.GetActiveState#1", "Screensaver.ForceScreensaver#1"];
+    let service = null;
+    let dismissals = 0;
+    let lastError = "";
+    const isService = (value) =>
+      typeof value?.GetActiveState === "function" && typeof value?.ForceScreensaver === "function";
+    // The saver's state as Steam reports it, then Steam's own dismissal. The state only says whether
+    // there was anything to dismiss; the dismissal is sent either way, as Steam's input path does.
+    const dismiss = async () => {
+      if (!service || !gate.status().held) return { dismissed: false, active: null };
+      let active = null;
+      try {
+        const answer = await service.GetActiveState({});
+        const value = answer?.Body?.()?.active?.();
+        active = typeof value === "boolean" ? value : null;
+      } catch (error) {
+        lastError = "Screensaver state unreadable: " + String(error);
+      }
+      try {
+        await service.ForceScreensaver({ enabled: false });
+      } catch (error) {
+        lastError = "Screensaver dismissal failed: " + String(error);
+        return { dismissed: false, active };
+      }
+      dismissals++;
+      return { dismissed: true, active };
+    };
+    const gate = defineGate({
+      name: "screensaver-dismissal",
+      find: (runtime) => {
+        const facts = { service: runtime.count(ServiceTokens) };
+        if (facts.service !== 1)
+          return gateIncompatible("Steam's Screensaver service is not one match", facts);
+        let found = null;
+        try {
+          found = runtime.exported(ServiceTokens, isService);
+        } catch {
+          // Absent or ambiguous; reported below.
+        }
+        if (!found)
+          return gateIncompatible("Steam's Screensaver service stub is not reachable", facts);
+        return gateReady({ service: found }, facts);
+      },
+      // Nothing in Steam is changed until a host asks for a dismissal, so there is nothing to undo.
+      bind: (found) => {
+        service = found.service;
+      },
+      unbind: () => {
+        service = null;
+      },
+      status: () => ({ dismissals, lastError }),
+      api: { dismiss },
+    });
+    return gate;
+  }
+  registerGate("screensaverDismissal", createScreensaverDismissal());
   // @fragment gates/screensaver.ts
   /**
    * Projects the host screensaver setting into the matched Steam settings surface.

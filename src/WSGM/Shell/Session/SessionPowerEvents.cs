@@ -38,6 +38,9 @@ internal sealed class SessionPowerEvents(
     /// <summary>The same moment on the wall clock, which a sleep does not stop.</summary>
     private long _systemResumeWallTicks = DateTimeOffset.UtcNow.AddHours(-1).UtcTicks;
 
+    /// <summary>One screensaver dismissal per physical wake, whichever signal arrives first.</summary>
+    private readonly ScreensaverWakePolicy _screensaverWake = new();
+
     /// <summary>
     ///     Follows the message window's notifications. The device cycle follows the session it belongs to:
     ///     without these the Claw's controller, motion, OEM and suppressor services stayed live across a
@@ -53,6 +56,9 @@ internal sealed class SessionPowerEvents(
         messageWindow.SystemResumed += OnSystemResumed;
         // Power preset assignments and per-source capability availability follow AC and battery.
         messageWindow.PowerSourceChanged += OnPowerSourceChanged;
+        // A display that went dark and lit again is a wake even without a system sleep.
+        messageWindow.DisplayStateChanged += OnDisplayStateChanged;
+        messageWindow.RegisterDisplayStateNotifications();
     }
 
     /// <summary>Stops following the message window, as it is disposed.</summary>
@@ -64,6 +70,8 @@ internal sealed class SessionPowerEvents(
         messageWindow.SystemSuspending -= OnSystemSuspending;
         messageWindow.SystemResumed -= OnSystemResumed;
         messageWindow.PowerSourceChanged -= OnPowerSourceChanged;
+        messageWindow.DisplayStateChanged -= OnDisplayStateChanged;
+        messageWindow.DeregisterDisplayStateNotifications();
     }
 
     private void OnSessionLocked()
@@ -96,6 +104,7 @@ internal sealed class SessionPowerEvents(
         Log.Info(
             $"Device cycle suspend accepted (system suspending): monotonic={monotonic.TotalMilliseconds:F0} ms, "
             + $"wall={wall.TotalMilliseconds:F0} ms since the last resume.");
+        _screensaverWake.NoteSuspendAccepted();
         steamUi.HoldForSuspend();
         devicePower.Queue(true, "system suspending", true);
     }
@@ -115,6 +124,29 @@ internal sealed class SessionPowerEvents(
         }
 
         performance.RepairAfterResume();
+        if (_screensaverWake.NoteResume())
+        {
+            steamUi.RequestScreensaverDismissal("system resumed");
+        }
+    }
+
+    private void OnDisplayStateChanged(int displayState, DisplayStateSource source)
+    {
+        if (!DisplayPowerSignal.IsDisplayOff(displayState))
+        {
+            if (_screensaverWake.NoteDisplayOn())
+            {
+                steamUi.RequestScreensaverDismissal("display lit");
+            }
+
+            return;
+        }
+
+        // Only the session's own display may say the screen went dark.
+        if (DisplayPowerSignal.MayReportDark(source))
+        {
+            _screensaverWake.NoteDisplayOff();
+        }
     }
 
     private void OnPowerSourceChanged()

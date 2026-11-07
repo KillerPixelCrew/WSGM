@@ -373,6 +373,8 @@ internal sealed class SteamUiModuleCatalog
         // state carries an empty mask until a profile marks a whole pair of controls absent.
         modules.Add(SteamControllerCapsSurface.Module(HostSteamUiEnabled, () => GlyphDelivery.Current));
         modules.Add(SteamNotices.Module());
+        // Dismisses Steam's screensaver once after a wake (SessionPowerEvents); changes nothing until asked.
+        modules.Add(SteamScreensaverDismissal.Module());
 
         // Steam's game menu. Declared unconditionally: WSGM's own Change Artwork entry is in it
         // whether or not a plugin contributes anything.

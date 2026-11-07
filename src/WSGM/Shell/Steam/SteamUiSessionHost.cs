@@ -66,6 +66,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     // it rather than leaving one that opens onto nothing.
     private volatile bool _wsgmSettingsReady;
 
+    // The wake a screensaver dismissal is owed for, or null. Taken exactly once: by the request when
+    // the capability already holds, otherwise by the first synchronization that verifies it.
+    private string? _screensaverDismissalOwed;
+
     /// <summary>Creates the host and its surface services.</summary>
     /// <param name="transport">The one process-long Steam UI transport.</param>
     /// <param name="toggleQuickAccess">Opens or closes WSGM's overlay.</param>
@@ -619,6 +623,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
         ReconcileScreensaverReport();
         ReconcileWsgmSettingsMenu();
+        DismissScreensaverIfOwed();
         // The host surfaces keep the bootstrap up, with or without native Quick Access, so the
         // library badge, the Home carousel and the screensaver rows are never retracted after a pass.
         if (_switches.HostSurfaces)
@@ -638,6 +643,63 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 _patches.SetGlobalEnabled(false);
             }
         }
+    }
+
+    /// <summary>Owes Steam one screensaver dismissal for a wake, delivered as soon as the capability holds.</summary>
+    /// <param name="reason">The wake signal, for the log.</param>
+    internal void RequestScreensaverDismissal(string reason)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        Volatile.Write(ref _screensaverDismissalOwed, reason);
+        DismissScreensaverIfOwed();
+    }
+
+    /// <summary>Makes the one owed dismissal once its patch is verified in the current generation.</summary>
+    /// <remarks>
+    ///     A verified patch means the bridge holds for the transport's current generation; the call itself
+    ///     is bound to that generation again. It is never retried: a refusal or an uncertain answer is
+    ///     logged, and Steam's own input still ends its saver.
+    /// </remarks>
+    private void DismissScreensaverIfOwed()
+    {
+        // A sleep closed the transport before it (SteamUiServices.HoldForSuspend), and a patch can still
+        // read Verified from the generation before it; only an open shared context counts, so a resume's
+        // dismissal waits for the reconnect's verification pass.
+        if (_disposed || Volatile.Read(ref _screensaverDismissalOwed) is null
+                      || !_transport.GetSnapshots().Any(snapshot =>
+                          snapshot is { Role: SteamUiTargetRole.SharedJsContext, Health: SteamUiTransportHealth.Ready })
+                      || !_patches.GetSnapshots().Any(snapshot =>
+                          snapshot is { Enabled: true, State: SteamUiPatchState.Verified }
+                          && snapshot.Id == SteamScreensaverDismissal.PatchId))
+        {
+            return;
+        }
+
+        if (Interlocked.Exchange(ref _screensaverDismissalOwed, null) is not { } reason)
+        {
+            return;
+        }
+
+        var token = _shutdown.Token;
+        Log.Observe(DismissScreensaverAsync(reason, token), "Steam screensaver dismissal after a wake");
+    }
+
+    private async Task DismissScreensaverAsync(string reason, CancellationToken token)
+    {
+        var result = await SteamScreensaverDismissal.TryDismissAsync(_transport, token).ConfigureAwait(false);
+        var state = result.WasActive switch
+        {
+            true => "it was showing",
+            false => "it was not showing",
+            null => "its state was unreadable"
+        };
+        Log.Info(result.Delivered
+            ? $"Steam screensaver dismissed after a wake ({reason}): {state}."
+            : $"Steam screensaver dismissal after a wake ({reason}) was not delivered; Steam's own input still ends it.");
     }
 
     /// <summary>Forgets Steam's screensaver timeouts whenever the surface that reports them does not hold.</summary>

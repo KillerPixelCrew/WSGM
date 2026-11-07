@@ -456,6 +456,16 @@ controller/touch dismissal still wins immediately; an explicit preview remains v
 input. `ForceScreensaver(false)` alone cannot repair automatic activation: the current native
 handler clears forced-preview mode and immediately reevaluates its original idle query.
 
+After a wake nothing has given Steam input yet, so a saver that was showing when the display went
+dark can stay up over a black screen. `Shell\Power\ScreensaverWakePolicy.cs` owes one dismissal per
+physical wake: a resume after an accepted suspend, or this session's display lighting after it went
+dark (the Atlas 8's wake on 2026-11-07 was a display-off wake with no system sleep). Whichever
+signal comes first takes it, and the stale half of a modern standby wake never arms it. The session
+host makes that one call through the toolkit's `SteamScreensaverDismissal` as soon as its patch is
+verified on an open shared context, which after a sleep is the reconnect's verification pass. It
+uses Steam's own input call, `ForceScreensaver({enabled: false})`, is never retried, and logs
+`Steam screensaver dismissed after a wake (…): it was showing` or that it was not delivered.
+
 The filter reaches already registered subscribers and future `GetActiveState` readers. It never
 changes the configured timeouts or the display-off boundary. A five-second observation lease
 restores native behavior if the host stops publishing. Removal restores the exact service and

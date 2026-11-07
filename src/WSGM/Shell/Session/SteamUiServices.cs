@@ -365,6 +365,20 @@ internal sealed class SteamUiServices
         }
     }
 
+    /// <summary>Dismisses Steam's screensaver once for this wake, as soon as the capability holds.</summary>
+    /// <param name="reason">The wake signal, for the log.</param>
+    /// <remarks>
+    ///     A wake usually closes the transport for its settle, so the host keeps the request until the
+    ///     dismissal patch verifies on the new generation and makes the one call then.
+    /// </remarks>
+    internal void RequestScreensaverDismissal(string reason)
+    {
+        if (!_state.ShutdownRequested)
+        {
+            Host?.RequestScreensaverDismissal(reason);
+        }
+    }
+
     /// <summary>Closes the transport before the machine sleeps, so nothing is in flight across it.</summary>
     /// <remarks>
     ///     A request in flight at the freeze timed out the moment the machine woke and was reported as
