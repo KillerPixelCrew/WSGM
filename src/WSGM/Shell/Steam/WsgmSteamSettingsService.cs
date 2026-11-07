@@ -461,7 +461,7 @@ internal sealed class WsgmSteamSettingsService : ISteamNavigationPanelBackend
                 new SteamSettingsSection("Profiles",
                 [
                     Note("device.profilesNote", "Fan curves and colours",
-                        "Made in WSGM Settings under Device. Pick the active one in Quick Access.")
+                        "Created and edited in the desktop Settings window under Device. Pick the active one in Quick Access.")
                 ])
             ], PageGlyphs.Device),
             new SteamSettingsPage("quick-access", "Quick access",

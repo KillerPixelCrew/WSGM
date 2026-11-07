@@ -43,6 +43,28 @@ public sealed class BluetoothDeviceCatalogTests
     }
 
     [Fact]
+    public void AHeadsetKeepsItsClassicKindAndAControllerItsAppearanceKind()
+    {
+        BluetoothDeviceCatalog catalog = new();
+        catalog.Apply(WindowsRadio.BluetoothChangeKind.Added, new WindowsRadio.BluetoothDevice("classic",
+            "WH-1000XM6", true, false, true, Container, WindowsRadio.BluetoothDeviceKind.Headset));
+        catalog.Apply(WindowsRadio.BluetoothChangeKind.Added, new WindowsRadio.BluetoothDevice("le",
+            "WH-1000XM6", true, false, false, Container, WindowsRadio.BluetoothDeviceKind.Headphones));
+        var rows = catalog.Apply(WindowsRadio.BluetoothChangeKind.Added, new WindowsRadio.BluetoothDevice("pad",
+            "Steam Controller", true, false, false, "", WindowsRadio.BluetoothDeviceKind.Gamepad));
+        Assert.Equal(WindowsRadio.BluetoothDeviceKind.Headset,
+            rows.Single(row => row.Name == "WH-1000XM6").Kind);
+        Assert.Equal(WindowsRadio.BluetoothDeviceKind.Gamepad,
+            rows.Single(row => row.Name == "Steam Controller").Kind);
+        Assert.Equal(SteamUiToolkit.SteamBluetoothDeviceKind.Headset,
+            NativeQamBluetoothService.SteamKind(WindowsRadio.BluetoothDeviceKind.Headset));
+        Assert.Equal(SteamUiToolkit.SteamBluetoothDeviceKind.Gamepad,
+            NativeQamBluetoothService.SteamKind(WindowsRadio.BluetoothDeviceKind.Gamepad));
+        Assert.All(Enum.GetValues<WindowsRadio.BluetoothDeviceKind>(), kind =>
+            Assert.Equal(kind.ToString(), NativeQamBluetoothService.SteamKind(kind).ToString()));
+    }
+
+    [Fact]
     public void RepeatedSweepsReplaceStaleEndpointsWithoutAccumulatingRows()
     {
         BluetoothDeviceCatalog catalog = new();

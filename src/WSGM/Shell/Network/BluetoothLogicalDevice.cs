@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using WindowsDeviceControl;
 
 namespace WSGM.Shell;
 
@@ -11,4 +12,5 @@ internal sealed record BluetoothLogicalDevice(
     bool Paired,
     bool CanPair,
     bool Connected,
-    IReadOnlyList<string> EndpointIds);
+    IReadOnlyList<string> EndpointIds,
+    WindowsRadio.BluetoothDeviceKind Kind = WindowsRadio.BluetoothDeviceKind.Unknown);

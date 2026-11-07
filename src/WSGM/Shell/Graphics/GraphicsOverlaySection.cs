@@ -24,4 +24,11 @@ internal sealed record GraphicsOverlaySection(
     string Description,
     SectionIcon Icon,
     IReadOnlyList<DeviceOverlayCategory> Categories,
-    IReadOnlyList<DeviceOverlayCapability> Capabilities);
+    IReadOnlyList<DeviceOverlayCapability> Capabilities)
+{
+    /// <summary>
+    ///     The section's own title, without the publisher's name <see cref="Title" /> adds when several
+    ///     graphics publishers run. A surface already grouped by publisher shows this one.
+    /// </summary>
+    public string OwnTitle { get; init; } = Title;
+}

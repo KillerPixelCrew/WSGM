@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using WSGM.Controls;
+using WindowsDeviceControl;
 using WSGM.Core;
 
 namespace WSGM.Shell;
@@ -107,6 +108,13 @@ public sealed class BluetoothDeviceEntry : ObservableObject
         get;
         internal set => SetFieldIfChanged(ref field, value, nameof(ContainerId));
     } = "";
+
+    /// <summary>Gets what the device is, from the class or appearance Windows reported for it.</summary>
+    public WindowsRadio.BluetoothDeviceKind Kind
+    {
+        get;
+        internal set => SetFieldIfChanged(ref field, value, nameof(Kind));
+    }
 
     /// <summary>
     ///     Gets whether this device can be connected/disconnected on

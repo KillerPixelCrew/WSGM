@@ -219,7 +219,12 @@ internal sealed class SteamGraphicsService : IDisposable
             var pages = Pages(snapshot with
             {
                 Publishers = [publisher],
-                Sections = [.. snapshot.Sections.Where(section => section.PluginId == publisher.PluginId)]
+                // The dropdown already names the publisher, so its groups use their own titles.
+                Sections =
+                [
+                    .. snapshot.Sections.Where(section => section.PluginId == publisher.PluginId)
+                        .Select(section => section with { Title = section.OwnTitle })
+                ]
             });
             var sections = pages.SelectMany(page => page.Sections.Select(section => section with
             {

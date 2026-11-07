@@ -90,7 +90,12 @@ internal sealed class BluetoothDeviceCatalog
                         members.Select(d => d.Name).FirstOrDefault(name => !string.IsNullOrWhiteSpace(name)) ??
                         "Unnamed device",
                         selected.Container, members.Any(d => d.Paired), members.Any(d => d.CanPair),
-                        members.Any(d => d.Connected), [.. members.Select(d => d.Id)]);
+                        members.Any(d => d.Connected), [.. members.Select(d => d.Id)],
+                        // A classic headset's Low Energy side often reports headphones: the selected one wins.
+                        selected.Kind != WindowsRadio.BluetoothDeviceKind.Unknown
+                            ? selected.Kind
+                            : members.Select(d => d.Kind)
+                                .FirstOrDefault(kind => kind != WindowsRadio.BluetoothDeviceKind.Unknown));
                 }).OrderBy(device => device.Id, StringComparer.OrdinalIgnoreCase)
         ];
     }

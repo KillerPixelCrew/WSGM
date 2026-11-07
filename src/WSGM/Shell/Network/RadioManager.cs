@@ -707,6 +707,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
             row.CanPair = device.CanPair;
             row.Connected = device.Connected;
             row.ContainerId = device.Container;
+            row.Kind = device.Kind;
             ApplyAudioState(row);
             identities.Append(identities.Length > 0 ? "; " : "")
                 .Append(

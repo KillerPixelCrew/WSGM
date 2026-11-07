@@ -137,6 +137,31 @@ public sealed class SteamGraphicsServiceTests
     }
 
     [Fact]
+    public void QuickAccessGroupsDropThePublisherNameTheirVendorDropdownAlreadyShows()
+    {
+        var single = Snapshot(
+            Placed(Range("graphics.sharpen", CapabilityProfileScope.Switched), CapabilityValue.Integer(40)),
+            Placed(Toggle(CapabilityProfileScope.Switched, "display.vrr") with { SectionId = "display-1" }));
+        // With several graphics publishers the Overlay names each section's publisher in its title.
+        var several = single with
+        {
+            Sections = [.. single.Sections.Select(section => section with { Title = section.Title + " (Test GPU)" })]
+        };
+        var page = Assert.Single(SteamGraphicsService.QuickAccessPages(several));
+        Assert.Equal(["Graphics: Image quality", "Built-in display"], page.Sections.Select(section => section.Title));
+        Assert.All(page.Sections, section => Assert.DoesNotContain("(Test GPU)", section.Title));
+    }
+
+    [Fact]
+    public void QuickSettingsSectionsAreNotTitledLikeSteamsOwnSections()
+    {
+        // Steam's Quick Settings tab carries its own Audio and Brightness sections below WSGM's.
+        string[] steams = ["Audio", "Brightness"];
+        Assert.All(NativeQamLayout.Layout.QuickSettings.Concat(NativeQamLayout.Layout.QuickSettingsEnd),
+            section => Assert.DoesNotContain(section.Title, steams, StringComparer.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void ValueKindsBecomeSteamsOwnFields()
     {
         var pages = SteamGraphicsService.Pages(Snapshot(

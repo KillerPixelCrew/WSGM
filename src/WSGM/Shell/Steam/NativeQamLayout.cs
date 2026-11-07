@@ -33,7 +33,8 @@ internal static class NativeQamLayout
         [new SteamQuickAccessSection("Reset", string.Empty, "reset", false, ["valveReset"])],
         [
             new SteamQuickAccessSection("Display", "Display", "display", true, ["resolution"]),
-            new SteamQuickAccessSection("Audio", "Audio", "audio", true, ["audioFormat"])
+            // Titled apart from Steam's own Audio section, which follows on the same tab.
+            new SteamQuickAccessSection("Audio", "Audio format", "audio", true, ["audioFormat"])
         ],
         [
             new SteamQuickAccessSection("Charging", "Charging", "batteryCharging", true, ["charging"]),

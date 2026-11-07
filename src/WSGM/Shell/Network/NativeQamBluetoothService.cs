@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
+using WindowsDeviceControl;
 using WSGM.Core;
 using RadioPower = WindowsDeviceControl.WindowsRadio.Power;
 
@@ -179,15 +180,34 @@ internal sealed class NativeQamBluetoothService : ISteamBluetoothBackend
                         entry.Id,
                         string.IsNullOrWhiteSpace(entry.Name) ? entry.Id : entry.Name,
                         entry.Id,
-                        // Steam's generic device type. WSGM does not classify Bluetooth devices, and a
-                        // guessed class would put the wrong icon beside a real device.
-                        0,
+                        SteamKind(entry.Kind),
                         entry.Paired,
                         entry.AudioConnectable ? entry.AudioActive : entry.Connected)
                     { OperationInProgress = entry.Busy }));
         }).ConfigureAwait(false);
 
         return new SteamBluetoothState(available, enabled, discovering, devices);
+    }
+
+    /// <summary>The kind Steam's panel distinguishes for what Windows reported about a device.</summary>
+    /// <param name="kind">The kind from the device's Class of Device or Appearance.</param>
+    /// <returns>The same kind, by the toolkit's name.</returns>
+    internal static SteamBluetoothDeviceKind SteamKind(WindowsRadio.BluetoothDeviceKind kind)
+    {
+        return kind switch
+        {
+            WindowsRadio.BluetoothDeviceKind.Phone => SteamBluetoothDeviceKind.Phone,
+            WindowsRadio.BluetoothDeviceKind.Computer => SteamBluetoothDeviceKind.Computer,
+            WindowsRadio.BluetoothDeviceKind.Headset => SteamBluetoothDeviceKind.Headset,
+            WindowsRadio.BluetoothDeviceKind.Headphones => SteamBluetoothDeviceKind.Headphones,
+            WindowsRadio.BluetoothDeviceKind.Speakers => SteamBluetoothDeviceKind.Speakers,
+            WindowsRadio.BluetoothDeviceKind.OtherAudio => SteamBluetoothDeviceKind.OtherAudio,
+            WindowsRadio.BluetoothDeviceKind.Mouse => SteamBluetoothDeviceKind.Mouse,
+            WindowsRadio.BluetoothDeviceKind.Joystick => SteamBluetoothDeviceKind.Joystick,
+            WindowsRadio.BluetoothDeviceKind.Gamepad => SteamBluetoothDeviceKind.Gamepad,
+            WindowsRadio.BluetoothDeviceKind.Keyboard => SteamBluetoothDeviceKind.Keyboard,
+            _ => SteamBluetoothDeviceKind.Unknown
+        };
     }
 
     private static Task<SteamUiCommandResult> AcceptWithoutEquivalent(string command)

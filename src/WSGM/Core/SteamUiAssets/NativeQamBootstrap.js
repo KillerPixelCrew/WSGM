@@ -7114,6 +7114,7 @@
 .steam-ui-kit-group-body > div > :first-child,.steam-ui-kit-blocks > div > div > :first-child,.steam-ui-kit-valve > div > div > :first-child{--field-negative-horizontal-margin:0px}
 .steam-ui-kit-group-body,.steam-ui-kit-blocks,.steam-ui-kit-valve,.steam-ui-kit-battery{min-width:0}
 .steam-ui-kit-group-body button.DialogButton,.steam-ui-kit-blocks button.DialogButton,.steam-ui-kit-valve button.DialogButton{min-width:0!important;box-sizing:border-box!important}
+.steam-ui-kit-valve-profile > *{padding:8px 12px!important;border-radius:4px;box-sizing:border-box}
 .steam-ui-kit-battery{width:calc(100% - 32px);box-sizing:border-box;margin:0 16px 6px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.08);--field-negative-horizontal-margin:0px}
 .steam-ui-kit-battery > *{margin-inline:0!important;padding-inline:0!important;width:100%!important}
 .steam-ui-kit-battery div:has(> :nth-child(2):nth-last-child(2):not(:empty)){display:flex;flex-wrap:nowrap;align-items:center;gap:8px;height:24px!important}
@@ -7534,7 +7535,13 @@
    * @param options Compact selects a wrapping toolbar of content-sized buttons instead of a grid.
    * @returns A two-column grid or compact toolbar of native buttons.
    */
-  const renderSteamUiActions = (ui, actions, options = {}) => {
+  const renderSteamUiActions = (
+    ui,
+    actions,
+    // wideAt: the label length from which an action takes the whole row; a narrow column such as Quick
+    // Access lowers it so no label is cut.
+    options = {},
+  ) => {
     const h = ui.react.createElement;
     return h(
       ui.focusable,
@@ -7548,7 +7555,9 @@
           {
             key: action.id,
             className:
-              !options.compact && action.label.length > 18 ? "steam-ui-kit-wide" : undefined,
+              !options.compact && action.label.length >= (options.wideAt ?? 19)
+                ? "steam-ui-kit-wide"
+                : undefined,
             onClick: () => {
               if (!action.disabled) runSteamUiAction(ui, action);
             },
@@ -9666,16 +9675,21 @@
       if (existing.length === 0) {
         // Valve's tabs carry both: the element the header draws and the string it is named by. The
         // element is Valve's own title element with our text in it, so the tab's heading is drawn
-        // the size and colour Valve's are, under a class this code never names; a client whose
-        // title is not a plain element gets a plain div.
-        const sample = tabs.find(
-          (tab) => tab && react.isValidElement(tab.title) && typeof tab.title.type === "string",
-        );
+        // the size and colour Valve's are, under a class this code never names. Valve's title is
+        // a component taking a localization id (2026-11 clients); its localizer hands back a string
+        // that is not a #token unchanged, so our title goes in as that id. A plain element takes the
+        // text as its child, and a client with neither gets a plain div.
+        const sample = tabs.find((tab) => tab && react.isValidElement(tab.title));
+        const title = !sample
+          ? null
+          : typeof sample.title.type === "string"
+            ? react.cloneElement(sample.title, { key: undefined }, ExtensionsTabTitle)
+            : typeof sample.title.props?.locId === "string"
+              ? react.cloneElement(sample.title, { key: undefined, locId: ExtensionsTabTitle })
+              : null;
         tabs.push({
           key: ExtensionsTabId,
-          title: sample
-            ? react.cloneElement(sample.title, { key: undefined }, ExtensionsTabTitle)
-            : react.createElement("div", null, ExtensionsTabTitle),
+          title: title ?? react.createElement("div", null, ExtensionsTabTitle),
           strTitle: ExtensionsTabTitle,
           tab: icon("extensions", 22),
           steamUiExtensionsTab: true,
@@ -9885,7 +9899,8 @@
           foldHeading(`extensions:${item.id}`, { title: item.name, detail: detailOf(item) }),
         );
       // Actions in the kit's grid: two short labels side by side, a long one across the row, rather
-      // than every action being a full-width bar of its own.
+      // than every action being a full-width bar of its own. Half of the Quick Access column holds
+      // about eleven characters at Steam's button size; "Browse themes\u2026" was cut at the default.
       const actionsRow = (item) =>
         (item.actions ?? []).length
           ? h(
@@ -9898,6 +9913,7 @@
                   label: action.label,
                   onClick: () => activate(action.id),
                 })),
+                { wideAt: 12 },
               ),
             )
           : null;
@@ -16327,11 +16343,15 @@
         // its bounds, a new range mounts a new slider instead.
         const rowKey =
           kind === "valveRefreshRate" ? `${key}:${acceptedStates.get(publication)}` : key;
+        // Valve's profile header is a focusable tile whose highlight Steam insets in its own panel;
+        // inside a kit section the inset is gone, so the kit class restores it.
+        const body =
+          key === "steam-ui-valve-profile-header"
+            ? h("div", { className: "steam-ui-kit-valve-profile" }, h(component))
+            : h(component);
         rows.push([
           kind,
-          ownRows
-            ? h(component, { key: rowKey })
-            : h(controlRuntime.row, { key: rowKey }, h(component)),
+          ownRows ? h(component, { key: rowKey }) : h(controlRuntime.row, { key: rowKey }, body),
         ]);
         // Valve's components report nothing and count as drawn while they are mounted.
         if (kind.startsWith("valve") || drawnKinds.has(kind)) drawn.add(kind);

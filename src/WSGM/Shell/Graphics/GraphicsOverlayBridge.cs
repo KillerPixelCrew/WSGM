@@ -125,14 +125,14 @@ internal sealed class GraphicsOverlayBridge : IGraphicsOverlaySource
                     description,
                     section.Icon,
                     section.Categories,
-                    capabilities));
+                    capabilities) { OwnTitle = section.Title });
             }
 
             var unplaced = rows.Where(row => row.PluginSectionId is null).ToArray();
             if (unplaced.Length > 0)
             {
                 sections.Add(new GraphicsOverlaySection(pluginId + "/", pluginId, several ? $"{name}: other" : "Other",
-                    name, SectionIcon.None, [], unplaced));
+                    name, SectionIcon.None, [], unplaced) { OwnTitle = "Other" });
             }
         }
 
