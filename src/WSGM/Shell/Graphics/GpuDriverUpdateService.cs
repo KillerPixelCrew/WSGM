@@ -22,11 +22,14 @@ internal sealed class GpuDriverUpdateService : IAsyncDisposable, IGpuDriverUpdat
     private readonly Func<bool?> _gameRunning;
     private readonly Func<GpuInstalledDriver, string?> _oemRefusal;
     private readonly Func<IReadOnlyList<GpuInstalledDriver>> _readInstalled;
-    private readonly Func<GpuInstalledDriver, CancellationToken, Task<GpuDriverPackage>> _checkPackage;
+    private readonly Func<GpuInstalledDriver, bool, CancellationToken, Task<GpuDriverPackage>> _checkPackage;
     private readonly Func<CancellationToken, Task> _waitForSession;
     private static readonly Lazy<bool?> ProcessElevation = new(ElevationCheck.IsCurrentProcessElevated);
     private static readonly TimeSpan CheckInterval = TimeSpan.FromHours(24);
     private bool _hasDiscovery;
+    private bool _channelCheckPending;
+    private bool _running;
+    private bool _loggedStart;
     private string? _discoveryDetail = "Reading installed graphics drivers…";
     private string? _lastAnnounced;
     private DateTimeOffset _admissionAt;
@@ -48,7 +51,7 @@ internal sealed class GpuDriverUpdateService : IAsyncDisposable, IGpuDriverUpdat
     internal GpuDriverUpdateService(ConfigStore store, Func<bool?> gameRunning, Func<GpuInstalledDriver, string?> oemRefusal,
         Action<Action> post, Func<GpuVendor, bool, CancellationToken, Task>? driverTransition = null,
         Func<IReadOnlyList<GpuInstalledDriver>>? readInstalled = null,
-        Func<GpuInstalledDriver, CancellationToken, Task<GpuDriverPackage>>? checkPackage = null,
+        Func<GpuInstalledDriver, bool, CancellationToken, Task<GpuDriverPackage>>? checkPackage = null,
         Func<CancellationToken, Task>? waitForSession = null)
     {
         _store = store;
@@ -65,6 +68,7 @@ internal sealed class GpuDriverUpdateService : IAsyncDisposable, IGpuDriverUpdat
     public event Action? Changed;
     internal event Action<GpuDriverUpdateState>? UpdateFound;
     public event Action? ProgressChanged;
+    public bool IncludeNonWhql => _store.Read().Config?.GpuDriverUpdatesIncludeNonWhql == true;
     public bool Automatic => _store.Read().Config?.GpuDriverUpdatesAutoCheck == true;
     public GpuDriverInstallHistory? History => _store.Read().Config?.GpuDriverInstallHistory;
     internal Task StartupCompletion => _startup.Task;
@@ -129,6 +133,25 @@ internal sealed class GpuDriverUpdateService : IAsyncDisposable, IGpuDriverUpdat
         }
     }
 
+    public void SetIncludeNonWhql(bool enabled)
+    {
+        lock (_gate)
+        {
+            _store.Update(config =>
+            {
+                config.GpuDriverUpdatesIncludeNonWhql = enabled;
+                return true;
+            });
+            _channelCheckPending = true;
+            if (!_running)
+            {
+                _channelCheckPending = false;
+                Check();
+            }
+        }
+        Publish();
+    }
+
     /// <summary>Starts a bounded check and returns immediately so neither surface holds a bridge command open.</summary>
     public bool Check() => Start(CheckAsync, discovers: true);
 
@@ -138,7 +161,8 @@ internal sealed class GpuDriverUpdateService : IAsyncDisposable, IGpuDriverUpdat
         lock (_gate)
         {
             if (_state.FirstOrDefault(item => item.Adapter.InstanceId == instanceId) is not
-                { CanInstall: true, Package: { } package } || package.Identity != confirmedPackageIdentity)
+                { CanInstall: true, Package: { } package } || package.Identity != confirmedPackageIdentity
+                || (!IncludeNonWhql && !package.IsWhql))
             {
                 return false;
             }
@@ -174,16 +198,36 @@ internal sealed class GpuDriverUpdateService : IAsyncDisposable, IGpuDriverUpdat
     {
         lock (_gate)
         {
-            if (_closed || !_operation.IsCompleted)
+            if (_closed || _running)
             {
                 return false;
             }
 
+            _running = true;
             _hasDiscovery |= discovers;
             _cancel?.Dispose();
             _cancel = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
             var token = _cancel.Token;
-            _operation = Task.Run(() => operation(token));
+            _operation = Task.Run(async () =>
+            {
+                while (true)
+                {
+                    await operation(token).ConfigureAwait(false);
+                    lock (_gate)
+                    {
+                        if (!_channelCheckPending || _closed)
+                        {
+                            _running = false;
+                            return;
+                        }
+                        _channelCheckPending = false;
+                        _cancel?.Dispose();
+                        _cancel = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+                        token = _cancel.Token;
+                        operation = CheckAsync;
+                    }
+                }
+            });
             return true;
         }
     }
@@ -192,7 +236,7 @@ internal sealed class GpuDriverUpdateService : IAsyncDisposable, IGpuDriverUpdat
     {
         try
         {
-            var adapters = _readInstalled();
+            var adapters = ReadInstalledForCheck();
             token.ThrowIfCancellationRequested();
             lock (_gate)
             {
@@ -212,9 +256,11 @@ internal sealed class GpuDriverUpdateService : IAsyncDisposable, IGpuDriverUpdat
 
     private async Task CheckAsync(CancellationToken token)
     {
+        var includeNonWhql = IncludeNonWhql;
+        Log.Info($"GPU driver catalog check: includeNonWhql={includeNonWhql}.");
         try
         {
-            var adapters = _readInstalled();
+            var adapters = ReadInstalledForCheck();
             lock (_gate)
             {
                 _discoveryDetail = null;
@@ -246,14 +292,23 @@ internal sealed class GpuDriverUpdateService : IAsyncDisposable, IGpuDriverUpdat
                     return;
                 }
 
-                var package = await _checkPackage(adapter, token).ConfigureAwait(false);
+                var package = await _checkPackage(adapter, includeNonWhql, token).ConfigureAwait(false);
                 token.ThrowIfCancellationRequested();
+                if (IncludeNonWhql != includeNonWhql)
+                {
+                    return;
+                }
+                Log.Info($"GPU driver catalog: {adapter.Name} [{adapter.HardwareId}], installed={adapter.Version}, offered={package.Version}, {package.Certification}.");
                 var available = GpuDriverUpdateCatalog.IsNewer(package);
                 var state = new GpuDriverUpdateState(adapter, available is true ? GpuDriverUpdateStage.Available
                     : available is false ? GpuDriverUpdateStage.UpToDate : GpuDriverUpdateStage.Unavailable,
                     available is true ? $"Driver {package.Version} is available ({package.Date:d})." : available is false
-                        ? "The latest compatible driver is installed."
+                        ? "The latest compatible driver in the selected channel is installed."
                         : "The installed driver date is unavailable; this release has multiple architecture-specific versions.", package);
+                if (package.ChannelDetail is { } channelDetail)
+                {
+                    state = state with { Detail = state.Detail + " " + channelDetail };
+                }
                 Set(state);
                 bool announce;
                 lock (_gate)
@@ -268,6 +323,7 @@ internal sealed class GpuDriverUpdateService : IAsyncDisposable, IGpuDriverUpdat
             }
             catch (Exception error) when (error is not OutOfMemoryException)
             {
+                Log.Warn($"GPU driver catalog: {adapter.Name}: {error.Message}");
                 Set(new GpuDriverUpdateState(adapter, error is NotSupportedException
                     ? GpuDriverUpdateStage.Unavailable : GpuDriverUpdateStage.Failed,
                     token.IsCancellationRequested ? "Check cancelled. Check again when ready." : error.Message));
@@ -284,6 +340,18 @@ internal sealed class GpuDriverUpdateService : IAsyncDisposable, IGpuDriverUpdat
             _state = [.. _state.Select(item => item with { Stage = GpuDriverUpdateStage.Failed,
                 Detail = error.Message, Package = null })];
         }
+    }
+
+    private IReadOnlyList<GpuInstalledDriver> ReadInstalledForCheck()
+    {
+        var adapters = _readInstalled();
+        if (!_loggedStart)
+        {
+            _loggedStart = true;
+            Log.Info("GPU driver update service started: adapters=["
+                + string.Join(", ", adapters.Select(adapter => $"{adapter.Name} [{adapter.HardwareId}] {adapter.Version}")) + "].");
+        }
+        return adapters;
     }
 
     public string? InstallRefusal(GpuInstalledDriver adapter) => AdmissionRefusal(adapter, fresh: false);
@@ -335,7 +403,8 @@ internal sealed class GpuDriverUpdateService : IAsyncDisposable, IGpuDriverUpdat
     private async Task InstallAsync(string instanceId, string confirmedPackageIdentity, CancellationToken token)
     {
         var state = Snapshot().FirstOrDefault(item => item.Adapter.InstanceId == instanceId);
-        if (state is not { CanInstall: true, Package: { } package } || package.Identity != confirmedPackageIdentity)
+        if (state is not { CanInstall: true, Package: { } package } || package.Identity != confirmedPackageIdentity
+                || (!IncludeNonWhql && !package.IsWhql))
         {
             return;
         }
@@ -369,6 +438,11 @@ internal sealed class GpuDriverUpdateService : IAsyncDisposable, IGpuDriverUpdat
             await _driverTransition(package.Adapter.Vendor, true, token).ConfigureAwait(false);
             var result = await installer.InstallAsync(path, () =>
             {
+                if (!IncludeNonWhql && !package.IsWhql)
+                {
+                    return "The non-WHQL channel was disabled. Check for updates again.";
+                }
+
                 if (AdmissionRefusal(state.Adapter, fresh: true) is { } refused)
                 {
                     return refused;

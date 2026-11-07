@@ -8,6 +8,8 @@ namespace WSGM.Shell;
 internal interface IGpuDriverUpdateSource : IChangeSource
 {
     bool Automatic { get; }
+    bool IncludeNonWhql { get; }
+    void SetIncludeNonWhql(bool enabled);
     GpuDriverInstallHistory? History { get; }
     string? DiscoveryDetail { get; }
     event System.Action? ProgressChanged;

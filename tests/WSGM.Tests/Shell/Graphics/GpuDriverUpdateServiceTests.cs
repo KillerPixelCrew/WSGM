@@ -130,13 +130,68 @@ public sealed class GpuDriverUpdateServiceTests
         Assert.Null(service.TakeAnnouncement());
     }
 
+    [Fact]
+    public async Task NonWhqlSettingDefaultsOffRoundTripsAndImmediatelyChecksTheNewChannel()
+    {
+        using var config = new TemporaryConfigStore();
+        var channels = new List<bool>();
+        await using (var service = new GpuDriverUpdateService(config.Store, () => false, _ => null, action => action(),
+            readInstalled: () => [Adapter], checkPackage: (adapter, beta, _) =>
+            {
+                channels.Add(beta);
+                return Task.FromResult(Package(adapter));
+            }, waitForSession: token => Task.Delay(Timeout.Infinite, token)))
+        {
+            Assert.False(service.IncludeNonWhql);
+            service.SetIncludeNonWhql(true);
+            await service.Completion;
+            Assert.True(service.IncludeNonWhql);
+            Assert.Equal(new[] { true }, channels);
+            var reloaded = new WSGM.Core.ConfigStore(config.Context);
+            Assert.True(reloaded.Read().Config!.GpuDriverUpdatesIncludeNonWhql);
+            service.SetIncludeNonWhql(false);
+            await service.Completion;
+            Assert.False(service.IncludeNonWhql);
+            Assert.Equal(new[] { true, false }, channels);
+        }
+        await using var restarted = Service(config, () => [Adapter]);
+        Assert.False(restarted.IncludeNonWhql);
+    }
+
+    [Fact]
+    public async Task ChannelChangeDuringAnActiveCheckQueuesAFreshCheckAndDropsTheOldResult()
+    {
+        using var config = new TemporaryConfigStore();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var channels = new List<bool>();
+        await using var service = new GpuDriverUpdateService(config.Store, () => false, _ => null, action => action(),
+            readInstalled: () => [Adapter], checkPackage: async (adapter, beta, token) =>
+            {
+                channels.Add(beta);
+                if (!beta)
+                {
+                    started.SetResult();
+                    await release.Task.WaitAsync(token);
+                }
+                return Package(adapter, beta ? "3.0.0.0" : "2.0.0.0");
+            }, waitForSession: token => Task.Delay(Timeout.Infinite, token));
+        Assert.True(service.Check());
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        service.SetIncludeNonWhql(true);
+        release.SetResult();
+        await service.Completion;
+        Assert.Equal(new[] { false, true }, channels);
+        Assert.Equal("3.0.0.0", Assert.Single(service.Snapshot()).Package!.Version);
+    }
+
     private static GpuDriverUpdateService Service(TemporaryConfigStore config,
         Func<IReadOnlyList<GpuInstalledDriver>> read,
         Func<GpuInstalledDriver, CancellationToken, Task<GpuDriverPackage>>? check = null,
         Func<CancellationToken, Task>? wait = null)
     {
         return new GpuDriverUpdateService(config.Store, () => false, _ => null, action => action(),
-            readInstalled: read, checkPackage: check ?? ((adapter, _) => Task.FromResult(Package(adapter))),
+            readInstalled: read, checkPackage: (adapter, _, token) => check is null ? Task.FromResult(Package(adapter)) : check(adapter, token),
             waitForSession: wait ?? (token => Task.Delay(Timeout.Infinite, token)));
     }
 

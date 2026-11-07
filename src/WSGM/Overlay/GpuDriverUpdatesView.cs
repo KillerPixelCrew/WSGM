@@ -101,6 +101,7 @@ public sealed class GpuDriverUpdatesView : ServiceSubView
 
             if (item.Package is { } package)
             {
+                card.Children.Add(Caption($"Driver {package.Version} · {package.Certification}"));
                 card.Children.Add(Tagged(Row("Release notes and license", package.Details.Host, Icons.Monitor, () =>
                 {
                     _notes = _notes == id ? null : id;
@@ -125,6 +126,8 @@ public sealed class GpuDriverUpdatesView : ServiceSubView
 
         stack.Children.Add(ChoiceRow("Check automatically", new[] { (false, "Off"), (true, "Daily") },
             service.Automatic, service.SetAutomatic));
+        stack.Children.Add(ChoiceRow("Include non-WHQL (beta) drivers", new[] { (false, "Off"), (true, "On") },
+            service.IncludeNonWhql, service.SetIncludeNonWhql));
         if (service.History is { } history)
         {
             stack.Children.Add(Caption($"Previous driver: {history.PreviousVersion}. {history.Result}"));

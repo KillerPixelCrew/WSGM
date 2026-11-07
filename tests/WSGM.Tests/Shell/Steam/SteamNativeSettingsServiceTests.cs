@@ -252,7 +252,7 @@ public sealed partial class SteamNativeSettingsServiceTests
             return _performance.DisposeAsync();
         }
 
-        internal static Task<ProducerRig> CreateAsync()
+        internal static Task<ProducerRig> CreateAsync(IGpuDriverUpdateSource? driverUpdates = null)
         {
             FakeHybridCoreApi api = new();
             var profiles = PerformanceBuilders.Profiles();
@@ -267,7 +267,7 @@ public sealed partial class SteamNativeSettingsServiceTests
                 null,
                 null,
                 null,
-                profiles);
+                profiles, driverUpdates: driverUpdates);
             return Task.FromResult(new ProducerRig(performance, producer));
         }
     }

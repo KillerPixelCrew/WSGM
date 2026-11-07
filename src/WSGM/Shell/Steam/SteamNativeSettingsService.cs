@@ -243,6 +243,7 @@ internal sealed partial class SteamNativeSettingsService(
             var built = await SharedBuildAsync().ConfigureAwait(false);
             Volatile.Write(ref _offered, built.Commands);
             var (pages, revision) = _pages.Next(built.Pages);
+            LogDisplayState(pages);
             return new SteamNativeSettingsState(pages, revision);
         }
         finally

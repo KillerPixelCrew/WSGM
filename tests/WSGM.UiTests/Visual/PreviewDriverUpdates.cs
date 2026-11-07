@@ -19,7 +19,7 @@ public static class PreviewDriverUpdates
     public static void Export(string directory, int width, int height)
     {
         Directory.CreateDirectory(directory);
-        foreach (var stage in new[] { "empty", "Checking", "Available", "confirm", "Downloading", "Installing", "Up to date", "Failed" })
+        foreach (var stage in new[] { "empty", "Checking", "Available", "beta", "confirm", "Downloading", "Installing", "Up to date", "Failed" })
         {
             using var fixture = new UiFixture();
             var source = new PreviewSource(stage);
@@ -80,16 +80,20 @@ public static class PreviewDriverUpdates
         public string? DiscoveryDetail => null;
         public string? TakeAnnouncement() => null;
         public bool Automatic => false;
+        public bool IncludeNonWhql => stage == "beta";
+        public void SetIncludeNonWhql(bool enabled)
+        {
+        }
         public GpuDriverInstallHistory? History => null;
         public IReadOnlyList<GpuDriverUpdateState> Snapshot()
         {
             var adapter = new GpuInstalledDriver("fixture", "VEN_8086&DEV_7D55", GpuVendor.Intel,
                 "Intel Arc Graphics with a long adapter name", "32.0.101.7092", new DateTime(2026, 9, 25));
             // Immutable fixture metadata only. No catalog, downloader, installer or hardware owner is created.
-            var package = stage is not ("Available" or "confirm") ? null : new GpuDriverPackage(adapter,
+            var package = stage is not ("Available" or "beta" or "confirm") ? null : new GpuDriverPackage(adapter,
                 "32.0.101.9150", new DateTime(2026, 10, 2), new Uri("https://downloadmirror.intel.com/fixture.exe"),
-                new Uri("https://www.intel.com/driver"), "Release notes for this fictional preview package.", 1024L, null);
-            var phase = stage is "empty" ? GpuDriverUpdateStage.NotChecked : stage is "confirm" ? GpuDriverUpdateStage.Available
+                new Uri("https://www.intel.com/driver"), "Release notes for this fictional preview package.", 1024L, null, isWhql: stage != "beta");
+            var phase = stage is "empty" ? GpuDriverUpdateStage.NotChecked : stage is "confirm" or "beta" ? GpuDriverUpdateStage.Available
                 : Enum.Parse<GpuDriverUpdateStage>(stage.Replace(" ", ""), ignoreCase: true);
             return stage == "empty" ? [] : [new GpuDriverUpdateState(adapter, phase,
                 stage == "Failed" ? "The official server is unavailable. Check again when the connection is restored."

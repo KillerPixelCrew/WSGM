@@ -2,7 +2,13 @@
 
 Device > GPU in the Overlay and Settings > Display in Steam share the session's
 `GpuDriverUpdateService`. Both show installed version/date, check/availability/failure state,
-release notes, download progress, installer outcome, required restart and rollback guidance.
+release notes, download progress, installer outcome, required restart and rollback guidance. Both
+pages put **Include non-WHQL (beta) drivers** beside the automatic-check preference. It defaults to
+off, persists in AppConfig, and changing it starts a fresh catalog check even when automatic checks
+are disabled. A change during another operation queues that check and suppresses results from the
+previous channel. Every offered package identifies its WHQL certification; enabling beta never
+relaxes the official-source, checksum, signer or explicit-confirmation requirements.
+
 Checking can be enabled daily. The last attempt is persisted, so a restart does not repeat a check
 made within 24 hours; startup checks wait for the initial session settling delay. Adapter queries
 run concurrently. Downloading/installing always follows an explicit confirmation bound to the

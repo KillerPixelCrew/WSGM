@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
+using WSGM.Core;
 
 namespace WSGM.Shell;
 
@@ -11,6 +12,14 @@ internal sealed partial class SteamNativeSettingsService
 {
     private readonly Lock _driverNotesGate = new();
     private readonly HashSet<string> _driverNotes = new(StringComparer.Ordinal);
+
+    private void LogDisplayState(IReadOnlyList<SteamNativeSettingsPage> pages)
+    {
+        var sections = pages.FirstOrDefault(page => page.Id == SteamNativeSettingsPageId.Display)?.Sections;
+        Log.Change("steam.native-settings.display", "Steam native Settings Display: driverUpdates="
+            + (driverUpdates is null ? "null" : "present") + "; sections=["
+            + string.Join(", ", sections?.Select(section => $"{section.Id}:{section.Rows.Count}") ?? []) + "].");
+    }
 
     private void AddDriverUpdates(List<SteamSettingsSection> display, OfferedRows offer)
     {
@@ -37,6 +46,13 @@ internal sealed partial class SteamNativeSettingsService
                 service.SetAutomatic(value.GetBoolean());
                 return Task.FromResult(SteamUiCommandResult.Applied);
             });
+        offer.Add(rows, new SteamSettingsRow("driver-updates.non-whql", SteamSettingsRowKind.Boolean,
+            "Include non-WHQL (beta) drivers", "Include official beta, optional and preview releases. Checks again when changed.", service.IncludeNonWhql),
+            (value, _) =>
+            {
+                service.SetIncludeNonWhql(value.GetBoolean());
+                return Task.FromResult(SteamUiCommandResult.Applied);
+            });
         if (states.Count == 0)
         {
             rows.Add(new SteamSettingsRow("driver-updates.empty", SteamSettingsRowKind.Note, "No supported GPU",
@@ -51,6 +67,8 @@ internal sealed partial class SteamNativeSettingsService
                     + state.StatusText, Summary: state.Stage + "/" + state.Progress));
             if (state.Package is { } package)
             {
+                rows.Add(new SteamSettingsRow("driver-updates.certification:" + id, SteamSettingsRowKind.Note,
+                    $"Driver {package.Version}", Text: package.Certification));
                 offer.Add(rows, new SteamSettingsRow("driver-updates.notes:" + id, SteamSettingsRowKind.Action,
                     "Release notes and license", ButtonLabel: notes.Contains(id) ? "Hide" : "Show"), (_, _) =>
                 {
