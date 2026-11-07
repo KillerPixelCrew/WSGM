@@ -169,9 +169,11 @@ readback and dropped, never repeated blindly. Lighting changes retain the other 
 never write ROM. Shared ring color and eight measured segment colors use the same backend; the
 unassigned ninth wire slot is retained. Rear-logo color, brightness, effect and speed use a separate
 lighting endpoint and never modify that slot or the ring profile. Logo state cannot be read, so its
-values start unknown and become known after an accepted explicit write. Optional Intel voltage
-settings use the signed PawnIO IntelMSR module. Exact on-device results and remaining acceptance are
-in the [Acer provenance](../external/libhandheld/src/LibHandheld/Families/Acer/PROVENANCE.md).
+values start unknown and become known after an accepted explicit write. Lighting commands preserve
+the exact capability ID and instance, including shared ring controls with no instance and the named
+logo controls. Optional Intel voltage settings use the signed PawnIO IntelMSR module. Exact
+on-device results and remaining acceptance are in the
+[Acer provenance](../external/libhandheld/src/LibHandheld/Families/Acer/PROVENANCE.md).
 
 113 exact definitions select authored artwork through 107 glyph profiles. WSGM imports those
 outlines and supplies the corresponding Overlay and Steam presentation. Family notices ship with the

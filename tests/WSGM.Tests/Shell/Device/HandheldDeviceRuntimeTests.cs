@@ -3,12 +3,57 @@ using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Shell;
 using WSGM.Testing;
+using WSGM.Tests.Fakes;
 using P = LibHandheld.Contracts;
 
 namespace WSGM.Tests.Shell;
 
 public sealed class HandheldDeviceRuntimeTests
 {
+    [Theory]
+    [InlineData(P.CapabilityRole.LightingBrightness, null)]
+    [InlineData(P.CapabilityRole.LightingBrightness, "logo")]
+    [InlineData(P.CapabilityRole.LightingEffect, null)]
+    [InlineData(P.CapabilityRole.LightingEffect, "logo")]
+    [InlineData(P.CapabilityRole.LightingEffectSpeed, null)]
+    [InlineData(P.CapabilityRole.LightingEffectSpeed, "logo")]
+    public async Task SharedAndNamedLightingControlsKeepTheirExactIdentity(P.CapabilityRole role, string? instance)
+    {
+        using TemporaryDirectory temporary = new();
+        var choice = role == P.CapabilityRole.LightingEffect;
+        P.CapabilityDescriptor Descriptor(string? zone) => new()
+        {
+            CapabilityId = "fixture.lighting", InstanceId = zone, Role = role,
+            ValueKind = choice ? P.CapabilityValueKind.Choice : P.CapabilityValueKind.Integer,
+            Minimum = choice ? null : 0, Maximum = choice ? null : 100, Step = choice ? null : 1,
+            Choices = choice
+                ? [new P.CapabilityChoice("solid", new P.CapabilityDisplay { Key = P.DisplayKey.Custom, CustomText = "Solid" })]
+                : [],
+            SupportsWrite = true, Persistence = P.CapabilityPersistence.Volatile,
+            Display = new P.CapabilityDisplay { Key = P.DisplayKey.Custom, CustomText = "Lighting" }
+        };
+        var engine = new NativeRuntimeEngine([], (_, _) => Task.CompletedTask)
+        {
+            Publication = new P.CapabilityDescriptorSet { Descriptors = [Descriptor(null), Descriptor("logo")] }
+        };
+        var definition = new P.HandheldDefinition("fixture-device", "fixture", "Fixture", "fixture");
+        var device = new HandheldDevice(definition, new P.DeviceIdentitySnapshot(), temporary.Root, null, engine);
+        await using var runtime = new HandheldDeviceRuntime(device);
+        await runtime.StartAsync(controllerManagementEnabled: false, CancellationToken.None);
+
+        var dispatch = await runtime.ExecuteCommandAsync(new CapabilityCommand
+        {
+            CommandId = Guid.NewGuid(), CapabilityId = "fixture.lighting", InstanceId = instance,
+            RequestedValue = choice ? CapabilityValue.Choice("solid") : CapabilityValue.Integer(40),
+            Deadline = Deadline.After(TimeSpan.FromSeconds(5))
+        }, CancellationToken.None);
+
+        Assert.Equal(CommandOutcome.Applied, dispatch.Immediate.Outcome);
+        var command = Assert.Single(engine.Commands);
+        Assert.Equal("fixture.lighting", command.CapabilityId);
+        Assert.Equal(instance, command.InstanceId);
+    }
+
     private static P.DeviceIdentitySnapshot ClawIdentity()
     {
         return new P.DeviceIdentitySnapshot

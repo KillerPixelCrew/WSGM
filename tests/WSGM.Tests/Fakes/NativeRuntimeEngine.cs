@@ -11,6 +11,9 @@ internal sealed class NativeRuntimeEngine(List<string> calls, Func<string, Cance
     internal const string FamilyId = "fixture";
     private EngineStartContext? _context;
 
+    internal CapabilityDescriptorSet? Publication { get; init; }
+    internal List<CapabilityCommand> Commands { get; } = [];
+
     public async ValueTask<EngineStartResult> StartAsync(EngineStartContext context, CancellationToken token)
     {
         _context = context;
@@ -46,6 +49,7 @@ internal sealed class NativeRuntimeEngine(List<string> calls, Func<string, Cance
     public ValueTask<CapabilityCommandResult> ExecuteCommandAsync(CapabilityCommand command, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
+        Commands.Add(command);
         return ValueTask.FromResult(CommandResults.Applied(command));
     }
 
@@ -88,6 +92,19 @@ internal sealed class NativeRuntimeEngine(List<string> calls, Func<string, Cance
     private async ValueTask PublishAsync(CancellationToken token)
     {
         var host = _context!.Host;
+        if (Publication is { } publication)
+        {
+            await host.PublishDescriptorsAsync(publication, token);
+            foreach (var descriptor in publication.Descriptors)
+            {
+                await host.PublishCapabilityStateAsync(new CapabilityState
+                {
+                    CapabilityId = descriptor.CapabilityId, InstanceId = descriptor.InstanceId,
+                    Available = true, Quality = HardwareStateQuality.Unknown
+                }, token);
+            }
+            return;
+        }
         await host.PublishDescriptorsAsync(new CapabilityDescriptorSet
         {
             Descriptors =

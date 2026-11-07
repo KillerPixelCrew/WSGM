@@ -518,17 +518,9 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
                     .SetChargeBypassAsync(enabled, deadline, token).ConfigureAwait(false),
                 P.CapabilityRole.ChargeBypass => await Device
                     .SetChargeBypassModeAsync(value.ChoiceValue!, deadline, token).ConfigureAwait(false),
-                P.CapabilityRole.LightingPower => await Device
-                    .SetLightingPowerAsync(value.BooleanValue!.Value, instance, deadline, token).ConfigureAwait(false),
-                P.CapabilityRole.LightingBrightness => await Device
-                    .SetLightingBrightnessAsync(value.IntegerValue!.Value, instance, deadline, token)
-                    .ConfigureAwait(false),
-                P.CapabilityRole.LightingZoneColor => await Device
-                    .SetLightingColorAsync(value.ColorValue!.Value, instance, deadline, token).ConfigureAwait(false),
-                P.CapabilityRole.LightingEffect => await Device
-                    .SetLightingEffectAsync(value.ChoiceValue!, instance, deadline, token).ConfigureAwait(false),
-                P.CapabilityRole.LightingEffectSpeed => await Device
-                    .SetLightingSpeedAsync(value.IntegerValue!.Value, instance, deadline, token).ConfigureAwait(false),
+                // The role facade treats a null instance as an unqualified selection. A shared ring
+                // control can have that exact null identity alongside a named logo control, so keep
+                // lighting on the exact descriptor/instance command path below.
                 _ => null
             };
         }
