@@ -14,6 +14,9 @@ namespace WSGM.Shell;
 /// <summary>Projects one directly owned native GPU stream into the application capability router.</summary>
 internal sealed class GpuDriverPublisher : ICapabilityPublisher, IBuiltinGpuDriver
 {
+    /// <summary>What a row says about a value the driver did not report.</summary>
+    internal const string UnreadDetail = "The current value is unknown: the driver did not report it.";
+
     private readonly GpuCoordinator _coordinator;
     private readonly Lock _gate = new();
     private readonly Dictionary<DeviceCapabilityKey, CapabilityState> _states = [];
@@ -262,19 +265,7 @@ internal sealed class GpuDriverPublisher : ICapabilityPublisher, IBuiltinGpuDriv
 
     private void OnState(GpuState state)
     {
-        var observed = new CapabilityState
-        {
-            CapabilityId = state.CapabilityId, InstanceId = state.InstanceId,
-            ObservedValue = state.ObservedValue is null ? null : ToHost(state.ObservedValue),
-            Available = state.Available, ObservedAt = state.ObservedAt,
-            Reason = state.Reason is null ? null : ToHost(state.Reason), Quality = state.Quality switch
-            {
-                GpuStateQuality.Unknown => HardwareStateQuality.Unknown,
-                GpuStateQuality.Observed => HardwareStateQuality.Observed,
-                GpuStateQuality.Verified => HardwareStateQuality.Verified,
-                _ => throw new ArgumentOutOfRangeException(nameof(state))
-            }
-        };
+        var observed = ToHost(state);
         lock (_gate)
         {
             _states[new DeviceCapabilityKey(state.CapabilityId, state.InstanceId)] = observed;
@@ -285,6 +276,37 @@ internal sealed class GpuDriverPublisher : ICapabilityPublisher, IBuiltinGpuDriv
         }
 
         CapabilityStateReceived?.Invoke(new CapabilityStateDelta(Interlocked.Increment(ref _sequence), observed));
+    }
+
+    /// <summary>The host state for a published GPU state.</summary>
+    /// <param name="state">The driver's state.</param>
+    /// <returns>The state, with a read the driver did not answer explained in WSGM's words.</returns>
+    /// <remarks>
+    ///     A transport fault on a state is a read the driver did not answer. Its detail is whatever the vendor
+    ///     path said, which may be a result code; rows show the reason, so it is replaced here for every vendor.
+    /// </remarks>
+    internal static CapabilityState ToHost(GpuState state)
+    {
+        return new CapabilityState
+        {
+            CapabilityId = state.CapabilityId, InstanceId = state.InstanceId,
+            ObservedValue = state.ObservedValue is null ? null : ToHost(state.ObservedValue),
+            Available = state.Available, ObservedAt = state.ObservedAt,
+            Reason = state.Reason switch
+            {
+                null => null,
+                { Code: GpuReasonCode.TransportFaulted } => new CapabilityReason(CapabilityReasonCode.TransportFaulted,
+                    UnreadDetail, state.Reason.Retryable),
+                _ => ToHost(state.Reason)
+            },
+            Quality = state.Quality switch
+            {
+                GpuStateQuality.Unknown => HardwareStateQuality.Unknown,
+                GpuStateQuality.Observed => HardwareStateQuality.Observed,
+                GpuStateQuality.Verified => HardwareStateQuality.Verified,
+                _ => throw new ArgumentOutOfRangeException(nameof(state))
+            }
+        };
     }
 
     internal static CapabilityDescriptorSet ToHost(GpuDescriptorSet set)

@@ -1,4 +1,5 @@
 using LibGPUDriverInteract;
+using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
 using WSGM.Shell;
@@ -7,6 +8,55 @@ namespace WSGM.Tests.Shell;
 
 public sealed class GpuDriverPublisherTests
 {
+    [Theory]
+    [InlineData("the driver answered 0x4800000b")]
+    [InlineData("ADL2 ADL2_Display_Property_Get returned -3.")]
+    [InlineData("NVAPI NvAPI_DRS_GetSetting returned -160.")]
+    public void AFailedReadIsNeverShownAsAValueOrACode(string vendorDetail)
+    {
+        var descriptor = GpuDriverPublisher.ToHost(new GpuDescriptorSet
+        {
+            Sections =
+            [
+                new GpuSection
+                {
+                    SectionId = "display", Title = "Display", Kind = GpuSectionKind.Display,
+                    Categories = [new GpuCategory { CategoryId = "color", Title = "Colour" }]
+                }
+            ],
+            Descriptors =
+            [
+                new GpuDescriptor
+                {
+                    CapabilityId = "display.color-hue", InstanceId = "display0", Label = "Hue",
+                    Role = GpuRole.Range, ValueKind = GpuValueKind.Integer, Minimum = 0, Maximum = 359, Step = 1,
+                    SectionId = "display", CategoryId = "color", SupportsRead = true, SupportsWrite = true
+                }
+            ]
+        }).Descriptors.Single();
+        var state = GpuDriverPublisher.ToHost(new GpuState
+        {
+            CapabilityId = "display.color-hue", InstanceId = "display0", Available = true,
+            Reason = new GpuReason(GpuReasonCode.TransportFaulted, vendorDetail),
+            Quality = GpuStateQuality.Unknown
+        });
+
+        Assert.Null(state.ObservedValue);
+        Assert.Equal(GpuDriverPublisher.UnreadDetail, state.Reason!.Detail);
+        var row = CapabilityRowProjection.ToOverlayCapability(
+            new DeviceCapabilityView(descriptor, new CapabilityProjection { State = state }, null),
+            new HashSet<string>(), FanCurvePresetTable.HandheldCompanion);
+        var steam = SteamCapabilityRows.Row(row, "quick/hue");
+        foreach (var text in new[] { row.Description, row.TrailingText, steam.Description, steam.Text })
+        {
+            Assert.DoesNotContain(vendorDetail, text ?? string.Empty, StringComparison.Ordinal);
+            Assert.DoesNotContain("0x", text ?? string.Empty, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(GpuDriverPublisher.UnreadDetail, row.Description);
+        Assert.Null(steam.Number);
+    }
+
     [Fact]
     public void MappedDescriptorSetKeepsVendorVrrLabelsAndSectionIcons()
     {
