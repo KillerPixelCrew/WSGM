@@ -78,10 +78,14 @@ internal sealed class OtherManagerWindowsTargets : IOtherManagerTargets
         try
         {
             var manager = OtherManagers.Known.SingleOrDefault(item => item.Id == target.ManagerId);
+            if (manager is null)
+            {
+                return false;
+            }
+
             // The record proves WSGM made the change, so restoring it never depends on identifying the
             // machine again; a failed read or a BIOS update must not strand a disabled package or keyboard.
-            if (!restore && (manager is null
-                             || (manager.DeviceDefinitionId is { } definition && !MatchesDevice(definition))))
+            if (!restore && manager.DeviceDefinitionId is { } definition && !MatchesDevice(definition))
             {
                 return false;
             }
@@ -95,9 +99,9 @@ internal sealed class OtherManagerWindowsTargets : IOtherManagerTargets
                     return restore;
                 }
 
-                // Restoring follows the record alone: the catalog no longer names Predator Sense's families
-                // (Acer delivers BIOS updates through it), and those packages must still be put back. A
-                // package no longer disabled keeps the state the user or the maker gave it.
+                // Restoring follows the record alone: the catalog no longer names the Predator Sense desktop
+                // family (the user starts it for Acer's BIOS updates), and that package must still be put back.
+                // A package no longer disabled keeps the state it has now.
                 if (restore)
                 {
                     if (target.PreviousStart == 0 && package.Status.Disabled)
@@ -108,7 +112,7 @@ internal sealed class OtherManagerWindowsTargets : IOtherManagerTargets
                     return true;
                 }
 
-                if (!manager!.PackageFamilies.Contains(package.Id.FamilyName, StringComparer.Ordinal))
+                if (!manager.PackageFamilies.Contains(package.Id.FamilyName, StringComparer.Ordinal))
                 {
                     return false;
                 }
@@ -117,7 +121,7 @@ internal sealed class OtherManagerWindowsTargets : IOtherManagerTargets
                 return true;
             }
 
-            if (target.Kind != OtherManagers.DeviceKind || manager?.DedicatedKeyboardDeviceId is not { } deviceId
+            if (target.Kind != OtherManagers.DeviceKind || manager.DedicatedKeyboardDeviceId is not { } deviceId
                                                         || !HasDeviceId(target.Name, deviceId))
             {
                 return false;

@@ -10,16 +10,14 @@ The Atlas
 records each physical source and report, the automatic rear-mode switch, and the tested separation
 of the USB OEM keyboard from I2C volume input. It also lists the exact services, tasks and package
 identities disabled on the maintainer's machine, activation-block checks, recovery and the opt-in
-local maintenance guard that ran until 2026-11-07. Service shutdown alone does not block the Game
-Bar widget. Since 2026-11-07 WSGM no longer turns off any of those: Acer delivers Atlas BIOS updates
-through Predator Sense's Live Update, so the app, its launcher task, services and packages must
-start. WSGM's Full-mode manager takeover covers only the attributed controller keyboard leaf.
+local maintenance guard in `eng/atlas-oem-disabled-state.ps1`. Service shutdown alone does not block
+the Game Bar widget. WSGM's Full-mode manager takeover now covers the recorded services/tasks, the
+exact Predator Sense widget package family and only the attributed controller keyboard leaf. The
+desktop app is left startable so the user can get Acer's BIOS updates through it (2026-11-07).
 Takeover records original states before writing, rechecks at startup and every five minutes while
-accepted, and restores WSGM-owned changes on uninstall; setup puts back the Acer changes an earlier
-version recorded. Setup and Settings report when Windows must restart. The local guard is retired by
-`eng/retire-atlas-oem-guard.ps1`; existing disabled settings WSGM did not record are user-owned
-state. With Predator Sense running, a Guide tap also brings its injected Win+G and the Predator
-Sense window, and Acer's own lighting, power and controller-mode writes share WSGM's routes.
+accepted, and restores WSGM-owned changes on uninstall. Setup and Settings report when Windows must
+restart. The earlier local guard is separate from these install-lifecycle records; existing disabled
+settings are preserved as user-owned state.
 
 ## Configuration and availability
 

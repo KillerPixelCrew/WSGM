@@ -502,10 +502,9 @@ public static class Program
 
         if (config is not null)
         {
-            // Changes WSGM made but no longer makes go back first, once and elevated: Predator Sense, its
-            // launcher task, services and packages must start again because Acer delivers Atlas BIOS
-            // updates through it. A refused change stays recorded for the next setup and the uninstaller.
-            managerRestartRequired = OtherManagers.RestoreRetired(Store) == SessionProtocolNames.RestartRequired;
+            // The Predator Sense for Handheld desktop package is no longer blocked: the user starts it for
+            // Acer's BIOS updates. Elevated setup clears the Disabled status WSGM recorded for it, once.
+            OtherManagers.RestoreUnblockedPackages(Store);
         }
 
         if (config is not null && StartupOptions.ArgumentValue(args, "--answers=") is { } answersPath)
@@ -538,7 +537,7 @@ public static class Program
                     // and --uninstall-restore puts it back.
                     var result = OtherManagers.Disable(OtherManagers.Detect(),
                         entry => OtherManagers.Record(Store, entry));
-                    managerRestartRequired |= result.RestartRequired;
+                    managerRestartRequired = result.RestartRequired;
                     // A manager that refuses one change must not roll back the install, and the takeover
                     // runs again on every update and repair. The recheck and Settings retry it.
                     if (result.Failed.Count > 0)
