@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -54,7 +55,8 @@ internal sealed partial class GameToolReleases
         foreach (var (pattern, relative) in mode.Files)
         {
             token.ThrowIfCancellationRequested();
-            var source = Path.GetFullPath(Path.Combine(extracted, pattern.Replace("{arch}", architecture,
+            var folder = mode.ArchitectureFolders.GetValueOrDefault(architecture) ?? architecture;
+            var source = Path.GetFullPath(Path.Combine(extracted, pattern.Replace("{arch}", folder,
                 StringComparison.Ordinal).Replace("{bits}", architecture == "x64" ? "64" : "32", StringComparison.Ordinal)));
             var target = Path.GetFullPath(Path.Combine(destination, relative));
             if (!StoragePaths.IsUnder(extracted, source) || !StoragePaths.IsUnder(destination, target)

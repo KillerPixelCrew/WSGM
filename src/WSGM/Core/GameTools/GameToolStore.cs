@@ -12,6 +12,9 @@ internal sealed record GameToolStore
     /// <summary>The per-game records.</summary>
     public List<GameToolRecord> Games { get; init; } = [];
 
+    /// <summary>Shared plugin ownership, independent of per-game binary ownership.</summary>
+    public List<GameToolSharedPlugin> SharedPlugins { get; init; } = [];
+
     /// <summary>Finds a game's record.</summary>
     /// <param name="appId">The AppID.</param>
     /// <returns>The record or null.</returns>

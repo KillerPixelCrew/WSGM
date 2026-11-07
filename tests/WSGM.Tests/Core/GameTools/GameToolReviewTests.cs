@@ -23,13 +23,14 @@ public sealed class GameToolReviewTests
         var tool = GameToolCatalog.Current.Find(id)!;
         var free = tool.ProxyOptions.Select(option =>
             new GameToolProxyStatus(option.Name, option.Hint, true, null, option.Suggest)).ToArray();
-        Assert.Equal("dxgi.dll", GameToolInstaller.SuggestProxy(free, tool.Proxy.Default, tool,
+        Assert.Equal("", GameToolInstaller.SuggestProxy(free, tool.Proxy.Default, tool,
             ["Direct3D 9", "Direct3D 11"], "x64"));
         var occupied = free.Select(option => option.Name == "dxgi.dll"
             ? option with { Available = false, Conflict = "Game file" } : option).ToArray();
-        Assert.Equal("d3d9.dll", GameToolInstaller.SuggestProxy(occupied, tool.Proxy.Default, tool,
+        Assert.Equal("", GameToolInstaller.SuggestProxy(occupied, tool.Proxy.Default, tool,
             ["Direct3D 9", "Direct3D 11"], "x64"));
-        Assert.Equal("", GameToolInstaller.SuggestProxy(occupied, tool.Proxy.Default, tool, ["Direct3D 11"], "x64"));
+        Assert.Equal("d3d11.dll", GameToolInstaller.SuggestProxy(occupied, tool.Proxy.Default, tool,
+            ["Direct3D 11"], "x64", ["d3d11.dll"]));
         Assert.All(tool.ProxyOptions, option => Assert.Contains(tool.InstallModes, mode => mode.Proxy == option.Name));
     }
 
@@ -56,7 +57,7 @@ public sealed class GameToolReviewTests
             tool.DefaultChannel, []);
         Assert.Contains("enable", state.Actions);
         Assert.DoesNotContain("repair", state.Actions);
-        Assert.DoesNotContain("configure", state.Actions);
+        Assert.Contains("configure", state.Actions);
     }
 
     [Fact]

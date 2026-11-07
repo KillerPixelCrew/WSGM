@@ -42,6 +42,12 @@ internal sealed record GameToolManifest
     /// <summary>Whether the per-game injection files are active; false keeps them parked with ownership intact.</summary>
     public bool Enabled { get; init; } = true;
 
+    /// <summary>The managed shared plugin this game references; disabling retains the reference.</summary>
+    public string SharedDependencyDirectory { get; init; } = "";
+    public string SharedSettingsDirectory { get; init; } = "";
+    public bool Adopted { get; init; }
+    public string[] ExpectedFiles { get; init; } = [];
+
     /// <summary>The game's install root when this manifest was last written, used to detect a moved game.</summary>
     public string InstallRoot { get; init; } = "";
 

@@ -21,7 +21,8 @@ public static class PreviewGameTools
 {
     /// <summary>Every scene, in the order the page reaches them.</summary>
     internal static readonly string[] Scenes =
-        ["list", "game", "installed", "addons", "installing", "program", "anticheat", "nightly", "injectors", "disabled"];
+        ["list", "game", "installed", "addons", "installing", "program", "anticheat", "nightly", "injectors", "disabled",
+            "config-dgvoodoo", "config-directx", "config-glide", "config-reshade", "config-special-k", "config-dxvk", "hotkey", "dlls"];
 
     /// <summary>Exports every Game Tools scene at one viewport.</summary>
     /// <param name="directory">The output folder.</param>
@@ -68,6 +69,59 @@ public static class PreviewGameTools
         Dispatcher.UIThread.RunJobs();
         switch (scene)
         {
+            case "config-dgvoodoo" or "config-directx" or "config-glide" or "config-reshade" or "config-special-k" or "config-dxvk" or "hotkey" or "dlls":
+                Open(window, "game:" + GameToolsFixtures.AlanWake);
+                var id = scene switch { "config-reshade" or "hotkey" => "reshade", "config-special-k" => "special-k",
+                    "config-dxvk" or "dlls" => "dxvk", _ => "dgvoodoo2" };
+                var publication = GameToolsFixtures.Configuration(id);
+                if (scene == "dlls")
+                {
+                    publication = publication with { Libraries =
+                    [new WSGM.Core.GameToolBinary("dxgi.dll", "reshade", "ReShade", "x64", ["Direct3D 11"], "6.8.0", "Publisher/export identity"),
+                     new WSGM.Core.GameToolBinary("ddraw.dll", "dgvoodoo2", "dgVoodoo2", "x86", ["DirectDraw / Direct3D 1–7"], "2.87.6", "Publisher/export identity"),
+                     new WSGM.Core.GameToolBinary("custom.dll", "", "Unknown DLL", "x64", [], "", "Ownership unproven")] };
+                }
+                source.Publish(publication);
+                Dispatcher.UIThread.RunJobs();
+                foreach (var expander in window.GetVisualDescendants().OfType<Expander>())
+                {
+                    expander.ContentTransition = null;
+                }
+                if (scene == "dlls")
+                {
+                    UiFixture.Click(window, UiFixture.Tagged<Button>(window, "game.dlls"));
+                }
+                else
+                {
+                    var group = scene switch { "config-directx" => "DirectX", "config-glide" => "Glide",
+                        "config-dgvoodoo" => "General", "config-special-k" => "Steam", "config-dxvk" => "Rendering", _ => "Input" };
+                    UiFixture.Click(window, UiFixture.Tagged<Button>(window, "tool:" + id + ".group:" + group));
+                    if (scene == "config-reshade")
+                    {
+                        UiFixture.Click(window, UiFixture.Tagged<Button>(window, "tool:reshade.group:Effects"));
+                    }
+                    if (scene == "config-special-k")
+                    {
+                        UiFixture.Click(window, UiFixture.Tagged<Button>(window, "tool:special-k.group:All Special K games"));
+                    }
+                    if (scene == "hotkey")
+                    {
+                        Dispatcher.UIThread.RunJobs();
+                        UiFixture.Click(window, UiFixture.Tagged<Button>(window, "tool:reshade.setting:overlayKey.editor"));
+                    }
+                    else
+                    {
+                        Dispatcher.UIThread.RunJobs();
+                        var heading = UiFixture.Tagged<Control>(window, "tool:" + id + ".group:" + group);
+                        var scroller = window.GetVisualDescendants().OfType<ScrollViewer>()
+                            .First(control => control.Name == "ContentScroller");
+                        if (heading.TranslatePoint(default, scroller) is { } point)
+                        {
+                            scroller.Offset = new Vector(0, scroller.Offset.Y + point.Y - 12);
+                        }
+                    }
+                }
+                break;
             case "list":
                 break;
             case "game" or "nightly" or "injectors" or "disabled":
@@ -109,7 +163,7 @@ public static class PreviewGameTools
             UiFixture.Tagged<Control>(window, "tool:optiscaler.actions").BringIntoView();
             Dispatcher.UIThread.RunJobs();
         }
-        else if (scene != "anticheat")
+        else if (scene != "anticheat" && !scene.StartsWith("config-", StringComparison.Ordinal) && scene is not ("hotkey" or "dlls"))
         {
             ScrollToTop(window);
         }

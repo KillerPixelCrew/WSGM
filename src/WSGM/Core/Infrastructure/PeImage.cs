@@ -1,6 +1,8 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Collections.Generic;
+using System.Text;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 
@@ -22,39 +24,104 @@ internal static class PeImage
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             using var pe = new PEReader(stream);
-            var rva = pe.PEHeaders.PEHeader?.ImportTableDirectory.RelativeVirtualAddress ?? 0;
-            if (rva == 0)
-            {
-                return;
-            }
-
-            var entries = pe.GetSectionData(rva).GetReader();
-            for (var index = 0; index < 1024 && entries.RemainingBytes >= 20; index++)
-            {
-                var lookup = entries.ReadUInt32();
-                var timestamp = entries.ReadUInt32();
-                var forwarder = entries.ReadUInt32();
-                var nameRva = entries.ReadInt32();
-                var address = entries.ReadUInt32();
-                if ((lookup | timestamp | forwarder | (uint)nameRva | address) == 0)
-                {
-                    break;
-                }
-
-                var block = pe.GetSectionData(nameRva);
-                var name = new ReadOnlySpan<byte>(block.Pointer, Math.Min(block.Length, 128));
-                var terminator = name.IndexOf((byte)0);
-                if (terminator > 0)
-                {
-                    visit(name[..terminator]);
-                }
-            }
+            VisitImportDirectory(pe, pe.PEHeaders.PEHeader?.ImportTableDirectory.RelativeVirtualAddress ?? 0, false, visit);
+            VisitImportDirectory(pe, pe.PEHeaders.PEHeader?.DelayImportTableDirectory.RelativeVirtualAddress ?? 0, true, visit);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException
                                        or ArgumentOutOfRangeException)
         {
             // Unreadable metadata is absent evidence, not a guessed renderer.
         }
+    }
+
+    private static unsafe void VisitImportDirectory(PEReader pe, int rva, bool delayed, ImportVisitor visit)
+    {
+        if (rva == 0)
+        {
+            return;
+        }
+        var entries = pe.GetSectionData(rva).GetReader();
+        var size = delayed ? 32 : 20;
+        for (var index = 0; index < 1024 && entries.RemainingBytes >= size; index++)
+        {
+            long nameRva;
+            if (delayed)
+            {
+                var attributes = entries.ReadUInt32();
+                var name = entries.ReadUInt32();
+                entries.Offset += 24;
+                if (attributes == 0 && name == 0)
+                {
+                    break;
+                }
+                nameRva = (attributes & 1) != 0 ? name : (long)name - (long)(pe.PEHeaders.PEHeader?.ImageBase ?? 0);
+            }
+            else
+            {
+                var lookup = entries.ReadUInt32();
+                var timestamp = entries.ReadUInt32();
+                var forwarder = entries.ReadUInt32();
+                var name = entries.ReadUInt32();
+                var address = entries.ReadUInt32();
+                if ((lookup | timestamp | forwarder | name | address) == 0)
+                {
+                    break;
+                }
+                nameRva = name;
+            }
+            if (nameRva is <= 0 or > int.MaxValue)
+            {
+                continue;
+            }
+            var block = pe.GetSectionData((int)nameRva);
+            var bytes = new ReadOnlySpan<byte>(block.Pointer, Math.Min(block.Length, 128));
+            var end = bytes.IndexOf((byte)0);
+            if (end > 0)
+            {
+                visit(bytes[..end]);
+            }
+        }
+    }
+
+    /// <summary>Reads a DLL's bounded export names as data, without loading executable code.</summary>
+    /// <param name="path">The PE file.</param>
+    /// <returns>Named exports, or an empty set for missing or malformed export data.</returns>
+    internal static unsafe HashSet<string> Exports(string path)
+    {
+        HashSet<string> names = new(StringComparer.Ordinal);
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var pe = new PEReader(stream);
+            var rva = pe.PEHeaders.PEHeader?.ExportTableDirectory.RelativeVirtualAddress ?? 0;
+            if (rva == 0)
+            {
+                return names;
+            }
+
+            var directory = pe.GetSectionData(rva).GetReader();
+            directory.Offset = 24;
+            var count = Math.Min(directory.ReadUInt32(), 16384);
+            directory.ReadUInt32(); // AddressOfFunctions is not the name table.
+            var table = pe.GetSectionData(directory.ReadInt32()).GetReader();
+            for (var index = 0; index < count && table.RemainingBytes >= 4; index++)
+            {
+                var block = pe.GetSectionData(table.ReadInt32());
+                var bytes = new ReadOnlySpan<byte>(block.Pointer, Math.Min(block.Length, 512));
+                var end = bytes.IndexOf((byte)0);
+                if (end > 0)
+                {
+                    names.Add(Encoding.ASCII.GetString(bytes[..end]));
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException
+                                       or ArgumentOutOfRangeException)
+        {
+            names.Clear();
+        }
+
+        return names;
     }
 
     /// <summary>The 64-bit x86 architecture name.</summary>
@@ -102,6 +169,8 @@ internal static class PeImage
             Machine.Amd64 => X64,
             Machine.I386 => X86,
             Machine.Arm64 => Arm64,
+            (Machine)0xa64e => Arm64, // ARM64X includes a native ARM64 personality.
+            (Machine)0xa641 => X64, // ARM64EC is loaded into an emulated x64 process.
             _ => ""
         };
     }

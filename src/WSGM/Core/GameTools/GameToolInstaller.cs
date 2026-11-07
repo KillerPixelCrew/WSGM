@@ -24,7 +24,8 @@ namespace WSGM.Core;
 ///         retried; they roll back and report that a file is in use or protected.
 ///     </para>
 /// </remarks>
-internal sealed partial class GameToolInstaller(string userRoot)
+internal sealed partial class GameToolInstaller(string userRoot,
+    Action<uint, GameToolManifest?, string?>? persist = null)
 {
     /// <summary>The notice for an operation stopped by Cancel.</summary>
     /// <remarks>
@@ -38,41 +39,45 @@ internal sealed partial class GameToolInstaller(string userRoot)
     /// <param name="tool">The tool.</param>
     /// <param name="targetDirectory">The absolute target directory.</param>
     /// <param name="manifest">The installed manifest, or null.</param>
+    /// <param name="libraries">DLL evidence already read by the game scan, or null to inspect now.</param>
     /// <returns>The inspection.</returns>
     internal static GameToolInspection Inspect(GameToolDefinition tool, string targetDirectory,
-        GameToolManifest? manifest)
+        GameToolManifest? manifest, IReadOnlyList<GameToolBinary>? libraries = null)
     {
         var owned = new HashSet<string>(manifest?.Files.Select(file => file.RelativePath) ?? [],
             StringComparer.OrdinalIgnoreCase);
+        libraries ??= GameToolBinaryIdentification.Scan(targetDirectory);
         List<GameToolUnmanagedCopy> unmanaged = [];
-        foreach (var relative in DetectionCandidates(tool, targetDirectory))
+        foreach (var binary in libraries)
         {
-            if (owned.Contains(relative))
+            if (owned.Contains(binary.RelativePath))
             {
                 continue;
             }
 
-            var info = PeImage.TryVersion(Path.Combine(targetDirectory, relative));
-            if (info is not null && GameToolIdentityCheck.IsTool(tool, info))
+            if (binary.ToolId == tool.Id)
             {
-                unmanaged.Add(new GameToolUnmanagedCopy(relative,
-                    info.ProductVersion.Length > 0 ? info.ProductVersion : info.FileVersion));
+                unmanaged.Add(new GameToolUnmanagedCopy(binary.RelativePath, binary.Version));
             }
         }
 
         List<GameToolProxyStatus> proxies = [];
         foreach (var option in tool.ProxyOptions)
         {
-            var path = Path.Combine(targetDirectory, option.Name);
-            if (manifest?.ProxyName.Equals(option.Name, StringComparison.OrdinalIgnoreCase) == true
-                || !File.Exists(path))
+            var mode = tool.InstallMode(option.Name);
+            var required = mode.Files.Count == 0 ? [option.Name] : mode.Files.Values
+                .Select(file => file == tool.PrimaryFile ? option.Name : file).Where(file => !tool.IsConfig(file)).ToArray();
+            var collision = required.FirstOrDefault(file => File.Exists(Path.Combine(targetDirectory, file))
+                && !owned.Contains(file) && !tool.IsReplaceable(file));
+            if (collision is null)
             {
                 proxies.Add(new GameToolProxyStatus(option.Name, option.Hint, true, null, option.Suggest));
                 continue;
             }
 
+            var identity = libraries.FirstOrDefault(file => file.RelativePath.Equals(collision, StringComparison.OrdinalIgnoreCase));
             proxies.Add(new GameToolProxyStatus(option.Name, option.Hint, false,
-                DescribeExisting(tool, path, owned.Contains(option.Name)), option.Suggest));
+                collision + ": " + (identity?.Name ?? "Unknown file") + " already occupies a required file; it is not owned by this installation.", option.Suggest));
         }
 
         var (missing, modified) = manifest is { State: GameToolManifestState.Installed }
@@ -107,6 +112,19 @@ internal sealed partial class GameToolInstaller(string userRoot)
             }
         }
 
+        foreach (var expected in (manifest.Enabled ? manifest.ExpectedFiles : []).Where(expected =>
+                     manifest.Files.All(file => !file.RelativePath.Equals(expected, StringComparison.OrdinalIgnoreCase))))
+        {
+            if (!File.Exists(Path.Combine(targetDirectory, expected)))
+            {
+                missing.Add(expected);
+            }
+            else
+            {
+                modified.Add(expected + " (not owned)");
+            }
+        }
+
         return (missing, modified);
     }
 
@@ -119,20 +137,39 @@ internal sealed partial class GameToolInstaller(string userRoot)
     /// <param name="tool">An API-specific tool, or null for ordinary aliases.</param>
     /// <param name="evidence">API names read once by the game scan.</param>
     /// <param name="architecture">The game's architecture.</param>
+    /// <param name="imports">Recognized loader imports from the game scan.</param>
     /// <returns>A free name, or the preferred one when none is free.</returns>
     internal static string SuggestProxy(IReadOnlyList<GameToolProxyStatus> proxies, string preferred,
-        GameToolDefinition? tool = null, IReadOnlyList<string>? evidence = null, string? architecture = null)
+        GameToolDefinition? tool = null, IReadOnlyList<string>? evidence = null, string? architecture = null,
+        IReadOnlyList<string>? imports = null)
     {
+        if (tool is not null && evidence is { Count: > 1 })
+        {
+            return ""; // Static evidence cannot choose which renderer a multi-API game will use.
+        }
+
         var eligible = proxies.Where(proxy => proxy is { Available: true, Suggest: true }
-            && (tool is null || tool.InstallMode(proxy.Name).Architectures.Contains(architecture))).ToArray();
+            && (tool is null || (tool.InstallMode(proxy.Name).Architectures.Contains(architecture)
+                && tool.InstallMode(proxy.Name).RequiredImports.All(name => imports?.Contains(name, StringComparer.OrdinalIgnoreCase) == true)))).ToArray();
         var matchingModes = tool is null || evidence is null ? [] : tool.InstallModes.Where(mode =>
             mode.Architectures.Contains(architecture) && mode.Apis.Intersect(evidence, StringComparer.Ordinal).Any()).ToArray();
+        if (tool is not null && evidence is { Count: > 0 } && matchingModes.Length == 0)
+        {
+            return "";
+        }
+
         var candidates = matchingModes.Length > 0
             ? eligible.Where(proxy => matchingModes.Any(mode => mode.Proxy == proxy.Name)).ToArray()
             : eligible;
         if (tool is not null && candidates.Length == 0)
         {
             return "";
+        }
+
+        if (tool is not null && candidates.Length > 0)
+        {
+            return candidates.OrderByDescending(candidate => tool.InstallMode(candidate.Name).Priority)
+                .ThenBy(candidate => candidate.Name == preferred ? 0 : 1).First().Name;
         }
         var start = Math.Max(0, proxies.ToList().FindIndex(proxy =>
             proxy.Name.Equals(preferred, StringComparison.OrdinalIgnoreCase)));
@@ -220,6 +257,14 @@ internal sealed partial class GameToolInstaller(string userRoot)
         GameToolPackage package, GameToolRequest request, GameToolManifest? current, Func<string?> ensureClosed,
         Action<string> phase, CancellationToken cancellationToken, GameToolInspection? inspection = null)
     {
+        tool = tool.ForProxy(request.ProxyName);
+        using var configuration = tool.ManageConfiguration && tool.PrimaryConfig.Length > 0
+            ? GameToolConfiguration.Prepare(tool, target.TargetDirectory, package, request.Settings, current) : null;
+        if (configuration is not null)
+        {
+            package = package with { Configurations = configuration.Files };
+        }
+
         if (Incompatible(tool, target.Architecture) is { } incompatible)
         {
             throw new GameToolException(incompatible);
@@ -262,7 +307,7 @@ internal sealed partial class GameToolInstaller(string userRoot)
         // journal records its final content and a rollback recognises the file as WSGM's own.
         // A kept configuration file carries the user's own edits; settings are only written into a
         // freshly copied file or when the user changed them.
-        var settings = MergeSettings(tool, current?.Settings, request.Settings);
+        var settings = configuration?.Values ?? MergeSettings(tool, current?.Settings, request.Settings);
         var configWritten = plan.Items.Any(item => item.Kind == GameToolFileKind.Config
                                                    && item.Action != GameToolJournalAction.Delete);
         string[] addonIds = [.. package.Addons.Select(addon => addon.Addon.Id)];
@@ -272,7 +317,7 @@ internal sealed partial class GameToolInstaller(string userRoot)
         var configIndex = plan.Items.FindIndex(item => !item.Restore && item.Action != GameToolJournalAction.Delete
                                                                      && item.Relative.Equals(tool.PrimaryConfig,
                                                                          StringComparison.OrdinalIgnoreCase));
-        if (configIndex >= 0 && tool.Settings.Length > 0)
+        if (configIndex >= 0 && tool.Settings.Length > 0 && !tool.ManageConfiguration)
         {
             var item = plan.Items[configIndex];
             var staged = Path.Combine(staging, tool.PrimaryConfig);
@@ -314,6 +359,10 @@ internal sealed partial class GameToolInstaller(string userRoot)
         var pending = new GameToolManifest
         {
             ToolId = tool.Id,
+            Adopted = request.Operation == "adopt",
+            ExpectedFiles = [.. tool.InstallMode(request.ProxyName).Files.Values.Select(file => file == tool.PrimaryFile ? request.ProxyName : file)],
+            SharedDependencyDirectory = package.SharedDependencyDirectory,
+            SharedSettingsDirectory = package.SharedSettingsDirectory,
             InstallId = installId,
             Version = package.Version,
             Family = package.Family,
@@ -350,7 +399,7 @@ internal sealed partial class GameToolInstaller(string userRoot)
             RequireClosed(ensureClosed);
             await Task.Run(() => Execute(directory, plan, journal), CancellationToken.None).ConfigureAwait(false);
             phase(GameToolPhase.Settings);
-            if (configIndex < 0 && (configWritten || request.Settings.Count > 0 || addonsChanged))
+            if (!tool.ManageConfiguration && configIndex < 0 && (configWritten || request.Settings.Count > 0 || addonsChanged))
             {
                 // Only a kept file the user asked to change, or whose add-ons changed, is edited in place.
                 unavailable = ApplySettings(tool, directory, settings, addonIds);
@@ -433,6 +482,7 @@ internal sealed partial class GameToolInstaller(string userRoot)
     internal GameToolOutcome Configure(GameToolDefinition tool, GameToolTarget target, GameToolManifest current,
         string? proxyName, IReadOnlyDictionary<string, string> settings, Func<string?> ensureClosed)
     {
+        tool = tool.ForProxy(current.ProxyName);
         var directory = target.TargetDirectory;
         RequireWritable(target);
         var manifest = current;
@@ -516,6 +566,11 @@ internal sealed partial class GameToolInstaller(string userRoot)
 
         if (settings.Count > 0)
         {
+            if (tool.ManageConfiguration)
+            {
+                return ConfigureNative(tool, target, manifest, settings, ensureClosed);
+            }
+
             RequireClosed(ensureClosed);
             var merged = MergeSettings(tool, manifest.Settings, settings);
             List<string> unavailable;
@@ -881,18 +936,9 @@ internal sealed partial class GameToolInstaller(string userRoot)
             return "Already used by another file of " + tool.Name + ".";
         }
 
-        var info = PeImage.TryVersion(path);
-        if (info is not null && GameToolIdentityCheck.IsTool(tool, info))
-        {
-            return tool.Name + " installed outside WSGM uses this name.";
-        }
-
-        if (info is not null && GameToolIdentityCheck.OtherTool(tool, info) is { } other)
-        {
-            return other + " uses this name.";
-        }
-
-        return "The game or another mod already has a file with this name.";
+        var binary = GameToolBinaryIdentification.Read(path);
+        return binary.Name + (binary.Architecture.Length > 0 ? " (" + PeImage.Label(binary.Architecture) + ")" : "")
+               + " already uses this name; it is not owned by this installation.";
     }
 
     private static InstallPlan Plan(GameToolDefinition tool, string directory, GameToolPackage package, string proxy,
@@ -941,6 +987,7 @@ internal sealed partial class GameToolInstaller(string userRoot)
         {
             var payloadRelative = GameToolPattern.Normalize(Path.GetRelativePath(package.Root, source));
             if (tool.IsExcluded(payloadRelative)
+                || package.Configurations.ContainsKey(payloadRelative)
                 || addons.Any(addon => addon.Relative.Equals(payloadRelative, StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
@@ -955,6 +1002,11 @@ internal sealed partial class GameToolInstaller(string userRoot)
         foreach (var addon in addons)
         {
             Consider(addon.Relative, addon.Source, () => addon.Sha);
+        }
+
+        foreach (var (relative, source) in package.Configurations)
+        {
+            Consider(relative, source, () => Sha256(source));
         }
 
         // Unmanaged copies and legacy files the new payload does not overwrite are backed up and removed.
@@ -1017,7 +1069,7 @@ internal sealed partial class GameToolInstaller(string userRoot)
                 return;
             }
 
-            if (kind == GameToolFileKind.Config && owned.ContainsKey(relative) && !request.ReplaceConfig)
+            if (kind == GameToolFileKind.Config && owned.ContainsKey(relative) && !request.ReplaceConfig && !tool.ManageConfiguration)
             {
                 unchanged[relative] = null;
                 return;
@@ -1043,6 +1095,13 @@ internal sealed partial class GameToolInstaller(string userRoot)
                     unchanged[relative] = previous;
                 }
 
+                return;
+            }
+
+            if (request.Operation == "adopt" && clearing.Contains(relative) && kind == GameToolFileKind.Binary
+                && previous.Equals(newSha, StringComparison.OrdinalIgnoreCase))
+            {
+                unchanged[relative] = previous; // Explicitly adopt the proven tool bytes without rewriting them.
                 return;
             }
 
@@ -1166,11 +1225,11 @@ internal sealed partial class GameToolInstaller(string userRoot)
         IReadOnlyDictionary<string, string>? current, IReadOnlyDictionary<string, string> requested)
     {
         Dictionary<string, string> merged = new(StringComparer.Ordinal);
-        foreach (var setting in tool.Settings)
+        foreach (var setting in tool.Settings.Where(setting => setting.Scope == "game"))
         {
             var value = requested.GetValueOrDefault(setting.Id) ??
                         current?.GetValueOrDefault(setting.Id) ?? setting.Default;
-            if (setting.Options.All(option => option.Value != value))
+            if (!setting.Accepts(value))
             {
                 throw new GameToolException("The value for " + setting.Label + " is not one of its options.");
             }
@@ -1286,6 +1345,12 @@ internal sealed partial class GameToolInstaller(string userRoot)
 
     private void Persist(uint appId, GameToolManifest? manifest, string? toolId = null)
     {
+        if (persist is not null)
+        {
+            persist(appId, manifest, toolId);
+            return;
+        }
+
         var id = manifest?.ToolId ?? toolId ?? throw new ArgumentNullException(nameof(toolId));
         GameToolStorage.Mutate(userRoot, store =>
         {

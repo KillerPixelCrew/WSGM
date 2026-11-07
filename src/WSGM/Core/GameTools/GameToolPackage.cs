@@ -17,6 +17,10 @@ internal sealed record GameToolPackage(
     string Family,
     string Architecture)
 {
+    /// <summary>The shared plugin prepared for this per-game installation.</summary>
+    internal string SharedDependencyDirectory { get; init; } = "";
+    internal string SharedSettingsDirectory { get; init; } = "";
+    internal IReadOnlyDictionary<string, string> Configurations { get; init; } = new Dictionary<string, string>();
     /// <summary>File hashes recorded at extraction, by forward-slash path relative to <see cref="Root" />.</summary>
     internal IReadOnlyDictionary<string, (string Sha256, long Size)> Hashes { get; init; } =
         new Dictionary<string, (string Sha256, long Size)>(StringComparer.OrdinalIgnoreCase);

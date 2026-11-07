@@ -66,6 +66,29 @@ internal static class GameToolIni
             var index = Find(lines, edit.Section, edit.Key);
             if (index < 0)
             {
+                if (edit.CreateMissing)
+                {
+                    var newline = lines.FirstOrDefault(line => line.Ending.Length > 0)?.Ending ?? "\r\n";
+                    if (lines.Count > 0 && lines[^1].Ending.Length == 0)
+                    {
+                        lines[^1] = lines[^1] with { Ending = newline };
+                    }
+
+                    // Reopen an existing section at its end rather than duplicating it.
+                    var sectionIndex = edit.Section.Length == 0 ? -1 : lines.FindIndex(line =>
+                        line.Content.Trim().Equals("[" + edit.Section + "]", StringComparison.OrdinalIgnoreCase));
+                    var insertion = sectionIndex < 0 ? (edit.Section.Length == 0 ? 0 : lines.Count) : sectionIndex + 1;
+                    if (edit.Section.Length > 0 && sectionIndex < 0)
+                    {
+                        lines.Add(new Line("[" + edit.Section + "]", newline));
+                        insertion++;
+                    }
+
+                    lines.Insert(insertion, new Line(edit.Key + "=" + edit.Value, newline));
+                    changed = true;
+                    continue;
+                }
+
                 missing.Add(edit);
                 continue;
             }
@@ -132,7 +155,7 @@ internal static class GameToolIni
     {
         var wantedSection = Normalize(section);
         var wantedKey = Normalize(key);
-        var inSection = false;
+        var inSection = wantedSection.Length == 0;
         var seenSection = false;
         for (var index = 0; index < lines.Count; index++)
         {

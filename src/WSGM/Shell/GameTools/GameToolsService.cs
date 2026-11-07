@@ -51,6 +51,7 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     private readonly HashSet<string> _checking = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly GameToolInstaller _installer;
+    private readonly GameToolSharedPlugins _sharedPlugins;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly HashSet<uint> _loading = [];
     private readonly Dictionary<uint, (string? Error, string? Notice)> _messages = [];
@@ -93,6 +94,7 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         _running = new GameRunningCheck(new SessionProcessProbe(appRunning));
         _releases = new Lazy<GameToolReleases>(() => new GameToolReleases(_userRoot, handler));
         _installer = new GameToolInstaller(_userRoot);
+        _sharedPlugins = new GameToolSharedPlugins(_userRoot);
         _recovery = new GameToolRecovery(_userRoot, _installer, _running);
         var detect = vendors ?? GpuDriver.DetectVendors;
         _vendors = new Lazy<IReadOnlyList<string>>(() => DetectVendors(detect));
@@ -363,8 +365,82 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     {
         cancellationToken.ThrowIfCancellationRequested();
         return Start(appId, toolId, "repair", null, (tool, context, token) => ReinstallCoreAsync(tool, appId, "repair",
-            (manifest, _) => Task.FromResult((GameToolReleases.FromManifest(manifest),
-                tool.ChannelOrDefault(manifest.Channel))), false, context, token));
+            async (manifest, ct) => (manifest.Adopted && manifest.AssetSha256.Length == 0
+                ? await LatestReleaseAsync(tool, tool.ChannelOrDefault(manifest.Channel), ct).ConfigureAwait(false)
+                : GameToolReleases.FromManifest(manifest), tool.ChannelOrDefault(manifest.Channel)), false, context, token));
+    }
+
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> AdoptAsync(GameToolsInstallRequest request, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Start(request.AppId, request.ToolId, "adopt", tool => GameToolAdmission.Settings(tool, request.Settings),
+            async (tool, context, token) =>
+            {
+                if (!tool.UsesGraphicsApi)
+                {
+                    throw new GameToolException("This tool does not declare an adoptable native file set.");
+                }
+
+                var scan = await ScanAsync(request.AppId, token).ConfigureAwait(false);
+                tool = tool.ForGame(scan.IsShortcut);
+                var target = GameToolAdmission.RequireInstallable(tool, request.AppId, scan.InstallFolder, scan.Availability,
+                    scan.Reason, scan.Record, scan.Resolution, scan.AntiCheat, request.AcknowledgeRisk);
+                await RequireClosedAsync(target).ConfigureAwait(false);
+                var inspection = GameToolInstaller.Inspect(tool, target.TargetDirectory, null);
+                var modes = tool.InstallModes.Where(mode => mode.Architectures.Contains(target.Architecture)
+                    && inspection.Unmanaged.Any(copy => copy.RelativePath.Equals(mode.Proxy, StringComparison.OrdinalIgnoreCase))).ToArray();
+                var proxy = request.ProxyName;
+                if (proxy is null && scan.GraphicsApis.Length <= 1)
+                {
+                    var matching = modes.Where(mode => mode.Apis.Intersect(scan.GraphicsApis).Any()).ToArray();
+                    var choices = matching.Length > 0 ? matching : modes;
+                    if (choices.Length == 1 || (scan.GraphicsApis.Length == 1 && choices.Length > 0))
+                    {
+                        proxy = choices.OrderByDescending(mode => mode.Priority).First().Proxy;
+                    }
+                }
+                if (proxy is null || modes.All(mode => mode.Proxy != proxy))
+                {
+                    throw new GameToolException("Choose the existing loader DLL and its pipeline before managing this installation.");
+                }
+
+                var mode = tool.InstallMode(proxy);
+                var scratch = Path.Combine(Path.GetTempPath(), "WSGM-adopt-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(scratch);
+                try
+                {
+                    foreach (var copy in inspection.Unmanaged)
+                    {
+                        var name = copy.RelativePath.Equals(proxy, StringComparison.OrdinalIgnoreCase) ? tool.PrimaryFile : copy.RelativePath;
+                        var path = Path.Combine(scratch, name);
+                        File.Copy(Path.Combine(target.TargetDirectory, copy.RelativePath), path);
+                        var identity = GameToolBinaryIdentification.Read(path);
+                        if (identity.ToolId != tool.Id || identity.Architecture != target.Architecture)
+                        {
+                            throw new GameToolException("An existing DLL changed identity or architecture during adoption; nothing was adopted.");
+                        }
+                    }
+
+                    var hashes = Directory.EnumerateFiles(scratch).ToDictionary(path => Path.GetFileName(path)!,
+                        path => (GameToolInstaller.Sha256(path), new FileInfo(path).Length), StringComparer.OrdinalIgnoreCase);
+                    var release = new HostedRelease("", "local-files", "", "Local", new ReleaseAsset("local-files", ""));
+                    var package = new GameToolPackage(release, scratch, "local", "", target.Architecture) { Hashes = hashes! };
+                    package = await WithSharedPluginAsync(tool, mode, request.AppId, package, context, token, request.Settings).ConfigureAwait(false);
+                    var configuration = await PrepareWorkingConfigAsync(tool, request.AppId, target, request.Settings).ConfigureAwait(false);
+                    package = package with { SharedSettingsDirectory = configuration.Directory.Length > 0
+                        ? configuration.Directory : package.SharedSettingsDirectory };
+                    var result = await _installer.InstallAsync(configuration.Tool, target, package,
+                        new GameToolRequest("adopt", proxy, configuration.Settings), null, () => _running.ClosedMessage(target),
+                        phase => context.Phase(phase, false), token, inspection).ConfigureAwait(false);
+                    GameToolStorage.RememberIdentity(_userRoot, request.AppId, scan.IsShortcut, scan.Name);
+                    return "Existing " + tool.Name + " DLLs are now managed. Repair installs the latest verified upstream version. " + result.Notice;
+                }
+                finally
+                {
+                    GameToolStorage.DeleteTree(scratch);
+                }
+            });
     }
 
     /// <inheritdoc />
@@ -379,7 +455,7 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
                 var (target, manifest) = await InstalledAsync(tool, appId).ConfigureAwait(false);
                 await RequireClosedAsync(target).ConfigureAwait(false);
                 context.Phase(GameToolPhase.Settings, false);
-                if (!manifest.Enabled)
+                if (!manifest.Enabled && proxyName is not null)
                 {
                     throw new GameToolException("Enable the tool before changing its configuration.");
                 }
@@ -389,9 +465,27 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
                     throw new GameToolException("Remove and reinstall the tool to change its graphics API.");
                 }
 
-                var outcome = await Task.Run(() => _installer.Configure(tool, target, manifest, proxyName, settings,
+                var shared = settings.Where(pair => tool.Settings.First(setting => setting.Id == pair.Key).Scope == "shared")
+                    .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+                if (shared.Count > 0)
+                {
+                    var folder = Path.Combine(SpecialKPluginLocation.Resolve(create: true), "Global");
+                    _sharedPlugins.Register(folder, appId);
+                    await _sharedPlugins.ConfigureAsync(folder, tool.SharedSettingsFile, tool, shared, target.Architecture,
+                        () => SharedPluginClosed(folder)).ConfigureAwait(false);
+                }
+
+                var local = settings.Where(pair => !shared.ContainsKey(pair.Key)).ToDictionary(pair => pair.Key, pair => pair.Value);
+                var configuration = await PrepareWorkingConfigAsync(tool, appId, target, local).ConfigureAwait(false);
+                tool = configuration.Tool;
+                if (configuration.Directory.Length > 0)
+                {
+                    manifest = manifest with { SharedSettingsDirectory = configuration.Directory };
+                }
+
+                var outcome = await Task.Run(() => _installer.Configure(tool, target, manifest, proxyName, configuration.Settings,
                     () => _running.ClosedMessage(target)), CancellationToken.None).ConfigureAwait(false);
-                return outcome.Notice;
+                return shared.Count > 0 ? "Special K settings saved; shared controls apply to all Special K games on their next start. " + outcome.Notice : outcome.Notice;
             });
     }
 
@@ -552,6 +646,7 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     {
         var appId = request.AppId;
         var scan = await ScanAsync(appId, token).ConfigureAwait(false);
+        tool = tool.ForGame(scan.IsShortcut);
         var target = GameToolAdmission.RequireInstallable(tool, appId, scan.InstallFolder, scan.Availability,
             scan.Reason, scan.Record, scan.Resolution, scan.AntiCheat, request.AcknowledgeRisk);
         await RequireClosedAsync(target).ConfigureAwait(false);
@@ -561,15 +656,24 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         var inspection = await Task.Run(() => GameToolInstaller.Inspect(tool, target.TargetDirectory, null), token)
             .ConfigureAwait(false);
         var proxy = request.ProxyName ?? GameToolInstaller.SuggestProxy(inspection.Proxies, tool.Proxy.Default,
-            tool.UsesGraphicsApi ? tool : null, scan.GraphicsApis, target.Architecture);
+            tool.UsesGraphicsApi ? tool : null, scan.GraphicsApis, target.Architecture, scan.GraphicsImports);
         if (proxy.Length == 0)
         {
-            throw new GameToolException("No free proxy matches the detected graphics API. Review the conflicts or choose another API explicitly.");
+            throw new GameToolException(scan.GraphicsApis.Length > 1
+                ? "Several render pipelines were detected. Choose the pipeline the game will use."
+                : "No free proxy matches the detected graphics API and architecture. Choose a supported file set explicitly.");
+        }
+
+        var mode = tool.InstallMode(proxy);
+        if (mode.RequiredImports.Any(name => !scan.GraphicsImports.Contains(name, StringComparer.OrdinalIgnoreCase)))
+        {
+            throw new GameToolException("This loader requires the game to import " + string.Join(", ", mode.RequiredImports) + ".");
         }
 
         var package = await Releases.PrepareAsync(tool, channel, release, context.Progress, token,
                 target.Architecture, proxy)
             .ConfigureAwait(false);
+        package = await WithSharedPluginAsync(tool, mode, appId, package, context, token, request.Settings).ConfigureAwait(false);
         package = await WithAddonsAsync(tool, package,
             await InstallAddonsAsync(tool, request, Path.GetFileName(target.RuntimeExecutable), token)
                 .ConfigureAwait(false), null, target.Architecture, context, token).ConfigureAwait(false);
@@ -578,8 +682,12 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         // Reinspect after downloading. The transaction refuses a collision that appeared in the meantime.
         inspection = await Task.Run(() => GameToolInstaller.Inspect(tool, target.TargetDirectory, null), token)
             .ConfigureAwait(false);
+        var configuration = await PrepareWorkingConfigAsync(tool, appId, target, request.Settings).ConfigureAwait(false);
+        tool = configuration.Tool;
+        package = package with { SharedSettingsDirectory = configuration.Directory.Length > 0
+            ? configuration.Directory : package.SharedSettingsDirectory };
         var outcome = await _installer.InstallAsync(tool, target, package,
-                new GameToolRequest(request.ReplaceExisting ? "replaceExisting" : "install", proxy, request.Settings,
+                new GameToolRequest(request.ReplaceExisting ? "replaceExisting" : "install", proxy, configuration.Settings,
                     Channel: channel.Id),
                 null, () => _running.ClosedMessage(target), phase => context.Phase(phase, false), token, inspection)
             .ConfigureAwait(false);
@@ -592,6 +700,7 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         bool replaceConfig, OperationContext context, CancellationToken token)
     {
         var (target, manifest) = await InstalledAsync(tool, appId).ConfigureAwait(false);
+        tool = tool.ForGame(GameToolStorage.ReadLocked(_userRoot).Find(appId)?.IsShortcut == true);
         GameToolAdmission.RequireCompleted(manifest);
         if (!manifest.Enabled)
         {
@@ -603,15 +712,21 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         var package = await Releases.PrepareAsync(tool, channel, chosen, context.Progress, token,
                 target.Architecture, manifest.ProxyName)
             .ConfigureAwait(false);
+        package = await WithSharedPluginAsync(tool, tool.InstallMode(manifest.ProxyName), appId, package, context, token)
+            .ConfigureAwait(false);
 
         // Installed add-ons go along with the latest build, so an update or repair keeps what the user chose.
         package = await WithAddonsAsync(tool, package,
             manifest.Addons.Select(record => tool.Addon(record.Id)).OfType<GameToolAddon>(), manifest,
             target.Architecture, context, token).ConfigureAwait(false);
         context.Phase(GameToolPhase.Copy, false);
+        var configuration = await PrepareWorkingConfigAsync(tool, appId, target, new Dictionary<string, string>()).ConfigureAwait(false);
+        tool = configuration.Tool;
+        package = package with { SharedSettingsDirectory = configuration.Directory.Length > 0
+            ? configuration.Directory : package.SharedSettingsDirectory };
         var outcome = await _installer.InstallAsync(tool, target, package,
                 new GameToolRequest(operation, manifest.ProxyName,
-                    new Dictionary<string, string>(StringComparer.Ordinal), replaceConfig, channel.Id),
+                    configuration.Settings, replaceConfig, channel.Id),
                 manifest, () => _running.ClosedMessage(target), phase => context.Phase(phase, false), token)
             .ConfigureAwait(false);
         return outcome.Notice;
@@ -619,6 +734,112 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
 
     // A fresh install takes the add-ons the user turned on, and otherwise those recommended for this game: on its
     // support list and useful on this machine's graphics.
+    private async Task<GameToolPackage> WithSharedPluginAsync(GameToolDefinition tool, GameToolMode mode,
+        uint appId, GameToolPackage package, OperationContext context, CancellationToken token,
+        IReadOnlyDictionary<string, string>? settings = null)
+    {
+        if (tool.SharedSettingsFile.Length > 0)
+        {
+            var folder = Path.Combine(SpecialKPluginLocation.Resolve(create: true), "Global");
+            _sharedPlugins.Register(folder, appId);
+            var requested = (settings ?? new Dictionary<string, string>()).Where(pair =>
+                    tool.Settings.First(setting => setting.Id == pair.Key).Scope == "shared")
+                .ToDictionary(pair => pair.Key, pair => pair.Value);
+            if (requested.Count > 0)
+            {
+                await _sharedPlugins.ConfigureAsync(folder, tool.SharedSettingsFile, tool, requested, package.Architecture,
+                    () => SharedPluginClosed(folder)).ConfigureAwait(false);
+            }
+
+            package = package with { SharedSettingsDirectory = folder };
+        }
+
+        if (!mode.UsesSharedPlugin)
+        {
+            return package;
+        }
+
+        var dependency = tool.SharedDependency ?? throw new GameToolException("The required shared plugin is not described.");
+        var directory = Path.Combine(SpecialKPluginLocation.Resolve(create: true), dependency.RelativeDirectory);
+        var plugin = GameToolSharedPlugins.Definition(tool);
+        var release = await LatestReleaseAsync(plugin, plugin.DefaultChannel, token).ConfigureAwait(false);
+        var prepared = await Releases.PrepareAsync(plugin, plugin.DefaultChannel, release, context.Progress, token,
+            package.Architecture, plugin.Proxy.Default).ConfigureAwait(false);
+        await _sharedPlugins.EnsureAsync(appId, directory, plugin, prepared, () => SharedPluginClosed(directory), token)
+            .ConfigureAwait(false);
+        return package with { SharedDependencyDirectory = directory };
+    }
+
+    private string? SharedPluginClosed(string directory)
+    {
+        foreach (var game in GameToolStorage.ReadLocked(_userRoot).Games)
+        {
+            foreach (var installed in game.Tools.Where(tool => (tool.SharedDependencyDirectory.Length > 0
+                         && StoragePaths.Same(tool.SharedDependencyDirectory, directory)) || (tool.SharedSettingsDirectory.Length > 0
+                         && StoragePaths.Same(tool.SharedSettingsDirectory, directory))))
+            {
+                if (_running.ClosedMessage(GameToolTarget.FromManifest(game.AppId, installed.InstallRoot, installed)) is not null)
+                {
+                    return "Close " + game.Name + " before updating its shared Special K plugin.";
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private async Task<(GameToolDefinition Tool, IReadOnlyDictionary<string, string> Settings, string Directory)>
+        PrepareWorkingConfigAsync(GameToolDefinition tool, uint appId, GameToolTarget target, IReadOnlyDictionary<string, string> requested)
+    {
+        if (!tool.ConfigFromWorkingDirectory)
+        {
+            return (tool, requested, "");
+        }
+
+        string folder;
+        lock (_sync)
+        {
+            folder = _scans.GetValueOrDefault(appId)?.WorkingDirectory ?? "";
+        }
+
+        if (folder.Length == 0)
+        {
+            if (requested.Count > 0)
+            {
+                throw new GameToolException(GameToolLaunchDirectory.Unavailable);
+            }
+
+            return (tool with { ManageConfiguration = false, Settings = [] }, requested, "");
+        }
+
+        if (StoragePaths.Same(folder, target.TargetDirectory))
+        {
+            return (tool, requested, "");
+        }
+
+        if (GameToolInstaller.ProbeWritable(target.TargetDirectory) is { } blocked)
+        {
+            throw new GameToolException(blocked);
+        }
+
+        _sharedPlugins.Register(folder, appId);
+        var owner = tool with { Settings = [.. tool.Settings.Select(setting => setting with { Scope = "shared" })] };
+        await _sharedPlugins.ConfigureAsync(folder, tool.PrimaryConfig, owner, requested, target.Architecture,
+            () => SharedPluginClosed(folder)).ConfigureAwait(false);
+        var native = GameToolInstaller.ReadSettings(tool, folder) ?? new Dictionary<string, string>();
+        var canonical = new Dictionary<string, string>(requested, StringComparer.Ordinal);
+        foreach (var setting in tool.Settings)
+        {
+            if (setting.UnavailableReason.Length == 0 && native.TryGetValue(setting.Id, out var raw)
+                && setting.FromRaw(raw) is { } value)
+            {
+                canonical[setting.Id] = value;
+            }
+        }
+
+        return (tool, canonical, folder);
+    }
+
     private async Task<IReadOnlyList<GameToolAddon>> InstallAddonsAsync(GameToolDefinition tool,
         GameToolsInstallRequest request, string program, CancellationToken token)
     {
@@ -790,6 +1011,7 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
                 // The tool's files changed, not the game's programs: the walk is reused and only the record,
                 // the inspection and the upscaler filter are read again.
                 context.Phase(GameToolPhase.Rescan, false);
+                _sharedPlugins.Reconcile(SharedPluginClosed);
                 await ScanAsync(appId, CancellationToken.None, true).ConfigureAwait(false);
             }
         }
@@ -1160,7 +1382,8 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
                 }
 
                 var layout = cached is not null && StoragePaths.Same(cached.Root, root) ? cached : null;
-                scan = await Task.Run(() => ScanFolder(appId, name, shortcut, root, directTarget, record, layout),
+                scan = await Task.Run(() => ScanFolder(appId, name, shortcut, root, directTarget, record, layout,
+                        GameToolLaunchDirectory.Resolve(appId, shortcut, details, root)),
                     token).ConfigureAwait(false);
             }
         }
@@ -1190,9 +1413,10 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     // Recovery runs first in every scan of an existing folder, so the page never shows a crash's half-finished
     // change as current and every mutation, which scans before it acts, starts from a reconciled record.
     private GameToolsScan ScanFolder(uint appId, string name, bool shortcut, string root, string? directTarget,
-        GameToolRecord? record, GameFolderLayout? layout)
+        GameToolRecord? record, GameFolderLayout? layout, string workingDirectory)
     {
         var recovery = _recovery.Recover(appId, root, record, Catalog);
+        _sharedPlugins.Reconcile(SharedPluginClosed);
         record = recovery.Record;
         layout ??= GameFolderLayout.Scan(root);
         var resolution = GameRuntimeResolver.Resolve(layout, directTarget, record?.Runtime?.RelativePath, name,
@@ -1201,10 +1425,13 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         var upscalers = UpscalerScan.Scan(layout, installed);
         var antiCheat = AntiCheatScan.Scan(layout);
         var (availability, reason) = _running.FolderAvailability(appId, layout, resolution.Chosen?.FullPath);
+        var evidence = resolution.Chosen is { } runtime ? GameGraphicsApi.Read(runtime.FullPath) : new GameGraphicsEvidence([], []);
+        var libraries = resolution.Chosen is { } program
+            ? GameToolBinaryIdentification.Scan(Path.GetDirectoryName(program.FullPath)!, program.FullPath) : [];
         return new GameToolsScan(appId, name, shortcut, root, availability, reason, resolution, layout.Truncated,
             upscalers, antiCheat, record, layout, Environment.TickCount64, recovery.Notice)
         {
-            GraphicsApis = resolution.Chosen is { } runtime ? GameGraphicsApi.Detect(runtime.FullPath) : []
+            GraphicsApis = evidence.Pipelines, GraphicsImports = evidence.Imports, Libraries = libraries, WorkingDirectory = workingDirectory
         };
     }
 
@@ -1234,11 +1461,12 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
             resolution?.RememberedMissing == true, scan.Truncated,
             [.. scan.Upscalers.Select(file => new GameToolsUpscaler(file.Technology, file.RelativePath, file.Version))],
             scan.AntiCheat, GameToolStatus.AntiCheatWarning(Catalog.Tools, scan.AntiCheat), _vendors.Value, tools,
-            null, null, null);
+            null, null, null) { Libraries = scan.Libraries };
     }
 
     private GameToolsTool ToolState(GameToolDefinition tool, GameToolsScan scan)
     {
+        tool = tool.ForGame(scan.IsShortcut);
         var manifest = scan.Record?.Manifest(tool.Id);
         var followed = tool.ChannelOrDefault(manifest?.Channel);
         var latest = Releases.Cached(tool, followed);
@@ -1249,10 +1477,7 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
                 ? Path.GetDirectoryName(chosen.FullPath)
                 : null;
         var inspection = scan.HasFolder && targetDirectory is not null && Directory.Exists(targetDirectory)
-            ? GameToolInstaller.Inspect(tool, targetDirectory, manifest)
-            : null;
-        var iniValues = manifest is not null && targetDirectory is not null
-            ? GameToolInstaller.ReadSettings(tool, targetDirectory)
+            ? GameToolInstaller.Inspect(tool, targetDirectory, manifest, scan.Libraries)
             : null;
         var evaluation = GameToolStatus.Evaluate(tool, scan.Availability, scan.Reason, chosen?.Architecture, manifest,
             inspection, latest?.Release, followed, scan.Upscalers);
@@ -1272,20 +1497,84 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         var proxies = options.Select(option =>
         {
             var status = inspection?.Proxies.FirstOrDefault(proxy => proxy.Name == option.Name);
+            var mode = tool.InstallMode(option.Name);
+            var reason = chosen is not null && !mode.Architectures.Contains(chosen.Architecture)
+                ? "This file set is not shipped for " + PeImage.Label(chosen.Architecture) + " games."
+                : mode.RequiredImports.Any(name => !scan.GraphicsImports.Contains(name, StringComparer.OrdinalIgnoreCase))
+                    ? "The game does not import " + string.Join(", ", mode.RequiredImports) + "." : status?.Conflict;
             return new GameToolsProxyOption(option.Name, option.Hint,
-                (status?.Available ?? true) && (chosen is null || tool.InstallMode(option.Name).Architectures.Contains(chosen.Architecture)),
-                status?.Conflict) { Api = option.Api };
+                reason is null && (status?.Available ?? true) && (chosen is null || mode.Architectures.Contains(chosen.Architecture)),
+                reason)
+            {
+                Api = option.Api,
+                Files = [.. mode.Files.Values.Select(file => file == tool.PrimaryFile ? option.Name : file)
+                    .Concat(tool.ManageConfiguration && (!tool.ConfigFromWorkingDirectory || scan.WorkingDirectory.Length > 0)
+                        ? [tool.ForProxy(option.Name).PrimaryConfig] : [])
+                    .Distinct(StringComparer.OrdinalIgnoreCase)],
+                Dependency = mode.UsesSharedPlugin ? "Uses the managed dgVoodoo plugin" : ""
+            };
         }).ToArray();
         var inspected = inspection?.Proxies ?? [.. options.Select(option =>
             new GameToolProxyStatus(option.Name, option.Hint, true, null, option.Suggest))];
         var proxyName = manifest?.ProxyName ?? GameToolInstaller.SuggestProxy(inspected, tool.Proxy.Default,
-            tool.UsesGraphicsApi ? tool : null, scan.GraphicsApis, chosen?.Architecture);
+            tool.UsesGraphicsApi ? tool : null, scan.GraphicsApis, chosen?.Architecture, scan.GraphicsImports);
+        if (manifest is null && inspection is { Unmanaged.Count: > 0 })
+        {
+            var existing = tool.InstallModes.Where(mode => inspection.Unmanaged.Any(copy =>
+                copy.RelativePath.Equals(mode.Proxy, StringComparison.OrdinalIgnoreCase))).ToArray();
+            var matching = existing.Where(mode => mode.Apis.Intersect(scan.GraphicsApis).Any()).ToArray();
+            var candidates = matching.Length > 0 ? matching : existing;
+            proxyName = scan.GraphicsApis.Length <= 1 && candidates.Length > 0
+                ? candidates.OrderByDescending(mode => mode.Priority).First().Proxy : "";
+            proxies = [.. proxies.Select(option => inspection.Unmanaged.Any(copy => copy.RelativePath.Equals(option.Name,
+                    StringComparison.OrdinalIgnoreCase)) ? option with { Available = chosen is null || tool.InstallMode(option.Name)
+                    .Architectures.Contains(chosen.Architecture), Conflict = null } : option)];
+        }
+        var iniValues = targetDirectory is not null
+            ? GameToolInstaller.ReadSettings(tool.ForProxy(proxyName.Length > 0 ? proxyName : tool.Proxy.Default), targetDirectory) : null;
+        string? sharedReason = null;
+        if (tool.SharedSettingsFile.Length > 0 && scan.HasFolder && chosen is not null)
+        {
+            try
+            {
+                var folder = manifest?.SharedSettingsDirectory is { Length: > 0 } saved ? saved
+                    : Path.Combine(SpecialKPluginLocation.Resolve(create: false), "Global");
+                var sharedTool = tool with { ConfigFiles = [tool.SharedSettingsFile],
+                    Settings = [.. tool.Settings.Where(setting => setting.Scope == "shared")] };
+                var global = GameToolInstaller.ReadSettings(sharedTool, folder);
+                iniValues ??= new Dictionary<string, string>();
+                foreach (var pair in global ?? new Dictionary<string, string>())
+                {
+                    iniValues[pair.Key] = pair.Value;
+                }
+            }
+            catch (GameToolException ex)
+            {
+                sharedReason = ex.Message;
+            }
+        }
+
+        var workingUnavailable = tool.ConfigFromWorkingDirectory && scan.WorkingDirectory.Length == 0;
+        if (tool.ConfigFromWorkingDirectory && !workingUnavailable)
+        {
+            iniValues = GameToolInstaller.ReadSettings(tool, scan.WorkingDirectory);
+        }
+
         var settings = tool.Settings.Select(setting =>
         {
             var value = GameToolStatus.SettingValue(setting, manifest, iniValues, _vendors.Value);
             return new GameToolsSetting(setting.Id, setting.Label, setting.Description, value.Value, value.IniValue,
                 [.. setting.Options.Select(option => new GameToolsSettingOption(option.Value, option.Label))],
-                value.Available, value.Note);
+                value.Available && !workingUnavailable && setting.UnavailableReason.Length == 0
+                    && !(setting.Scope == "shared" && sharedReason is not null),
+                workingUnavailable ? GameToolLaunchDirectory.Unavailable : setting.UnavailableReason.Length > 0
+                    ? setting.UnavailableReason : sharedReason ?? value.Note)
+            {
+                Kind = setting.Kind, Scope = setting.Scope, Group = setting.Scope == "shared" ? "All Special K games" : setting.Group,
+                Minimum = setting.Minimum, Maximum = setting.Maximum, Step = setting.Step, HotkeyFormat = setting.HotkeyFormat,
+                KeyChoices = setting.Kind == "hotkey" ? [.. GameToolHotkeys.Keys.Select(key => new GameToolsSettingOption(
+                    key.Key.ToString(CultureInfo.InvariantCulture), key.Label))] : []
+            };
         }).ToArray();
         var relativeTarget = targetDirectory is null
             ? ""
@@ -1320,10 +1609,18 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
             Enabled = manifest?.Enabled ?? true,
             ProxyLabel = tool.UsesGraphicsApi ? "Graphics API" : "Load as",
             ProxyEditable = evaluation.CanEditOptions && (manifest?.Enabled ?? true) && !(tool.UsesGraphicsApi && manifest is not null),
-            SettingsEditable = evaluation.CanEditOptions && (manifest?.Enabled ?? true),
+            SettingsEditable = evaluation.CanEditOptions && !workingUnavailable,
+            SettingsNotice = workingUnavailable ? GameToolLaunchDirectory.Unavailable : tool.ManageConfiguration
+                ? "Settings apply on the next game start. Existing keys are preserved unless you change them."
+                : "",
             ProxyIntro = tool.UsesGraphicsApi && manifest is not null
                 ? "Remove and reinstall to change the graphics API."
-                : manifest is not null ? "Choosing another name renames the installed file." : ""
+                : manifest is not null ? "Choosing another name renames the installed file."
+                : tool.UsesGraphicsApi && proxyName.Length == 0
+                    ? scan.GraphicsApis.Length > 1
+                        ? "Multiple render pipelines were detected. Choose the one this game uses."
+                        : "No compatible free file set was selected. Choose the renderer this game uses; unsupported architectures and occupied DLLs are refused."
+                    : ""
         };
     }
 

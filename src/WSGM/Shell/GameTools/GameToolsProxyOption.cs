@@ -9,4 +9,10 @@ internal sealed record GameToolsProxyOption(string Name, string Hint, bool Avail
 {
     /// <summary>The supported API label, separate from guidance.</summary>
     public string Api { get; init; } = "";
+
+    /// <summary>The exact game-local file set for this choice.</summary>
+    public string[] Files { get; init; } = [];
+
+    /// <summary>A dependency included with this choice, without a separate workflow.</summary>
+    public string Dependency { get; init; } = "";
 }

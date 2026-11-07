@@ -344,7 +344,17 @@
       "primaryFile": "WSGM-tool.dll",
       "identity": {
         "originalFilename": "DXVK.dll",
-        "productNames": ["DXVK"]
+        "productNames": ["DXVK"],
+        "exportGroups": [
+          ["Direct3DCreate8"],
+          ["Direct3DCreate9"],
+          ["D3D10CoreCreateDevice"],
+          ["D3D11CreateDevice"],
+          ["CreateDXGIFactory"]
+        ],
+        "uniqueExportGroups": [],
+        "universalProxy": false,
+        "resourceVersion": false
       },
       "proxy": {
         "default": "d3d11.dll"
@@ -382,7 +392,7 @@
             "x{bits}/dxgi.dll": "dxgi.dll"
           },
           "apis": ["Direct3D 10"],
-          "hint": "Choose the API the game actually uses."
+          "hint": "Requires the matching DXVK dxgi.dll. Vendor NVAPI/AGS paths and overlays can conflict on Windows; unknown proxies are never overwritten."
         },
         {
           "proxy": "d3d11.dll",
@@ -392,9 +402,191 @@
             "x{bits}/dxgi.dll": "dxgi.dll"
           },
           "apis": ["Direct3D 11"],
-          "hint": "Choose the API the game actually uses."
+          "hint": "Requires the matching DXVK dxgi.dll. Vendor NVAPI/AGS paths and overlays can conflict on Windows; unknown proxies are never overwritten."
         }
-      ]
+      ],
+      "manageConfiguration": true,
+      "settings": [
+        {
+          "id": "dxgiFps",
+          "label": "DXGI framerate limit (FPS)",
+          "description": "Applies on the next game start.",
+          "section": "",
+          "key": "dxgi.maxFrameRate",
+          "default": "0",
+          "kind": "number",
+          "group": "Rendering",
+          "createMissing": true,
+          "minimum": null,
+          "maximum": null,
+          "step": 1,
+          "integer": false
+        },
+        {
+          "id": "dxgiSync",
+          "label": "DXGI VSync interval",
+          "description": "Applies on the next game start.",
+          "section": "",
+          "key": "dxgi.syncInterval",
+          "default": "-1",
+          "kind": "number",
+          "group": "Rendering",
+          "createMissing": true,
+          "minimum": -1,
+          "maximum": null,
+          "step": 1,
+          "integer": true
+        },
+        {
+          "id": "dxgiLatency",
+          "label": "DXGI maximum queued frames",
+          "description": "Applies on the next game start.",
+          "section": "",
+          "key": "dxgi.maxFrameLatency",
+          "default": "0",
+          "kind": "number",
+          "group": "Rendering",
+          "createMissing": true,
+          "minimum": 0,
+          "maximum": 16,
+          "step": 1,
+          "integer": true
+        },
+        {
+          "id": "d3d9Fps",
+          "label": "D3D9 framerate limit (FPS)",
+          "description": "Applies on the next game start.",
+          "section": "",
+          "key": "d3d9.maxFrameRate",
+          "default": "0",
+          "kind": "number",
+          "group": "Rendering",
+          "createMissing": true,
+          "minimum": null,
+          "maximum": null,
+          "step": 1,
+          "integer": false
+        },
+        {
+          "id": "d3d9Sync",
+          "label": "D3D9 VSync interval",
+          "description": "Applies on the next game start.",
+          "section": "",
+          "key": "d3d9.presentInterval",
+          "default": "-1",
+          "kind": "number",
+          "group": "Rendering",
+          "createMissing": true,
+          "minimum": -1,
+          "maximum": null,
+          "step": 1,
+          "integer": true
+        },
+        {
+          "id": "d3d9Latency",
+          "label": "D3D9 maximum queued frames",
+          "description": "Applies on the next game start.",
+          "section": "",
+          "key": "d3d9.maxFrameLatency",
+          "default": "0",
+          "kind": "number",
+          "group": "Rendering",
+          "createMissing": true,
+          "minimum": 0,
+          "maximum": 16,
+          "step": 1,
+          "integer": true
+        },
+        {
+          "id": "allowFse",
+          "label": "Allow exclusive fullscreen",
+          "description": "Applies on the next game start.",
+          "section": "",
+          "key": "dxvk.allowFse",
+          "default": "off",
+          "kind": "choice",
+          "group": "Rendering",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "off",
+              "label": "Off",
+              "ini": "False"
+            },
+            {
+              "value": "on",
+              "label": "On",
+              "ini": "True"
+            }
+          ]
+        },
+        {
+          "id": "anisotropy11",
+          "label": "D3D11 anisotropic filtering",
+          "description": "Applies on the next game start.",
+          "section": "",
+          "key": "d3d11.samplerAnisotropy",
+          "default": "-1",
+          "kind": "number",
+          "group": "Rendering",
+          "createMissing": true,
+          "minimum": -1,
+          "maximum": 16,
+          "step": 1,
+          "integer": true
+        },
+        {
+          "id": "anisotropy9",
+          "label": "D3D9 anisotropic filtering",
+          "description": "Applies on the next game start.",
+          "section": "",
+          "key": "d3d9.samplerAnisotropy",
+          "default": "-1",
+          "kind": "number",
+          "group": "Rendering",
+          "createMissing": true,
+          "minimum": -1,
+          "maximum": 16,
+          "step": 1,
+          "integer": true
+        },
+        {
+          "id": "hud",
+          "label": "DXVK HUD",
+          "description": "Applies on the next game start.",
+          "section": "",
+          "key": "dxvk.hud",
+          "default": "",
+          "kind": "choice",
+          "group": "Rendering",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "",
+              "label": "None",
+              "ini": ""
+            },
+            {
+              "value": "fps",
+              "label": "fps",
+              "ini": "fps"
+            },
+            {
+              "value": "devinfo,fps",
+              "label": "devinfo,fps",
+              "ini": "devinfo,fps"
+            },
+            {
+              "value": "full",
+              "label": "full",
+              "ini": "full"
+            }
+          ],
+          "unavailableReason": "HUD is left unchanged in this round; DXVK_HUD overrides dxvk.hud. Existing environment values are not changed.",
+          "omitDefault": true
+        }
+      ],
+      "configFromWorkingDirectory": true
     },
     {
       "id": "reshade",
@@ -426,7 +618,10 @@
       "primaryFile": "WSGM-tool.dll",
       "identity": {
         "originalFilename": "ReShade.dll",
-        "productNames": ["ReShade"]
+        "productNames": ["ReShade"],
+        "exportGroups": [["ReShadeVersion"]],
+        "uniqueExportGroups": [["ReShadeVersion", "ReShadeRegisterAddon"]],
+        "universalProxy": true
       },
       "proxy": {
         "default": "dxgi.dll"
@@ -452,7 +647,8 @@
             "ReShade{bits}.dll": "WSGM-tool.dll"
           },
           "apis": ["Direct3D 10", "Direct3D 11", "Direct3D 12"],
-          "hint": "Choose the API the game actually uses."
+          "hint": "Choose the API the game actually uses.",
+          "priority": 10
         },
         {
           "proxy": "opengl32.dll",
@@ -462,6 +658,155 @@
           },
           "apis": ["OpenGL"],
           "hint": "Choose the API the game actually uses."
+        },
+        {
+          "proxy": "d3d10.dll",
+          "apis": ["Direct3D 10"],
+          "architectures": ["x86", "x64"],
+          "files": {
+            "ReShade{bits}.dll": "WSGM-tool.dll"
+          },
+          "hint": "Choose the render pipeline the game uses.",
+          "priority": 5
+        },
+        {
+          "proxy": "d3d11.dll",
+          "apis": ["Direct3D 11"],
+          "architectures": ["x86", "x64"],
+          "files": {
+            "ReShade{bits}.dll": "WSGM-tool.dll"
+          },
+          "hint": "Choose the render pipeline the game uses.",
+          "priority": 5
+        },
+        {
+          "proxy": "d3d12.dll",
+          "apis": ["Direct3D 12"],
+          "architectures": ["x86", "x64"],
+          "files": {
+            "ReShade{bits}.dll": "WSGM-tool.dll"
+          },
+          "hint": "Choose the render pipeline the game uses.",
+          "priority": 5
+        },
+        {
+          "proxy": "ddraw.dll",
+          "apis": ["DirectDraw / Direct3D 1–7"],
+          "architectures": ["x86", "x64"],
+          "files": {
+            "ReShade{bits}.dll": "WSGM-tool.dll"
+          },
+          "hint": "Choose the render pipeline the game uses.",
+          "priority": 5
+        }
+      ],
+      "manageConfiguration": true,
+      "settings": [
+        {
+          "id": "overlayKey",
+          "label": "Overlay key",
+          "description": "Applies on the next game start.",
+          "section": "INPUT",
+          "key": "KeyOverlay",
+          "default": "36,0,0,0",
+          "kind": "hotkey",
+          "group": "Input",
+          "createMissing": true,
+          "hotkeyFormat": "vk-array"
+        },
+        {
+          "id": "effectsKey",
+          "label": "Effects toggle key",
+          "description": "Applies on the next game start.",
+          "section": "INPUT",
+          "key": "KeyEffects",
+          "default": "0,0,0,0",
+          "kind": "hotkey",
+          "group": "Input",
+          "createMissing": true,
+          "hotkeyFormat": "vk-array"
+        },
+        {
+          "id": "loadEffects",
+          "label": "Load effects at startup",
+          "description": "Off: effects stay unloaded until you press Reload in the ReShade overlay.",
+          "section": "GENERAL",
+          "key": "NoReloadOnInit",
+          "default": "on",
+          "kind": "choice",
+          "group": "Effects",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "off",
+              "label": "Off",
+              "ini": "1"
+            },
+            {
+              "value": "on",
+              "label": "On",
+              "ini": "0"
+            }
+          ]
+        },
+        {
+          "id": "performance",
+          "label": "Performance mode",
+          "description": "Applies on the next game start.",
+          "section": "GENERAL",
+          "key": "PerformanceMode",
+          "default": "off",
+          "kind": "choice",
+          "group": "Effects",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "off",
+              "label": "Off",
+              "ini": "0"
+            },
+            {
+              "value": "on",
+              "label": "On",
+              "ini": "1"
+            }
+          ]
+        },
+        {
+          "id": "preset",
+          "label": "Preset path",
+          "description": "Applies on the next game start.",
+          "section": "GENERAL",
+          "key": "PresetPath",
+          "default": ".\\ReShadePreset.ini",
+          "kind": "text",
+          "group": "Effects",
+          "createMissing": true,
+          "pattern": ""
+        },
+        {
+          "id": "shaderPaths",
+          "label": "Effect search paths",
+          "description": "Applies on the next game start.",
+          "section": "GENERAL",
+          "key": "EffectSearchPaths",
+          "default": ".\\reshade-shaders\\Shaders\\**",
+          "kind": "text",
+          "group": "Effects",
+          "createMissing": true,
+          "pattern": ""
+        },
+        {
+          "id": "texturePaths",
+          "label": "Texture search paths",
+          "description": "Applies on the next game start.",
+          "section": "GENERAL",
+          "key": "TextureSearchPaths",
+          "default": ".\\reshade-shaders\\Textures\\**",
+          "kind": "text",
+          "group": "Effects",
+          "createMissing": true,
+          "pattern": ""
         }
       ]
     },
@@ -492,7 +837,10 @@
       "primaryFile": "WSGM-tool.dll",
       "identity": {
         "originalFilename": "Special K.dll",
-        "productNames": ["Special K"]
+        "productNames": ["Special K"],
+        "exportGroups": [["SK_BeginBufferSwap", "SK_CreateINI"]],
+        "uniqueExportGroups": [["SK_BeginBufferSwap", "SK_CreateINI", "SK_CreateLog"]],
+        "universalProxy": true
       },
       "proxy": {
         "default": "dxgi.dll"
@@ -500,61 +848,277 @@
       "payload": {
         "required": ["WSGM-tool.dll"]
       },
-      "configFiles": [
-        "dxgi.ini",
-        "d3d9.ini",
-        "d3d8.ini",
-        "ddraw.ini",
-        "OpenGL32.ini",
-        "SpecialK.ini"
-      ],
+      "configFiles": ["{proxy}.ini"],
       "modes": [
         {
           "proxy": "dxgi.dll",
+          "apis": ["Direct3D 11", "Direct3D 12"],
           "architectures": ["x86", "x64"],
           "files": {
             "SpecialK{bits}.dll": "WSGM-tool.dll"
           },
-          "apis": ["Direct3D 10", "Direct3D 11", "Direct3D 12"],
-          "hint": "Choose the API the game actually uses."
+          "hint": "Choose the render pipeline the game uses.",
+          "priority": 10
+        },
+        {
+          "proxy": "d3d11.dll",
+          "apis": ["Direct3D 11"],
+          "architectures": ["x86", "x64"],
+          "files": {
+            "SpecialK{bits}.dll": "WSGM-tool.dll"
+          },
+          "hint": "Choose the render pipeline the game uses.",
+          "priority": 20,
+          "requiredImports": ["d3d11.dll"]
         },
         {
           "proxy": "d3d9.dll",
+          "apis": ["Direct3D 9"],
           "architectures": ["x86", "x64"],
           "files": {
             "SpecialK{bits}.dll": "WSGM-tool.dll"
           },
-          "apis": ["Direct3D 9"],
-          "hint": "Choose the API the game actually uses."
+          "hint": "Choose the render pipeline the game uses."
         },
         {
           "proxy": "d3d8.dll",
+          "apis": ["Direct3D 8"],
           "architectures": ["x86"],
           "files": {
-            "SpecialK{bits}.dll": "WSGM-tool.dll"
+            "SpecialK32.dll": "WSGM-tool.dll"
           },
-          "apis": ["Direct3D 8"],
-          "hint": "Choose the API the game actually uses."
+          "hint": "Choose the render pipeline the game uses.",
+          "usesSharedPlugin": true
         },
         {
           "proxy": "ddraw.dll",
+          "apis": ["DirectDraw / Direct3D 1–7"],
           "architectures": ["x86"],
           "files": {
-            "SpecialK{bits}.dll": "WSGM-tool.dll"
+            "SpecialK32.dll": "WSGM-tool.dll"
           },
-          "apis": ["DirectDraw / Direct3D 1Ã¢â‚¬â€œ7"],
-          "hint": "Choose the API the game actually uses."
+          "hint": "Choose the render pipeline the game uses.",
+          "usesSharedPlugin": true
         },
         {
-          "proxy": "OpenGL32.dll",
+          "proxy": "opengl32.dll",
+          "apis": ["OpenGL"],
           "architectures": ["x86", "x64"],
           "files": {
             "SpecialK{bits}.dll": "WSGM-tool.dll"
           },
-          "apis": ["OpenGL"],
-          "hint": "Choose the API the game actually uses."
+          "hint": "Choose the render pipeline the game uses."
+        },
+        {
+          "proxy": "dinput8.dll",
+          "apis": ["Direct3D 9", "Direct3D 11", "Direct3D 12", "OpenGL"],
+          "architectures": ["x86", "x64"],
+          "files": {
+            "SpecialK{bits}.dll": "WSGM-tool.dll"
+          },
+          "hint": "Choose the render pipeline the game uses.",
+          "requiredImports": ["dinput8.dll"],
+          "suggest": false
         }
-      ]
+      ],
+      "manageConfiguration": true,
+      "settings": [
+        {
+          "id": "fps",
+          "label": "Framerate limit (FPS)",
+          "description": "Applies on the next game start.",
+          "section": "Render.FrameRate",
+          "key": "TargetFPS",
+          "default": "-1",
+          "kind": "number",
+          "group": "Rendering",
+          "createMissing": true,
+          "minimum": null,
+          "maximum": null,
+          "step": 1,
+          "integer": false,
+          "omitDefault": true
+        },
+        {
+          "id": "presentInterval",
+          "label": "VSync interval",
+          "description": "Applies on the next game start.",
+          "section": "Render.FrameRate",
+          "key": "PresentationInterval",
+          "default": "-1",
+          "kind": "number",
+          "group": "Rendering",
+          "createMissing": true,
+          "minimum": -1,
+          "maximum": 4,
+          "step": 1,
+          "integer": true,
+          "omitDefault": true
+        },
+        {
+          "id": "hdr16",
+          "label": "16-bit HDR retrofit (scRGB)",
+          "description": "Requires a supported game/output and Windows HDR. Enabling scRGB clears the competing 10-bit override.",
+          "section": "SpecialK.HDR",
+          "key": "Use16BitSwapChain",
+          "default": "off",
+          "kind": "choice",
+          "group": "HDR",
+          "createMissing": true,
+          "omitDefault": true,
+          "options": [
+            {
+              "value": "off",
+              "label": "Off",
+              "ini": "false"
+            },
+            {
+              "value": "on",
+              "label": "On",
+              "ini": "true",
+              "additionalKeys": {
+                "Use10BitSwapChain": "false"
+              }
+            }
+          ]
+        },
+        {
+          "id": "flipDiscard",
+          "label": "Flip-discard presentation",
+          "description": "Applies on the next game start.",
+          "section": "Render.DXGI",
+          "key": "UseFlipDiscard",
+          "default": "off",
+          "kind": "choice",
+          "group": "Rendering",
+          "createMissing": true,
+          "omitDefault": true,
+          "options": [
+            {
+              "value": "off",
+              "label": "Off",
+              "ini": "false"
+            },
+            {
+              "value": "on",
+              "label": "On",
+              "ini": "true"
+            }
+          ]
+        },
+        {
+          "id": "steamSilent",
+          "label": "Steam silent",
+          "description": "Defaults on for non-Steam shortcuts. An existing value or your override takes priority.",
+          "section": "Steam.Log",
+          "key": "Silent",
+          "default": "off",
+          "kind": "choice",
+          "group": "Steam",
+          "createMissing": true,
+          "omitDefault": true,
+          "shortcutDefault": "on",
+          "options": [
+            {
+              "value": "off",
+              "label": "Off",
+              "ini": "false"
+            },
+            {
+              "value": "on",
+              "label": "On",
+              "ini": "true"
+            }
+          ]
+        },
+        {
+          "id": "controlKey",
+          "label": "Control panel key",
+          "description": "Applies on the next game start.",
+          "section": "ImGui.Global",
+          "key": "ControlPanelToggle",
+          "default": "Ctrl+Shift+Backspace",
+          "kind": "hotkey",
+          "group": "ImGui.Global",
+          "createMissing": true,
+          "hotkeyFormat": "named",
+          "scope": "shared",
+          "omitDefault": true
+        },
+        {
+          "id": "consoleKey",
+          "label": "Console key",
+          "description": "Applies on the next game start.",
+          "section": "OSD.System",
+          "key": "ConsoleToggle",
+          "default": "Ctrl+Shift+Tab",
+          "kind": "hotkey",
+          "group": "OSD.System",
+          "createMissing": true,
+          "hotkeyFormat": "named",
+          "scope": "shared",
+          "omitDefault": true
+        },
+        {
+          "id": "osdShow",
+          "label": "Show OSD",
+          "description": "Applies on the next game start.",
+          "section": "SpecialK.OSD",
+          "key": "Show",
+          "default": "on",
+          "kind": "choice",
+          "group": "SpecialK.OSD",
+          "createMissing": true,
+          "scope": "shared",
+          "omitDefault": true,
+          "options": [
+            {
+              "value": "off",
+              "label": "Off",
+              "ini": "false"
+            },
+            {
+              "value": "on",
+              "label": "On",
+              "ini": "true"
+            }
+          ]
+        },
+        {
+          "id": "osdScale",
+          "label": "OSD scale",
+          "description": "Applies on the next game start.",
+          "section": "SpecialK.OSD",
+          "key": "Scale",
+          "default": "1",
+          "kind": "number",
+          "group": "SpecialK.OSD",
+          "createMissing": true,
+          "minimum": 0.1,
+          "maximum": null,
+          "step": 0.1,
+          "integer": false,
+          "scope": "shared",
+          "omitDefault": true
+        }
+      ],
+      "configEncoding": "utf16le",
+      "sharedSettingsFile": "osd.ini",
+      "sharedDependency": {
+        "sourceToolId": "dgvoodoo2",
+        "relativeDirectory": "PlugIns/ThirdParty/dgVoodoo",
+        "mode": {
+          "proxy": "DDraw.dll",
+          "apis": ["DirectDraw / Direct3D 1–7"],
+          "architectures": ["x86"],
+          "files": {
+            "MS/x86/DDraw.dll": "WSGM-tool.dll",
+            "MS/x86/D3DImm.dll": "D3DImm.dll",
+            "MS/x86/D3D8.dll": "D3D8.dll"
+          },
+          "hint": "Choose the render pipeline the game uses."
+        }
+      }
     },
     {
       "id": "dgvoodoo2",
@@ -578,11 +1142,21 @@
           }
         }
       ],
-      "architectures": ["x86", "x64"],
+      "architectures": ["x86", "x64", "arm64"],
       "primaryFile": "WSGM-tool.dll",
       "identity": {
         "originalFilename": "dgVoodoo2.dll",
-        "productNames": ["dgVoodoo"]
+        "productNames": ["dgVoodoo"],
+        "exportGroups": [
+          ["Direct3DCreate8"],
+          ["Direct3DCreate9"],
+          ["DirectDrawCreate"],
+          ["grGlideInit"],
+          ["_grGlideInit@0"],
+          ["GetD3DInterface", "GetD3DVersion"]
+        ],
+        "uniqueExportGroups": [],
+        "universalProxy": false
       },
       "proxy": {
         "default": "D3D9.dll"
@@ -604,13 +1178,16 @@
         },
         {
           "proxy": "D3D9.dll",
-          "architectures": ["x86", "x64"],
+          "architectures": ["x86", "x64", "arm64"],
           "files": {
             "MS/{arch}/D3D9.dll": "WSGM-tool.dll",
             "dgVoodoo.conf": "dgVoodoo.conf"
           },
           "apis": ["Direct3D 9"],
-          "hint": "Choose the API the game actually uses."
+          "hint": "Choose the API the game actually uses.",
+          "architectureFolders": {
+            "arm64": "arm64x"
+          }
         },
         {
           "proxy": "DDraw.dll",
@@ -620,12 +1197,12 @@
             "dgVoodoo.conf": "dgVoodoo.conf",
             "MS/{arch}/D3DImm.dll": "D3DImm.dll"
           },
-          "apis": ["DirectDraw / Direct3D 1Ã¢â‚¬â€œ7"],
+          "apis": ["DirectDraw / Direct3D 1–7"],
           "hint": "Choose the API the game actually uses."
         },
         {
           "proxy": "Glide.dll",
-          "architectures": ["x86", "x64"],
+          "architectures": ["x86", "x64", "arm64"],
           "files": {
             "3Dfx/{arch}/Glide.dll": "WSGM-tool.dll",
             "dgVoodoo.conf": "dgVoodoo.conf"
@@ -635,7 +1212,7 @@
         },
         {
           "proxy": "Glide2x.dll",
-          "architectures": ["x86", "x64"],
+          "architectures": ["x86", "x64", "arm64"],
           "files": {
             "3Dfx/{arch}/Glide2x.dll": "WSGM-tool.dll",
             "dgVoodoo.conf": "dgVoodoo.conf"
@@ -645,13 +1222,862 @@
         },
         {
           "proxy": "Glide3x.dll",
-          "architectures": ["x86", "x64"],
+          "architectures": ["x86", "x64", "arm64"],
           "files": {
             "3Dfx/{arch}/Glide3x.dll": "WSGM-tool.dll",
             "dgVoodoo.conf": "dgVoodoo.conf"
           },
           "apis": ["Glide 3"],
           "hint": "Choose the API the game actually uses."
+        }
+      ],
+      "manageConfiguration": true,
+      "settings": [
+        {
+          "id": "outputApi",
+          "label": "Output API",
+          "description": "Applies on the next game start.",
+          "section": "General",
+          "key": "OutputAPI",
+          "default": "bestavailable",
+          "kind": "choice",
+          "group": "General",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "bestavailable",
+              "label": "bestavailable",
+              "ini": "bestavailable"
+            },
+            {
+              "value": "d3d11warp",
+              "label": "d3d11warp",
+              "ini": "d3d11warp"
+            },
+            {
+              "value": "d3d11_fl10_0",
+              "label": "d3d11_fl10_0",
+              "ini": "d3d11_fl10_0"
+            },
+            {
+              "value": "d3d11_fl10_1",
+              "label": "d3d11_fl10_1",
+              "ini": "d3d11_fl10_1"
+            },
+            {
+              "value": "d3d11_fl11_0",
+              "label": "d3d11_fl11_0",
+              "ini": "d3d11_fl11_0"
+            },
+            {
+              "value": "d3d12_fl11_0",
+              "label": "d3d12_fl11_0",
+              "ini": "d3d12_fl11_0"
+            },
+            {
+              "value": "d3d12_fl12_0",
+              "label": "d3d12_fl12_0",
+              "ini": "d3d12_fl12_0"
+            }
+          ]
+        },
+        {
+          "id": "adapter",
+          "label": "Output adapter (all or 1-based index)",
+          "description": "Applies on the next game start.",
+          "section": "General",
+          "key": "Adapters",
+          "default": "all",
+          "kind": "text",
+          "group": "General",
+          "createMissing": true,
+          "pattern": "^(all|[1-9][0-9]*)$"
+        },
+        {
+          "id": "monitor",
+          "label": "Fullscreen output (default or 1-based index)",
+          "description": "Applies on the next game start.",
+          "section": "General",
+          "key": "FullScreenOutput",
+          "default": "default",
+          "kind": "text",
+          "group": "General",
+          "createMissing": true,
+          "pattern": "^(default|[1-9][0-9]*)$"
+        },
+        {
+          "id": "fullscreen",
+          "label": "Fullscreen",
+          "description": "Applies on the next game start.",
+          "section": "General",
+          "key": "FullScreenMode",
+          "default": "on",
+          "kind": "choice",
+          "group": "General",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "off",
+              "label": "Off",
+              "ini": "false"
+            },
+            {
+              "value": "on",
+              "label": "On",
+              "ini": "true"
+            }
+          ]
+        },
+        {
+          "id": "scaling",
+          "label": "Scaling mode",
+          "description": "Applies on the next game start.",
+          "section": "General",
+          "key": "ScalingMode",
+          "default": "unspecified",
+          "kind": "choice",
+          "group": "General",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "unspecified",
+              "label": "unspecified",
+              "ini": "unspecified"
+            },
+            {
+              "value": "centered",
+              "label": "centered",
+              "ini": "centered"
+            },
+            {
+              "value": "stretched",
+              "label": "stretched",
+              "ini": "stretched"
+            },
+            {
+              "value": "centered_ar",
+              "label": "centered_ar",
+              "ini": "centered_ar"
+            },
+            {
+              "value": "stretched_ar",
+              "label": "stretched_ar",
+              "ini": "stretched_ar"
+            },
+            {
+              "value": "stretched_ar_crt",
+              "label": "stretched_ar_crt",
+              "ini": "stretched_ar_crt"
+            },
+            {
+              "value": "stretched_4_3",
+              "label": "stretched_4_3",
+              "ini": "stretched_4_3"
+            },
+            {
+              "value": "stretched_4_3_crt",
+              "label": "stretched_4_3_crt",
+              "ini": "stretched_4_3_crt"
+            },
+            {
+              "value": "stretched_4_3_c64",
+              "label": "stretched_4_3_c64",
+              "ini": "stretched_4_3_c64"
+            }
+          ]
+        },
+        {
+          "id": "aspect",
+          "label": "Keep window aspect ratio",
+          "description": "Applies on the next game start.",
+          "section": "General",
+          "key": "KeepWindowAspectRatio",
+          "default": "on",
+          "kind": "choice",
+          "group": "General",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "off",
+              "label": "Off",
+              "ini": "false"
+            },
+            {
+              "value": "on",
+              "label": "On",
+              "ini": "true"
+            }
+          ]
+        },
+        {
+          "id": "captureMouse",
+          "label": "Capture mouse",
+          "description": "Applies on the next game start.",
+          "section": "General",
+          "key": "CaptureMouse",
+          "default": "on",
+          "kind": "choice",
+          "group": "General",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "off",
+              "label": "Off",
+              "ini": "false"
+            },
+            {
+              "value": "on",
+              "label": "On",
+              "ini": "true"
+            }
+          ]
+        },
+        {
+          "id": "centerWindow",
+          "label": "Center app window",
+          "description": "Applies on the next game start.",
+          "section": "General",
+          "key": "CenterAppWindow",
+          "default": "off",
+          "kind": "choice",
+          "group": "General",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "off",
+              "label": "Off",
+              "ini": "false"
+            },
+            {
+              "value": "on",
+              "label": "On",
+              "ini": "true"
+            }
+          ]
+        },
+        {
+          "id": "fps",
+          "label": "Framerate limit (FPS)",
+          "description": "Applies on the next game start.",
+          "section": "GeneralExt",
+          "key": "FPSLimit",
+          "default": "0",
+          "kind": "number",
+          "group": "GeneralExt",
+          "createMissing": true,
+          "minimum": 0,
+          "maximum": null,
+          "step": 1,
+          "integer": false
+        },
+        {
+          "id": "dxCard",
+          "label": "DirectX video card",
+          "description": "Applies on the next game start.",
+          "section": "DirectX",
+          "key": "VideoCard",
+          "default": "internal3D",
+          "kind": "choice",
+          "group": "DirectX",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "internal3D",
+              "label": "internal3D",
+              "ini": "internal3D"
+            },
+            {
+              "value": "svga",
+              "label": "svga",
+              "ini": "svga"
+            },
+            {
+              "value": "geforce_ti_4800",
+              "label": "geforce_ti_4800",
+              "ini": "geforce_ti_4800"
+            },
+            {
+              "value": "ati_radeon_8500",
+              "label": "ati_radeon_8500",
+              "ini": "ati_radeon_8500"
+            },
+            {
+              "value": "matrox_parhelia-512",
+              "label": "matrox_parhelia-512",
+              "ini": "matrox_parhelia-512"
+            },
+            {
+              "value": "geforce_fx_5700_ultra",
+              "label": "geforce_fx_5700_ultra",
+              "ini": "geforce_fx_5700_ultra"
+            },
+            {
+              "value": "geforce_9800_gt",
+              "label": "geforce_9800_gt",
+              "ini": "geforce_9800_gt"
+            }
+          ]
+        },
+        {
+          "id": "dxVram",
+          "label": "DirectX VRAM (MB)",
+          "description": "Applies on the next game start.",
+          "section": "DirectX",
+          "key": "VRAM",
+          "default": "256",
+          "kind": "number",
+          "group": "DirectX",
+          "createMissing": true,
+          "minimum": 1,
+          "maximum": null,
+          "step": 1,
+          "integer": true
+        },
+        {
+          "id": "dxFilter",
+          "label": "DirectX texture filtering",
+          "description": "Applies on the next game start.",
+          "section": "DirectX",
+          "key": "Filtering",
+          "default": "appdriven",
+          "kind": "choice",
+          "group": "DirectX",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "appdriven",
+              "label": "appdriven",
+              "ini": "appdriven"
+            },
+            {
+              "value": "pointsampled",
+              "label": "pointsampled",
+              "ini": "pointsampled"
+            },
+            {
+              "value": "bilinear",
+              "label": "bilinear",
+              "ini": "bilinear"
+            },
+            {
+              "value": "pointmip",
+              "label": "pointmip",
+              "ini": "pointmip"
+            },
+            {
+              "value": "linearmip",
+              "label": "linearmip",
+              "ini": "linearmip"
+            },
+            {
+              "value": "trilinear",
+              "label": "trilinear",
+              "ini": "trilinear"
+            },
+            {
+              "value": "1",
+              "label": "1",
+              "ini": "1"
+            },
+            {
+              "value": "2",
+              "label": "2",
+              "ini": "2"
+            },
+            {
+              "value": "3",
+              "label": "3",
+              "ini": "3"
+            },
+            {
+              "value": "4",
+              "label": "4",
+              "ini": "4"
+            },
+            {
+              "value": "5",
+              "label": "5",
+              "ini": "5"
+            },
+            {
+              "value": "6",
+              "label": "6",
+              "ini": "6"
+            },
+            {
+              "value": "7",
+              "label": "7",
+              "ini": "7"
+            },
+            {
+              "value": "8",
+              "label": "8",
+              "ini": "8"
+            },
+            {
+              "value": "9",
+              "label": "9",
+              "ini": "9"
+            },
+            {
+              "value": "10",
+              "label": "10",
+              "ini": "10"
+            },
+            {
+              "value": "11",
+              "label": "11",
+              "ini": "11"
+            },
+            {
+              "value": "12",
+              "label": "12",
+              "ini": "12"
+            },
+            {
+              "value": "13",
+              "label": "13",
+              "ini": "13"
+            },
+            {
+              "value": "14",
+              "label": "14",
+              "ini": "14"
+            },
+            {
+              "value": "15",
+              "label": "15",
+              "ini": "15"
+            },
+            {
+              "value": "16",
+              "label": "16",
+              "ini": "16"
+            }
+          ]
+        },
+        {
+          "id": "mipmapping",
+          "label": "Mipmapping",
+          "description": "Applies on the next game start.",
+          "section": "DirectX",
+          "key": "Mipmapping",
+          "default": "appdriven",
+          "kind": "choice",
+          "group": "DirectX",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "appdriven",
+              "label": "appdriven",
+              "ini": "appdriven"
+            },
+            {
+              "value": "disabled",
+              "label": "disabled",
+              "ini": "disabled"
+            },
+            {
+              "value": "autogen_point",
+              "label": "autogen_point",
+              "ini": "autogen_point"
+            },
+            {
+              "value": "autogen_bilinear",
+              "label": "autogen_bilinear",
+              "ini": "autogen_bilinear"
+            }
+          ]
+        },
+        {
+          "id": "dxResolution",
+          "label": "DirectX resolution",
+          "description": "Applies on the next game start.",
+          "section": "DirectX",
+          "key": "Resolution",
+          "default": "unforced",
+          "kind": "text",
+          "group": "DirectX",
+          "createMissing": true,
+          "pattern": "^(unforced|max|max_isf|max_fhd|max_fhd_isf|max_qhd|max_qhd_isf|desktop|[1-9][0-9]*x|[1-9][0-9]*x[1-9][0-9]*(@[1-9][0-9]*)?)$"
+        },
+        {
+          "id": "dxMsaa",
+          "label": "DirectX MSAA",
+          "description": "Applies on the next game start.",
+          "section": "DirectX",
+          "key": "Antialiasing",
+          "default": "appdriven",
+          "kind": "choice",
+          "group": "DirectX",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "appdriven",
+              "label": "appdriven",
+              "ini": "appdriven"
+            },
+            {
+              "value": "off",
+              "label": "off",
+              "ini": "off"
+            },
+            {
+              "value": "2x",
+              "label": "2x",
+              "ini": "2x"
+            },
+            {
+              "value": "4x",
+              "label": "4x",
+              "ini": "4x"
+            },
+            {
+              "value": "8x",
+              "label": "8x",
+              "ini": "8x"
+            },
+            {
+              "value": "16x",
+              "label": "16x",
+              "ini": "16x"
+            }
+          ]
+        },
+        {
+          "id": "dxVsync",
+          "label": "DirectX VSync",
+          "description": "Applies on the next game start.",
+          "section": "DirectX",
+          "key": "ForceVerticalSync",
+          "default": "off",
+          "kind": "choice",
+          "group": "DirectX",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "off",
+              "label": "Off",
+              "ini": "false"
+            },
+            {
+              "value": "on",
+              "label": "On",
+              "ini": "true"
+            }
+          ]
+        },
+        {
+          "id": "dxWatermark",
+          "label": "dgVoodoo watermark",
+          "description": "Applies on the next game start.",
+          "section": "DirectX",
+          "key": "dgVoodooWatermark",
+          "default": "on",
+          "kind": "choice",
+          "group": "DirectX",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "off",
+              "label": "Off",
+              "ini": "false"
+            },
+            {
+              "value": "on",
+              "label": "On",
+              "ini": "true"
+            }
+          ]
+        },
+        {
+          "id": "dx2dFilter",
+          "label": "Bilinear 2D operations",
+          "description": "Applies on the next game start.",
+          "section": "DirectX",
+          "key": "Bilinear2DOperations",
+          "default": "off",
+          "kind": "choice",
+          "group": "DirectX",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "off",
+              "label": "Off",
+              "ini": "false"
+            },
+            {
+              "value": "on",
+              "label": "On",
+              "ini": "true"
+            }
+          ]
+        },
+        {
+          "id": "fastVram",
+          "label": "Fast video memory access",
+          "description": "Applies on the next game start.",
+          "section": "DirectX",
+          "key": "FastVideoMemoryAccess",
+          "default": "off",
+          "kind": "choice",
+          "group": "DirectX",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "off",
+              "label": "Off",
+              "ini": "false"
+            },
+            {
+              "value": "on",
+              "label": "On",
+              "ini": "true"
+            }
+          ]
+        },
+        {
+          "id": "glideCard",
+          "label": "Glide video card",
+          "description": "Applies on the next game start.",
+          "section": "Glide",
+          "key": "VideoCard",
+          "default": "voodoo_2",
+          "kind": "choice",
+          "group": "Glide",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "voodoo_graphics",
+              "label": "voodoo_graphics",
+              "ini": "voodoo_graphics"
+            },
+            {
+              "value": "voodoo_rush",
+              "label": "voodoo_rush",
+              "ini": "voodoo_rush"
+            },
+            {
+              "value": "voodoo_2",
+              "label": "voodoo_2",
+              "ini": "voodoo_2"
+            },
+            {
+              "value": "voodoo_banshee",
+              "label": "voodoo_banshee",
+              "ini": "voodoo_banshee"
+            },
+            {
+              "value": "other_greater",
+              "label": "other_greater",
+              "ini": "other_greater"
+            }
+          ]
+        },
+        {
+          "id": "glideRam",
+          "label": "Glide framebuffer RAM (MB)",
+          "description": "Applies on the next game start.",
+          "section": "Glide",
+          "key": "OnboardRAM",
+          "default": "8",
+          "kind": "number",
+          "group": "Glide",
+          "createMissing": true,
+          "minimum": 1,
+          "maximum": null,
+          "step": 1,
+          "integer": true
+        },
+        {
+          "id": "glideTmuRam",
+          "label": "Glide texture RAM per TMU (KB)",
+          "description": "Applies on the next game start.",
+          "section": "Glide",
+          "key": "MemorySizeOfTMU",
+          "default": "4096",
+          "kind": "number",
+          "group": "Glide",
+          "createMissing": true,
+          "minimum": 1,
+          "maximum": null,
+          "step": 1,
+          "integer": true
+        },
+        {
+          "id": "glideTmus",
+          "label": "Glide texture units",
+          "description": "Applies on the next game start.",
+          "section": "Glide",
+          "key": "NumberOfTMUs",
+          "default": "2",
+          "kind": "choice",
+          "group": "Glide",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "1",
+              "label": "1",
+              "ini": "1"
+            },
+            {
+              "value": "2",
+              "label": "2",
+              "ini": "2"
+            }
+          ]
+        },
+        {
+          "id": "glideFiltering",
+          "label": "Glide texture filtering",
+          "description": "Applies on the next game start.",
+          "section": "Glide",
+          "key": "TMUFiltering",
+          "default": "appdriven",
+          "kind": "choice",
+          "group": "Glide",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "appdriven",
+              "label": "appdriven",
+              "ini": "appdriven"
+            },
+            {
+              "value": "pointsampled",
+              "label": "pointsampled",
+              "ini": "pointsampled"
+            },
+            {
+              "value": "bilinear",
+              "label": "bilinear",
+              "ini": "bilinear"
+            }
+          ]
+        },
+        {
+          "id": "glideResolution",
+          "label": "Glide resolution",
+          "description": "Applies on the next game start.",
+          "section": "Glide",
+          "key": "Resolution",
+          "default": "unforced",
+          "kind": "text",
+          "group": "Glide",
+          "createMissing": true,
+          "pattern": "^(unforced|max|max_isf|max_fhd|max_fhd_isf|max_qhd|max_qhd_isf|desktop|[1-9][0-9]*x|[1-9][0-9]*x[1-9][0-9]*(@[1-9][0-9]*)?)$"
+        },
+        {
+          "id": "glideMsaa",
+          "label": "Glide MSAA",
+          "description": "Applies on the next game start.",
+          "section": "Glide",
+          "key": "Antialiasing",
+          "default": "appdriven",
+          "kind": "choice",
+          "group": "Glide",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "appdriven",
+              "label": "appdriven",
+              "ini": "appdriven"
+            },
+            {
+              "value": "off",
+              "label": "off",
+              "ini": "off"
+            },
+            {
+              "value": "2x",
+              "label": "2x",
+              "ini": "2x"
+            },
+            {
+              "value": "4x",
+              "label": "4x",
+              "ini": "4x"
+            },
+            {
+              "value": "8x",
+              "label": "8x",
+              "ini": "8x"
+            },
+            {
+              "value": "16x",
+              "label": "16x",
+              "ini": "16x"
+            }
+          ]
+        },
+        {
+          "id": "glideVsync",
+          "label": "Glide VSync",
+          "description": "Applies on the next game start.",
+          "section": "Glide",
+          "key": "ForceVerticalSync",
+          "default": "on",
+          "kind": "choice",
+          "group": "Glide",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "off",
+              "label": "Off",
+              "ini": "false"
+            },
+            {
+              "value": "on",
+              "label": "On",
+              "ini": "true"
+            }
+          ]
+        },
+        {
+          "id": "glideWatermark",
+          "label": "3Dfx watermark",
+          "description": "Applies on the next game start.",
+          "section": "Glide",
+          "key": "3DfxWatermark",
+          "default": "on",
+          "kind": "choice",
+          "group": "Glide",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "off",
+              "label": "Off",
+              "ini": "false"
+            },
+            {
+              "value": "on",
+              "label": "On",
+              "ini": "true"
+            }
+          ]
+        },
+        {
+          "id": "glideSplash",
+          "label": "3Dfx splash screen",
+          "description": "Applies on the next game start.",
+          "section": "Glide",
+          "key": "3DfxSplashScreen",
+          "default": "off",
+          "kind": "choice",
+          "group": "Glide",
+          "createMissing": true,
+          "options": [
+            {
+              "value": "off",
+              "label": "Off",
+              "ini": "false"
+            },
+            {
+              "value": "on",
+              "label": "On",
+              "ini": "true"
+            }
+          ]
         }
       ]
     }

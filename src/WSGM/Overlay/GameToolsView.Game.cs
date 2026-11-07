@@ -41,6 +41,8 @@ public sealed partial class GameToolsView
         _draftAddons.Clear();
         _draftProxy.Clear();
         _draftChannel.Clear();
+        _expandedSettings.Clear();
+        _dllsShown = 24;
     }
 
     private async Task ScanAsync(uint appId)
@@ -103,6 +105,10 @@ public sealed partial class GameToolsView
         }
 
         body.Children.Add(GameCard(state, name));
+        if (state.Runtime is not null)
+        {
+            body.Children.Add(LibraryIdentities(state));
+        }
         var hasFolder = state.Availability is "ready" or "running";
         var cardProgress = false;
         if (state.Loading && state.Tools.Count == 0)

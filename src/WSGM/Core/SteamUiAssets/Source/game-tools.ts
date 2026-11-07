@@ -176,6 +176,68 @@ const gameToolsSummary = (tool, working: boolean) => {
   return parts.join(" · ");
 };
 
+// Typed config editors compose the same native Steam fields and modal used by the other WSGM pages.
+function GameToolsNumberEditor({ ui, row, change }: any) {
+  const react = ui.react, h = react.createElement;
+  const [text, setText] = react.useState(String(row.text ?? ""));
+  const editing = react.useRef(false), sent = react.useRef(String(row.text ?? ""));
+  react.useEffect(() => { if (!editing.current) { setText(String(row.text ?? "")); sent.current = String(row.text ?? ""); } }, [row.text]);
+  const commit = () => { editing.current = false; if (text !== sent.current) { sent.current = text; change(row, text); } };
+  return h(ui.textField, { label: row.label, description: row.description, disabled: row.disabled, type: "number",
+    min: row.minimum, max: row.maximum, step: row.step ?? 1, value: text,
+    onFocus: () => { editing.current = true; }, onChange: event => setText(String(event?.target?.value ?? "")),
+    onBlur: commit, onKeyDown: event => { if (event.key === "Enter") { event.preventDefault?.(); commit(); } } });
+}
+
+const gameToolsKeyParts = (setting, value) => {
+  const parts: any = { key: "0", ctrl: false, shift: false, alt: false };
+  if (setting.hotkeyFormat === "vk-array") {
+    const raw = String(value ?? "0,0,0,0").split(",");
+    return { key: raw[0] ?? "0", ctrl: raw[1] === "1", shift: raw[2] === "1", alt: raw[3] === "1" };
+  }
+  for (const key of String(value ?? "").split("+")) {
+    if (key === "Ctrl") parts.ctrl = true;
+    else if (key === "Shift") parts.shift = true;
+    else if (key === "Alt") parts.alt = true;
+    else parts.key = (setting.keyChoices ?? []).find(choice => choice.label.toLowerCase() === key.toLowerCase())?.value ?? "0";
+  }
+  return parts;
+};
+const gameToolsKeyValue = (setting, parts) => setting.hotkeyFormat === "vk-array"
+  ? parts.key === "0" ? "0,0,0,0" : [parts.key, parts.ctrl ? 1 : 0, parts.shift ? 1 : 0, parts.alt ? 1 : 0].join(",")
+  : parts.key === "0" ? "Not Bound" : [parts.ctrl ? "Ctrl" : "", parts.shift ? "Shift" : "", parts.alt ? "Alt" : "",
+      (setting.keyChoices ?? []).find(choice => choice.value === parts.key)?.label ?? ""].filter(Boolean).join("+");
+const gameToolsKeyLabel = (setting, value) => {
+  const parts = gameToolsKeyParts(setting, value);
+  return parts.key === "0" ? "Not bound" : [parts.ctrl ? "Ctrl" : "", parts.shift ? "Shift" : "", parts.alt ? "Alt" : "",
+    (setting.keyChoices ?? []).find(choice => choice.value === parts.key)?.label ?? `Key ${parts.key}`].filter(Boolean).join("+");
+};
+function GameToolsKeyEditor({ ui, setting, value, close, accept }: any) {
+  const react = ui.react, h = react.createElement;
+  const [parts, setParts] = react.useState(gameToolsKeyParts(setting, value));
+  const [capture, setCapture] = react.useState(false);
+  const after = react.useRef(0);
+  return h(ui.focusable, { "flow-children": "column", className: "steam-ui-kit-modal-body", onKeyDown: event => {
+    if (!capture || Date.now() < after.current || event.metaKey) return;
+    const key = Number(event.keyCode ?? event.which ?? 0);
+    if (![16,17,18,27].includes(key) && (setting.keyChoices ?? []).some(choice => Number(choice.value) === key)) {
+      event.preventDefault?.(); event.stopPropagation?.();
+      setParts({ key: String(key), ctrl: !!event.ctrlKey, shift: !!event.shiftKey, alt: !!event.altKey }); setCapture(false);
+    }
+  } },
+    renderSteamUiBanner(ui, { text: capture ? "Press one keyboard key with Ctrl, Shift or Alt. Esc or B cancels." : "Choose with the controller or capture a keyboard shortcut." }),
+    renderSteamSettingRow(ui, { key: "key", kind: "choice", label: "Key", text: parts.key,
+      choices: [{ value: "0", label: "Not bound" }, ...(setting.keyChoices ?? [])] }, undefined, (_row, key) => setParts({ ...parts, key }), () => {}),
+    ...["ctrl", "shift", "alt"].map(modifier => renderSteamSettingRow(ui, { key: modifier, kind: "boolean",
+      label: { ctrl: "Ctrl", shift: "Shift", alt: "Alt" }[modifier], checked: parts[modifier] }, undefined,
+      (_row, on) => setParts({ ...parts, [modifier]: !!on }), () => {})),
+    renderSteamUiActions(ui, [
+      { id: "capture", label: capture ? "Waiting for keys…" : "Capture keyboard", onClick: () => { after.current = Date.now() + 300; setCapture(true); } },
+      { id: "cancel", label: "Cancel", onClick: close },
+      { id: "set", label: "Set key", primary: true, onClick: () => { accept(gameToolsKeyValue(setting, parts)); close(); } },
+    ]));
+}
+
 /** The status tags of a tool's heading. */
 const gameToolsTags = (tool, channel, working: boolean, busy) => {
   const tags: any[] = [];
@@ -267,7 +329,7 @@ function GameToolsTool({ ui, state, tool, draft, game, idle, act, setDraft, conf
 
   const installPayload = (replaceExisting: boolean, acknowledgeRisk: boolean) => {
     const payload: any = { appId, toolId, replaceExisting, acknowledgeRisk };
-    if (proxyName !== tool.proxyName) payload.proxyName = proxyName;
+    if (proxyName && (replaceExisting || actions.includes("adopt") || proxyName !== tool.proxyName)) payload.proxyName = proxyName;
     if (draft.settings && Object.keys(draft.settings).length) payload.settings = draft.settings;
     if (tool.channels?.[0] && channel.id !== tool.channels[0].id) payload.channel = channel.id;
     // Every add-on the page shows goes out as shown, so a recommendation left on is installed too.
@@ -355,11 +417,17 @@ function GameToolsTool({ ui, state, tool, draft, game, idle, act, setDraft, conf
   let primary: any = null;
   const otherChannel = installed && (tool.channels ?? []).find((item) => item.current)?.id !== channel.id;
   const version = channel.latestVersion ? ` ${channel.latestVersion}` : "";
-  if (actions.includes("replaceExisting")) {
+  if (actions.includes("enable")) {
+    primary = { label: `Enable ${tool.name}`, run: () => void act("enable", { appId, toolId }) };
+  } else if (actions.includes("adopt")) {
+    primary = { label: "Manage existing installation…", run: proxyName ? () => confirm({ title: `Manage ${tool.name} in ${game}?`,
+      text: "WSGM records the identified DLLs without rewriting them. Removal deletes only matching recorded DLLs and restores your original config. Repair installs the latest verified upstream package.",
+      confirmLabel: "Manage installation", onConfirm: () => void act("adopt", installPayload(false, true)) }) : null };
+  } else if (actions.includes("replaceExisting")) {
     primary = { label: "Replace existing installation…", run: replace };
   } else if (tool.status === "notInstalled") {
     const named = tool.channels?.[0] && channel.id !== tool.channels[0].id ? ` ${channel.label.toLowerCase()}` : "";
-    primary = { label: `Install ${tool.name}${named}${version}`, run: actions.includes("install") ? install : null };
+    primary = { label: `Install ${tool.name}${named}${version}`, run: actions.includes("install") && (!tool.proxyEditable || proxyName) ? install : null };
   } else if (otherChannel) {
     primary = {
       label: `Switch to ${channel.label.toLowerCase()}${version}`,
@@ -414,7 +482,8 @@ function GameToolsTool({ ui, state, tool, draft, game, idle, act, setDraft, conf
   }
   if (tool.showOptions) {
     const options = tool.proxyOptions ?? [];
-    const hint = options.find((option) => option.name === proxyName)?.hint ?? "";
+    const selected = options.find((option) => option.name === proxyName);
+    const hint = [selected?.hint, selected?.files?.length ? `Places: ${selected.files.join(", ")}.` : "", selected?.dependency].filter(Boolean).join(" ");
     const taken = options
       .filter((option) => !option.available && option.name !== proxyName)
       .map((option) => `${option.name}${option.conflict ? ` (${option.conflict.replace(/\.$/u, "")})` : ""}`);
@@ -437,6 +506,12 @@ function GameToolsTool({ ui, state, tool, draft, game, idle, act, setDraft, conf
       const options = setting.options ?? [];
       const description = [setting.description, setting.note].filter(Boolean).join(" ") || undefined;
       const disabled = !(idle && tool.settingsEditable && setting.available);
+      if (setting.kind === "number" || setting.kind === "text" || setting.kind === "hotkey") {
+        rows.push({ key: `setting-${setting.id}`, kind: setting.kind === "number" ? "game-number" : setting.kind === "hotkey" ? "game-hotkey" : "text",
+          label: setting.label, description, text: value, disabled, group: setting.group ?? "", setting,
+          minimum: setting.minimum, maximum: setting.maximum, step: setting.step });
+        continue;
+      }
       // A plain Off/On choice is Steam's toggle; any other choice, such as Automatic or Off, stays a dropdown.
       const toggle =
         options.length === 2 &&
@@ -444,7 +519,7 @@ function GameToolsTool({ ui, state, tool, draft, game, idle, act, setDraft, conf
         options.some((option) => option.value === "off" && option.label === "Off") &&
         (value === "on" || value === "off");
       if (toggle) {
-        rows.push({ key: `setting-${setting.id}`, kind: "boolean", label: setting.label, description, checked: value === "on", disabled });
+        rows.push({ key: `setting-${setting.id}`, kind: "boolean", label: setting.label, description, checked: value === "on", disabled, group: setting.group ?? "" });
         continue;
       }
       const choices = options.map((option) => ({ value: option.value, label: option.label }));
@@ -452,7 +527,7 @@ function GameToolsTool({ ui, state, tool, draft, game, idle, act, setDraft, conf
       if (!choices.some((choice) => choice.value === value)) {
         choices.unshift({ value, label: setting.iniValue ? `Custom (${setting.iniValue})` : "Custom" });
       }
-      rows.push({ key: `setting-${setting.id}`, kind: "choice", label: setting.label, description, text: value, choices, disabled });
+      rows.push({ key: `setting-${setting.id}`, kind: "choice", label: setting.label, description, text: value, choices, disabled, group: setting.group ?? "" });
     }
     // An add-on is a toggle: a draft that goes out with Install, or added and removed at once afterwards.
     for (const addon of tool.addons ?? []) {
@@ -488,14 +563,26 @@ function GameToolsTool({ ui, state, tool, draft, game, idle, act, setDraft, conf
     }
     const setting = (tool.settings ?? []).find((entry) => `setting-${entry.id}` === row.key);
     if (!setting) return;
-    const chosen = row.kind === "boolean" ? (value ? "on" : "off") : value;
+    const chosen = row.kind === "boolean" ? (value ? "on" : "off") : String(value);
     const shown = applyNow ? setting.value : (draft.settings?.[setting.id] ?? setting.value);
-    if (chosen === "" || chosen === shown) return;
+    if ((chosen === "" && setting.kind === "choice") || chosen === shown) return;
     if (applyNow) void act("configure", { appId, toolId, settings: { [setting.id]: chosen } });
     else setDraft({ ...draft, settings: { ...(draft.settings ?? {}), [setting.id]: chosen } });
   };
 
+  const renderRow = row => row.kind === "game-number"
+    ? h(GameToolsNumberEditor, { key: row.key, ui, row, change })
+    : row.kind === "game-hotkey" ? h(ui.valueField, { key: row.key, name: row.label, description: row.description,
+        value: h(ui.dialogButton, { disabled: row.disabled, onClick: () => showSteamModal(ui, { title: `Set ${row.label}`,
+          className: "steam-ui-kit-modal", render: close => h(GameToolsKeyEditor, { ui, setting: row.setting, value: row.text,
+            close, accept: raw => change(row, raw) }) }) }, gameToolsKeyLabel(row.setting, row.text)) })
+      : renderSteamSettingRow(ui, row, undefined, change, () => {});
+  const groups = [...new Set<string>(rows.map(row => row.group).filter(Boolean))];
+
   const secondary: any[] = [];
+  if (actions.includes("adopt") && actions.includes("replaceExisting")) {
+    secondary.push({ id: "replace", label: "Back up and install latest…", disabled: !idle || !proxyName, onClick: replace });
+  }
   if (!working) {
     const checking = !!tool.checkingLatest;
     if (installed || !channel.latestVersion) {
@@ -510,7 +597,7 @@ function GameToolsTool({ ui, state, tool, draft, game, idle, act, setDraft, conf
       secondary.push({ id: "repair", label: "Repair", disabled: !idle, onClick: () => void act("repair", { appId, toolId }) });
     }
     const enabledAction = tool.enabled ? "disable" : "enable";
-    if (actions.includes(enabledAction)) {
+    if (actions.includes(enabledAction) && enabledAction === "disable") {
       secondary.push({ id: enabledAction, label: tool.enabled ? "Disable" : "Enable", disabled: !idle,
         onClick: () => void act(enabledAction, { appId, toolId }) });
     }
@@ -546,7 +633,13 @@ function GameToolsTool({ ui, state, tool, draft, game, idle, act, setDraft, conf
         )
       : null,
     rows.length
-      ? h(ui.settingsSection, null, ...rows.map((row) => renderSteamSettingRow(ui, row, undefined, change, () => {})))
+      ? h(react.Fragment, null,
+          tool.settingsNotice ? renderSteamUiBanner(ui, { text: tool.settingsNotice }) : null,
+          h(ui.settingsSection, null, ...rows.filter(row => !row.group).map(renderRow)),
+          ...groups.map(group => h(ui.focusable, { key: group, "flow-children": "column" },
+            renderSteamUiActions(ui, [{ id: `group-${group}`, label: `${draft.groups?.[group] ? "Collapse" : "Expand"} ${group}`,
+              onClick: () => setDraft({ ...draft, groups: { ...(draft.groups ?? {}), [group]: !draft.groups?.[group] } }) }]),
+            draft.groups?.[group] ? h(ui.settingsSection, null, ...rows.filter(row => row.group === group).map(renderRow)) : null)))
       : null,
     secondary.length ? renderSteamUiActions(ui, secondary, { compact: true }) : null,
     removable
@@ -737,6 +830,8 @@ function GameToolsGame({ context, appId, published }: any) {
   // installed tool reads its load name and settings from the host, not from a draft.
   const state = published && Number(published.appId) === appId ? published : null;
 
+  const [dllOpen, setDllOpen] = react.useState(false);
+  const [dllShown, setDllShown] = react.useState(24);
   const game = gameToolsName(state, appId);
   const hero = (compact: boolean) =>
     renderSteamUiHero(ui, {
@@ -838,6 +933,16 @@ function GameToolsGame({ context, appId, published }: any) {
   }
 
   const main: any[] = [];
+  main.push(renderSteamUiActions(ui, [{ id: "dlls", label: `${dllOpen ? "Collapse" : "Show"} DLL identities (${state.libraries?.length ?? 0})`,
+    onClick: () => setDllOpen(!dllOpen) }]));
+  if (dllOpen) {
+    const files = state.libraries ?? [];
+    if (!files.length) main.push(renderSteamUiBanner(ui, { text: state.loading ? "Reading DLL identities…" : "No DLLs found beside the selected program." }));
+    for (const file of files.slice(0, dllShown)) main.push(renderSteamUiSelectRow(ui, { key: file.relativePath,
+      title: file.relativePath, detail: [file.name, file.architecture, ...(file.pipelines ?? [])].filter(Boolean).join(" · "),
+      status: file.evidence, disabled: true, onClick: () => {} }));
+    if (files.length > dllShown) main.push(renderSteamUiActions(ui, [{ id: "dll-more", label: "Load more DLLs", onClick: () => setDllShown(dllShown + 24) }]));
+  }
   let progressShown = false;
   if (scanning) {
     main.push(renderSteamUiProgress(ui, { phase: "Scanning the game folder…" }));

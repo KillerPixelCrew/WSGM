@@ -56,6 +56,8 @@ internal interface IGameToolsSource : IChangeSource
     /// <param name="cancellationToken">The request's cancellation.</param>
     /// <returns>Whether the work was admitted.</returns>
     Task<SteamUiCommandResult> InstallAsync(GameToolsInstallRequest request, CancellationToken cancellationToken);
+    /// <summary>Adopts identified existing tool bytes without rewriting their DLLs.</summary>
+    Task<SteamUiCommandResult> AdoptAsync(GameToolsInstallRequest request, CancellationToken cancellationToken);
 
     /// <summary>Updates an installed tool to the latest release.</summary>
     /// <param name="appId">The game.</param>

@@ -72,6 +72,25 @@ internal sealed record GameToolDefinition
     /// <summary>Architecture-specific local injection modes, keyed by proxy name.</summary>
     public GameToolMode[] Modes { get; init; } = [];
 
+    /// <summary>The optional shared plugin required by legacy modes.</summary>
+    public GameToolSharedDependency? SharedDependency { get; init; }
+
+    public bool ManageConfiguration { get; init; }
+    public string SharedSettingsFile { get; init; } = "";
+    public string ConfigEncoding { get; init; } = "utf8";
+    public bool ConfigFromWorkingDirectory { get; init; }
+
+    internal GameToolDefinition ForGame(bool shortcut) => this with
+    {
+        Settings = [.. Settings.Select(setting => shortcut && setting.ShortcutDefault.Length > 0
+            ? setting with { Default = setting.ShortcutDefault, OmitDefault = false } : setting)]
+    };
+
+    internal GameToolDefinition ForProxy(string proxy) => this with
+    {
+        ConfigFiles = [.. ConfigFiles.Select(file => file.Replace("{proxy}", System.IO.Path.GetFileNameWithoutExtension(proxy), StringComparison.Ordinal))]
+    };
+
     /// <summary>All install modes; a whole-package tool has implicit modes for its existing proxy aliases.</summary>
     internal GameToolMode[] InstallModes => Modes.Length > 0 ? Modes :
         [.. Proxy.Options.Select(option => new GameToolMode
@@ -150,6 +169,6 @@ internal sealed record GameToolDefinition
     /// <returns>True when a replaceable pattern matches.</returns>
     internal bool IsReplaceable(string relativePath)
     {
-        return GameToolPattern.MatchesAny(Replaceable, relativePath);
+        return GameToolPattern.MatchesAny(Replaceable, relativePath) || (ManageConfiguration && IsConfig(relativePath));
     }
 }

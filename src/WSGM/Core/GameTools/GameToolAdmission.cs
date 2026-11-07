@@ -22,7 +22,11 @@ internal static class GameToolAdmission
         foreach (var (id, value) in settings)
         {
             var setting = tool.Settings.FirstOrDefault(item => item.Id == id);
-            if (setting is null || setting.Options.All(option => option.Value != value))
+            if (setting?.UnavailableReason is { Length: > 0 } unavailable)
+            {
+                return unavailable;
+            }
+            if (setting is null || !setting.Accepts(value))
             {
                 return "Unknown setting or value: " + id + ".";
             }

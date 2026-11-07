@@ -34,6 +34,22 @@ public sealed class GameToolsViewTests
     [InlineData("overlay-game-tools-injectors-980", "injectors", 980, 640)]
     [InlineData("overlay-game-tools-disabled-1280", "disabled", 1280, 800)]
     [InlineData("overlay-game-tools-disabled-980", "disabled", 980, 640)]
+    [InlineData("overlay-game-tools-config-dg-1280", "config-dgvoodoo", 1280, 800)]
+    [InlineData("overlay-game-tools-config-dg-980", "config-dgvoodoo", 980, 640)]
+    [InlineData("overlay-game-tools-config-directx-1280", "config-directx", 1280, 800)]
+    [InlineData("overlay-game-tools-config-directx-980", "config-directx", 980, 640)]
+    [InlineData("overlay-game-tools-config-glide-1280", "config-glide", 1280, 800)]
+    [InlineData("overlay-game-tools-config-glide-980", "config-glide", 980, 640)]
+    [InlineData("overlay-game-tools-config-reshade-1280", "config-reshade", 1280, 800)]
+    [InlineData("overlay-game-tools-config-reshade-980", "config-reshade", 980, 640)]
+    [InlineData("overlay-game-tools-config-sk-1280", "config-special-k", 1280, 800)]
+    [InlineData("overlay-game-tools-config-sk-980", "config-special-k", 980, 640)]
+    [InlineData("overlay-game-tools-config-dxvk-1280", "config-dxvk", 1280, 800)]
+    [InlineData("overlay-game-tools-config-dxvk-980", "config-dxvk", 980, 640)]
+    [InlineData("overlay-game-tools-key-1280", "hotkey", 1280, 800)]
+    [InlineData("overlay-game-tools-key-980", "hotkey", 980, 640)]
+    [InlineData("overlay-game-tools-dlls-1280", "dlls", 1280, 800)]
+    [InlineData("overlay-game-tools-dlls-980", "dlls", 980, 640)]
     public void Scene(string name, string scene, int width, int height)
     {
         using UiFixture fixture = new();
@@ -48,11 +64,39 @@ public sealed class GameToolsViewTests
     {
         using UiFixture fixture = new();
         var (window, source) = PreviewGameTools.Open(fixture, "disabled", 1280, 800);
-        UiFixture.Click(window, UiFixture.Tagged<ActionButton>(window, "tool:special-k.enable"));
+        UiFixture.Click(window, UiFixture.Tagged<ActionButton>(window, "tool:special-k.primary"));
         await source.NextCommandAsync();
         var command = Assert.Single(source.Commands);
         Assert.Equal("enable", command.Command);
         Assert.Equal([GameToolsFixtures.AlanWake, "special-k"], command.Arguments);
+    }
+
+    [AvaloniaFact]
+    public async Task NumericConfigDraftIsSentWithTheSelectedFileSet()
+    {
+        using UiFixture fixture = new();
+        var (window, source) = PreviewGameTools.Open(fixture, "config-directx", 1280, 800);
+        UiFixture.Tagged<NumericUpDown>(window, "tool:dgvoodoo2.setting:dxVram.number").Value = 512;
+        UiFixture.Click(window, UiFixture.Tagged<ActionButton>(window, "tool:dgvoodoo2.setting:dxVram.apply"));
+        UiFixture.Click(window, UiFixture.Tagged<ActionButton>(window, "tool:dgvoodoo2.primary"));
+        await source.NextCommandAsync();
+        var request = Assert.IsType<GameToolsInstallRequest>(Assert.Single(source.Commands).Arguments[0]);
+        Assert.Equal("512", request.Settings["dxVram"]);
+        Assert.False(request.ReplaceExisting);
+    }
+
+    [AvaloniaFact]
+    public async Task ShortcutSilentDefaultAndExplicitUserOverrideUseTheSharedSettingsCommand()
+    {
+        using UiFixture fixture = new();
+        var (window, source) = PreviewGameTools.Open(fixture, "config-special-k", 1280, 800);
+        var toggle = UiFixture.Tagged<ToggleSwitch>(window, "tool:special-k.setting:steamSilent.editor");
+        Assert.True(toggle.IsChecked);
+        toggle.IsChecked = false;
+        UiFixture.Click(window, UiFixture.Tagged<ActionButton>(window, "tool:special-k.primary"));
+        await source.NextCommandAsync();
+        var request = Assert.IsType<GameToolsInstallRequest>(Assert.Single(source.Commands).Arguments[0]);
+        Assert.Equal("off", request.Settings["steamSilent"]);
     }
 
     [AvaloniaFact]

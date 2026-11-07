@@ -80,4 +80,5 @@ internal sealed record GameToolsTool(
 
     /// <summary>Whether settings can change.</summary>
     public bool SettingsEditable { get; init; } = true;
+    public string SettingsNotice { get; init; } = "";
 }

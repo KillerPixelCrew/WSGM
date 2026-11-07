@@ -88,11 +88,10 @@ internal sealed record GameToolCatalog
                                                                           JsonRead.HttpsUrl(tool.Homepage).Length == 0);
         foreach (var setting in tool.Settings)
         {
-            invalid |= !Regex.IsMatch(setting.Id, "^[a-zA-Z][a-zA-Z0-9]*$") || setting.Section.Length == 0
+            invalid |= !Regex.IsMatch(setting.Id, "^[a-zA-Z][a-zA-Z0-9]*$") || (setting.Section.Length == 0 && !tool.ManageConfiguration)
                                                                             || setting.Key.Length == 0 ||
-                                                                            setting.Options.Length == 0
-                                                                            || setting.Options.All(option =>
-                                                                                option.Value != setting.Default)
+                                                                            !setting.Accepts(setting.Default)
+                                                                            || setting.Kind is not ("choice" or "number" or "text" or "hotkey")
                                                                             || setting.Options.Any(option =>
                                                                                 option.Ini.IndexOfAny(['\r', '\n']) >=
                                                                                 0);

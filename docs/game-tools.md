@@ -7,6 +7,133 @@ guide covers the owners, how a game's program is found, the tool catalog and its
 list, the install transaction and its manifest, conflicts, revalidation and the policies around
 third-party code. The product decisions behind it are in [decisions.md](decisions.md#steam).
 
+## Upstream rules and native settings
+
+PE machine types, normal/delay imports and known engine modules provide renderer evidence. Multiple
+APIs require an explicit selection. Each choice shows its exact files and architecture restrictions.
+DLL identity uses publisher resources and expected exports, independently of the current filename.
+Special K and ReShade also have unique export groups for renamed or stripped binaries. Matching the
+game publisher is labelled as evidence, never proof of ownership. Unknown files remain unknown.
+
+**Manage existing installation** records identified local DLL hashes without rewriting their bytes.
+Removal deletes only unchanged recorded binaries and restores the original config. Repair of adopted
+files installs the latest verified upstream release; a resource version alone is not release
+provenance. **Back up and install latest** keeps its separate restore-the-old-copy behavior.
+
+### DXVK
+
+The [upstream dependency table](https://github.com/doitsujin/dxvk#dll-dependencies) defines the file
+sets:
+
+| Input | Files from the matching x32/x64 folder |
+| ----- | -------------------------------------- |
+| D3D8  | d3d8.dll, d3d9.dll                     |
+| D3D9  | d3d9.dll                               |
+| D3D10 | d3d10core.dll, d3d11.dll, dxgi.dll     |
+| D3D11 | d3d11.dll, dxgi.dll                    |
+
+DXGI is required for D3D10/11 and is not added to D3D9-only games. The
+[Windows notes](https://github.com/doitsujin/dxvk/wiki/Windows) explain mixed system/DXVK loading,
+overlay interference and NVAPI/AMDAGS incompatibility. WSGM refuses collisions; it never changes
+System32, DevOverride, overlays or vendor shims as a workaround.
+
+[dxvk.conf](https://github.com/doitsujin/dxvk/blob/v3.1.1/dxvk.conf) uses flat dotted keys. Core
+controls cover DXGI/D3D9 frame limits, VSync intervals and maximum queued frames, D3D9/D3D11
+anisotropy and exclusive fullscreen. Queue depth is 0-16 and anisotropy -1-16. Sync intervals accept
+inheritance (-1) or non-negative integers. Signed numeric frame limits retain the SDK semantics. HUD
+is left unchanged in this round: current releases support dxvk.hud, but DXVK_HUD takes precedence
+and environment values are outside this workflow.
+
+[`getUserConfig`](https://github.com/doitsujin/dxvk/blob/v3.1.1/src/util/config/config.cpp) reads
+DXVK_CONFIG_FILE or the working directory's dxvk.conf, not the proxy directory. WSGM reads Steam
+launch metadata or a shortcut's explicit StartDir and accepts only a directory inside the game. It
+journals that config and an adjacent DLL-directory copy when different. Known settings share one
+source while unknown keys in each file survive. Both originals are restored on removal. Ambiguous
+metadata leaves DLL installation available and explicitly refuses DXVK settings. No wrapper or
+environment value is changed.
+
+### Special K
+
+The [official local-injection table](https://wiki.special-k.info/SpecialK/Local) lists dxgi.dll,
+d3d11.dll, d3d9.dll, d3d8.dll, ddraw.dll, opengl32.dll and dinput8.dll. Process architecture chooses
+SpecialK32.dll or SpecialK64.dll. D3D11's direct name is preferred when imported; DXGI serves
+D3D11/12. DirectInput 8 is an explicit import-gated alternative. The wiki documents
+fullscreen-optimization conflicts and the legacy dgVoodoo requirement. Stable identity exports come
+from [`SpecialK.def`](https://github.com/SpecialKO/SpecialK/blob/main/SpecialK.def), including
+SK_BeginBufferSwap, SK_CreateINI and SK_CreateLog; generic graphics exports alone are insufficient.
+
+Legacy modes include the verified x86 dgVoodoo DDraw, D3D8 and D3DImm plugin files. This is part of
+the game's install, not a separate workflow. The
+[`core.cpp` loader](https://github.com/SpecialKO/SpecialK/blob/main/src/core.cpp#L2233-L2256) loads
+SK_GetInstallPath()/PlugIns/ThirdParty/dgVoodoo. Its
+[path resolution](https://github.com/SpecialKO/SpecialK/blob/main/src/core.cpp#L1764-L1825) follows
+SPECIALK_PATH, HKCU Software/Kaldaien/Special K value Path, then Documents/My Mods/SpecialK.
+Relative/unresolvable paths are refused. Compatible user copies are identified and borrowed
+unchanged. Owned copies have the ordinary installer journal and recorded game consumers, including
+disabled games. Updates require consumers closed; last-consumer removal deletes only WSGM's matching
+bytes. Pending shared updates recover through the same rollback mechanism.
+
+Per-game configs use the proxy stem, such as dxgi.ini or d3d11.ini. The
+[`config.cpp` mappings](https://github.com/SpecialKO/SpecialK/blob/main/src/config.cpp) supply frame
+target, presentation interval, flip-discard and Steam.Log/Silent. Native defaults stay unwritten
+until changed. Silent defaults on for non-Steam shortcuts using the library entry's shortcut flag;
+an existing value or explicit override wins. The HDR control is the real
+[`SpecialK.HDR/Use16BitSwapChain`](https://github.com/SpecialKO/SpecialK/blob/main/src/widgets/hdr.cpp)
+option and clears the competing 10-bit override when enabled.
+
+The control-panel/console keys, OSD visibility and scale belong in Global/osd.ini, as
+[`config.cpp` file selection and registrations](https://github.com/SpecialKO/SpecialK/blob/main/src/config.cpp#L1650-L1890)
+and
+[`config.h` key names](https://github.com/SpecialKO/SpecialK/blob/main/include/SpecialK/config.h)
+show. Both surfaces put them under **All Special K games**. Edits preserve other keys and journal a
+backup of an existing file; last-consumer removal restores it. Ineffective per-game OSD keys are not
+written.
+
+### dgVoodoo2
+
+The [DirectX readme](https://www.dege.freeweb.hu/dgVoodoo2/ReadmeDirectX/) distinguishes DDraw.dll
+and D3DImm.dll: both belong to the DirectDraw/D3D1-7 file set. D3D8 and D3D9 use their own DLLs. The
+[general/ARM readme](https://dege.freeweb.hu/dgVoodoo2/ReadmeGeneral/) documents x86 legacy DirectX,
+x86/x64 Glide and D3D9, native ARM64 Glide and ARM64X D3D9. The descriptor selects MS/x86, MS/x64,
+MS/arm64x or 3Dfx folders from process architecture; CHPE optimizations are not guessed from the OS.
+Unavailable combinations, such as x64 DirectDraw, have an explicit refusal.
+
+The [official archive](https://github.com/dege-diosg/dgVoodoo2/releases) supplies dgVoodoo.conf
+beside the DLLs and the authoritative core option tokens. Controls cover output API/adapter/output,
+fullscreen, scaling, aspect ratio, mouse capture/centering and frame limit; DirectX card/VRAM,
+filtering, mipmapping, resolution, MSAA, VSync, watermark, 2D filtering and fast VRAM; Glide card,
+framebuffer/TMU memory, texture units/filtering, resolution, MSAA, VSync, watermark and splash
+screen. Memory is positive, texture units are 1/2, and MSAA uses published choices. Resolution
+accepts common documented named/size forms. Other handwritten values survive even when outside the
+editor's choices.
+
+### ReShade
+
+The [official setup](https://github.com/crosire/reshade/blob/main/setup/MainWindow.xaml.cs) defines
+D3D9, D3D10/11/12, DXGI, DirectDraw and OpenGL names. DXGI is the shared D3D10+ default;
+API-specific names remain explicit alternatives. Vulkan's system layer is outside this local-DLL
+workflow. The
+[`ReShadeVersion` export](https://github.com/crosire/reshade/blob/main/source/dll_main.cpp)
+identifies renamed binaries, alongside publisher resources and verification of the official setup
+signature.
+
+The [runtime](https://github.com/crosire/reshade/blob/main/source/runtime.cpp) and
+[overlay](https://github.com/crosire/reshade/blob/main/source/runtime_gui.cpp) mappings supply
+INPUT/KeyEffects, INPUT/KeyOverlay, GENERAL/PerformanceMode, preset/search paths and NoReloadOnInit.
+**Load effects at startup** inverts NoReloadOnInit: **Off: effects stay unloaded until you press
+Reload in the ReShade overlay**. The global effects-enabled boolean is not serialized, so no fake
+key is created. Hotkeys use the native virtual-key/modifier tuple, with keyboard capture and
+controller pickers.
+
+### Config ownership and controls
+
+Config creation and edits are staged before the first journaled target write. Originals are backed
+up once and restored on removal. Unknown keys, comments, encoding and line endings survive edits.
+New Special K files use UTF-16LE; DXVK uses flat keys, and other formats use their real section
+names. Settings have switches, choices, numbers, text/path editing and chord capture. Group
+expansion and drafts survive refreshes. Both surfaces state that changes apply on the next game
+start and show unsupported/unknown values and file failures without claiming an accepted write.
+
 ## Owners
 
 The four local injectors use `GameToolMode` entries in the bundled catalog. Each mode names its
@@ -976,10 +1103,9 @@ No line is written per file scanned or copied.
   input and output, interpolation count, and ASI plugins other than OptiPatcher.
 - Stable and nightly are the only channels. A move between 0.9.x and 10.x, by update or by channel
   switch, is a family change the user confirms. Nightlies are untested upstream builds.
-- The four local tools support x86 and x64 where their chosen modes do. OptiScaler remains x64-only;
-  Arm64 is not offered.
+- The four local tools support the architectures declared by each mode. dgVoodoo also offers native
+  ARM64 Glide and ARM64X D3D9; unsupported legacy combinations are refused. OptiScaler is x64-only.
 - The running check covers the program and the executables at the top of its folder and the install
   root; a game started from a deeper launcher path is caught by Steam's running AppID.
-- No live Steam, real game folder or hardware pass has been recorded yet, and the transaction has no
-  regression fixtures for a disconnected library, a moved game, a removed program, a proxy-name
-  collision or rollback.
+- Live Steam navigation and real-game rendering remain acceptance checks separate from PE fixtures,
+  official-package identification, configuration round trips and journal restore tests.

@@ -74,6 +74,8 @@ internal static class SteamGameToolsSurface
                     "Choose the game's program."),
                 SteamUiModuleBuilder.Command<GameToolsInstallRequest>(PatchId, "install", TryInstall,
                     service.InstallAsync, "The install request is invalid."),
+                SteamUiModuleBuilder.Command<GameToolsInstallRequest>(PatchId, "adopt", TryInstall,
+                    service.AdoptAsync, "The adoption request is invalid."),
                 SteamUiModuleBuilder.Command<(uint AppId, string ToolId, bool ReplaceConfig)>(PatchId, "update",
                     TryUpdate,
                     (value, token) => service.UpdateAsync(value.AppId, value.ToolId, value.ReplaceConfig, token),
@@ -305,7 +307,7 @@ internal static class SteamGameToolsSurface
 
         foreach (var entry in property.EnumerateObject())
         {
-            if (entry.Value.ValueKind != JsonValueKind.String || values.Count >= 32)
+            if (entry.Value.ValueKind != JsonValueKind.String || values.Count >= 128)
             {
                 return false;
             }

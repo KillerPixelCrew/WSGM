@@ -19,5 +19,5 @@ internal sealed record GameToolRequest(
     string? Channel = null)
 {
     /// <summary>Whether an unmanaged installation is backed up and replaced instead of refusing the install.</summary>
-    internal bool ReplaceExisting => Operation == "replaceExisting";
+    internal bool ReplaceExisting => Operation is "replaceExisting" or "adopt";
 }

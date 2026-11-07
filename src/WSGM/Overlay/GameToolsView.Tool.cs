@@ -50,10 +50,27 @@ public sealed partial class GameToolsView
         if (tool.ShowOptions)
         {
             AddRow(rows, ProxyRow(tool, idle && tool.ProxyEditable, installed));
-            foreach (var setting in tool.Settings)
+            if (tool.SettingsNotice.Length > 0)
             {
-                AddRow(rows, SettingRow(tool, setting, editable && setting.Available,
-                    installed && tool.Actions.Contains("configure")));
+                rows.Children.Add(Caption(tool.SettingsNotice));
+            }
+            foreach (var group in tool.Settings.GroupBy(setting => setting.Group))
+            {
+                var fields = new StackPanel { Spacing = 0 };
+                foreach (var setting in group)
+                {
+                    AddRow(fields, SettingRow(tool, setting, editable && setting.Available,
+                        installed && tool.Actions.Contains("configure")));
+                }
+                if (group.Key.Length == 0)
+                {
+                    rows.Children.Add(fields);
+                }
+                else
+                {
+                    rows.Children.Add(CollapsibleSection.Persisted(group.Key, fields, _expandedSettings,
+                        _appId + ":" + tool.Id + ":" + group.Key, "tool:" + tool.Id + ".group:" + group.Key));
+                }
             }
 
             foreach (var addon in tool.Addons)
@@ -290,7 +307,20 @@ public sealed partial class GameToolsView
         var otherChannel = installed && tool.Channels.FirstOrDefault(item => item.Current)?.Id != channel.Id;
         string label;
         Action? action;
-        if (tool.Actions.Contains("replaceExisting"))
+        if (tool.Actions.Contains("enable"))
+        {
+            label = "Enable " + tool.Name;
+            action = () => RunTool((service, token) => service.SetEnabledAsync(_appId, tool.Id, true, token), "enable");
+        }
+        else if (tool.Actions.Contains("adopt"))
+        {
+            label = "Manage existing installation…";
+            action = ProxyFor(tool).Length == 0 ? null : () => Confirm("Manage " + tool.Name + " in " + game + "?",
+                ["WSGM records the identified tool DLLs without rewriting them. Removing the managed installation deletes those DLLs only if their hashes still match, and restores your original config.",
+                 "Repair uses the latest verified upstream package. " + (state.AntiCheatWarning ?? "")],
+                "Manage installation", service => service.AdoptAsync(InstallRequest(tool, true, false), default));
+        }
+        else if (tool.Actions.Contains("replaceExisting"))
         {
             label = "Replace existing installation…";
             action = () => ConfirmReplace(state, tool, game);
@@ -299,7 +329,7 @@ public sealed partial class GameToolsView
         {
             var named = channel.Id == tool.Channels[0].Id ? "" : " " + channel.Label.ToLowerInvariant();
             label = "Install " + tool.Name + named + (channel.LatestVersion is { } version ? " " + version : "");
-            action = tool.Actions.Contains("install") ? () => StartInstall(state, tool, game) : null;
+            action = tool.Actions.Contains("install") && ProxyFor(tool).Length > 0 ? () => StartInstall(state, tool, game) : null;
         }
         else if (otherChannel)
         {
@@ -463,7 +493,7 @@ public sealed partial class GameToolsView
     {
         return new OverlayChoice<string>(options, value, commit)
         {
-            MinWidth = 180, MinHeight = 40, IsEnabled = enabled, HorizontalAlignment = HorizontalAlignment.Right
+            MinWidth = 180, MaxWidth = 280, MinHeight = 40, IsEnabled = enabled, HorizontalAlignment = HorizontalAlignment.Right
         };
     }
 
@@ -492,6 +522,9 @@ public sealed partial class GameToolsView
         var options = tool.ProxyOptions.Where(option => option.Available || option.Name == current)
             .Select(option => (option.Name, option.Api.Length > 0 ? option.Api + " (" + option.Name + ")" : option.Name)).ToList();
         var hint = tool.ProxyOptions.FirstOrDefault(option => option.Name == current)?.Hint ?? "";
+        var selected = tool.ProxyOptions.FirstOrDefault(option => option.Name == current);
+        hint = string.Join(" ", new[] { hint, selected?.Files.Length > 0 ? "Places: " + string.Join(", ", selected.Files) + "." : "",
+            selected?.Dependency ?? "" }.Where(text => text.Length > 0));
         var taken = tool.ProxyOptions.Where(option => !option.Available && option.Name != current)
             .Select(option => option.Name + (option.Conflict is { } conflict ? " (" + conflict.TrimEnd('.') + ")" : ""))
             .ToArray();
@@ -531,7 +564,23 @@ public sealed partial class GameToolsView
             .Where(part => part.Length > 0));
         Control editor;
         // A plain Off/On choice is a switch; any other choice, such as Automatic or Off, stays a dropdown.
-        if (setting.Options.Count == 2 && setting.Options.Any(option => option is { Value: "on", Label: "On" })
+        if (setting.Kind == "number")
+        {
+            editor = NumericSetting(key, setting, value, enabled, Commit);
+        }
+        else if (setting.Kind == "text")
+        {
+            var shown = value.Length == 0 && setting.IniValue is { Length: > 0 } native ? native : value;
+            editor = Command(key + ".text", shown.Length == 0 ? "Not set · Edit…" : shown,
+                enabled ? () => EditText(setting.Label, shown, 1024, Commit) : null);
+        }
+        else if (setting.Kind == "hotkey")
+        {
+            var shown = value.Length == 0 && setting.IniValue is { Length: > 0 } native ? native : value;
+            editor = Command(key + ".key", GameToolHotkeys.Label(shown, setting.HotkeyFormat),
+                enabled ? () => EditToolHotkey(setting, shown, Commit) : null);
+        }
+        else if (setting.Options.Count == 2 && setting.Options.Any(option => option is { Value: "on", Label: "On" })
                                        && setting.Options.Any(option => option is { Value: "off", Label: "Off" })
                                        && value is "on" or "off")
         {
@@ -559,7 +608,7 @@ public sealed partial class GameToolsView
 
         void Commit(string chosen)
         {
-            if (chosen == value || chosen.Length == 0)
+            if (chosen == value || (chosen.Length == 0 && setting.Kind == "choice"))
             {
                 return;
             }
@@ -639,6 +688,16 @@ public sealed partial class GameToolsView
         List<Control> left = [];
         var installed = tool.InstalledVersion is not null;
         var checking = tool.CheckingLatest;
+        if (tool.Actions.Contains("adopt") && tool.Actions.Contains("replaceExisting"))
+        {
+            left.Add(Command(key + ".replace-latest", "Back up and install latest…", idle ? () =>
+            {
+                if (CurrentState() is { } state)
+                {
+                    ConfirmReplace(state, tool, GameName(state));
+                }
+            } : null));
+        }
         if (installed || channel.LatestVersion is null)
         {
             left.Add(Command(key + ".check-updates", checking ? "Checking…" : "Check for updates",
@@ -655,7 +714,7 @@ public sealed partial class GameToolsView
         }
 
         var enabledAction = tool.Enabled ? "disable" : "enable";
-        if (tool.Actions.Contains(enabledAction))
+        if (tool.Actions.Contains(enabledAction) && enabledAction == "disable")
         {
             left.Add(Command(key + "." + enabledAction, tool.Enabled ? "Disable" : "Enable", idle
                 ? () => RunTool((service, token) => service.SetEnabledAsync(_appId, tool.Id, !tool.Enabled, token), enabledAction)
@@ -831,7 +890,7 @@ public sealed partial class GameToolsView
             : new Dictionary<string, string>(StringComparer.Ordinal);
         // Send what the page shows: a draft that is no longer offered falls back to the service's name.
         var shown = ProxyFor(tool);
-        var proxy = shown == tool.ProxyName ? null : shown;
+        var proxy = replaceExisting || tool.Actions.Contains("adopt") ? shown : shown == tool.ProxyName ? null : shown;
         var channel = DraftChannel(tool).Id;
 
         // Every add-on the card shows goes out as shown, so a recommendation the user left on is installed too.

@@ -68,7 +68,11 @@ internal static class GameToolStatus
             {
                 status = "modified";
                 statusText = "Some of " + tool.Name + "'s files are missing or were changed.";
-                actions.AddRange(["repair", "remove"]);
+                if (manifest.Enabled)
+                {
+                    actions.Add("repair");
+                }
+                actions.Add("remove");
             }
             else
             {
@@ -93,9 +97,10 @@ internal static class GameToolStatus
                 }
 
                 actions.Add(manifest.Enabled ? "disable" : "enable");
+                actions.Add("configure");
                 if (manifest.Enabled)
                 {
-                    actions.AddRange(["configure", "repair"]);
+                    actions.Add("repair");
                 }
 
                 actions.Add("remove");
@@ -122,6 +127,10 @@ internal static class GameToolStatus
 
             if (incompatible is null)
             {
+                if (tool.UsesGraphicsApi)
+                {
+                    actions.Add("adopt");
+                }
                 actions.Add("replaceExisting");
             }
         }
@@ -151,7 +160,7 @@ internal static class GameToolStatus
             actions.Clear();
         }
 
-        var canEdit = actions.Contains("install") || actions.Contains("configure");
+        var canEdit = actions.Contains("install") || actions.Contains("configure") || actions.Contains("adopt");
         return new GameToolEvaluation(status, statusText, incompatible, actions, conflicts, warnings, changesConfig,
             canEdit || (manifest is not null && folderReady), canEdit);
     }
@@ -164,6 +173,11 @@ internal static class GameToolStatus
     internal static GameToolVersionRelation Relation(GameToolDefinition tool, GameToolManifest? manifest,
         HostedRelease? latest)
     {
+        if (manifest is { Adopted: true, AssetSha256.Length: 0 } && latest is not null)
+        {
+            return GameToolVersionRelation.UpdateAvailable;
+        }
+
         return manifest is null
             ? GameToolVersionRelation.Unknown
             : GameToolVersions.Relate(tool,
@@ -238,19 +252,18 @@ internal static class GameToolStatus
         var notes = vendors.Select(vendor => setting.VendorNotes.GetValueOrDefault(vendor))
             .Where(note => note is not null).ToArray();
         var note = notes.Length > 0 ? string.Join(" ", notes) : null;
-        if (manifest is null)
+        if (manifest is null && (iniValues is null || !iniValues.ContainsKey(setting.Id)))
         {
             return new GameToolSettingValue(setting.Default, null, true, note);
         }
 
         if (iniValues is null || !iniValues.TryGetValue(setting.Id, out var raw))
         {
-            return new GameToolSettingValue(manifest.Settings.GetValueOrDefault(setting.Id) ?? setting.Default, null,
-                false, "Not available in the installed version.");
+            return new GameToolSettingValue(manifest?.Settings.GetValueOrDefault(setting.Id) ?? setting.Default, null,
+                setting.CreateMissing, setting.CreateMissing ? note : "Not available in the installed version.");
         }
 
-        var matched = setting.Options.FirstOrDefault(option =>
-            option.Ini.Equals(raw, StringComparison.OrdinalIgnoreCase))?.Value;
+        var matched = setting.FromRaw(raw);
         return new GameToolSettingValue(matched ?? "", raw, true,
             matched is null ? "Set to \"" + raw + "\" in the configuration file." : note);
     }

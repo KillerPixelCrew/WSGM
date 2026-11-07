@@ -77,6 +77,11 @@ internal sealed class FakeGameToolsSource(IEnumerable<GameToolsState> states, Ga
         return Record("install", request);
     }
 
+    public Task<SteamUiCommandResult> AdoptAsync(GameToolsInstallRequest request, CancellationToken cancellationToken)
+    {
+        return Record("adopt", request.AppId, request.ToolId, request);
+    }
+
     /// <inheritdoc />
     public Task<SteamUiCommandResult> UpdateAsync(uint appId, string toolId, bool replaceConfig,
         CancellationToken cancellationToken)
@@ -178,28 +183,58 @@ internal static class GameToolsFixtures
     /// <summary>The four local injectors projected into the production card layout for render-only review.</summary>
     internal static GameToolsState Injectors(bool disabled)
     {
-        var tools = GameToolCatalog.Current.Tools.Where(tool => tool.UsesGraphicsApi).Select(tool => Tool() with
-        {
-            Id = tool.Id, Name = tool.Name, Description = tool.Description, Homepage = tool.Homepage,
-            License = tool.License, Notice = tool.Notice, ProxyLabel = "Graphics API", ProxyEditable = !disabled, SettingsEditable = !disabled, Enabled = !disabled,
-            Status = disabled ? "installed" : "notInstalled", InstalledVersion = disabled ? "1.0" : null,
-            StatusText = disabled ? "Disabled for this game. Files and settings are kept." : "Not installed.",
-            Channel = "stable",
-            Channels = [new GameToolsChannel("stable", "Stable", "", true, "1.0", "1.0", null, null, false, false)],
-            ProxyName = tool.Proxy.Default,
-            ProxyOptions = [.. tool.Modes.Where(mode => mode.Architectures.Contains("x64")).Select(mode =>
-                new GameToolsProxyOption(mode.Proxy, "Select the game's actual renderer.", true, null) { Api = mode.Api })],
-            Settings = [], ProxyIntro = disabled ? "Remove and reinstall to change the graphics API." : "",
-            Addons = [], Actions = disabled ? ["enable", "remove"] : ["install"]
-        }).ToArray();
+        var tools = GameToolCatalog.Current.Tools.Where(tool => tool.UsesGraphicsApi).Select(tool => NativeTool(tool, disabled, false)).ToArray();
         if (disabled)
         {
             tools = [.. tools.OrderBy(tool => tool.Id == "special-k" ? 0 : 1)];
         }
+        return NotInstalled with { Runtime = NotInstalled.Runtime! with { GraphicsApi = "Detected Direct3D 11 (static imports)" }, Tools = tools };
+    }
 
-        return NotInstalled with
+    internal static GameToolsState Configuration(string id)
+    {
+        var descriptor = GameToolCatalog.Current.Find(id)!;
+        var tool = NativeTool(descriptor, false, id == "special-k");
+        var state = NotInstalled with { IsShortcut = id == "special-k", Tools = [tool] };
+        if (id == "dgvoodoo2")
         {
-            Runtime = NotInstalled.Runtime! with { GraphicsApi = "Direct3D 11 (static imports)" }, Tools = tools
+            tool = tool with { ProxyName = "DDraw.dll" };
+            state = state with { Tools = [tool], Runtime = state.Runtime! with { Architecture = "x86", ArchitectureLabel = "32-bit",
+                GraphicsApi = "Detected DirectDraw / Direct3D 1–7 (static imports)" } };
+        }
+        return state;
+    }
+
+    private static GameToolsTool NativeTool(GameToolDefinition descriptor, bool disabled, bool shortcut)
+    {
+        var tool = descriptor.ForGame(shortcut);
+        var architecture = tool.Id == "dgvoodoo2" ? "x86" : "x64";
+        return Tool() with
+        {
+            Id = tool.Id, Name = tool.Name, Description = tool.Description, Homepage = tool.Homepage,
+            License = tool.License, Notice = tool.Notice, ProxyLabel = "Graphics API", ProxyEditable = !disabled,
+            SettingsEditable = true, Enabled = !disabled,
+            Status = disabled ? "installed" : "notInstalled", InstalledVersion = disabled ? "local" : null,
+            StatusText = disabled ? "Disabled for this game. Files and settings are kept." : "Not installed.",
+            Channel = "stable", LatestVersion = "current", LatestLabel = "current",
+            Channels = [new GameToolsChannel("stable", "Stable", "", true, "current", "current", null, null, false, false)],
+            ProxyName = tool.Proxy.Default,
+            ProxyOptions = [.. tool.InstallModes.Select(mode => new GameToolsProxyOption(mode.Proxy, mode.Hint,
+                mode.Architectures.Contains(architecture) && !mode.RequiredImports.Contains("dinput8.dll"),
+                mode.Architectures.Contains(architecture) ? null : "Not shipped for this architecture")
+                { Api = mode.Api, Files = [.. mode.Files.Values.Select(file => file == tool.PrimaryFile ? mode.Proxy : file)
+                      .Concat(tool.ManageConfiguration ? [tool.ForProxy(mode.Proxy).PrimaryConfig] : []).Distinct(StringComparer.OrdinalIgnoreCase)],
+                  Dependency = mode.UsesSharedPlugin ? "Uses the managed dgVoodoo plugin" : "" })],
+            Settings = [.. tool.Settings.Select(field => new GameToolsSetting(field.Id, field.Label, field.Description,
+                field.Default, null, [.. field.Options.Select(option => new GameToolsSettingOption(option.Value, option.Label))],
+                field.UnavailableReason.Length == 0, field.UnavailableReason.Length > 0 ? field.UnavailableReason : null)
+                { Kind = field.Kind, Scope = field.Scope, Group = field.Scope == "shared" ? "All Special K games" : field.Group,
+                  Minimum = field.Minimum, Maximum = field.Maximum, Step = field.Step, HotkeyFormat = field.HotkeyFormat,
+                  KeyChoices = field.Kind == "hotkey" ? [.. GameToolHotkeys.Keys.Select(key => new GameToolsSettingOption(
+                    key.Key.ToString(System.Globalization.CultureInfo.InvariantCulture), key.Label))] : [] })],
+            SettingsNotice = "Settings apply on the next game start. Existing keys are preserved unless changed.",
+            ProxyIntro = disabled ? "Remove and reinstall to change the graphics API." : "",
+            Addons = [], Actions = disabled ? ["enable", "configure", "remove"] : ["install"]
         };
     }
 

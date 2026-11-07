@@ -17,6 +17,18 @@ internal sealed record GameToolMode
     /// <summary>Whether this mode can be suggested without another loader.</summary>
     public bool Suggest { get; init; } = true;
 
+    /// <summary>Rank within a single detected pipeline; never resolves ambiguous pipelines.</summary>
+    public int Priority { get; init; }
+
+    /// <summary>Imports required for this loader name to work without a separate injector.</summary>
+    public string[] RequiredImports { get; init; } = [];
+
+    /// <summary>Per-process-architecture archive folder tokens, such as ARM64X.</summary>
+    public Dictionary<string, string> ArchitectureFolders { get; init; } = [];
+
+    /// <summary>Whether this Special K mode uses its managed shared dgVoodoo plugin.</summary>
+    public bool UsesSharedPlugin { get; init; }
+
     /// <summary>A concise display label for the supported APIs.</summary>
     internal string Api => Apis.Length > 0 && System.Linq.Enumerable.All(Apis, api => api.StartsWith("Direct3D ", System.StringComparison.Ordinal))
         ? "Direct3D " + string.Join(" / ", System.Linq.Enumerable.Select(Apis, api => api[9..]))

@@ -49,4 +49,8 @@ internal sealed record GameToolsState(
     IReadOnlyList<GameToolsTool> Tools,
     GameToolsBusy? Busy,
     string? Error,
-    string? Notice);
+    string? Notice)
+{
+    /// <summary>Detected game-local DLL identities; no identity alone grants deletion rights.</summary>
+    public IReadOnlyList<WSGM.Core.GameToolBinary> Libraries { get; init; } = [];
+}
