@@ -19,7 +19,7 @@ using WSGM.Shell;
 namespace WSGM.Overlay;
 
 /// <summary>Controller/touch Programs editor; the session service owns every durable operation.</summary>
-public sealed class ProgramsView : ServiceSubView
+public sealed partial class ProgramsView : ServiceSubView
 {
     /// <summary>How many application icons are read at a time, so rows fill in while the rest load.</summary>
     private const int IconBatchSize = 40;
@@ -478,7 +478,17 @@ public sealed class ProgramsView : ServiceSubView
             await service.SaveAsync(program, true);
             if (generation == NavigationGeneration)
             {
-                ReturnToList(program.Id);
+                if (OffersXboxAppUpdate(service, program.AppUserModelId))
+                {
+                    // Back restores the list's focus on a later dispatcher turn, which would move it inside
+                    // the dialog; the dialog opens after that and focuses its safe answer.
+                    Back();
+                    Dispatcher.UIThread.Post(() => ConfirmXboxAppUpdate(service));
+                }
+                else
+                {
+                    ReturnToList(program.Id);
+                }
             }
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -540,6 +550,18 @@ public sealed class ProgramsView : ServiceSubView
             "program.status"));
         body.Children.Add(new ProgramActionRow(state, () => Activate(id))
             { Tag = ProgramsService.PinPrefix + id, IsPinned = service.IsPinned(id) });
+        if (OffersXboxAppUpdate(service, entry.AppUserModelId))
+        {
+            var update = service.XboxAppUpdate;
+            body.Children.Add(Tagged(PrimaryRow("Update the Xbox app", update.Phase switch
+                {
+                    XboxAppUpdatePhase.Updated => "Updated. It now works in Game Mode.",
+                    XboxAppUpdatePhase.Failed => "The last update stopped. Open to try again.",
+                    _ when update.IsRunning => "Updating…",
+                    _ => $"Xbox app {update.Installed} stays black in Game Mode"
+                }, Icons.Restart, () => Navigate(RenderXboxAppUpdate)), "program.xbox-update"));
+        }
+
         body.Children.Add(Tagged(Row("Display name", entry.Name, Icons.ListLines,
                 () => EditText("Display name", entry.Name, 160, value => Save(entry with { Name = value }))),
             "program.name"));

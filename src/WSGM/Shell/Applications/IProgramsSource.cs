@@ -31,4 +31,17 @@ internal interface IProgramsSource : IChangeSource
     Task<IReadOnlyDictionary<string, Bitmap?>> ReadInstalledIconsAsync(IReadOnlyList<string> keys,
         CancellationToken cancellationToken);
     void ReportResult(string message);
+
+    /// <summary>Whether the installed Xbox app needs updating for Game Mode, and how an update is going.</summary>
+    XboxAppUpdateStatus XboxAppUpdate => XboxAppUpdateStatus.None;
+
+    /// <summary>Starts updating the Xbox app; the session owns the operation, not the view.</summary>
+    void StartXboxAppUpdate()
+    {
+    }
+
+    /// <summary>Stops a running Xbox app download.</summary>
+    void CancelXboxAppUpdate()
+    {
+    }
 }

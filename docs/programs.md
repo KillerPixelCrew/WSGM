@@ -43,6 +43,18 @@ dashboard. Xbox app 2612.1001.23.0 and later read that value; earlier versions a
 cannot be shown in Game Mode. Game Bar's guide overlay is a UWP app too and stays unavailable in
 Game Mode.
 
+Adding an Xbox app older than that asks whether to update it, with Cancel focused; the entry's
+editor offers the same update later. The session owns the update, so it continues when the page is
+left. `StoreDeliveryClient` asks Microsoft's Store delivery service (FE3, the Windows Update web
+service the Store uses) anonymously for the product's packages, Retail first and the Xbox Insider
+channel only while Retail has no build new enough. The bundle comes from Microsoft's delivery
+network, must match the SHA-256 Microsoft publishes for it and is installed by Windows, which checks
+its signature and closes a running Xbox app. A download that receives nothing for a minute fails
+rather than waiting forever, and the install is followed by polling the deployment's own status: on
+the Atlas the deployment finished while its completion callback never reached elevated WSGM.
+Failure, cancellation and success are shown on the page; nothing is retried without the user
+choosing Try again.
+
 Matching uses the selected exact executable image paths in the current interactive session. File
 fingerprints gate another launch; an already-running image can still be focused if its disk file was
 removed or replaced. Filenames alone never authorize focus. Eligible windows use the existing

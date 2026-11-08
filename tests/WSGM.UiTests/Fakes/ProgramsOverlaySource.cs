@@ -54,6 +54,21 @@ internal sealed class ProgramsOverlaySource : IProgramsSource
 
     public string LastResult => "Windows or the foreground game prevented application activation.";
 
+    /// <summary>What the Xbox app update shows; captures set each phase directly.</summary>
+    public XboxAppUpdateStatus XboxAppUpdate { get; set; } = XboxAppUpdateStatus.None;
+
+    /// <summary>How many times an update was started.</summary>
+    internal int XboxAppUpdatesStarted { get; private set; }
+
+    public void StartXboxAppUpdate()
+    {
+        XboxAppUpdatesStarted++;
+    }
+
+    public void CancelXboxAppUpdate()
+    {
+    }
+
     public Task<InstalledProgramList> ReadInstalledAsync(CancellationToken cancellationToken)
     {
         return Installed;

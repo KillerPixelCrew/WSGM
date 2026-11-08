@@ -6,6 +6,7 @@ using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Overlay;
+using WSGM.Shell;
 using WSGM.UiTests.Fakes;
 using WSGM.UiTests.Infrastructure;
 using WSGM.UiTests.Visual;
@@ -70,6 +71,84 @@ public sealed class ProgramPickerTests
 
         Dispatcher.UIThread.RunJobs();
         VisualBaseline.Verify(window, name);
+    }
+
+    [AvaloniaTheory]
+    [InlineData("overlay-programs-xbox-update-confirm-980", "confirm", 980, 640)]
+    [InlineData("overlay-programs-xbox-update-confirm-1280", "confirm", 1280, 800)]
+    [InlineData("overlay-programs-xbox-update-downloading-980", "downloading", 980, 640)]
+    [InlineData("overlay-programs-xbox-update-downloading-1280", "downloading", 1280, 800)]
+    [InlineData("overlay-programs-xbox-update-installing-980", "installing", 980, 640)]
+    [InlineData("overlay-programs-xbox-update-failed-980", "failed", 980, 640)]
+    [InlineData("overlay-programs-xbox-update-failed-1280", "failed", 1280, 800)]
+    [InlineData("overlay-programs-xbox-update-updated-980", "updated", 980, 640)]
+    public async Task XboxAppUpdateScene(string name, string scene, int width, int height)
+    {
+        using UiFixture fixture = new();
+        ProgramsOverlaySource source = new() { XboxAppUpdate = XboxStatus(XboxAppUpdatePhase.Needed) };
+        var window = Open(fixture, source, width, height);
+        Click(window, "program.add");
+        Click(window, "program.pick:app:xbox");
+        if (scene != "confirm")
+        {
+            source.XboxAppUpdate = scene switch
+            {
+                "downloading" => XboxStatus(XboxAppUpdatePhase.Downloading, 214_000_000, 526_497_234),
+                "installing" => XboxStatus(XboxAppUpdatePhase.Installing, 62, 100),
+                "failed" => XboxStatus(XboxAppUpdatePhase.Failed) with
+                {
+                    Message = "Microsoft's download server refused the Xbox app (403)."
+                },
+                _ => XboxStatus(XboxAppUpdatePhase.Updated) with { Installed = new Version(2612, 1001, 23, 0) }
+            };
+            var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            window.Surfaces.Closed += () => closed.TrySetResult();
+            UiFixture.Click(window, UiFixture.Tagged<Control>(window, "confirm.accept"));
+            await closed.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            Dispatcher.UIThread.RunJobs();
+            Assert.False(window.Surfaces.HasActive);
+        }
+
+        Dispatcher.UIThread.RunJobs();
+        VisualBaseline.Verify(window, name);
+    }
+
+    [AvaloniaFact]
+    public void AddingAnOldXboxAppAsksFirstAndOnlyUpdateStartsIt()
+    {
+        using UiFixture fixture = new();
+        ProgramsOverlaySource source = new() { XboxAppUpdate = XboxStatus(XboxAppUpdatePhase.Needed) };
+        var window = Open(fixture, source);
+        Click(window, "program.add");
+
+        Click(window, "program.pick:app:xbox");
+
+        Assert.Single(source.Added);
+        Assert.Same(UiFixture.Tagged<Control>(window, "confirm.cancel"), window.FocusManager!.GetFocusedElement());
+        Assert.Equal(0, source.XboxAppUpdatesStarted);
+        UiFixture.Click(window, UiFixture.Tagged<Control>(window, "confirm.accept"));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(1, source.XboxAppUpdatesStarted);
+    }
+
+    [AvaloniaFact]
+    public void AnXboxAppThatAlreadyWorksIsAddedWithoutAsking()
+    {
+        using UiFixture fixture = new();
+        ProgramsOverlaySource source = new();
+        var window = Open(fixture, source);
+        Click(window, "program.add");
+
+        Click(window, "program.pick:app:xbox");
+
+        Assert.False(window.Surfaces.HasActive);
+        Assert.NotNull(UiFixture.Tagged<Button>(window, "program.add"));
+    }
+
+    private static XboxAppUpdateStatus XboxStatus(XboxAppUpdatePhase phase, long done = 0, long total = 0)
+    {
+        return new XboxAppUpdateStatus(phase, new Version(2611, 1001, 10, 0), new Version(2612, 1001, 23, 0), done,
+            total, "");
     }
 
     [AvaloniaFact]

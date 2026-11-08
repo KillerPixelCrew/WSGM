@@ -36,6 +36,8 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
     private readonly HashSet<string> _pending = new(StringComparer.Ordinal);
     private readonly Task _reconciliation;
     private readonly ConfigStore _store;
+    private readonly XboxAppUpdater _xboxApp;
+    private Task? _xboxAppRun;
     private ProgramDefinition[] _definitions;
     private HashSet<string> _pins;
     private ProgramState[] _state = [];
@@ -44,10 +46,14 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
     /// <param name="store">The configuration store.</param>
     /// <param name="config">The current configuration.</param>
     /// <param name="installed">Windows' installed and packaged applications; null uses the real host.</param>
-    internal ProgramsService(ConfigStore store, AppConfig config, IInstalledApplicationHost? installed = null)
+    /// <param name="xboxApp">The Xbox app updater; null uses Microsoft's Store and Windows.</param>
+    internal ProgramsService(ConfigStore store, AppConfig config, IInstalledApplicationHost? installed = null,
+        XboxAppUpdater? xboxApp = null)
     {
         _store = store;
         _installed = installed ?? new WindowsInstalledApplicationHost(store.Context);
+        _xboxApp = xboxApp ?? new XboxAppUpdater();
+        _xboxApp.Changed += () => Changed?.Invoke();
         _definitions = config.Programs.Select(entry => entry with { }).ToArray();
         _pins = config.QuickAccessPins.ToHashSet(StringComparer.Ordinal);
         _reconciliation = Task.Run(ReconcileLoopAsync);
@@ -57,6 +63,20 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
     {
         await _lifetime.CancelAsync().ConfigureAwait(false);
         await _reconciliation.ConfigureAwait(false);
+        Task? xboxAppRun;
+        lock (_gate)
+        {
+            xboxAppRun = _xboxAppRun;
+        }
+
+        if (xboxAppRun is not null)
+        {
+            // A download stops at once. Windows owns an installation that has started and finishes it
+            // without WSGM, so shutdown does not wait for it.
+            await Task.WhenAny(xboxAppRun, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
+        }
+
+        _xboxApp.Dispose();
         await _commands.WaitAsync().ConfigureAwait(false);
         foreach (var observation in _launchObservations.Values)
         {
@@ -136,6 +156,12 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
                     config.Programs[index] = entry;
                 }
             });
+
+            // Adding the Xbox app asks at once whether Game Mode needs a newer build of it.
+            if (XboxAppExperience.Applies(packaged))
+            {
+                _xboxApp.Refresh();
+            }
         });
     }
 
@@ -642,6 +668,7 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
                 try
                 {
                     Refresh();
+                    RefreshXboxApp();
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
@@ -658,6 +685,41 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         catch (OperationCanceledException)
         {
         }
+    }
+
+    /// <summary>Follows the installed Xbox app version while an Xbox app entry exists.</summary>
+    private void RefreshXboxApp()
+    {
+        bool listed;
+        lock (_gate)
+        {
+            listed = _definitions.Any(entry => XboxAppExperience.Applies(entry.AppUserModelId));
+        }
+
+        if (listed)
+        {
+            _xboxApp.Refresh();
+        }
+    }
+
+    public XboxAppUpdateStatus XboxAppUpdate => _xboxApp.Status;
+
+    public void StartXboxAppUpdate()
+    {
+        lock (_gate)
+        {
+            if (_xboxAppRun is { IsCompleted: false } || _lifetime.IsCancellationRequested)
+            {
+                return;
+            }
+
+            _xboxAppRun = Task.Run(() => _xboxApp.RunAsync(_lifetime.Token));
+        }
+    }
+
+    public void CancelXboxAppUpdate()
+    {
+        _xboxApp.Cancel();
     }
 
     private void Refresh()
