@@ -144,7 +144,7 @@ back the exact start types and tasks. The profile page names what was found, Cus
 switch, Minimal leaves them alone, and a quiet fresh install never turns them off.
 
 On the exact Predator Atlas 8 PA08-I51 definition, takeover also handles Predator Sense for
-Handheld: the ten measured Acer services, three tasks, the widget package's activation and only the
+Handheld: the measured Acer services, three tasks, the widget package's activation and only the
 dedicated `HID\VID_0502&PID_F901&MI_02&COL01` keyboard leaf. Volume's I2C device and the
 controller's other collections stay available. The package Disabled bit and enabled keyboard state
 are recorded before changes; uninstall restores them without clearing unrelated package status
@@ -152,9 +152,11 @@ flags. The package families include their publisher identity and allow replaceme
 helpers are asked to close normally; setup reports a restart when a blocked helper remains or PnP
 requires one. The Predator Sense for Handheld desktop app is not blocked or closed, so the user can
 start it to get Acer's BIOS updates (2026-11-07). Setup clears the Disabled status an earlier
-version recorded for its package, once, only if that status is still set. Likewise `AFZsvc` is no
-longer turned off, because a tester's built-in controller needed it after Acer's component update
-(2026-11-08); setup restores the start type recorded for it while it is still disabled.
+version recorded for its package, once, only if that status is still set. The maintainer's
+2026-11-08 decision puts `AFZsvc` back in takeover and includes the optional `FocusZoomUserService`
+service and Focus Zoom process names. A tester reported a controller dependency after Acer's
+component update; the maintainer accepted that risk. Setup never re-enables these services;
+uninstall restores their recorded start types. The driver package and binaries remain installed.
 Unplugged-but-registered nodes retain their recovery ownership. Already-disabled user settings are
 preserved. Repair/setup reconciles an accepted takeover again. A change Windows refuses is logged
 and left to the re-check; it never fails or rolls back the install.

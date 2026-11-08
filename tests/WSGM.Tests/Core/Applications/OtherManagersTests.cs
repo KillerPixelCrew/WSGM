@@ -115,9 +115,9 @@ public sealed class OtherManagersTests
         // The user starts Predator Sense for Handheld for Acer's BIOS updates (2026-11-07).
         var predator = OtherManagers.Known.Single(manager => manager.Id == "acer-predator-handheld");
 
-        Assert.Equal(["Handheld.Widget"], predator.Processes);
+        Assert.Equal(["Handheld.Widget", "FocusZoom", "FocusZoomUserService"], predator.Processes);
         Assert.Equal(["ULICTekInc.PredatorSenseforHandHeldWidget_nt9dgb7efx6bt"], predator.PackageFamilies);
-        Assert.Equal(9, predator.Services.Count);
+        Assert.Equal(11, predator.Services.Count);
         Assert.Contains("PredatorHandheldLauncher", predator.Tasks);
         Assert.NotNull(predator.DedicatedKeyboardDeviceId);
     }
@@ -146,27 +146,27 @@ public sealed class OtherManagersTests
         }
 
         FakeTargets refusing = new() { RestoreResult = false };
-        Assert.Equal(1, OtherManagers.RestoreUnblocked(temporary.Store, new FakeServices(), refusing));
+        Assert.Equal(1, OtherManagers.RestoreUnblocked(temporary.Store, refusing));
         Assert.Equal([desktop.Name], refusing.Restored.Select(entry => entry.Name));
         Assert.Equal(3, temporary.Store.Read().RequireConfig().OtherManagersDisabled.Count);
 
         FakeTargets accepting = new();
-        Assert.Equal(0, OtherManagers.RestoreUnblocked(temporary.Store, new FakeServices(), accepting));
+        Assert.Equal(0, OtherManagers.RestoreUnblocked(temporary.Store, accepting));
         Assert.Equal([desktop.Name], accepting.Restored.Select(entry => entry.Name));
         Assert.Equal([widget.Name, launcher.Name],
             temporary.Store.Read().RequireConfig().OtherManagersDisabled.Select(entry => entry.Name));
 
         FakeTargets again = new();
-        Assert.Equal(0, OtherManagers.RestoreUnblocked(temporary.Store, new FakeServices(), again));
+        Assert.Equal(0, OtherManagers.RestoreUnblocked(temporary.Store, again));
         Assert.Empty(again.Restored);
     }
 
     [Fact]
-    public void RestoreUnblocked_PutsBackAfzsvcOnlyWhileItIsStillDisabled_AndKeepsTheOtherAcerServicesOff()
+    public void RestoreUnblocked_KeepsFocusZoomDisabledAndPreservesItsUninstallRecord()
     {
-        // The tester's built-in controller needed AFZsvc after Acer's component update (2026-11-08).
+        // The maintainer chose to keep Focus Zoom off despite the tester's reported controller risk.
         var predator = OtherManagers.Known.Single(manager => manager.Id == "acer-predator-handheld");
-        Assert.DoesNotContain("AFZsvc", predator.Services);
+        Assert.Contains("AFZsvc", predator.Services);
         Assert.Contains("AASHHSvc", predator.Services);
 
         using var temporary = new TemporaryConfigStore();
@@ -184,28 +184,44 @@ public sealed class OtherManagersTests
         services.Services["AFZsvc"] = (4, false);
         services.Services["AASHHSvc"] = (4, false);
 
-        Assert.Equal(0, OtherManagers.RestoreUnblocked(temporary.Store, services, new FakeTargets()));
+        Assert.Equal(0, OtherManagers.RestoreUnblocked(temporary.Store, new FakeTargets()));
 
-        Assert.Equal(["AFZsvc=2", "start AFZsvc"], services.Calls);
+        Assert.Empty(services.Calls);
+        Assert.Equal((4, false), services.Services["AFZsvc"]);
         Assert.Equal((4, false), services.Services["AASHHSvc"]);
-        Assert.Equal(["AASHHSvc"], temporary.Store.Read().RequireConfig().OtherManagersDisabled.Select(entry => entry.Name));
+        Assert.Equal(["AFZsvc", "AASHHSvc"],
+            temporary.Store.Read().RequireConfig().OtherManagersDisabled.Select(entry => entry.Name));
     }
 
     [Fact]
-    public void RestoreUnblocked_LeavesAnAfzsvcTheUserChangedAsItIs()
+    public void FocusZoom_DisableRecordsOriginalStateBeforeWritingAndUninstallRestoresIt()
     {
         using var temporary = new TemporaryConfigStore();
-        OtherManagers.Record(temporary.Store, new OtherManagerRecord
-        {
-            ManagerId = "acer-predator-handheld", Kind = "service", Name = "AFZsvc", PreviousStart = 2
-        });
+        var manager = OtherManagers.Known.Single(item => item.Id == "acer-predator-handheld");
         FakeServices services = new();
-        services.Services["AFZsvc"] = (3, false);
+        services.Services["AFZsvc"] = (2, true);
+        services.Services["FocusZoomUserService"] = (3, false);
+        DetectedManager detected = new(manager, ["AFZsvc", "FocusZoomUserService"], [], []);
+        var result = OtherManagers.Disable([detected], entry =>
+        {
+            Assert.NotEqual(4, services.Services[entry.Name].Start);
+            OtherManagers.Record(temporary.Store, entry);
+        }, new FakeAutostartSystem(), services, _ => []);
 
-        Assert.Equal(0, OtherManagers.RestoreUnblocked(temporary.Store, services, new FakeTargets()));
-
-        Assert.Empty(services.Calls);
-        Assert.Empty(temporary.Store.Read().RequireConfig().OtherManagersDisabled);
+        Assert.Empty(result.Failed);
+        Assert.Equal((4, false), services.Services["AFZsvc"]);
+        Assert.Equal((4, false), services.Services["FocusZoomUserService"]);
+        Assert.Contains("stop AFZsvc", services.Calls);
+        Assert.Contains("stop FocusZoomUserService", services.Calls);
+        var records = temporary.Store.Read().RequireConfig().OtherManagersDisabled;
+        Assert.Equal(2, records.Count);
+        var restored = OtherManagers.Restore(records, new FakeAutostartSystem(), services);
+        Assert.Equal(2, restored.Count);
+        Assert.Equal((2, true), services.Services["AFZsvc"]);
+        Assert.Equal((3, false), services.Services["FocusZoomUserService"]);
+        Assert.Contains("start AFZsvc", services.Calls);
+        Assert.DoesNotContain("start FocusZoomUserService", services.Calls);
+        Assert.Empty(OtherManagers.Restore([], new FakeAutostartSystem(), services));
     }
 
     [Fact]

@@ -1,8 +1,9 @@
 #requires -RunAsAdministrator
 # Maintainer-authorized local Atlas maintenance. Not invoked by WSGM runtime or validation.
 $ErrorActionPreference = 'Stop'
-# AFZsvc stays startable: the built-in controller needed it after Acer's component update (2026-11-08).
-$services = @('AASHHSvc','AcerCCAgentSvis','AcerDeviceEnablingServiceV2','AcerHandheld.Service','AcerLightingServiceHH','AcerORDService','AcerServiceSvc','ALSSvc','UEIPSvc')
+# Maintainer decision, 2026-11-08: Focus Zoom stays off despite the reported controller dependency.
+# FocusZoomUserService is optional; on the attended unit it is a child executable, not a Windows service.
+$services = @('AASHHSvc','AcerCCAgentSvis','AcerDeviceEnablingServiceV2','AcerHandheld.Service','AcerLightingServiceHH','AcerORDService','AcerServiceSvc','AFZsvc','FocusZoomUserService','ALSSvc','UEIPSvc')
 $tasks = @('PredatorHandheldLauncher','UEIPInvitation','UbtFrameworkService')
 # The desktop app ULICTekInc.PredatorSenseforHandHeld stays startable: Acer delivers Atlas BIOS updates through it (2026-11-07).
 $packages = @('ULICTekInc.PredatorSenseforHandHeldWidget')

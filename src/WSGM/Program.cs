@@ -504,7 +504,7 @@ public static class Program
         if (config is not null)
         {
             // What WSGM no longer turns off goes back once, elevated: the Predator Sense for Handheld desktop
-            // package (the user starts it for Acer's BIOS updates) and AFZsvc (the built-in controller needs it).
+            // package, which the user starts for Acer's BIOS updates. Focus Zoom stays in takeover.
             OtherManagers.RestoreUnblocked(Store);
         }
 

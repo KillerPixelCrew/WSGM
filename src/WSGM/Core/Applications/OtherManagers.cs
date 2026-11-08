@@ -459,26 +459,23 @@ public static class OtherManagers
     }
 
     /// <summary>
-    ///     Puts back, from elevated setup, each recorded change the catalog no longer makes: the Predator Sense
-    ///     for Handheld desktop package, which the user starts for Acer's BIOS updates since 2026-11-07, and
-    ///     the AFZsvc service, which the built-in controller needed after Acer's component update since
-    ///     2026-11-08. A service is written only while it still holds WSGM's Disabled start type; one the user
-    ///     changed since keeps its state. A settled record is removed, so this runs once; a refused one waits
-    ///     for the next setup or the uninstaller.
+    ///     Puts back, from elevated setup, recorded packages the catalog no longer blocks: the Predator Sense
+    ///     for Handheld desktop package, which the user starts for Acer's BIOS updates since 2026-11-07.
+    ///     Service records remain owned by takeover until uninstall; setup never starts Focus Zoom.
+    ///     A settled record is removed, so this runs once; a refused one waits for the next setup or uninstall.
     /// </summary>
     /// <param name="store">Persistence holding takeover records; only settled records are removed.</param>
     /// <returns>Zero when nothing was left behind, otherwise 1.</returns>
     public static int RestoreUnblocked(ConfigStore store)
     {
-        return RestoreUnblocked(store, new ServiceSystem(), new OtherManagerWindowsTargets());
+        return RestoreUnblocked(store, new OtherManagerWindowsTargets());
     }
 
-    /// <summary>Puts back unblocked package and service records through the given backends.</summary>
+    /// <summary>Puts back unblocked package records through the given backend.</summary>
     /// <param name="store">Persistence holding takeover records; only settled records are removed.</param>
-    /// <param name="services">Service backend.</param>
     /// <param name="targets">Package backend.</param>
     /// <returns>Zero when nothing was left behind, otherwise 1.</returns>
-    internal static int RestoreUnblocked(ConfigStore store, IServiceSystem services, IOtherManagerTargets targets)
+    internal static int RestoreUnblocked(ConfigStore store, IOtherManagerTargets targets)
     {
         try
         {
@@ -486,13 +483,8 @@ public static class OtherManagers
             [
                 .. store.Read().RequireConfig().OtherManagersDisabled.Where(entry =>
                     Known.FirstOrDefault(manager => manager.Id == entry.ManagerId) is { } manager
-                    && entry.Kind switch
-                    {
-                        PackageKind => !manager.PackageFamilies.Contains(PackageFamilyName(entry.Name),
-                            StringComparer.Ordinal),
-                        ServiceKind => !manager.Services.Contains(entry.Name, StringComparer.OrdinalIgnoreCase),
-                        _ => false
-                    })
+                    && entry.Kind == PackageKind
+                    && !manager.PackageFamilies.Contains(PackageFamilyName(entry.Name), StringComparer.Ordinal))
             ];
             if (unblocked.Count == 0)
             {
@@ -502,25 +494,9 @@ public static class OtherManagers
             List<OtherManagerRecord> settled = [];
             foreach (var entry in unblocked)
             {
-                bool ok;
-                if (entry.Kind == PackageKind)
-                {
-                    ok = targets.Restore(entry);
-                    Log.Info($"Other managers: {entry.Name} is no longer blocked; "
-                             + (ok ? "its activation is restored." : "restoring its activation failed."));
-                }
-                else if (services.ReadStart(entry.Name, out _) is not 4)
-                {
-                    // Removed, or no longer disabled: nothing of WSGM's is left to put back.
-                    ok = true;
-                    Log.Info($"Other managers: service {entry.Name} is no longer turned off and keeps its state.");
-                }
-                else
-                {
-                    ok = RestoreService(services, entry);
-                    Log.Info($"Other managers: service {entry.Name} is no longer turned off; "
-                             + (ok ? $"its start type {entry.PreviousStart} is restored." : "restoring it failed."));
-                }
+                var ok = targets.Restore(entry);
+                Log.Info($"Other managers: {entry.Name} is no longer blocked; "
+                         + (ok ? "its activation is restored." : "restoring its activation failed."));
 
                 if (ok)
                 {

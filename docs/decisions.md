@@ -138,9 +138,14 @@ BIOS updates through the app and does not post them separately, so the takeover 
 desktop package or closes its window. Its services, tasks, widget and the controller keyboard leaf
 stay off. Setup clears the Disabled status earlier versions recorded for the desktop package.
 
-**AFZsvc is never turned off (2026-11-08).** After Acer's component update 1.0.1000.4 a
-tester's built-in controller stopped working while the service was disabled. Setup puts back the
-start type earlier versions recorded for it, only while it is still disabled.
+**Focus Zoom stays off on the Atlas (maintainer, 2026-11-08).** The maintainer chose to disable
+`AFZsvc` and any installed `FocusZoomUserService` service through the exact Atlas OEM takeover,
+despite a tester's controller failure after Acer component update 1.0.1000.4 while AFZsvc was off.
+The installed AFZsvc launches FocusZoomUserService and FocusZoom.exe, which handles HID zoom reports
+and Windows screen capture. SRUM records CPU energy for that stack, but the attended run did not
+establish an extreme-power root cause. Setup no longer re-enables AFZsvc; uninstall restores
+recorded start types. Predator Sense's desktop BIOS-delivery exemption is unchanged. See the
+[Acer provenance](../external/libhandheld/src/LibHandheld/Families/Acer/PROVENANCE.md).
 
 **Steam shows the volume, WSGM only applies it (maintainer, 2026-10-28).** The physical volume
 command is always applied in game mode, with the feedback sound. WSGM's own volume popup was removed
