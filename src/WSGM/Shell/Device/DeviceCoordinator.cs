@@ -97,6 +97,9 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     private Action<HandheldRuntimeState>? _lifecycleHandler;
 
     private Task _resumeRestore = Task.CompletedTask;
+
+    /// <summary>The restore pass of the latest cycle start, which completes after the limit was reapplied.</summary>
+    internal Task ResumeRestore => Volatile.Read(ref _resumeRestore);
     private string? _runningApplicationId;
     private string? _runningExecutable;
     private Task _runtimeRetirement = Task.CompletedTask;
@@ -2436,11 +2439,14 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             {
                 try
                 {
-                    await Commands.ReconcileDesiredValuesAsync($"device {state}", _lifetime.Token)
-                        .ConfigureAwait(false);
+                    // The power path comes first in this pass, so the limit below goes through it.
+                    await Commands.ReconcileDesiredValuesAsync($"device {state}", _lifetime.Token,
+                        skipReassertedPowerLimit: true).ConfigureAwait(false);
+                    await Power.ReassertLimitAsync(_lifetime.Token).ConfigureAwait(false);
                 }
                 finally
                 {
+                    await Power.PowerAssignments.ForgetAppliedAsync().ConfigureAwait(false);
                     Power.RequestAssignmentReconcile();
                 }
             });

@@ -478,6 +478,20 @@ internal sealed class AutoTdpService : IAsyncDisposable
         Publish(AutoTdpState.Paused, watts, null, null, "Paused by a manual power change.");
     }
 
+    /// <summary>The limit automatic control is holding the device at, or null when it holds none.</summary>
+    internal int? HeldWatts
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _enabled && (_controllerStarted || _controller.IsPaused) && _controller.Watts > 0
+                    ? _controller.Watts
+                    : null;
+            }
+        }
+    }
+
     /// <summary>Resumes automatic control that a per-application limit had paused.</summary>
     /// <remarks>
     ///     Called when the application whose own limit paused control is no longer running and no limit

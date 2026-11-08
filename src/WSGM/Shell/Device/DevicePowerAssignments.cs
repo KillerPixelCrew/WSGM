@@ -293,6 +293,22 @@ internal sealed class DevicePowerAssignments(
         }
     }
 
+    /// <summary>Makes the next reconcile apply the assignment again; a new device cycle starts on firmware values.</summary>
+    /// <returns>Completion once any reconcile in progress has finished.</returns>
+    internal async Task ForgetAppliedAsync()
+    {
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            _attempted = null;
+            _applied = false;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private async Task ReconcileCoreAsync(CancellationToken cancellationToken)
     {
         var current = context();

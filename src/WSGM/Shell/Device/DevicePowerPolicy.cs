@@ -528,6 +528,82 @@ internal sealed class DevicePowerPolicy
         }
     }
 
+    /// <summary>Whether this is the sustained limit, or its paired peer, that a cycle start writes itself.</summary>
+    /// <param name="view">A capability in the restore pass.</param>
+    /// <returns>Whether <see cref="ReassertLimitAsync" /> owns it.</returns>
+    internal bool IsReassertedLimit(DeviceCapabilityView view)
+    {
+        return view.Descriptor.Role == CapabilityRole.PowerSustainedLimit
+               || view.Descriptor.CapabilityId
+               == AutoTdpPowerCapability.FindPrimary(_capabilities.Snapshot())?.Descriptor.PairedPowerLimitId;
+    }
+
+    /// <summary>Writes the limit in force once when a device cycle comes up, whatever the device reports.</summary>
+    /// <param name="cancellationToken">Cancels the wait for the power lane.</param>
+    /// <returns>Completion after the write is attempted once.</returns>
+    /// <remarks>
+    ///     A suspend gives the limits back and firmware resets them during standby, so what was in force
+    ///     before the sleep says nothing about the device now, and a reading that happens to match proves
+    ///     nothing either. A power-source preset owns the limits instead, and a limit AutoTDP holds is its
+    ///     own. The write goes in once; a refusal is logged and waits for the next write or wake.
+    /// </remarks>
+    internal async Task ReassertLimitAsync(CancellationToken cancellationToken)
+    {
+        await Lane.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_closed() || AutoTdpPowerCapability.FindPrimary(_capabilities.Snapshot()) is not { } power
+                          || PowerAssignments.HasCurrentAssignment)
+            {
+                return;
+            }
+
+            var layers = _profiles.Current.Layers;
+            bool applied;
+            int watts;
+            if (AutoTdpEnabled && !ApplicationPerformanceReconciler.SetByGame(layers))
+            {
+                if (AutoTdp.HeldWatts is not { } held)
+                {
+                    return;
+                }
+
+                watts = held;
+                applied = await ApplyProfilePowerLimitAsync(power, held,
+                    power.Descriptor.PairedPowerLimitId is not null, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                var manual = layers.ManualTdp();
+                var decision = PerApplicationPowerPolicy.DecideOnTargetChange(
+                    manual is null ? null : manual.Unified ? manual.UnifiedWatts : manual.SustainedWatts,
+                    false,
+                    false,
+                    power.Descriptor.Maximum ?? 0);
+                if (manual is null || decision.Action != PerAppPowerAction.Apply)
+                {
+                    return;
+                }
+
+                watts = decision.Watts;
+                var boost = manual is { Unified: false } && power.Descriptor.PairedPowerLimitId is { } peerId
+                    ? _capabilities.TryGetView(new DeviceCapabilityKey(peerId, null))?.Projection.DesiredValue
+                        ?.IntegerValue
+                    : null;
+                applied = boost is { } boostWatts
+                    ? await RestoreSplitPowerAsync(power, watts, boostWatts, cancellationToken).ConfigureAwait(false)
+                    : await ApplyProfilePowerLimitAsync(power, watts, manual.Unified, cancellationToken)
+                        .ConfigureAwait(false);
+            }
+
+            Log.Info($"Power limit after the device came up: {watts} W, written={applied}.");
+        }
+        finally
+        {
+            Lane.Release();
+        }
+    }
+
     /// <summary>Pauses AutoTDP for a power write a person applied, and records a sustained limit.</summary>
     /// <param name="capabilityId">The capability that was commanded.</param>
     /// <param name="instanceId">Its instance, or null for a single-instance capability.</param>

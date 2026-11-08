@@ -160,9 +160,10 @@ internal sealed class AutoTdpController
     internal void PauseForManualChange(int? watts)
     {
         IsPaused = true;
+        // A firmware profile chosen by hand holds no watt limit of ours.
+        Watts = watts ?? 0;
         if (watts is { } known)
         {
-            Watts = known;
             LastGood = known;
         }
 

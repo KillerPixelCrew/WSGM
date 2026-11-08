@@ -496,6 +496,80 @@ public sealed class DeviceCoordinatorTests
         Assert.False(DeviceCoordinator.OwnsPhysicalController(true, null, ManagedControllerTarget.Xbox360));
     }
 
+    [Fact]
+    public async Task EachWakeWritesTheLimitInForceOnceEvenWhenTheDeviceAlreadyReportsIt()
+    {
+        await using Harness harness = new(configure: config =>
+        {
+            config.Profiles.Global.TdpUnified = true;
+            config.Profiles.Global.UnifiedWatts = 27;
+        });
+        FakeCapabilityPublisher publisher = new(CapabilityRole.PowerSustainedLimit, CapabilityRole.PowerSlowLimit);
+        var descriptor = new CapabilityDescriptor
+        {
+            CapabilityId = "power.sustained-limit",
+            Role = CapabilityRole.PowerSustainedLimit,
+            ValueKind = CapabilityValueKind.Integer,
+            Display = new CapabilityDisplay { Key = DisplayKey.SustainedPowerLimit },
+            SupportsRead = true,
+            SupportsWrite = true,
+            Persistence = CapabilityPersistence.Volatile,
+            Unit = CapabilityUnit.Watt,
+            Minimum = 5,
+            Maximum = 40,
+            Step = 1,
+            PairedPowerLimitId = "power.boost-limit"
+        };
+        var boost = descriptor with
+        {
+            CapabilityId = "power.boost-limit",
+            Role = CapabilityRole.PowerSlowLimit,
+            PairedPowerLimitId = null,
+            Maximum = 65
+        };
+        await harness.Coordinator.InitializeAsync();
+        await harness.Coordinator.ResumeRestore;
+        harness.Coordinator.Capabilities.Attach(publisher);
+        publisher.Publish(CapabilityBuilders.Set(1, descriptor, boost));
+        publisher.PublishState(1, CapabilityBuilders.State(1, CapabilityValue.Integer(27)) with
+        {
+            CapabilityId = descriptor.CapabilityId
+        });
+        publisher.PublishState(1, CapabilityBuilders.State(1, CapabilityValue.Integer(27)) with
+        {
+            CapabilityId = boost.CapabilityId
+        });
+
+        await harness.Coordinator.SuspendAsync();
+        Assert.Empty(publisher.Commands);
+        await harness.Coordinator.ResumeAsync(true);
+        await harness.Coordinator.ResumeRestore;
+        Assert.Equal(27, Assert.Single(publisher.Commands).RequestedValue!.IntegerValue);
+
+        // The second resume of one wake, like the stale suspend that is dropped before it gets here,
+        // reaches no cycle transition and writes nothing.
+        await harness.Coordinator.ResumeAsync(true);
+        await harness.Coordinator.ResumeRestore;
+        Assert.Single(publisher.Commands);
+        Assert.True(SessionPowerEvents.IsStaleSuspend(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1)));
+
+        // The runtime republishes its own capabilities when it resumes, so the fixture's return.
+        harness.Coordinator.Capabilities.Attach(publisher);
+        publisher.Publish(CapabilityBuilders.Set(2, descriptor, boost));
+        publisher.PublishState(2, CapabilityBuilders.State(2, CapabilityValue.Integer(27)) with
+        {
+            CapabilityId = descriptor.CapabilityId
+        });
+        publisher.PublishState(3, CapabilityBuilders.State(2, CapabilityValue.Integer(27)) with
+        {
+            CapabilityId = boost.CapabilityId
+        });
+        await harness.Coordinator.SuspendAsync();
+        await harness.Coordinator.ResumeAsync(true);
+        await harness.Coordinator.ResumeRestore;
+        Assert.Equal(2, publisher.Commands.Count);
+    }
+
     private sealed class Harness : IAsyncDisposable
     {
         internal readonly DeterministicFakeControllerBackend Backend = new();
@@ -514,7 +588,7 @@ public sealed class DeviceCoordinatorTests
         internal int RestartDelays;
         internal HandheldDeviceRuntime? Runtime;
 
-        internal Harness(bool enabled = true)
+        internal Harness(bool enabled = true, Action<AppConfig>? configure = null)
         {
             Definition = new HandheldDefinition(NativeRuntimeEngine.DefinitionId,
                     NativeRuntimeEngine.FamilyId, "Runtime fixture", "fixture")
@@ -528,6 +602,7 @@ public sealed class DeviceCoordinatorTests
                     ControllerManagementEnabled = false
                 }
             };
+            configure?.Invoke(Config);
             ProfileService profiles = new(Config.Profiles, (_, _) => Task.FromResult(Config.Profiles));
             Coordinator = new DeviceCoordinator(Config, _temporary.Store, 0, new Owner(this),
                 action => action(), profiles, () => 0, () => RtssOsdMetrics.Empty, _ => { },

@@ -19,6 +19,16 @@ accepted, and restores WSGM-owned changes on uninstall. Setup and Settings repor
 restart. The earlier local guard is separate from these install-lifecycle records; existing disabled
 settings are preserved as user-owned state.
 
+## Power limits across a wake
+
+A suspend gives the limits back and firmware resets them during standby, so every device cycle that
+comes up writes the limit in force once, even when the device already reports that value: the active
+profile's limit, the limit AutoTDP holds (including one set by hand while it is paused), or the
+assigned power preset. The power path is restored first, so the write goes through it. The Atlas
+keeps its IPF session open across a standby. A session that is missing or was closed by the server
+is opened by the next limit write before anything is sent, a failed open refuses that write, and the
+path stays on IPF with `ipfsvc` running. Each write logs what IPF or MSR 0x610 reports afterwards.
+
 ## Configuration and availability
 
 Device Integration is an application switch. Off means no native device lifecycle, controller

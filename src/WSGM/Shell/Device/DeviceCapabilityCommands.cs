@@ -304,6 +304,7 @@ internal sealed class DeviceCapabilityCommands
     /// <param name="reason">What asked for the reconciliation, for the log.</param>
     /// <param name="cancellationToken">Cancels the remaining commands.</param>
     /// <param name="lightingOnly">Limits readiness-triggered restoration to lighting.</param>
+    /// <param name="skipReassertedPowerLimit">Leaves the sustained limit to the cycle start's own write.</param>
     /// <returns>A task completing once every affected capability has been attempted.</returns>
     /// <remarks>
     ///     Per-capability and independent: one refusal must not stop the rest, because a profile that
@@ -311,7 +312,8 @@ internal sealed class DeviceCapabilityCommands
     ///     A value the device already reports is skipped, so reselecting the active profile is free.
     /// </remarks>
     internal async Task ReconcileDesiredValuesAsync(
-        string reason, CancellationToken cancellationToken, bool lightingOnly = false)
+        string reason, CancellationToken cancellationToken, bool lightingOnly = false,
+        bool skipReassertedPowerLimit = false)
     {
         await _reconcileGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -331,6 +333,7 @@ internal sealed class DeviceCapabilityCommands
                 {
                     Priority = ReconciliationPriority,
                     Include = view => !_lighting.OwnsProfile(view)
+                                      && !(skipReassertedPowerLimit && _power.IsReassertedLimit(view))
                                       && (!lightingOnly || DeviceLightingRestore.IsLighting(view.Descriptor.Role))
                                       && !(view.Descriptor.Role is CapabilityRole.FanDuty or CapabilityRole.FanTargetRpm
                                                or CapabilityRole.FanCurve
