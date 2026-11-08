@@ -41,6 +41,11 @@ uninstalls it nor changes the configured next-logon preference.
 `--settings`, which wins over `--overlay-test`; no mode flag means Settings. These flags are
 case-insensitive. WSGM never registers as the Windows shell.
 
+`WSGM.exe --toggle-game-mode` asks the running session to switch between Desktop and Game Mode
+through its existing mode coordinator. It never starts a session. Exit code 0 means the request was
+queued; 3 means no running session accepted it. The asynchronous transition and any recovery result
+remain in `wsgm.log`. Repeated requests can coalesce while the session is busy.
+
 | Flag                           | Mode                                  |
 | ------------------------------ | ------------------------------------- |
 | `--boot`                       | service-launched takeover at logon    |

@@ -74,6 +74,7 @@ public sealed class ShellSession
     private readonly bool _verboseLogging;
 
     private SessionActivation? _activation;
+    private SessionActivation? _modeToggleActivation;
     private ConfigReloadWatcher? _configWatcher;
     private ExplorerDesktopHost? _desktopHost;
     private bool _desktopRecoveryPending;
@@ -715,6 +716,14 @@ public sealed class ShellSession
                     Log.Observe(settings.OpenAsync(), "Settings open from a desktop launch", true);
                 }
             }));
+            TryStart("mode command", () => _modeToggleActivation = new SessionActivation(() =>
+            {
+                if (!_state.ShutdownRequested)
+                {
+                    Log.Observe(_commands.ToggleDesktopGameModeAsync(_state.ShutdownToken),
+                        "Mode switch from the command line", true);
+                }
+            }, SessionActivation.ModeToggleEventName));
         }
 
         // The sheet is recreated per open, so its one-time cost — compiled-XAML populate JIT for
@@ -1303,6 +1312,7 @@ public sealed class ShellSession
             _settingsSurface = null;
         });
         steps.DisposeOwner("session activation", ref _activation);
+        steps.DisposeOwner("mode command", ref _modeToggleActivation);
         return _surfaces.RetireTrayHost(steps);
     }
 

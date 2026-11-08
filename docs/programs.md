@@ -2,15 +2,15 @@
 
 Tools > Programs manages companion applications. **Add program** opens a searchable list of every
 application installed on this PC, the same set Windows shows in Start: all-users and per-user Start
-Menu shortcuts plus packaged (Store) apps such as Xbox. An alphabet bar beside the scrollbar jumps to
-a letter. Picking an app adds it at once and returns to the list. **Browse for a file…** is the
+Menu shortcuts plus packaged (Store) apps such as Xbox. An alphabet bar beside the scrollbar jumps
+to a letter. Picking an app adds it at once and returns to the list. **Browse for a file…** is the
 manual choice in the same flow, with the Overlay's controller and touch accessible file picker, and
 stays available while the list loads and when it cannot be read. Programs exist only in the Overlay;
 Steam has no surface that adds or edits them. Each entry has small edit, pin and remove buttons
 beside it; the name, arguments and optional working directory are changed in its editor. Every entry
-can be pinned to Quick access. The page and its pins invoke
-the same session-owned launch-or-focus service and consume the same running state. Removing an entry
-or closing the Overlay never terminates the application.
+can be pinned to Quick access. The page and its pins invoke the same session-owned launch-or-focus
+service and consume the same running state. Removing an entry or closing the Overlay never
+terminates the application.
 
 Definitions live in `AppConfig.Programs`, with stable IDs and `program:{id}` Quick access pins.
 Executable selection records its absolute path and SHA-256. Missing or changed executables stay
@@ -41,18 +41,29 @@ Selection prefers the foreground window, then the last active window, then top-l
 Minimized windows are restored before ordinary Windows foreground activation. A refusal is recorded
 on the Programs page; WSGM does not inject into games or force a game's window mode.
 
-For a launcher or updater whose real UI uses another executable, launch/open the tool, return to
-Programs and choose **Select running UI application**. Explicit confirmation remembers the selected
-window's verified executable path and fingerprint. Its identity replaces the bootstrap process for
-subsequent running/focus decisions. A changed UI executable requires another selection or explicitly
-forgetting that identity. No product-specific process-name rules are used.
+For a launcher or updater whose real UI uses another executable, Programs observes process ancestry
+for up to thirty seconds, beginning before dispatch. Only a newly created process with the approved
+exact launch path can seed that observation. Its verified descendants can supply the UI, including
+children with different filenames. Windows process-start and executable image-load events preserve
+short-lived handoffs; kernel creation sequences identify each parent independently of recycled PIDs.
+When tracing is unavailable, snapshots retain process handles to prevent parent ID reuse. Once an
+eligible window appears, Programs remembers its exact executable path and fingerprint automatically.
+Its identity replaces the bootstrap process for subsequent running/focus decisions. No
+product-specific process-name rules are used.
+
+An application that hands off through an unrelated service, or a short-lived bootstrap when Windows
+refuses tracing permission, may leave no verifiable ancestry. In that case, return to Programs and
+choose **Select running UI application**. Explicit confirmation remembers the selected window's
+verified executable path and fingerprint. A changed UI executable requires another selection or
+explicitly forgetting that identity.
 
 A running process without an eligible window gets a short bounded UI wait and an informative result.
 An optional **Reinvoke when running without a window** policy permits the application's own
 single-instance IPC activation; leave it off unless that behavior is known to be safe. Dispatches
 without a resolved UI remain pending, preventing repeated accidental launches. Only explicit UI
-selection, observing a matching UI, or **Clear pending launch** releases that protection. Clearing
-pending state explains that a previous start may still complete.
+selection, observing a matching UI (including a verified launch descendant), or **Clear pending
+launch** releases that protection. Clearing pending state explains that a previous start may still
+complete.
 
 One five-second background reconciliation feeds all Programs views and pins. Executable hashes are
 cached by file metadata for state presentation and recomputed before launch. Application icons are

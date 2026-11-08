@@ -82,9 +82,11 @@ internal static class Program
     private static int Activate(string aumid)
     {
         HideConsole();
+        PackagedLaunchLog.Info($"Activating {aumid}, {PrivilegeJournal.Elevation()}.");
         var result = PackageActivation.Activate(aumid, null);
         if (result.Succeeded)
         {
+            PackagedLaunchLog.Info($"{aumid}: {result.Detail}");
             return 0;
         }
 

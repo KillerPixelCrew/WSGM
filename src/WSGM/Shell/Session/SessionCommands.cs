@@ -55,24 +55,7 @@ internal sealed class SessionCommands(
                 overlay()?.ToggleOpenApps();
                 return overlay() is not null;
             }, cancellationToken),
-            ToggleDesktopGameModeAsync = cancellationToken => RunUiActionAsync(() =>
-            {
-                if (modes() is not { } sessionModes)
-                {
-                    return false;
-                }
-
-                if (ExplorerControl.IsDesktopShellRunning())
-                {
-                    sessionModes.EnterGameMode();
-                }
-                else
-                {
-                    sessionModes.EnterDesktopMode();
-                }
-
-                return true;
-            }, cancellationToken),
+            ToggleDesktopGameModeAsync = ToggleDesktopGameModeAsync,
             ToggleOnScreenKeyboardAsync = ShowOnScreenKeyboardAsync,
             CyclePerformanceProfileAsync = CyclePerformanceProfileAsync,
             CyclePerformanceOverlayLevelAsync = CyclePerformanceOverlayLevelAsync,
@@ -80,6 +63,31 @@ internal sealed class SessionCommands(
                 integrations.Device?.PulseRearButtonAsync(button, cancellationToken)
                 ?? Task.FromResult(false)
         };
+    }
+
+    /// <summary>Requests the same owned transition used by the device action and session command line.</summary>
+    /// <param name="cancellationToken">Cancels UI-thread admission.</param>
+    /// <returns>Whether the mode request was admitted; completion is reported by the existing mode owner.</returns>
+    internal Task<bool> ToggleDesktopGameModeAsync(CancellationToken cancellationToken)
+    {
+        return RunUiActionAsync(() =>
+        {
+            if (modes() is not { } sessionModes)
+            {
+                return false;
+            }
+
+            if (ExplorerControl.IsDesktopShellRunning())
+            {
+                sessionModes.EnterGameMode();
+            }
+            else
+            {
+                sessionModes.EnterDesktopMode();
+            }
+
+            return true;
+        }, cancellationToken);
     }
 
     /// <summary>Builds what the device's power button does in this session.</summary>

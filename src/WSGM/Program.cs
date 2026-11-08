@@ -358,6 +358,7 @@ public static class Program
     {
         (string Flag, bool RequiresSessionUser, Func<int> Run)[] oneShots =
         [
+            ("--toggle-game-mode", true, static () => SessionActivation.SignalModeToggle() ? 0 : 3),
             // Elevated one-shots for the UAC prompt-level toggle (see UacSettings).
             ("--set-uac-silent", true, static () => UacSettings.ApplyDirect(Store, true) ? 0 : 1),
             ("--restore-uac", true, static () => UacSettings.ApplyDirect(Store, false) ? 0 : 1),

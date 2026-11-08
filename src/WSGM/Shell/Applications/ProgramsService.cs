@@ -31,6 +31,7 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
     private readonly Dictionary<string, Bitmap?> _icons = new(StringComparer.OrdinalIgnoreCase);
     private readonly IInstalledApplicationHost _installed;
     private readonly Dictionary<string, nint> _lastWindows = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ProgramLaunchObservation> _launchObservations = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly HashSet<string> _pending = new(StringComparer.Ordinal);
     private readonly Task _reconciliation;
@@ -57,6 +58,11 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         await _lifetime.CancelAsync().ConfigureAwait(false);
         await _reconciliation.ConfigureAwait(false);
         await _commands.WaitAsync().ConfigureAwait(false);
+        foreach (var observation in _launchObservations.Values)
+        {
+            await observation.DisposeAsync().ConfigureAwait(false);
+        }
+
         foreach (var bitmap in _icons.Values)
         {
             bitmap?.Dispose();
@@ -91,6 +97,11 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
             var packaged = approveExecutable ? ValidatePackaged(definition.AppUserModelId) : "";
             var executable = approveExecutable && packaged.Length == 0 ? ValidateExecutable(definition.Executable) : "";
             var hash = approveExecutable && packaged.Length == 0 ? Hash(executable, true) : "";
+            if (approveExecutable && _launchObservations.TryGetValue(definition.Id, out var observation))
+            {
+                observation.Stop();
+            }
+
             if (definition.WorkingDirectory.Length > 0 && !Directory.Exists(definition.WorkingDirectory))
             {
                 throw new InvalidOperationException("The working directory is unavailable.");
@@ -135,6 +146,10 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
             config.Programs.RemoveAll(entry => entry.Id == id);
             config.QuickAccessPins.RemoveAll(pin => pin == PinPrefix + id);
             _pending.Remove(id);
+            if (_launchObservations.TryGetValue(id, out var observation))
+            {
+                observation.Stop();
+            }
         }));
     }
 
@@ -185,17 +200,32 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
 
     public Task ForgetUiAsync(string id)
     {
-        return CommandAsync(() => Persist(config =>
+        return CommandAsync(() =>
         {
-            var entry = Stored(config, id);
-            entry.UiExecutable = "";
-            entry.UiExecutableHash = "";
-        }));
+            if (_launchObservations.TryGetValue(id, out var observation))
+            {
+                observation.Stop();
+            }
+
+            Persist(config =>
+            {
+                var entry = Stored(config, id);
+                entry.UiExecutable = "";
+                entry.UiExecutableHash = "";
+            });
+        });
     }
 
     public Task ClearPendingAsync(string id)
     {
-        return CommandAsync(() => _pending.Remove(id));
+        return CommandAsync(() =>
+        {
+            _pending.Remove(id);
+            if (_launchObservations.TryGetValue(id, out var observation))
+            {
+                observation.Stop();
+            }
+        });
     }
 
     /// <summary>Called only after Overlay closure and input-lease release, on a worker thread.</summary>
@@ -273,6 +303,14 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
             }
 
             token.ThrowIfCancellationRequested();
+            if (_launchObservations.Remove(id, out var previousObservation))
+            {
+                await previousObservation.DisposeAsync().ConfigureAwait(false);
+            }
+
+            var observation = new ProgramLaunchObservation(entry.Executable, _lifetime.Token);
+            _launchObservations.Add(id, observation);
+            await observation.Ready.WaitAsync(token).ConfigureAwait(false);
             _pending.Add(id); // Dispatch uncertainty must never become an automatic duplicate attempt.
             if (entry.Elevated)
             {
@@ -289,6 +327,7 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
                 {
                     // ShellExecuteEx refused before creating a process, so nothing is pending.
                     _pending.Remove(id);
+                    observation.Stop();
                     return ex.NativeErrorCode == ErrorCancelled
                         ? "Administrator elevation was declined. Nothing was started."
                         : $"Windows did not start the program: {ex.Message}";
@@ -302,6 +341,7 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
                 if (result == ScheduledTaskLaunchDisposition.NotDispatched)
                 {
                     _pending.Remove(id);
+                    observation.Stop();
                     return
                         "Windows did not dispatch the normal-user launch. Enable elevation explicitly only if this tool requires it.";
                 }
@@ -311,7 +351,7 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
             {
                 await Task.Delay(250, token).ConfigureAwait(false);
                 matched = Match(entry, CaptureProcesses([entry]));
-                window = FindWindow(entry.Id, matched, WindowFinder.ListSwitchableWindows(),
+                window = FindProgramWindow(entry, matched, WindowFinder.ListSwitchableWindows(),
                     NativeMethods.GetForegroundWindow());
                 if (window is not null)
                 {
@@ -492,6 +532,44 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         return PickWindow(id, switchable.Where(window => ids.Contains(window.ProcessId)).ToArray(), foreground);
     }
 
+    private AppWindow? FindProgramWindow(ProgramDefinition entry, IReadOnlyList<ProgramProcess> matched,
+        IReadOnlyList<AppWindow> switchable, nint foreground)
+    {
+        var window = FindWindow(entry.Id, matched, switchable, foreground);
+        if (window is not null || entry.UiExecutable.Length > 0
+                               || !_launchObservations.TryGetValue(entry.Id, out var observation))
+        {
+            return window;
+        }
+
+        window = PickWindow(entry.Id, switchable.Where(candidate => observation.Owns(candidate.ProcessId)).ToArray(),
+            foreground);
+        if (window is null)
+        {
+            return null;
+        }
+
+        var process = ReadProcess(window.ProcessId);
+        if (process is null || process.Path.Length == 0 || !observation.Owns(window.ProcessId))
+        {
+            return null;
+        }
+
+        // Retain the exact observed UI, not a process-name or installation-directory heuristic.
+        var hash = Hash(ValidateExecutable(process.Path), true);
+        Persist(config =>
+        {
+            var stored = Stored(config, entry.Id);
+            stored.UiExecutable = process.Path;
+            stored.UiExecutableHash = hash;
+        });
+        entry.UiExecutable = process.Path;
+        entry.UiExecutableHash = hash;
+        observation.Stop();
+        Log.Info($"Programs {entry.Id}: resolved launched UI to {process.Path} (pid {process.Id}).");
+        return window;
+    }
+
     private AppWindow? PickWindow(string id, AppWindow[] windows, nint foreground)
     {
         _lastWindows.TryGetValue(id, out var last);
@@ -607,13 +685,14 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
                               Approved(entry.UiExecutable, entry.UiExecutableHash, false);
             var matched = Match(entry, processes);
             var running = matched.Count > 0;
-            if (running && switchable is null)
+            if ((running || _pending.Contains(entry.Id)) && switchable is null)
             {
                 switchable = WindowFinder.ListSwitchableWindows();
                 foreground = NativeMethods.GetForegroundWindow();
             }
 
-            var window = running ? FindWindow(entry.Id, matched, switchable!, foreground) : null;
+            var window = switchable is null ? null : FindProgramWindow(entry, matched, switchable, foreground);
+            running |= window is not null;
             if (window is not null)
             {
                 _pending.Remove(entry.Id);

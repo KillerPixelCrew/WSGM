@@ -12,6 +12,33 @@ internal sealed class SessionActivation : IDisposable
     /// <summary>Per-session named event used by secondary WSGM activations.</summary>
     internal const string EventName = @"Local\WSGM.Activate";
 
+    /// <summary>Session-local request for the existing mode coordinator.</summary>
+    internal const string ModeToggleEventName = @"Local\WSGM.ToggleGameMode";
+
+    /// <summary>Signals only a running session; a command never creates a future queued mode switch.</summary>
+    /// <returns>Whether the request was queued, not whether the asynchronous transition completed.</returns>
+    internal static bool SignalModeToggle()
+    {
+        try
+        {
+            if (!EventWaitHandle.TryOpenExisting(ModeToggleEventName, out var signal))
+            {
+                Log.Warn("No running WSGM session is accepting mode commands.");
+                return false;
+            }
+
+            using (signal)
+            {
+                return signal.Set();
+            }
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            Log.Warn($"The running WSGM session refused the mode command: {ex.Message}");
+            return false;
+        }
+    }
+
     private readonly EventWaitHandle? _signal;
     private readonly RegisteredWaitHandle? _wait;
     private bool _disposed;

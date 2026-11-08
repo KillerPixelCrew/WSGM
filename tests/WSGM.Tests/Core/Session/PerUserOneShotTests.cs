@@ -11,6 +11,7 @@ public sealed class PerUserOneShotTests
     [InlineData("--restore-steam-autostart")]
     [InlineData("--disable-lock-on-wake")]
     [InlineData("--restore-lock-on-wake")]
+    [InlineData("--toggle-game-mode")]
     public void AnotherAccountsCredentialsPreventTheActualCommandDispatch(string flag)
     {
         var windowsWritten = false;
@@ -55,5 +56,20 @@ public sealed class PerUserOneShotTests
 
         Assert.Equal(17, result);
         Assert.Equal("--restore-uac", Assert.Single(commands));
+    }
+
+    [Fact]
+    public void ModeToggleUsesTheFixedOneShotDispatchWithoutStartingASession()
+    {
+        var checkedAccount = false;
+        var result = Program.RunOneShot(["--toggle-game-mode"], () => checkedAccount = true,
+            (flag, _) =>
+            {
+                Assert.True(checkedAccount);
+                Assert.Equal("--toggle-game-mode", flag);
+                return 0;
+            }, static _ => throw new InvalidOperationException());
+
+        Assert.Equal(0, result);
     }
 }
