@@ -24,6 +24,7 @@
     <!-- The command line the importer writes and this parses, compiled from one source so the two
          cannot drift. The same arrangement WSGM.Launch uses for ScheduledTaskXml. -->
     <Compile Include="..\Shared\Launch\PackagedLaunchCommand.cs" Link="Shared\PackagedLaunchCommand.cs"/>
+    <Compile Include="..\Shared\Launch\XboxAppExperience.cs" Link="Shared\XboxAppExperience.cs"/>
     <Compile Include="..\Shared\Library\EmulatorModels.cs" Link="Shared\EmulatorModels.cs"/>
     <Compile Include="..\Shared\Library\EmulatorPortable.cs" Link="Shared\EmulatorPortable.cs"/>
     <Compile Include="..\Shared\Library\EmulatorPortableProfiles.cs" Link="Shared\EmulatorPortableProfiles.cs"/>

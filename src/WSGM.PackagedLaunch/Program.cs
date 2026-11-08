@@ -1,5 +1,7 @@
 using System;
+using System.IO;
 using System.Threading;
+using Microsoft.Win32;
 using WSGM.Core;
 
 namespace WSGM.PackagedLaunch;
@@ -83,6 +85,11 @@ internal static class Program
     {
         HideConsole();
         PackagedLaunchLog.Info($"Activating {aumid}, {PrivilegeJournal.Elevation()}.");
+        if (XboxAppExperience.Applies(aumid))
+        {
+            SelectXboxAppExperience();
+        }
+
         var result = PackageActivation.Activate(aumid, null);
         if (result.Succeeded)
         {
@@ -92,6 +99,35 @@ internal static class Program
 
         PackagedLaunchLog.Error(result.Detail);
         return ExitActivationFailed;
+    }
+
+    /// <summary>Keeps the Xbox app in its own Win32 dashboard instead of the UWP app Game Mode cannot show.</summary>
+    /// <remarks>
+    ///     This runs as the normal user, so the value lands in that user's hive, where the Xbox app reads
+    ///     it. A failed write is logged and activation still proceeds; the app then makes its own choice.
+    /// </remarks>
+    private static void SelectXboxAppExperience()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(XboxAppExperience.SettingsKey, true);
+            if (!XboxAppExperience.NeedsSelection(key.GetValue(XboxAppExperience.SelectorValue)))
+            {
+                return;
+            }
+
+            key.SetValue(XboxAppExperience.SelectorValue, XboxAppExperience.NewExperience,
+                RegistryValueKind.DWord);
+            PackagedLaunchLog.Info(
+                $"Selected the Xbox app's own dashboard ({XboxAppExperience.SelectorValue}=1). "
+                + "Xbox app 2612.1001.23.0 or later honors it; older versions open the UWP app, "
+                + "which Game Mode cannot show.");
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException
+                                       or IOException)
+        {
+            PackagedLaunchLog.Warn($"Could not select the Xbox app's own dashboard: {ex.GetType().Name}.");
+        }
     }
 
     /// <summary>Starts another launcher's game and supervises it until it exits.</summary>

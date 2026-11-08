@@ -193,6 +193,7 @@
     <Compile Include="..\Shared\Interop\Kernel32.cs" Link="Shared\Kernel32.cs"/>
     <Compile Include="..\Shared\Interop\NativeHidHide.cs" Link="Shared\NativeHidHide.cs"/>
     <Compile Include="..\Shared\Launch\PackagedLaunchCommand.cs" Link="Shared\PackagedLaunchCommand.cs"/>
+    <Compile Include="..\Shared\Launch\XboxAppExperience.cs" Link="Shared\XboxAppExperience.cs"/>
     <Compile Include="..\Shared\Library\EmulatorModels.cs" Link="Shared\EmulatorModels.cs"/>
     <Compile Include="..\Shared\Library\EmulatorPortable.cs" Link="Shared\EmulatorPortable.cs"/>
     <Compile Include="..\Shared\Library\EmulatorPortableProfiles.cs" Link="Shared\EmulatorPortableProfiles.cs"/>

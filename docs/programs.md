@@ -33,6 +33,16 @@ elevated and Windows refuses package activation there. A running package is foun
 id of its windows, including the hosted application of a UWP frame, and Windows activates a running
 package instead of starting another, so it needs no pending-launch guard.
 
+The Xbox app (`Microsoft.GamingApp_8wekyb3d8bbwe!Microsoft.Xbox.App`) needs one adjustment. Its
+entry point, `XboxPcAppCE.exe`, is a Win32 WebView2 dashboard that can instead hand off to an older
+UWP app. That UWP app needs Explorer's immersive shell to show its view, so in Game Mode its
+activation times out after 45 seconds and the window turns black. Before activating it,
+`WSGM.PackagedLaunch` sets the app's own per-user DWORD
+`HKCU\Software\Microsoft\Xbox\GamingApp\XboxPcAppCE` to 1, which keeps the entry point in its
+dashboard. Xbox app 2612.1001.23.0 and later read that value; earlier versions always hand off and
+cannot be shown in Game Mode. Game Bar's guide overlay is a UWP app too and stays unavailable in
+Game Mode.
+
 Matching uses the selected exact executable image paths in the current interactive session. File
 fingerprints gate another launch; an already-running image can still be focused if its disk file was
 removed or replaced. Filenames alone never authorize focus. Eligible windows use the existing
