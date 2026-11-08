@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -97,6 +98,12 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     private Action<HandheldRuntimeState>? _lifecycleHandler;
 
     private Task _resumeRestore = Task.CompletedTask;
+
+    /// <summary>How long after the last resume edge of one wake the limits are written again.</summary>
+    private static readonly TimeSpan WakeSettle = TimeSpan.FromSeconds(2);
+
+    private long _lastWakeTimestamp;
+    private int _wakeRestorePending;
 
     /// <summary>The restore pass of the latest cycle start, which completes after the limit was reapplied.</summary>
     internal Task ResumeRestore => Volatile.Read(ref _resumeRestore);
@@ -2447,16 +2454,67 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
                 finally
                 {
                     await Power.PowerAssignments.ForgetAppliedAsync().ConfigureAwait(false);
-                    Power.RequestAssignmentReconcile();
                 }
             });
-            Volatile.Write(ref _resumeRestore, restore);
-            Observe(restore, "cycle restore");
+            PublishRestore(restore, "cycle restore");
         }
 
         Power.RequestAssignmentReconcile();
 
         Lighting.OnCapabilitiesChanged(Capabilities.Snapshot());
+    }
+
+    /// <summary>Writes the power limits again after a wake that did not restart the device cycle.</summary>
+    /// <remarks>
+    ///     One wake delivers several resume edges, so the write waits until they have stopped. Publishing the
+    ///     restore holds the assignment reconcile from this moment on, so firmware's post-wake reading is
+    ///     never adopted as the user's Custom values.
+    /// </remarks>
+    internal void RestoreLimitsAfterWake()
+    {
+        if (!IntegrationEnabled || State is not (DeviceCycleState.Active or DeviceCycleState.Degraded))
+        {
+            return;
+        }
+
+        Volatile.Write(ref _lastWakeTimestamp, Stopwatch.GetTimestamp());
+        if (Interlocked.Exchange(ref _wakeRestorePending, 1) != 0)
+        {
+            return;
+        }
+
+        PublishRestore(Task.Run(RestoreLimitsAfterSettleAsync), "wake restore");
+    }
+
+    private async Task RestoreLimitsAfterSettleAsync()
+    {
+        try
+        {
+            TimeSpan remaining;
+            while ((remaining = WakeSettle - Stopwatch.GetElapsedTime(Volatile.Read(ref _lastWakeTimestamp))) > TimeSpan.Zero)
+            {
+                await Task.Delay(remaining, _lifetime.Token).ConfigureAwait(false);
+            }
+
+            Volatile.Write(ref _wakeRestorePending, 0);
+            if (State is DeviceCycleState.Active or DeviceCycleState.Degraded)
+            {
+                await Power.ReassertLimitAsync(_lifetime.Token).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            await Power.PowerAssignments.ForgetAppliedAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Makes a restore hold the assignment reconcile, which runs once the restore has finished.</summary>
+    private void PublishRestore(Task restore, string operation)
+    {
+        Volatile.Write(ref _resumeRestore, restore);
+        Observe(restore, operation);
+        _ = restore.ContinueWith(_ => Power.RequestAssignmentReconcile(), CancellationToken.None,
+            TaskContinuationOptions.None, TaskScheduler.Default);
     }
 
     private void Observe(Task task, string operation)

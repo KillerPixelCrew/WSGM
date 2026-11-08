@@ -77,6 +77,7 @@ internal sealed class DevicePowerQueue(IntegrationServices integrations, Session
                 Log.Info(
                     $"Device cycle {(suspend ? "suspend" : "resume")} skipped ({reason}): the "
                     + $"cycle is already {(suspend ? "suspended or suspending" : "running or resuming")}.");
+                RestoreLimitsIfWake(coordinator, suspend, systemSleep);
                 return;
             }
 
@@ -91,6 +92,7 @@ internal sealed class DevicePowerQueue(IntegrationServices integrations, Session
                          + $"{queued.Reason}.");
                 if (!repair)
                 {
+                    RestoreLimitsIfWake(coordinator, suspend, systemSleep);
                     return;
                 }
             }
@@ -99,6 +101,18 @@ internal sealed class DevicePowerQueue(IntegrationServices integrations, Session
             _latestTransition = transition;
             var previous = _work;
             _work = Task.Run(() => ApplyAsync(previous, coordinator, transition));
+        }
+    }
+
+    /// <summary>
+    ///     A wake whose cycle does not restart still needs its power limits written again: Windows can
+    ///     deliver the suspend only after the freeze, right before the resume, and firmware has reset by then.
+    /// </summary>
+    private static void RestoreLimitsIfWake(DeviceCoordinator? coordinator, bool suspend, bool systemSleep)
+    {
+        if (!suspend && systemSleep)
+        {
+            coordinator?.RestoreLimitsAfterWake();
         }
     }
 

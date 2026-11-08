@@ -358,6 +358,12 @@ internal sealed class DevicePowerAssignments(
             return;
         }
 
+        // A restore that began during the read means this reading is firmware's value after a wake, not the user's.
+        if (restoreFirst?.Invoke() is { IsCompleted: false })
+        {
+            return;
+        }
+
         var confirmed = context();
         if (!confirmed.Enabled || confirmed.OnAc != current.OnAc
                                || confirmed.ApplicationId != current.ApplicationId ||
