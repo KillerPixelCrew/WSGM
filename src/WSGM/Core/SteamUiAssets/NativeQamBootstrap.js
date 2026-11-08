@@ -4078,6 +4078,12 @@
         })),
       });
     };
+    // Declared once, so a redraw does not detach and reattach the page's touch scrolling.
+    let detachTouchScroll = null;
+    const touchScrollRoot = (node) => {
+      detachTouchScroll?.();
+      detachTouchScroll = node ? attachSteamPageTouchScroll(node) : null;
+    };
     // One component for the life of the asset. The page host draws it on every router render, and a
     // component declared inside the renderer would be a new type each time: React would remount the
     // page and drop its state and the controller's focus.
@@ -4104,6 +4110,7 @@
         "div",
         {
           id,
+          ref: touchScrollRoot,
           className: `steam-ui-kit-page${definition.header === false ? " flush" : ""}${tabs ? " tabbed" : ""}`,
           "aria-label": title,
         },
@@ -4131,6 +4138,106 @@
     registerGate(definition.gate, gate);
     return context;
   }
+  // Drags a page's scroller with one finger and lets it glide on release. Steam's gamepad root declares
+  // `touch-action: none`, so a drag on a host page may not pan at all. Touch events still arrive, and once
+  // the browser does start panning its moves stop being cancelable, so the two can never both scroll.
+  // Anything that declares `touch-action: none` between the finger and the scroller, such as a slider or
+  // an ink surface, keeps the drag for itself.
+  const attachSteamPageTouchScroll = (root) => {
+    const view = root.ownerDocument.defaultView;
+    const StartDistance = 10;
+    const Friction = 0.95;
+    const StopSpeed = 0.02;
+    let gesture = null;
+    let glide = 0;
+    const stopGlide = () => {
+      if (glide) view.cancelAnimationFrame(glide);
+      glide = 0;
+    };
+    const scrollerFor = (target) => {
+      for (
+        let element = target;
+        element && root.contains(element);
+        element = element.parentElement
+      ) {
+        const style = view.getComputedStyle(element);
+        if (style.touchAction === "none") return null;
+        if (/auto|scroll/u.test(style.overflowY) && element.scrollHeight > element.clientHeight + 1)
+          return element;
+      }
+      return null;
+    };
+    const start = (event) => {
+      stopGlide();
+      const scroller = event.touches.length === 1 ? scrollerFor(event.target) : null;
+      const touch = event.touches[0];
+      gesture = scroller
+        ? {
+            scroller,
+            x: touch.clientX,
+            y: touch.clientY,
+            top: scroller.scrollTop,
+            lastY: touch.clientY,
+            lastTime: event.timeStamp,
+            speed: 0,
+            dragging: false,
+          }
+        : null;
+    };
+    const move = (event) => {
+      if (!gesture) return;
+      if (!event.cancelable || event.touches.length !== 1) {
+        gesture = null;
+        return;
+      }
+      const touch = event.touches[0];
+      if (!gesture.dragging) {
+        const across = Math.abs(touch.clientX - gesture.x);
+        const along = Math.abs(touch.clientY - gesture.y);
+        if (across < StartDistance && along < StartDistance) return;
+        if (across > along) {
+          gesture = null;
+          return;
+        }
+        gesture.dragging = true;
+      }
+      event.preventDefault();
+      gesture.scroller.scrollTop = gesture.top - (touch.clientY - gesture.y);
+      const elapsed = event.timeStamp - gesture.lastTime;
+      if (elapsed > 0) gesture.speed = (gesture.lastY - touch.clientY) / elapsed;
+      gesture.lastY = touch.clientY;
+      gesture.lastTime = event.timeStamp;
+    };
+    const end = () => {
+      const released = gesture;
+      gesture = null;
+      if (!released?.dragging || Math.abs(released.speed) < StopSpeed) return;
+      let speed = released.speed;
+      let previous = view.performance.now();
+      const step = (now) => {
+        const elapsed = now - previous;
+        previous = now;
+        released.scroller.scrollTop += speed * elapsed;
+        speed *= Math.pow(Friction, elapsed / 16);
+        glide = Math.abs(speed) < StopSpeed ? 0 : view.requestAnimationFrame(step);
+      };
+      glide = view.requestAnimationFrame(step);
+    };
+    const cancel = () => {
+      gesture = null;
+    };
+    root.addEventListener("touchstart", start, { passive: true });
+    root.addEventListener("touchmove", move, { passive: false });
+    root.addEventListener("touchend", end, { passive: true });
+    root.addEventListener("touchcancel", cancel, { passive: true });
+    return () => {
+      stopGlide();
+      root.removeEventListener("touchstart", start);
+      root.removeEventListener("touchmove", move);
+      root.removeEventListener("touchend", end);
+      root.removeEventListener("touchcancel", cancel);
+    };
+  };
   // The host's message on a page that publishes `error` and `notice`: the error first.
   const steamPageMessage = (state) =>
     state?.error
@@ -21154,46 +21261,33 @@
     return parts.join(" \u00b7 ");
   };
   // Typed config editors compose the same native Steam fields and modal used by the other WSGM pages.
-  function GameToolsNumberEditor({ ui, row, change }) {
+  // A path or list edited as one value: the dialog holds the draft and Save sends it whole, so a partial
+  // entry never reaches the file and leaving the page cannot lose a confirmed edit.
+  function GameToolsTextEditor({ ui, label, value, close, accept }) {
     const react = ui.react,
       h = react.createElement;
-    const [text, setText] = react.useState(String(row.text ?? ""));
-    const editing = react.useRef(false),
-      sent = react.useRef(String(row.text ?? ""));
-    react.useEffect(() => {
-      if (!editing.current) {
-        setText(String(row.text ?? ""));
-        sent.current = String(row.text ?? "");
-      }
-    }, [row.text]);
-    const commit = () => {
-      editing.current = false;
-      if (text !== sent.current) {
-        sent.current = text;
-        change(row, text);
-      }
-    };
-    return h(ui.textField, {
-      label: row.label,
-      description: row.description,
-      disabled: row.disabled,
-      type: "number",
-      min: row.minimum,
-      max: row.maximum,
-      step: row.step ?? 1,
-      value: text,
-      onFocus: () => {
-        editing.current = true;
-      },
-      onChange: (event) => setText(String(event?.target?.value ?? "")),
-      onBlur: commit,
-      onKeyDown: (event) => {
-        if (event.key === "Enter") {
-          event.preventDefault?.();
-          commit();
-        }
-      },
-    });
+    const [text, setText] = react.useState(value);
+    return h(
+      ui.focusable,
+      { "flow-children": "column", className: "steam-ui-kit-modal-body" },
+      h(ui.textField, {
+        label,
+        value: text,
+        onChange: (event) => setText(String(event?.target?.value ?? "")),
+      }),
+      renderSteamUiActions(ui, [
+        { id: "cancel", label: "Cancel", onClick: close },
+        {
+          id: "save",
+          label: "Save",
+          primary: true,
+          onClick: () => {
+            accept(text);
+            close();
+          },
+        },
+      ]),
+    );
   }
   const gameToolsKeyParts = (setting, value) => {
     const parts = { key: "0", ctrl: false, shift: false, alt: false };
@@ -21654,24 +21748,16 @@
         const description =
           [setting.description, setting.note].filter(Boolean).join(" ") || undefined;
         const disabled = !(idle && tool.settingsEditable && setting.available);
-        if (setting.kind === "number" || setting.kind === "text" || setting.kind === "hotkey") {
+        if (setting.kind === "text" || setting.kind === "hotkey") {
           rows.push({
             key: `setting-${setting.id}`,
-            kind:
-              setting.kind === "number"
-                ? "game-number"
-                : setting.kind === "hotkey"
-                  ? "game-hotkey"
-                  : "text",
+            kind: setting.kind === "hotkey" ? "game-hotkey" : "game-text",
             label: setting.label,
             description,
             text: value,
             disabled,
             group: setting.group ?? "",
             setting,
-            minimum: setting.minimum,
-            maximum: setting.maximum,
-            step: setting.step,
           });
           continue;
         }
@@ -21754,8 +21840,34 @@
       else setDraft({ ...draft, settings: { ...(draft.settings ?? {}), [setting.id]: chosen } });
     };
     const renderRow = (row) =>
-      row.kind === "game-number"
-        ? h(GameToolsNumberEditor, { key: row.key, ui, row, change })
+      row.kind === "game-text"
+        ? h(ui.valueField, {
+            key: row.key,
+            name: row.label,
+            description: [row.text || row.setting.iniValue || "Not set", row.description]
+              .filter(Boolean)
+              .join(" \u00b7 "),
+            value: h(
+              ui.dialogButton,
+              {
+                disabled: row.disabled,
+                onClick: () =>
+                  showSteamModal(ui, {
+                    title: `Edit ${row.label}`,
+                    className: "steam-ui-kit-modal",
+                    render: (close) =>
+                      h(GameToolsTextEditor, {
+                        ui,
+                        label: row.label,
+                        value: row.text || row.setting.iniValue || "",
+                        close,
+                        accept: (raw) => change(row, raw),
+                      }),
+                  }),
+              },
+              "Edit",
+            ),
+          })
         : row.kind === "game-hotkey"
           ? h(ui.valueField, {
               key: row.key,

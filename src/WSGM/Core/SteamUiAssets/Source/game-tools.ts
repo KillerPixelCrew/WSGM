@@ -177,16 +177,17 @@ const gameToolsSummary = (tool, working: boolean) => {
 };
 
 // Typed config editors compose the same native Steam fields and modal used by the other WSGM pages.
-function GameToolsNumberEditor({ ui, row, change }: any) {
+// A path or list edited as one value: the dialog holds the draft and Save sends it whole, so a partial
+// entry never reaches the file and leaving the page cannot lose a confirmed edit.
+function GameToolsTextEditor({ ui, label, value, close, accept }: any) {
   const react = ui.react, h = react.createElement;
-  const [text, setText] = react.useState(String(row.text ?? ""));
-  const editing = react.useRef(false), sent = react.useRef(String(row.text ?? ""));
-  react.useEffect(() => { if (!editing.current) { setText(String(row.text ?? "")); sent.current = String(row.text ?? ""); } }, [row.text]);
-  const commit = () => { editing.current = false; if (text !== sent.current) { sent.current = text; change(row, text); } };
-  return h(ui.textField, { label: row.label, description: row.description, disabled: row.disabled, type: "number",
-    min: row.minimum, max: row.maximum, step: row.step ?? 1, value: text,
-    onFocus: () => { editing.current = true; }, onChange: event => setText(String(event?.target?.value ?? "")),
-    onBlur: commit, onKeyDown: event => { if (event.key === "Enter") { event.preventDefault?.(); commit(); } } });
+  const [text, setText] = react.useState(value);
+  return h(ui.focusable, { "flow-children": "column", className: "steam-ui-kit-modal-body" },
+    h(ui.textField, { label, value: text, onChange: event => setText(String(event?.target?.value ?? "")) }),
+    renderSteamUiActions(ui, [
+      { id: "cancel", label: "Cancel", onClick: close },
+      { id: "save", label: "Save", primary: true, onClick: () => { accept(text); close(); } },
+    ]));
 }
 
 const gameToolsKeyParts = (setting, value) => {
@@ -506,10 +507,9 @@ function GameToolsTool({ ui, state, tool, draft, game, idle, act, setDraft, conf
       const options = setting.options ?? [];
       const description = [setting.description, setting.note].filter(Boolean).join(" ") || undefined;
       const disabled = !(idle && tool.settingsEditable && setting.available);
-      if (setting.kind === "number" || setting.kind === "text" || setting.kind === "hotkey") {
-        rows.push({ key: `setting-${setting.id}`, kind: setting.kind === "number" ? "game-number" : setting.kind === "hotkey" ? "game-hotkey" : "text",
-          label: setting.label, description, text: value, disabled, group: setting.group ?? "", setting,
-          minimum: setting.minimum, maximum: setting.maximum, step: setting.step });
+      if (setting.kind === "text" || setting.kind === "hotkey") {
+        rows.push({ key: `setting-${setting.id}`, kind: setting.kind === "hotkey" ? "game-hotkey" : "game-text",
+          label: setting.label, description, text: value, disabled, group: setting.group ?? "", setting });
         continue;
       }
       // A plain Off/On choice is Steam's toggle; any other choice, such as Automatic or Off, stays a dropdown.
@@ -570,8 +570,12 @@ function GameToolsTool({ ui, state, tool, draft, game, idle, act, setDraft, conf
     else setDraft({ ...draft, settings: { ...(draft.settings ?? {}), [setting.id]: chosen } });
   };
 
-  const renderRow = row => row.kind === "game-number"
-    ? h(GameToolsNumberEditor, { key: row.key, ui, row, change })
+  const renderRow = row => row.kind === "game-text"
+    ? h(ui.valueField, { key: row.key, name: row.label,
+        description: [row.text || row.setting.iniValue || "Not set", row.description].filter(Boolean).join(" · "),
+        value: h(ui.dialogButton, { disabled: row.disabled, onClick: () => showSteamModal(ui, { title: `Edit ${row.label}`,
+          className: "steam-ui-kit-modal", render: close => h(GameToolsTextEditor, { ui, label: row.label,
+            value: row.text || row.setting.iniValue || "", close, accept: raw => change(row, raw) }) }) }, "Edit") })
     : row.kind === "game-hotkey" ? h(ui.valueField, { key: row.key, name: row.label, description: row.description,
         value: h(ui.dialogButton, { disabled: row.disabled, onClick: () => showSteamModal(ui, { title: `Set ${row.label}`,
           className: "steam-ui-kit-modal", render: close => h(GameToolsKeyEditor, { ui, setting: row.setting, value: row.text,

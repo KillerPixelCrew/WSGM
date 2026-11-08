@@ -50,6 +50,9 @@ internal sealed class GameToolConfiguration : IDisposable
                 File.WriteAllText(destination, "", tool.ConfigEncoding == "utf16le" ? Encoding.Unicode : new UTF8Encoding(false));
             }
             File.SetAttributes(destination, FileAttributes.Normal);
+            // The package's own file only supplies a format: WSGM's defaults win over it, while a file already
+            // in the game folder holds the user's values and is left alone.
+            var freshFromPackage = !File.Exists(existing);
             var fields = tool.Settings.Where(setting => setting.Scope == "game").ToArray();
             var native = GameToolIni.Read(destination, fields.Select(setting => (setting.Section, setting.Key)));
             List<GameToolIniEdit> edits = [];
@@ -60,7 +63,7 @@ internal sealed class GameToolConfiguration : IDisposable
                     continue;
                 }
                 var explicitValue = requested.GetValueOrDefault(field.Id);
-                var nativeValue = native.GetValueOrDefault(GameToolIni.Id(field.Section, field.Key));
+                var nativeValue = freshFromPackage ? null : native.GetValueOrDefault(GameToolIni.Id(field.Section, field.Key));
                 var value = explicitValue ?? (nativeValue is null ? null : field.FromRaw(nativeValue))
                     ?? current?.Settings.GetValueOrDefault(field.Id) ?? field.Default;
                 if (!field.Accepts(value))

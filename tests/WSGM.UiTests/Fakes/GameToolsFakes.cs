@@ -229,7 +229,7 @@ internal static class GameToolsFixtures
                 field.Default, null, [.. field.Options.Select(option => new GameToolsSettingOption(option.Value, option.Label))],
                 field.UnavailableReason.Length == 0, field.UnavailableReason.Length > 0 ? field.UnavailableReason : null)
                 { Kind = field.Kind, Scope = field.Scope, Group = field.Scope == "shared" ? "All Special K games" : field.Group,
-                  Minimum = field.Minimum, Maximum = field.Maximum, Step = field.Step, HotkeyFormat = field.HotkeyFormat,
+                  HotkeyFormat = field.HotkeyFormat,
                   KeyChoices = field.Kind == "hotkey" ? [.. GameToolHotkeys.Keys.Select(key => new GameToolsSettingOption(
                     key.Key.ToString(System.Globalization.CultureInfo.InvariantCulture), key.Label))] : [] })],
             SettingsNotice = "Settings apply on the next game start. Existing keys are preserved unless changed.",

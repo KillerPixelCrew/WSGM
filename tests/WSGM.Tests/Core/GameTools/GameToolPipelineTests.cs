@@ -34,6 +34,89 @@ public sealed class GameToolPipelineTests
         Assert.Equal([pipeline], GameGraphicsApi.Detect(exe));
     }
 
+    [Theory]
+    [InlineData("d3d8.dll")]
+    [InlineData("D3D8.DLL")]
+    [InlineData("Direct3DCreate8")]
+    public void ProgramLoadingDirect3D8ByNameIsDirect3D8(string reference)
+    {
+        using var directory = new TemporaryDirectory();
+        var exe = Path.Combine(directory.Root, "game.exe");
+        File.WriteAllBytes(exe, [.. Stub(Machine.I386, ["kernel32.dll"], []), .. Encoding.ASCII.GetBytes(reference)]);
+        Assert.Equal(["Direct3D 8"], GameGraphicsApi.Detect(exe));
+    }
+
+    [Theory]
+    [InlineData("D3D11CreateDevice", "Direct3D 11")]
+    [InlineData("D3D12CreateDevice", "Direct3D 12")]
+    [InlineData("Direct3DCreate9", "Direct3D 9")]
+    public void OpenGlFallbackImportGivesWayToDirect3DLoadedByName(string entryPoint, string pipeline)
+    {
+        using var directory = new TemporaryDirectory();
+        var exe = Path.Combine(directory.Root, "game.exe");
+        File.WriteAllBytes(exe, [.. Stub(Machine.Amd64, ["opengl32.dll"], []), .. Encoding.ASCII.GetBytes(entryPoint)]);
+        Assert.Equal([pipeline], GameGraphicsApi.Detect(exe));
+    }
+
+    [Fact]
+    public void EngineModuleNamingDirect3DOverridesItsOpenGlImport()
+    {
+        using var directory = new TemporaryDirectory();
+        var exe = Path.Combine(directory.Root, "game.exe");
+        File.WriteAllBytes(exe, Stub(Machine.Amd64, ["kernel32.dll"], []));
+        File.WriteAllBytes(Path.Combine(directory.Root, "UnityPlayer.dll"),
+            [.. Stub(Machine.Amd64, ["opengl32.dll"], []), .. Encoding.ASCII.GetBytes("D3D11CreateDevice")]);
+        Assert.Equal(["Direct3D 11"], GameGraphicsApi.Detect(exe));
+    }
+
+    [Fact]
+    public void EntryPointAcrossAStreamBufferBoundaryIsFound()
+    {
+        using var directory = new TemporaryDirectory();
+        var exe = Path.Combine(directory.Root, "game.exe");
+        var padding = new byte[(1 << 20) - 5];
+        File.WriteAllBytes(exe, [.. padding, .. Encoding.ASCII.GetBytes("D3D11CreateDevice")]);
+        Assert.Equal(["Direct3D 11"], GameGraphicsApi.Detect(exe));
+    }
+
+    [Fact]
+    public void PlainOpenGlGameStaysOpenGl()
+    {
+        using var directory = new TemporaryDirectory();
+        var exe = Path.Combine(directory.Root, "game.exe");
+        File.WriteAllBytes(exe, Stub(Machine.Amd64, ["opengl32.dll"], []));
+        Assert.Equal(["OpenGL"], GameGraphicsApi.Detect(exe));
+    }
+
+    [Fact]
+    public void RendererLibraryImportingDirect3D8IsDirect3D8()
+    {
+        using var directory = new TemporaryDirectory();
+        var exe = Path.Combine(directory.Root, "game.exe");
+        File.WriteAllBytes(exe, Stub(Machine.I386, ["kernel32.dll"], []));
+        File.WriteAllBytes(Path.Combine(directory.Root, "render.dll"), Stub(Machine.I386, ["d3d8.dll"], []));
+        Assert.Equal(["Direct3D 8"], GameGraphicsApi.Detect(exe));
+    }
+
+    [Fact]
+    public void Direct3D8ProbeInsideANewerGameIsNotDirect3D8()
+    {
+        using var directory = new TemporaryDirectory();
+        var exe = Path.Combine(directory.Root, "game.exe");
+        File.WriteAllBytes(exe, [.. Stub(Machine.I386, ["d3d9.dll"], []), .. Encoding.ASCII.GetBytes("d3d8.dll")]);
+        Assert.Equal(["Direct3D 9"], GameGraphicsApi.Detect(exe));
+    }
+
+    [Fact]
+    public void ProxyNamedD3D8BesideTheProgramIsNotEvidence()
+    {
+        using var directory = new TemporaryDirectory();
+        var exe = Path.Combine(directory.Root, "game.exe");
+        File.WriteAllBytes(exe, Stub(Machine.I386, ["kernel32.dll"], []));
+        File.WriteAllBytes(Path.Combine(directory.Root, "d3d8.dll"), Stub(Machine.I386, ["d3d8.dll"], []));
+        Assert.Empty(GameGraphicsApi.Detect(exe));
+    }
+
     [Fact]
     public void DelayedImportsAndEngineModulesProduceOneAmbiguousSnapshot()
     {

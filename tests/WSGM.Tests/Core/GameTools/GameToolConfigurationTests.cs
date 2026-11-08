@@ -46,6 +46,79 @@ public sealed class GameToolConfigurationTests
     }
 
     [Theory]
+    [InlineData("dxvk", "dxgiFps", "60")]
+    [InlineData("dgvoodoo2", "dxVram", "512")]
+    [InlineData("dgvoodoo2", "dxResolution", "1920x1080")]
+    [InlineData("reshade", "preset", @".\Other.ini")]
+    public async Task ConfigureWritesAChangedValueToTheFile(string id, string settingId, string value)
+    {
+        using var directory = new TemporaryDirectory();
+        var tool = GameToolCatalog.Current.Find(id)!.ForProxy(GameToolCatalog.Current.Find(id)!.Proxy.Default);
+        var game = Path.Combine(directory.Root, "game");
+        Directory.CreateDirectory(game);
+        var target = new GameToolTarget(218, game, Path.Combine(game, "game.exe"), "x64", "fixture");
+        var installer = new GameToolInstaller(Path.Combine(directory.Root, "data"));
+        var installed = await installer.InstallAsync(tool, target, Package(directory.Root, tool, "one", "x64"),
+            new GameToolRequest("install", tool.Proxy.Default, new Dictionary<string, string>()),
+            null, () => null, _ => { }, CancellationToken.None);
+
+        var configured = installer.Configure(tool, target, installed.Manifest!, null,
+            new Dictionary<string, string> { [settingId] = value }, () => null);
+
+        var field = tool.Settings.First(setting => setting.Id == settingId);
+        var config = Path.Combine(game, tool.PrimaryConfig);
+        Assert.Equal(field.Raw(value), GameToolIni.Read(config, [(field.Section, field.Key)])[GameToolIni.Id(field.Section, field.Key)]);
+        Assert.Equal(value, configured.Manifest!.Settings[settingId]);
+    }
+
+    [Fact]
+    public async Task FreshInstallWritesWsgmDefaultsOverThePackagedConfig()
+    {
+        using var directory = new TemporaryDirectory();
+        var tool = GameToolCatalog.Current.Find("dgvoodoo2")!.ForProxy(GameToolCatalog.Current.Find("dgvoodoo2")!.Proxy.Default);
+        var game = Path.Combine(directory.Root, "game");
+        Directory.CreateDirectory(game);
+        var package = Package(directory.Root, tool, "one", "x64");
+        File.WriteAllText(Path.Combine(package.Root, tool.PrimaryConfig),
+            "Version=0x287\n[DirectX]\nVRAM = 256\ndgVoodooWatermark = true\n[Glide]\n3DfxWatermark = true\n");
+        package = package with
+        {
+            Hashes = Directory.EnumerateFiles(package.Root).ToDictionary(file => Path.GetFileName(file)!,
+                file => (GameToolInstaller.Sha256(file), new FileInfo(file).Length), StringComparer.OrdinalIgnoreCase)
+        };
+        var target = new GameToolTarget(218, game, Path.Combine(game, "game.exe"), "x64", "fixture");
+
+        await new GameToolInstaller(Path.Combine(directory.Root, "data")).InstallAsync(tool, target, package,
+            new GameToolRequest("install", tool.Proxy.Default, new Dictionary<string, string>()),
+            null, () => null, _ => { }, CancellationToken.None);
+
+        var values = GameToolIni.Read(Path.Combine(game, tool.PrimaryConfig),
+            [("DirectX", "VRAM"), ("DirectX", "dgVoodooWatermark"), ("Glide", "3DfxWatermark")]);
+        Assert.Equal("2048", values[GameToolIni.Id("DirectX", "VRAM")]);
+        Assert.Equal("false", values[GameToolIni.Id("DirectX", "dgVoodooWatermark")]);
+        Assert.Equal("false", values[GameToolIni.Id("Glide", "3DfxWatermark")]);
+    }
+
+    [Fact]
+    public async Task InstallKeepsTheValuesOfAConfigAlreadyInTheGameFolder()
+    {
+        using var directory = new TemporaryDirectory();
+        var tool = GameToolCatalog.Current.Find("dgvoodoo2")!.ForProxy(GameToolCatalog.Current.Find("dgvoodoo2")!.Proxy.Default);
+        var game = Path.Combine(directory.Root, "game");
+        Directory.CreateDirectory(game);
+        var config = Path.Combine(game, tool.PrimaryConfig);
+        File.WriteAllText(config, "Version=0x287\n[DirectX]\nVRAM = 128\n");
+        var target = new GameToolTarget(218, game, Path.Combine(game, "game.exe"), "x64", "fixture");
+
+        await new GameToolInstaller(Path.Combine(directory.Root, "data")).InstallAsync(tool, target,
+            Package(directory.Root, tool, "one", "x64"),
+            new GameToolRequest("install", tool.Proxy.Default, new Dictionary<string, string>()),
+            null, () => null, _ => { }, CancellationToken.None);
+
+        Assert.Equal("128", GameToolIni.Read(config, [("DirectX", "VRAM")])[GameToolIni.Id("DirectX", "VRAM")]);
+    }
+
+    [Theory]
     [InlineData(false, null, null)]
     [InlineData(true, null, "true")]
     [InlineData(true, "off", "false")]

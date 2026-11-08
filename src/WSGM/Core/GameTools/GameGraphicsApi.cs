@@ -9,7 +9,7 @@ namespace WSGM.Core;
 /// <summary>Static graphics API evidence from the chosen executable and its paired Unity runtime.</summary>
 internal static class GameGraphicsApi
 {
-    /// <summary>Reads native imports once; dynamically selected renderers remain a user choice.</summary>
+    /// <summary>Reads native imports once and, without a Direct3D import, recognizes Direct3D loaded by name.</summary>
     /// <param name="executable">The confirmed game executable.</param>
     /// <returns>Distinct canonical API names.</returns>
     internal static string[] Detect(string executable)
@@ -24,6 +24,7 @@ internal static class GameGraphicsApi
         HashSet<string> imports = new(StringComparer.OrdinalIgnoreCase);
         PeImage.VisitImports(executable, Visit);
         var folder = Path.GetDirectoryName(executable)!;
+        List<string> modules = [executable];
         foreach (var module in Directory.EnumerateFiles(folder, "*.dll").Where(path =>
                      Path.GetFileName(path).Equals("UnityPlayer.dll", StringComparison.OrdinalIgnoreCase)
                      || Path.GetFileName(path).Equals("GameAssembly.dll", StringComparison.OrdinalIgnoreCase)
@@ -32,6 +33,12 @@ internal static class GameGraphicsApi
                      || Path.GetFileName(path).StartsWith("CryRender", StringComparison.OrdinalIgnoreCase)))
         {
             PeImage.VisitImports(module, Visit);
+            modules.Add(module);
+        }
+
+        if (!found.Overlaps(AnyDirect3D))
+        {
+            AddDirect3DLoadedByName(found, modules, folder);
         }
 
         return new GameGraphicsEvidence([.. found.Order(StringComparer.Ordinal)], [.. imports.Order(StringComparer.Ordinal)]);
@@ -51,6 +58,92 @@ internal static class GameGraphicsApi
                 }
             }
         }
+    }
+
+    private const string Direct3D8 = "Direct3D 8";
+    private const string OpenGl = "OpenGL";
+
+    private static readonly string[] AnyDirect3D = [Direct3D8, "Direct3D 9", "Direct3D 10", "Direct3D 11", "Direct3D 12"];
+
+    // What a program that loads a runtime itself has to name: the entry point it asks for, and for
+    // Direct3D 8, whose games often wrap it, also the library.
+    private static readonly (string Api, byte[][] Markers)[] LoadedByName =
+    [
+        (Direct3D8, ["Direct3DCreate8"u8.ToArray(), "d3d8.dll"u8.ToArray(), "D3D8.dll"u8.ToArray(), "D3D8.DLL"u8.ToArray()]),
+        ("Direct3D 9", ["Direct3DCreate9"u8.ToArray()]),
+        ("Direct3D 11", ["D3D11CreateDevice"u8.ToArray()]),
+        ("Direct3D 12", ["D3D12CreateDevice"u8.ToArray()])
+    ];
+
+    // Direct3D is often absent from the import table: the program loads it by name, or a renderer DLL beside
+    // the program imports it, while opengl32.dll stays imported as a fallback. So OpenGL alone proves little
+    // and gives way to a named Direct3D. A program that imports Direct3D never reaches this, because a probe
+    // for another runtime inside it says nothing about what it renders with.
+    private static void AddDirect3DLoadedByName(HashSet<string> found, IEnumerable<string> modules, string folder)
+    {
+        var named = NamedRuntimes(modules);
+        if (named.Count == 0 && RendererImportsDirect3D8(folder))
+        {
+            named.Add(Direct3D8);
+        }
+
+        if (named.Count > 0)
+        {
+            found.Remove(OpenGl);
+            found.UnionWith(named);
+        }
+    }
+
+    private static bool RendererImportsDirect3D8(string folder)
+    {
+        var imported = false;
+        foreach (var library in Directory.EnumerateFiles(folder, "*.dll").Where(path =>
+                     !Path.GetFileName(path).Equals("d3d8.dll", StringComparison.OrdinalIgnoreCase)))
+        {
+            PeImage.VisitImports(library, name => imported |= Classify(name) == Direct3D8);
+        }
+
+        return imported;
+    }
+
+    // Streams each file, since a monolithic engine program can be larger than one array may be.
+    private static HashSet<string> NamedRuntimes(IEnumerable<string> modules)
+    {
+        HashSet<string> named = new(StringComparer.Ordinal);
+        var overlap = LoadedByName.SelectMany(api => api.Markers).Max(marker => marker.Length) - 1;
+        var buffer = new byte[(1 << 20) + overlap];
+        foreach (var module in modules)
+        {
+            try
+            {
+                using var stream = new FileStream(module, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                var kept = 0;
+                int read;
+                while ((read = stream.Read(buffer, kept, buffer.Length - kept)) > 0)
+                {
+                    var window = buffer.AsSpan(0, kept + read);
+                    foreach (var (api, markers) in LoadedByName)
+                    {
+                        foreach (var marker in markers)
+                        {
+                            if (window.IndexOf(marker) >= 0)
+                            {
+                                named.Add(api);
+                            }
+                        }
+                    }
+
+                    kept = Math.Min(overlap, window.Length);
+                    window[^kept..].CopyTo(buffer);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // An unreadable module is absent evidence, like unreadable import metadata.
+            }
+        }
+
+        return named;
     }
 
     private static readonly (string Name, byte[] Bytes)[] LoaderNames =

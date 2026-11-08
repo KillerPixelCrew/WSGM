@@ -1448,7 +1448,7 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
                 GameToolStatus.ConfidenceLabel(resolution.Confidence))
             {
                 GraphicsApi = scan.GraphicsApis is { Length: > 0 } apis
-                    ? string.Join(", ", apis) + " (static imports)"
+                    ? string.Join(", ", apis)
                     : "Unknown graphics API"
             };
         var candidates = resolution?.Candidates.Select(candidate => new GameToolsCandidate(candidate.RelativePath,
@@ -1571,7 +1571,7 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
                     ? setting.UnavailableReason : sharedReason ?? value.Note)
             {
                 Kind = setting.Kind, Scope = setting.Scope, Group = setting.Scope == "shared" ? "All Special K games" : setting.Group,
-                Minimum = setting.Minimum, Maximum = setting.Maximum, Step = setting.Step, HotkeyFormat = setting.HotkeyFormat,
+                HotkeyFormat = setting.HotkeyFormat,
                 KeyChoices = setting.Kind == "hotkey" ? [.. GameToolHotkeys.Keys.Select(key => new GameToolsSettingOption(
                     key.Key.ToString(CultureInfo.InvariantCulture), key.Label))] : []
             };

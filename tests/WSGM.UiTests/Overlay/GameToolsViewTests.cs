@@ -72,12 +72,13 @@ public sealed class GameToolsViewTests
     }
 
     [AvaloniaFact]
-    public async Task NumericConfigDraftIsSentWithTheSelectedFileSet()
+    public async Task ChosenPresetDraftIsSentWithTheSelectedFileSet()
     {
         using UiFixture fixture = new();
         var (window, source) = PreviewGameTools.Open(fixture, "config-directx", 1280, 800);
-        UiFixture.Tagged<NumericUpDown>(window, "tool:dgvoodoo2.setting:dxVram.number").Value = 512;
-        UiFixture.Click(window, UiFixture.Tagged<ActionButton>(window, "tool:dgvoodoo2.setting:dxVram.apply"));
+        var memory = UiFixture.Tagged<ComboBox>(window, "tool:dgvoodoo2.setting:dxVram.editor");
+        memory.SelectedIndex = 3;
+        memory.IsDropDownOpen = false;
         UiFixture.Click(window, UiFixture.Tagged<ActionButton>(window, "tool:dgvoodoo2.primary"));
         await source.NextCommandAsync();
         var request = Assert.IsType<GameToolsInstallRequest>(Assert.Single(source.Commands).Arguments[0]);

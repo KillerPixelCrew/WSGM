@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using Avalonia.Controls;
-using Avalonia.Input;
 using Avalonia.Layout;
 using WSGM.Controls;
 using WSGM.Core;
@@ -15,39 +14,6 @@ public sealed partial class GameToolsView
 {
     private readonly HashSet<string> _expandedSettings = new(StringComparer.Ordinal);
     private int _dllsShown = 24;
-
-    private Control NumericSetting(string key, GameToolsSetting setting, string value, bool enabled, Action<string> commit)
-    {
-        var number = new NumericUpDown
-        {
-            MinWidth = 135, Increment = (decimal)setting.Step,
-            Minimum = setting.Minimum is { } min ? (decimal)min : decimal.MinValue,
-            Maximum = setting.Maximum is { } max ? (decimal)max : decimal.MaxValue,
-            FormatString = "0.###", IsEnabled = enabled,
-            Value = decimal.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) ? parsed : null,
-            Tag = key + ".number"
-        };
-        var set = Command(key + ".apply", "Set", enabled
-            ? () =>
-            {
-                if (number.Value is { } current)
-                {
-                    commit(current.ToString(CultureInfo.InvariantCulture));
-                }
-            } : null);
-        number.KeyDown += (_, args) =>
-        {
-            if (args.Key == Key.Enter && enabled && number.Value is { } current)
-            {
-                args.Handled = true;
-                commit(current.ToString(CultureInfo.InvariantCulture));
-            }
-        };
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        row.Children.Add(number);
-        row.Children.Add(set);
-        return row;
-    }
 
     private void EditToolHotkey(GameToolsSetting setting, string value, Action<string> accept)
     {

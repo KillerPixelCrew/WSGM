@@ -24,9 +24,6 @@ internal sealed record GameToolsSetting(
     public string Kind { get; init; } = "choice";
     public string Group { get; init; } = "";
     public string Scope { get; init; } = "game";
-    public double? Minimum { get; init; }
-    public double? Maximum { get; init; }
-    public double Step { get; init; } = 1;
     public string HotkeyFormat { get; init; } = "";
     public IReadOnlyList<GameToolsSettingOption> KeyChoices { get; init; } = [];
 }

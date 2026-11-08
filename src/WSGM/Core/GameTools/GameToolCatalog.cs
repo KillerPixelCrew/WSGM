@@ -91,7 +91,7 @@ internal sealed record GameToolCatalog
             invalid |= !Regex.IsMatch(setting.Id, "^[a-zA-Z][a-zA-Z0-9]*$") || (setting.Section.Length == 0 && !tool.ManageConfiguration)
                                                                             || setting.Key.Length == 0 ||
                                                                             !setting.Accepts(setting.Default)
-                                                                            || setting.Kind is not ("choice" or "number" or "text" or "hotkey")
+                                                                            || setting.Kind is not ("choice" or "text" or "hotkey")
                                                                             || setting.Options.Any(option =>
                                                                                 option.Ini.IndexOfAny(['\r', '\n']) >=
                                                                                 0);

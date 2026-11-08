@@ -564,11 +564,7 @@ public sealed partial class GameToolsView
             .Where(part => part.Length > 0));
         Control editor;
         // A plain Off/On choice is a switch; any other choice, such as Automatic or Off, stays a dropdown.
-        if (setting.Kind == "number")
-        {
-            editor = NumericSetting(key, setting, value, enabled, Commit);
-        }
-        else if (setting.Kind == "text")
+        if (setting.Kind == "text")
         {
             var shown = value.Length == 0 && setting.IniValue is { Length: > 0 } native ? native : value;
             editor = Command(key + ".text", shown.Length == 0 ? "Not set · Edit…" : shown,
