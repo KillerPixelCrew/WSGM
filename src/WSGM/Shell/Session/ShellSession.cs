@@ -30,6 +30,7 @@ namespace WSGM.Shell;
 /// </remarks>
 public sealed class ShellSession
 {
+    private const string SettingsWindowSurface = "settings-window";
     private readonly ApplicationPerformanceReconciler _applicationProfiles;
     private readonly SessionBoot _boot;
     private readonly SessionCommands _commands;
@@ -729,8 +730,17 @@ public sealed class ShellSession
         // The sheet is recreated per open, so its one-time cost — compiled-XAML populate JIT for
         // the process's largest window — lands on the user's first swipe (~1.5 s on the Claw).
         // Pay it at idle instead; every later open constructs against warm code.
+        var efficiency = new ProcessEfficiency();
+        overlay.UiSurfaceOpened += efficiency.SurfaceOpened;
+        overlay.UiSurfaceClosed += efficiency.SurfaceClosed;
+        settings.WindowOpened += () => efficiency.SurfaceOpened(SettingsWindowSurface);
+        settings.WindowClosed += () => efficiency.SurfaceClosed(SettingsWindowSurface);
         Dispatcher.UIThread.Post(
-            overlay.WarmUp,
+            () =>
+            {
+                overlay.WarmUp();
+                efficiency.Start();
+            },
             DispatcherPriority.ApplicationIdle);
 
         if (_integrations.Device is not { } controllers)

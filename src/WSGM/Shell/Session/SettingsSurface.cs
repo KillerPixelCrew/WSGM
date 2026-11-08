@@ -23,6 +23,12 @@ internal sealed class SettingsSurface
     private Task<ConfigReadResult>? _reading;
     private SettingsWindow? _window;
 
+    /// <summary>Raised on the UI thread when the Settings window comes on screen.</summary>
+    internal event Action? WindowOpened;
+
+    /// <summary>Raised on the UI thread when the Settings window closes.</summary>
+    internal event Action? WindowClosed;
+
     /// <summary>Creates the surface; nothing is shown until the first <see cref="OpenAsync" />.</summary>
     /// <param name="createViewModel">Builds the view model over a configuration read and the session's services.</param>
     /// <param name="store">The session's configuration persistence, which the preview sheet reads through.</param>
@@ -102,12 +108,15 @@ internal sealed class SettingsSurface
 
         window.Show();
         _window = window;
+        WindowOpened?.Invoke();
         window.Closed += (_, _) =>
         {
             if (ReferenceEquals(_window, window))
             {
                 _window = null;
             }
+
+            WindowClosed?.Invoke();
         };
         Log.Info($"Settings opened in resident process {Environment.ProcessId}.");
         window.WindowState = WindowState.Normal;
