@@ -291,6 +291,17 @@ public sealed class TaskbarWindowTests
         {
         }
 
+        public Task<InstalledProgramList> ReadInstalledAsync(CancellationToken cancellationToken)
+        {
+            return Task.FromResult(new InstalledProgramList([]));
+        }
+
+        public Task<IReadOnlyDictionary<string, Bitmap?>> ReadInstalledIconsAsync(IReadOnlyList<string> keys,
+            CancellationToken cancellationToken)
+        {
+            return Task.FromResult<IReadOnlyDictionary<string, Bitmap?>>(new Dictionary<string, Bitmap?>());
+        }
+
         public event Action? Changed
         {
             add { }

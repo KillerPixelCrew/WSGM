@@ -18,6 +18,10 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
 {
     internal const string PinPrefix = "program:";
     private const int ErrorCancelled = 1223;
+
+    /// <summary>How many quarter seconds a packaged application gets to show its window after activation.</summary>
+    private const int PackagedWindowAttempts = 40;
+
     private readonly SemaphoreSlim _commands = new(1, 1);
     private readonly Lock _gate = new();
 
@@ -25,6 +29,7 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         new(StringComparer.OrdinalIgnoreCase);
 
     private readonly Dictionary<string, Bitmap?> _icons = new(StringComparer.OrdinalIgnoreCase);
+    private readonly IInstalledApplicationHost _installed;
     private readonly Dictionary<string, nint> _lastWindows = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly HashSet<string> _pending = new(StringComparer.Ordinal);
@@ -34,9 +39,14 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
     private HashSet<string> _pins;
     private ProgramState[] _state = [];
 
-    internal ProgramsService(ConfigStore store, AppConfig config)
+    /// <summary>Creates the owner and starts its reconciliation.</summary>
+    /// <param name="store">The configuration store.</param>
+    /// <param name="config">The current configuration.</param>
+    /// <param name="installed">Windows' installed and packaged applications; null uses the real host.</param>
+    internal ProgramsService(ConfigStore store, AppConfig config, IInstalledApplicationHost? installed = null)
     {
         _store = store;
+        _installed = installed ?? new WindowsInstalledApplicationHost(store.Context);
         _definitions = config.Programs.Select(entry => entry with { }).ToArray();
         _pins = config.QuickAccessPins.ToHashSet(StringComparer.Ordinal);
         _reconciliation = Task.Run(ReconcileLoopAsync);
@@ -77,8 +87,10 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
                 throw new InvalidOperationException("Enter a program name.");
             }
 
-            var executable = approveExecutable ? ValidateExecutable(definition.Executable) : "";
-            var hash = approveExecutable ? Hash(executable, true) : "";
+            // Only an explicit selection changes what a program launches; a packaged one has no executable.
+            var packaged = approveExecutable ? ValidatePackaged(definition.AppUserModelId) : "";
+            var executable = approveExecutable && packaged.Length == 0 ? ValidateExecutable(definition.Executable) : "";
+            var hash = approveExecutable && packaged.Length == 0 ? Hash(executable, true) : "";
             if (definition.WorkingDirectory.Length > 0 && !Directory.Exists(definition.WorkingDirectory))
             {
                 throw new InvalidOperationException("The working directory is unavailable.");
@@ -98,6 +110,7 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
                 var entry = definition with
                 {
                     Name = name,
+                    AppUserModelId = approveExecutable ? packaged : stored!.AppUserModelId,
                     Executable = approveExecutable ? executable : stored!.Executable,
                     ExecutableHash = approveExecutable ? hash : stored!.ExecutableHash,
                     UiExecutable = approveExecutable ? "" : stored!.UiExecutable,
@@ -195,6 +208,11 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         {
             var entry = _store.Read().RequireConfig().Programs.FirstOrDefault(item => item.Id == id)
                         ?? throw new InvalidOperationException("This program was removed.");
+            if (entry.AppUserModelId.Length > 0)
+            {
+                return await ActivatePackagedAsync(entry, token).ConfigureAwait(false);
+            }
+
             var processes = CaptureProcesses([entry]);
             var matched = Match(entry, processes);
             var window = FindWindow(entry.Id, matched, WindowFinder.ListSwitchableWindows(),
@@ -317,6 +335,93 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         }
     }
 
+    /// <inheritdoc />
+    public async Task<InstalledProgramList> ReadInstalledAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return new InstalledProgramList(await _installed.ListAsync(cancellationToken).ConfigureAwait(false));
+        }
+        catch (Exception ex) when (ex is not (OperationCanceledException or OutOfMemoryException))
+        {
+            Log.Warn($"Programs: installed applications could not be read: {ex.Message}");
+            return new InstalledProgramList([], "Windows could not list the installed apps.");
+        }
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyDictionary<string, Bitmap?>> ReadInstalledIconsAsync(IReadOnlyList<string> keys,
+        CancellationToken cancellationToken)
+    {
+        return _installed.ReadIconsAsync(keys, cancellationToken);
+    }
+
+    /// <summary>Focuses a packaged application's window, or activates it through the de-elevated launcher.</summary>
+    /// <remarks>
+    ///     Windows activates a running packaged application instead of starting a second one, so repeating the
+    ///     request cannot duplicate it and this needs none of a desktop program's pending-launch guard.
+    /// </remarks>
+    private async Task<string> ActivatePackagedAsync(ProgramDefinition entry, CancellationToken token)
+    {
+        var window = FindPackagedWindow(entry);
+        if (window is not null)
+        {
+            return await FocusAsync(entry.Id, window, token).ConfigureAwait(false);
+        }
+
+        if (!_installed.IsInstalled(entry.AppUserModelId))
+        {
+            return "This app is no longer installed. Remove it or add it again in Programs.";
+        }
+
+        token.ThrowIfCancellationRequested();
+        if (await _installed.ActivateAsync(entry.AppUserModelId, token).ConfigureAwait(false)
+            == ScheduledTaskLaunchDisposition.NotDispatched)
+        {
+            return "Windows did not dispatch the normal-user launch.";
+        }
+
+        for (var attempt = 0; attempt < PackagedWindowAttempts; attempt++)
+        {
+            await Task.Delay(250, token).ConfigureAwait(false);
+            window = FindPackagedWindow(entry);
+            if (window is not null)
+            {
+                return await FocusAsync(entry.Id, window, token).ConfigureAwait(false);
+            }
+        }
+
+        return "Launch dispatched; its window has not appeared yet.";
+    }
+
+    private AppWindow? FindPackagedWindow(ProgramDefinition entry)
+    {
+        return PickWindow(entry.Id, PackagedWindows(entry, WindowFinder.ListSwitchableWindows()),
+            NativeMethods.GetForegroundWindow());
+    }
+
+    private AppWindow[] PackagedWindows(ProgramDefinition entry, IEnumerable<AppWindow> switchable)
+    {
+        return switchable.Where(window => string.Equals(_installed.WindowApplicationId(window),
+            entry.AppUserModelId, StringComparison.OrdinalIgnoreCase)).ToArray();
+    }
+
+    private string ValidatePackaged(string appUserModelId)
+    {
+        var id = appUserModelId.Trim();
+        if (id.Length == 0)
+        {
+            return "";
+        }
+
+        if (!PackagedLaunchCommand.ValidAumid(id) || !_installed.IsInstalled(id))
+        {
+            throw new InvalidOperationException("That app is not installed.");
+        }
+
+        return id;
+    }
+
     internal void ConfigurationChanged(AppConfig config)
     {
         lock (_gate)
@@ -347,8 +452,7 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         // HWND reuse and process exit between snapshot and activation must not focus another app.
         NativeMethods.GetWindowThreadProcessId(window.Hwnd, out var owner);
         var definition = _definitions.FirstOrDefault(entry => entry.Id == id);
-        if (owner != window.ProcessId || definition is null ||
-            !Match(definition, CaptureProcesses([definition])).Any(process => process.Id == owner))
+        if (owner != window.ProcessId || definition is null || !StillBelongs(definition, window, owner))
         {
             return "The application window changed. Invoke the program again.";
         }
@@ -368,6 +472,13 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         return "Application focused.";
     }
 
+    private bool StillBelongs(ProgramDefinition definition, AppWindow window, uint owner)
+    {
+        return definition.AppUserModelId.Length > 0
+            ? PackagedWindows(definition, [window]).Length > 0
+            : Match(definition, CaptureProcesses([definition])).Any(process => process.Id == owner);
+    }
+
     /// <summary>Picks a program's window from one window pass.</summary>
     /// <param name="id">The program.</param>
     /// <param name="processes">Its matched processes.</param>
@@ -378,7 +489,11 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         IReadOnlyList<AppWindow> switchable, nint foreground)
     {
         var ids = processes.Select(process => process.Id).ToHashSet();
-        var windows = switchable.Where(window => ids.Contains(window.ProcessId)).ToArray();
+        return PickWindow(id, switchable.Where(window => ids.Contains(window.ProcessId)).ToArray(), foreground);
+    }
+
+    private AppWindow? PickWindow(string id, AppWindow[] windows, nint foreground)
+    {
         _lastWindows.TryGetValue(id, out var last);
         var active = windows.FirstOrDefault(window => window.Hwnd == foreground);
         if (active is not null)
@@ -481,6 +596,12 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         nint foreground = 0;
         var states = definitions.Select(entry =>
         {
+            if (entry.AppUserModelId.Length > 0)
+            {
+                switchable ??= WindowFinder.ListSwitchableWindows();
+                return PackagedState(entry, switchable);
+            }
+
             var available = Approved(entry.Executable, entry.ExecutableHash, false);
             var uiAvailable = entry.UiExecutable.Length == 0 ||
                               Approved(entry.UiExecutable, entry.UiExecutableHash, false);
@@ -523,6 +644,26 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         {
             Changed?.Invoke();
         }
+    }
+
+    private ProgramState PackagedState(ProgramDefinition entry, IReadOnlyList<AppWindow> switchable)
+    {
+        var running = PackagedWindows(entry, switchable).Length > 0;
+        var available = running || _installed.IsInstalled(entry.AppUserModelId);
+        var status = running ? "Running" : available ? "Not running" : "Unavailable · app not installed";
+        return new ProgramState(entry with { }, running, available, status, PackagedIcon(entry));
+    }
+
+    private Bitmap? PackagedIcon(ProgramDefinition entry)
+    {
+        if (_icons.TryGetValue(entry.AppUserModelId, out var cached))
+        {
+            return cached;
+        }
+
+        // Called on the reconciliation worker; the read itself runs on its own STA thread.
+        var icons = _installed.ReadIconsAsync([entry.AppUserModelId], _lifetime.Token).GetAwaiter().GetResult();
+        return _icons[entry.AppUserModelId] = icons.GetValueOrDefault(entry.AppUserModelId);
     }
 
     private Bitmap? Icon(ProgramDefinition entry)

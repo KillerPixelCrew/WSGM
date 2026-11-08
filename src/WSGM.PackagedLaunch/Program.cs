@@ -69,9 +69,27 @@ internal static class Program
                 return 0;
             case PackagedLaunchAction.Recover:
                 return Recover();
+            case PackagedLaunchAction.Activate:
+                return Activate(command.ActivateAumid!);
             default:
                 return Launch(command.Request!);
         }
+    }
+
+    /// <summary>Activates a packaged application for a Program entry and exits; nothing is supervised.</summary>
+    /// <param name="aumid">The application to activate.</param>
+    /// <returns>Zero when Windows activated it.</returns>
+    private static int Activate(string aumid)
+    {
+        HideConsole();
+        var result = PackageActivation.Activate(aumid, null);
+        if (result.Succeeded)
+        {
+            return 0;
+        }
+
+        PackagedLaunchLog.Error(result.Detail);
+        return ExitActivationFailed;
     }
 
     /// <summary>Starts another launcher's game and supervises it until it exits.</summary>

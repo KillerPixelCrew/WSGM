@@ -14,6 +14,19 @@ public sealed class PackagedLaunchCommandTests
     private const string BattleNet = @"C:\Program Files (x86)\Battle.net\Battle.net.exe";
     private const string Game = @"C:\Program Files (x86)\Overwatch";
 
+    [Fact]
+    public void AProgramsActivationRoundTripsAndTakesNoOtherOption()
+    {
+        var composed = PackagedLaunchCommand.ComposeActivate(Aumid);
+
+        Assert.True(PackagedLaunchCommand.TryParse(composed.Split(' '), out var command, out var error), error);
+        Assert.Equal(PackagedLaunchAction.Activate, command.Action);
+        Assert.Equal(Aumid, command.ActivateAumid);
+        Assert.False(PackagedLaunchCommand.TryParse(["--activate", Aumid, "--mode", "controller-only"], out _, out _));
+        Assert.False(PackagedLaunchCommand.TryParse(["--activate", "not-an-aumid"], out _, out _));
+        Assert.Throws<ArgumentException>(() => PackagedLaunchCommand.ComposeActivate("not-an-aumid"));
+    }
+
     private static PackagedFollowRequest RoundTrip(PackagedFollowRequest request)
     {
         var composed = PackagedLaunchCommand.ComposeFollow(request);

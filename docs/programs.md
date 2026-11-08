@@ -1,10 +1,15 @@
 # Programs
 
-Tools > Programs manages companion desktop applications. Add an executable with the Overlay's
-controller and touch accessible file picker, then edit its name, arguments and optional working
-directory. Every entry can be pinned to Quick access. The page and its pins invoke the same
-session-owned launch-or-focus service and consume the same running state. Removing an entry or
-closing the Overlay never terminates the application.
+Tools > Programs manages companion applications. **Add program** opens a searchable list of the
+applications installed on this PC, the same set Windows shows in Start: all-users and per-user Start
+Menu shortcuts plus packaged (Store) apps such as Xbox. Picking one fills its name, icon and launch
+target, and the name stays editable until **Add to Programs**. **Browse for a file…** is the manual
+choice in the same flow, with the Overlay's controller and touch accessible file picker, and stays
+available while the list loads and when it cannot be read. Programs exist only in the Overlay; Steam
+has no surface that adds or edits them. An entry's name, arguments and optional working directory
+stay editable afterwards. Every entry can be pinned to Quick access. The page and its pins invoke
+the same session-owned launch-or-focus service and consume the same running state. Removing an entry
+or closing the Overlay never terminates the application.
 
 Definitions live in `AppConfig.Programs`, with stable IDs and `program:{id}` Quick access pins.
 Executable selection records its absolute path and SHA-256. Missing or changed executables stay
@@ -13,6 +18,19 @@ name, arguments or options never changes the approved executable or resolved UI 
 applications use WSGM's least-privilege interactive scheduled-task launcher. Administrator elevation
 is an explicit per-program choice; a failed normal launch never silently escalates. A declined UAC
 prompt starts nothing and leaves no pending launch behind.
+
+`WindowsDeviceControl.InstalledApplications` reads the Applications folder (`shell:AppsFolder`) on
+its own STA thread and `InstalledProgramCatalog` decides what is offered. It de-duplicates by
+application id or executable and arguments, and drops a desktop entry that is not an existing
+`.exe`, is maintenance tooling (uninstallers, setup, help, readmes) or is Explorer, which WSGM owns
+in Game Mode. Icons are read a page of rows at a time and released when the flow ends.
+
+A packaged application stores its `AppUserModelId` and has no executable or fingerprint.
+Availability is its package family being installed. Activation goes through the same scheduled-task
+handoff as every normal program, running `WSGM.PackagedLaunch --activate`, because WSGM runs
+elevated and Windows refuses package activation there. A running package is found by the application
+id of its windows, including the hosted application of a UWP frame, and Windows activates a running
+package instead of starting another, so it needs no pending-launch guard.
 
 Matching uses the selected exact executable image paths in the current interactive session. File
 fingerprints gate another launch; an already-running image can still be focused if its disk file was

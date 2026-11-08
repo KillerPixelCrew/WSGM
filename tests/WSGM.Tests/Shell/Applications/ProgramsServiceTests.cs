@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Avalonia.Media.Imaging;
 using WSGM.Core;
 using WSGM.Shell;
 using WSGM.Testing;
@@ -13,6 +14,142 @@ public sealed class ProgramsServiceTests
         var path = Path.Combine(directory.Root, name);
         File.WriteAllBytes(path, [(byte)'M', (byte)'Z', marker]);
         return path;
+    }
+
+    private const string Xbox = "Microsoft.GamingApp_8wekyb3d8bbwe!Microsoft.Xbox.App";
+
+    /// <summary>Windows' installed applications, recorded; no window ever belongs to a packaged app here.</summary>
+    private sealed class FakeInstalledHost : IInstalledApplicationHost
+    {
+        public bool Installed { get; set; } = true;
+        public Exception? ListFailure { get; init; }
+        public Action? OnActivate { get; init; }
+        public List<string> Activated { get; } = [];
+
+        public Task<IReadOnlyList<InstalledProgram>> ListAsync(CancellationToken cancellationToken)
+        {
+            return ListFailure is not null
+                ? Task.FromException<IReadOnlyList<InstalledProgram>>(ListFailure)
+                : Task.FromResult<IReadOnlyList<InstalledProgram>>([new InstalledProgram(Xbox, "Xbox", Xbox, null, "")]);
+        }
+
+        public Task<IReadOnlyDictionary<string, Bitmap?>> ReadIconsAsync(IReadOnlyList<string> keys,
+            CancellationToken cancellationToken)
+        {
+            return Task.FromResult<IReadOnlyDictionary<string, Bitmap?>>(keys.ToDictionary(key => key, _ => (Bitmap?)null));
+        }
+
+        public bool IsInstalled(string appUserModelId)
+        {
+            return Installed;
+        }
+
+        public string? WindowApplicationId(AppWindow window)
+        {
+            return null;
+        }
+
+        public Task<ScheduledTaskLaunchDisposition> ActivateAsync(string appUserModelId,
+            CancellationToken cancellationToken)
+        {
+            Activated.Add(appUserModelId);
+            OnActivate?.Invoke();
+            return Task.FromResult(ScheduledTaskLaunchDisposition.Dispatched);
+        }
+    }
+
+    [Fact]
+    public async Task APackagedProgramStoresItsIdAndNoExecutableAndSurvivesARestart()
+    {
+        using var store = new TemporaryConfigStore();
+        FakeInstalledHost host = new();
+        var definition = new ProgramDefinition { Name = " Xbox ", AppUserModelId = Xbox };
+        await using (var service = new ProgramsService(store.Store, store.Store.Read().RequireConfig(), host))
+        {
+            await service.SaveAsync(definition, true);
+        }
+
+        var saved = Stored(store, definition.Id);
+        Assert.Equal(Xbox, saved.AppUserModelId);
+        Assert.Equal("Xbox", saved.Name);
+        Assert.Equal("", saved.Executable);
+        Assert.Equal("", saved.ExecutableHash);
+        await using var restarted = new ProgramsService(store.Store, store.Store.Read().RequireConfig(), host);
+        await restarted.ForgetUiAsync(definition.Id);
+        var state = Assert.Single(restarted.ReadState());
+        Assert.True(state.Available);
+        Assert.True(state.CanLaunch);
+        Assert.Equal("Not running", state.Status);
+    }
+
+    [Fact]
+    public async Task AnEditorSnapshotCannotChangeAPackagedProgramsIdentity()
+    {
+        using var store = new TemporaryConfigStore();
+        await using var service = new ProgramsService(store.Store, store.Store.Read().RequireConfig(),
+            new FakeInstalledHost());
+        var definition = new ProgramDefinition { Name = "Xbox", AppUserModelId = Xbox };
+        await service.SaveAsync(definition, true);
+
+        await service.SaveAsync(Stored(store, definition.Id) with
+        {
+            Name = "Games",
+            AppUserModelId = "Other.App_8wekyb3d8bbwe!App"
+        }, false);
+
+        var saved = Stored(store, definition.Id);
+        Assert.Equal("Games", saved.Name);
+        Assert.Equal(Xbox, saved.AppUserModelId);
+    }
+
+    [Fact]
+    public async Task APackageThatIsNotInstalledIsRefusedAndReportedUnavailable()
+    {
+        using var store = new TemporaryConfigStore();
+        FakeInstalledHost host = new();
+        await using var service = new ProgramsService(store.Store, store.Store.Read().RequireConfig(), host);
+        var definition = new ProgramDefinition { Name = "Xbox", AppUserModelId = Xbox };
+        await service.SaveAsync(definition, true);
+
+        host.Installed = false;
+        await service.ForgetUiAsync(definition.Id);
+
+        var state = Assert.Single(service.ReadState());
+        Assert.False(state.CanLaunch);
+        Assert.Equal("Unavailable · app not installed", state.Status);
+        Assert.Contains("no longer installed", await service.ActivateAsync(definition.Id, CancellationToken.None));
+        Assert.Empty(host.Activated);
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.SaveAsync(new ProgramDefinition { Name = "Gone", AppUserModelId = Xbox }, true));
+    }
+
+    [Fact]
+    public async Task ActivatingAPackagedProgramGoesThroughTheDeElevatedHost()
+    {
+        using var store = new TemporaryConfigStore();
+        using CancellationTokenSource stop = new();
+        // The wait for its window is cancelled once the dispatch is recorded, so no real window is touched.
+        FakeInstalledHost host = new() { OnActivate = stop.Cancel };
+        await using var service = new ProgramsService(store.Store, store.Store.Read().RequireConfig(), host);
+        var definition = new ProgramDefinition { Name = "Xbox", AppUserModelId = Xbox };
+        await service.SaveAsync(definition, true);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.ActivateAsync(definition.Id, stop.Token));
+
+        Assert.Equal([Xbox], host.Activated);
+    }
+
+    [Fact]
+    public async Task AFailedListingReportsItsReasonInsteadOfAnEmptyList()
+    {
+        using var store = new TemporaryConfigStore();
+        await using var service = new ProgramsService(store.Store, store.Store.Read().RequireConfig(),
+            new FakeInstalledHost { ListFailure = new InvalidOperationException("no shell") });
+
+        var result = await service.ReadInstalledAsync(CancellationToken.None);
+
+        Assert.Empty(result.Programs);
+        Assert.NotNull(result.Error);
     }
 
     private static ProgramDefinition Stored(TemporaryConfigStore store, string id)

@@ -79,6 +79,9 @@ internal enum PackagedLaunchAction
     /// <summary>Activate and supervise a packaged title.</summary>
     Launch,
 
+    /// <summary>Activate a packaged application once and exit, for a Program entry.</summary>
+    Activate,
+
     /// <summary>Start another launcher's game and supervise it.</summary>
     Follow,
 
@@ -94,11 +97,13 @@ internal enum PackagedLaunchAction
 /// <param name="Request">The launch request, when <see cref="Action" /> is a launch.</param>
 /// <param name="Follow">The follow request, when <see cref="Action" /> is a follow.</param>
 /// <param name="ManagedIdentity">The durable managed record id.</param>
+/// <param name="ActivateAumid">The application to activate, when <see cref="Action" /> is an activation.</param>
 internal sealed record PackagedLaunchCommandLine(
     PackagedLaunchAction Action,
     PackagedLaunchRequest? Request = null,
     PackagedFollowRequest? Follow = null,
-    string? ManagedIdentity = null);
+    string? ManagedIdentity = null,
+    string? ActivateAumid = null);
 
 /// <summary>
 ///     The command line the library importer writes into a generated shortcut and the packaged-game
@@ -121,6 +126,7 @@ internal sealed record PackagedLaunchCommandLine(
 internal static class PackagedLaunchCommand
 {
     internal const string ManagedFlag = "--managed";
+    internal const string ActivateFlag = "--activate";
 
     private const string AumidFlag = "--aumid";
     private const string ModeFlag = "--mode";
@@ -155,6 +161,8 @@ internal static class PackagedLaunchCommand
                                     --report-privileges      Report the access the game grants, once, then continue.
                                     --recover                Release package-lifetime exemptions left by a killed
                                                              launcher, then exit. Takes no other option.
+                                    --activate <family!app>  Activate a packaged application once and exit. Takes no
+                                                             other option.
                                     --managed <id>           Resolve one imported ROM or portable title from its
                                                              durable WSGM content record.
                                     --follow [--dir <folder>] [--marker <path>] -- "<program>" <arguments>
@@ -241,6 +249,21 @@ internal static class PackagedLaunchCommand
 
         id = tokens[1];
         return true;
+    }
+
+    /// <summary>Composes the arguments that activate a packaged application once and exit.</summary>
+    /// <param name="aumid">The application's user model id.</param>
+    /// <returns>The arguments.</returns>
+    internal static string ComposeActivate(string aumid)
+    {
+        if (!ValidAumid(aumid))
+        {
+            throw new ArgumentException("The AUMID must be PackageFamilyName!ApplicationId.", nameof(aumid));
+        }
+
+        StringBuilder composed = new();
+        Append(composed, ActivateFlag, aumid);
+        return composed.ToString();
     }
 
     /// <summary>Builds the Launch Arguments for a generated non-Steam shortcut.</summary>
@@ -638,6 +661,18 @@ internal static class PackagedLaunchCommand
 
             command = new PackagedLaunchCommandLine(PackagedLaunchAction.Managed,
                 ManagedIdentity: arguments[1]);
+            return true;
+        }
+
+        if (arguments.Count > 0 && arguments[0] == ActivateFlag)
+        {
+            if (arguments.Count != 2 || !ValidAumid(arguments[1]))
+            {
+                error = $"{ActivateFlag} takes one PackageFamilyName!ApplicationId and no other option.";
+                return false;
+            }
+
+            command = new PackagedLaunchCommandLine(PackagedLaunchAction.Activate, ActivateAumid: arguments[1]);
             return true;
         }
 

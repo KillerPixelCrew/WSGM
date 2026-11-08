@@ -13,7 +13,13 @@ public sealed record ProgramDefinition
     /// <summary>User-facing name.</summary>
     public string Name { get; set; } = "";
 
-    /// <summary>Absolute executable path.</summary>
+    /// <summary>
+    ///     The packaged application's user model id (<c>PackageFamilyName!ApplicationId</c>), or empty for a
+    ///     desktop program. A packaged program has no executable: Windows activates it by this id.
+    /// </summary>
+    public string AppUserModelId { get; set; } = "";
+
+    /// <summary>Absolute executable path; empty for a packaged program.</summary>
     public string Executable { get; set; } = "";
 
     /// <summary>Arguments passed verbatim to the executable.</summary>
@@ -53,6 +59,7 @@ public sealed record ProgramDefinition
             }
 
             entry.Name ??= "Program";
+            entry.AppUserModelId ??= "";
             entry.Executable ??= "";
             entry.Arguments ??= "";
             entry.WorkingDirectory ??= "";
