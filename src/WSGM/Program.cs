@@ -502,9 +502,9 @@ public static class Program
 
         if (config is not null)
         {
-            // The Predator Sense for Handheld desktop package is no longer blocked: the user starts it for
-            // Acer's BIOS updates. Elevated setup clears the Disabled status WSGM recorded for it, once.
-            OtherManagers.RestoreUnblockedPackages(Store);
+            // What WSGM no longer turns off goes back once, elevated: the Predator Sense for Handheld desktop
+            // package (the user starts it for Acer's BIOS updates) and AFZsvc (the built-in controller needs it).
+            OtherManagers.RestoreUnblocked(Store);
         }
 
         if (config is not null && StartupOptions.ArgumentValue(args, "--answers=") is { } answersPath)

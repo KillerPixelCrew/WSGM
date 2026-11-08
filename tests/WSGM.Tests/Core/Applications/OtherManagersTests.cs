@@ -117,13 +117,13 @@ public sealed class OtherManagersTests
 
         Assert.Equal(["Handheld.Widget"], predator.Processes);
         Assert.Equal(["ULICTekInc.PredatorSenseforHandHeldWidget_nt9dgb7efx6bt"], predator.PackageFamilies);
-        Assert.Equal(10, predator.Services.Count);
+        Assert.Equal(9, predator.Services.Count);
         Assert.Contains("PredatorHandheldLauncher", predator.Tasks);
         Assert.NotNull(predator.DedicatedKeyboardDeviceId);
     }
 
     [Fact]
-    public void RestoreUnblockedPackages_PutsBackOnlyTheDesktopPackage_Once()
+    public void RestoreUnblocked_PutsBackOnlyTheDesktopPackage_Once()
     {
         using var temporary = new TemporaryConfigStore();
         OtherManagerRecord desktop = new()
@@ -146,19 +146,66 @@ public sealed class OtherManagersTests
         }
 
         FakeTargets refusing = new() { RestoreResult = false };
-        Assert.Equal(1, OtherManagers.RestoreUnblockedPackages(temporary.Store, refusing));
+        Assert.Equal(1, OtherManagers.RestoreUnblocked(temporary.Store, new FakeServices(), refusing));
         Assert.Equal([desktop.Name], refusing.Restored.Select(entry => entry.Name));
         Assert.Equal(3, temporary.Store.Read().RequireConfig().OtherManagersDisabled.Count);
 
         FakeTargets accepting = new();
-        Assert.Equal(0, OtherManagers.RestoreUnblockedPackages(temporary.Store, accepting));
+        Assert.Equal(0, OtherManagers.RestoreUnblocked(temporary.Store, new FakeServices(), accepting));
         Assert.Equal([desktop.Name], accepting.Restored.Select(entry => entry.Name));
         Assert.Equal([widget.Name, launcher.Name],
             temporary.Store.Read().RequireConfig().OtherManagersDisabled.Select(entry => entry.Name));
 
         FakeTargets again = new();
-        Assert.Equal(0, OtherManagers.RestoreUnblockedPackages(temporary.Store, again));
+        Assert.Equal(0, OtherManagers.RestoreUnblocked(temporary.Store, new FakeServices(), again));
         Assert.Empty(again.Restored);
+    }
+
+    [Fact]
+    public void RestoreUnblocked_PutsBackAfzsvcOnlyWhileItIsStillDisabled_AndKeepsTheOtherAcerServicesOff()
+    {
+        // The tester's built-in controller needed AFZsvc after Acer's component update (2026-11-08).
+        var predator = OtherManagers.Known.Single(manager => manager.Id == "acer-predator-handheld");
+        Assert.DoesNotContain("AFZsvc", predator.Services);
+        Assert.Contains("AASHHSvc", predator.Services);
+
+        using var temporary = new TemporaryConfigStore();
+        OtherManagerRecord focus = new()
+        {
+            ManagerId = "acer-predator-handheld", Kind = "service", Name = "AFZsvc", PreviousStart = 2
+        };
+        OtherManagerRecord central = new()
+        {
+            ManagerId = "acer-predator-handheld", Kind = "service", Name = "AASHHSvc", PreviousStart = 2
+        };
+        OtherManagers.Record(temporary.Store, focus);
+        OtherManagers.Record(temporary.Store, central);
+        FakeServices services = new();
+        services.Services["AFZsvc"] = (4, false);
+        services.Services["AASHHSvc"] = (4, false);
+
+        Assert.Equal(0, OtherManagers.RestoreUnblocked(temporary.Store, services, new FakeTargets()));
+
+        Assert.Equal(["AFZsvc=2", "start AFZsvc"], services.Calls);
+        Assert.Equal((4, false), services.Services["AASHHSvc"]);
+        Assert.Equal(["AASHHSvc"], temporary.Store.Read().RequireConfig().OtherManagersDisabled.Select(entry => entry.Name));
+    }
+
+    [Fact]
+    public void RestoreUnblocked_LeavesAnAfzsvcTheUserChangedAsItIs()
+    {
+        using var temporary = new TemporaryConfigStore();
+        OtherManagers.Record(temporary.Store, new OtherManagerRecord
+        {
+            ManagerId = "acer-predator-handheld", Kind = "service", Name = "AFZsvc", PreviousStart = 2
+        });
+        FakeServices services = new();
+        services.Services["AFZsvc"] = (3, false);
+
+        Assert.Equal(0, OtherManagers.RestoreUnblocked(temporary.Store, services, new FakeTargets()));
+
+        Assert.Empty(services.Calls);
+        Assert.Empty(temporary.Store.Read().RequireConfig().OtherManagersDisabled);
     }
 
     [Fact]

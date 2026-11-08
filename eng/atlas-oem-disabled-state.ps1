@@ -1,7 +1,8 @@
 #requires -RunAsAdministrator
 # Maintainer-authorized local Atlas maintenance. Not invoked by WSGM runtime or validation.
 $ErrorActionPreference = 'Stop'
-$services = @('AASHHSvc','AcerCCAgentSvis','AcerDeviceEnablingServiceV2','AcerHandheld.Service','AcerLightingServiceHH','AcerORDService','AcerServiceSvc','AFZsvc','ALSSvc','UEIPSvc')
+# AFZsvc stays startable: the built-in controller needed it after Acer's component update (2026-11-08).
+$services = @('AASHHSvc','AcerCCAgentSvis','AcerDeviceEnablingServiceV2','AcerHandheld.Service','AcerLightingServiceHH','AcerORDService','AcerServiceSvc','ALSSvc','UEIPSvc')
 $tasks = @('PredatorHandheldLauncher','UEIPInvitation','UbtFrameworkService')
 # The desktop app ULICTekInc.PredatorSenseforHandHeld stays startable: Acer delivers Atlas BIOS updates through it (2026-11-07).
 $packages = @('ULICTekInc.PredatorSenseforHandHeldWidget')

@@ -152,10 +152,12 @@ flags. The package families include their publisher identity and allow replaceme
 helpers are asked to close normally; setup reports a restart when a blocked helper remains or PnP
 requires one. The Predator Sense for Handheld desktop app is not blocked or closed, so the user can
 start it to get Acer's BIOS updates (2026-11-07). Setup clears the Disabled status an earlier
-version recorded for its package, once, only if that status is still set. Unplugged-but-registered
-nodes retain their recovery ownership. Already-disabled user settings are preserved. Repair/setup
-reconciles an accepted takeover again. A change Windows refuses is logged and left to the re-check;
-it never fails or rolls back the install.
+version recorded for its package, once, only if that status is still set. Likewise `AFZsvc` is no
+longer turned off, because a tester's built-in controller needed it after Acer's component update
+(2026-11-08); setup restores the start type recorded for it while it is still disabled.
+Unplugged-but-registered nodes retain their recovery ownership. Already-disabled user settings are
+preserved. Repair/setup reconciles an accepted takeover again. A change Windows refuses is logged
+and left to the re-check; it never fails or rolls back the install.
 
 Once accepted, the takeover is kept, not applied once. Handheld Companion's uninstaller re-enables
 the maker's services it had turned off, and on an Ally the Armoury Crate helper then answers the

@@ -138,6 +138,10 @@ BIOS updates through the app and does not post them separately, so the takeover 
 desktop package or closes its window. Its services, tasks, widget and the controller keyboard leaf
 stay off. Setup clears the Disabled status earlier versions recorded for the desktop package.
 
+**AFZsvc is never turned off (2026-11-08).** After Acer's component update 1.0.1000.4 a
+tester's built-in controller stopped working while the service was disabled. Setup puts back the
+start type earlier versions recorded for it, only while it is still disabled.
+
 **Steam shows the volume, WSGM only applies it (maintainer, 2026-10-28).** The physical volume
 command is always applied in game mode, with the feedback sound. WSGM's own volume popup was removed
 once Steam's audio system worked again; Steam's display shows the change.
