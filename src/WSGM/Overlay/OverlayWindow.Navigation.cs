@@ -86,8 +86,6 @@ public partial class OverlayWindow
         new SubView(OverlayPage.Screensavers, ScreensaversHost, null, OverlayDestination.System,
             Title: "Screensavers", Icon: Icons.Monitor, PinId: "system.screensavers",
             Description: "Local image folders and scene packs"),
-        new SubView(OverlayPage.SystemController, PanelSystemController, null,
-            OverlayDestination.System, Title: "Keyboard", Icon: Icons.Keyboard),
         new SubView(OverlayPage.SystemAbout, PanelSystemAbout, null, OverlayDestination.System, Title: "About",
             Icon: Icons.Info),
         new SubView(OverlayPage.PowerWake, PanelPowerWake, null, OverlayDestination.Power, Title: "Wake",

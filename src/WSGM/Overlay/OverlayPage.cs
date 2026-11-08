@@ -57,9 +57,6 @@ internal enum OverlayPage
     /// <summary>Steam UI sound packs and previews.</summary>
     SystemSounds,
 
-    /// <summary>The on-screen keyboard and the Steam Input handoff.</summary>
-    SystemController,
-
     /// <summary>Version, licence and the people and projects WSGM thanks.</summary>
     SystemAbout,
     Power,

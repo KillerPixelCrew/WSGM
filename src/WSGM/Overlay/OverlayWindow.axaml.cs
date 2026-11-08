@@ -237,7 +237,7 @@ public partial class OverlayWindow : Window
     /// <summary>Raised when a nested page is torn down so its auxiliary surface closes too.</summary>
     public event Action? SubViewClosed;
 
-    /// <summary>Raised when the user asks for the on-screen keyboard, from the header or Tools > Keyboard.</summary>
+    /// <summary>Raised when the user asks for the on-screen keyboard, from the header.</summary>
     internal event Action? OnScreenKeyboardRequested;
 
     /// <summary>Connects the destination pages to the navigation, surfaces and confirmations the sheet owns.</summary>
@@ -257,7 +257,6 @@ public partial class OverlayWindow : Window
         PanelSystemStorage.Configure(StorageFormatHost);
         PanelSystemStorage.EjectRequested += () => EjectPanelRequested?.Invoke();
         PanelSystemStorage.FormatPageRequested += OpenStorageFormat;
-        PanelSystemController.KeyboardRequested += () => OnScreenKeyboardRequested?.Invoke();
         PanelPowerSession.Configure(_powerConfirms);
         PanelPowerWake.WakeLocksRequested += () => OpenPage(OverlayPage.PowerWakeLocks);
         PanelSystemDisplay.CustomResolutionsRequested += () => OpenPage(OverlayPage.SystemDisplayResolutions);

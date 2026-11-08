@@ -186,6 +186,11 @@ public static class Icons
         StreamGeometry.Parse(
             "M 8,3 L 16,3 M 9,3 L 9,9 L 6,12 L 18,12 L 15,9 L 15,3 M 12,12 L 12,21");
 
+    /// <summary>Waste bin for removing an item from a list.</summary>
+    public static StreamGeometry Trash { get; } =
+        StreamGeometry.Parse(
+            "M 4,7 L 20,7 M 9,7 L 9,4 L 15,4 L 15,7 M 6,7 L 7,20 L 17,20 L 18,7 M 10,11 L 10,16 M 14,11 L 14,16");
+
     /// <summary>Painter's palette with four paint wells (appearance).</summary>
     public static StreamGeometry Palette { get; } =
         StreamGeometry.Parse(

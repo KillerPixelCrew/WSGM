@@ -326,7 +326,7 @@ public sealed class OverlayLayoutTests
             _ => typeof(ComboBox)
         };
         var editor = UiFixture.Named<ScrollViewer>(window, "ContentScroller").GetVisualDescendants().OfType<Control>()
-            .Single(control => control.GetType() == type && control.IsEffectivelyVisible);
+            .Single(control => type.IsInstanceOfType(control) && control.IsEffectivelyVisible);
         List<string> requests = [];
         window.PinToggleRequested += requests.Add;
         editor.Focus();
@@ -354,7 +354,7 @@ public sealed class OverlayLayoutTests
         UiFixture.Click(window, UiFixture.Tab(window, 0));
         UiFixture.OpenSections(window);
         var pinned = UiFixture.Named<Panel>(window, "PinnedSectionsGrid").GetVisualDescendants().OfType<Control>()
-            .Single(control => control.GetType() == type);
+            .Single(control => type.IsInstanceOfType(control));
         Assert.Equal("pin:fixture.value", pinned.Tag);
         var pinnedSection = UiFixture.Named<Panel>(window, "PinnedSectionsGrid");
         Assert.Contains(pinnedSection.GetVisualDescendants().OfType<TextBlock>(),
@@ -377,14 +377,14 @@ public sealed class OverlayLayoutTests
         device.State = device.State with { Visible = false };
         device.Notify();
         Dispatcher.UIThread.RunJobs();
-        Assert.DoesNotContain(pinnedSection.GetVisualDescendants(), control => control.GetType() == type);
+        Assert.DoesNotContain(pinnedSection.GetVisualDescendants(), control => type.IsInstanceOfType(control));
         var unavailableHeader = pinnedSection.GetVisualDescendants().OfType<SectionPinHeader>().Single();
         UiFixture.Click(window, unavailableHeader.GetVisualDescendants().OfType<Button>().Single());
         Assert.Equal("section.device.plugin.info.main", requests[^1]);
         window.SetPins([]);
         UiFixture.OpenSections(window);
         Assert.DoesNotContain(UiFixture.Named<Panel>(window, "PinnedSectionsGrid").GetVisualDescendants(),
-            control => control.GetType() == type);
+            control => type.IsInstanceOfType(control));
     }
 
     [AvaloniaFact]

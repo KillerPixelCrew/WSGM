@@ -86,9 +86,7 @@ public sealed class HotkeysViewTests
     {
         using UiFixture fixture = new();
         var (window, source) = Open(fixture);
-        Click(window, "hotkey.edit:lossless");
-
-        Click(window, "editor.delete");
+        Click(window, "hotkey.delete:lossless");
         Assert.True(window.Surfaces.HasActive);
         Assert.True(UiFixture.Tagged<ActionButton>(window, "confirm.cancel").IsFocused);
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(),
@@ -97,7 +95,7 @@ public sealed class HotkeysViewTests
         await CloseAsync(window, () => Click(window, "confirm.cancel"));
         Assert.Empty(source.Commands);
 
-        Click(window, "editor.delete");
+        Click(window, "hotkey.delete:lossless");
         await CloseAsync(window, () => Click(window, "confirm.accept"));
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(("remove", (object)"lossless"), Assert.Single(source.Commands));

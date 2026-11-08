@@ -247,7 +247,6 @@
 
             <ov:SoundsView x:Name="SoundsHost" IsVisible="False" />
 
-            <ov:KeyboardPage x:Name="PanelSystemController" IsVisible="False" HorizontalAlignment="Stretch" />
 
             <ov:PowerSessionPage x:Name="PanelPowerSession" IsVisible="False" HorizontalAlignment="Stretch" />
 

@@ -182,7 +182,7 @@ menu, still gets the pad pulse because nothing else reaches Steam.
 
 ## Owner claims and the Settings handoff
 
-The overlay header's Keyboard action, Tools' On-screen keyboard action and the OEM keyboard
+The overlay header's Keyboard action and the OEM keyboard
 assignment route by session mode. The sheet closes before invocation, restoring application focus
 and releasing its own claim. Game Mode then replays the toolkit's native Keyboard action through CEF
 (`SteamNativeSurfaceCommands.ReplayAsync`) on the window `SelectReplayTarget` picks from Steam's

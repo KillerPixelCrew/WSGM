@@ -93,6 +93,40 @@
   <Style Selector="Button.deck-action.section-pin.pinned">
     <Setter Property="Foreground" Value="{DynamicResource HcAccentBrush}" />
   </Style>
+  <!-- An icon command beside a list row (edit, pin, delete): a full-height touch target. -->
+  <Style Selector="Button.deck-action.row-command">
+    <Setter Property="Width" Value="56" />
+    <Setter Property="MinHeight" Value="48" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="VerticalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.deck-action.row-command.pinned">
+    <Setter Property="Foreground" Value="{DynamicResource HcAccentBrush}" />
+  </Style>
+  <!-- One letter of the jump bar beside a long sorted list. -->
+  <Style Selector="Button.alphabet-letter">
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="VerticalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="CornerRadius" Value="{StaticResource DeckControlRadius}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="FocusAdorner" Value="{x:Null}" />
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="Button.alphabet-letter:focus-visible">
+    <Setter Property="Background" Value="{DynamicResource HcAccentBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource HcOnAccentBrush}" />
+  </Style>
+  <Style Selector="Button.alphabet-letter:disabled">
+    <Setter Property="Opacity" Value="0.3" />
+  </Style>
   <Style Selector="Button.deck-action:pointerover">
     <Setter Property="Background" Value="{StaticResource DeckHoverBrush}" />
   </Style>

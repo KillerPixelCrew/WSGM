@@ -39,7 +39,7 @@ public static class PreviewExports
         foreach (var page in new[]
                  {
                      "quick-access", "steam", "steam-launch", "tools",
-                     "tools-storage", "tools-display", "tools-controller", "power", "power-idle",
+                     "tools-storage", "tools-display", "power", "power-idle",
                      "power-actions", "power-session", "device", "device-power", "device-rgb",
                      "device-controller", "device-info", "device-gpu", "power-menu", "keyboard"
                  })
@@ -97,7 +97,6 @@ public static class PreviewExports
                 "steam-launch" => "SteamLaunchFixes",
                 "tools-storage" => "SystemStorage",
                 "tools-display" => "SystemDisplay",
-                "tools-controller" => "SystemController",
                 "power-idle" => "PowerTimeouts",
                 "power-actions" => "PowerActions",
                 "power-session" => "PowerSession",

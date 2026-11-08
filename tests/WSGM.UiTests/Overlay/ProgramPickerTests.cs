@@ -3,6 +3,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Overlay;
 using WSGM.UiTests.Fakes;
@@ -23,8 +24,10 @@ public sealed class ProgramPickerTests
     [InlineData("overlay-programs-picker-failure-980", "failure", 980, 640)]
     [InlineData("overlay-programs-picker-failure-1280", "failure", 1280, 800)]
     [InlineData("overlay-programs-picker-loading-980", "loading", 980, 640)]
-    [InlineData("overlay-programs-picker-confirm-980", "confirm", 980, 640)]
-    [InlineData("overlay-programs-picker-confirm-1280", "confirm", 1280, 800)]
+    [InlineData("overlay-programs-picker-full-980", "full", 980, 640)]
+    [InlineData("overlay-programs-picker-full-1280", "full", 1280, 800)]
+    [InlineData("overlay-programs-list-980", "list", 980, 640)]
+    [InlineData("overlay-programs-list-1280", "list", 1280, 800)]
     public async Task Scene(string name, string scene, int width, int height)
     {
         using UiFixture fixture = new();
@@ -37,10 +40,17 @@ public sealed class ProgramPickerTests
             case "loading":
                 source.Installed = new TaskCompletionSource<InstalledProgramList>().Task;
                 break;
+            case "full":
+                source.Installed = Task.FromResult(new InstalledProgramList(ManyPrograms()));
+                break;
         }
 
         var window = Open(fixture, source, width, height);
-        Click(window, "program.add");
+        if (scene != "list")
+        {
+            Click(window, "program.add");
+        }
+
         switch (scene)
         {
             case "searching":
@@ -48,9 +58,6 @@ public sealed class ProgramPickerTests
                 break;
             case "empty":
                 await SearchAsync(window, "no such app");
-                break;
-            case "confirm":
-                Click(window, "program.pick:app:xbox");
                 break;
         }
 
@@ -66,7 +73,7 @@ public sealed class ProgramPickerTests
     }
 
     [AvaloniaFact]
-    public void PickingAnAppFillsTheDraftAndSavesItsApplicationIdOnlyAfterConfirming()
+    public void PickingAnAppAddsItAtOnceAndReturnsToTheList()
     {
         using UiFixture fixture = new();
         ProgramsOverlaySource source = new();
@@ -74,34 +81,65 @@ public sealed class ProgramPickerTests
         Click(window, "program.add");
 
         Click(window, "program.pick:app:xbox");
-        Assert.Empty(source.Added);
-        Assert.Equal("Xbox", UiFixture.Tagged<IconActionRow>(window, "program.confirm.name").Title);
-
-        Click(window, "program.confirm.add");
 
         var added = Assert.Single(source.Added);
         Assert.Equal("Xbox", added.Name);
         Assert.Equal("Microsoft.GamingApp_8wekyb3d8bbwe!Microsoft.Xbox.App", added.AppUserModelId);
         Assert.Equal("", added.Executable);
+        Assert.NotNull(UiFixture.Tagged<Button>(window, "program.add"));
     }
 
     [AvaloniaFact]
-    public async Task TheNameCanBeEditedBeforeSaving()
+    public void TheWholeListIsDrawnAndALetterJumpsToIt()
     {
         using UiFixture fixture = new();
-        ProgramsOverlaySource source = new();
-        var window = Open(fixture, source);
+        ProgramsOverlaySource source = new() { Installed = Task.FromResult(new InstalledProgramList(ManyPrograms())) };
+        var window = Open(fixture, source, 980, 640);
         Click(window, "program.add");
-        Click(window, "program.pick:app:notepad");
 
-        await EnterAsync(window, UiFixture.Tagged<Button>(window, "program.confirm.name"), "My editor");
-        Click(window, "program.confirm.add");
+        Assert.Equal(ManyPrograms().Length, window.GetVisualDescendants().OfType<IconActionRow>().Count(row =>
+            (row.Tag as string)?.StartsWith("program.pick:", StringComparison.Ordinal) == true));
+        Assert.Equal(ManyPrograms().Length, source.Icons.Count);
+        var scroller = window.GetVisualDescendants().OfType<ScrollViewer>()
+            .Single(item => item.Name == "ContentScroller");
+        Assert.Equal(0, scroller.Offset.Y);
+        Assert.False(UiFixture.Tagged<Button>(window, "alphabet:Q").IsEffectivelyEnabled);
 
-        var added = Assert.Single(source.Added);
-        Assert.Equal("My editor", added.Name);
-        Assert.Equal(@"C:\Program Files\Notepad++\notepad++.exe", added.Executable);
+        UiFixture.Tagged<Button>(window, "alphabet:M").RaiseEvent(
+            new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(scroller.Offset.Y > 0);
+        Assert.True(UiFixture.Tagged<Button>(window, "program.pick:app:m0").IsFocused);
+        var bar = window.GetVisualDescendants().OfType<AlphabetJumpBar>().Single();
+        Assert.Equal(scroller.Offset.Y, ((Avalonia.Media.TranslateTransform)bar.RenderTransform!).Y);
     }
 
+    [Theory]
+    [InlineData("Xbox", 'X')]
+    [InlineData("Ägypten", 'A')]
+    [InlineData("7-Zip", '#')]
+    [InlineData("  notepad", 'N')]
+    public void ANameFilesUnderItsLetter(string name, char letter)
+    {
+        Assert.Equal(letter, AlphabetJumpBar.Bucket(name));
+    }
+
+    [AvaloniaFact]
+    public void EachProgramHasItsCommandsBesideIt()
+    {
+        using UiFixture fixture = new();
+        var window = Open(fixture, new ProgramsOverlaySource());
+
+        Click(window, "program.edit:monitor");
+        Assert.NotNull(UiFixture.Tagged<Button>(window, "program.name"));
+        Assert.True(window.TryCancelSubView());
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.IsType<RowCommandButton>(UiFixture.Tagged<Button>(window, "program.pin:monitor"));
+        Click(window, "program.remove:monitor");
+        Assert.True(UiFixture.Tagged<ActionButton>(window, "confirm.cancel").IsFocused);
+    }
     [AvaloniaFact]
     public async Task AnAlreadyAddedAppIsMarkedAndAnEmptySearchOffersToClearIt()
     {
@@ -153,6 +191,14 @@ public sealed class ProgramPickerTests
         Assert.NotNull(UiFixture.Tagged<Button>(window, "program.add"));
         // A disposed WriteableBitmap refuses to lock its framebuffer.
         Assert.All(source.Icons, icon => Assert.ThrowsAny<Exception>(() => icon.Lock()));
+    }
+
+    /// <summary>More apps than fit on a page, in sorted order, leaving some letters without any.</summary>
+    private static InstalledProgram[] ManyPrograms()
+    {
+        return "ABCDEFGHIJKLMNOPRSTUVW".SelectMany(letter => Enumerable.Range(0, 4).Select(index =>
+            new InstalledProgram($"app:{char.ToLowerInvariant(letter)}{index}", $"{letter}pp number {index}", null,
+                $@"C:\Tools\{letter}{index}.exe", ""))).ToArray();
     }
 
     private static OverlayWindow Open(UiFixture fixture, ProgramsOverlaySource source, int width = 1280,

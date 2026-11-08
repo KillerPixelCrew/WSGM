@@ -176,7 +176,7 @@ public sealed class HotkeysView : ServiceSubView
         SetContent(body);
     }
 
-    /// <summary>One hotkey on the page: the hotkey itself, which sends it, then Pin and Edit.</summary>
+    /// <summary>One hotkey on the page: the hotkey itself, which sends it, then edit, pin and delete.</summary>
     private Grid Item(HotkeyState state)
     {
         var id = state.Definition.Id;
@@ -187,31 +187,12 @@ public sealed class HotkeysView : ServiceSubView
             ? state with { Notice = "Unsaved changes in the editor" }
             : state;
         var row = new HotkeyActionRow(shown, () => SendRequested?.Invoke(id)) { Tag = pin, IsPinned = pinned };
-        var pinCommand = ItemCommand("hotkey.pin:" + id, pinned ? "Unpin" : "Pin", Icons.Pin,
-            (pinned ? "Unpin " : "Pin ") + name, () => PinToggleRequested?.Invoke(pin));
-        var edit = ItemCommand("hotkey.edit:" + id, "Edit", Icons.Gear, "Edit " + name, () => OpenEditor(id));
-        var grid = new Grid
-        {
-            ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"), ColumnSpacing = 8,
-            Tag = "hotkey.item:" + id
-        };
-        grid.Children.Add(row);
-        Grid.SetColumn(pinCommand, 1);
-        grid.Children.Add(pinCommand);
-        Grid.SetColumn(edit, 2);
-        grid.Children.Add(edit);
-        return grid;
-    }
-
-    private static ActionButton ItemCommand(string tag, string title, Geometry icon, string name, Action onClick)
-    {
-        var command = Row(title, "", icon, onClick);
-        command.Tag = tag;
-        command.AccessibleName = name;
-        // One width for Pin and Unpin keeps the columns aligned down the list.
-        command.Width = 116;
-        command.VerticalAlignment = VerticalAlignment.Stretch;
-        return command;
+        return ListItem("hotkey.item:" + id, row,
+            new RowCommandButton("hotkey.edit:" + id, "Edit " + name, Icons.Wrench, () => OpenEditor(id), false, false),
+            new RowCommandButton("hotkey.pin:" + id, (pinned ? "Unpin " : "Pin ") + name, Icons.Pin,
+                () => PinToggleRequested?.Invoke(pin), pinned, false),
+            new RowCommandButton("hotkey.delete:" + id, "Delete " + name, Icons.Trash,
+                () => ConfirmDelete(id, name), false, true));
     }
 
     private void OpenNew(string name, IReadOnlyList<int> keys)
@@ -333,12 +314,6 @@ public sealed class HotkeysView : ServiceSubView
                     Forget(id);
                     Back();
                 }), "editor.discard"));
-        }
-
-        if (saved is not null)
-        {
-            body.Children.Add(Tagged(DangerRow("Delete hotkey", "Removes it and its Quick access tile", Icons.Close,
-                () => ConfirmDelete(id, saved.Definition.Name)), "editor.delete"));
         }
 
         SetContent(body);
@@ -471,14 +446,10 @@ public sealed class HotkeysView : ServiceSubView
             return;
         }
 
-        var generation = NavigationGeneration;
         UnpinRequested?.Invoke(HotkeysService.PinPrefix + id);
         await service.RemoveAsync(id);
         Forget(id);
-        if (generation == NavigationGeneration)
-        {
-            Back();
-        }
+        CurrentLevel?.Invoke();
     }
 
     private void Update(string id, Func<HotkeyDefinition, HotkeyDefinition> change, bool redraw = true)

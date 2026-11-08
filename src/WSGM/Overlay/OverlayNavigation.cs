@@ -228,7 +228,6 @@ internal sealed class OverlayNavigation
                 or OverlayPage.Programs or OverlayPage.Hotkeys
                 or OverlayPage.Notes or OverlayPage.SystemBrowser or OverlayPage.Screensavers
                 or OverlayPage.SystemSounds
-                or OverlayPage.SystemController
                 or OverlayPage.SystemAbout
                 => OverlayDestination.System,
             OverlayPage.Power or OverlayPage.PowerWake or OverlayPage.PowerTimeouts

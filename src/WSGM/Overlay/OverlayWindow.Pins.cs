@@ -29,6 +29,7 @@ public partial class OverlayWindow
     {
         _pins.Set(ids);
         HotkeysHost.SetPins(ids);
+        ProgramsHost.SetPins(ids);
         RenderPins();
     }
 

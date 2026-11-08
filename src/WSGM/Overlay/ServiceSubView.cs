@@ -138,6 +138,26 @@ public abstract class ServiceSubView : OverlaySubView
         _live = new LiveLevel<TState>(level, NavigationGeneration, element, rendered, read, sameStructure, progress);
     }
 
+    /// <summary>One item of a list: its row, then the small commands that act on it.</summary>
+    /// <param name="tag">The item's semantic key.</param>
+    /// <param name="row">The row, which does the item's main action.</param>
+    /// <param name="commands">The commands at its trailing edge.</param>
+    /// <returns>The item.</returns>
+    private protected static Grid ListItem(string tag, Control row, params Control[] commands)
+    {
+        var grid = new Grid { ColumnSpacing = 8, Tag = tag };
+        grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
+        grid.Children.Add(row);
+        for (var index = 0; index < commands.Length; index++)
+        {
+            grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
+            Grid.SetColumn(commands[index], index + 1);
+            grid.Children.Add(commands[index]);
+        }
+
+        return grid;
+    }
+
     /// <summary>Sets a level that shows no service state, so the service's publications leave it as drawn.</summary>
     /// <param name="stack">The level.</param>
     private protected void SetStaticContent(StackPanel stack)

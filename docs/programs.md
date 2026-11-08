@@ -1,13 +1,14 @@
 # Programs
 
-Tools > Programs manages companion applications. **Add program** opens a searchable list of the
-applications installed on this PC, the same set Windows shows in Start: all-users and per-user Start
-Menu shortcuts plus packaged (Store) apps such as Xbox. Picking one fills its name, icon and launch
-target, and the name stays editable until **Add to Programs**. **Browse for a file…** is the manual
-choice in the same flow, with the Overlay's controller and touch accessible file picker, and stays
-available while the list loads and when it cannot be read. Programs exist only in the Overlay; Steam
-has no surface that adds or edits them. An entry's name, arguments and optional working directory
-stay editable afterwards. Every entry can be pinned to Quick access. The page and its pins invoke
+Tools > Programs manages companion applications. **Add program** opens a searchable list of every
+application installed on this PC, the same set Windows shows in Start: all-users and per-user Start
+Menu shortcuts plus packaged (Store) apps such as Xbox. An alphabet bar beside the scrollbar jumps to
+a letter. Picking an app adds it at once and returns to the list. **Browse for a file…** is the
+manual choice in the same flow, with the Overlay's controller and touch accessible file picker, and
+stays available while the list loads and when it cannot be read. Programs exist only in the Overlay;
+Steam has no surface that adds or edits them. Each entry has small edit, pin and remove buttons
+beside it; the name, arguments and optional working directory are changed in its editor. Every entry
+can be pinned to Quick access. The page and its pins invoke
 the same session-owned launch-or-focus service and consume the same running state. Removing an entry
 or closing the Overlay never terminates the application.
 
@@ -23,7 +24,7 @@ prompt starts nothing and leaves no pending launch behind.
 its own STA thread and `InstalledProgramCatalog` decides what is offered. It de-duplicates by
 application id or executable and arguments, and drops a desktop entry that is not an existing
 `.exe`, is maintenance tooling (uninstallers, setup, help, readmes) or is Explorer, which WSGM owns
-in Game Mode. Icons are read a page of rows at a time and released when the flow ends.
+in Game Mode. Icons are read in batches once the list is drawn and released when the flow ends.
 
 A packaged application stores its `AppUserModelId` and has no executable or fingerprint.
 Availability is its package family being installed. Activation goes through the same scheduled-task
