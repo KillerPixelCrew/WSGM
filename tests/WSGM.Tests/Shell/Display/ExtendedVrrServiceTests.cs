@@ -327,6 +327,40 @@ public sealed class ExtendedVrrServiceTests
     }
 
     [Fact]
+    public async Task TheLowFrameRateSwitchTakesALoadedStandaloneRangeOverWithoutARestart()
+    {
+        var fixture = new Fixture();
+        fixture.Machine.Override = Panel.CreateEdid(Physical, 28);
+        fixture.Restart(Panel.CreateEdid(Physical, 28));
+        var original = new ExtendedVrrIntelState
+        {
+            Source = "MEASURED", ProfileId = 1, MinimumHz = 48, MaximumHz = 120, LowFpsSolutionEnabled = true,
+            HighFpsSolutionEnabled = true
+        };
+        fixture.Machine.Standalone = new ExtendedVrrStandalone(28, original);
+        await fixture.CheckAsync();
+        Assert.True(fixture.Service.Status.LowFrameRateVisible);
+
+        var status = await fixture.Service.SetLowFrameRateCompensationAsync(true);
+
+        Assert.True(fixture.Machine.StandaloneRemoved);
+        Assert.NotNull(fixture.Machine.Override);
+        Assert.Equal(original, fixture.Saved);
+        Assert.Equal((ExtendedVrrPhase.Active, true, true),
+            (status.Phase, status.LowFrameRateCompensation, status.LowFrameRateVisible));
+        Assert.True(fixture.Driver.Solutions.LowFrameRate);
+    }
+
+    [Fact]
+    public async Task TheLowFrameRateSwitchIsHiddenUntilTheRangeIsLoaded()
+    {
+        var fixture = new Fixture();
+        await fixture.Service.SetEnabledAsync(true);
+
+        Assert.Equal(ExtendedVrrPhase.RestartToApply, fixture.Service.Status.Phase);
+        Assert.False(fixture.Service.Status.LowFrameRateVisible);
+    }
+    [Fact]
     public async Task TurningAStandaloneInstallOffRemovesItAndRestoresItsSavedState()
     {
         var fixture = new Fixture();

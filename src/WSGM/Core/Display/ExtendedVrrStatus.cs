@@ -5,11 +5,16 @@ namespace WSGM.Core;
 /// <param name="Detail">The row's description: the state, what to do next, or why nothing can change.</param>
 /// <param name="Busy">Whether a change is running.</param>
 /// <param name="LowFrameRateCompensation">Whether Intel's low frame rate compensation is kept on while the range is active.</param>
+/// <param name="LowFrameRateVisible">
+///     Whether the low frame rate compensation switch is drawn: while the range is loaded, WSGM's own or the standalone
+///     tool's, which using the switch hands to WSGM.
+/// </param>
 internal sealed record ExtendedVrrStatus(
     ExtendedVrrPhase Phase,
     string Detail,
     bool Busy = false,
-    bool LowFrameRateCompensation = false)
+    bool LowFrameRateCompensation = false,
+    bool LowFrameRateVisible = false)
 {
     /// <summary>The row's title on both surfaces.</summary>
     internal const string Title = "Extended VRR range (28–120 Hz)";
@@ -33,7 +38,4 @@ internal sealed record ExtendedVrrStatus(
 
     /// <summary>Whether the switch can be used now.</summary>
     internal bool CanChange => !Busy && Phase is not (ExtendedVrrPhase.Hidden or ExtendedVrrPhase.Refused);
-
-    /// <summary>Whether the low frame rate compensation switch is drawn: only while WSGM's range is active.</summary>
-    internal bool LowFrameRateVisible => Phase is ExtendedVrrPhase.Active;
 }

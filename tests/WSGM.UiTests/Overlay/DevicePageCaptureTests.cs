@@ -890,7 +890,7 @@ public sealed class DevicePageCaptureTests
                 + "restart). Nothing was changed.")
             : state == "active"
                 ? new ExtendedVrrStatus(ExtendedVrrPhase.Active, "Active: Arc Sync Excellent from 28 to 120 Hz.",
-                    LowFrameRateCompensation: true)
+                    LowFrameRateCompensation: true, LowFrameRateVisible: true)
                 : new ExtendedVrrStatus(ExtendedVrrPhase.RestartToApply, "Restart Windows to apply.");
         List<string?> selected = [];
         claw.Device.SelectHost = (id, value) =>

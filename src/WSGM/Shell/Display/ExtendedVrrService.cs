@@ -55,6 +55,7 @@ internal sealed class ExtendedVrrService : IAsyncDisposable
     private Task _check = Task.CompletedTask;
     private string? _lastLogged;
     private volatile bool _lowFrameRate;
+    private volatile bool _rangeLoaded;
     private ExtendedVrrStatus _status = ExtendedVrrStatus.Hidden;
 
     /// <summary>Creates the owner; nothing is read or written until <see cref="Recheck" /> or a change.</summary>
@@ -168,7 +169,13 @@ internal sealed class ExtendedVrrService : IAsyncDisposable
             _lowFrameRate = enabled;
             _writeLowFrameRate(enabled);
             Log.Info($"Extended VRR range: low frame rate compensation {(enabled ? "on" : "off")} while active.");
-            if (Status.Phase is ExtendedVrrPhase.Active)
+            if (Status.Phase is ExtendedVrrPhase.Standalone && _rangeLoaded
+                && TakeOverStandalone() is { } problem)
+            {
+                return Status with { Busy = false, Detail = problem };
+            }
+
+            if (Status.Phase is ExtendedVrrPhase.Active or ExtendedVrrPhase.Standalone)
             {
                 // The start's own check: it reads the panel again and writes only what differs.
                 await CheckAsync(token).ConfigureAwait(false);
@@ -432,6 +439,34 @@ internal sealed class ExtendedVrrService : IAsyncDisposable
         return new ExtendedVrrStatus(phase, detail);
     }
 
+/// <summary>
+    ///     Hands a loaded standalone range to WSGM: the tool's sign-in task and folder go, its EDID override stays, so
+    ///     the range stays active without a restart and WSGM applies the Intel state from then on.
+    /// </summary>
+    /// <returns>Null when WSGM owns the range now, otherwise why not.</returns>
+    private string? TakeOverStandalone()
+    {
+        if (_machine.ReadStandalone() is not { } standalone)
+        {
+            return null;
+        }
+
+        // Its saved state is the original the range returns to when it is switched off.
+        if (standalone.Original is { } original && _readSaved() is null)
+        {
+            _writeSaved(original);
+        }
+
+        if (_machine.RemoveStandalone() is { } problem)
+        {
+            Log.Warn($"Extended VRR range: the standalone Atlas8Tweaks VRR Fix was not fully removed: {problem}");
+            return "Could not take over from the standalone Atlas8Tweaks VRR Fix: " + problem;
+        }
+
+        Log.Info("Extended VRR range: took over from the standalone Atlas8Tweaks VRR Fix; its EDID override stays.");
+        return null;
+    }
+
     /// <summary>Puts the saved Arc Sync profile and frame rate solutions back; null when everything is back.</summary>
     private async Task<string?> RestoreIntelAsync(DisplayTargetIdentity target, ExtendedVrrIntelState original,
         CancellationToken token)
@@ -615,6 +650,7 @@ internal sealed class ExtendedVrrService : IAsyncDisposable
     /// <summary>Finds the panel and classifies its EDID and override, or says why nothing may change.</summary>
     private (Inspection? Inspection, ExtendedVrrStatus Status) Inspect(ExtendedVrrPanel panel)
     {
+        _rangeLoaded = false;
         var displays = _machine.FindPanels(panel);
         if (displays.Count == 0)
         {
@@ -637,9 +673,11 @@ internal sealed class ExtendedVrrService : IAsyncDisposable
         var current = _machine.ReadOverride(display.Target);
         var variant = current.Edid is { } bytes ? panel.Recognize(edid.Physical, bytes) : null;
         var kind = !current.Present ? OverrideKind.None : variant is null ? OverrideKind.Foreign : OverrideKind.Ours;
-        return (new Inspection(display.Target, edid, kind,
+        var inspection = new Inspection(display.Target, edid, kind,
             current.Edid is { } overriding ? ExtendedVrrPanel.Sha256(overriding) : null, variant,
-            _machine.ReadStandalone()), ExtendedVrrStatus.Hidden);
+            _machine.ReadStandalone());
+        _rangeLoaded = inspection.ActiveOurs;
+        return (inspection, ExtendedVrrStatus.Hidden);
 
         ExtendedVrrStatus Refused(string reason)
         {
@@ -676,7 +714,8 @@ internal sealed class ExtendedVrrService : IAsyncDisposable
             ExtendedVrrPhase.Active => ActiveDetail,
             ExtendedVrrPhase.RestartToRemove => RemoveDetail,
             ExtendedVrrPhase.Standalone => inspection.ActiveOurs
-                ? "Active, managed by the standalone Atlas8Tweaks VRR Fix. Turning it off here removes that tool."
+                ? "Active, managed by the standalone Atlas8Tweaks VRR Fix. Changing low framerate compensation hands it "
+                  + "to WSGM; turning it off here removes that tool."
                 : "Managed by the standalone Atlas8Tweaks VRR Fix. Restart Windows to apply.",
             _ => string.Empty
         };
@@ -757,7 +796,12 @@ internal sealed class ExtendedVrrService : IAsyncDisposable
 
     private void Publish(ExtendedVrrStatus status)
     {
-        status = status with { LowFrameRateCompensation = _lowFrameRate };
+        // Offered while the range is loaded: WSGM's own, or the standalone tool's, which the switch takes over.
+        status = status with
+        {
+            LowFrameRateCompensation = _lowFrameRate,
+            LowFrameRateVisible = _rangeLoaded && (status.Phase is ExtendedVrrPhase.Active or ExtendedVrrPhase.Standalone)
+        };
         if (Interlocked.Exchange(ref _status, status) != status)
         {
             Changed?.Invoke();

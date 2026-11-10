@@ -898,9 +898,12 @@ way.
 
 A standalone Atlas8Tweaks install (`%ProgramData%\AcerAtlasVrr\config.json`) is recognized: its
 variants, the earlier test build's included, are this feature's own. The row shows it as active and
-managed by that tool, and WSGM writes nothing but the baseline. Switching the row off removes the
-tool's "Acer Atlas 8 VRR Repair" task and folder as well, restores the Intel state it saved, and the
-row says so.
+managed by that tool, and WSGM writes nothing but the baseline. While the tool's range is loaded the
+"Low framerate compensation" switch is offered too, and using it hands the range to WSGM: the tool's
+sign-in task and folder are removed, its EDID override and saved Intel state are kept, so the range
+stays active without a restart and WSGM applies the switch from then on. Switching the row off
+removes the tool's "Acer Atlas 8 VRR Repair" task and folder as well, restores the Intel state it
+saved, and the row says so.
 
 With Device Integration off there is no definition, so the row is hidden and nothing is read or
 written: an override and Intel state already in place stay as they are. The uninstaller's

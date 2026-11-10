@@ -27,7 +27,8 @@ public sealed partial class SteamNativeSettingsServiceTests
     [Fact]
     public void TheLowFrameRateRowIsTheSameSwitchTheOverlayDrawsAndOnlyWhileTheRangeIsActive()
     {
-        var active = new ExtendedVrrStatus(ExtendedVrrPhase.Active, "Active.", LowFrameRateCompensation: true);
+        var active = new ExtendedVrrStatus(ExtendedVrrPhase.Active, "Active.", LowFrameRateCompensation: true,
+            LowFrameRateVisible: true);
         var row = SteamNativeSettingsService.ExtendedVrrLowFrameRateRow(active);
         var overlay = DeviceHostRows.ExtendedVrrLowFrameRateView(active);
 
@@ -36,8 +37,7 @@ public sealed partial class SteamNativeSettingsServiceTests
         Assert.Equal((ExtendedVrrStatus.LowFrameRateTitle, "ON"), (overlay!.Title, overlay.TrailingText));
         Assert.True((active with { Busy = true }) is { LowFrameRateVisible: true }
                     && SteamNativeSettingsService.ExtendedVrrLowFrameRateRow(active with { Busy = true }).Disabled);
-        Assert.Null(DeviceHostRows.ExtendedVrrLowFrameRateView(active with { Phase = ExtendedVrrPhase.RestartToApply }));
-        Assert.Null(DeviceHostRows.ExtendedVrrLowFrameRateView(active with { Phase = ExtendedVrrPhase.Standalone }));
+        Assert.Null(DeviceHostRows.ExtendedVrrLowFrameRateView(active with { LowFrameRateVisible = false }));
     }
 
     [Fact]
