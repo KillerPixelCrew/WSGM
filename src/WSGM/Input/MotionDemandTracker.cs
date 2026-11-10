@@ -25,42 +25,24 @@ internal enum MotionSignal
 }
 
 /// <summary>
-///     Folds the two consumer-side motion signals of a Steam Deck target into one answer: the IMU
-///     request Steam writes for a layout that uses gyro, and the watchdog heartbeat an SDL application
-///     writes while it holds the pad open.
+///     Folds the consumer-side motion signals of a Steam Deck target into one answer: motion is wanted
+///     from the first IMU request or SDL watchdog heartbeat until the target is reset.
 /// </summary>
 /// <remarks>
-///     Motion is requested while the IMU is on or a heartbeat arrived within
-///     <see cref="HeartbeatExpiry" />. SDL feeds the watchdog every 200 reports, about once or twice a
-///     second on this bus, and says nothing when it closes the pad, so the heartbeat can only expire.
-///     The expiry timer runs only while a heartbeat is fresh.
+///     A real Deck switches its IMU on and off in firmware at no cost, so Steam and SDL toggle it
+///     freely: Steam writes the IMU mode as layouts and gyro activators change, and SDL's watchdog
+///     only arrives while reports flow. Here every toggle opened or closed the Windows sensors, whose
+///     restart takes far longer than a firmware switch, and gyro came out choppy and late (Xbox Ally X,
+///     3.0.5). So a request latches. A device nobody ever asked for motion still keeps its sensors
+///     closed, which is the idle saving the demand exists for.
 /// </remarks>
 internal sealed class MotionDemandTracker : IDisposable
 {
-    /// <summary>How long one heartbeat keeps motion requested, several SDL watchdog intervals.</summary>
-    internal static readonly TimeSpan HeartbeatExpiry = TimeSpan.FromSeconds(5);
-
-    private readonly TimeSpan _expiry;
     private readonly Lock _gate = new();
-    private readonly TimeProvider _time;
-    private readonly ITimer _timer;
     private bool _disposed;
-    private bool _heartbeatFresh;
-    private bool _imuOn;
-    private long _lastHeartbeat;
     private bool _requested;
 
-    /// <summary>Creates a tracker.</summary>
-    /// <param name="time">The clock, and the source of the expiry timer.</param>
-    /// <param name="expiry">How long a heartbeat counts; the default is <see cref="HeartbeatExpiry" />.</param>
-    internal MotionDemandTracker(TimeProvider? time = null, TimeSpan? expiry = null)
-    {
-        _time = time ?? TimeProvider.System;
-        _expiry = expiry ?? HeartbeatExpiry;
-        _timer = _time.CreateTimer(_ => Expire(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
-    }
-
-    /// <summary>Whether a consumer wants motion right now.</summary>
+    /// <summary>Whether a consumer has asked for motion since the last reset.</summary>
     internal bool Requested
     {
         get
@@ -77,116 +59,48 @@ internal sealed class MotionDemandTracker : IDisposable
     {
         lock (_gate)
         {
-            if (_disposed)
-            {
-                return;
-            }
-
             _disposed = true;
         }
-
-        _timer.Dispose();
     }
 
     /// <summary>Raised when <see cref="Requested" /> changed, outside the tracker's lock.</summary>
     internal event Action<bool>? Changed;
 
     /// <summary>Applies one signal read out of a feedback frame.</summary>
-    /// <param name="signal">The signal.</param>
+    /// <param name="signal">The signal; only a request changes anything.</param>
     internal void Observe(MotionSignal signal)
     {
-        bool changed;
-        bool requested;
+        if (signal is not (MotionSignal.ImuOn or MotionSignal.ConsumerHeartbeat))
+        {
+            return;
+        }
+
         lock (_gate)
         {
-            if (_disposed)
+            if (_disposed || _requested)
             {
                 return;
             }
 
-            switch (signal)
-            {
-                case MotionSignal.ImuOn:
-                    _imuOn = true;
-                    break;
-                case MotionSignal.ImuOff:
-                    _imuOn = false;
-                    break;
-                case MotionSignal.ConsumerHeartbeat:
-                    _lastHeartbeat = _time.GetTimestamp();
-                    _heartbeatFresh = true;
-                    _timer.Change(_expiry, Timeout.InfiniteTimeSpan);
-                    break;
-                default:
-                    return;
-            }
-
-            (changed, requested) = RecomputeUnderGate();
+            _requested = true;
         }
 
-        if (changed)
-        {
-            Changed?.Invoke(requested);
-        }
+        Changed?.Invoke(true);
     }
 
     /// <summary>Forgets every consumer, as a new device has none, and says so if one was counted.</summary>
     internal void Reset()
     {
-        bool changed;
         lock (_gate)
         {
-            if (_disposed)
+            if (_disposed || !_requested)
             {
                 return;
             }
 
-            _imuOn = false;
-            _heartbeatFresh = false;
-            _timer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
-            (changed, _) = RecomputeUnderGate();
+            _requested = false;
         }
 
-        if (changed)
-        {
-            Changed?.Invoke(false);
-        }
-    }
-
-    private void Expire()
-    {
-        bool changed;
-        bool requested;
-        lock (_gate)
-        {
-            if (_disposed || !_heartbeatFresh)
-            {
-                return;
-            }
-
-            var remaining = _expiry - _time.GetElapsedTime(_lastHeartbeat);
-            if (remaining > TimeSpan.Zero)
-            {
-                // A heartbeat landed after the timer was armed; look again when it is due.
-                _timer.Change(remaining, Timeout.InfiniteTimeSpan);
-                return;
-            }
-
-            _heartbeatFresh = false;
-            (changed, requested) = RecomputeUnderGate();
-        }
-
-        if (changed)
-        {
-            Changed?.Invoke(requested);
-        }
-    }
-
-    private (bool Changed, bool Requested) RecomputeUnderGate()
-    {
-        var requested = _imuOn || _heartbeatFresh;
-        var changed = requested != _requested;
-        _requested = requested;
-        return (changed, requested);
+        Changed?.Invoke(false);
     }
 }

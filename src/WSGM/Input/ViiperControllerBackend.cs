@@ -601,9 +601,10 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
 
     private void OnMotionDemandChanged(bool requested)
     {
-        Log.Debug(requested
+        // At most twice per virtual pad now that a request latches, so it belongs in an ordinary log.
+        Log.Info(requested
             ? "Virtual controller motion requested: a consumer turned the IMU on or is holding the pad."
-            : "Virtual controller motion released: the IMU is off and no consumer is holding the pad.");
+            : "Virtual controller motion released: the virtual pad was reset.");
         MotionRequested?.Invoke(this, requested);
     }
 
