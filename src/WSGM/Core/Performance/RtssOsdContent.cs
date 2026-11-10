@@ -188,6 +188,11 @@ internal static class RtssOsdContent
             AddIfNotNull(elements, metrics.CpuTemperatureC ?? powerStatus.DeviceCpuTemperatureC, "C");
         }
 
+        if (powerStatus.CpuAtThermalLimit)
+        {
+            elements.Add(Element("THERM", string.Empty));
+        }
+
         return elements;
     }
 

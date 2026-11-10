@@ -75,6 +75,17 @@ public sealed class RtssOsdContentTests
         Assert.Contains("<C0>25/37<S1>W", text);
     }
 
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void CpuRow_ShowsThermOnlyWhileTheCpuIsAtItsThermalLimit(int level)
+    {
+        var power = new RtssOsdPowerStatus(25, false, false, null, string.Empty, CpuAtThermalLimit: true);
+
+        Assert.Contains("<C0>THERM", RtssOsdContent.Build(level, FullMetrics, power));
+        Assert.DoesNotContain("THERM", RtssOsdContent.Build(level, FullMetrics, power with { CpuAtThermalLimit = false }));
+    }
+
     [Fact]
     public void AutoTdpIndicator_IsHiddenWhileAutoTdpIsOff()
     {

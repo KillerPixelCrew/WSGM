@@ -450,7 +450,12 @@ internal sealed class PerformanceServices(
                 Available: true, Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified
             } temperature
                 ? temperature.ObservedValue?.IntegerValue
-                : null));
+                : null,
+            coordinator.Capabilities.TryGetView(new DeviceCapabilityKey(CapabilityIds.ThermalThrottle, null))?.Projection.State is
+            {
+                Available: true, Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified,
+                ObservedValue.BooleanValue: true
+            }));
     }
 
     /// <summary>A boost limit's raw watts, or null when the device does not publish that limit.</summary>
