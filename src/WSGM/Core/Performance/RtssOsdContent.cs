@@ -45,7 +45,7 @@ internal static class RtssOsdContent
                 Row(TdpEntry(powerStatus, true)),
                 Row(AutoTdpEntry(powerStatus, true)),
                 Row(Entry("GPU", GpuColor, true, GpuElements(metrics, true))),
-                Row(Entry("CPU", CpuColor, true, CpuElements(metrics, true))),
+                Row(Entry("CPU", CpuColor, true, CpuElements(metrics, powerStatus, true))),
                 Row(Entry("RAM", RamColor, true, RamElements(metrics, true))),
                 Row(Entry("VRAM", VramColor, true, VramElements(metrics, true))),
                 Row(Entry("BATT", BattColor, true, BatteryElements(metrics, true))),
@@ -70,7 +70,7 @@ internal static class RtssOsdContent
             AutoTdpEntry(powerStatus, false),
             Entry("GPU", GpuColor, false, GpuElements(metrics, false)),
             Entry("VRAM", VramColor, false, VramElements(metrics, false)),
-            Entry("CPU", CpuColor, false, CpuElements(metrics, false)),
+            Entry("CPU", CpuColor, false, CpuElements(metrics, powerStatus, false)),
             Entry("RAM", RamColor, false, RamElements(metrics, false)),
             Entry("BATT", BattColor, false, BatteryElements(metrics, false)));
     }
@@ -105,7 +105,7 @@ internal static class RtssOsdContent
                 "GPU" when custom.Gpu > 0 =>
                     Entry("GPU", GpuColor, true, GpuElements(metrics, custom.Gpu == 2)),
                 "CPU" when custom.Cpu > 0 =>
-                    Entry("CPU", CpuColor, true, CpuElements(metrics, custom.Cpu == 2)),
+                    Entry("CPU", CpuColor, true, CpuElements(metrics, powerStatus, custom.Cpu == 2)),
                 "VRAM" when custom.Vram > 0 =>
                     Entry("VRAM", VramColor, true, VramElements(metrics, custom.Vram == 2)),
                 "RAM" when custom.Ram > 0 =>
@@ -178,14 +178,14 @@ internal static class RtssOsdContent
         return elements;
     }
 
-    private static List<string> CpuElements(RtssOsdMetrics metrics, bool full)
+    private static List<string> CpuElements(RtssOsdMetrics metrics, RtssOsdPowerStatus powerStatus, bool full)
     {
         List<string> elements = [];
         AddIfNotNull(elements, metrics.CpuLoadPercent, "%");
         AddIfNotNull(elements, metrics.CpuPowerWatts, "W");
         if (full)
         {
-            AddIfNotNull(elements, metrics.CpuTemperatureC, "C");
+            AddIfNotNull(elements, metrics.CpuTemperatureC ?? powerStatus.DeviceCpuTemperatureC, "C");
         }
 
         return elements;

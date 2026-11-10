@@ -444,7 +444,13 @@ internal sealed class PerformanceServices(
             running ? autoTdp?.Watts : null,
             running ? AutoTdpActivity(enabled, autoTdp) : string.Empty,
             BoostWatts(views, CapabilityRole.PowerSlowLimit),
-            BoostWatts(views, CapabilityRole.PowerFastLimit)));
+            BoostWatts(views, CapabilityRole.PowerFastLimit),
+            coordinator.Capabilities.TryGetView(new DeviceCapabilityKey(CapabilityIds.Temperature, null))?.Projection.State is
+            {
+                Available: true, Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified
+            } temperature
+                ? temperature.ObservedValue?.IntegerValue
+                : null));
     }
 
     /// <summary>A boost limit's raw watts, or null when the device does not publish that limit.</summary>

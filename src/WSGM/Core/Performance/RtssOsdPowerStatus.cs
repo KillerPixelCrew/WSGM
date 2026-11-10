@@ -8,6 +8,7 @@ namespace WSGM.Core;
 /// <param name="AutoTdpActivity">Short, display-ready text describing what AutoTDP is doing.</param>
 /// <param name="SlowWatts">The slow boost limit (Intel PL2), only when the device publishes one.</param>
 /// <param name="FastWatts">The fast boost limit, only when the device publishes one.</param>
+/// <param name="DeviceCpuTemperatureC">The CPU temperature the device itself reports, for when the sensors have none.</param>
 internal sealed record RtssOsdPowerStatus(
     int? TdpWatts,
     bool AutoTdpEnabled,
@@ -15,7 +16,8 @@ internal sealed record RtssOsdPowerStatus(
     int? AutoTdpWatts,
     string AutoTdpActivity,
     int? SlowWatts = null,
-    int? FastWatts = null)
+    int? FastWatts = null,
+    int? DeviceCpuTemperatureC = null)
 {
     /// <summary>No known limit and no active AutoTDP state.</summary>
     internal static readonly RtssOsdPowerStatus Empty = new(null, false, false, null, string.Empty);
