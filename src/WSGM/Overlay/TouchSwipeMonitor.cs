@@ -30,6 +30,7 @@ internal sealed class TouchSwipeMonitor : IDisposable
     private const int DiagnosticLimitPerMinute = 12;
 
     private readonly IDisposable _subscription;
+    private ScreenEdge? _edgeAwaitingLift;
     private bool _armed = true;
     private bool _bottomEnabled;
     private bool _contactWasDown;
@@ -119,6 +120,7 @@ internal sealed class TouchSwipeMonitor : IDisposable
         _armed = false;
         _tracking = false;
         _diagnosticPending = false;
+        _edgeAwaitingLift = null;
         Log.Debug("Touch edge swipes disarmed.");
     }
 
@@ -135,6 +137,7 @@ internal sealed class TouchSwipeMonitor : IDisposable
             CompleteDiagnostic(caps, "released");
             _contactWasDown = false;
             _tracking = false;
+            DispatchAwaitedEdge();
             return;
         }
 
@@ -160,6 +163,8 @@ internal sealed class TouchSwipeMonitor : IDisposable
 
     private void OnContactDown(TouchDigitizer caps, uint rawX, uint rawY)
     {
+        // A new contact means the earlier lift was never seen, so that swipe no longer belongs to anyone.
+        _edgeAwaitingLift = null;
         _tracking = false;
         _diagnosticPending = false;
         if (!_armed)
@@ -213,12 +218,34 @@ internal sealed class TouchSwipeMonitor : IDisposable
 
         _tracking = false;
         CompleteDiagnostic(caps, "triggered");
+        var edge = triggeredEdge.Value;
+        if (edge is ScreenEdge.Bottom or ScreenEdge.Top)
+        {
+            // These two open and activate a WSGM window. Doing that under a down contact can cost the
+            // window below its lift, which leaves Big Picture holding a touch that never ends.
+            _edgeAwaitingLift = edge;
+            return;
+        }
+
+        Dispatch(edge);
+    }
+
+    private void DispatchAwaitedEdge()
+    {
+        if (_edgeAwaitingLift is { } edge)
+        {
+            _edgeAwaitingLift = null;
+            Dispatch(edge);
+        }
+    }
+
+    private void Dispatch(ScreenEdge edge)
+    {
         if (Interlocked.Exchange(ref _dispatchPending, 1) != 0)
         {
             return;
         }
 
-        var edge = triggeredEdge.Value;
         Dispatcher.UIThread.Post(() =>
         {
             Interlocked.Exchange(ref _dispatchPending, 0);
