@@ -147,13 +147,13 @@ establish an extreme-power root cause. Setup no longer re-enables AFZsvc; uninst
 recorded start types. Predator Sense's desktop BIOS-delivery exemption is unchanged. See the
 [Acer provenance](../external/libhandheld/src/LibHandheld/Families/Acer/PROVENANCE.md).
 
-**WSGM runs on EcoQoS while none of its windows is on screen (maintainer, 2026-11-08).** To keep
-its own power draw low the resident process asks Windows for efficient cores through EcoQoS rather
-than core pinning, so the scheduler keeps the final say. Boot runs at full speed, and the Overlay,
-taskbar and Settings lift it while they are open. Dedicated physical input threads stay HighQoS. Pooled async
-input pumps, including the controller output router, stay on EcoQoS at their existing priority
-pending attended latency measurement. Child processes do not inherit it, so Steam and games are
-unaffected.
+**WSGM runs on EcoQoS while none of its windows is on screen (maintainer, 2026-11-08).** To keep its
+own power draw low the resident process asks Windows for efficient cores through EcoQoS rather than
+core pinning, so the scheduler keeps the final say. Boot runs at full speed, and the Overlay,
+taskbar and Settings lift it while they are open, and so does an active managed controller: under
+EcoQoS its pooled input pumps, including the controller output router, made gyro choppy on the Xbox
+Ally X (tester report on 3.0.5, 2026-11-10). Child processes do not inherit it, so Steam and games
+are unaffected.
 
 **Steam shows the volume, WSGM only applies it (maintainer, 2026-10-28).** The physical volume
 command is always applied in game mode, with the feedback sound. WSGM's own volume popup was removed

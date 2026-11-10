@@ -31,6 +31,7 @@ namespace WSGM.Shell;
 public sealed class ShellSession
 {
     private const string SettingsWindowSurface = "settings-window";
+    private const string ManagedControllerSurface = "managed-controller";
     private readonly ApplicationPerformanceReconciler _applicationProfiles;
     private readonly SessionBoot _boot;
     private readonly SessionCommands _commands;
@@ -748,6 +749,10 @@ public sealed class ShellSession
             return overlay;
         }
 
+        // Gyro and stick frames run through pooled async pumps that EcoQoS parks on efficient cores at low
+        // clocks; on the Xbox Ally X that made gyro visibly choppy in games. An active managed controller
+        // therefore holds HighQoS like an open window does.
+        TrackManagedControllerQoS(efficiency, controllers.Controllers);
         overlay.UiSurfaceOpened += surfaceId =>
             _ = ObserveUiCaptureClaimAsync(controllers, surfaceId);
         overlay.UiSurfaceClosed += controllers.ReleaseUi;
@@ -757,6 +762,29 @@ public sealed class ShellSession
         overlay.UseManagedPad(controllers.Controllers.Forwarding.UiPad);
         _system.FollowControllers(controllers.Controllers);
         return overlay;
+    }
+
+    /// <summary>Holds HighQoS while the managed controller forwards frames.</summary>
+    /// <param name="efficiency">The process QoS owner.</param>
+    /// <param name="controllers">The controller manager whose Active state holds it.</param>
+    /// <remarks>The status event is raised on any thread; <see cref="ProcessEfficiency" /> takes its own lock.</remarks>
+    internal static void TrackManagedControllerQoS(ProcessEfficiency efficiency, ControllerManager controllers)
+    {
+        controllers.StatusChanged += Apply;
+        Apply(controllers.Snapshot());
+        return;
+
+        void Apply(ControllerManagerStatus status)
+        {
+            if (status.State is ControllerManagementState.Active)
+            {
+                efficiency.SurfaceOpened(ManagedControllerSurface);
+            }
+            else
+            {
+                efficiency.SurfaceClosed(ManagedControllerSurface);
+            }
+        }
     }
 
     private static async Task ObserveUiCaptureClaimAsync(
