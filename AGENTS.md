@@ -144,3 +144,21 @@ The validation budget below overrides older gate recipes in skills and documenta
 - build.ps1 stages the complete setup. src/WSGM/WSGM.csproj owns the release Version; its fourth
   component is the commit count so prerelease installers update each other. Never bump Version
   for a test build. Write natural, concise prose without canned AI phrasing or em dashes.
+
+## Skill routing and discovery
+
+Use `.agents/skills/wsgm-contributor/SKILL.md` for code conventions, cleanup and contribution review,
+paired with `.agents/skills/wsgm/SKILL.md` for ownership. Then use the owning skill:
+
+- Application lifecycle, config and services: `wsgm-core`; workflows and controls: `wsgm-ui`.
+- Handheld host integration: `wsgm-device-sdk`; library detection/protocols/recovery: `libhandheld`.
+- Steam feature implementation: `wsgm-steam-cef-toolkit`; diagnosis: `wsgm-steam-cef-debugging`;
+  reusable transport, bridge, patches and UI kit: `steam-ui-toolkit`.
+- GPU driver mechanisms: `libgpu-driver-interact`; Windows primitives: `windows-device-control`.
+- Steam Input leases and recovery: `steam-input-lease`; virtual controller backend: `viiper`.
+
+All names resolve under `.agents/skills/<name>/SKILL.md`; `.claude/skills/<name>` aliases them.
+Submodule skills are canonical inside the owning submodule's `.agents/skills` and are linked into
+both root discovery directories. Resolve a link to its owner before interpreting repo-relative
+paths. Do not copy their instructions into WSGM or rely on nested skill auto-discovery. When adding
+a submodule skill, expose it in both root directories and retain the submodule's local Claude alias.

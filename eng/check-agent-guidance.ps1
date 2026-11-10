@@ -86,7 +86,41 @@ else {
             continue
         }
 
-        $skillIndex = & git -C $root ls-files -s -- $skillRelative
+        # Library skills stay canonical in their repository, with a tracked directory link here.
+        # git does not index files through that link; validate both ownership boundaries instead.
+        $skillIndex = if ($skillDirectory.LinkType -eq "SymbolicLink") {
+            $aliasRelative = Relative-Path $skillDirectory.FullName
+            $expectedTarget = "../../external/$directoryName/.agents/skills/$directoryName"
+            $actualTarget = ([string]$skillDirectory.Target).Replace("\", "/")
+            $aliasIndex = & git -C $root ls-files -s -- $aliasRelative
+            $indexTarget = [string]::Join("`n", @(& git -C $root show ":$aliasRelative"))
+            if ($submodules -cnotcontains "external/$directoryName" -or
+                $actualTarget -cne $expectedTarget -or
+                -not ([string]$aliasIndex).StartsWith("120000 ", [StringComparison]::Ordinal) -or
+                $indexTarget -cne $expectedTarget) {
+                $failures.Add("$aliasRelative must be a tracked symlink to $expectedTarget in a pinned submodule.")
+            }
+            $owner = Join-Path $root "external/$directoryName"
+            $childAlias = Join-Path $owner ".claude/skills/$directoryName"
+            if (-not (Test-Path -LiteralPath $childAlias) -or
+                (Get-Item -LiteralPath $childAlias -Force).LinkType -ne "SymbolicLink") {
+                $failures.Add("Missing local Claude skill symlink in external/$directoryName.")
+            }
+            else {
+                $childTarget = [string]::Join("`n", @(& git -C $owner show ":.claude/skills/$directoryName"))
+                $childIndex = & git -C $owner ls-files -s -- ".claude/skills/$directoryName"
+                $localTarget = ([string](Get-Item -LiteralPath $childAlias -Force).Target).Replace("\", "/")
+                if ($childTarget -cne "../../.agents/skills/$directoryName" -or
+                    $localTarget -cne $childTarget -or
+                    -not ([string]$childIndex).StartsWith("120000 ", [StringComparison]::Ordinal)) {
+                    $failures.Add("Invalid local Claude skill symlink in external/$directoryName.")
+                }
+            }
+            & git -C $owner ls-files -s -- ".agents/skills/$directoryName/SKILL.md"
+        }
+        else {
+            & git -C $root ls-files -s -- $skillRelative
+        }
         if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($skillIndex)) {
             $failures.Add("$skillRelative is not tracked.")
         }

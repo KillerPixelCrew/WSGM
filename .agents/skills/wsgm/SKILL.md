@@ -13,6 +13,9 @@ Build a Windows gaming session that remains understandable and recoverable. Put 
 existing owner, reuse the project's contracts and controls, and make the same feature available in
 the overlay and Steam Big Picture. The maintainer's instructions take precedence over this guide.
 
+Use [contributor conventions and review](../wsgm-contributor/SKILL.md) for code style and review
+scope. Root AGENTS.md maps the discoverable library skills to their submodule owners.
+
 ## Start from the current checkout
 
 1. Resolve the repository with `git rev-parse --show-toplevel`. Read the root and nearest

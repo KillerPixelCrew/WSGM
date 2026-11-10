@@ -202,3 +202,16 @@ tools are distinct paths and both must preserve their startup ordering.
 Shutdown behavior is reason-specific: `SessionEnd` must not launch Explorer, and update shutdown
 must not send the normal Big Picture exit operation. If WSGM's tray retirement is unverified, do not
 start Explorer beside a possible live `Shell_TrayWnd`; retain the recovery anchor instead.
+
+## Deferred input and power restoration
+
+Recognition and dispatch are distinct gesture states. Second contact, disarm, configuration change
+and disposal invalidate a pending edge as well as an active recognizer. A primary-contact lift is
+not necessarily the last finger lifting. Recheck admission before activating a queued surface. Cover
+second contact after recognition and settings changes while awaiting lift.
+
+Keep firmware observations separate from requested/accepted power values through startup, wake and
+backend changes. Hold assignment reconciliation before firmware readings can be mistaken for Custom
+intent, and release that hold on successful restore, disable, passive and fault outcomes. Do not
+silently clamp a paired limit and then let preset matching persist the changed pair as a user edit.
+A fan-only control must preserve that contract on all admitted paths, including AutoTDP interaction.

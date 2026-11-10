@@ -11,6 +11,10 @@ Handhelds are built-in LibHandheld definitions. Installed device packages and th
 SDK are retired. Common plugin contracts remain in `src/WSGM.Plugin.Sdk`; GPU driver control is
 built into `external/libgpu-driver-interact`. Keep their independent enablement and lifetimes.
 
+Read the library-owned [LibHandheld skill](../libhandheld/SKILL.md) for device command outcomes,
+power ownership, multi-output dispatch and recovery. Keep those rules in the library rather than
+duplicating them in host adapters.
+
 ## Owners and contract
 
 - `external/libhandheld/src/LibHandheld/Contracts` owns public semantic handheld values.

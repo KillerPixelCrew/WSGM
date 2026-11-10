@@ -96,10 +96,11 @@ Test policy and state machines with fakes/temp roots. A compile-only build with
 ## Submodules and generated assets
 
 Before changing reusable code, inspect the child repository's status and guidance. Commit/test/push
-the child first, then stage only its gitlink in WSGM. Device projects are ordinary WSGM source:
-change the shared SDK and all affected consumers together in WSGM. Use the repository's direct
-default-branch workflow unless the user specifically requested a pull request. Never run an update
-command that overwrites a moved or dirty child checkout.
+the child first, then stage only its gitlink in WSGM. LibHandheld owns handheld contracts and
+protocols; WSGM owns its host adapters. Update both contract projections and all affected consumers
+together when that boundary changes. Use the repository's direct default-branch workflow unless the
+user specifically requested a pull request. Never run an update command that overwrites a moved or
+dirty child checkout.
 
 Steam injected source is generated into `src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js`; use the
 Steam CEF skill and `npm run steam-assets:build`, never edit the bundle/hash by hand.
@@ -108,21 +109,17 @@ Steam CEF skill and `npm run steam-assets:build`, never edit the bundle/hash by 
 
 ## Repository gate and delivery
 
-Follow the root AGENTS.md validation policy: build and deliver a requested development deployment
-first. Test suites, coverage and test-bearing gates wait until the maintainer reports manual
-testing, unless explicitly requested sooner. Then run the gate for the initial implementation and
-use focused checks for follow-ups unless the changes justify another full run:
+Follow the root AGENTS.md validation budget. Build and perform an authorized development deployment
+first; tests and coverage wait for the maintainer's manual report unless requested sooner. Choose
+one useful batch for the diff and reuse successful proof while its inputs are unchanged. Do not run
+`eng/verify.ps1` automatically for an initial feature, follow-up, PR or push. A full gate needs an
+explicit request or a concrete shared-validation change that requires it; name the reason first. A
+narrow guidance-link checker change can be validated by its own positive and negative cases.
 
-```powershell
-./eng/verify.ps1
-```
-
-The gate checks formatting, generated Steam assets/claims, guidance links, PowerShell syntax,
-live-data exclusions, pins, Steam Input, restore, Rider cleanup/style/analyzers, warning-clean
-Release builds, all solution tests, main-suite coverage and compilation of tracked tool projects
-outside the solution. It does not build/validate VIIPER; use its own `-Validate` gate after manual
-testing when that submodule changes. It does not prove live shell, Steam, device, controller, or
-hardware behavior.
+The full gate owns formatting, compilation, tests and coverage when requested. It does not prove
+live shell, Steam, physical controllers or hardware behavior. Every feature's closing batch also
+checks Stable/Beta Steam fingerprints and asset claims as AGENTS.md requires, plus patch health
+after an authorized deployment. Instruction-only edits require no application build or full gate.
 
 `./eng/verify.ps1 -Fix` writes formatting changes. Use it only when the resulting tree is within the
 task and every change will be reviewed. `./build.ps1` stages native components, all applications,
@@ -141,12 +138,8 @@ Before commit/push:
 3. confirm each changed child commit is published before its parent pin;
 4. commit the intended scope directly to `master` (or `wsgm` in external/viiper), with no task
    branch or pull request unless the task asks for one;
-5. validate as the root AGENTS.md "Validation" section says, keeping test-bearing gates deferred
-   until manual testing is reported unless requested sooner: the full `./eng/verify.ps1` once for
-   the initial implementation, then only the checks the follow-up diff affects. The full gate
-   repeats only for a stated broad impact, and a documentation or guidance change takes
-   `npm run format:check` and `eng/check-agent-guidance.ps1`. A requested pull request adds the root
-   pre-PR checks on the committed head;
+5. validate under the root AGENTS.md budget; guidance changes take targeted Prettier checks and
+   `eng/check-agent-guidance.ps1`. Do not duplicate passed checks for a committed-head result;
 6. push, and verify clean local/upstream equality without polling CI in a loop;
 7. state which tests were deferred and which attended/live acceptance remains, rather than treating
    the automated gate as hardware proof.
