@@ -140,6 +140,9 @@ internal sealed class SystemServices(SessionState state, Func<uint, Cancellation
 
         _controllerStatusSource = controllers;
         _controllerStatusSource.StatusChanged += OnControllerStatusChanged;
+        // The target is usually active before the overlay subscribes here; without the current
+        // projection the mirror never starts and Steam reloads Valve's chord template on every edit.
+        OnControllerStatusChanged(controllers.Snapshot());
     }
 
     /// <summary>Lets the guide chord mirror follow the managed target.</summary>
