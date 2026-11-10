@@ -24,7 +24,9 @@ public sealed class HandheldUiProjectionTests
         Assert.Equal(45, FanCurvePresets.DutyAt(table, FanCurvePreset.Default, 70));
         Assert.Equal(55, FanCurvePresets.DutyAt(table, FanCurvePreset.Default, 75));
 
-        Assert.All(HandheldDevice.Definitions.Where(definition => definition.Id != AtlasId), definition =>
+        // The Atlas 7 shares the Atlas 8's measured duties.
+        Assert.All(HandheldDevice.Definitions.Where(definition =>
+                definition.Id != AtlasId && definition.Id != "acer-predator-atlas-7-pa07-i51"), definition =>
             Assert.Same(FanCurvePresetTable.HandheldCompanion, HandheldUiProjection.FanPresets(definition)));
         Assert.Same(FanCurvePresetTable.HandheldCompanion, HandheldUiProjection.FanPresets(null));
     }
