@@ -366,6 +366,19 @@
                 <TextBlock Text="{Binding #EmulatorManagerHost.SecondaryHint}" Classes="caption"
                            VerticalAlignment="Center" />
               </StackPanel>
+              <!-- Game Mode: the sheet has no Open apps row, so Y opens the taskbar with the open windows. -->
+              <StackPanel Orientation="Horizontal" Spacing="5">
+                <StackPanel.IsVisible>
+                  <MultiBinding Converter="{x:Static cv:BoolConverters.And}">
+                    <Binding Path="!ExplorerRunning" />
+                    <Binding ElementName="EmulatorManagerHost" Path="SecondaryHint"
+                             Converter="{x:Static cv:StringConverters.IsNullOrEmpty}" />
+                  </MultiBinding>
+                </StackPanel.IsVisible>
+                <ov:GlyphIcon Width="18" Height="18" Button="y" GlyphStyle="{Binding GlyphStyle}"
+                              VerticalAlignment="Center" />
+                <TextBlock Text="Open windows" Classes="caption" VerticalAlignment="Center" />
+              </StackPanel>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="14">
               <TextBlock Text="LT/RT  Destination" Classes="caption" VerticalAlignment="Center" />

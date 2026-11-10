@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Input;
@@ -18,6 +19,31 @@ public sealed partial class OverlayController
     ///     outranks it: while the sheet is up the request is ignored.
     /// </summary>
     public void ShowTaskbar()
+    {
+        ShowTaskbar(0);
+    }
+
+    /// <summary>
+    ///     Y on the Game Mode sheet: closes the sheet and opens the taskbar in its place, returning later to the
+    ///     window the sheet opened over.
+    /// </summary>
+    private void SwitchToTaskbar()
+    {
+        if (_disposed || Sheet is not { } sheet)
+        {
+            return;
+        }
+
+        var returnTo = _restoreFocusTo;
+        Log.Info("Taskbar requested from the Quick access sheet.");
+        RunAfterClose(sheet, "Taskbar from the Quick access sheet", _ =>
+        {
+            ShowTaskbar(returnTo);
+            return Task.CompletedTask;
+        });
+    }
+
+    private void ShowTaskbar(nint returnTo)
     {
         if (_disposed)
         {
@@ -47,7 +73,7 @@ public sealed partial class OverlayController
 
         try
         {
-            OpenTaskbar();
+            OpenTaskbar(returnTo);
         }
         catch
         {
@@ -69,9 +95,9 @@ public sealed partial class OverlayController
         }
     }
 
-    private void OpenTaskbar()
+    private void OpenTaskbar(nint returnTo)
     {
-        PrepareSurfaceOpen(true, 0, _bar.LeaseOwner);
+        PrepareSurfaceOpen(true, returnTo, _bar.LeaseOwner);
         var taskbar = new TaskbarWindow(_openApps.Open(), UiScale(ExplorerControl.IsDesktopShellRunning()),
             WindowCenter(_restoreFocusTo));
         _bar.Attach(taskbar);

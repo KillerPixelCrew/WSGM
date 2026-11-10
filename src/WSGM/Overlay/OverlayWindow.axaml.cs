@@ -316,6 +316,9 @@ public partial class OverlayWindow : Window
     /// <summary>Raised when the user picks an Open apps chip (or cycles with Y).</summary>
     public event Action<AppSwitcherEntry>? WindowPicked;
 
+    /// <summary>Raised when Y asks for the Game Mode taskbar, where the sheet shows no Open apps row.</summary>
+    internal event Action? TaskbarRequested;
+
     /// <summary>
     ///     Raised when the user activates a tray icon. Arguments: the entry,
     ///     whether this is a context-menu (right-click / X) activation, and the screen

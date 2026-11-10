@@ -19,13 +19,14 @@ public partial class OverlayWindow
 
     /// <summary>
     ///     Y: switch to the window after the foreground one in strip order,
-    ///     wrapping: an Alt+Tab step from the sheet. Nothing to do with fewer than two
-    ///     windows, or in Game Mode, where the taskbar owns the open windows and the strip is hidden.
+    ///     wrapping: an Alt+Tab step from the sheet. Nothing to do with fewer than two windows. In Game
+    ///     Mode the taskbar owns the open windows and the strip is hidden, so Y opens the taskbar instead.
     /// </summary>
     internal void CycleNextApp()
     {
         if (!AppsStrip.IsVisible)
         {
+            TaskbarRequested?.Invoke();
             return;
         }
 

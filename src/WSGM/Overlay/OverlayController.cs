@@ -503,6 +503,7 @@ public sealed partial class OverlayController : IDisposable
         overlay.SetPins(Pins.Ids);
         overlay.PinToggleRequested += OnPinToggleRequested;
         overlay.WindowPicked += PickWindow;
+        overlay.TaskbarRequested += SwitchToTaskbar;
         overlay.TrayIconActivated += OnTrayIconActivated;
         overlay.RadioPanelRequested += ShowRadioPanel;
         overlay.AudioPanelRequested += ShowAudioPanel;
