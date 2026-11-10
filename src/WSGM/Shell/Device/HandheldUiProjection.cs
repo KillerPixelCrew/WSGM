@@ -50,8 +50,12 @@ internal static class HandheldUiProjection
     private static CapabilityDescriptor Descriptor(P.CapabilityDescriptor value, int index)
     {
         var role = (CapabilityRole)value.Role;
+        var firmwareFanMode = role == CapabilityRole.ScenarioMode
+                              && (DisplayKey)value.Display.Key == DisplayKey.FirmwareFanMode;
         var (section, category, order) = role switch
         {
+            // A firmware mode that only chooses the fan table sits below the fan modes it depends on.
+            CapabilityRole.ScenarioMode when firmwareFanMode => (DeviceSections.PowerId, "fans", 1),
             CapabilityRole.PowerSustainedLimit => (DeviceSections.PowerId, "limits", 0),
             CapabilityRole.PowerSlowLimit => (DeviceSections.PowerId, "limits", 1),
             CapabilityRole.PowerFastLimit => (DeviceSections.PowerId, "limits", 2),
@@ -111,7 +115,7 @@ internal static class HandheldUiProjection
             SectionId = section,
             CategoryId = category,
             SortOrder = order,
-            Prominence = role is CapabilityRole.PowerSustainedLimit or CapabilityRole.ScenarioMode
+            Prominence = !firmwareFanMode && role is CapabilityRole.PowerSustainedLimit or CapabilityRole.ScenarioMode
                 ? CapabilityProminence.Primary
                 : role is CapabilityRole.ControllerSource or CapabilityRole.MotionSource or CapabilityRole.HapticSink
                   || value.SupportsWrite || value.SupportsAction

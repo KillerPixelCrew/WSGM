@@ -35,6 +35,7 @@ internal static class CapabilityDisplayLabels
             DisplayKey.Motion => "Motion",
             DisplayKey.Rumble => "Rumble",
             DisplayKey.VariableRefreshRate => "Variable refresh rate",
+            DisplayKey.FirmwareFanMode => "Firmware fan mode",
             // Reached only by a key this build does not know, which means a plugin compiled against a
             // newer SDK. Every key the SDK declares belongs above so both UI surfaces stay aligned.
             _ => fallback

@@ -80,6 +80,9 @@ internal static class CapabilityRowProjection
             // What the action does, as WSGM and its publisher explain it, while nothing more urgent needs saying.
             _ when descriptor.SupportsAction && ActionExplanation(descriptor) is { Length: > 0 } explanation =>
                 explanation,
+            // How much power each fan table can carry, published from the firmware's own limits.
+            _ when descriptor.Display is { Key: DisplayKey.FirmwareFanMode, Description.Length: > 0 } =>
+                descriptor.Display.Description,
             _ when actionOnlyReady => "Ready",
             // Each surface's slider says the value is unknown and how to set it.
             _ when displayed is null && descriptor is
@@ -95,7 +98,7 @@ internal static class CapabilityRowProjection
             descriptor.InstanceId,
             StatusFor(projection),
             // Scenario rows name the firmware mode they choose, on every surface.
-            descriptor.Role == CapabilityRole.ScenarioMode
+            descriptor.Role == CapabilityRole.ScenarioMode && descriptor.Display.Key != DisplayKey.FirmwareFanMode
                 ? "Firmware power mode"
                 : CapabilityDisplayLabels.For(descriptor.Display, "Device control"),
             description,
