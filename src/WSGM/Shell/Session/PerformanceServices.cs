@@ -144,6 +144,11 @@ internal sealed class PerformanceServices(
             {
                 config.ExtendedVrrOriginal = saved;
                 return true;
+            }), lowFrameRate: () => store.Read().Config?.ExtendedVrrLowFrameRateCompensation == true,
+            writeLowFrameRate: enabled => store.Update(config =>
+            {
+                config.ExtendedVrrLowFrameRateCompensation = enabled;
+                return true;
             }));
         coordinator.StateChanged += OnDeviceChangedForExtendedVrr;
         coordinator.ConfigurationChanged += OnDeviceConfigurationChangedForExtendedVrr;

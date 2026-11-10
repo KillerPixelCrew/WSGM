@@ -176,6 +176,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 [DeviceHostRowIds.GlyphSelection] = new(_coordinator.PhysicalGlyphSelection.ToString(),
                     DeviceHostRows.GlyphChoices()),
                 [DeviceHostRowIds.ExtendedVrr] = new(_extendedVrr?.Status.Enabled == true ? "on" : "off",
+                    [DeviceHostRows.HostChoice("off", "Off"), DeviceHostRows.HostChoice("on", "On")]),
+                [DeviceHostRowIds.ExtendedVrrLowFrameRate] = new(
+                    _extendedVrr?.Status.LowFrameRateCompensation == true ? "on" : "off",
                     [DeviceHostRows.HostChoice("off", "Off"), DeviceHostRows.HostChoice("on", "On")])
             },
             LightingProfile = lighting is { } colors
@@ -187,6 +190,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 : null,
             PluginSections = CapabilityRowProjection.ProjectSections(declaredSections),
             ExtendedVrr = _extendedVrr is { } extendedVrr ? DeviceHostRows.ExtendedVrrView(extendedVrr.Status) : null,
+            ExtendedVrrLowFrameRate = _extendedVrr is { } range
+                ? DeviceHostRows.ExtendedVrrLowFrameRateView(range.Status)
+                : null,
             AutoTdpTarget = DeviceHostRows.AutoTdpTargetRow(
                 _coordinator.Power.AutoTdpEnabled,
                 AutoTdpTargetView.Resolve(_coordinator.Profiles.Current.Layers, autoTdpAvailability))
@@ -199,7 +205,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             : snapshot with
             {
                 AutoTdp = null, AutoTdpTarget = null, AuthoredProfile = null, LightingProfile = null, Recovery = null,
-                ExtendedVrr = null
+                ExtendedVrr = null, ExtendedVrrLowFrameRate = null
             };
     }
 
@@ -253,6 +259,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 string.IsNullOrEmpty(value) ? null : value, cancellationToken),
             DeviceHostRowIds.ExtendedVrr when value is "on" or "off" && _extendedVrr is { } extendedVrr =>
                 extendedVrr.SetEnabledAsync(value == "on", cancellationToken),
+            DeviceHostRowIds.ExtendedVrrLowFrameRate when value is "on" or "off" && _extendedVrr is { } range =>
+                range.SetLowFrameRateCompensationAsync(value == "on", cancellationToken),
             DeviceHostRowIds.GlyphSelection when Enum.TryParse<DeviceGlyphSelection>(value, out var glyphs)
                                                  && Enum.IsDefined(glyphs) =>
                 _coordinator.SetPhysicalGlyphSelectionAsync(glyphs, cancellationToken),

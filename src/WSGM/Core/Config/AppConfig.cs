@@ -371,6 +371,12 @@ public sealed class AppConfig
     /// </summary>
     public ExtendedVrrIntelState? ExtendedVrrOriginal { get; set; }
 
+    /// <summary>
+    ///     Whether Intel's low frame rate compensation stays on while the extended VRR range is active. Off by
+    ///     default, as the Atlas8Tweaks VRR Fix turns it off.
+    /// </summary>
+    public bool ExtendedVrrLowFrameRateCompensation { get; set; }
+
     /// <summary>Common plugin widget pins in display order; unavailable identities are retained.</summary>
     public List<PluginWidgetPin> PluginWidgetPins { get; set; } = [];
 

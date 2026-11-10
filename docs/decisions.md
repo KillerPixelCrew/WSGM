@@ -255,7 +255,8 @@ page, off by default, mirroring the script: 28 Hz EDID override, Arc Sync Excell
 every start, the saved Intel state back when it is switched off or WSGM is uninstalled. WSGM's start
 replaces the script's sign-in task, and a standalone install is shown as managed by that tool until
 the user switches it off in WSGM. With Device Integration off nothing is written and an existing
-override stays. Details in
+override stays. Since 2026-11-10 (maintainer) a "Low framerate compensation" switch under the active
+range keeps LFC on instead; it stays off by default. Details in
 [power and display](power-and-display.md#extended-vrr-range-on-the-acer-predator-atlas-8).
 
 **Four display modes became two, and the old Off became Default.** Off, DPI-only and automatic

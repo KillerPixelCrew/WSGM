@@ -878,9 +878,12 @@ override another tool wrote, shows a refusal and changes nothing.
 - **Every start while it is active**: after up to 90 seconds' wait for the Intel driver, WSGM checks
   that Intel reports the 28 Hz floor, writes Arc Sync Excellent through LibGPUDriverInteract's
   policy write when the profile is not already Excellent across 28-120 Hz, and turns LFC off through
-  Intel's private VRR escape. The high frame rate solution is left alone. Each write is read back
-  and logged once; one that fails or gets no answer is reported on the row and never resent.
-  Switching the row on again, or the next start, is the retry.
+  Intel's private VRR escape, unless "Low framerate compensation" is on. That switch appears under
+  the range on every surface only while the range is active; its choice is saved as
+  `ExtendedVrrLowFrameRateCompensation` (off by default, as the script) and applied at once. The
+  high frame rate solution is left alone. Each write is read back and logged once; one that fails or
+  gets no answer is reported on the row and never resent. Switching the row on again, or the next
+  start, is the retry.
 - **Off**: the override is removed, the saved Arc Sync profile and frame rate solutions are put back
   and the record cleared. While the extended EDID stays loaded the row says a restart finishes it. A
   restore that fails keeps the record, so switching it off again retries.

@@ -878,6 +878,8 @@ public sealed class DevicePageCaptureTests
     [InlineData("pending", 980, 640)]
     [InlineData("pending", 1280, 800)]
     [InlineData("refused", 980, 640)]
+    [InlineData("active", 980, 640)]
+    [InlineData("active", 1280, 800)]
     public async Task ExtendedVrrRange(string state, int width, int height)
     {
         await using var claw = await ClawOverlay.CreateAsync(width, height);
@@ -886,20 +888,26 @@ public sealed class DevicePageCaptureTests
             ? new ExtendedVrrStatus(ExtendedVrrPhase.Refused,
                 "Another tool's EDID override is in place for this panel. Remove it first (CRU: run reset-all.exe and "
                 + "restart). Nothing was changed.")
-            : new ExtendedVrrStatus(ExtendedVrrPhase.RestartToApply, "Restart Windows to apply.");
+            : state == "active"
+                ? new ExtendedVrrStatus(ExtendedVrrPhase.Active, "Active: Arc Sync Excellent from 28 to 120 Hz.",
+                    LowFrameRateCompensation: true)
+                : new ExtendedVrrStatus(ExtendedVrrPhase.RestartToApply, "Restart Windows to apply.");
         List<string?> selected = [];
         claw.Device.SelectHost = (id, value) =>
         {
-            Assert.Equal(DeviceHostRowIds.ExtendedVrr, id);
+            Assert.Contains(id, new[] { DeviceHostRowIds.ExtendedVrr, DeviceHostRowIds.ExtendedVrrLowFrameRate });
             selected.Add(value);
             return Task.CompletedTask;
         };
         claw.Device.State = claw.Device.State with
         {
             ExtendedVrr = DeviceHostRows.ExtendedVrrView(status),
+            ExtendedVrrLowFrameRate = DeviceHostRows.ExtendedVrrLowFrameRateView(status),
             HostSelections = new Dictionary<string, DeviceHostSelection>(claw.Device.State.HostSelections)
             {
                 [DeviceHostRowIds.ExtendedVrr] = new(status.Enabled ? "on" : "off",
+                    [DeviceHostRows.HostChoice("off", "Off"), DeviceHostRows.HostChoice("on", "On")]),
+                [DeviceHostRowIds.ExtendedVrrLowFrameRate] = new(status.LowFrameRateCompensation ? "on" : "off",
                     [DeviceHostRows.HostChoice("off", "Off"), DeviceHostRows.HostChoice("on", "On")])
             }
         };
@@ -911,6 +919,12 @@ public sealed class DevicePageCaptureTests
         var row = UiFixture.Tagged<DeviceCapabilityControl>(window, DeviceHostRowIds.ExtendedVrr);
         Assert.True(row.IsEffectivelyVisible);
         Assert.Contains(row, group.GetVisualDescendants());
+        if (state == "active")
+        {
+            var lfc = UiFixture.Tagged<DeviceCapabilityControl>(window, DeviceHostRowIds.ExtendedVrrLowFrameRate);
+            Assert.Contains(lfc, group.GetVisualDescendants());
+        }
+
         group.BringIntoView();
         Dispatcher.UIThread.RunJobs();
         VisualBaseline.Verify(window, $"overlay-device-extended-vrr-{state}-{width}");

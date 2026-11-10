@@ -11,4 +11,5 @@ internal static class DeviceHostRowIds
     public const string Retry = "device.retry";
     public const string GlyphSelection = "device.glyph-selection";
     public const string ExtendedVrr = "device.extended-vrr";
+    public const string ExtendedVrrLowFrameRate = "device.extended-vrr-lfc";
 }

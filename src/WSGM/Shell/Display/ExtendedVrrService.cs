@@ -12,13 +12,14 @@ namespace WSGM.Shell;
 
 /// <summary>
 ///     Owns the extended VRR range of a panel LibHandheld names: the EDID override with the lower floor, Arc Sync
-///     Excellent across it, and Intel's low frame rate solution off, as the Atlas8Tweaks VRR Fix does.
+///     Excellent across it, and Intel's low frame rate solution off, as the Atlas8Tweaks VRR Fix does, unless the
+///     user keeps it on.
 /// </summary>
 /// <remarks>
 ///     Mirrors <c>AcerAtlasVrr.ps1</c> step for step. Turning it on saves the original Intel state once, writes the
 ///     override and asks for a restart until Windows reports it. While it is in force, every WSGM start waits for
-///     the Intel driver and applies Excellent and LFC off; WSGM starting at sign-in replaces the script's sign-in
-///     task. Turning it off removes the override and puts the saved Intel state back. A foreign override or an
+///     the Intel driver and applies Excellent and the chosen low frame rate compensation (off by default, as the
+///     script); WSGM starting at sign-in replaces the script's sign-in task. Turning it off removes the override and puts the saved Intel state back. A foreign override or an
 ///     unknown EDID is refused before anything changes. A standalone install of the script is shown as active and
 ///     left to its own task; turning the range off here removes it too.
 ///     <para>
@@ -32,7 +33,7 @@ namespace WSGM.Shell;
 internal sealed class ExtendedVrrService : IAsyncDisposable
 {
     private const string OffDetail = "Lowers the variable refresh floor from 48 to 28 Hz. Takes effect after a Windows restart.";
-    private const string ActiveDetail = "Active: Arc Sync Excellent from 28 to 120 Hz, Intel's low frame rate solution off.";
+    private const string ActiveDetail = "Active: Arc Sync Excellent from 28 to 120 Hz.";
     private const string ApplyDetail = "Restart Windows to apply.";
     private const string RemoveDetail = "Turned off. Restart Windows to finish.";
     private const string ForeignDetail =
@@ -48,10 +49,12 @@ internal sealed class ExtendedVrrService : IAsyncDisposable
     private readonly IExtendedVrrMachine _machine;
     private readonly Func<ExtendedVrrPanel?> _panel;
     private readonly Func<ExtendedVrrIntelState?> _readSaved;
+    private readonly Action<bool> _writeLowFrameRate;
     private readonly Lock _sync = new();
     private readonly Action<ExtendedVrrIntelState?> _writeSaved;
     private Task _check = Task.CompletedTask;
     private string? _lastLogged;
+    private volatile bool _lowFrameRate;
     private ExtendedVrrStatus _status = ExtendedVrrStatus.Hidden;
 
     /// <summary>Creates the owner; nothing is read or written until <see cref="Recheck" /> or a change.</summary>
@@ -62,15 +65,22 @@ internal sealed class ExtendedVrrService : IAsyncDisposable
     /// <param name="writeSaved">Saves or clears the original Intel state.</param>
     /// <param name="driverWait">How long a start waits for the Intel driver to report Arc Sync; 90 s, as the script.</param>
     /// <param name="delay">The wait between driver polls and before a readback; tests replace it.</param>
+    /// <param name="lowFrameRate">
+    ///     Reads once whether Intel's low frame rate compensation stays on while the range is active; off when omitted.
+    /// </param>
+    /// <param name="writeLowFrameRate">Saves that choice; nothing is saved when omitted.</param>
     internal ExtendedVrrService(Func<ExtendedVrrPanel?> panel, IExtendedVrrMachine machine, IExtendedVrrDriver driver,
         Func<ExtendedVrrIntelState?> readSaved, Action<ExtendedVrrIntelState?> writeSaved, TimeSpan? driverWait = null,
-        Func<TimeSpan, CancellationToken, Task>? delay = null)
+        Func<TimeSpan, CancellationToken, Task>? delay = null, Func<bool>? lowFrameRate = null,
+        Action<bool>? writeLowFrameRate = null)
     {
         _panel = panel;
         _machine = machine;
         _driver = driver;
         _readSaved = readSaved;
         _writeSaved = writeSaved;
+        _lowFrameRate = lowFrameRate?.Invoke() ?? false;
+        _writeLowFrameRate = writeLowFrameRate ?? (_ => { });
         _driverWait = driverWait ?? TimeSpan.FromSeconds(90);
         _delay = delay ?? Task.Delay;
     }
@@ -142,6 +152,32 @@ internal sealed class ExtendedVrrService : IAsyncDisposable
             .ConfigureAwait(false);
     }
 
+    /// <summary>
+    ///     Saves whether Intel's low frame rate compensation stays on while the range is active and, while it is
+    ///     active, applies it at once.
+    /// </summary>
+    /// <param name="enabled">The request.</param>
+    /// <param name="cancellationToken">Cancels the wait for a change in progress.</param>
+    /// <returns>The status afterwards, which explains a failure.</returns>
+    internal async Task<ExtendedVrrStatus> SetLowFrameRateCompensationAsync(bool enabled,
+        CancellationToken cancellationToken = default)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
+        return await RunAsync(async token =>
+        {
+            _lowFrameRate = enabled;
+            _writeLowFrameRate(enabled);
+            Log.Info($"Extended VRR range: low frame rate compensation {(enabled ? "on" : "off")} while active.");
+            if (Status.Phase is ExtendedVrrPhase.Active)
+            {
+                // The start's own check: it reads the panel again and writes only what differs.
+                await CheckAsync(token).ConfigureAwait(false);
+            }
+
+            return Status with { Busy = false };
+        }, linked.Token).ConfigureAwait(false);
+    }
+
     /// <summary>Turns the range off for the uninstaller when WSGM turned it on, unless the standalone tool owns it.</summary>
     /// <returns>Whether nothing is left to restore, and whether a restart loads the factory EDID.</returns>
     internal async Task<(bool Complete, bool RestartRequired)> RestoreForUninstallAsync()
@@ -190,7 +226,7 @@ internal sealed class ExtendedVrrService : IAsyncDisposable
             }
 
             Publish(status);
-            return status;
+            return Status;
         }
         finally
         {
@@ -515,18 +551,21 @@ internal sealed class ExtendedVrrService : IAsyncDisposable
             return "Could not read Intel's low frame rate solution.";
         }
 
-        if (lfc.LowFrameRate)
+        // Off unless the user keeps it, as the script turns it off.
+        var wanted = _lowFrameRate;
+        var state = wanted ? "on" : "off";
+        if (lfc.LowFrameRate != wanted)
         {
-            if (await SetSolutionAsync(target, GpuVrrSolution.LowFrameRate, false).ConfigureAwait(false) is { } problem)
+            if (await SetSolutionAsync(target, GpuVrrSolution.LowFrameRate, wanted).ConfigureAwait(false) is { } problem)
             {
-                return "Could not turn off Intel's low frame rate solution: " + problem;
+                return $"Could not turn {state} Intel's low frame rate compensation: " + problem;
             }
 
-            changes.Add("LFC on -> off");
+            changes.Add($"LFC {(wanted ? "off" : "on")} -> {state}");
         }
 
         Log.Info(changes.Count == 0
-            ? $"Extended VRR range: OK EXCELLENT {floor}-120 Hz, LFC off; nothing to repair."
+            ? $"Extended VRR range: OK EXCELLENT {floor}-120 Hz, LFC {state}; nothing to repair."
             : "Extended VRR range: REPAIRED " + string.Join("; ", changes));
         return ActiveDetail;
     }
@@ -718,6 +757,7 @@ internal sealed class ExtendedVrrService : IAsyncDisposable
 
     private void Publish(ExtendedVrrStatus status)
     {
+        status = status with { LowFrameRateCompensation = _lowFrameRate };
         if (Interlocked.Exchange(ref _status, status) != status)
         {
             Changed?.Invoke();

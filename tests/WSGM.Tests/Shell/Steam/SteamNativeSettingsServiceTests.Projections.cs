@@ -25,6 +25,22 @@ public sealed partial class SteamNativeSettingsServiceTests
     }
 
     [Fact]
+    public void TheLowFrameRateRowIsTheSameSwitchTheOverlayDrawsAndOnlyWhileTheRangeIsActive()
+    {
+        var active = new ExtendedVrrStatus(ExtendedVrrPhase.Active, "Active.", LowFrameRateCompensation: true);
+        var row = SteamNativeSettingsService.ExtendedVrrLowFrameRateRow(active);
+        var overlay = DeviceHostRows.ExtendedVrrLowFrameRateView(active);
+
+        Assert.Equal(("display.extended-vrr-lfc", SteamSettingsRowKind.Boolean, ExtendedVrrStatus.LowFrameRateTitle, true,
+            false), (row.Key, row.Kind, row.Label, row.Checked, row.Disabled));
+        Assert.Equal((ExtendedVrrStatus.LowFrameRateTitle, "ON"), (overlay!.Title, overlay.TrailingText));
+        Assert.True((active with { Busy = true }) is { LowFrameRateVisible: true }
+                    && SteamNativeSettingsService.ExtendedVrrLowFrameRateRow(active with { Busy = true }).Disabled);
+        Assert.Null(DeviceHostRows.ExtendedVrrLowFrameRateView(active with { Phase = ExtendedVrrPhase.RestartToApply }));
+        Assert.Null(DeviceHostRows.ExtendedVrrLowFrameRateView(active with { Phase = ExtendedVrrPhase.Standalone }));
+    }
+
+    [Fact]
     public void TdpProjectionUsesTheAuthoritativeDesiredObservedAndProgressState()
     {
         var view = PrimaryLimitView("pl1");

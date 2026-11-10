@@ -30,7 +30,9 @@ internal static class DeviceOverlayGroups
             var capabilities = CapabilitiesIn(snapshot, section.SectionId);
             var allHostRows = HostRowsIn(snapshot, section.SectionId);
             // The extended VRR range belongs with the display rows it changes, not with the saved profiles.
-            var displayRows = allHostRows.Where(row => row.Id == DeviceHostRowIds.ExtendedVrr).ToArray();
+            var displayRows = allHostRows
+                .Where(row => row.Id is DeviceHostRowIds.ExtendedVrr or DeviceHostRowIds.ExtendedVrrLowFrameRate)
+                .ToArray();
             var hostRows = allHostRows.Except(displayRows).ToArray();
             var power = section.SectionId == DeviceSections.PowerId;
             var prefix = PinPrefix + section.SectionId;

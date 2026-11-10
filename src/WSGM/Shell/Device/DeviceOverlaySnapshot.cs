@@ -56,13 +56,19 @@ internal sealed record DeviceOverlaySnapshot(
     /// <summary>The extended VRR range switch, or null when the panel does not offer it.</summary>
     public DescriptorRow? ExtendedVrr { get; init; }
 
+    /// <summary>The low frame rate compensation switch, or null while the extended VRR range is not active.</summary>
+    public DescriptorRow? ExtendedVrrLowFrameRate { get; init; }
+
     /// <summary>The host-owned rows that are present, in the order a page draws them.</summary>
     public IEnumerable<DescriptorRow> HostRows
     {
         get
         {
             DescriptorRow?[] rows =
-                [AutoTdp, AutoTdpTarget, AuthoredProfile, LightingProfile, Controller, GlyphSelection, Recovery, ExtendedVrr];
+            [
+                AutoTdp, AutoTdpTarget, AuthoredProfile, LightingProfile, Controller, GlyphSelection, Recovery,
+                ExtendedVrr, ExtendedVrrLowFrameRate
+            ];
             return rows.OfType<DescriptorRow>();
         }
     }

@@ -382,6 +382,18 @@ internal static class DeviceHostRows
             status.Enabled ? "ON" : "OFF", status.CanChange, health) { SectionId = DeviceSections.PowerId };
     }
 
+    /// <summary>Projects the low frame rate compensation switch shown under an active extended VRR range.</summary>
+    /// <param name="status">The owner's status.</param>
+    /// <returns>The row, or null while the range is not active.</returns>
+    internal static DescriptorRow? ExtendedVrrLowFrameRateView(ExtendedVrrStatus status)
+    {
+        return status.LowFrameRateVisible
+            ? new DescriptorRow(DeviceHostRowIds.ExtendedVrrLowFrameRate, ExtendedVrrStatus.LowFrameRateTitle,
+                ExtendedVrrStatus.LowFrameRateDetail, status.LowFrameRateCompensation ? "ON" : "OFF", !status.Busy,
+                DescriptorStatus.None) { SectionId = DeviceSections.PowerId }
+            : null;
+    }
+
     /// <summary>Projects AutoTDP's switch and live state into one row.</summary>
     /// <param name="enabled">The persisted setting.</param>
     /// <param name="status">Live state, or null when the service is not running.</param>

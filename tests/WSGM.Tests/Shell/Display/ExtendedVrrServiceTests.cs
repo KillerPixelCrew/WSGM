@@ -77,6 +77,53 @@ public sealed class ExtendedVrrServiceTests
     }
 
     [Fact]
+    public async Task AKeptLowFrameRateCompensationStaysOnAtEveryStart()
+    {
+        var fixture = new Fixture(lowFrameRate: true);
+        fixture.Activate();
+
+        await fixture.CheckAsync();
+
+        Assert.Equal(["baseline Excellent 28-120", "profile Excellent 28-120"], fixture.Driver.Writes);
+        Assert.True(fixture.Driver.Solutions.LowFrameRate);
+        Assert.True(fixture.Service.Status.LowFrameRateCompensation);
+    }
+
+    [Fact]
+    public async Task TheLowFrameRateSwitchIsSavedAndAppliedAtOnceWhileActive()
+    {
+        var fixture = new Fixture();
+        fixture.Activate();
+        await fixture.CheckAsync();
+        fixture.Driver.Writes.Clear();
+
+        var on = await fixture.Service.SetLowFrameRateCompensationAsync(true);
+        Assert.True(fixture.LowFrameRate);
+        Assert.True(on.LowFrameRateCompensation);
+        Assert.True(fixture.Driver.Solutions.LowFrameRate);
+        Assert.Equal(["baseline Excellent 28-120", "solution LowFrameRate True"], fixture.Driver.Writes);
+
+        var off = await fixture.Service.SetLowFrameRateCompensationAsync(false);
+        Assert.False(fixture.LowFrameRate);
+        Assert.False(off.LowFrameRateCompensation);
+        Assert.False(fixture.Driver.Solutions.LowFrameRate);
+    }
+
+    [Fact]
+    public async Task TheLowFrameRateSwitchIsOnlyShownAndAppliedWhileTheRangeIsActive()
+    {
+        var fixture = new Fixture();
+        await fixture.CheckAsync();
+        Assert.Equal(ExtendedVrrPhase.Off, fixture.Service.Status.Phase);
+        Assert.False(fixture.Service.Status.LowFrameRateVisible);
+
+        var status = await fixture.Service.SetLowFrameRateCompensationAsync(true);
+
+        Assert.True(status.LowFrameRateCompensation);
+        Assert.True(fixture.LowFrameRate);
+        Assert.Empty(fixture.Driver.Writes);
+    }
+    [Fact]
     public async Task AnAlreadyRepairedPanelOnlyGetsItsBaseline()
     {
         var fixture = new Fixture();
@@ -369,12 +416,16 @@ public sealed class ExtendedVrrServiceTests
 
     private sealed class Fixture
     {
-        public Fixture(bool hasPanel = true)
+        public Fixture(bool hasPanel = true, bool lowFrameRate = false)
         {
             var panel = hasPanel ? Panel : null;
+            LowFrameRate = lowFrameRate;
             Service = new ExtendedVrrService(() => panel, Machine, Driver, () => Saved, saved => Saved = saved,
-                TimeSpan.Zero, (_, _) => Task.CompletedTask);
+                TimeSpan.Zero, (_, _) => Task.CompletedTask, () => LowFrameRate, enabled => LowFrameRate = enabled);
         }
+
+        /// <summary>The saved low frame rate compensation choice.</summary>
+        public bool LowFrameRate { get; private set; }
 
         public FakeMachine Machine { get; } = new();
 
