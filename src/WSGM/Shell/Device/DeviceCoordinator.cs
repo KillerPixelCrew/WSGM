@@ -99,6 +99,9 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
     private Task _resumeRestore = Task.CompletedTask;
 
+    /// <summary>Held as the restore from when a cycle stops until the next one publishes its own.</summary>
+    private TaskCompletionSource? _cycleGap;
+
     /// <summary>How long after the last resume edge of one wake the limits are written again.</summary>
     private static readonly TimeSpan WakeSettle = TimeSpan.FromSeconds(2);
 
@@ -2426,6 +2429,18 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         }
 
         var wasRunning = State is DeviceCycleState.Active or DeviceCycleState.Degraded;
+        // Between cycles the limits are firmware's. Holding the assignment reconcile until the next cycle
+        // publishes its restore keeps those readings from being saved as the user's Custom values.
+        // Disabled, Passive and Faulted have no next cycle to wait for, so they hold nothing.
+        var settling = state is DeviceCycleState.Detected or DeviceCycleState.Activating
+            or DeviceCycleState.Suspended or DeviceCycleState.Deactivating;
+        if (settling && _cycleGap is null)
+        {
+            var gap = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _cycleGap = gap;
+            Volatile.Write(ref _resumeRestore, gap.Task);
+        }
+
         _state = state;
         Log.Info($"Handheld state: {state}.");
         StateChanged?.Invoke(state);
@@ -2457,6 +2472,12 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
                 }
             });
             PublishRestore(restore, "cycle restore");
+        }
+
+        if (!settling)
+        {
+            _cycleGap?.TrySetResult();
+            _cycleGap = null;
         }
 
         Power.RequestAssignmentReconcile();
