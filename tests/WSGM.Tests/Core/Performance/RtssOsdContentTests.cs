@@ -80,7 +80,8 @@ public sealed class RtssOsdContentTests
     [InlineData(3)]
     public void CpuRow_ShowsThermOnlyWhileTheCpuIsAtItsThermalLimit(int level)
     {
-        var power = new RtssOsdPowerStatus(25, false, false, null, string.Empty, CpuAtThermalLimit: true);
+        var power = new RtssOsdPowerStatus(TdpWatts: 25, AutoTdpEnabled: false, AutoTdpRunning: false,
+            AutoTdpWatts: null, AutoTdpActivity: string.Empty, CpuAtThermalLimit: true);
 
         Assert.Contains("<C0>THERM", RtssOsdContent.Build(level, FullMetrics, power));
         Assert.DoesNotContain("THERM", RtssOsdContent.Build(level, FullMetrics, power with { CpuAtThermalLimit = false }));

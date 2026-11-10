@@ -190,7 +190,7 @@ internal static class RtssOsdContent
 
         if (powerStatus.CpuAtThermalLimit)
         {
-            elements.Add(Element("THERM", string.Empty));
+            elements.Add(Element(value: "THERM", unit: string.Empty));
         }
 
         return elements;
