@@ -134,6 +134,7 @@ internal sealed class SessionPowerEvents(
     {
         if (!DisplayPowerSignal.IsDisplayOff(displayState))
         {
+            performance.RecheckExtendedVrrWhenDisplayLit();
             if (_screensaverWake.NoteDisplayOn())
             {
                 steamUi.RequestScreensaverDismissal("display lit");

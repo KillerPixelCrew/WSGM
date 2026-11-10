@@ -302,6 +302,21 @@ internal sealed class PerformanceServices(
     ///     or a profile edited meanwhile goes unnoticed until the next game launch. One forced pass
     ///     of each costs a driver round trip and a probe, and only on a real wake.
     /// </remarks>
+    /// <summary>Looks for the extended VRR range again once the display is lit, if it is still hidden on its panel.</summary>
+    /// <remarks>
+    ///     With the screen off at start the Intel driver answers no Arc Sync query (KMD call error on the Atlas,
+    ///     2026-11-10), the start's 90 s wait runs out, and the row stayed hidden for the whole session.
+    /// </remarks>
+    internal void RecheckExtendedVrrWhenDisplayLit()
+    {
+        if (!state.ShutdownRequested && ExtendedVrr is { Status.Visible: false } extendedVrr
+                                     && Volatile.Read(ref _extendedVrrPanel) is not null
+                                     && extendedVrr.WaitForCheckAsync().IsCompleted)
+        {
+            extendedVrr.Recheck();
+        }
+    }
+
     internal void RepairAfterResume()
     {
         var now = Environment.TickCount64;

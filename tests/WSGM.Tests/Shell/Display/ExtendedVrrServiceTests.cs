@@ -281,6 +281,23 @@ public sealed class ExtendedVrrServiceTests
     }
 
     [Fact]
+    public async Task ARecheckOnceTheDriverAnswersShowsTheRangeAndRepairsIt()
+    {
+        // The screen was off at start: Intel answered no Arc Sync until the display was lit again.
+        var fixture = new Fixture();
+        fixture.Activate();
+        fixture.Driver.HasArcSync = false;
+        await fixture.CheckAsync();
+        Assert.Equal(ExtendedVrrPhase.Hidden, fixture.Service.Status.Phase);
+
+        fixture.Driver.HasArcSync = true;
+        await fixture.CheckAsync();
+
+        Assert.Equal(ExtendedVrrPhase.Active, fixture.Service.Status.Phase);
+        Assert.False(fixture.Driver.Solutions.LowFrameRate);
+    }
+
+    [Fact]
     public async Task TheTestBuildsOverrideIsRecognizedAsOurs()
     {
         var fixture = new Fixture();
