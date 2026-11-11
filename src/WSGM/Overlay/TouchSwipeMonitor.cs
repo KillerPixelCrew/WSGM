@@ -151,7 +151,14 @@ internal sealed class TouchSwipeMonitor : IDisposable
         var caps = report.Digitizer;
         if (!report.TipDown)
         {
-            CompleteDiagnostic(caps, "released");
+            // TipDown describes only the primary contact. Another finger still down cancels a waiting swipe.
+            if (report.Contacts > 1)
+            {
+                _trace.Cancel("second-contact");
+                _edgeAwaitingLift = null;
+            }
+
+            CompleteDiagnostic(caps, report.Contacts > 1 ? "cancelled" : "released");
             _contactWasDown = false;
             _tracking = false;
             DispatchAwaitedEdge();

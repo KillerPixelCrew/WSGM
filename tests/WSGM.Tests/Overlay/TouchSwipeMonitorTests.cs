@@ -35,6 +35,19 @@ public sealed class TouchSwipeMonitorTests
         Assert.Empty(triggered);
     }
 
+    [Fact]
+    public void ALiftWhileAnotherFingerIsDownCancelsARecognizedSwipe()
+    {
+        var (report, posts, triggered) = Monitor();
+
+        SwipeUpFromTheBottom(report);
+        report(new TouchContactReport(Panel, Contacts: 2, TipDown: false, RawX: 0, RawY: 0));
+        report(new TouchContactReport(Panel, Contacts: 1, TipDown: false, RawX: 0, RawY: 0));
+        RunAll(posts);
+
+        Assert.Empty(triggered);
+    }
+
     private static (Action<TouchContactReport> Report, List<Action> Posts, List<ScreenEdge> Triggered) Monitor()
     {
         Action<TouchContactReport>? handler = null;
