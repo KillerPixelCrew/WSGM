@@ -817,6 +817,11 @@ Overlay. Toggle requests persist policy without applying a wattage.
 
 ## 8. Library features
 
+Home's carousel reads Steam's Non-Steam collection alongside installed games, so custom shortcuts
+appear even before their first launch. Shortcut additions and removals refresh the same list and
+background; duplicates from Steam's recent list are removed. This is a toolkit collection fix; the
+shared Library Manager inventory and its Overlay projection are unchanged.
+
 The findings behind each of these are in [steam-cef.md](steam-cef.md).
 
 | Feature              | Files                                                                                                                                  | Mechanism                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Switch                                                        |
