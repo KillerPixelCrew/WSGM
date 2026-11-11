@@ -45,6 +45,13 @@ internal readonly record struct DeviceDesiredWriteAdmission(
             return Skipped(DeviceDesiredWriteSkipReason.Unavailable);
         }
 
+        // An owner reporting its transport faulted on a usable control does not know what the output shows,
+        // such as the Atlas 7's rings after a failed first write. Only an explicit user command resends it.
+        if (projection.State.Reason is { Code: CapabilityReasonCode.TransportFaulted })
+        {
+            return Skipped(DeviceDesiredWriteSkipReason.PreviousResultUncertain);
+        }
+
         if (projection.DesiredValueOutOfRange)
         {
             return Skipped(DeviceDesiredWriteSkipReason.DesiredValueOutOfRange);

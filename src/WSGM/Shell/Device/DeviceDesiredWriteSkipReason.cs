@@ -27,6 +27,9 @@ internal enum DeviceDesiredWriteSkipReason
     /// <summary>Another value is pending for this capability.</summary>
     CommandPending,
 
-    /// <summary>The same value was previously timed out or indeterminate and needs an explicit user action.</summary>
+    /// <summary>
+    ///     The same value was previously timed out or indeterminate, or the owner reports the output uncertain,
+    ///     and it needs an explicit user action.
+    /// </summary>
     PreviousResultUncertain
 }
