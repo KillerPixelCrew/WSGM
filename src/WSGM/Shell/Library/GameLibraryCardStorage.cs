@@ -151,26 +151,11 @@ internal sealed class GameLibraryCardStorage(
         {
             var volumeId = volume.VolumeId;
             var libraries = store.Libraries();
-            var known = libraries.FirstOrDefault(item => SameId(item.VolumeId, volumeId));
-            StorageLibraryManifest manifest;
-            long? revision;
             var state = StorageLibraryStorage.InspectPath(volumeId, @".wsgm\library.json");
-            if (state == ContentPathState.Missing && known is null)
-            {
-                manifest = new StorageLibraryManifest { Id = Guid.NewGuid().ToString("D"), Name = volume.Name };
-                revision = null;
-            }
-            else
-            {
-                // Re-read the card right before writing: whatever is in the drive now must be the accepted card.
-                manifest = StorageLibraryStorage.Read(volumeId, known?.Id);
-                if (known is null)
-                {
-                    throw new InvalidDataException("Choose Use this card under Storage before importing to it.");
-                }
-
-                revision = manifest.Revision;
-            }
+            // Re-read through the volume before deciding which card's binding applies. Only a
+            // confirmed absence on readable storage permits creation, never an unreadable card.
+            var current = state == ContentPathState.Missing ? null : StorageLibraryStorage.Read(volumeId);
+            var (manifest, known, revision) = PrepareImport(content, volumeId, volume.Name, libraries, current);
 
             var match = StorageLibraryStorage.Match(manifest, content);
             if (match is not null && match.Id != content.Id)
@@ -210,6 +195,44 @@ internal sealed class GameLibraryCardStorage(
         {
             Tracker.StorageGate.Release();
         }
+    }
+
+    /// <summary>Selects the card's own library identity before an import writes inventory or a shortcut.</summary>
+    /// <param name="content">The title's current library binding, if it has one.</param>
+    /// <param name="volumeId">The volume being addressed.</param>
+    /// <param name="name">The current card's name.</param>
+    /// <param name="libraries">This device's accepted bindings, including disconnected cards.</param>
+    /// <param name="current">The freshly read manifest, or null only after confirmed absence on readable storage.</param>
+    /// <returns>The manifest to extend, its accepted binding if any, and its expected publication revision.</returns>
+    internal static (StorageLibraryManifest Manifest, StorageLibraryRecord? Library, long? Revision) PrepareImport(
+        ManagedContentRecord content, string volumeId, string name, IReadOnlyList<StorageLibraryRecord> libraries,
+        StorageLibraryManifest? current)
+    {
+        if (current is null)
+        {
+            if (content.LibraryId.Length > 0)
+            {
+                throw new InvalidDataException(
+                    "This title's card game list is missing. Choose Repair library under Storage in Library Manager, then retry this title.");
+            }
+
+            // A reader can reuse a volume GUID for another card. An unbound title on a card
+            // without a manifest starts a new library and leaves the older cards' records intact.
+            return (new StorageLibraryManifest { Id = Guid.NewGuid().ToString("D"), Name = name }, null, null);
+        }
+
+        if (content.LibraryId.Length > 0 && !SameId(content.LibraryId, current.Id))
+        {
+            throw new InvalidDataException("This storage contains a different library. Scan again before importing.");
+        }
+
+        var known = libraries.FirstOrDefault(item => SameId(item.Id, current.Id) && SameId(item.VolumeId, volumeId));
+        if (known is null)
+        {
+            throw new InvalidDataException("Choose Use this card under Storage before importing to it.");
+        }
+
+        return (current, known, current.Revision);
     }
 
     /// <summary>Takes a removed title off its card's list, when the accepted card is in and nothing else uses it.</summary>

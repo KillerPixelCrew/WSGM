@@ -1,5 +1,12 @@
 # Issue #200 implementation and attended validation
 
+Maintainer correction, 2026-11-11: the test-file copies to the SD card recorded below were not
+authorized. They must not be used as a precedent for future media testing. The shortcut file was on
+`C:`, but the test executable and working directory were on `D:`. Its retained local library binding
+later blocked a first Library Manager import after the card manifest was gone. First-use imports
+must identify the current card from its own manifest, rather than treating an older volume binding
+as proof that the current card needs repair.
+
 Implemented on `NightHammer1000/removable-storage-nonsteam-shortcuts`, using the
 [approved plan](../docs/plans/removable-shortcut-availability.md) and six supervised Claude/Codex
 tasks in Orca run `run_019fca0b05c7`. The coordinator integrated the source, built, deployed and

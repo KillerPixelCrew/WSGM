@@ -656,6 +656,12 @@ are immediate commands on both surfaces, like Recheck, and a card is re-read thr
 right before either acts. A newer card schema is never repaired by an older reader. Unknown card
 inventory is offered for import through the scan, never executed on insertion.
 
+The first import to a card without a game list creates a new library. A Windows volume GUID may be
+reused by a reader, so an old binding at that volume does not identify the current card. Existing
+lists select their binding by the manifest UUID and volume together. Older libraries keep their
+inventory and account mappings. A title already bound to a library still waits for **Repair
+library** if its card's list is lost.
+
 The tracker writes to a card only to add an entry for WSGM's own managed content whose files are
 present on it. Titles imported before card libraries existed are moved onto their card once, when it
 is connected: a card without a list gets one holding them, a list this device already uses gains

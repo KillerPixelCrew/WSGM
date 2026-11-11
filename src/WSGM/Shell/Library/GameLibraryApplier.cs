@@ -468,8 +468,12 @@ internal sealed class GameLibraryApplier(
             }
             catch (Exception ex) when (GameLibraryCardStorage.IsStorageFailure(ex) && ex is not ImportStateException)
             {
+                var recovery = ex is UnauthorizedAccessException
+                               || ex is IOException and not StorageLibraryUnsupportedVersionException
+                    ? "Unlock or reconnect the card and retry this title. "
+                    : "";
                 run.Problems.Add(
-                    $"{entry.Plan.Name}: its storage inventory could not be saved. Unlock or reconnect the card and retry this title. {ex.Message}");
+                    $"{entry.Plan.Name}: its storage inventory could not be saved. {recovery}{ex.Message}");
                 return null;
             }
         }

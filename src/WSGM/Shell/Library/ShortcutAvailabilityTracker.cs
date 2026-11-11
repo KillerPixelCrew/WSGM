@@ -588,9 +588,13 @@ internal sealed class ShortcutAvailabilityTracker : IAsyncDisposable
                     CardState.Present => new GameLibraryStorage(library.Id, library.Name, "Different card",
                         "A different library's card is connected here. Insert this library's card.", count, false,
                         false),
-                    _ => new GameLibraryStorage(library.Id, library.Name, "Needs repair",
+                    CardState.Damaged => new GameLibraryStorage(library.Id, library.Name, "Needs repair",
                         "This card's game list is missing or damaged, so its games cannot start. Repair library "
-                        + "rebuilds it from the titles WSGM knows.", count, true, false)
+                        + "rebuilds it from the titles WSGM knows.", count, true, false),
+                    _ => new GameLibraryStorage(library.Id, library.Name, "Card not identified",
+                        $"Insert {library.Name}. The connected card has no game list and may be a new card. "
+                        + "If it is this library's card, Repair library rebuilds its list from the titles WSGM knows.",
+                        count, true, false)
                 });
             }
             else
@@ -699,6 +703,12 @@ internal sealed class ShortcutAvailabilityTracker : IAsyncDisposable
                 return Missing(connected.ContainsKey(content.LibraryId)
                     ? $"Choose Use this card for {location} under Storage in Game Library."
                     : $"Insert {location}.");
+            }
+
+            if (!connected.TryGetValue(content.LibraryId, out var card)
+                || !Same(card.Volume.VolumeId, library.VolumeId))
+            {
+                return Missing($"Insert {location}. The connected card has not been identified as this library.");
             }
 
             if (library.RepairRequired && ManagedContentStorage.MountOf(library.VolumeId, context) is not null)
