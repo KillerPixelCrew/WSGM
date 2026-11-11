@@ -457,6 +457,21 @@ internal sealed class PerformanceServices(
         var tdpWatts = enabled && autoTdp?.Watts is { } automaticWatts
             ? automaticWatts
             : reportedTdpWatts;
+        var temperature = coordinator.Capabilities.TryGetView(new DeviceCapabilityKey(CapabilityIds.Temperature, null))
+            ?.Projection.State;
+        int? deviceCpuTemperature = temperature is
+        {
+            Available: true, Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified
+        }
+            ? temperature.ObservedValue?.IntegerValue
+            : null;
+        var thermalLimit = coordinator.Capabilities.TryGetView(new DeviceCapabilityKey(CapabilityIds.ThermalThrottle, null))
+            ?.Projection.State;
+        var cpuAtThermalLimit = thermalLimit is
+        {
+            Available: true, Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified,
+            ObservedValue.BooleanValue: true
+        };
         performance.ApplyOsdPowerStatus(new RtssOsdPowerStatus(
             tdpWatts,
             enabled,
@@ -464,7 +479,9 @@ internal sealed class PerformanceServices(
             running ? autoTdp?.Watts : null,
             running ? AutoTdpActivity(enabled, autoTdp) : string.Empty,
             BoostWatts(views, CapabilityRole.PowerSlowLimit),
-            BoostWatts(views, CapabilityRole.PowerFastLimit)));
+            BoostWatts(views, CapabilityRole.PowerFastLimit),
+            DeviceCpuTemperatureC: deviceCpuTemperature,
+            CpuAtThermalLimit: cpuAtThermalLimit));
     }
 
     /// <summary>A boost limit's raw watts, or null when the device does not publish that limit.</summary>

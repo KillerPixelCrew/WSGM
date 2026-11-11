@@ -41,6 +41,13 @@ internal static class ManualFanVisibility
 
     private static bool Hidden(DeviceCapabilityView[] modes, DeviceCapabilityView view)
     {
+        // The firmware's fan tables only matter while the firmware drives some fan.
+        if (view.Descriptor is { Role: CapabilityRole.ScenarioMode, Display.Key: DisplayKey.FirmwareFanMode })
+        {
+            return modes.Any(mode => Offers(mode, FanControlModes.Firmware))
+                   && !modes.Any(mode => Current(mode) is null or FanControlModes.Firmware);
+        }
+
         if (view.Descriptor.Role is CapabilityRole.FanDuty or CapabilityRole.FanTargetRpm
             && view.Descriptor.SupportsWrite)
         {

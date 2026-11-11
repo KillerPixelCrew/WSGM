@@ -50,6 +50,27 @@ public sealed class DeviceDesiredWriteAdmissionTests
     }
 
     [Fact]
+    public void AnOutputItsOwnerReportsUncertainIsNotRestoredAutomaticallyButStaysCommandable()
+    {
+        var view = View();
+        var state = view.Projection.State with
+        {
+            Quality = HardwareStateQuality.Unknown, ObservedValue = null,
+            Reason = new CapabilityReason(CapabilityReasonCode.TransportFaulted,
+                "The rings may not be showing this lighting. Choose a lighting setting to send it again.")
+        };
+
+        var admission = DeviceDesiredWriteAdmission.TryAdmit(view with
+        {
+            Projection = view.Projection with { State = state }
+        });
+
+        Assert.False(admission.Admitted);
+        Assert.Equal(DeviceDesiredWriteSkipReason.PreviousResultUncertain, admission.SkipReason);
+        Assert.True(CapabilityFreshness.CanCommand(state));
+    }
+
+    [Fact]
     public void MatchingObservedValueIsReportedAsAlreadyApplied()
     {
         var view = View();

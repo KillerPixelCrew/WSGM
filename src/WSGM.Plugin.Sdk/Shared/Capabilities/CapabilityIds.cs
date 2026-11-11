@@ -42,6 +42,9 @@ public static class CapabilityIds
     /// <summary>A temperature reading.</summary>
     public const string Temperature = "telemetry.temperature";
 
+    /// <summary>Whether the CPU is at its thermal limit right now.</summary>
+    public const string ThermalThrottle = "telemetry.thermal-throttle";
+
     /// <summary>The lighting brightness.</summary>
     public const string LightingBrightness = "lighting.brightness";
 

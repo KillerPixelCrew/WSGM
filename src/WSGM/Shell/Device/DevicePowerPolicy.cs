@@ -622,7 +622,8 @@ internal sealed class DevicePowerPolicy
         }
 
         if (value?.Kind == CapabilityValueKind.Choice
-            && FindDescriptor(capabilityId, instanceId)?.Role == CapabilityRole.ScenarioMode)
+            && FindDescriptor(capabilityId, instanceId) is { Role: CapabilityRole.ScenarioMode } scenarioMode
+            && scenarioMode.Display.Key != DisplayKey.FirmwareFanMode)
         {
             // AutoTDP's next limit write would leave the chosen firmware profile again (the Atlas
             // selects Manual for any PL1 write), so a hand-picked profile pauses it like a slider move.

@@ -29,7 +29,10 @@ internal sealed class TouchSwipeMonitor : IDisposable
     private const int DiagnosticBandPx = 64;
     private const int DiagnosticLimitPerMinute = 12;
 
+    private readonly Action<Action> _post;
+    private readonly Func<(int Width, int Height)> _screen;
     private readonly IDisposable _subscription;
+    private ScreenEdge? _edgeAwaitingLift;
     private bool _armed = true;
     private bool _bottomEnabled;
     private bool _contactWasDown;
@@ -53,8 +56,22 @@ internal sealed class TouchSwipeMonitor : IDisposable
 
     /// <summary>Creates a monitor on the UI thread and subscribes it to the shared raw touch input.</summary>
     public TouchSwipeMonitor()
+        : this(RawTouchInput.Subscribe,
+            () => (NativeMethods.GetSystemMetrics(0), NativeMethods.GetSystemMetrics(1)),
+            action => Dispatcher.UIThread.Post(action))
     {
-        _subscription = RawTouchInput.Subscribe(OnReport);
+    }
+
+    /// <summary>Creates a monitor over a given report source, screen size and UI-thread post.</summary>
+    /// <param name="subscribe">Subscribes the report handler and returns the subscription.</param>
+    /// <param name="screen">The primary screen's size in physical pixels.</param>
+    /// <param name="post">Runs an action on the UI thread.</param>
+    internal TouchSwipeMonitor(Func<Action<TouchContactReport>, IDisposable> subscribe,
+        Func<(int Width, int Height)> screen, Action<Action> post)
+    {
+        _screen = screen;
+        _post = post;
+        _subscription = subscribe(OnReport);
     }
 
     /// <summary>Stops monitoring; the last monitor's disposal ends the raw-input registration.</summary>
@@ -82,6 +99,7 @@ internal sealed class TouchSwipeMonitor : IDisposable
         _topEnabled = gestures.TopEdge;
         _tracking = false;
         _diagnosticPending = false;
+        _edgeAwaitingLift = null;
         // Re-applied on every config reload, which the shell does often, so this restated an
         // unchanged gesture set 1,162 times in one session.
         Log.Change(
@@ -119,6 +137,7 @@ internal sealed class TouchSwipeMonitor : IDisposable
         _armed = false;
         _tracking = false;
         _diagnosticPending = false;
+        _edgeAwaitingLift = null;
         Log.Debug("Touch edge swipes disarmed.");
     }
 
@@ -132,9 +151,17 @@ internal sealed class TouchSwipeMonitor : IDisposable
         var caps = report.Digitizer;
         if (!report.TipDown)
         {
-            CompleteDiagnostic(caps, "released");
+            // TipDown describes only the primary contact. Another finger still down cancels a waiting swipe.
+            if (report.Contacts > 1)
+            {
+                _trace.Cancel("second-contact");
+                _edgeAwaitingLift = null;
+            }
+
+            CompleteDiagnostic(caps, report.Contacts > 1 ? "cancelled" : "released");
             _contactWasDown = false;
             _tracking = false;
+            DispatchAwaitedEdge();
             return;
         }
 
@@ -149,17 +176,21 @@ internal sealed class TouchSwipeMonitor : IDisposable
         }
 
         // An edge swipe is one finger, as in Android and HHD. A second contact ends it until every
-        // finger lifts, so a gripping thumb cannot take over the primary slot mid-gesture.
-        if (report.Contacts > 1 && (_tracking || _diagnosticPending))
+        // finger lifts, so a gripping thumb cannot take over the primary slot mid-gesture. That includes
+        // a swipe already recognized and waiting for its lift.
+        if (report.Contacts > 1 && (_tracking || _diagnosticPending || _edgeAwaitingLift is not null))
         {
             _trace.Cancel("second-contact");
             _tracking = false;
+            _edgeAwaitingLift = null;
             CompleteDiagnostic(caps, "cancelled");
         }
     }
 
     private void OnContactDown(TouchDigitizer caps, uint rawX, uint rawY)
     {
+        // A new contact means the earlier lift was never seen, so that swipe no longer belongs to anyone.
+        _edgeAwaitingLift = null;
         _tracking = false;
         _diagnosticPending = false;
         if (!_armed)
@@ -167,8 +198,7 @@ internal sealed class TouchSwipeMonitor : IDisposable
             return;
         }
 
-        _screenW = NativeMethods.GetSystemMetrics(0);
-        _screenH = NativeMethods.GetSystemMetrics(1);
+        (_screenW, _screenH) = _screen();
         var (x, y) = ScaleToScreen(caps, rawX, rawY);
         _horizontalBandPx = EdgeSwipeRecognizer.StartBandPx(caps.XSpanMm, _screenW);
         _verticalBandPx = EdgeSwipeRecognizer.StartBandPx(caps.YSpanMm, _screenH);
@@ -213,13 +243,35 @@ internal sealed class TouchSwipeMonitor : IDisposable
 
         _tracking = false;
         CompleteDiagnostic(caps, "triggered");
+        var edge = triggeredEdge.Value;
+        if (edge is ScreenEdge.Bottom or ScreenEdge.Top)
+        {
+            // These two open and activate a WSGM window. Doing that under a down contact can cost the
+            // window below its lift, which leaves Big Picture holding a touch that never ends.
+            _edgeAwaitingLift = edge;
+            return;
+        }
+
+        Dispatch(edge);
+    }
+
+    private void DispatchAwaitedEdge()
+    {
+        if (_edgeAwaitingLift is { } edge)
+        {
+            _edgeAwaitingLift = null;
+            Dispatch(edge);
+        }
+    }
+
+    private void Dispatch(ScreenEdge edge)
+    {
         if (Interlocked.Exchange(ref _dispatchPending, 1) != 0)
         {
             return;
         }
 
-        var edge = triggeredEdge.Value;
-        Dispatcher.UIThread.Post(() =>
+        _post(() =>
         {
             Interlocked.Exchange(ref _dispatchPending, 0);
             // Opening a surface can disarm the monitor after recognition but before this post runs.
