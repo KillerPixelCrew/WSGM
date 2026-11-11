@@ -7,6 +7,12 @@
       "checked": "2026-11-01"
     },
     {
+      "channel": "publicbeta",
+      "version": "1794364160",
+      "spContenthash": "e4d36490cc29c7993580",
+      "checked": "2026-11-11"
+    },
+    {
       "channel": "stable",
       "version": "1792618285",
       "spContenthash": "3708f234683c51cc73a9",

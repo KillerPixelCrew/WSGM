@@ -8,7 +8,7 @@
 // one rotated archive beside it (wsgm.old.log), read first so a session that began before rotation
 // keeps its start. Nothing here connects to Steam or CEF.
 //
-// A session is a `---- WSGM <version> started, args: [...]` line whose args carry --shell, up to the
+// A session is a `---- WSGM <version> started, args: [...]` line whose args carry --shell or --boot, up to the
 // next one. A shell start that hands over to an elevated copy ("handed over to elevated instance")
 // or finds the shell mutex taken ("Another WSGM shell instance is running; exiting.") ends at once
 // and starts no session; the instance it deferred to keeps logging. Each such line is matched to
@@ -71,7 +71,7 @@ export const parseSessions = (text) => {
   for (const [position, entry] of entries.entries()) {
     const start = StartPattern.exec(entry.message);
     if (start) {
-      if (!hasFlag(start[2], "--shell")) continue;
+      if (!hasFlag(start[2], "--shell") && !hasFlag(start[2], "--boot")) continue;
       const candidate = {
         position,
         line: entry.line,

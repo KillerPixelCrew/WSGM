@@ -42,6 +42,12 @@ the route is decided from the process activation produces, never from the comman
 
 ## Choosing a route
 
+After resume, Steam can reload shortcuts and clear their cached running state even while the
+launcher and game remain alive. WSGM's toolkit compatibility patch preserves the overview from
+Steam's positive lifetime notifications until the real exit. This applies to ordinary shortcuts as
+well as Xbox imports; the launcher does not reinject the renderer to repair it. See
+[the Steam UI system](steam-cef-system.md) for the shared owner.
+
 Admission, classification and selection are separate steps. The shared command parser refuses a
 multiplayer overlay request without acknowledgement. After activation, `PackageIdentity.Classify`
 turns the seed process's AppContainer status and GDK helper/package evidence into `PackagedRuntime`.

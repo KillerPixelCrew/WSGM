@@ -81,6 +81,13 @@ the plugin frontend boundary below.
 
 ## 2. Finding and driving Steam
 
+The host also registers `SteamShortcutRunningStatePatch`. Steam's post-resume shortcut reload can
+clear a shortcut's running bit while its process lifetime remains active, leaving Big Picture with
+no game for overlay composition or input release. The toolkit reconciles Ready local shortcut
+overviews with its retained positive lifetime records before Steam scopes running apps. Real exit
+and patch removal restore the latest owned native state. WSGM's Overlay and Steam use the same
+lifetime observer; no game-specific reinjection or process restart is involved.
+
 `Core\Steam\Steam.cs` is static; WSGM is Steam-exclusive and there is no path setting. The
 executable is resolved from `HKCU\Software\Valve\Steam\SteamExe`, then
 `HKLM\SOFTWARE\WOW6432Node\Valve\Steam\InstallPath` plus `steam.exe`, re-validated on every read.

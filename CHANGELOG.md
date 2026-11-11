@@ -1,5 +1,18 @@
 # WSGM changelog
 
+## 3.0.7 (2026-11-11)
+
+- Fixed Steam's overlay and Quick Access becoming invisible or retaining controller input after
+  hibernation in Xbox and other imported games. Running shortcuts now retain their state through
+  Steam's shortcut reload until the real exit. Fixes #254 and #255.
+- Improved ROG Ally gyro sampling and kept motion sensors available while Steam or a game requests
+  motion.
+- Enabled low framerate compensation with standalone or extended VRR ranges, and rechecked the
+  extended range after the display wakes.
+
+The offline installer, checksum and full notes are on the
+[3.0.7 release](https://github.com/KillerPixelCrew/WSGM/releases/tag/3.0.7).
+
 ## 2.3.3 (2026-10-20)
 
 This fixes unnecessary CPU use while WSGM is idle, updates blocked by files still in use, Game and

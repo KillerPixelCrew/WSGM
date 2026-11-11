@@ -21,6 +21,20 @@ const verdictOf = (text) => {
 const states = (verdict) =>
   Object.fromEntries(verdict.patches.map((entry) => [entry.id, [entry.state, entry.ok]]));
 
+test("a boot deployment starts a new session instead of inheriting historical failures", () => {
+  const sessions = parseSessions(
+    log(
+      start(" --shell"),
+      patch("steam-ui.bridge", "AbsentTarget"),
+      start(" --boot"),
+      patch("steam-ui.bridge", "Verified"),
+      patch("steam-ui.shortcut-running-state", "Verified"),
+    ),
+  );
+  assert.equal(sessions.length, 2);
+  assert.equal(assess(sessions.at(-1)).passed, true);
+});
+
 test("verified and disabled patches pass, including held-state suffixes", () => {
   const verdict = verdictOf(
     log(

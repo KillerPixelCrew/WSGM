@@ -36,6 +36,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     private readonly Timer _nativeStateRefresh;
     private readonly SteamOverlayActivationPatch _overlayActivation = new();
+    private readonly SteamShortcutRunningStatePatch _shortcutRunningState = new();
     private readonly SteamUiPatchManager _patches;
     private readonly SteamUiModuleRuntime _runtime;
     private readonly CancellationTokenSource _shutdown = new();
@@ -109,6 +110,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _patches = new SteamUiPatchManager(_transport);
             _patches.Register(new SteamUiBridgePatch(_bridge));
             _patches.Register(_overlayActivation);
+            _patches.Register(_shortcutRunningState);
             modules.RegisterPatches(_patches);
             lock (_switchGate)
             {
@@ -435,6 +437,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _glyphDeliveryEnabled = SteamUiPatchSwitches.SetGlyphDeliveryPatchStates(_patches, switches,
             _modules.GlyphDelivery);
         _patches.SetPatchEnabled(_overlayActivation.Id, switches.HostSurfaces);
+        _patches.SetPatchEnabled(_shortcutRunningState.Id, switches.HostSurfaces);
         if (AnyPatchWanted(switches))
         {
             _patches.SetGlobalEnabled(true);
@@ -511,6 +514,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _switches = SteamUiSurfaceSwitches.Off;
             // ReSharper disable once MethodHasAsyncOverload
             _patches.SetPatchEnabled(_overlayActivation.Id, false);
+            _patches.SetPatchEnabled(_shortcutRunningState.Id, false);
         }
 
         CancelAllInflightRequests();
