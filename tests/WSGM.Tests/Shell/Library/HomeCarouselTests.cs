@@ -33,6 +33,48 @@ public sealed class HomeCarouselTests
         Assert.True(state.IncludeUninstalled);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void UnavailableShortcutsLeaveTheCarouselEvenWhenTheirLibraryReportsAttached(bool includeUninstalled)
+    {
+        SteamLibraryBadgeState libraries = new(
+            [
+                new SteamLibraryBadgeLibrary("Attached", true, [2, 3000000001]),
+                new SteamLibraryBadgeLibrary("Absent", false, [2, 3, 4])
+            ],
+            Revision: 7,
+            Shortcuts:
+            [
+                new SteamShortcutAvailability(3000000001, false, "Card", "Insert card"),
+                new SteamShortcutAvailability(3000000002, true, "Disk", ""),
+                new SteamShortcutAvailability(4, false, "Absent", "Insert drive")
+            ]);
+
+        var state = HomeCarousel.Build(libraries, includeUninstalled);
+
+        Assert.Equal([3, 4, 3000000001], state.DisconnectedAppIds);
+        Assert.Equal(includeUninstalled, state.IncludeUninstalled);
+        Assert.Equal(7, state.Revision);
+    }
+
+    [Fact]
+    public void ShortcutDisconnectAndReconnectArePublishedWithoutASteamLibraryChange()
+    {
+        SteamLibraryBadgeState available = new([], Revision: 1,
+            Shortcuts: [new SteamShortcutAvailability(3000000001, true, "Card", "")]);
+        var absent = available with
+        {
+            Revision = 2,
+            Shortcuts = [new SteamShortcutAvailability(3000000001, false, "Card", "Insert card")]
+        };
+        var reconnected = available with { Revision = 3 };
+
+        Assert.Empty(HomeCarousel.Build(available, false).DisconnectedAppIds);
+        Assert.Equal([3000000001], HomeCarousel.Build(absent, false).DisconnectedAppIds);
+        Assert.Empty(HomeCarousel.Build(reconnected, false).DisconnectedAppIds);
+    }
+
     [Fact]
     public void AReadingWithEveryCardAttachedExcludesNothing()
     {

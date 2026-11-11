@@ -22,7 +22,7 @@ internal sealed class HomeCarouselBackend : ISteamHomeCarouselBackend
             report.Fallback
                 ? $"Home carousel: nothing on the attached libraries qualified; showing Steam's own {report.Items} entries."
                 : $"Home carousel: {report.Items} entries ({report.Purchases} new purchases, {report.Installed} installed, "
-                  + $"{report.Uninstalled} uninstalled), {report.Excluded} games on disconnected libraries left out, "
+                  + $"{report.Uninstalled} uninstalled), {report.Excluded} unavailable games left out, "
                   + $"collection tracking {(report.Tracking ? "on" : "off")}.");
         return Task.FromResult(SteamUiCommandResult.Applied);
     }

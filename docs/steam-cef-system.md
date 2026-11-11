@@ -819,8 +819,11 @@ Overlay. Toggle requests persist policy without applying a wattage.
 
 Home's carousel reads Steam's Non-Steam collection alongside installed games, so custom shortcuts
 appear even before their first launch. Shortcut additions and removals refresh the same list and
-background; duplicates from Steam's recent list are removed. This is a toolkit collection fix; the
-shared Library Manager inventory and its Overlay projection are unchanged.
+background; duplicates from Steam's recent list are removed. The host combines disconnected Steam
+library IDs with the shortcut tracker's unavailable entries, so missing drives or files exclude
+non-Steam games even though Steam treats shortcuts as installed. The recent-list fallback respects
+these exclusions too; if every candidate is unavailable, the carousel is empty. The tracker and
+inventory remain shared with the Overlay.
 
 The findings behind each of these are in [steam-cef.md](steam-cef.md).
 
