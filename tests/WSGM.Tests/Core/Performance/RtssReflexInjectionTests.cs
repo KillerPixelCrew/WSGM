@@ -1,4 +1,5 @@
 using WSGM.Core;
+using WSGM.Install;
 using WSGM.Testing;
 
 namespace WSGM.Tests.Core;
@@ -17,29 +18,39 @@ public sealed class RtssReflexInjectionTests
         var profile = Path.Combine(directory.Root, "Global");
         File.WriteAllText(profile, GlobalProfile);
 
-        var (present, changed) = RtssNativeAdapter.SwitchOffReflexInjection(profile);
+        var changed = RtssProfileSettings.DisableReflexInjection(profile);
 
-        Assert.Equal(2, present);
         Assert.Equal(["ReflexSleep", "ReflexSetLatencyMarker"], changed);
         Assert.Equal(GlobalProfile.Replace("ReflexSleep=1", "ReflexSleep=0")
             .Replace("ReflexSetLatencyMarker=1", "ReflexSetLatencyMarker=0"), File.ReadAllText(profile));
 
-        var again = RtssNativeAdapter.SwitchOffReflexInjection(profile);
-        Assert.Empty(again.Changed);
+        Assert.Empty(RtssProfileSettings.DisableReflexInjection(profile));
     }
 
     [Fact]
-    public void AnRtssWithoutTheKeysIsNotChanged()
+    public void MissingKeysAreCreatedWithoutChangingOtherSettings()
     {
         using var directory = new TemporaryDirectory();
         var profile = Path.Combine(directory.Root, "Global");
         const string older = "[Framerate]\r\nLimit=60\r\n";
         File.WriteAllText(profile, older);
 
-        var (present, changed) = RtssNativeAdapter.SwitchOffReflexInjection(profile);
+        var changed = RtssProfileSettings.DisableReflexInjection(profile);
 
-        Assert.Equal(0, present);
-        Assert.Empty(changed);
-        Assert.Equal(older, File.ReadAllText(profile));
+        Assert.Equal(["ReflexSleep", "ReflexSetLatencyMarker"], changed);
+        Assert.Equal("60", IniFile.ReadValue(profile, "Limit", "Framerate"));
+        Assert.Equal("0", IniFile.ReadValue(profile, "ReflexSleep", "Framerate"));
+        Assert.Equal("0", IniFile.ReadValue(profile, "ReflexSetLatencyMarker", "Framerate"));
+    }
+
+    [Fact]
+    public void AFirstInstallGetsAnExplicitDisabledGlobalProfileBeforeRtssRuns()
+    {
+        using var directory = new TemporaryDirectory();
+        var profile = Path.Combine(directory.Root, "Profiles", "Global");
+        Assert.Equal(2, RtssProfileSettings.DisableReflexInjection(profile).Count);
+        Assert.Equal("0", IniFile.ReadValue(profile, "ReflexSleep", "Framerate"));
+        Assert.Equal("0", IniFile.ReadValue(profile, "ReflexSetLatencyMarker", "Framerate"));
+        Assert.Empty(RtssProfileSettings.DisableReflexInjection(profile));
     }
 }

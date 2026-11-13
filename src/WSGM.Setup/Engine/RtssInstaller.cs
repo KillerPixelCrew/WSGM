@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using Microsoft.Win32;
+using WSGM.Install;
 
 namespace WSGM.Setup.Engine;
 
@@ -79,6 +80,10 @@ internal static class RtssInstaller
     {
         if (Present())
         {
+            if (!ConfigureReflexInjection(step))
+            {
+                return false;
+            }
             step.DoneLabel = "RivaTuner Statistics Server already installed";
             step.State = StepState.Skipped;
             return true;
@@ -120,7 +125,7 @@ internal static class RtssInstaller
             var code = WindowsSetup.Run(setup, "/S");
             if (code == 0 && Present())
             {
-                return true;
+                return ConfigureReflexInjection(step);
             }
 
             step.Note =
@@ -137,6 +142,40 @@ internal static class RtssInstaller
             {
                 SetupLog.Warn($"RTSS: the download folder could not be removed: {ex.Message}");
             }
+        }
+    }
+
+    private static bool ConfigureReflexInjection(SetupStep step)
+    {
+        try
+        {
+            foreach (var view in new[] { RegistryView.Registry32, RegistryView.Registry64 })
+            {
+                using var machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
+                using var registration = machine.OpenSubKey(UninstallKey, false);
+                if (!string.Equals((registration?.GetValue("Publisher") as string)?.Trim(), "Unwinder", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                using var settings = machine.OpenSubKey(@"SOFTWARE\Unwinder\RTSS", false);
+                var directory = registration?.GetValue("InstallLocation") as string
+                                ?? settings?.GetValue("InstallDir") as string;
+                if (string.IsNullOrWhiteSpace(directory) || !Path.IsPathFullyQualified(directory)
+                    || !File.Exists(Path.Combine(directory, "RTSS.exe")))
+                {
+                    continue;
+                }
+                _ = RtssProfileSettings.DisableReflexInjection(Path.Combine(directory, "Profiles", "Global"));
+                SetupLog.Info("RTSS: Reflex sleep and latency-marker injection are explicitly disabled.");
+                return true;
+            }
+            throw new IOException("The registered RTSS installation directory could not be verified.");
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            step.Note = $"RTSS Reflex injection could not be disabled: {exception.Message}";
+            SetupLog.Warn(step.Note);
+            return false;
         }
     }
 

@@ -283,6 +283,13 @@ when it is not running. Switching integration on does the same immediately. The 
 watched, whether WSGM started it or found it already running, and its exit triggers a fresh probe
 and restart. The unconditional 5 s poll is the backstop for a missed exit notification.
 
+Setup and the pre-launch path explicitly set `ReflexSleep=0` and `ReflexSetLatencyMarker=0` in
+`Profiles\Global`. Missing files, sections and keys are created, including before RTSS has ever run.
+This keeps RTSS's Reflex injection from interfering with AMD Anti-Lag, Intel XeLL and game-owned
+latency handling. The shared policy lives in `WSGM.Install.RtssProfileSettings`; the runtime reloads
+profiles through RTSS's API even when setup already changed the file. If pre-launch configuration
+fails, WSGM reports it and does not launch RTSS with an uncontrolled injection policy.
+
 - Only the executable discovery already verified. The launcher never resolves a path itself or takes
   one from configuration.
 - Only on a NotRunning probe. The session refresh runs one refresh at a time and holds the launch
@@ -296,12 +303,12 @@ The overlay level applies through the global RTSS profile while a running game's
 unknown. Only its frame limit waits for executable enrichment. Readback observes the global overlay
 level during that wait, so the poll can restore it when RTSS becomes ready.
 
-| Line                                                                                | Meaning                                           |
-| ----------------------------------------------------------------------------------- | ------------------------------------------------- |
-| `RTSS is installed but not running; starting it: <path>`                            | An attempt.                                       |
-| `RTSS did not start; performance controls stay unavailable until the next attempt.` | Start returned false.                             |
-| `Starting RTSS failed: …`                                                           | Start threw. Never fatal.                         |
-| `RTSS exit watch unavailable for process <pid>: <reason>`                           | Exit subscription failed; polling remains active. |
+| Line                                                                                    | Meaning                                           |
+| --------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `RTSS is installed but not running; starting it with Reflex injection disabled: <path>` | Configuration succeeded; launch attempted.        |
+| `RTSS did not start; performance controls stay unavailable until the next attempt.`     | Start returned false.                             |
+| `Starting RTSS failed: …`                                                               | Start threw. Never fatal.                         |
+| `RTSS exit watch unavailable for process <pid>: <reason>`                               | Exit subscription failed; polling remains active. |
 
 ## Frametime reader
 

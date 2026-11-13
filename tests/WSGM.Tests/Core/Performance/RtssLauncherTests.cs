@@ -1,4 +1,5 @@
 using WSGM.Core;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Core;
 
@@ -16,6 +17,45 @@ namespace WSGM.Tests.Core;
 public sealed class RtssLauncherTests
 {
     [Fact]
+    public async Task FreshGlobalProfileIsConfiguredBeforeTheStartCallback()
+    {
+        using var directory = new TemporaryDirectory();
+        var executable = Path.Combine(directory.Root, "RTSS.exe");
+        var profile = Path.Combine(directory.Root, "Profiles", "Global");
+        var started = false;
+        using var launcher = new RtssLauncher(path =>
+        {
+            Assert.Equal(executable, path);
+            Assert.Equal("0", IniFile.ReadValue(profile, "ReflexSleep", "Framerate"));
+            Assert.Equal("0", IniFile.ReadValue(profile, "ReflexSetLatencyMarker", "Framerate"));
+            started = true;
+            return true;
+        });
+
+        Assert.True(await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning) with { ExecutablePath = executable },
+            enabled: true, _ => Task.FromResult(true)));
+        Assert.True(started);
+    }
+
+    [Fact]
+    public async Task ConfigurationFailureDoesNotLaunchRtssWithInjectionEnabled()
+    {
+        using var directory = new TemporaryDirectory();
+        var executable = Path.Combine(directory.Root, "RTSS.exe");
+        Directory.CreateDirectory(Path.Combine(directory.Root, "Profiles", "Global"));
+        var started = false;
+        using var launcher = new RtssLauncher(_ =>
+        {
+            started = true;
+            return true;
+        });
+
+        Assert.False(await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning) with { ExecutablePath = executable },
+            enabled: true, _ => Task.FromResult(true)));
+        Assert.False(started);
+    }
+
+    [Fact]
     public void NotRunningIsTheOneStateWorthStarting()
     {
         // Discovery has already accepted the installation and found no process. That is the only
@@ -26,7 +66,7 @@ public sealed class RtssLauncherTests
     [Fact]
     public async Task AReadyRtssDoesNotWaitThroughTheFixedStartupDelay()
     {
-        using RtssLauncher launcher = new(_ => true);
+        using RtssLauncher launcher = new(_ => true, prepare: static _ => { });
         var probes = 0;
 
         var started = await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true,
@@ -88,7 +128,7 @@ public sealed class RtssLauncherTests
             started.Add(path);
             cancellation.Cancel();
             return true;
-        });
+        }, prepare: static _ => { });
         Assert.True(await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true, NotReady,
             cancellation.Token));
         Assert.Equal([@"C:\Program Files (x86)\RivaTuner Statistics Server\RTSS.exe"], started);
@@ -104,7 +144,7 @@ public sealed class RtssLauncherTests
         {
             starts++;
             return throws ? throw new InvalidOperationException("access denied") : false;
-        });
+        }, prepare: static _ => { });
         Assert.False(await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true, NotReady));
         Assert.False(await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true, NotReady));
         Assert.Equal(2, starts);
@@ -118,7 +158,7 @@ public sealed class RtssLauncherTests
         {
             starts++;
             return false;
-        });
+        }, prepare: static _ => { });
         Assert.False(
             await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true, NotReady,
                 new CancellationToken(true)));
@@ -136,7 +176,7 @@ public sealed class RtssLauncherTests
             WatchLease lease = new();
             leases.Add(lease);
             return lease;
-        });
+        }, prepare: static _ => { });
         var ready = Probe(RtssAvailability.Ready) with { ProcessId = 10, Generation = 1 };
 
         launcher.Watch(ready, () => { });
@@ -159,7 +199,7 @@ public sealed class RtssLauncherTests
             watches++;
             callbacks[pid] = callback;
             return leases[pid] = new WatchLease();
-        });
+        }, prepare: static _ => { });
         var ready = Probe(RtssAvailability.Ready) with { ProcessId = 10 };
         launcher.Watch(ready, () => exits++);
         launcher.Watch(ready, () => exits++);
@@ -189,7 +229,7 @@ public sealed class RtssLauncherTests
         {
             callback();
             return lease;
-        });
+        }, prepare: static _ => { });
         launcher.Watch(Probe(RtssAvailability.Ready) with { ProcessId = 10 }, () => exits++);
         Assert.Equal(1, exits);
         Assert.True(lease.Disposed);
@@ -203,7 +243,7 @@ public sealed class RtssLauncherTests
         {
             watches++;
             throw new InvalidOperationException("process exited");
-        });
+        }, prepare: static _ => { });
         var ready = Probe(RtssAvailability.Ready) with { ProcessId = 10 };
         launcher.Watch(ready, () => { });
         launcher.Watch(ready, () => { });

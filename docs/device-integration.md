@@ -47,6 +47,14 @@ results through DeviceCoordinator. Descriptor bounds and options determine avail
 Writable controls do not depend on readback; an accepted setting is published separately from
 measured telemetry. Uncertain writes are not automatically retried.
 
+On the Atlas 8, the first acquisition establishes conservative values for settings the firmware
+cannot report: firmware Auto for an unknown fan mode, Balanced for an unknown power mode, and 100%
+(no custom native ceiling) for an unset charge boundary. A readable optimized-charging switch is
+preserved; an unreadable one is set to Off. The write-only rear logo starts Off, with brightness
+100%, speed 5 and white retained for later edits. These are actual accepted writes, not fabricated
+readings. Known settings stay unchanged, and an uncertain initialization is logged without an
+automatic retry on refresh or wake. Both the Overlay and Steam use the same published values.
+
 Visibility is decided when a service first starts, never at runtime, so nothing appears and then
 vanishes when touched. The processor service reads what it can and writes curve offsets and
 undervolts to 0. A definite firmware refusal during that start, the AMD SMU's "unknown command"

@@ -264,6 +264,13 @@ A WSGM 1.0 installation already removed by its uninstaller cannot be restarted. 
 case. Updates preserve an explicitly disabled device integration even when its package remains
 installed; only a fresh install or explicit package choice supplies a new activation preference.
 
+## RTSS defaults
+
+When the RTSS component is selected, setup explicitly disables its Reflex sleep and latency-marker
+injection in the registered installation's Global profile, creating missing settings before WSGM
+starts RTSS. A configuration failure is reported on the RTSS step. The same policy also runs before
+WSGM launches RTSS and when its profile API attaches; see [RTSS integration](rtss.md).
+
 ## Updates
 
 While the session runs, `Shell\Session\UpdateMonitor` asks GitHub for the latest WSGM release once a

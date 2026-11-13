@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using WSGM.Install;
 
 namespace WSGM.Core;
 
@@ -13,6 +14,7 @@ namespace WSGM.Core;
 internal sealed class RtssLauncher : IDisposable
 {
     private readonly Func<string, bool> _start;
+    private readonly Action<string> _prepare;
     private readonly Lock _watchGate = new();
     private readonly Func<int, Action, IDisposable?> _watchProcess;
     private bool _disposed;
@@ -24,12 +26,16 @@ internal sealed class RtssLauncher : IDisposable
     /// <summary>Creates the launcher.</summary>
     /// <param name="start">Starts the executable; injected so tests never launch anything.</param>
     /// <param name="watchProcess">Watches the verified process without owning its lifetime.</param>
+    /// <param name="prepare">Configures the verified installation before process creation.</param>
     internal RtssLauncher(
         Func<string, bool>? start = null,
-        Func<int, Action, IDisposable?>? watchProcess = null)
+        Func<int, Action, IDisposable?>? watchProcess = null,
+        Action<string>? prepare = null)
     {
         _start = start ?? StartDetached;
         _watchProcess = watchProcess ?? WatchProcess;
+        _prepare = prepare ?? (executable => RtssProfileSettings.DisableReflexInjection(
+            Path.Combine(Path.GetDirectoryName(executable)!, "Profiles", "Global")));
     }
 
     /// <summary>How long to wait for a started RTSS to become visible to discovery.</summary>
@@ -97,7 +103,8 @@ internal sealed class RtssLauncher : IDisposable
                     return false;
                 }
 
-                Log.Info($"RTSS is installed but not running; starting it: {executable}");
+                _prepare(executable);
+                Log.Info($"RTSS is installed but not running; starting it with Reflex injection disabled: {executable}");
                 created = _start(executable);
             }
 

@@ -314,7 +314,7 @@ public sealed class PerformanceServiceTests
             adapter.Probe = FakeRtssAdapter.ReadyProbe;
             started.TrySetResult();
             return false;
-        });
+        }, prepare: static _ => { });
         await using var service = LaunchService(adapter, profiles, launcher);
         await started.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await service.RefreshAsync();
@@ -353,7 +353,7 @@ public sealed class PerformanceServiceTests
             Interlocked.Increment(ref starts);
             started.TrySetResult();
             return false;
-        });
+        }, prepare: static _ => { });
         await using var service = LaunchService(adapter, profiles, launcher, false);
         await service.RefreshAsync();
         Assert.Equal(0, starts);
@@ -387,7 +387,7 @@ public sealed class PerformanceServiceTests
         {
             exit = callback;
             return lease;
-        });
+        }, prepare: static _ => { });
         var service = LaunchService(adapter, profiles, launcher);
         await service.RefreshAsync();
         Assert.NotNull(exit);
@@ -428,7 +428,7 @@ public sealed class PerformanceServiceTests
             watching.TrySetResult();
             release.Task.GetAwaiter().GetResult();
             return new WatchLease();
-        });
+        }, prepare: static _ => { });
         await using var service = LaunchService(adapter, profiles, launcher, false);
         try
         {
@@ -467,7 +467,7 @@ public sealed class PerformanceServiceTests
             adapter.Probe = adapter.Probe with { Availability = RtssAvailability.NotRunning };
             callback();
             return lease;
-        });
+        }, prepare: static _ => { });
         await using var service = LaunchService(adapter, profiles, launcher);
         await started.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await service.RefreshAsync();
