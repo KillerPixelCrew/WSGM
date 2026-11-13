@@ -13,10 +13,22 @@
       "checked": "2026-11-11"
     },
     {
+      "channel": "publicbeta",
+      "version": "1794536281",
+      "spContenthash": "ecfb6699297d77d920fd",
+      "checked": "2026-11-13"
+    },
+    {
       "channel": "stable",
       "version": "1792618285",
       "spContenthash": "3708f234683c51cc73a9",
       "checked": "2026-11-01"
+    },
+    {
+      "channel": "stable",
+      "version": "1794424036",
+      "spContenthash": "ecfb6699297d77d920fd",
+      "checked": "2026-11-13"
     }
   ]
 }

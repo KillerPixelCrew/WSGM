@@ -1485,14 +1485,25 @@ one module in each.
 not a pass. Any failure on either channel is a defect for the task that found it, never an unrelated
 or pre-existing result.
 
-Checked so far (2026-11-01):
+Checked so far (2026-11-13):
 
 | Channel | Client version | sp.js contenthash      | Result                                                                                               |
 | ------- | -------------- | ---------------------- | ---------------------------------------------------------------------------------------------------- |
+| Stable  | 1794424036     | `ecfb6699297d77d920fd` | all 55 fingerprints pass against the installed client on 2026-11-13                                  |
+| Beta    | 1794536281     | `ecfb6699297d77d920fd` | all 55 fingerprints pass against Valve's current UI package on 2026-11-13                            |
 | Stable  | 1792618285     | `3708f234683c51cc73a9` | passes; the build a tester's log showed on Stable from 2026-10-20                                    |
 | Beta    | 1793235415     | `7039b9918d21fc46ca79` | passes after the performance-tab fingerprint change below                                            |
 | Stable  | 1788652215     | `345243716f189df3b9cb` | superseded (2026-09-06): has no screensaver and two virtual-keyboard modules, so 4 fingerprints fail |
 | Beta    | 1791686101     | `e7127fced03e54d45c6e` | superseded (2026-10-11); passes                                                                      |
+
+The 2026-11-13 check downloaded Beta's `steamui_websrc_all` package from Valve's client-update CDN,
+verified its SHA-256 against the `steam_client_publicbeta_win64` manifest and extracted the UI files
+without switching the installed channel. The installed Stable client and that Beta snapshot each
+matched every fingerprint uniquely across 3,178 modules. Emitted-asset ownership and
+module-discovery checks also passed; no patch changes were needed. WSGM's existing desktop session
+recovered after the Stable update and its log health check passed for all 42 patches (Verified or
+Disabled), with no retry exhaustion or Settings refusals. Big Picture was closed, so this does not
+establish its live appearance, navigation or the Big Picture-only patches, nor live Beta behavior.
 
 The 2026-10-29 Beta reads the performance tab's platform flag through a hook,
 `(0,<module>.<hook>)(!0).ON_FRAME?`, where Stable reads a constant, `<module>.TS.ON_FRAME?`. The
