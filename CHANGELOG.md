@@ -1,5 +1,14 @@
 # WSGM changelog
 
+## 3.1.1 (2026-11-13)
+
+- Recognizes Steam Stable `1794424036` and Beta `1794536281` as checked builds, clearing the
+  unchecked-build notice for these versions after updating WSGM.
+- All 55 Steam module fingerprints passed on both channels. No Steam patch changes were needed.
+
+The offline and online installers, checksums and notes are on the
+[3.1.1 release](https://github.com/KillerPixelCrew/WSGM/releases/tag/3.1.1).
+
 ## 3.0.7 (2026-11-11)
 
 - Fixed Steam's overlay and Quick Access becoming invisible or retaining controller input after
