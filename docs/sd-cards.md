@@ -219,12 +219,18 @@ from the Windows disk and Steam calls. After checking elevation and strictly val
 target, it suspends media watching and removes the existing Steam library registration. It then:
 
 1. Reopens the physical disk and rechecks identity before `clean` and creating a primary partition.
-2. Waits up to 20 seconds for the new volume to appear, then attempts a quick NTFS format using 128
-   KiB allocation units. There are at most three format attempts with a two-second pause between
-   failures, and each attempt reopens and revalidates the disk independently.
+2. Waits up to 20 seconds for the new volume to appear, then attempts a quick NTFS format using
+   Windows' default allocation unit size. There are at most three format attempts with a two-second
+   pause between failures, and each attempt reopens and revalidates the disk independently.
 3. Checks Windows' assigned drive letter. It assigns one when missing, or restores the card's
    previous letter when Windows chose another, again after revalidation. It creates the Steam
    library structure and registers the resulting library.
+
+Allocation size is left to Windows by omitting DiskPart's `unit` override. Microsoft recommends the
+default for general use; filesystem clusters and physical sectors are different units, so WSGM does
+not derive a cluster size from a reported sector size. See Microsoft's
+[DiskPart format reference](<https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2012-r2-and-2012/cc753770(v=ws.11)>).
+Existing cards keep their current format until the user explicitly reformats them.
 
 These are three stages, not a guarantee of exactly three diskpart processes. The chosen disk must
 remain removable and must not be a system disk; changes in known capacity or bus abort. Failure to

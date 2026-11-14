@@ -24,12 +24,12 @@ public sealed class DiskpartTests
     }
 
     [Fact]
-    public void FormatScriptSelectsTheNewPartitionAndFormatsOnly()
+    public void FormatScriptSelectsTheNewPartitionAndUsesWindowsDefaultAllocationSize()
     {
         Assert.Equal(
             "select disk 3\r\n"
             + "select partition 1\r\n"
-            + "format fs=ntfs quick unit=128k label=\"Games\"\r\n",
+            + "format fs=ntfs quick label=\"Games\"\r\n",
             Diskpart.BuildFormatScript(3));
     }
 

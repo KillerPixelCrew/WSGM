@@ -41,8 +41,8 @@ internal static class Diskpart
     }
 
     /// <summary>
-    ///     The second diskpart script for one target: quick NTFS format with
-    ///     128K allocation units (the proven game-library tuning).
+    ///     The second diskpart script for one target: quick NTFS format using
+    ///     Windows' default allocation unit size for the volume.
     ///     A SEPARATE run from <see cref="BuildPartitionScript" />, issued
     ///     only after <see cref="WaitForVolumeAsync" /> — the device-observed volume race
     ///     that forbids merging the scripts is recorded in <c>Shell\AGENTS.md</c>.
@@ -64,7 +64,7 @@ internal static class Diskpart
     {
         return $"select disk {diskNumber.ToString(CultureInfo.InvariantCulture)}\r\n"
                + "select partition 1\r\n"
-               + $"format fs=ntfs quick unit=128k label=\"{label}\"\r\n";
+               + $"format fs=ntfs quick label=\"{label}\"\r\n";
     }
 
     /// <summary>
