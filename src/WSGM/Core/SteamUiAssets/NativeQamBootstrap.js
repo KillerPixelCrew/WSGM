@@ -6541,6 +6541,102 @@
     };
     return { change, draft, row: shown };
   };
+  // A section's subpage, or null for one drawn on the page. A level without a usable id or title is
+  // ignored, so its section stays reachable on the page rather than behind a row that cannot be named.
+  const steamSettingLevel = (section) => {
+    const level = section?.level;
+    return level &&
+      typeof level.id === "string" &&
+      level.id &&
+      typeof level.title === "string" &&
+      level.title
+      ? level
+      : null;
+  };
+  /**
+   * Draws one settings page's sections with Steam's sections and fields. A section naming a level is
+   * not drawn on the page: the page shows one row per level, where the level's first section would be,
+   * and adjacent level rows share one section under the first one's group heading. While a level is
+   * open, the page draws that level alone, under a heading whose Back (and B) closes it.
+   * @param ui Steam's resolved React and native control components.
+   * @param props The page id, its published sections, the draft keeper (`row`, `draft`), the change and
+   * action handlers, the open level's id, the level last opened (whose row takes focus again) and the
+   * callback that opens a level or, with null, closes it.
+   * @returns The page's elements, or the open level.
+   */
+  const renderSteamSettingSections = (ui, props) => {
+    const h = ui.react.createElement;
+    const sections = (props.sections ?? []).filter((section) => section?.rows?.length);
+    const levels = new Map();
+    for (const section of sections) {
+      const level = steamSettingLevel(section);
+      if (!level) continue;
+      const entry = levels.get(level.id) ?? { level, sections: [] };
+      entry.sections.push(section);
+      levels.set(level.id, entry);
+    }
+    const draw = (section, index) =>
+      h(
+        ui.settingsSection,
+        { key: `${props.id}-${section.id ?? index}`, label: section.title ?? undefined },
+        ...section.rows.map((row) =>
+          renderSteamSettingRow(
+            ui,
+            props.drafts.row(row),
+            props.drafts.draft(row),
+            props.change,
+            props.action,
+          ),
+        ),
+      );
+    const open = props.open ? levels.get(props.open) : null;
+    if (open) {
+      const back = () => props.onOpen(null);
+      return [
+        renderSteamUiLevel(
+          ui,
+          { className: "steam-ui-kit-subpage", onBack: back },
+          renderSteamUiSubpageHeader(ui, {
+            title: open.level.title,
+            detail: open.level.summary,
+            onBack: back,
+          }),
+          ...open.sections.map(draw),
+        ),
+      ];
+    }
+    const items = [];
+    const placed = new Set();
+    let run = null;
+    sections.forEach((section, index) => {
+      const level = steamSettingLevel(section);
+      if (!level) {
+        run = null;
+        items.push(draw(section, index));
+        return;
+      }
+      if (placed.has(level.id)) return;
+      placed.add(level.id);
+      if (!run) {
+        run = { key: `${props.id}-levels-${level.id}`, label: level.group ?? undefined, rows: [] };
+        items.push(run);
+      }
+      run.rows.push(
+        renderSteamUiNavRow(ui, {
+          key: `level-${level.id}`,
+          title: level.title,
+          summary: level.summary,
+          icon: level.icon,
+          badge: level.badge ? { text: level.badge, tone: "info" } : null,
+          autoFocus: props.last === level.id,
+          onActivate: () => props.onOpen(level.id),
+        }),
+      );
+    });
+    return items.map((item) =>
+      item.rows ? h(ui.settingsSection, { key: item.key, label: item.label }, ...item.rows) : item,
+    );
+  };
   // The whole page: Steam's routed sidebar, one page per host page, each a list of Steam sections.
   // `route` is the page's own registered route; each page sits below it, so Steam's router keeps
   // the sidebar's selection in the address and the page's registration covers all of them.
@@ -6553,6 +6649,13 @@
     const change = drafts.change((row, value) => onChange(row, value));
     const run = drafts.change((row) => onAction(row));
     const action = (row) => run(row, true);
+    // Each page's open subpage and the one last opened, by page id.
+    const [levels, setLevels] = react.useState({});
+    const opener = (id) => (level) =>
+      setLevels((previous) => ({
+        ...previous,
+        [id]: { open: level, last: level ?? previous[id]?.open ?? null },
+      }));
     return h(ui.routedPages, {
       pages: (pages ?? []).map((page) => ({
         title: page.title,
@@ -6561,15 +6664,16 @@
         content: h(
           react.Fragment,
           null,
-          ...(page.sections ?? []).map((section, index) =>
-            h(
-              ui.settingsSection,
-              { key: `${page.id}-${index}`, label: section.title ?? undefined },
-              ...(section.rows ?? []).map((row) =>
-                renderSteamSettingRow(ui, drafts.row(row), drafts.draft(row), change, action),
-              ),
-            ),
-          ),
+          ...renderSteamSettingSections(ui, {
+            id: page.id,
+            sections: page.sections ?? [],
+            drafts,
+            change,
+            action,
+            open: levels[page.id]?.open ?? null,
+            last: levels[page.id]?.last ?? null,
+            onOpen: opener(page.id),
+          }),
         ),
       })),
     });
@@ -7465,6 +7569,18 @@
 .steam-ui-kit-state{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex:0 0 auto;border-radius:50%;background:#2a3039;color:#b8bcbf}
 .steam-ui-kit-state.ready{background:#1e3324;color:#b9f0c6}
 .steam-ui-kit-state.missing{background:#3b2326;color:#ff6d6d}
+.steam-ui-kit-nav-row{display:flex;align-items:center;gap:14px;min-height:56px;min-width:0;padding:10px 16px;margin:0 0 6px;border-radius:2px;box-sizing:border-box;background:#23262e;color:#dcdedf;cursor:pointer;transition:background .2s}
+.steam-ui-kit-nav-row.gpfocus,.steam-ui-kit-nav-row:hover{background:#3d4450}
+.steam-ui-kit-nav-row-icon{display:flex;align-items:center;justify-content:center;width:40px;height:40px;flex:0 0 auto;border-radius:4px;background:rgba(255,255,255,.06);color:#dcdedf}
+.steam-ui-kit-nav-row-text{display:flex;flex-direction:column;gap:3px;flex:1 1 auto;min-width:0}
+.steam-ui-kit-nav-row-title{font-size:16px;line-height:20px;color:#dcdedf;overflow-wrap:anywhere}
+.steam-ui-kit-nav-row.gpfocus .steam-ui-kit-nav-row-title{color:#fff}
+.steam-ui-kit-nav-row-summary{font-size:13px;line-height:18px;color:#8b929a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.steam-ui-kit-nav-row.gpfocus .steam-ui-kit-nav-row-summary{color:#b8bcbf}
+.steam-ui-kit-nav-row>.steam-ui-kit-tag{flex:0 1 auto}
+.steam-ui-kit-nav-row-chevron{display:flex;flex:0 0 auto;color:rgba(255,255,255,.55)}
+.steam-ui-kit-subpage-header{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:4px 0 12px}
+.steam-ui-kit-subpage-back .DialogButton{width:auto;min-width:0}
 `;
   // One stylesheet element and one icon renderer per React, so a root re-rendering on every host
   // publication hands React the same style element and the same caret elements each time rather
@@ -7852,6 +7968,69 @@
       },
       ...children,
     );
+  /**
+   * Creates a row that opens a subpage, drawn like one of Steam's fields: an optional glyph tile, the
+   * title, a summary of what the subpage holds or is set to, an optional status tag and a chevron.
+   * Steam's Focusable carries focus and A; the row lifts the way a focused field does.
+   * @param ui Steam's resolved React and Focusable.
+   * @param props Key, title, summary, a glyph name from `icons.ts`, a tag, whether it takes focus when
+   * it mounts (the row a subpage returns to), the A-button description and the opening callback.
+   * @returns The focusable row.
+   */
+  const renderSteamUiNavRow = (ui, props) => {
+    const h = ui.react.createElement;
+    const icon = steamUiKitIcon(ui.react);
+    const glyph = props.icon ? icon(props.icon, 22) : null;
+    return h(
+      ui.focusable ?? "div",
+      {
+        key: props.key,
+        className: "steam-ui-kit-nav-row",
+        role: "button",
+        "aria-label": props.summary ? `${props.title}, ${props.summary}` : props.title,
+        autoFocus: props.autoFocus ? true : undefined,
+        onActivate: props.onActivate,
+        onOKActionDescription: props.description ?? "Open",
+      },
+      glyph ? h("span", { className: "steam-ui-kit-nav-row-icon" }, glyph) : null,
+      h(
+        "span",
+        { className: "steam-ui-kit-nav-row-text" },
+        h("span", { className: "steam-ui-kit-nav-row-title" }, props.title),
+        props.summary
+          ? h("span", { className: "steam-ui-kit-nav-row-summary" }, props.summary)
+          : null,
+      ),
+      props.badge?.text ? renderSteamUiTag(ui.react, props.badge) : null,
+      h("span", { className: "steam-ui-kit-nav-row-chevron" }, icon("chevron", 18)),
+    );
+  };
+  /**
+   * Creates the heading of an open subpage: a Back button that returns to the page, the subpage's
+   * title and an optional line under it. B returns as well, through the level that holds it.
+   * @param ui Steam's resolved React and small button.
+   * @param props The title, the line under it, the Back button's words (`Back` by default) and the
+   * callback that closes the subpage.
+   * @returns The heading.
+   */
+  const renderSteamUiSubpageHeader = (ui, props) => {
+    const h = ui.react.createElement;
+    const Button = ui.smallButton ?? ui.dialogButton;
+    return h(
+      "div",
+      { key: props.key, className: "steam-ui-kit-subpage-header" },
+      h(
+        ui.focusable ?? "div",
+        { className: "steam-ui-kit-subpage-back", "flow-children": "row" },
+        h(Button, { onClick: props.onBack }, props.backLabel ?? "Back"),
+      ),
+      renderSteamUiHeader(ui, {
+        title: props.title,
+        detail: props.detail ?? undefined,
+        page: true,
+      }),
+    );
+  };
   /**
    * Creates a noninteractive color preview.
    * @param react Steam's React instance used by the consuming root.
@@ -12392,6 +12571,21 @@
     let mapCache = new WeakMap();
     const local = createLocalStore();
     const rendered = new Set();
+    // Each native page's open host subpage and the one last opened, so its row takes focus again on
+    // return. A page's entry goes when its sections unmount, so leaving the page closes the subpage.
+    let levels = {};
+    const openLevel = (id) => {
+      const open = levels[id]?.open;
+      if (!open || !installed()) return null;
+      const page = state.pages.find((candidate) => candidate.id === id);
+      return page?.sections.some((section) => section.level?.id === open && section.rows.length)
+        ? open
+        : null;
+    };
+    const setLevel = (id) => (level) => {
+      levels = { ...levels, [id]: { open: level, last: level ?? levels[id]?.open ?? null } };
+      local.changed();
+    };
     // The adopted Settings roots: every root mounted at install, and every one Steam mounts later
     // through the JSX transform, carries this claim's marked wrapper.
     let component = null;
@@ -12512,31 +12706,45 @@
           void request(patchId, "set", { key: "rumble.stop", value: true }).catch(() => {});
         };
       }, [id]);
+      react.useEffect(
+        () => () => {
+          if (!levels[id]) return;
+          const { [id]: _closed, ...rest } = levels;
+          levels = rest;
+          local.changed();
+        },
+        [id],
+      );
       const drafts = useSteamSettingDrafts(react, state.revision);
       const change = drafts.change(send);
       const action = (row) => change(row, true);
       const page = installed() ? state.pages.find((candidate) => candidate.id === id) : null;
       if (!page) return null;
       rendered.add(id);
-      lastOutcome = `rendered ${id}: ${page.sections.length} section(s)`;
+      const open = openLevel(id);
+      lastOutcome = open
+        ? `rendered ${id} subpage ${open}`
+        : `rendered ${id}: ${page.sections.length} section(s)`;
       return react.createElement(
         react.Fragment,
         null,
-        ...page.sections
-          .filter((section) => section.rows.length)
-          .map((section, index) =>
-            react.createElement(
-              ui.settingsSection,
-              {
-                key: `steam-ui-native-${id}-${section.id ?? index}`,
-                label: section.title ?? undefined,
-              },
-              ...section.rows.map((row) =>
-                renderSteamSettingRow(ui, drafts.row(row), drafts.draft(row), change, action),
-              ),
-            ),
-          ),
+        ...renderSteamSettingSections(ui, {
+          id: `steam-ui-native-${id}`,
+          sections: page.sections,
+          drafts,
+          change,
+          action,
+          open,
+          last: levels[id]?.last ?? null,
+          onOpen: setLevel(id),
+        }),
       );
+    }
+    // Steam's own content of a page, drawn as it is except while one of the host's subpages is open,
+    // which takes the page's place until Back.
+    function SteamUiNativeSettingsValve({ id, content }) {
+      react.useSyncExternalStore(local.subscribe, local.revision);
+      return openLevel(id) ? null : content;
     }
     // Match Steam's semantic descriptor keys and the native element handles already in its map.
     // No native component is replaced: the route, label, glyph and content remain Steam's own.
@@ -12578,7 +12786,11 @@
           content: react.createElement(
             "div",
             { className: "DialogBody steam-ui-kit-settings-body" },
-            original.content,
+            react.createElement(SteamUiNativeSettingsValve, {
+              id,
+              key: `steam-ui-native-valve-${id}`,
+              content: original.content,
+            }),
             react.createElement(SteamUiNativeSettingsSections, {
               id,
               key: `steam-ui-native-${id}`,
@@ -12741,6 +12953,7 @@
       },
       unbind: () => {
         component = null;
+        levels = {};
         state = { pages: [], revision: 0 };
         local.changed();
         mapCache = new WeakMap();

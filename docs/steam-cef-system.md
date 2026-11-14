@@ -1013,17 +1013,22 @@ separate WSGM Graphics route. These pages follow the CEF switch independently of
 Access.
 
 `SteamNativeSettingsService` is the producer the Quick Access rows come from too: one build per read
-offers both surfaces' rows, and a row both draw is one row with one command. Display exposes
-brightness, resolution, refresh rate, variable refresh and the shared display-off timeouts alongside
-GPU sections from `SteamGraphicsService`. Adapter, display and category headings come from
-`GraphicsOverlayBridge`; a publisher retracts its rows when it stops. Power uses the existing TDP,
-AutoTDP, power preset, Windows power scheme, CPU boost, hybrid-core and device-capability owners.
-Audio uses `NativeQamAudioFormatService` for the active endpoint's channels, default format and
-spatial sound. Controller projects the device's lighting capabilities, with explicit commits for
-persistent color changes. A zone color row shows its swatch and Edit button without hex text; the
-swatch's accessible name carries the value. Effect and other choice names are the display labels
-LibHandheld declares ("Solid", "Full speed"), the same ones the Overlay's dropdowns show, while the
-published and saved values stay the ids.
+offers both surfaces' rows, and a row both draw is one row with one command. Display shows the
+frequent controls on the page itself: "Display and frame rate" (brightness, resolution, refresh
+rate, frame limit, variable refresh and the extended range) and "Screen timeout" (the shared
+display-off timeouts). Everything else is a subpage under "More display settings", one row each with
+a summary: one per graphics driver from `SteamGraphicsService` (its groups under their own titles,
+tagged with how many values the running game's profile sets), Scaled resolutions and GPU driver
+updates. A subpage is a `SteamSettingsLevel` on its sections; the toolkit draws its row and, while
+it is open, the subpage in place of the page (Back or B returns). Adapter, display and category
+headings come from `GraphicsOverlayBridge`; a publisher retracts its rows when it stops. Power uses
+the existing TDP, AutoTDP, power preset, Windows power scheme, CPU boost, hybrid-core and
+device-capability owners. Audio uses `NativeQamAudioFormatService` for the active endpoint's
+channels, default format and spatial sound. Controller projects the device's lighting capabilities,
+with explicit commits for persistent color changes. A zone color row shows its swatch and Edit
+button without hex text; the swatch's accessible name carries the value. Effect and other choice
+names are the display labels LibHandheld declares ("Solid", "Full speed"), the same ones the
+Overlay's dropdowns show, while the published and saved values stay the ids.
 
 Profile-aware controls name the currently edited layer and use the same profile toggle and reset
 owner as Quick Access. Published rows carry supported choices, bounds, readback and unavailable

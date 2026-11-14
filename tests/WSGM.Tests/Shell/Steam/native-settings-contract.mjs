@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import {
   createReact,
   element,
+  fragments,
   gateSource,
   instantiate,
   loadAsset,
@@ -59,13 +60,13 @@ const { gate } = instantiate(
       exported: () => NativeRoot,
       resolve: () => ({ jsx: element, jsxs: element }),
     }),
-    useSteamSettingDrafts: () => ({
+    fixtureDrafts: () => ({
       change: (send) => send,
       row: (row) => row,
       draft: () => undefined,
     }),
-    renderSteamSettingRow: (_ui, row) => element("row", { row }),
-    steamUiKitStyle: () => element("style", {}),
+    fixtureRow: (_ui, row) => element("row", { row }),
+    fixtureStyle: () => element("style", {}),
     subscribe: (_id, callback) => {
       publish = callback;
       return () => {};
@@ -76,6 +77,20 @@ const { gate } = instantiate(
     },
   },
   substitute(sharedFragments(asset), "resolveSteamUiComponents", "fixtureComponents") +
+    // The shipped section renderer and kit lay out pages and subpages; rows stay fixtures.
+    substitute(
+      substitute(
+        substitute(
+          fragments(asset, ["icons.ts", "ui-kit.ts", "settings.ts"]),
+          "useSteamSettingDrafts",
+          "fixtureDrafts",
+        ),
+        "renderSteamSettingRow",
+        "fixtureRow",
+      ),
+      "steamUiKitStyle",
+      "fixtureStyle",
+    ) +
     gateSource(asset, "gates/native-settings.ts"),
   "({gate:createNativeSettings()})",
 );
@@ -96,20 +111,51 @@ assert.deepEqual(requests, [
 publish({ ...payload, revision: payload.revision + 1 });
 assert.equal(requests.length, 1, "the same rejection is reported once");
 
+// Every section a page draws, on the page and in each of its subpages, opened in turn.
 const drawn = (page) => {
   const content = NativeRoot()[page].content;
-  const slot = content.props.children.find((child) => typeof child?.type === "function");
+  const slot = content.props.children.find(
+    (child) => child?.type?.name === "SteamUiNativeSettingsSections",
+  );
   assert.ok(slot, `${page} carries WSGM's sections`);
-  return slot.type(slot.props).props.children.map((section) => ({
+  const fields = (section) => ({
     label: section.props.label,
     keys: section.props.children.map((field) => field.props.row.key),
-  }));
+  });
+  const onPage = slot.type(slot.props).props.children;
+  const levelRows = onPage.flatMap((section) =>
+    section.props.children.filter((child) => child?.props?.className === "steam-ui-kit-nav-row"),
+  );
+  const sections = onPage
+    .filter(
+      (section) =>
+        !section.props.children.some((child) => child?.props?.className === "steam-ui-kit-nav-row"),
+    )
+    .map(fields);
+  for (const row of levelRows) {
+    row.props.onActivate();
+    const level = slot.type(slot.props).props.children[0];
+    sections.push(
+      ...level.props.children.filter((child) => child?.type === "settingsSection").map(fields),
+    );
+    level.props.onCancelButton();
+  }
+  return sections;
 };
 let rows = 0;
 for (const page of payload.pages) {
   const name = NativePages.find((key) => key.toLowerCase() === page.id);
   const sections = drawn(name);
-  const expected = page.sections
+  // On the page first, in host order, then each subpage's sections in the order their rows appear.
+  const ordered = [
+    ...page.sections.filter((section) => !section.level),
+    ...[
+      ...new Set(
+        page.sections.filter((section) => section.level).map((section) => section.level.id),
+      ),
+    ].flatMap((id) => page.sections.filter((section) => section.level?.id === id)),
+  ];
+  const expected = ordered
     .map((section) => ({
       label: section.title ?? undefined,
       keys: section.rows.map((row) => row.key).filter((key) => key !== invalidKey),

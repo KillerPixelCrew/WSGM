@@ -33,6 +33,9 @@ public sealed partial class SteamNativeSettingsServiceTests
         var state = (await rig.Producer.ReadAsync())!;
         var display = Assert.Single(state.Pages, page => page.Id == SteamNativeSettingsPageId.Display);
         var section = Assert.Single(display.Sections, item => item.Id == "driver-updates");
+        Assert.Equal("driver-updates", section.Level?.Id);
+        Assert.Equal(SteamNativeSettingsService.MoreSettingsGroup, section.Level?.Group);
+        Assert.Equal(scenario == "available" ? "Update available" : null, section.Level?.Badge);
         Assert.Contains(section.Rows, row => row.Key == "driver-updates.check");
         Assert.Contains(section.Rows, row => row.Key == "driver-updates.non-whql" && row.Checked == false);
         if (scenario == "available")

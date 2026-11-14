@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import {
   createReact,
   element,
+  fragments,
   gateSource,
   instantiate,
   loadAsset,
@@ -55,13 +56,13 @@ const { gate } = instantiate(
       exported: () => NativeRoot,
       resolve: () => ({ jsx: element, jsxs: element }),
     }),
-    useSteamSettingDrafts: () => ({
+    fixtureDrafts: () => ({
       change: (send) => send,
       row: (row) => row,
       draft: () => undefined,
     }),
-    renderSteamSettingRow: (_ui, row) => element("row", { row }),
-    steamUiKitStyle: () => element("style", {}),
+    fixtureRow: (_ui, row) => element("row", { row }),
+    fixtureStyle: () => element("style", {}),
     subscribe: (_id, callback) => {
       publish = callback;
       return () => {};
@@ -69,6 +70,20 @@ const { gate } = instantiate(
     request: () => Promise.resolve(),
   },
   substitute(sharedFragments(asset), "resolveSteamUiComponents", "fixtureComponents") +
+    // The shipped section renderer and kit lay out the page and its subpages; rows stay fixtures.
+    substitute(
+      substitute(
+        substitute(
+          fragments(asset, ["icons.ts", "ui-kit.ts", "settings.ts"]),
+          "useSteamSettingDrafts",
+          "fixtureDrafts",
+        ),
+        "renderSteamSettingRow",
+        "fixtureRow",
+      ),
+      "steamUiKitStyle",
+      "fixtureStyle",
+    ) +
     gateSource(asset, "gates/native-settings.ts"),
   "({gate:createNativeSettings()})",
 );
@@ -77,26 +92,43 @@ publish(payload);
 assert.equal(gate.status().publicationError, "");
 // The gate decorates the descriptors through the native root's memo claim.
 const mapped = NativeRoot();
-assert.equal(mapped.Display.content.props.children[0], descriptors.Display.content);
+const valve = mapped.Display.content.props.children[0];
+assert.equal(valve.props.content, descriptors.Display.content);
 const slot = mapped.Display.content.props.children[1];
-const rendered = slot.type(slot.props).props.children;
 const expected = payload.pages.find((page) => page.id === "display").sections;
-assert.equal(rendered.length, expected.length);
-for (const [index, section] of expected.entries()) {
-  assert.equal(rendered[index].props.label, section.title ?? undefined);
-  assert.deepEqual(
-    rendered[index].props.children.map((field) => field.props.row.key),
-    section.rows.map((row) => row.key),
-  );
-}
-assert.ok(expected.some((section) => section.id === "driver-updates"));
-// A previously unknown section id renders first in host order as well as after native content.
-const display = payload.pages.find((page) => page.id === "display");
-display.sections.reverse();
-payload.revision++;
-publish(payload);
+const keys = (section) => section.props.children.map((field) => field.props.row.key);
+// Sections on the page draw in host order; every subpage is one row in the group that follows them.
+const onPage = expected.filter((section) => !section.level);
+const levels = [
+  ...new Map(
+    expected.filter((section) => section.level).map((section) => [section.level.id, section.level]),
+  ).values(),
+];
+let rendered = slot.type(slot.props).props.children;
 assert.deepEqual(
-  slot.type(slot.props).props.children.map((section) => section.props.label),
-  display.sections.map((section) => section.title ?? undefined),
+  rendered.filter((child) => child.props.label !== "More display settings").map(keys),
+  onPage.map((section) => section.rows.map((row) => row.key)),
 );
+const group = rendered.find((child) => child.props.label === "More display settings");
+assert.ok(group, "the subpages sit under one heading");
+assert.deepEqual(
+  group.props.children.map((row) => row.props["aria-label"].split(",")[0]),
+  levels.map((level) => level.title),
+);
+const driverRow = group.props.children.find((row) => row.key === "level-driver-updates");
+assert.ok(driverRow, "driver updates are a subpage");
+// Opening it draws its section alone and hides Steam's own content; Back restores both.
+driverRow.props.onActivate();
+rendered = slot.type(slot.props).props.children;
+assert.equal(rendered.length, 1);
+const opened = rendered[0].props.children.filter((child) => child?.type === "settingsSection");
+assert.deepEqual(
+  opened.map(keys),
+  expected
+    .filter((section) => section.level?.id === "driver-updates")
+    .map((section) => section.rows.map((row) => row.key)),
+);
+assert.equal(valve.type(valve.props), null);
+rendered[0].props.onCancelButton();
+assert.equal(valve.type(valve.props), descriptors.Display.content);
 assert.equal(gate.remove().ok, true);

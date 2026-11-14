@@ -122,7 +122,23 @@ internal sealed partial class SteamNativeSettingsService
 
         rows.Add(new SteamSettingsRow("driver-updates.rollback", SteamSettingsRowKind.Note, "Rolling back",
             Text: GpuDriverUpdateService.Rollback));
+        var from = display.Count;
         Section(display, "GPU driver updates", "driver-updates", rows);
+        Subpage(display, from, new SteamSettingsLevel("driver-updates", "GPU driver updates",
+            DriverUpdateSummary(states, service.Automatic), "download",
+            states.Any(state => state.CanInstall) ? "Update available" : null, MoreSettingsGroup));
+    }
+
+    /// <summary>The driver-update subpage's summary: the adapters it covers and how checks run.</summary>
+    /// <param name="states">The adapters' update states.</param>
+    /// <param name="automatic">Whether checks run daily.</param>
+    /// <returns>The summary.</returns>
+    internal static string DriverUpdateSummary(IReadOnlyList<GpuDriverUpdateState> states, bool automatic)
+    {
+        var checks = automatic ? "Checks daily" : "Checks on request";
+        return states.Count == 0
+            ? checks
+            : string.Join(" · ", states.Select(state => state.Adapter.Name)) + " · " + checks;
     }
 
     private static Task<SteamUiCommandResult> Result(bool accepted) => Task.FromResult(new SteamUiCommandResult(accepted,

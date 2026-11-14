@@ -11,6 +11,36 @@ namespace WSGM.Tests.Shell;
 
 public sealed partial class SteamNativeSettingsServiceTests
 {
+    [Fact]
+    public void ASubpageTakesEverySectionAfterItsStartAndSummarizesThem()
+    {
+        SteamSettingsRow Row(string key, bool accent = false)
+        {
+            return new SteamSettingsRow(key, SteamSettingsRowKind.Boolean, key, Accent: accent);
+        }
+
+        List<SteamSettingsSection> sections =
+        [
+            new("Display and frame rate", [Row("vrr")], "display"),
+            new("Graphics: Driver", [Row("a", accent: true), Row("b")], "driver"),
+            new("Built-in display: Refresh", [Row("c", accent: true)], "refresh"),
+            new("Graphics: Driver", [Row("d")], "driver-2")
+        ];
+        SteamSettingsLevel level = new("gpu/intel", "Intel GPU",
+            SteamNativeSettingsService.GroupSummary(sections, 1), "layers",
+            SteamNativeSettingsService.GameOverrideBadge(sections, 1, editsGame: true));
+
+        SteamNativeSettingsService.Subpage(sections, 1, level);
+
+        Assert.Null(sections[0].Level);
+        Assert.All(sections.Skip(1), section => Assert.Same(level, section.Level));
+        Assert.Equal("Graphics: Driver · Built-in display: Refresh", level.Summary);
+        Assert.Equal("2 set for this game", level.Badge);
+        Assert.Null(SteamNativeSettingsService.GameOverrideBadge(sections, 1, editsGame: false));
+        Assert.Equal("1 set for this game", SteamNativeSettingsService.GameOverrideBadge(sections, 2, editsGame: true));
+        Assert.Null(SteamNativeSettingsService.GameOverrideBadge(sections, 3, editsGame: true));
+    }
+
     [Theory]
     [InlineData("#FF0000", 0xFF0000)]
     [InlineData("hsla(120, 100%, 50%, 1)", 0x00FF00)]

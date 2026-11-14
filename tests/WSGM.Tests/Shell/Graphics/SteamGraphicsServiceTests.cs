@@ -300,7 +300,7 @@ public sealed class SteamGraphicsServiceTests
     {
         FakeSource source = new(Snapshot(Placed(Toggle(CapabilityProfileScope.Switched))));
         using SteamGraphicsService service = new(source);
-        var before = service.ReadState().Revision;
+        var before = service.ReadQuickAccessState().Revision;
 
         var result = await service.SetAsync("wsgm.test-gpu/graphics.toggle", Json("true"), CancellationToken.None);
 
@@ -308,7 +308,7 @@ public sealed class SteamGraphicsServiceTests
         var (capability, value) = Assert.Single(source.Writes);
         Assert.Equal("graphics.toggle", capability.CapabilityId);
         Assert.True(value?.BooleanValue);
-        Assert.True(service.ReadState().Revision > before);
+        Assert.True(service.ReadQuickAccessState().Revision > before);
     }
 
     [Fact]
@@ -340,7 +340,7 @@ public sealed class SteamGraphicsServiceTests
     }
 
     [Fact]
-    public void BothSteamProjectionsReuseOneSnapshotUntilTheGraphicsSourceChanges()
+    public void TheSteamProjectionReusesOneSnapshotUntilTheGraphicsSourceChanges()
     {
         FakeSource source = new(Snapshot(Placed(Range("graphics.sharpen", CapabilityProfileScope.Switched),
             CapabilityValue.Integer(40))));
@@ -348,10 +348,8 @@ public sealed class SteamGraphicsServiceTests
         var revision = service.Revision;
         Assert.Equal(0, source.SnapshotCalls);
 
-        var settings = service.ReadState();
         var quickAccess = service.ReadQuickAccessState();
         Assert.True(service.Visible);
-        Assert.Same(settings, service.ReadState());
         Assert.Same(quickAccess, service.ReadQuickAccessState());
         Assert.Equal(revision, service.Revision);
         Assert.Equal(1, source.SnapshotCalls);
@@ -362,23 +360,18 @@ public sealed class SteamGraphicsServiceTests
 
         Assert.True(service.Revision > revision);
         Assert.Equal(1, source.SnapshotCalls);
-        var changedSettings = service.ReadState();
         var changedQuickAccess = service.ReadQuickAccessState();
-        Assert.NotSame(settings, changedSettings);
         Assert.NotSame(quickAccess, changedQuickAccess);
-        Assert.Equal(service.Revision, changedSettings.Revision);
         Assert.Equal(service.Revision, changedQuickAccess.Revision);
-        Assert.Equal(60d, Row(changedSettings.Pages, "wsgm.test-gpu/graphics.sharpen").Number);
         Assert.Equal(60d, Row(changedQuickAccess.Pages, "wsgm.test-gpu/graphics.sharpen").Number);
         Assert.Equal(2, source.SnapshotCalls);
     }
 
     [Fact]
-    public void RemovingThePublisherClearsBothCachedSteamProjections()
+    public void RemovingThePublisherClearsTheCachedSteamProjection()
     {
         FakeSource source = new(Snapshot(Placed(Toggle(CapabilityProfileScope.Switched))));
         using SteamGraphicsService service = new(source);
-        Assert.NotEmpty(service.ReadState().Pages);
         Assert.NotEmpty(service.ReadQuickAccessState().Pages);
         var revision = service.Revision;
 
@@ -386,7 +379,6 @@ public sealed class SteamGraphicsServiceTests
         source.Raise();
 
         Assert.False(service.Visible);
-        Assert.Empty(service.ReadState().Pages);
         Assert.Empty(service.ReadQuickAccessState().Pages);
         Assert.True(service.Revision > revision);
         Assert.Equal(2, source.SnapshotCalls);

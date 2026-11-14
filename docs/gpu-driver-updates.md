@@ -1,6 +1,6 @@
 # GPU driver updates
 
-Device > GPU in the Overlay and Settings > Display in Steam share the session's
+Device > GPU in the Overlay and Settings > Display > GPU driver updates in Steam share the session's
 `GpuDriverUpdateService`. Both show installed version/date, check/availability/failure state,
 release notes, download progress, installer outcome, required restart and rollback guidance. Both
 pages put **Include non-WHQL (beta) drivers** beside the automatic-check preference. It defaults to

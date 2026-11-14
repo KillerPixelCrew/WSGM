@@ -135,6 +135,7 @@ Everything around native fields comes from `ui-kit.ts`, rendered with the same r
 | Styles and sections     | `steamUiKitStyle`, `renderSteamUiHeader`, `renderSteamUiGroup`.                                                            |
 | Actions and pagination  | `renderSteamUiActions` (with the `pick` file-pick kind), `renderSteamUiMore`.                                              |
 | Page/focus levels       | The `registerSteamPage` frame, `renderSteamUiPane`, `renderSteamUiLevel`, `renderSteamUiDetail`.                           |
+| Settings subpages       | A `SteamSettingsLevel` on a section; drawn as `renderSteamUiNavRow` and `renderSteamUiSubpageHeader`.                      |
 | Color, meters and state | `renderSteamUiSwatch`, `renderSteamUiMeter`, `renderSteamUiEmpty` (kinds), `renderSteamUiStatus`, `renderSteamUiProgress`. |
 | Settings rows on a page | `renderSteamUiFields`, which draws a refusal on the row that asked.                                                        |
 | Flows (`ui-flows.ts`)   | `renderSteamUiCollection`, `renderSteamUiItem`, `renderSteamUiAcquire`, `renderSteamUiManage`.                             |

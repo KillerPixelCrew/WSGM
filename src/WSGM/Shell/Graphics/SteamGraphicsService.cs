@@ -38,7 +38,6 @@ internal sealed class SteamGraphicsService : IDisposable
     private GraphicsPagesState? _quickAccessState;
     private long _revision = 1;
     private GraphicsOverlaySnapshot? _snapshot;
-    private GraphicsPagesState? _state;
 
     /// <summary>Creates the page's backend over the overlay's graphics source.</summary>
     /// <param name="source">The graphics projection; its owner disposes it after this.</param>
@@ -118,16 +117,6 @@ internal sealed class SteamGraphicsService : IDisposable
     /// <summary>Raised when what the page shows may have changed.</summary>
     internal event Action? Changed;
 
-    /// <summary>The page as it should be drawn now.</summary>
-    /// <returns>The page model.</returns>
-    internal GraphicsPagesState ReadState()
-    {
-        lock (_gate)
-        {
-            return _state ??= new GraphicsPagesState(Pages(CurrentSnapshot()), _revision);
-        }
-    }
-
     /// <summary>Projects the current graphics snapshot into vendor groups for Quick Access.</summary>
     /// <returns>A state snapshot with the current revision and one grouped page per publisher.</returns>
     internal GraphicsPagesState ReadQuickAccessState()
@@ -146,14 +135,13 @@ internal sealed class SteamGraphicsService : IDisposable
         {
             _revision++;
             _snapshot = null;
-            _state = null;
             _quickAccessState = null;
         }
 
         Changed?.Invoke();
     }
 
-    // Called under _gate, so both Steam projections share one snapshot of this revision.
+    // Called under _gate, so every read of this revision shares one snapshot.
     private GraphicsOverlaySnapshot CurrentSnapshot()
     {
         return _snapshot ??= _source.Snapshot();

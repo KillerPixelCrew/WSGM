@@ -369,6 +369,19 @@ shortcut's own icon). A square on `surface-media` with a 1px `surface-control` b
 `radius-control`; the icon is contained, and the `controller` glyph (42% of the edge, `text-muted`)
 shows where there is no icon or every source failed. No focus; decorative without a `label`.
 
+**Subpage row.** Kit:
+`renderSteamUiNavRow(ui, { title, summary, icon, badge, autoFocus, onActivate })`, drawn for a
+`SteamSettingsLevel` by the settings renderer. A field-shaped row on `surface-control` (56px
+minimum, 10px by 16px padding, 6px apart, `radius-control`): a 40px glyph tile on white 6% with
+`radius-group`, the 16px title in `text-body`, a 13px `text-muted` summary on one line, an optional
+`info` tag and a chevron at white 55%. Focused it lifts to `field-fill-focus` with a white title,
+like Steam's own fields. A opens; the row a subpage closes back to takes focus again. Do summarize
+the subpage's current values or contents; don't hide the controls used most behind one.
+
+**Subpage heading.** Kit: `renderSteamUiSubpageHeader(ui, { title, detail, onBack })`. A Back small
+button over a `kit-page-title` heading and an optional 14px line. B closes the subpage as well,
+through the `renderSteamUiLevel` around it.
+
 **State mark.** Kit: `renderSteamUiStateMark(react, { state, label })`. A 20px circle for a
 checklist line in a field's `icon` slot: `ready` (`success-fill`, `success-text` check), `missing`
 (`danger-tag-fill`, `danger-text` cross), `optional` (`tag-fill`, a dash). The row's description

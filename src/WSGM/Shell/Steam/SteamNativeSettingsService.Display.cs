@@ -18,7 +18,6 @@ internal sealed partial class SteamNativeSettingsService
     private async Task AddDisplayPageAsync(List<SteamSettingsSection> display, OfferedRows offer,
         ValueTask<SteamBrightnessState?> lightRead)
     {
-        AddDriverUpdates(display, offer);
         List<SteamSettingsRow> displayRows = [];
         if (await lightRead.ConfigureAwait(false) is { } light)
         {
@@ -64,7 +63,8 @@ internal sealed partial class SteamNativeSettingsService
         if (frame.Available && frame.MinimumFps is { } minFps && frame.MaximumFps is { } maxFps)
         {
             offer.Add(displayRows, new SteamSettingsRow("display.limit-enabled", SteamSettingsRowKind.Boolean,
-                    "Frame limit", offer.Scope, frame.LimitEnabled, Accent: frame.Accent),
+                    "Frame limit", Marked(FrameLimitDescription, frame.Accent), frame.LimitEnabled,
+                    Accent: frame.Accent),
                 (value, token) => performance.ApplyPerfChangeAsync(new SteamPerformanceChange(
                         SteamPerformanceSetting.FrameLimitEnabled, value.GetBoolean() ? 1 : 0), "native-settings",
                     token),
@@ -101,7 +101,7 @@ internal sealed partial class SteamNativeSettingsService
             }
         }
 
-        Section(display, "Display and frame pacing", "display", displayRows);
+        Section(display, "Display and frame rate", "display", displayRows);
         if (displayTimeouts is not null)
         {
             List<SteamSettingsRow> timeouts = [];
@@ -121,12 +121,14 @@ internal sealed partial class SteamNativeSettingsService
                         int.Parse(value.GetString()!, CultureInfo.InvariantCulture), token));
             }
 
-            Section(display, "Display idle behavior", "display-timeouts", timeouts);
+            Section(display, "Screen timeout", "display-timeouts", timeouts);
         }
 
         AddGraphicsQuickAccess(offer);
-        foreach (var page in graphics?.ReadState().Pages ?? [])
+        // One subpage per graphics driver, holding its groups under their own titles.
+        foreach (var page in graphics?.ReadQuickAccessState().Pages ?? [])
         {
+            var from = display.Count;
             foreach (var section in page.Sections)
             {
                 List<SteamSettingsRow> rows = [];
@@ -137,12 +139,68 @@ internal sealed partial class SteamNativeSettingsService
                         (value, token) => graphics!.SetAsync(key, value, token), true);
                 }
 
-                Section(display, section.Title is null ? page.Title : page.Title + ": " + section.Title,
-                    "gpu/" + page.Id + "/" + section.Id, rows);
+                Section(display, section.Title ?? page.Title, "gpu/" + page.Id + "/" + section.Id, rows);
             }
+
+            Subpage(display, from, new SteamSettingsLevel("gpu/" + page.Id, page.Title,
+                GroupSummary(display, from), "layers", GameOverrideBadge(display, from, offer.Profile.EditsGame),
+                MoreSettingsGroup));
         }
 
+        var scaled = display.Count;
         await AddScaledResolutionSectionAsync(display, offer).ConfigureAwait(false);
+        Subpage(display, scaled, new SteamSettingsLevel("scaled-resolutions", "Scaled resolutions",
+            "Extra resolutions the GPU scales to fit the display", "aspect", Group: MoreSettingsGroup));
+        AddDriverUpdates(display, offer);
+    }
+
+    /// <summary>The heading over the Display page's subpage rows.</summary>
+    internal const string MoreSettingsGroup = "More display settings";
+
+    /// <summary>What the frame limit switch says it does.</summary>
+    internal const string FrameLimitDescription = "Caps the frame rate of every game.";
+
+    /// <summary>Moves every section from <paramref name="from" /> on into one subpage.</summary>
+    /// <param name="sections">The page's sections.</param>
+    /// <param name="from">The index of the subpage's first section.</param>
+    /// <param name="level">The subpage.</param>
+    internal static void Subpage(List<SteamSettingsSection> sections, int from, SteamSettingsLevel level)
+    {
+        for (var index = from; index < sections.Count; index++)
+        {
+            sections[index] = sections[index] with { Level = level };
+        }
+    }
+
+    /// <summary>A subpage's summary: the titles of its groups, in order, each once.</summary>
+    /// <param name="sections">The page's sections.</param>
+    /// <param name="from">The index of the subpage's first section.</param>
+    /// <returns>The titles joined, or null when none has one.</returns>
+    internal static string? GroupSummary(List<SteamSettingsSection> sections, int from)
+    {
+        var titles = sections.Skip(from).Select(section => section.Title).OfType<string>().Distinct().ToArray();
+        return titles.Length == 0 ? null : string.Join(" · ", titles);
+    }
+
+    /// <summary>The tag a subpage carries while the running game's profile sets some of its values.</summary>
+    /// <param name="sections">The page's sections.</param>
+    /// <param name="from">The index of the subpage's first section.</param>
+    /// <param name="editsGame">Whether the page edits the running game's profile.</param>
+    /// <returns>The count of game values, or null when the page edits Global or the game sets none.</returns>
+    internal static string? GameOverrideBadge(List<SteamSettingsSection> sections, int from, bool editsGame)
+    {
+        if (!editsGame)
+        {
+            return null;
+        }
+
+        var count = sections.Skip(from).Sum(section => section.Rows.Count(row => row.Accent));
+        return count switch
+        {
+            0 => null,
+            1 => "1 set for this game",
+            _ => $"{count} set for this game"
+        };
     }
 
     /// <summary>The extended VRR range's switch: its state, what to do next, or why it cannot change.</summary>
