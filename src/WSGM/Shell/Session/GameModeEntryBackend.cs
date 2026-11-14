@@ -176,7 +176,9 @@ internal sealed class GameModeEntryBackend(
         AudioProfilePreference? preference,
         CancellationToken cancellationToken)
     {
-        return system.AudioProfiles?.ApplyAsync(preference, cancellationToken)
+        // HDMI endpoints can appear after Windows accepts the display activation and driver writes.
+        return system.AudioProfiles?.ApplyAsync(preference, cancellationToken,
+                   endpointArrivalTimeout: TimeSpan.FromSeconds(15))
                ?? Task.FromResult(new AudioProfileApplyResult([]));
     }
 
@@ -284,27 +286,46 @@ internal sealed class GameModeEntryBackend(
     public async Task<string?> ApplyReturnLayoutAsync(DisplayLayout? explicitLayout,
         GameModeLaunchRecovery recovery)
     {
+        // Restore captured values while the Game Mode outputs are still active. The desktop layout
+        // can disable them, after which their driver controls are no longer addressable.
+        string? originalWarning;
+        try
+        {
+            originalWarning = await ApplyDisplayGpuAsync(recovery.PendingReturnDisplayGpu ?? [],
+                CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // An optional driver setting must never skip the desktop layout or Explorer restore.
+            Log.Warn("Restoring original display settings failed: " + ex.Message);
+            originalWarning = "Some display settings could not be restored. Details are in wsgm.log.";
+        }
+        originalWarning = originalWarning is null ? null : "Saved display settings: " + originalWarning;
         var launch = state.Config.GameModeLaunch;
         var layout = explicitLayout
                      ?? recovery.PendingReturnLayout
                      ?? (launch.Return == GameModeReturn.DesktopLayout ? launch.DesktopLayout : null);
         if (layout is null)
         {
-            return null;
+            return originalWarning;
         }
 
         var result =
             await ApplyLayoutAsync(layout, CancellationToken.None).ConfigureAwait(false);
-        return result.Applied ? null : "Desktop display layout: " + DisplayText.Layout(result);
+        if (result.Applied)
+        {
+            return originalWarning;
+        }
+
+        return string.Join(" ", new[] { originalWarning, "Desktop display layout: " + DisplayText.Layout(result) }
+            .Where(warning => warning is not null));
     }
 
     /// <inheritdoc />
     public async Task<string?> ApplyReturnDisplayGpuAsync(GameModeLaunchRecovery recovery)
     {
         var desktopGpu = state.Config.GameModeLaunch.DesktopDisplayGpu;
-        var warning = await ApplyDisplayGpuAsync(
-            GameModeReturnRecovery.MergeGraphicsOriginals(desktopGpu, recovery.PendingReturnDisplayGpu ?? []),
-            CancellationToken.None).ConfigureAwait(false);
+        var warning = await ApplyDisplayGpuAsync(desktopGpu, CancellationToken.None).ConfigureAwait(false);
         return warning is null ? null : "Desktop display controls: " + warning;
     }
 
@@ -313,12 +334,12 @@ internal sealed class GameModeEntryBackend(
     {
         var audio = GameModeLaunchRules.DesktopAudio(state.Config.GameModeLaunch,
             recovery);
-        var result = await ApplyAudioAsync(audio, CancellationToken.None).ConfigureAwait(false);
+        var result = system.AudioProfiles is { } service
+            ? await service.ApplyAsync(audio, CancellationToken.None).ConfigureAwait(false)
+            : new AudioProfileApplyResult([]);
         return result.Succeeded
             ? null
-            : "Desktop audio: " + string.Join(" ", result.Operations
-                .Where(static operation => !operation.Succeeded)
-                .Select(static operation => operation.Name + " " + operation.Detail));
+            : "Desktop audio: " + result.Operations.First(static operation => !operation.Succeeded).Detail;
     }
 
     /// <summary>

@@ -30,6 +30,46 @@ public sealed class AudioProfileServiceTests
     }
 
     [Fact]
+    public async Task AChangedHdmiEndpointIdUsesItsUniqueNameAfterItArrives()
+    {
+        var native = new AudioOperations { ArriveOnWatch = true };
+        await using var service = new AudioProfileService(native);
+        var preference = TvAudio();
+        preference.Output!.Id = "retired-id";
+
+        var result = await service.ApplyAsync(preference, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(["watch", "default:tv", "volume:40", "format:tv", "spatial:tv"], native.Writes);
+    }
+
+    [Fact]
+    public async Task DuplicateEndpointNamesCannotChooseAReplacementForAnOldId()
+    {
+        var native = new AudioOperations { InitiallyAvailable = true, DuplicateName = true };
+        await using var service = new AudioProfileService(native);
+        var preference = TvAudio();
+        preference.Output!.Id = "retired-id";
+
+        var result = await service.ApplyAsync(preference, CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(["watch"], native.Writes);
+    }
+
+    [Fact]
+    public async Task AnExactEndpointIdWinsEvenWhenItsNameIsShared()
+    {
+        var native = new AudioOperations { InitiallyAvailable = true, DuplicateName = true };
+        await using var service = new AudioProfileService(native);
+
+        var result = await service.ApplyAsync(TvAudio(), CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("default:tv", native.Writes[0]);
+    }
+
+    [Fact]
     public async Task AMissingEndpointCannotSendItsVolumeOrFormatToTheDesktopsCurrentEndpoint()
     {
         var native = new AudioOperations();
@@ -101,6 +141,7 @@ public sealed class AudioProfileServiceTests
         private bool _available;
         private bool _selected;
         internal bool ArriveOnWatch { get; init; }
+        internal bool DuplicateName { get; init; }
         internal int FormatResult { get; init; }
 
         internal bool InitiallyAvailable
@@ -118,7 +159,10 @@ public sealed class AudioProfileServiceTests
             out IReadOnlyList<CoreAudio.AudioEndpoint> endpoints)
         {
             endpoints = direction == CoreAudio.AudioDirection.Render && _available
-                ? [new CoreAudio.AudioEndpoint("tv", "TV HDMI", _selected)]
+                ? DuplicateName
+                    ? [new CoreAudio.AudioEndpoint("tv", "TV HDMI", _selected),
+                        new CoreAudio.AudioEndpoint("other-tv", "TV HDMI", false)]
+                    : [new CoreAudio.AudioEndpoint("tv", "TV HDMI", _selected)]
                 : [];
             return 0;
         }

@@ -67,10 +67,11 @@ internal sealed class AudioProfileService : IAsyncDisposable
     ///     Cancels gate and endpoint-arrival waits. Native writes already started are not
     ///     interrupted or rolled back.
     /// </param>
+    /// <param name="endpointArrivalTimeout">Optional post-display-switch endpoint arrival budget.</param>
     /// <returns>Per-setting acceptance results; a successful result is not a confirming readback.</returns>
     internal async Task<AudioProfileApplyResult> ApplyAsync(
         AudioProfilePreference? preference,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, TimeSpan? endpointArrivalTimeout = null)
     {
         if (preference is null)
         {
@@ -81,7 +82,8 @@ internal sealed class AudioProfileService : IAsyncDisposable
         try
         {
             ThrowIfDisposed();
-            return await Task.Run(() => Apply(preference, cancellationToken), CancellationToken.None)
+            return await Task.Run(() => Apply(preference, cancellationToken,
+                    endpointArrivalTimeout ?? EndpointArrivalTimeout), CancellationToken.None)
                 .ConfigureAwait(false);
         }
         finally
@@ -201,12 +203,13 @@ internal sealed class AudioProfileService : IAsyncDisposable
         return snapshot;
     }
 
-    private AudioProfileApplyResult Apply(AudioProfilePreference preference, CancellationToken cancellationToken)
+    private AudioProfileApplyResult Apply(AudioProfilePreference preference, CancellationToken cancellationToken,
+        TimeSpan endpointArrivalTimeout)
     {
         List<AudioProfileOperationResult> results = [];
         // One arrival budget for the transition, not one per direction: two missing endpoints
         // would otherwise hold the desktop return for twice the bounded wait.
-        var deadline = Environment.TickCount64 + (long)EndpointArrivalTimeout.TotalMilliseconds;
+        var deadline = Environment.TickCount64 + (long)endpointArrivalTimeout.TotalMilliseconds;
         var output = ResolveEndpoint(preference.Output, CoreAudio.AudioDirection.Render, deadline, cancellationToken);
         var input = ResolveEndpoint(preference.Input, CoreAudio.AudioDirection.Capture, deadline, cancellationToken);
         if (preference.Output is null &&
@@ -339,7 +342,7 @@ internal sealed class AudioProfileService : IAsyncDisposable
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        if (Find(direction, id) is { } present)
+        if (Find(direction, preference) is { } present)
         {
             return present;
         }
@@ -354,7 +357,7 @@ internal sealed class AudioProfileService : IAsyncDisposable
             {
                 do
                 {
-                    if (Find(direction, id) is { } found)
+                    if (Find(direction, preference) is { } found)
                     {
                         return found;
                     }
@@ -376,10 +379,30 @@ internal sealed class AudioProfileService : IAsyncDisposable
         return null;
     }
 
-    private CoreAudio.AudioEndpoint? Find(CoreAudio.AudioDirection direction, string id)
+    private CoreAudio.AudioEndpoint? Find(CoreAudio.AudioDirection direction, AudioEndpointPreference preference)
     {
-        var found = List(direction).FirstOrDefault(endpoint => endpoint.Id == id);
-        return string.IsNullOrEmpty(found.Id) ? null : found;
+        var endpoints = List(direction);
+        var exact = endpoints.FirstOrDefault(endpoint => string.Equals(endpoint.Id, preference.Id,
+            StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrEmpty(exact.Id))
+        {
+            return exact;
+        }
+
+        if (string.IsNullOrWhiteSpace(preference.Name))
+        {
+            return null;
+        }
+
+        var named = endpoints.Where(endpoint => string.Equals(AudioEndpointText.Name(endpoint), preference.Name,
+            StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (named.Length != 1)
+        {
+            return null;
+        }
+
+        Log.Info($"Audio profile: using the current {direction} endpoint for '{preference.Name}' after its ID changed.");
+        return named[0];
     }
 
     private AudioProfileOperationResult SetDefault(string name, CoreAudio.AudioEndpoint? endpoint)

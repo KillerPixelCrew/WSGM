@@ -251,6 +251,13 @@ public sealed class AudioProfileEditor : ObservableObject
         {
             _loading = false;
         }
+
+        if (_output is { } output && output.Id != preferredOutput)
+        {
+            // A unique name can identify a re-enumerated HDMI endpoint. Its new ID needs a fresh
+            // capability read; retain the saved settings while that read is pending.
+            Log.Observe(RefreshEndpointsAsync(), "Settings audio discovery after endpoint ID changed");
+        }
     }
 
     private static AudioEndpointOption? Keep(
@@ -263,7 +270,8 @@ public sealed class AudioProfileEditor : ObservableObject
             return null;
         }
 
-        if (choices.FirstOrDefault(choice => choice.Id == preferredId) is { } live)
+        if (choices.FirstOrDefault(choice => string.Equals(choice.Id, preferredId,
+                StringComparison.OrdinalIgnoreCase)) is { } live)
         {
             return live;
         }
@@ -271,6 +279,13 @@ public sealed class AudioProfileEditor : ObservableObject
         if (previous is null)
         {
             return null;
+        }
+
+        var named = choices.Where(choice => string.Equals(choice.Name, previous.Name,
+            StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (named.Length == 1)
+        {
+            return named[0];
         }
 
         choices.Add(previous);
@@ -385,6 +400,20 @@ public sealed class AudioProfileEditor : ObservableObject
                 _spatial = _savedSpatial is { } savedSpatial
                     ? SpatialChoices.FirstOrDefault(choice => choice.Format == savedSpatial)
                     : null;
+            }
+
+            // Offline endpoints still have saved preferences. Keep real selectable options for them
+            // instead of showing Leave unchanged or letting binding feedback erase their values.
+            if (_format is null && _savedFormat is { } savedFormat)
+            {
+                _format = new AudioFormatOption(AudioProfileService.ToDeviceFormat(savedFormat));
+                FormatChoices.Add(_format);
+            }
+
+            if (_spatial is null && _savedSpatial is { } savedSpatialFormat)
+            {
+                _spatial = new SpatialAudioOption(savedSpatialFormat, SpatialAudioNames.For(savedSpatialFormat));
+                SpatialChoices.Add(_spatial);
             }
 
             Raise(nameof(PlaybackFormat));

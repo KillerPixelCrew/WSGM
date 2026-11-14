@@ -40,7 +40,13 @@ internal static class DisplayGpuProfileService
             }
         }
 
-        return failures.Count == 0 ? null : string.Join(" ", failures);
+        if (failures.Count == 0)
+        {
+            return null;
+        }
+
+        Log.Warn("Display driver preferences: " + string.Join(" ", failures));
+        return $"{failures.Count} display setting(s) could not be applied. Details are in wsgm.log.";
     }
 
     /// <summary>Finds one current output by stable physical identity; an old instance ID never chooses a monitor.</summary>

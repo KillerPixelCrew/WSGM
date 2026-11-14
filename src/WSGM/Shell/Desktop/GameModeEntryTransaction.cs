@@ -168,15 +168,14 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
             if (launch.GameAudio is not null)
             {
                 backend.SetStatus("Applying the Game Mode audio preferences");
-                var audio = await backend.ApplyAudioAsync(launch.GameAudio, CancellationToken.None)
+                var audio = await backend.ApplyAudioAsync(launch.GameAudio, cancellationToken)
                     .ConfigureAwait(false);
                 if (!audio.Succeeded)
                 {
                     // Both can go wrong in the same entry, and the display warning must not hide
                     // the audio one: past the boundary these lines are all the user gets.
-                    var audioWarning = "Game Mode audio: " + string.Join(" ", audio.Operations
-                        .Where(static operation => !operation.Succeeded)
-                        .Select(static operation => operation.Name + " " + operation.Detail));
+                    var audioWarning = "Game Mode audio: "
+                                       + audio.Operations.First(static operation => !operation.Succeeded).Detail;
                     layoutWarning = layoutWarning is null ? audioWarning : layoutWarning + " " + audioWarning;
                 }
             }

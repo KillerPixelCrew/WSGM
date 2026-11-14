@@ -311,3 +311,8 @@ unavailable-provider hint rather than a repeated message for each event. Disconn
 their connection state and a Forget action directly in the display list. Its in-place confirmation
 names the display and explains that both saved layouts and a matching display wait are edited; Save
 commits the removal.
+
+Display-profile audio editors retain their saved channel format and spatial-sound choices while the
+endpoint is disconnected, including across refresh and unrelated saves. A re-enumerated endpoint is
+matched by ID first, then by a unique exact name; its new capabilities are read without clearing the
+saved choices.

@@ -148,6 +148,15 @@ internal static class GameModeReturnRecovery
             }
 
             var complete = true;
+            if (pending.PendingReturnDisplayGpu is { Count: > 0 } originals)
+            {
+                var originalsRestored = await AttemptAsync("original display driver controls",
+                    () => applyGraphics is not null
+                        ? applyGraphics(originals, cancellationToken)
+                        : Task.FromResult(false)).ConfigureAwait(false);
+                complete &= !requireAudio || originalsRestored;
+            }
+
             if (pending.PendingReturnLayout is { } layout)
             {
                 complete &= await AttemptAsync("display layout",
@@ -155,16 +164,12 @@ internal static class GameModeReturnRecovery
                     .ConfigureAwait(false);
             }
 
-            if (pending.PendingReturnDisplayGpu is { Count: > 0 }
-                || config.GameModeLaunch.DesktopDisplayGpu.Count > 0)
+            if (config.GameModeLaunch.DesktopDisplayGpu.Count > 0)
             {
                 var desktopGpu = config.GameModeLaunch.DesktopDisplayGpu;
                 var graphicsRestored = await AttemptAsync("display driver controls", () => applyGraphics is not null
-                    ? applyGraphics(MergeGraphicsOriginals(desktopGpu, pending.PendingReturnDisplayGpu ?? []),
-                        cancellationToken)
+                    ? applyGraphics(desktopGpu, cancellationToken)
                     : Task.FromResult(false)).ConfigureAwait(false);
-                // The next layout and its entry actions may be what makes the old output available.
-                // Preflight reports the debt and carries it forward rather than holding those actions.
                 complete &= !requireAudio || graphicsRestored;
             }
 

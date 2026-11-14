@@ -621,6 +621,16 @@ lists, their editor and the Game Mode entry order are in
 
 ## Recorded desktop state recovery
 
+Captured Game Mode driver values are restored while their outputs are still active, before the
+Desktop layout can disable them. Explicit Desktop driver preferences and audio follow activation of
+the Desktop layout. Failures keep their recovery state and detailed logs; a driver refusal does not
+skip the layout or Explorer restoration.
+
+Game Mode audio is resolved after the selected display layout and driver preferences have been
+applied. HDMI endpoint arrival has a cancellable 15-second budget at that stage. Resolution first
+uses the saved endpoint ID, then one exact case-insensitive name match in the same audio direction.
+Duplicate names are not guessed. Desktop return retains its shorter arrival budget.
+
 Source cleanup on 2026-10-01 made the saved Game Mode return layout and audio snapshot reachable
 from normal startup, coordinated exit, panic recovery and the early `--restore-shell` escape.
 Explorer recovery runs independently of optional display/audio success. The early escape attempts

@@ -81,6 +81,43 @@ public sealed class GameModeDisplayPageTests
     }
 
     [AvaloniaFact]
+    public async Task OfflineAudioKeepsItsSavedChannelAndSpatialSelectionsAcrossBoundRefreshesAndSave()
+    {
+        using var fixture = new UiFixture();
+        var format = CoreAudio.AudioDeviceFormat.Pcm(8, 192000, 24);
+        fixture.Saved.GameModeLaunch.Kind = GameModeLaunchKind.Custom;
+        fixture.Saved.GameModeLaunch.GameLayout = new DisplayLayout([Output(Tv)]);
+        fixture.Saved.GameModeLaunch.KnownDisplays =
+            [new KnownDisplay { Target = Tv, Modes = [new DisplayMode(3840, 2160, 120)] }];
+        fixture.Displays = Desktop(Tv);
+        fixture.Saved.GameModeLaunch.GameAudio = new AudioProfilePreference
+        {
+            Output = new AudioEndpointPreference { Id = "offline-tv", Name = "TV HDMI" },
+            PlaybackFormat = AudioProfileService.ToPreference(format),
+            SpatialFormat = CoreAudio.SpatialAudioFormats.Off
+        };
+        fixture.Audio = AudioDiscovery.Empty;
+        var window = Open(fixture);
+        var model = Model(window);
+        window.GetVisualDescendants().OfType<Expander>()
+            .Single(control => Equals(control.Header, "Audio configuration")).IsExpanded = true;
+
+        await model.GameAudioProfile.RefreshEndpointsAsync();
+        await model.GameAudioProfile.RefreshEndpointsAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(format, model.GameAudioProfile.PlaybackFormat?.Format);
+        Assert.Equal(CoreAudio.SpatialAudioFormats.Off, model.GameAudioProfile.SpatialFormat?.Format);
+        var picker = window.GetVisualDescendants().OfType<ComboBox>()
+            .Single(control => ReferenceEquals(control.ItemsSource, model.GameAudioProfile.FormatChoices));
+        Assert.Equal(format, Assert.IsType<AudioFormatOption>(picker.SelectedItem).Format);
+        UiFixture.Click(window, window.GetVisualDescendants().OfType<Button>()
+            .Single(button => Equals(button.Content, "Save changes")));
+        Assert.Equal(8, fixture.Saved.GameModeLaunch.GameAudio?.PlaybackFormat?.Channels);
+        Assert.Equal(CoreAudio.SpatialAudioFormats.Off, fixture.Saved.GameModeLaunch.GameAudio?.SpatialFormat);
+    }
+
+    [AvaloniaFact]
     public async Task AudioDropdownsRetainTheirSelectionsAcrossRepeatedBoundRefreshes()
     {
         using UiFixture fixture = new();

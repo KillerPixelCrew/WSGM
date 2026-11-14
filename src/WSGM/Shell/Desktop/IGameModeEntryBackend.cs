@@ -87,13 +87,14 @@ internal interface IGameModeEntryBackend
     /// <summary>
     ///     Puts the desktop layout back when Game Mode ends: the explicit layout, else the layout
     ///     recorded at entry, else the configured Desktop layout, whichever this configuration owes.
+    ///     Captured driver values are restored before this layout can disable their outputs.
     /// </summary>
     /// <param name="explicitLayout">A layout the caller captured itself, or null to use the recovery record.</param>
     /// <param name="recovery">The durable recovery record, read once for the whole return.</param>
     /// <returns>A warning when it could not be restored, otherwise null.</returns>
     Task<string?> ApplyReturnLayoutAsync(DisplayLayout? explicitLayout, GameModeLaunchRecovery recovery);
 
-    /// <summary>Restores desktop driver values after the return layout has settled.</summary>
+    /// <summary>Applies explicit Desktop driver preferences after the return layout has settled.</summary>
     /// <param name="recovery">The durable recovery record, read once for the whole return.</param>
     /// <returns>A warning for unavailable, refused or uncertain controls; originals remain recorded.</returns>
     Task<string?> ApplyReturnDisplayGpuAsync(GameModeLaunchRecovery recovery);
