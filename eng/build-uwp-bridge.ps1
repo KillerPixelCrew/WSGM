@@ -60,9 +60,15 @@ $generator = switch (([string]$vsVersion).Split('.')[0]) {
     default { throw "No supported Visual Studio with the C++ tools was found (found '$vsVersion')." }
 }
 $cache = Join-Path $buildDirectory 'CMakeCache.txt'
-if ((Test-Path -LiteralPath $cache) -and -not (Select-String -LiteralPath $cache -SimpleMatch "CMAKE_GENERATOR:INTERNAL=$generator" -Quiet)) {
-    # CMake refuses to reconfigure a build directory for a different generator.
-    Remove-Item -LiteralPath $buildDirectory -Recurse -Force
+if (Test-Path -LiteralPath $cache) {
+    # CMake refuses to reconfigure a build directory for a different generator, and a Visual Studio
+    # update removes the MSVC toolset the cache names, which CMake does not re-detect on its own.
+    $compiler = Select-String -LiteralPath $cache -Pattern '^CMAKE_CXX_COMPILER:\w+=(.+)$' |
+        Select-Object -First 1 | ForEach-Object { $_.Matches[0].Groups[1].Value }
+    $sameGenerator = Select-String -LiteralPath $cache -SimpleMatch "CMAKE_GENERATOR:INTERNAL=$generator" -Quiet
+    if (-not $sameGenerator -or ($compiler -and -not (Test-Path -LiteralPath $compiler -PathType Leaf))) {
+        Remove-Item -LiteralPath $buildDirectory -Recurse -Force
+    }
 }
 
 Write-Host "== Configuring the overlay bridge ($generator) ==" -ForegroundColor Cyan
