@@ -378,6 +378,17 @@ minimum, 10px by 16px padding, 6px apart, `radius-control`): a 40px glyph tile o
 like Steam's own fields. A opens; the row a subpage closes back to takes focus again. Do summarize
 the subpage's current values or contents; don't hide the controls used most behind one.
 
+**Scope card.** Kit: `renderSteamUiScope(react, { label, value, detail, accent })`, drawn for a
+`scope` settings row at the top of a page with profile-aware controls. `group-fill` with a
+`group-border` and `radius-group`: an 11px `eyebrow` ("Editing"), the scope in 16px white and a 12px
+`text-secondary` line. A game's own profile takes `info-fill` with an accent border. No focus.
+
+**Columns row.** Kit: `renderSteamUiColumns(ui, { label, description, columns })`, drawn for a
+`columns` settings row. A field-shaped row on `surface-control`: label and description on the left,
+then one 180px cell per entry with an `eyebrow` label over a compact `renderSteamUiChoice`, in one
+row of focus. Use it for one setting split by condition (on battery, plugged in), never for
+unrelated settings.
+
 **Subpage heading.** Kit: `renderSteamUiSubpageHeader(ui, { title, detail, onBack })`. A Back small
 button over a `kit-page-title` heading and an optional 14px line. B closes the subpage as well,
 through the `renderSteamUiLevel` around it.

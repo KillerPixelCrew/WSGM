@@ -34,11 +34,22 @@ public sealed partial class SteamNativeSettingsServiceTests
 
         Assert.Null(sections[0].Level);
         Assert.All(sections.Skip(1), section => Assert.Same(level, section.Level));
-        Assert.Equal("Graphics: Driver · Built-in display: Refresh", level.Summary);
+        Assert.Equal("Driver · Refresh", level.Summary);
         Assert.Equal("2 set for this game", level.Badge);
         Assert.Null(SteamNativeSettingsService.GameOverrideBadge(sections, 1, editsGame: false));
         Assert.Equal("1 set for this game", SteamNativeSettingsService.GameOverrideBadge(sections, 2, editsGame: true));
         Assert.Null(SteamNativeSettingsService.GameOverrideBadge(sections, 3, editsGame: true));
+    }
+
+    [Theory]
+    [InlineData("NVIDIA Performance", "NVIDIA GPU", "Performance")]
+    [InlineData("NVIDIA DLSS", "NVIDIA GPU", "DLSS")]
+    [InlineData("Graphics: Frame delivery", "Intel GPU", "Graphics: Frame delivery")]
+    [InlineData("NVIDIA", "NVIDIA GPU", "NVIDIA")]
+    public void AGroupInsideItsDriversSubpageDropsTheVendorTheSubpageNames(string title, string driver,
+        string expected)
+    {
+        Assert.Equal(expected, SteamNativeSettingsService.WithinDriver(title, driver));
     }
 
     [Theory]

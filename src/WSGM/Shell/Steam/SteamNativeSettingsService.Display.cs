@@ -60,24 +60,6 @@ internal sealed partial class SteamNativeSettingsService
                 }));
         }
 
-        if (frame.Available && frame.MinimumFps is { } minFps && frame.MaximumFps is { } maxFps)
-        {
-            offer.Add(displayRows, new SteamSettingsRow("display.limit-enabled", SteamSettingsRowKind.Boolean,
-                    "Frame limit", Marked(FrameLimitDescription, frame.Accent), frame.LimitEnabled,
-                    Accent: frame.Accent),
-                (value, token) => performance.ApplyPerfChangeAsync(new SteamPerformanceChange(
-                        SteamPerformanceSetting.FrameLimitEnabled, value.GetBoolean() ? 1 : 0), "native-settings",
-                    token),
-                true);
-            offer.Add(displayRows, new SteamSettingsRow("display.frame-limit", SteamSettingsRowKind.Range,
-                    "Maximum frame rate", frame.StatusText,
-                    Number: frame.DesiredFps is > 0 ? frame.DesiredFps : maxFps,
-                    Minimum: minFps, Maximum: maxFps, Step: 1, Suffix: " FPS", Disabled: !frame.LimitEnabled,
-                    Accent: frame.Accent),
-                (value, token) => performance.SetFrameLimitAsync(Integer(value), "native-settings", token),
-                true);
-        }
-
         var vrr = performance.Vrr;
         if (vrr.Available)
         {
@@ -101,15 +83,36 @@ internal sealed partial class SteamNativeSettingsService
             }
         }
 
+        if (frame.Available && frame.MinimumFps is { } minFps && frame.MaximumFps is { } maxFps)
+        {
+            offer.Add(displayRows, new SteamSettingsRow("display.limit-enabled", SteamSettingsRowKind.Boolean,
+                    "Frame limit", Marked(FrameLimitDescription, frame.Accent), frame.LimitEnabled,
+                    Accent: frame.Accent),
+                (value, token) => performance.ApplyPerfChangeAsync(new SteamPerformanceChange(
+                        SteamPerformanceSetting.FrameLimitEnabled, value.GetBoolean() ? 1 : 0), "native-settings",
+                    token),
+                true);
+            offer.Add(displayRows, new SteamSettingsRow("display.frame-limit", SteamSettingsRowKind.Range,
+                    "Maximum frame rate", frame.StatusText,
+                    Number: frame.DesiredFps is > 0 ? frame.DesiredFps : maxFps,
+                    Minimum: minFps, Maximum: maxFps, Step: 1, Suffix: " FPS", Disabled: !frame.LimitEnabled,
+                    Accent: frame.Accent),
+                (value, token) => performance.SetFrameLimitAsync(Integer(value), "native-settings", token),
+                true);
+        }
+
+        // Refresh rate and variable refresh sit together; the frame cap follows them.
         Section(display, "Display and frame rate", "display", displayRows);
         if (displayTimeouts is not null)
         {
-            List<SteamSettingsRow> timeouts = [];
-            foreach (var timeout in displayTimeouts.ReadState().Rows)
+            // One row with a dropdown per power source, each still its own offered command.
+            var states = displayTimeouts.ReadState().Rows;
+            List<SteamSettingsRow> entries = [];
+            foreach (var timeout in states)
             {
                 var id = timeout.Id;
-                offer.Add(timeouts, new SteamSettingsRow("display.timeout-" + id, SteamSettingsRowKind.Choice,
-                        timeout.Label, timeout.Description,
+                entries.Add(offer.Add(null, new SteamSettingsRow("display.timeout-" + id, SteamSettingsRowKind.Choice,
+                        TimeoutColumnLabel(id, timeout.Label), timeout.Description,
                         Text: timeout.Seconds.ToString(CultureInfo.InvariantCulture),
                         Choices:
                         [
@@ -118,10 +121,18 @@ internal sealed partial class SteamNativeSettingsService
                         ],
                         Disabled: !timeout.Available),
                     (value, token) => displayTimeouts.SetTimeoutAsync(id,
-                        int.Parse(value.GetString()!, CultureInfo.InvariantCulture), token));
+                        int.Parse(value.GetString()!, CultureInfo.InvariantCulture), token)));
             }
 
-            Section(display, "Screen timeout", "display-timeouts", timeouts);
+            if (entries.Count > 0)
+            {
+                var notes = entries.Select(entry => entry.Description).Distinct().ToArray();
+                Section(display, "Screen timeout", "display-timeouts",
+                [
+                    new SteamSettingsRow("display.timeouts", SteamSettingsRowKind.Columns, "Turn screen off after",
+                        notes.Length == 1 ? notes[0] : null, Columns: entries)
+                ]);
+            }
         }
 
         AddGraphicsQuickAccess(offer);
@@ -139,7 +150,8 @@ internal sealed partial class SteamNativeSettingsService
                         (value, token) => graphics!.SetAsync(key, value, token), true);
                 }
 
-                Section(display, section.Title ?? page.Title, "gpu/" + page.Id + "/" + section.Id, rows);
+                Section(display, WithinDriver(section.Title ?? page.Title, page.Title),
+                    "gpu/" + page.Id + "/" + section.Id, rows);
             }
 
             Subpage(display, from, new SteamSettingsLevel("gpu/" + page.Id, page.Title,
@@ -172,14 +184,49 @@ internal sealed partial class SteamNativeSettingsService
         }
     }
 
-    /// <summary>A subpage's summary: the titles of its groups, in order, each once.</summary>
+    /// <summary>
+    ///     A subpage's summary: the titles of its groups in order, each once, without the heading part before
+    ///     a colon, which only says which device of the subpage a group belongs to.
+    /// </summary>
     /// <param name="sections">The page's sections.</param>
     /// <param name="from">The index of the subpage's first section.</param>
     /// <returns>The titles joined, or null when none has one.</returns>
     internal static string? GroupSummary(List<SteamSettingsSection> sections, int from)
     {
-        var titles = sections.Skip(from).Select(section => section.Title).OfType<string>().Distinct().ToArray();
+        var titles = sections.Skip(from).Select(section => section.Title).OfType<string>()
+            .Select(title => title.LastIndexOf(": ", StringComparison.Ordinal) is var colon and >= 0
+                ? title[(colon + 2)..]
+                : title)
+            .Distinct().ToArray();
         return titles.Length == 0 ? null : string.Join(" · ", titles);
+    }
+
+    /// <summary>A group's title inside its driver's subpage, without the vendor the subpage already names.</summary>
+    /// <param name="title">The group's title, such as <c>NVIDIA Performance</c>.</param>
+    /// <param name="driver">The subpage's title, such as <c>NVIDIA GPU</c>.</param>
+    /// <returns>The title without a leading vendor word, such as <c>Performance</c>; otherwise unchanged.</returns>
+    internal static string WithinDriver(string title, string driver)
+    {
+        var space = driver.IndexOf(' ', StringComparison.Ordinal);
+        var vendor = space > 0 ? driver[..(space + 1)] : null;
+        return vendor is not null && title.Length > vendor.Length
+                                  && title.StartsWith(vendor, StringComparison.OrdinalIgnoreCase)
+            ? char.ToUpperInvariant(title[vendor.Length]) + title[(vendor.Length + 1)..]
+            : title;
+    }
+
+    /// <summary>A screen timeout's column label: the power source it applies on.</summary>
+    /// <param name="id">The timeout's id.</param>
+    /// <param name="label">Its full label, used for an id without a short one.</param>
+    /// <returns>The column label.</returns>
+    internal static string TimeoutColumnLabel(string id, string label)
+    {
+        return id switch
+        {
+            "battery" => "On battery",
+            "plugged-in" => "Plugged in",
+            _ => label
+        };
     }
 
     /// <summary>The tag a subpage carries while the running game's profile sets some of its values.</summary>

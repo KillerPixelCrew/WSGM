@@ -111,30 +111,26 @@ assert.deepEqual(requests, [
 publish({ ...payload, revision: payload.revision + 1 });
 assert.equal(requests.length, 1, "the same rejection is reported once");
 
-// Every section a page draws, on the page and in each of its subpages, opened in turn.
+// Every section a page draws: the lead above Steam's own content, the rest after it, then each
+// subpage's sections, opened in turn from its row.
 const drawn = (page) => {
   const content = NativeRoot()[page].content;
-  const slot = content.props.children.find(
+  const slots = content.props.children.filter(
     (child) => child?.type?.name === "SteamUiNativeSettingsSections",
   );
-  assert.ok(slot, `${page} carries WSGM's sections`);
+  assert.equal(slots.length, 2, `${page} carries WSGM's lead and trailing sections`);
   const fields = (section) => ({
     label: section.props.label,
     keys: section.props.children.map((field) => field.props.row.key),
   });
-  const onPage = slot.type(slot.props).props.children;
-  const levelRows = onPage.flatMap((section) =>
-    section.props.children.filter((child) => child?.props?.className === "steam-ui-kit-nav-row"),
-  );
-  const sections = onPage
-    .filter(
-      (section) =>
-        !section.props.children.some((child) => child?.props?.className === "steam-ui-kit-nav-row"),
-    )
-    .map(fields);
+  const isLevelGroup = (section) =>
+    section.props.children.some((child) => child?.props?.className === "steam-ui-kit-nav-row");
+  const onPage = slots.flatMap((slot) => slot.type(slot.props)?.props.children ?? []);
+  const levelRows = onPage.filter(isLevelGroup).flatMap((section) => section.props.children);
+  const sections = onPage.filter((section) => !isLevelGroup(section)).map(fields);
   for (const row of levelRows) {
     row.props.onActivate();
-    const level = slot.type(slot.props).props.children[0];
+    const level = slots[0].type(slots[0].props).props.children[0];
     sections.push(
       ...level.props.children.filter((child) => child?.type === "settingsSection").map(fields),
     );

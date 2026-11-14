@@ -1257,6 +1257,8 @@
     "color",
     "curve",
     "resolution-list",
+    "scope",
+    "columns",
   ]);
   // Steam's React exports, or null when the module is not a unique match.
   const resolveReact = (runtime) => {
@@ -6110,9 +6112,10 @@
    * @param draft Locally staged value, or undefined to use the published value.
    * @param change Handles edits and whether they should be committed.
    * @param action Handles action rows.
+   * @param draftOf A columns row's staged value for one of its entries, by entry; none sees no drafts.
    * @returns The row element, or null for an unsupported row kind.
    */
-  const renderSteamSettingRow = (ui, row, draft, change, action) => {
+  const renderSteamSettingRow = (ui, row, draft, change, action, draftOf) => {
     const h = ui.react.createElement;
     const key = `steam-setting-${row.key}`;
     const label = steamSettingLabel(ui, row);
@@ -6439,6 +6442,42 @@
           value: row.text ?? "",
           description: common.description,
         });
+      case "scope":
+        return renderSteamUiScope(ui.react, {
+          key,
+          label,
+          value: row.text ?? "",
+          detail: row.description,
+          accent: row.accent === true,
+        });
+      case "columns":
+        return renderSteamUiColumns(ui, {
+          key,
+          label,
+          description: common.description,
+          columns: (row.columns ?? []).map((entry) => {
+            const selected = draftOf?.(entry) ?? entry.text;
+            const choices = (entry.choices ?? []).filter(
+              (choice) => choice.selectable !== false || choice.value === selected,
+            );
+            return {
+              key: entry.key,
+              label: entry.label,
+              control: renderSteamUiChoice(ui, {
+                label: `${row.label}: ${entry.label}`,
+                showLabel: false,
+                rgOptions: choices.map((choice) => ({ data: choice.value, label: choice.label })),
+                selectedOption: selected,
+                disabled: !!row.disabled || !!entry.disabled,
+                onChange: (option) => {
+                  const pick = choices.find((choice) => choice.value === option?.data);
+                  if (pick && pick.value !== selected && pick.selectable !== false)
+                    change(entry, pick.value);
+                },
+              }),
+            };
+          }),
+        });
       default:
         // A kind this build does not know is shown as its label and nothing else, never as a
         // control that would send a value the host did not describe.
@@ -6530,13 +6569,21 @@
     };
     // An action row's own buttons send under their own keys; their refusal is still said on the row.
     const shown = (row) => {
-      const keys = [
-        row.key,
-        ...(Array.isArray(row.actions) ? row.actions.map((action) => action.key) : []),
+      // A columns row's entries send as rows of their own, so each refusal is checked against its entry.
+      const senders = [
+        ...[
+          row.key,
+          ...(Array.isArray(row.actions) ? row.actions.map((action) => action.key) : []),
+        ].map((key) => ({ key, published: row })),
+        ...(Array.isArray(row.columns)
+          ? row.columns.map((entry) => ({ key: entry.key, published: entry }))
+          : []),
       ];
-      const refusal = keys
-        .map((key) => state.refusals[key])
-        .find((entry) => entry && entry.base === steamSettingPublished(row));
+      const refusal = senders
+        .map((sender) => ({ entry: state.refusals[sender.key], published: sender.published }))
+        .find(
+          ({ entry, published }) => entry && entry.base === steamSettingPublished(published),
+        )?.entry;
       return refusal ? { ...row, description: refusal.text } : row;
     };
     return { change, draft, row: shown };
@@ -6586,6 +6633,7 @@
             props.drafts.draft(row),
             props.change,
             props.action,
+            props.drafts.draft,
           ),
         ),
       );
@@ -7581,6 +7629,21 @@
 .steam-ui-kit-nav-row-chevron{display:flex;flex:0 0 auto;color:rgba(255,255,255,.55)}
 .steam-ui-kit-subpage-header{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:4px 0 12px}
 .steam-ui-kit-subpage-back .DialogButton{width:auto;min-width:0}
+.steam-ui-kit-scope{display:flex;flex-direction:column;gap:2px;min-width:0;padding:12px 16px;margin:0 0 6px;border-radius:4px;box-sizing:border-box;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07)}
+.steam-ui-kit-scope.accent{background:rgba(26,159,255,.08);border-color:rgba(26,159,255,.25)}
+.steam-ui-kit-scope-label{font-size:11px;line-height:1.4;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#8b929a}
+.steam-ui-kit-scope-value{font-size:16px;line-height:22px;color:#fff;overflow-wrap:anywhere}
+.steam-ui-kit-scope-detail{font-size:12px;line-height:16px;color:#b8bcbf;overflow-wrap:anywhere}
+.steam-ui-kit-columns{display:flex;align-items:center;flex-wrap:wrap;gap:12px 16px;min-width:0;padding:12px 16px;margin:0 0 6px;border-radius:2px;box-sizing:border-box;background:#23262e}
+.steam-ui-kit-columns:focus-within{background:#3d4450}
+.steam-ui-kit-columns-text{flex:1 1 220px;min-width:0}
+.steam-ui-kit-columns-label{font-size:16px;line-height:20px;color:#dcdedf;overflow-wrap:anywhere}
+.steam-ui-kit-columns:focus-within .steam-ui-kit-columns-label{color:#fff}
+.steam-ui-kit-columns-description{font-size:12px;line-height:16px;color:#b8bcbf;margin-top:3px;overflow-wrap:anywhere}
+.steam-ui-kit-columns-cells{display:flex;flex-wrap:wrap;gap:10px;flex:0 1 auto;min-width:0}
+.steam-ui-kit-columns-cell{display:flex;flex-direction:column;gap:6px;width:180px;min-width:0;max-width:100%}
+.steam-ui-kit-columns-cell-label{font-size:11px;line-height:1.4;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#8b929a}
+.steam-ui-kit-columns-cell .steam-ui-kit-choice{gap:0}
 `;
   // One stylesheet element and one icon renderer per React, so a root re-rendering on every host
   // publication hands React the same style element and the same caret elements each time rather
@@ -8003,6 +8066,60 @@
       ),
       props.badge?.text ? renderSteamUiTag(ui.react, props.badge) : null,
       h("span", { className: "steam-ui-kit-nav-row-chevron" }, icon("chevron", 18)),
+    );
+  };
+  /**
+   * Creates the card that says what a page's profile-aware controls edit: a small heading such as
+   * `Editing`, the scope in the field label's size and a line under it. It takes no focus.
+   * @param react Steam's React instance used by the consuming root.
+   * @param props The small heading, the scope, the line under it and whether the scope is a game's own
+   * profile, which marks the card with Steam's accent.
+   * @returns The card.
+   */
+  const renderSteamUiScope = (react, props) => {
+    const h = react.createElement;
+    return h(
+      "div",
+      { key: props.key, className: `steam-ui-kit-scope${props.accent ? " accent" : ""}` },
+      h("span", { className: "steam-ui-kit-scope-label" }, props.label),
+      h("span", { className: "steam-ui-kit-scope-value" }, props.value),
+      props.detail ? h("span", { className: "steam-ui-kit-scope-detail" }, props.detail) : null,
+    );
+  };
+  /**
+   * Creates one field-shaped row holding several compact controls side by side: the row's label and
+   * description on the left, each control on the right under its own small label, such as a choice
+   * for battery and one for plugged in. The controls take focus in a row.
+   * @param ui Steam's resolved React and Focusable.
+   * @param props Key, label, description (any element) and the columns, each a key, a small label and
+   * its control (such as `renderSteamUiChoice` with `showLabel: false`).
+   * @returns The row.
+   */
+  const renderSteamUiColumns = (ui, props) => {
+    const h = ui.react.createElement;
+    return h(
+      "div",
+      { key: props.key, className: "steam-ui-kit-columns" },
+      h(
+        "div",
+        { className: "steam-ui-kit-columns-text" },
+        h("div", { className: "steam-ui-kit-columns-label" }, props.label),
+        props.description
+          ? h("div", { className: "steam-ui-kit-columns-description" }, props.description)
+          : null,
+      ),
+      h(
+        ui.focusable ?? "div",
+        { className: "steam-ui-kit-columns-cells", "flow-children": "row" },
+        ...props.columns.map((column) =>
+          h(
+            "div",
+            { key: column.key, className: "steam-ui-kit-columns-cell" },
+            h("div", { className: "steam-ui-kit-columns-cell-label" }, column.label),
+            column.control,
+          ),
+        ),
+      ),
     );
   };
   /**
@@ -12634,6 +12751,16 @@
           row.minimum > row.maximum)
       )
         return "invalid range";
+      if (row.kind === "columns") {
+        if (!Array.isArray(row.columns) || !row.columns.length) return "invalid columns";
+        const entryIds = new Set(rowIds);
+        for (const entry of row.columns) {
+          const problem = entry?.kind === "choice" ? rowProblem(entry, entryIds) : "not a choice";
+          if (problem) return `invalid column ${String(entry?.key ?? "")}: ${problem}`;
+          if (entry.key === row.key) return "a column repeats its row's key";
+          entryIds.add(entry.key);
+        }
+      }
       return "";
     };
     // Validation keeps every row it can draw. A publication whose shape is wrong is refused whole, but
@@ -12654,13 +12781,17 @@
         )
           return null;
         pageIds.add(page.id);
+        if (page.lead != null && (!Number.isSafeInteger(page.lead) || page.lead < 0)) return null;
         const sections = [];
-        for (const section of page.sections) {
+        // How many of the kept sections come from the published lead, which a dropped section shortens.
+        let lead = 0;
+        for (const [index, section] of page.sections.entries()) {
           if (!Array.isArray(section?.rows)) return null;
           const rows = section.rows.filter((row) => {
             const problem = rowProblem(row, rowIds);
             if (!problem) {
               rowIds.add(row.key);
+              for (const entry of row.kind === "columns" ? row.columns : []) rowIds.add(entry.key);
               return true;
             }
             rejected.push({
@@ -12669,14 +12800,16 @@
             });
             return false;
           });
-          if (rows.length)
+          if (rows.length) {
             sections.push(rows.length === section.rows.length ? section : { ...section, rows });
+            if (index < (page.lead ?? 0)) lead++;
+          }
         }
         // The page as published only when every one of its sections came through whole.
         const whole =
           sections.length === page.sections.length &&
           sections.every((section, index) => section === page.sections[index]);
-        if (sections.length) pages.push(whole ? page : { ...page, sections });
+        if (sections.length) pages.push(whole ? page : { ...page, sections, lead });
       }
       return { pages, revision: value.revision, rejected };
     };
@@ -12689,17 +12822,24 @@
       if (rejected.length) void request(patchId, "rejected", { rows: rejected }).catch(() => {});
     };
     const send = (row, value) => {
+      // A columns row's entries are rows of their own, offered under their own keys.
       const current = state.pages
         .flatMap((page) => page.sections.flatMap((section) => section.rows))
+        .flatMap((candidate) =>
+          candidate.kind === "columns" ? [candidate, ...candidate.columns] : [candidate],
+        )
         .find((candidate) => candidate.key === row.key);
       if (!installed() || !current || current.disabled)
         return Promise.reject(new Error("This setting is unavailable."));
       return request(patchId, "set", { key: row.key, value });
     };
-    function SteamUiNativeSettingsSections({ id }) {
+    // A page's sections draw in two slots: the lead above Steam's own content and the rest after it.
+    // An open subpage draws in the lead slot alone, in place of the page.
+    function SteamUiNativeSettingsSections({ id, part }) {
+      const rest = part !== "lead";
       react.useSyncExternalStore(local.subscribe, local.revision);
       react.useEffect(() => {
-        if (id !== "controller") return;
+        if (!rest || id !== "controller") return;
         return () => {
           // Stop is an idempotent host action even after its rows retract. Reload/disconnect also
           // stop through the host and the output owner, and every preview has a bounded timer.
@@ -12708,9 +12848,9 @@
       }, [id]);
       react.useEffect(
         () => () => {
-          if (!levels[id]) return;
-          const { [id]: _closed, ...rest } = levels;
-          levels = rest;
+          if (!rest || !levels[id]) return;
+          const { [id]: _closed, ...others } = levels;
+          levels = others;
           local.changed();
         },
         [id],
@@ -12720,17 +12860,25 @@
       const action = (row) => change(row, true);
       const page = installed() ? state.pages.find((candidate) => candidate.id === id) : null;
       if (!page) return null;
-      rendered.add(id);
       const open = openLevel(id);
+      if (open && rest) return null;
+      const lead = Math.min(page.lead ?? 0, page.sections.length);
+      const sections = open
+        ? page.sections
+        : rest
+          ? page.sections.slice(lead)
+          : page.sections.slice(0, lead);
+      if (!sections.length) return null;
+      rendered.add(id);
       lastOutcome = open
         ? `rendered ${id} subpage ${open}`
-        : `rendered ${id}: ${page.sections.length} section(s)`;
+        : `rendered ${id}: ${page.sections.length} section(s), ${lead} above Steam's own`;
       return react.createElement(
         react.Fragment,
         null,
         ...renderSteamSettingSections(ui, {
-          id: `steam-ui-native-${id}`,
-          sections: page.sections,
+          id: `steam-ui-native-${id}${rest ? "" : "-lead"}`,
+          sections,
           drafts,
           change,
           action,
@@ -12786,6 +12934,11 @@
           content: react.createElement(
             "div",
             { className: "DialogBody steam-ui-kit-settings-body" },
+            react.createElement(SteamUiNativeSettingsSections, {
+              id,
+              part: "lead",
+              key: `steam-ui-native-lead-${id}`,
+            }),
             react.createElement(SteamUiNativeSettingsValve, {
               id,
               key: `steam-ui-native-valve-${id}`,

@@ -333,17 +333,18 @@ internal sealed partial class SteamNativeSettingsService(
         AddProfileSection(power, "power", offer);
         AddProfileSection(controller, "controller", offer);
         List<SteamNativeSettingsPage> pages = [];
-        Page("display", display);
+        // WSGM's Display controls lead the page; Steam's own Big Picture rows follow, then the reset.
+        Page("display", display, display.Count > 0 && display[^1].Id == "display.reset" ? display.Count - 1 : display.Count);
         Page("power", power);
         Page("audio", audio);
         Page("controller", controller);
         return (pages, offer.QuickAccess, offer.Commands);
 
-        void Page(string id, List<SteamSettingsSection> sections)
+        void Page(string id, List<SteamSettingsSection> sections, int lead = 0)
         {
             if (sections.Count > 0)
             {
-                pages.Add(new SteamNativeSettingsPage(id, sections));
+                pages.Add(new SteamNativeSettingsPage(id, sections, lead));
             }
         }
     }
@@ -360,7 +361,10 @@ internal sealed partial class SteamNativeSettingsService(
         }
 
         List<SteamSettingsRow> rows =
-            [new(page + ".scope", SteamSettingsRowKind.Note, "Editing scope", Text: offer.Scope)];
+        [
+            new(page + ".scope", SteamSettingsRowKind.Scope, "Editing", offer.ScopeDetail, Text: offer.ScopeName,
+                Accent: offer.Profile.EditsGame)
+        ];
         if (offer.Profile.Active.HasApplication)
         {
             offer.Add(rows, new SteamSettingsRow(page + ".game-profile", SteamSettingsRowKind.Boolean,
@@ -372,7 +376,7 @@ internal sealed partial class SteamNativeSettingsService(
                         .ConfigureAwait(false), null), true);
         }
 
-        sections.Insert(0, new SteamSettingsSection("Profile", rows, page + ".profile"));
+        sections.Insert(0, new SteamSettingsSection(null, rows, page + ".profile"));
         if (page == "controller" && !offer.Profile.EditsGame)
         {
             return;
@@ -637,10 +641,15 @@ internal sealed partial class SteamNativeSettingsService(
         /// <summary>The offered commands by row key.</summary>
         internal Dictionary<string, Offered> Commands { get; } = new(StringComparer.Ordinal);
 
-        /// <summary>What profile-aware controls currently edit.</summary>
-        internal string Scope { get; } = profile.EditsGame
-            ? $"Profile-aware controls edit {profile.Game?.Name ?? profile.Active.ApplicationId}'s current game profile."
-            : "Profile-aware controls edit Global defaults. Live values are shared with Quick Access and the overlay.";
+        /// <summary>The profile the page's profile-aware controls edit: the running game's, or Global.</summary>
+        internal string ScopeName { get; } = profile.EditsGame
+            ? $"{profile.Game?.Name ?? profile.Active.ApplicationId}'s profile"
+            : "Global defaults";
+
+        /// <summary>What editing that profile means.</summary>
+        internal string ScopeDetail { get; } = profile.EditsGame
+            ? "Changes apply while this game runs. Settings it does not change follow Global."
+            : "Live values are shared with Quick Access and the overlay.";
 
         /// <summary>The Quick Access sections this read built, in the order they were first given a row.</summary>
         internal List<SteamQuickAccessRowSection> QuickAccess { get; } = [];
