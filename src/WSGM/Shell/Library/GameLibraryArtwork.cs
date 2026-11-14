@@ -207,6 +207,45 @@ internal sealed class GameLibraryArtwork : IDisposable
         Wake();
     }
 
+    /// <summary>Queries settled titles again after an explicit user request, keeping their matches.</summary>
+    /// <param name="ids">The active titles to check. Queries already pending or running are kept.</param>
+    internal void Recheck(IReadOnlyList<string> ids)
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            var changed = false;
+            foreach (var id in ids)
+            {
+                if (!_active.Contains(id) || !_titles.TryGetValue(id, out var title)
+                    || title.Status is GameLibraryArtworkStatus.Pending or GameLibraryArtworkStatus.Loading)
+                {
+                    continue;
+                }
+
+                _titles[id] = new Title(title.Request);
+                _queue.Remove(id);
+                _queue.Add(id);
+                changed = true;
+            }
+
+            if (!changed)
+            {
+                return;
+            }
+
+            _providers.ResetCache();
+            StartWorkers();
+        }
+
+        Wake();
+        Raise();
+    }
+
     /// <summary>Fetches a title again for a game the user picked.</summary>
     /// <param name="id">The title.</param>
     /// <param name="match">The game, or null to go back to the automatic match.</param>

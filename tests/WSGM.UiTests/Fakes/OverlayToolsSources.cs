@@ -1069,6 +1069,16 @@ internal sealed class FakeLibrarySource : IGameLibraryOverlaySource
         return Command("ResetArtworkAsync");
     }
 
+    public Task<SteamUiCommandResult> RecheckArtworkAsync(string id, CancellationToken cancellationToken)
+    {
+        return Command("RecheckArtworkAsync:" + id);
+    }
+
+    public Task<SteamUiCommandResult> ClearMatchSearchAsync(string id, CancellationToken cancellationToken)
+    {
+        return Command("ClearMatchSearchAsync:" + id);
+    }
+
     public Task<SteamUiCommandResult> ArtworkOptionsAsync(string id, string asset, CancellationToken cancellationToken)
     {
         return Command("ArtworkOptionsAsync");

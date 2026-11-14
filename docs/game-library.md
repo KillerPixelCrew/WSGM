@@ -38,12 +38,17 @@ Steam page; the Overlay uses focusable command and choice rows within its own na
   launch mode or route, Y opens the title's artwork and Menu its details. A on a card that cannot be
   ticked says why. "Select all" takes what the tab and search show, never a removal, an add Steam
   may already have, or a title the user deleted from Steam; those are ticked one at a time.
+  Left/Right moves between the source sidebar and review near the current row. Clear search resets
+  the title filter without changing selection. Recheck all artwork queries the providers again for
+  every editable title, retaining staged picks and fixed matches.
 - **One title's artwork** (Y on a card): every candidate for each artwork type, grouped by provider,
   with "Fix match" to search again under any name. Its results list SteamGridDB's and
   Screenscraper's games together, grouped by provider, and the user picks one. A provider that found
   nothing says why beside the results: SteamGridDB needs a key (with a button to WSGM's Artwork
   settings in Steam, or Settings from the overlay), Screenscraper is not responding, or it knows no
-  game by that name.
+  game by that name. Each artwork slot in the sidebar is controller selectable, and Left/Right moves
+  between that sidebar and the candidates. Recheck artwork refreshes this title's candidates. Clear
+  search cancels its game-match search and discards late results without changing the chosen match.
 - **All artwork:** every selected title as a row, one column per artwork type. The D-pad moves
   between cells and LT/RT cycle an image, so a whole library is dressed without opening titles one
   by one. Bulk actions fill every title from the Store or SteamGridDB first, fill only empty slots,

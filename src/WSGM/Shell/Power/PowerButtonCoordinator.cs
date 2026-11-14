@@ -42,6 +42,7 @@ internal sealed class PowerButtonCoordinator : IDisposable
     internal static readonly TimeSpan WakeSettle = TimeSpan.FromMilliseconds(1500);
 
     private readonly ConfigStore _store;
+    private readonly Action<ConfigStore> _restoreTakeover;
     private readonly Lock _gate = new();
     private readonly Timer _longTimer;
     private readonly CancellationTokenSource _lifetime = new();
@@ -55,18 +56,21 @@ internal sealed class PowerButtonCoordinator : IDisposable
     private bool _displayOff;
     private long _settleUntil;
     private bool _steamResumePending;
+    private bool _shortPressRunning;
     private bool _takenOver;
     private bool _disposed;
     private Task _work = Task.CompletedTask;
 
     /// <param name="store">The configuration Windows' original handling is saved to.</param>
-    internal PowerButtonCoordinator(ConfigStore store)
+    /// <param name="restoreTakeover">Restores Windows' handling, or null for the native implementation.</param>
+    internal PowerButtonCoordinator(ConfigStore store, Action<ConfigStore>? restoreTakeover = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _restoreTakeover = restoreTakeover ?? PowerButtonTakeover.RestoreBestEffort;
         _longTimer = new Timer(_ => OnLongPress(), null, Timeout.Infinite, Timeout.Infinite);
 
         // A takeover left by a crash is undone until this session can read the button again.
-        Enqueue("restore a left-over takeover", () => PowerButtonTakeover.RestoreBestEffort(_store));
+        Enqueue("restore a left-over takeover", () => _restoreTakeover(_store));
     }
 
     /// <summary>Completes when queued takeover, restore and action work has finished.</summary>
@@ -278,7 +282,7 @@ internal sealed class PowerButtonCoordinator : IDisposable
             _longTimer.Change(Timeout.Infinite, Timeout.Infinite);
             var acted = _longFired || _ignoreHeld;
             _heldPress = null;
-            if (acted)
+            if (acted || _shortPressRunning)
             {
                 return;
             }
@@ -290,18 +294,29 @@ internal sealed class PowerButtonCoordinator : IDisposable
                 return;
             }
 
+            _shortPressRunning = true;
             Run("handle a short press", async token =>
             {
-                // A second press closes an open power menu instead of acting underneath it.
-                if (await services.CloseDesktopPowerMenuAsync(token).ConfigureAwait(false))
+                try
                 {
-                    Log.Info("Power button: short press closed the power menu.");
+                    // The desktop menu consumes a short press; Game Mode always goes through Steam suspend.
+                    if (!services.InGameMode()
+                        && await services.CloseDesktopPowerMenuAsync(token).ConfigureAwait(false))
+                    {
+                        Log.Info("Power button: short press closed the power menu.");
+                        return true;
+                    }
+
+                    await RunShortPressAsync(services, shortPress, token).ConfigureAwait(false);
                     return true;
                 }
-
-                Log.Info($"Power button: short press, {shortPress}.");
-                RunShortPress(services, shortPress);
-                return true;
+                finally
+                {
+                    lock (_gate)
+                    {
+                        _shortPressRunning = false;
+                    }
+                }
             });
         }
     }
@@ -310,7 +325,8 @@ internal sealed class PowerButtonCoordinator : IDisposable
     {
         lock (_gate)
         {
-            if (_disposed || _heldPress is null || _longFired || _ignoreHeld || _services is not { } services)
+            if (_disposed || _heldPress is null || _longFired || _ignoreHeld || _shortPressRunning
+                || _services is not { } services)
             {
                 return;
             }
@@ -338,8 +354,21 @@ internal sealed class PowerButtonCoordinator : IDisposable
         }
     }
 
-    private void RunShortPress(PowerButtonServices services, PowerButtonShortPress shortPress)
+    /// <summary>Runs Steam suspend in Game Mode, or the configured desktop action outside it.</summary>
+    /// <param name="services">The session's action ports.</param>
+    /// <param name="shortPress">The configured desktop action.</param>
+    /// <param name="token">Cancels preparation when the session stops.</param>
+    internal async Task RunShortPressAsync(PowerButtonServices services, PowerButtonShortPress shortPress,
+        CancellationToken token)
     {
+        token.ThrowIfCancellationRequested();
+        var inGameMode = services.InGameMode();
+        if (inGameMode)
+        {
+            shortPress = PowerButtonShortPress.SteamSuspend;
+        }
+
+        Log.Info($"Power button: short press, {shortPress}.");
         switch (shortPress)
         {
             case PowerButtonShortPress.Nothing:
@@ -348,39 +377,45 @@ internal sealed class PowerButtonCoordinator : IDisposable
                 Standby(services);
                 return;
             case PowerButtonShortPress.SteamSuspend:
-                if (!services.InGameMode())
+                if (!inGameMode)
                 {
                     Standby(services);
                     return;
                 }
 
-                Run("Steam suspend", async token =>
+                var result = await services.RunSteamSuspendFlowAsync(token).ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
+                if (result is SteamSuspendFlowResult.TimedOut)
                 {
-                    var result = await services.RunSteamSuspendFlowAsync(token).ConfigureAwait(false);
-                    if (result is SteamSuspendFlowResult.TimedOut)
+                    // Steam can stay "suspending" after a failed preparation; its resume resets that.
+                    NotifySteamResumed(services);
+                }
+                else if (result is SteamSuspendFlowResult.Completed)
+                {
+                    lock (_gate)
                     {
-                        // Steam can stay "suspending" after a failed preparation; its resume resets that.
-                        NotifySteamResumed(services);
+                        _steamResumePending = true;
                     }
-                    else if (result is SteamSuspendFlowResult.Completed)
+                }
+                else
+                {
+                    Log.Warn($"Power button: Steam's suspend screen did not run ({result}); sleeping directly.");
+                }
+
+                if (!services.EnterStandby())
+                {
+                    Log.Warn("Power button: Modern Standby could not be requested.");
+                    if (result is SteamSuspendFlowResult.Completed)
                     {
                         lock (_gate)
                         {
-                            _steamResumePending = true;
+                            _steamResumePending = false;
                         }
-                    }
-                    else
-                    {
-                        Log.Warn($"Power button: Steam's suspend screen did not run ({result}); sleeping directly.");
-                    }
 
-                    if (!services.EnterStandby())
-                    {
-                        Log.Warn("Power button: Modern Standby could not be requested.");
+                        NotifySteamResumed(services);
                     }
+                }
 
-                    return true;
-                });
                 return;
             case PowerButtonShortPress.Hibernate:
                 services.RequestPowerAction(SessionPowerAction.Hibernate);

@@ -42,11 +42,11 @@ internal sealed class OverlayPowerEditors
     {
         _powerButtonSection = powerButtonSection;
         _powerButtonEditor = new ComboBox { MinWidth = 180, HorizontalAlignment = HorizontalAlignment.Stretch };
-        _powerButtonEditor.ItemsSource = Enum.GetValues<PowerButtonShortPress>()
+        _powerButtonEditor.ItemsSource = PowerButtonSetting.Choices
             .Select(value => new PowerButtonChoice(value, PowerButtonSetting.Label(value))).ToArray();
         Observe<PowerButtonChoice>(_powerButtonEditor, selected => PowerButtonSelected?.Invoke(selected.Value));
-        powerButtonHost.Children.Add(new DeviceSettingRow("power.button.short-press", "Short press",
-            "Hold the button to open the power menu", _powerButtonEditor, _ => { }));
+        powerButtonHost.Children.Add(new DeviceSettingRow("power.button.short-press", "Desktop short press",
+            "Game Mode always uses Steam suspend. Hold to open the power menu.", _powerButtonEditor, _ => { }));
 
         _viewModel = viewModel;
         _keepAwakeDetail = keepAwakeDetail;

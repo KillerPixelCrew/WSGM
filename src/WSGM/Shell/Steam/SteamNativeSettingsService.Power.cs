@@ -82,12 +82,12 @@ internal sealed partial class SteamNativeSettingsService
         if (powerButton is { Available: true } button)
         {
             List<SteamSettingsRow> rows = [];
-            offer.Add(rows, new SteamSettingsRow("power.button-short-press", SteamSettingsRowKind.Choice, "Short press",
-                    "What a short press of the power button does. Hold it to open the power menu.",
+            offer.Add(rows, new SteamSettingsRow("power.button-short-press", SteamSettingsRowKind.Choice, "Desktop short press",
+                    "Game Mode always uses Steam suspend. Hold to open the power menu.",
                     Text: button.Current.ToString(),
                     Choices:
                     [
-                        .. Enum.GetValues<PowerButtonShortPress>().Select(value =>
+                        .. PowerButtonSetting.Choices.Select(value =>
                             new SteamSettingsChoice(value.ToString(), PowerButtonSetting.Label(value)))
                     ]),
                 async (value, token) =>

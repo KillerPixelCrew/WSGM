@@ -1,7 +1,7 @@
 namespace WSGM.Core;
 
-/// <summary>What a short press of the handheld's power button does while WSGM handles the button.</summary>
-/// <remarks>A long press always opens a power menu: Steam's in Game Mode, the overlay's on the desktop.</remarks>
+/// <summary>What a short press of a supported handheld's power button does on the desktop.</summary>
+/// <remarks>Game Mode always runs Steam suspend. A long press opens the mode's power menu.</remarks>
 public enum PowerButtonShortPress
 {
     /// <summary>Modern Standby, entered the way the display timeout does it.</summary>

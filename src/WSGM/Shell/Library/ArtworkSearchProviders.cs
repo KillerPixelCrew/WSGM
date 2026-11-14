@@ -16,6 +16,15 @@ internal sealed class ArtworkSearchProviders(Func<ArtworkConfig> config) : IGame
     private static readonly ArtworkQuery LibraryQuery = new(Animated: false, Adult: false);
 
     /// <inheritdoc />
+    public void ResetCache()
+    {
+        foreach (var provider in ArtworkSearch.Providers)
+        {
+            provider.ResetCache();
+        }
+    }
+
+    /// <inheritdoc />
     public string? Unavailable()
     {
         var current = config();

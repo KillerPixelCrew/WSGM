@@ -214,8 +214,35 @@ public sealed class GameLibraryArtworkTests
         Assert.Equal([SgdbGame, RomGame], search.Matches);
     }
 
+    [Fact]
+    public async Task AnExplicitRecheckFetchesFreshImagesAndKeepsTheChosenGame()
+    {
+        FakeProviders providers = new();
+        providers.Images[SgdbGame] = ["https://sgdb/old.png"];
+        using GameLibraryArtwork stage = new(providers);
+        stage.Reset([Request(match: SgdbGame)]);
+        await SettledAsync(stage);
+
+        providers.Images[SgdbGame] = ["https://sgdb/new.png"];
+        stage.Recheck(["t1"]);
+        await SettledAsync(stage);
+
+        Assert.Equal("https://sgdb/new.png", Assert.Single(stage.Options("t1", ArtworkAsset.Grid)).Url);
+        Assert.Equal(1, providers.CacheResets);
+        Assert.Equal(0, providers.Searches);
+        Assert.Equal(10, providers.Fetched.Count);
+        Assert.All(providers.Fetched, match => Assert.Equal(SgdbGame, match));
+    }
+
     private sealed class FakeProviders : IGameLibraryArtworkProviders
     {
+        public void ResetCache()
+        {
+            CacheResets++;
+        }
+
+        internal int CacheResets { get; private set; }
+
         private static readonly string[] Order = ["steamgriddb", "screenscraper"];
         private int _searches;
 

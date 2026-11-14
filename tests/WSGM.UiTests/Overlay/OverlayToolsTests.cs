@@ -86,6 +86,23 @@ public sealed class OverlayToolsTests
     }
 
     [AvaloniaFact]
+    public void ArtworkRechecksAreReachableFromReviewAndTheTitlePicker()
+    {
+        using var fixture = new UiFixture();
+        var source = new FakeLibrarySource();
+        var window = PreviewTools.Create(fixture, library: source);
+        UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SteamGameLibrary));
+        Click(window, "Review (3)");
+        Click(window, "Recheck all artwork");
+        Click(window, "New game");
+        Click(window, "Staged artwork");
+        Click(window, "Recheck artwork");
+
+        Assert.Contains("RecheckArtworkAsync:", source.Commands);
+        Assert.Contains("RecheckArtworkAsync:new-one", source.Commands);
+    }
+
+    [AvaloniaFact]
     public void MovieDeletionRequiresTheConfirmationAndLeavesOtherActionsAvailable()
     {
         using var fixture = new UiFixture();

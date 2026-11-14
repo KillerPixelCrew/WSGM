@@ -590,8 +590,9 @@ These are the remote test surface; keep their shape.
 ## The power button
 
 On a model whose definition can read both edges of the power button, WSGM handles it: a short press
-runs the configured action and a hold opens a power menu, Steam's in Game Mode and the overlay's on
-the desktop. Elsewhere, including with Device Integration off, Windows keeps the button.
+runs Steam suspend in Game Mode or the configured desktop action, and a hold opens a power menu,
+Steam's in Game Mode and the overlay's on the desktop. Elsewhere, including with Device Integration
+off, Windows keeps the button.
 
 ### Where the press comes from
 
@@ -627,19 +628,21 @@ A hold of one second opens the power menu while the button is still down. A shor
 release, because suspending with the button held left Windows thinking it was held through the sleep
 and it offered slide-to-shut-down after the wake. A press while the display is off, or within 1.5 s
 of the display lighting or the system resuming, belongs to that wake and does nothing. A short press
-while the overlay's power menu is open closes the menu.
+on the desktop while the overlay's power menu is open closes the menu.
 
-The short press is chosen on the overlay's Power > Power page and on Steam's Power settings page,
-through the one `PowerButtonSetting` owner, and stored in `DeviceIntegration.PowerButtonShortPress`:
+On a supported device, a Game Mode short press always runs Steam's suspend flow before standby,
+regardless of the desktop choice. Repeated presses during preparation cannot skip the animation. The
+desktop action is chosen on the overlay's Power > Power page and on Steam's Power settings page,
+through the one `PowerButtonSetting` owner, and stored in `DeviceIntegration.PowerButtonShortPress`.
+An older saved Steam suspend choice behaves as Sleep on the desktop.
 
-| Choice        | Effect                                                                                                             |
-| ------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Sleep         | Modern Standby, entered as below.                                                                                  |
-| Steam suspend | In Game Mode, Steam's own suspend flow with its PC suspend suppressed, then Modern Standby; elsewhere plain Sleep. |
-| Hibernate     | Hibernation.                                                                                                       |
-| Shut down     | `shutdown /s /t 0`.                                                                                                |
-| Restart       | `shutdown /r /t 0`.                                                                                                |
-| Do nothing    | Only the hold does something.                                                                                      |
+| Choice     | Effect                            |
+| ---------- | --------------------------------- |
+| Sleep      | Modern Standby, entered as below. |
+| Hibernate  | Hibernation.                      |
+| Shut down  | `shutdown /s /t 0`.               |
+| Restart    | `shutdown /r /t 0`.               |
+| Do nothing | Only the hold does something.     |
 
 ### Entering Modern Standby
 

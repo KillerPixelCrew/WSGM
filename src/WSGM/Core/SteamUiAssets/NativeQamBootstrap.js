@@ -7179,6 +7179,13 @@
   // @fragment ui-kit.ts
   // Shared elements around Steam's native fields. Use Steam React/Focusable and render the kit
   // stylesheet in each consuming document. CSS selectors preserve Valve layout and focus behavior.
+  // Steam's MAINTAIN_Y entry position is 3. A column beside another column enters at the
+  // current row rather than its first child. Keep the container itself out of the focus stops.
+  const SteamUiVerticalPaneNavigation = Object.freeze({
+    "flow-children": "column",
+    navEntryPreferPosition: 3,
+    focusable: false,
+  });
   const SteamUiKitStyles = `
 .steam-ui-kit-resolution-editor{display:flex;flex-direction:column;gap:10px;padding:12px 0;min-width:0;max-width:100%;box-sizing:border-box}
 .steam-ui-kit-resolution-actions .DialogButton{width:auto;min-width:80px;flex:0 0 auto}
@@ -23222,7 +23229,7 @@
 #wsgm-import .wsgm-import-col .DialogButton { width: auto; min-width: auto; height: 24px; padding: 0 8px; font-size: 11px; }
 #wsgm-import .wsgm-import-split { display: flex; gap: 36px; flex: 1; min-height: 0; }
 #wsgm-import .wsgm-import-side { width: 260px; flex: 0 0 auto; display: flex; flex-direction: column; gap: 12px; }
-#wsgm-import .wsgm-import-side .DialogButton { width: auto; min-width: auto; height: 40px; }
+#wsgm-import .wsgm-import-side .DialogButton { width: auto; min-width: auto; min-height: 40px; height: auto; white-space:normal; }
 #wsgm-import .wsgm-import-side .DialogLabel { display: none; }
 #wsgm-import .wsgm-import-side .DialogInputLabelGroup, #wsgm-import .wsgm-import-side .DialogInput_Wrapper { margin: 0; }
 #wsgm-import .wsgm-import-side .DialogInput { width: 100%; height: 40px; box-sizing: border-box; padding: 0 12px; }
@@ -24374,8 +24381,8 @@
         : importArtworkLine(entry) ||
           "No images were found for this. Fix the match to search for the right game.";
     const content = h(
-      "div",
-      { className: "wsgm-import-pane" },
+      ui.focusable,
+      { className: "wsgm-import-pane", ...SteamUiVerticalPaneNavigation },
       status,
       answer?.detail && options.length
         ? h("div", { className: "wsgm-import-muted" }, answer.detail)
@@ -24433,19 +24440,16 @@
     const chosenRows = importAssets.map((type) => {
       const chosen = (entry.artwork ?? []).find((candidate) => candidate.asset === type.id);
       const size = { width: `${type.thumb[0]}px`, height: `${type.thumb[1]}px` };
-      return h(
-        "div",
-        { key: type.id, className: "wsgm-import-chosen", "data-on": String(type.id === asset) },
-        chosen?.thumb
+      return renderSteamUiSelectRow(ui, {
+        key: type.id,
+        title: type.label,
+        detail: importSlotCaption(chosen) ?? "No artwork chosen",
+        selected: type.id === asset,
+        onClick: () => onAsset(type.id),
+        media: chosen?.thumb
           ? h("img", { src: chosen.thumb, alt: "", loading: "lazy", draggable: false, style: size })
           : h("span", { className: "wsgm-import-thumb", style: size }),
-        h(
-          "div",
-          {},
-          h("span", {}, type.label),
-          h("span", {}, importSlotCaption(chosen) ?? "\u2014"),
-        ),
-      );
+      });
     });
     // Fixing a match searches every provider at once and lists them together, the way the artwork
     // page does; the automatic match still asks SteamGridDB first. The command only starts it.
@@ -24458,9 +24462,17 @@
     }, []);
     const side = h(
       ui.focusable,
-      { className: "wsgm-import-side", "flow-children": "column" },
+      { className: "wsgm-import-side", ...SteamUiVerticalPaneNavigation },
       h("div", { className: "wsgm-import-eyebrow" }, "Chosen for this title"),
       ...chosenRows,
+      h(
+        ui.dialogButton,
+        {
+          disabled: !!imported?.loading,
+          onClick: () => void importAct("recheckArtwork", { id: entry.id }),
+        },
+        "Recheck artwork",
+      ),
       h("div", { className: "wsgm-import-rule" }),
       h(
         "div",
@@ -24481,6 +24493,18 @@
         { disabled: searching, onClick: runSearch },
         searching ? "Searching\u2026" : "Fix match",
       ),
+      search.length || matchSearch
+        ? h(
+            ui.dialogButton,
+            {
+              onClick: () => {
+                setSearch("");
+                void importAct("clearMatchSearch", { id: entry.id });
+              },
+            },
+            "Clear search",
+          )
+        : null,
       entry.matchFixed
         ? h(
             ui.dialogButton,
@@ -24532,12 +24556,12 @@
       ui,
       { className: "wsgm-import-main", onBack },
       h(
-        "div",
-        { className: "wsgm-import-split" },
+        ui.focusable,
+        { className: "wsgm-import-split", "flow-children": "row" },
         side,
         h(
-          "div",
-          { className: "wsgm-import-main" },
+          ui.focusable,
+          { className: "wsgm-import-main", ...SteamUiVerticalPaneNavigation },
           h(ui.tabs, {
             autoFocusContents: true,
             activeTab: asset,
@@ -24942,7 +24966,7 @@
       );
       const sidebar = h(
         ui.focusable,
-        { className: "wsgm-import-sidebar", "flow-children": "column" },
+        { className: "wsgm-import-sidebar", ...SteamUiVerticalPaneNavigation },
         h("div", { className: "wsgm-import-eyebrow" }, "Sources"),
         ...sources
           .filter(
@@ -25067,7 +25091,16 @@
               }),
             )
           : null,
+        query.length ? h(ui.dialogButton, { onClick: () => setQuery("") }, "Clear search") : null,
         h("div", { className: "wsgm-import-spacer" }),
+        h(
+          ui.dialogButton,
+          {
+            disabled: busy || entries.every((entry) => !entry.editable),
+            onClick: () => void importAct("recheckArtwork", { id: "" }),
+          },
+          "Recheck all artwork",
+        ),
         h(
           ui.dialogButton,
           {
@@ -25091,7 +25124,7 @@
                 selected: !anySelected,
               }),
           },
-          anySelected ? "Clear" : "Select all",
+          anySelected ? "Deselect" : "Select all",
         ),
         saveButton,
       );
@@ -25114,8 +25147,8 @@
       body = [
         h(react.Fragment, { key: "sidebar" }, sidebar),
         h(
-          "div",
-          { key: "review", className: "wsgm-import-main" },
+          ui.focusable,
+          { key: "review", className: "wsgm-import-main", ...SteamUiVerticalPaneNavigation },
           entries.length
             ? h(ui.tabs, {
                 autoFocusContents: true,
@@ -25126,7 +25159,13 @@
                   title: `${candidate.title} ${counts[candidate.group || "all"] ?? 0}`,
                   content:
                     candidate.id === active.id
-                      ? h("div", { className: "wsgm-import-pane" }, toolbar, status, ...grid)
+                      ? h(
+                          ui.focusable,
+                          { className: "wsgm-import-pane", ...SteamUiVerticalPaneNavigation },
+                          toolbar,
+                          status,
+                          ...grid,
+                        )
                       : null,
                 })),
               })
@@ -25160,7 +25199,11 @@
       react.Fragment,
       null,
       header,
-      h("div", { className: "wsgm-import-body" }, ...(Array.isArray(body) ? body : [body])),
+      h(
+        ui.focusable,
+        { className: "wsgm-import-body", "flow-children": "row" },
+        ...(Array.isArray(body) ? body : [body]),
+      ),
     );
   }
   const libraryImportPage = registerSteamPage({

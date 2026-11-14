@@ -8,6 +8,9 @@ namespace WSGM.Shell;
 /// <summary>The artwork providers as the Game Library asks them.</summary>
 internal interface IGameLibraryArtworkProviders
 {
+    /// <summary>Forgets cached provider responses for an explicit artwork recheck.</summary>
+    void ResetCache();
+
     /// <summary>Why nothing can be asked, or null when at least one provider is ready.</summary>
     /// <returns>A user-facing setup reason, or null when at least one configured provider is ready.</returns>
     string? Unavailable();

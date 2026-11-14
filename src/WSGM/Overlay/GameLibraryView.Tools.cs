@@ -124,6 +124,19 @@ public sealed partial class GameLibraryView
                 _shown = 48;
                 RenderReview(importedOnly);
             })), "review.search"));
+        if (_search.Length > 0)
+        {
+            body.Children.Add(Tagged(Row("Clear search", "Show all titles in this tab", Icons.Close, () =>
+            {
+                _search = string.Empty;
+                _shown = 48;
+                RenderReview(importedOnly);
+            }), "review.clear-search"));
+        }
+
+        body.Children.Add(Tagged(Row("Recheck all artwork", "Ask the providers again; keep staged choices",
+            Icons.Restart, state.Loading ? null : () => Run(token => _service!.RecheckArtworkAsync("", token))),
+            "review.recheck-artwork"));
         var sources = new List<(string, string)> { ("", "All sources") };
         sources.AddRange(state.Sources.Select(source => (source.Id, source.Name)));
         body.Children.Add(ChoiceRow("Source", sources, _sourceId, value =>
@@ -219,6 +232,9 @@ public sealed partial class GameLibraryView
         var body = NewStack(entry.Name + " · Staged artwork");
         AddStatus(body, state);
         body.Children.Add(Caption("Changes are saved only when you apply this title to Steam."));
+        body.Children.Add(Tagged(Row("Recheck artwork", "Ask the providers again; keep staged choices",
+            Icons.Restart, state.Loading ? null : () => Run(token => _service.RecheckArtworkAsync(id, token))),
+            "art.recheck"));
         body.Children.Add(ToolTabs(asset,
             Assets.Select(type => (type.Id, type.Label, (Action)(() => Replace(() => RenderTitleArtwork(id, type.Id)))))
                 .ToArray()));
@@ -284,6 +300,11 @@ public sealed partial class GameLibraryView
         body.Children.Add(Tagged(Row("Search", search?.Query ?? entry.Name, Icons.ListLines,
             () => EditText("Find artwork game", search?.Query ?? entry.Name, 0,
                 query => Run(token => _service!.SearchMatchAsync(id, query, token)))), "match.search"));
+        if (search is not null)
+        {
+            body.Children.Add(Tagged(Row("Clear search", "Discard these results and start another search",
+                Icons.Close, () => Run(token => _service!.ClearMatchSearchAsync(id, token))), "match.clear-search"));
+        }
         body.Children.Add(Tagged(
             Row("Use automatic match", "Discard the fixed match", Icons.Restart,
                 () => Run(token => _service!.SetMatchAsync(id, "", "", "", token))), "match.auto"));

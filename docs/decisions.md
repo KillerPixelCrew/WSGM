@@ -546,10 +546,11 @@ to react only to a hold. The button is therefore a LibHandheld `Power` control p
 that reads both edges, not a remappable OEM control, and WSGM takes Windows' power-button action and
 slide-to-shut-down screen over only while that control is published, restoring both when it goes,
 when WSGM stops and from every recovery path. A hold opens Steam's power menu in Game Mode and the
-overlay's on the desktop; the short press is the user's choice on both Power pages. Sleep on a
-Modern Standby machine enters standby through the display, because every Windows sleep call
-hibernates there, and Steam suspend runs Steam's own flow with its PC suspend suppressed before WSGM
-sleeps. Models whose button cannot be read keep Windows' handling. Mechanism in
+overlay's on the desktop. On supported devices, a Game Mode short press always runs Steam suspend;
+the choice on both Power pages configures the desktop action. Sleep on a Modern Standby machine
+enters standby through the display, because every Windows sleep call hibernates there, and Steam
+suspend runs Steam's own flow with its PC suspend suppressed before WSGM sleeps. Models whose button
+cannot be read keep Windows' handling. Mechanism in
 [power and display](power-and-display.md#the-power-button).
 
 ## User interface

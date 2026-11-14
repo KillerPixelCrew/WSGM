@@ -907,6 +907,41 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     }
 
     /// <inheritdoc />
+    public Task<SteamUiCommandResult> RecheckArtworkAsync(string id, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_artwork is not { } artwork)
+        {
+            return Refuse("No artwork provider is available in this session.");
+        }
+
+        string[] ids;
+        lock (Gate)
+        {
+            if (Guard() is { } refusal)
+            {
+                return Task.FromResult(refusal);
+            }
+
+            if (Busy)
+            {
+                return Refuse("Wait for the current run to finish.");
+            }
+
+            if (id.Length > 0 && (!Entries.TryGetValue(id, out var entry) || !entry.Editable))
+            {
+                return Refuse("That title is no longer available for artwork changes.");
+            }
+
+            ids = Entries.Values.Where(entry => entry.Editable && (id.Length == 0 || entry.Id == id))
+                .Select(entry => entry.Id).ToArray();
+        }
+
+        artwork.Recheck(ids);
+        return Task.FromResult(SteamUiCommandResult.Applied);
+    }
+
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> ArtworkOptionsAsync(string id, string asset, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -982,6 +1017,32 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
         Notify();
         _ = SearchMatchInBackgroundAsync(artwork, id, term, work);
+        return Task.FromResult(SteamUiCommandResult.Applied);
+    }
+
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> ClearMatchSearchAsync(string id, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (Gate)
+        {
+            if (_disposed)
+            {
+                return Task.FromResult(ShuttingDown);
+            }
+
+            if (_matchSearch?.Id != id)
+            {
+                return Task.FromResult(SteamUiCommandResult.Applied);
+            }
+
+            _matchWork?.Cancel();
+            _matchWork = null;
+            _matchSearch = null;
+            Publish();
+        }
+
+        Notify();
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 

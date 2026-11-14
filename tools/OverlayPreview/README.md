@@ -98,3 +98,6 @@ separate test/update workflow in [UI documentation](../../docs/ui.md).
 This is a Windows-targeted .NET executable outside `WSGM.slnx`. `SkipNativeArtifacts` suppresses
 native payload staging for the preview build; it does not turn the application into a portable Linux
 runtime or validate a distributable installer.
+
+Pass `library-cases` after the scale to render the Library Manager review, title artwork and match
+search states without starting Steam. Use 980 × 640 and a larger viewport to inspect their fit.

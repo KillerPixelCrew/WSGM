@@ -4,6 +4,7 @@ using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Input;
 using WSGM.Overlay;
@@ -16,6 +17,30 @@ namespace WSGM.UiTests.Visual;
 /// <summary>Populated tool captures over explicit local fakes, without Steam, network or installs.</summary>
 public static class PreviewTools
 {
+    /// <summary>Exports library review, artwork, search states and the supported power-button setting.</summary>
+    public static void ExportLibraryCases(string directory, int width, int height)
+    {
+        Directory.CreateDirectory(directory);
+        Export(directory, width, height, ["importer-review", "importer-artwork"]);
+        ExportMatchCases(directory, width, height);
+        using var fixture = new UiFixture();
+        var window = fixture.Overlay(width, height);
+        ((OverlayViewModel)window.DataContext!).PowerButtonAvailable = true;
+        UiFixture.Click(window, UiFixture.Tab(window, 3));
+        UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerActions));
+        Dispatcher.UIThread.RunJobs();
+        var editor = window.GetVisualDescendants().OfType<ComboBox>()
+            .Single(control => Equals(control.Tag, "power.button.short-press"));
+        editor.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+        window.FocusManager!.Focus(null);
+        window.MouseMove(new Point(-20, -20));
+        using var image = window.CaptureRenderedFrame()
+                          ?? throw new InvalidOperationException("No power-button preview was rendered.");
+        image.Save(Path.Combine(directory, $"power-button-{width}x{height}.png"), new PngBitmapEncoderOptions());
+        window.Close();
+    }
+
     /// <summary>Storage cases render only when a filter names them, so ordinary exports are unchanged.</summary>
     private static readonly string[] StorageScenarios =
     [

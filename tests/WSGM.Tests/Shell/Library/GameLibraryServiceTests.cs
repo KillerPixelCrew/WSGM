@@ -168,6 +168,49 @@ public sealed class GameLibraryServiceTests
     }
 
     [Fact]
+    public async Task ClearingAMatchSearchCancelsItAndRejectsItsLateResults()
+    {
+        using Harness harness = new();
+        HeldSearches providers = new();
+        using GameLibraryArtwork artwork = new(providers);
+        using var source = harness.Create([Game()], artwork: artwork);
+        var entry = Assert.Single((await ScannedAsync(source)).Entries);
+        await source.SearchMatchAsync(entry.Id, "first", CancellationToken.None);
+        var token = providers.Token("first");
+
+        Assert.True((await source.ClearMatchSearchAsync(entry.Id, CancellationToken.None)).Succeeded);
+        Assert.True(token.IsCancellationRequested);
+        Assert.Null(source.ReadState().MatchSearch);
+
+        await source.SearchMatchAsync(entry.Id, "second", CancellationToken.None);
+        providers.Answer("first", ArtworkGameSearch.Empty);
+        providers.Answer("second", ArtworkGameSearch.Empty);
+        await AsyncConditions.WaitForAsync(() => source.ReadState().MatchSearch?.Searching == false);
+        Assert.Equal("second", source.ReadState().MatchSearch!.Query);
+    }
+
+    [Fact]
+    public async Task RecheckingArtworkRetainsTheStagedClearAndFixedMatch()
+    {
+        using Harness harness = new();
+        using GameLibraryArtwork artwork = new(new HeldSearches());
+        using var source = harness.Create([Game()], artwork: artwork);
+        var entry = Assert.Single((await ScannedAsync(source)).Entries);
+        await source.SetMatchAsync(entry.Id, "steamgriddb", "7", "Chosen game", CancellationToken.None);
+        await source.ClearArtworkAsync(entry.Id, "grid", CancellationToken.None);
+        var before = Assert.Single(harness.Store.Choices());
+
+        Assert.True((await source.RecheckArtworkAsync(entry.Id, CancellationToken.None)).Succeeded);
+        Assert.True((await source.RecheckArtworkAsync("", CancellationToken.None)).Succeeded);
+
+        var after = Assert.Single(harness.Store.Choices());
+        Assert.Equal(("steamgriddb", "7"), (after.MatchProvider, after.MatchId));
+        Assert.Equal(before.Artwork.Select(pick => (pick.Asset, pick.Url, pick.Revision)),
+            after.Artwork.Select(pick => (pick.Asset, pick.Url, pick.Revision)));
+        Assert.Equal(entry.Selected, Assert.Single(source.ReadState().Entries).Selected);
+    }
+
+    [Fact]
     public async Task ANewerMatchSearchReplacesTheOneStillRunningAndPickingAGameClosesIt()
     {
         using Harness harness = new();
@@ -1380,6 +1423,10 @@ public sealed class GameLibraryServiceTests
     /// <summary>Artwork providers whose title searches wait until the test answers them.</summary>
     private sealed class HeldSearches : IGameLibraryArtworkProviders
     {
+        public void ResetCache()
+        {
+        }
+
         private readonly Dictionary<string, (TaskCompletionSource<ArtworkGameSearch> Answer, CancellationToken Token)>
             _searches = [];
 

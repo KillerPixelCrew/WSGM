@@ -235,6 +235,12 @@ public interface IGameLibraryBackend
     /// <returns>Whether selected entries were reset to their default artwork choices.</returns>
     Task<SteamUiCommandResult> ResetArtworkAsync(CancellationToken cancellationToken);
 
+    /// <summary>Asks the artwork providers again while retaining the user's staged choices and fixed matches.</summary>
+    /// <param name="id">One review entry, or empty for every editable entry in the review.</param>
+    /// <param name="cancellationToken">Cancels admission; accepted queries use the service lifetime.</param>
+    /// <returns>Whether the recheck was admitted, with a refusal reason on failure.</returns>
+    Task<SteamUiCommandResult> RecheckArtworkAsync(string id, CancellationToken cancellationToken);
+
     /// <summary>Asks for one entry's artwork before the others, and answers with its candidates.</summary>
     /// <param name="id">Stable review entry identifier from GameLibraryEntry.Id.</param>
     /// <param name="asset">Artwork slot: grid, wide, hero, logo or icon.</param>
@@ -254,6 +260,12 @@ public interface IGameLibraryBackend
     ///     published as <see cref="GameLibraryState.MatchSearch" />.
     /// </returns>
     Task<SteamUiCommandResult> SearchMatchAsync(string id, string query, CancellationToken cancellationToken);
+
+    /// <summary>Clears the title's match search and cancels any results still being gathered.</summary>
+    /// <param name="id">The review entry whose search is open.</param>
+    /// <param name="cancellationToken">Cancels admission.</param>
+    /// <returns>Whether the search was cleared; the title's chosen match is retained.</returns>
+    Task<SteamUiCommandResult> ClearMatchSearchAsync(string id, CancellationToken cancellationToken);
 
     /// <summary>Matches an entry to a provider's game, or back to the automatic match with an empty id.</summary>
     /// <param name="id">Stable review entry identifier from GameLibraryEntry.Id.</param>

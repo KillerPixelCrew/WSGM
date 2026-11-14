@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
@@ -15,6 +16,10 @@ namespace WSGM.Shell;
 /// </remarks>
 internal sealed class PowerButtonSetting
 {
+    /// <summary>Desktop choices; Game Mode always uses Steam suspend on a supported device.</summary>
+    internal static readonly PowerButtonShortPress[] Choices =
+        Enum.GetValues<PowerButtonShortPress>().Where(value => value != PowerButtonShortPress.SteamSuspend).ToArray();
+
     private readonly DeviceCoordinator? _device;
 
     /// <param name="device">The session's device coordinator, or null with Device Integration off.</param>
@@ -34,7 +39,8 @@ internal sealed class PowerButtonSetting
     internal bool Available => _device?.PowerButton.Active == true;
 
     /// <summary>The chosen short-press action.</summary>
-    internal PowerButtonShortPress Current => _device?.PowerButtonShortPress ?? PowerButtonShortPress.Sleep;
+    internal PowerButtonShortPress Current => _device?.PowerButtonShortPress is { } value
+        && value != PowerButtonShortPress.SteamSuspend ? value : PowerButtonShortPress.Sleep;
 
     /// <summary>Short user-facing label for a choice.</summary>
     /// <param name="value">The choice.</param>
