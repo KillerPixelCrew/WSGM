@@ -12,14 +12,6 @@ namespace WSGM.Shell;
 /// </summary>
 internal interface IGameModeEntryBackend
 {
-    /// <summary>
-    ///     Restores a desktop state an earlier session still owes, and clears its record once
-    ///     restored. A refusal leaves the desktop untouched and lets Steam be watched again.
-    /// </summary>
-    /// <param name="cancellationToken">Stops waiting for the restore.</param>
-    /// <returns>Whether nothing is owed any more.</returns>
-    Task<bool> RestorePendingReturnAsync(CancellationToken cancellationToken);
-
     /// <summary>Shows one status line on the splash.</summary>
     /// <param name="line">What is happening now.</param>
     void SetStatus(string line);

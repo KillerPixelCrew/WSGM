@@ -307,4 +307,7 @@ its More button or X, because popups are out of the controller's reach. Search s
 type, read from the pages, and choosing one shows its section and focuses the row. Display modes
 show resolution and refresh, scaling has an explicit percentage label, and secondary-display
 coordinates live under Display position. Session actions are expandable, with one
-unavailable-provider hint rather than a repeated message for each event.
+unavailable-provider hint rather than a repeated message for each event. Disconnected displays show
+their connection state and a Forget action directly in the display list. Its in-place confirmation
+names the display and explains that both saved layouts and a matching display wait are edited; Save
+commits the removal.

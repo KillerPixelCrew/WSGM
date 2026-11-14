@@ -105,8 +105,7 @@ internal static class GameModeReturnRecovery
     /// <param name="report">Failure reporter, or null to log warnings.</param>
     /// <param name="applyGraphics">Existing session graphics owner, or null to retain driver recovery for a later session.</param>
     /// <param name="requireAudio">
-    ///     False only for entry preflight, where unavailable output controls and HDMI audio must not
-    ///     gate their display activation.
+    ///     False reports unavailable output controls and HDMI audio while leaving their recovery pending.
     /// </param>
     /// <returns>True when no recovery is owed or all requested restores succeeded. The record is not cleared here.</returns>
     internal static async Task<bool> RestorePendingAsync(ConfigStore store, CancellationToken cancellationToken,

@@ -622,17 +622,19 @@ lists, their editor and the Game Mode entry order are in
 ## Recorded desktop state recovery
 
 Source cleanup on 2026-10-01 made the saved Game Mode return layout and audio snapshot reachable
-from normal startup, explicit entry admission, coordinated exit, panic recovery and the early
-`--restore-shell` escape. Explorer recovery runs independently of optional display/audio success.
-The early escape attempts those optional restores after making Explorer usable, without requiring
-logging or Avalonia initialization.
+from normal startup, coordinated exit, panic recovery and the early `--restore-shell` escape.
+Explorer recovery runs independently of optional display/audio success. The early escape attempts
+those optional restores after making Explorer usable, without requiring logging or Avalonia
+initialization.
 
 A failed restore keeps its snapshot. A timeout does not prove that a synchronous display call
 stopped, so its owner and serialization gate remain until the call actually finishes. Startup stays
-on the desktop and suppresses boot takeover when recovery is pending. A later explicit entry must
-settle recovery before capturing a new return snapshot. Successful restoration clears only the
-matching record after Explorer is verified. Shutdown isolates each UI cleanup so one failed resource
-cannot skip another or prevent an Explorer attempt.
+on the desktop and suppresses boot takeover when recovery is pending. An explicit Game Mode switch
+uses the current desktop and the selected Game Mode layout, without first restoring an older
+snapshot that may name removed hardware. Custom entry captures its fresh return layout and audio
+before running entry actions and persists them before Explorer leaves. Successful restoration clears
+only the matching record after Explorer is verified. Shutdown isolates each UI cleanup so one failed
+resource cannot skip another or prevent an Explorer attempt.
 
 The logon service's grace check asks a fixed pre-UI probe whether the actual Explorer desktop shell
 exists. An Explorer folder process alone is insufficient. A stalled probe is terminated through its

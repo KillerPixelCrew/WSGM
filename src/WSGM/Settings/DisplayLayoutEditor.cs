@@ -43,6 +43,17 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
     /// <summary>Gets the badge shown for a display that is configured but not plugged in.</summary>
     public string PresenceText => Present ? "" : "Not connected right now";
 
+    /// <summary>Whether this card is asking before forgetting its saved display.</summary>
+    public bool ConfirmForget
+    {
+        get;
+        set => SetField(ref field, value, nameof(ConfirmForget));
+    }
+
+    /// <summary>Names the display and explains the pending configuration edit.</summary>
+    public string ForgetWarning =>
+        $"Forget {DisplayName}? This removes it from both saved layouts and any display wait. Save changes to apply.";
+
     /// <summary>Gets whether advanced colour can be chosen for this display.</summary>
     public bool HdrSupported => Display.HdrSupported;
 

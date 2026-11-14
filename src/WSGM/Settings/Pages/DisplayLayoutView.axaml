@@ -42,15 +42,29 @@
                Classes="display-list" IsVisible="{Binding HasDisplays}">
         <ListBox.ItemTemplate>
           <DataTemplate x:DataType="s:DisplayLayoutEditorRow">
-            <Grid ColumnDefinitions="24,*,Auto" ColumnSpacing="10">
+            <Grid ColumnDefinitions="24,*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="10">
               <TextBlock Text="{Binding Number}" Classes="display-number" VerticalAlignment="Center" />
               <StackPanel Grid.Column="1" Spacing="2">
                 <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" TextWrapping="Wrap" />
                 <TextBlock Text="{Binding Summary}" Classes="caption" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding PresenceText}" Classes="caption" IsVisible="{Binding !Present}"
+                           TextWrapping="Wrap" />
               </StackPanel>
-              <Border Grid.Column="2" Classes="settings-chip" IsVisible="{Binding IsPrimary}" VerticalAlignment="Center">
-                <TextBlock Text="Primary" />
-              </Border>
+              <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Border Classes="settings-chip" IsVisible="{Binding IsPrimary}" VerticalAlignment="Center">
+                  <TextBlock Text="Primary" />
+                </Border>
+                <Button Content="Forget" Click="OnRequestForget" Tag="request-forget"
+                        VerticalAlignment="Center" IsVisible="{Binding !Present}" />
+              </StackPanel>
+              <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Spacing="8" Margin="0,8,0,0"
+                          IsVisible="{Binding ConfirmForget}">
+                <TextBlock Text="{Binding ForgetWarning}" TextWrapping="Wrap" Classes="caption" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Button Content="Keep display" Click="OnKeepDisplay" Tag="keep-display" />
+                  <Button Content="Forget display" Click="OnConfirmForget" />
+                </StackPanel>
+              </StackPanel>
             </Grid>
           </DataTemplate>
         </ListBox.ItemTemplate>

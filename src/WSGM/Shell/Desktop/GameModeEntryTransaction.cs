@@ -39,12 +39,10 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
         try
         {
             backend.SetCancellable(true);
-            if (!await backend.RestorePendingReturnAsync(cancellationToken).ConfigureAwait(false))
-            {
-                return new GameModeEntryResult(GameModeEntryOutcome.Failed,
-                    "The recorded desktop display or audio state could not be restored. Game Mode entry was stopped.");
-            }
-
+            cancellationToken.ThrowIfCancellationRequested();
+            // An explicit switch starts from the desktop the user is using now. An older crash
+            // snapshot may name removed hardware; restoring it here would block the selected layout.
+            // Startup and desktop return still recover their recorded state through their own paths.
             if (launch.Kind == GameModeLaunchKind.Custom)
             {
                 backend.SetStatus("Recording the current display arrangement");

@@ -55,6 +55,21 @@ public sealed class GameModeEntryTransactionTests
     }
 
     [Fact]
+    public async Task ANewEntryReplacesAnOldReturnLayoutWithTheCurrentDesktop()
+    {
+        var removed = new DisplayTargetIdentity("removed", null, null, "Removed HDMI switch", 0, 0, 9);
+        Backend backend = new() { PendingReturnLayout = Layout(removed) };
+
+        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
+
+        Assert.Equal(GameModeEntryOutcome.Entered, result.Outcome);
+        Assert.Equal(Tv, Assert.Single(backend.PendingReturnLayout!.Outputs).Target);
+        Assert.DoesNotContain("return-layout", backend.Calls);
+        Assert.DoesNotContain("restore-desktop", backend.Calls);
+        Assert.True(backend.Calls.IndexOf("persist-return") < backend.Calls.IndexOf("exit-explorer"));
+    }
+
+    [Fact]
     public async Task ADefaultEntryTouchesNoLayoutButStillRunsTheActionsAndTheWait()
     {
         // The maintainer's desktop needs the IR switch and the TV wait even when the layout itself
@@ -377,6 +392,7 @@ public sealed class GameModeEntryTransactionTests
             Calls.Where(call => !call.StartsWith("cancellable", StringComparison.Ordinal));
 
         internal List<string?> PersistedReturns { get; } = [];
+        internal DisplayLayout? PendingReturnLayout { get; set; }
 
         internal List<string> RestoredLayouts { get; } = [];
 
@@ -400,11 +416,6 @@ public sealed class GameModeEntryTransactionTests
         internal List<IReadOnlyList<DisplayGpuPreference>> PersistedGraphics { get; } = [];
 
         internal DisplayLayoutOutcome LayoutOutcome { get; init; } = DisplayLayoutOutcome.Applied;
-
-        public Task<bool> RestorePendingReturnAsync(CancellationToken cancellationToken)
-        {
-            return Task.FromResult(true);
-        }
 
         public void SetStatus(string line)
         {
@@ -487,6 +498,7 @@ public sealed class GameModeEntryTransactionTests
         public Task PersistPendingReturnAsync(DisplayLayout? layout, AudioProfilePreference? audio,
             IReadOnlyList<DisplayGpuPreference>? graphics = null)
         {
+            PendingReturnLayout = layout;
             Calls.Add(layout is null ? "clear-return" : "persist-return");
             if (graphics is not null)
             {

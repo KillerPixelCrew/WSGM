@@ -14,6 +14,7 @@ using WSGM.Settings;
 using WSGM.Shell;
 using WSGM.Testing;
 using WSGM.UiTests.Infrastructure;
+using WSGM.UiTests.Visual;
 
 namespace WSGM.UiTests.Settings;
 
@@ -488,6 +489,73 @@ public sealed class GameModeDisplayPageTests
 
         Assert.Contains("overlap", model.GameLayout.ValidationText, StringComparison.Ordinal);
         Assert.False(model.CanSaveLayouts);
+    }
+
+    [AvaloniaFact]
+    public async Task ADisconnectedDisplayCanBeForgottenFromItsOwnCardOrKept()
+    {
+        using UiFixture fixture = new();
+        fixture.Saved.GameModeLaunch.Kind = GameModeLaunchKind.Custom;
+        fixture.Saved.GameModeLaunch.GameLayout = new DisplayLayout([Output(Tv)]);
+        fixture.Saved.GameModeLaunch.KnownDisplays =
+        [
+            new KnownDisplay { Target = Tv, Modes = [new DisplayMode(3840, 2160, 120)] },
+            new KnownDisplay { Target = Desk, Modes = [new DisplayMode(1920, 1080, 60)] }
+        ];
+        fixture.Displays = Desktop(Tv);
+        var window = Open(fixture);
+        var model = Model(window);
+        await ExecuteDisplayCommandAsync(model.RefreshDisplaysCommand);
+        var row = model.GameLayout.Rows.Single(display => display.Target == Desk);
+        Button Action(string content) => window.GetVisualDescendants().OfType<Button>()
+            .Single(button => button.IsEffectivelyVisible && Equals(button.Content, content)
+                                                       && ReferenceEquals(button.DataContext, row));
+
+        UiFixture.Click(window, Action("Forget"));
+        Assert.True(row.ConfirmForget);
+        Assert.Equal(2, model.KnownDisplays.Count);
+        UiFixture.Click(window, Action("Keep display"));
+        Assert.False(row.ConfirmForget);
+        UiFixture.Click(window, Action("Forget"));
+        UiFixture.Click(window, Action("Forget display"));
+
+        Assert.Equal(Tv, Assert.Single(model.KnownDisplays).Target);
+        Assert.DoesNotContain(model.DesktopLayout.Rows, display => display.Target == Desk);
+        await ExecuteDisplayCommandAsync(model.RefreshDisplaysCommand);
+        Assert.Equal(Tv, Assert.Single(model.KnownDisplays).Target);
+        UiFixture.Click(window, window.GetVisualDescendants().OfType<Button>()
+            .Single(button => Equals(button.Content, "Save changes")));
+        Assert.Equal(Tv, Assert.Single(fixture.Saved.GameModeLaunch.KnownDisplays).Target);
+    }
+
+    [AvaloniaTheory]
+    [InlineData(1024, false)]
+    [InlineData(1280, false)]
+    [InlineData(1024, true)]
+    [InlineData(1280, true)]
+    public async Task DisconnectedDisplayCardsShowForgetAndItsConfirmation(int width, bool confirm)
+    {
+        using UiFixture fixture = new();
+        fixture.Saved.GameModeLaunch.Kind = GameModeLaunchKind.Custom;
+        fixture.Saved.GameModeLaunch.GameLayout = new DisplayLayout([Output(Tv)]);
+        fixture.Saved.GameModeLaunch.KnownDisplays =
+        [
+            new KnownDisplay { Target = Tv, Modes = [new DisplayMode(3840, 2160, 120)] },
+            new KnownDisplay { Target = Desk, Modes = [new DisplayMode(1920, 1080, 60)] }
+        ];
+        fixture.Displays = Desktop(Tv);
+        var window = fixture.Settings(width);
+        UiFixture.Click(window, UiFixture.Tab(window, 5));
+        var model = Model(window);
+        await ExecuteDisplayCommandAsync(model.RefreshDisplaysCommand);
+        if (confirm)
+        {
+            UiFixture.Click(window, window.GetVisualDescendants().OfType<Button>()
+                .Single(button => button.IsEffectivelyVisible && Equals(button.Content, "Forget")));
+        }
+
+        Dispatcher.UIThread.RunJobs();
+        VisualBaseline.Verify(window, "settings-display-forget-" + (confirm ? "confirm-" : "") + width);
     }
 
     [AvaloniaFact]

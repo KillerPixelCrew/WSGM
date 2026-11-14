@@ -157,7 +157,7 @@ public sealed class ShellSession
         _boot = new SessionBoot(_state, _steamUi, _surfaces, _desktopActions, () => _modes, () => _monitor,
             () => _overlay, () => _desktopHost);
         _entryBackend = new GameModeEntryBackend(_state, _boot, _integrations, _system, () => _modes,
-            () => _desktopHost, () => _monitor, () => _displayChangeWindow);
+            () => _desktopHost, () => _displayChangeWindow);
         _commands = new SessionCommands(_state, _integrations, _performance, _steamUi, () => _overlay,
             () => _modes, () => _monitor);
         _serviceBoot = serviceBoot;

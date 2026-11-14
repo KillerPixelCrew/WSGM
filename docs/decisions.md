@@ -170,6 +170,11 @@ starts when Steam is actually asked, not when the cover goes up: the reference m
 TV behind an HDMI switch, and a timeout measured from the cover would fire in the middle of exactly
 the wait the cover exists for. `Shell\Boot\SplashPolicy.cs` is that rule.
 
+**Explicit Game Mode entry uses the current desktop (2026-11-14).** An older return snapshot never
+blocks an explicit switch or runs before its entry actions. A custom entry captures the current
+desktop layout and audio for return, then applies the user's selected Game Mode layout. Startup,
+shutdown, crash recovery and normal return still handle their recorded recovery state.
+
 **Desktop recovery is a single transition (2026-09-13).** Normal return and failed Game Mode entry
 share ordered, independently guarded cleanup. They restore a responsive Explorer before optional IR
 actions and never redirect a failed desktop request back into Game Mode. The shell's window owners

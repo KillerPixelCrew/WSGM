@@ -22,7 +22,6 @@ namespace WSGM.Shell;
 /// <param name="system">The audio the entry captures and the return restores.</param>
 /// <param name="modes">Reads the session's mode coordinator.</param>
 /// <param name="desktopHost">Reads the session's verified Explorer launch path.</param>
-/// <param name="monitor">Reads the session's Steam monitor.</param>
 /// <param name="displayChangeWindow">Reads the window that hears monitors arrive, when it exists.</param>
 internal sealed class GameModeEntryBackend(
     SessionState state,
@@ -31,7 +30,6 @@ internal sealed class GameModeEntryBackend(
     SystemServices system,
     Func<SessionModes?> modes,
     Func<ExplorerDesktopHost?> desktopHost,
-    Func<SteamMonitor?> monitor,
     Func<DisplayChangeWindow?> displayChangeWindow) : IGameModeEntryBackend
 {
     private SessionModes Modes =>
@@ -208,24 +206,6 @@ internal sealed class GameModeEntryBackend(
     }
 
     /// <inheritdoc />
-    public async Task<bool> RestorePendingReturnAsync(CancellationToken cancellationToken)
-    {
-        // Missing HDMI audio belongs after the new display layout, never at an entry gate.
-        // Keep the old durable record until entry records the actual desktop or return succeeds.
-        var restored = await RestorePendingDesktopAsync(cancellationToken, false)
-            .ConfigureAwait(false);
-
-        if (!restored)
-        {
-            // The entry stops before it changed anything, so no desktop return runs to let the
-            // monitor watch Steam again.
-            Dispatcher.UIThread.Post(() => { monitor()?.Paused = false; });
-        }
-
-        return restored;
-    }
-
-    /// <inheritdoc />
     public async Task<IReadOnlyList<PluginActionStepResult>> RunEnterActionsAsync(
         IReadOnlyList<PluginActionStep> steps, CancellationToken cancellationToken)
     {
@@ -346,7 +326,7 @@ internal sealed class GameModeEntryBackend(
     ///     restore while the session has none (before its services start, after they stop).
     /// </summary>
     /// <param name="cancellationToken">Stops waiting for the restore.</param>
-    /// <param name="requireAudio">Whether unavailable audio holds recovery pending; entry preflight may proceed without it.</param>
+    /// <param name="requireAudio">Whether unavailable audio and driver controls hold recovery pending.</param>
     /// <returns>Whether everything recorded was restored.</returns>
     internal Task<bool> RestorePendingDesktopAsync(CancellationToken cancellationToken, bool requireAudio = true)
     {
