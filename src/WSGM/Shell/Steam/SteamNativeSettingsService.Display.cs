@@ -103,38 +103,6 @@ internal sealed partial class SteamNativeSettingsService
 
         // Refresh rate and variable refresh sit together; the frame cap follows them.
         Section(display, "Display and frame rate", "display", displayRows);
-        if (displayTimeouts is not null)
-        {
-            // One row with a dropdown per power source, each still its own offered command.
-            var states = displayTimeouts.ReadState().Rows;
-            List<SteamSettingsRow> entries = [];
-            foreach (var timeout in states)
-            {
-                var id = timeout.Id;
-                entries.Add(offer.Add(null, new SteamSettingsRow("display.timeout-" + id, SteamSettingsRowKind.Choice,
-                        TimeoutColumnLabel(id, timeout.Label), timeout.Description,
-                        Text: timeout.Seconds.ToString(CultureInfo.InvariantCulture),
-                        Choices:
-                        [
-                            .. timeout.Options.Select(option => new SteamSettingsChoice(
-                                option.Seconds.ToString(CultureInfo.InvariantCulture), option.Label))
-                        ],
-                        Disabled: !timeout.Available),
-                    (value, token) => displayTimeouts.SetTimeoutAsync(id,
-                        int.Parse(value.GetString()!, CultureInfo.InvariantCulture), token)));
-            }
-
-            if (entries.Count > 0)
-            {
-                var notes = entries.Select(entry => entry.Description).Distinct().ToArray();
-                Section(display, "Screen timeout", "display-timeouts",
-                [
-                    new SteamSettingsRow("display.timeouts", SteamSettingsRowKind.Columns, "Turn screen off after",
-                        notes.Length == 1 ? notes[0] : null, Columns: entries)
-                ]);
-            }
-        }
-
         AddGraphicsQuickAccess(offer);
         // One subpage per graphics driver, holding its groups under their own titles.
         foreach (var page in graphics?.ReadQuickAccessState().Pages ?? [])
@@ -168,6 +136,9 @@ internal sealed partial class SteamNativeSettingsService
 
     /// <summary>The heading over the Display page's subpage rows.</summary>
     internal const string MoreSettingsGroup = "More display settings";
+
+    /// <summary>The heading over the Power page's subpage rows.</summary>
+    internal const string MorePowerGroup = "More power settings";
 
     /// <summary>What the frame limit switch says it does.</summary>
     internal const string FrameLimitDescription = "Caps the frame rate of every game.";
@@ -213,20 +184,6 @@ internal sealed partial class SteamNativeSettingsService
                                   && title.StartsWith(vendor, StringComparison.OrdinalIgnoreCase)
             ? char.ToUpperInvariant(title[vendor.Length]) + title[(vendor.Length + 1)..]
             : title;
-    }
-
-    /// <summary>A screen timeout's column label: the power source it applies on.</summary>
-    /// <param name="id">The timeout's id.</param>
-    /// <param name="label">Its full label, used for an id without a short one.</param>
-    /// <returns>The column label.</returns>
-    internal static string TimeoutColumnLabel(string id, string label)
-    {
-        return id switch
-        {
-            "battery" => "On battery",
-            "plugged-in" => "Plugged in",
-            _ => label
-        };
     }
 
     /// <summary>The tag a subpage carries while the running game's profile sets some of its values.</summary>

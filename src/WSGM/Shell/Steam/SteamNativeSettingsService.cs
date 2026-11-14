@@ -328,17 +328,23 @@ internal sealed partial class SteamNativeSettingsService(
         await AddAudioPageAsync(audio, offer, endpointRead).ConfigureAwait(false);
         AddControllerTarget(controller, offer);
         AddRumbleSection(controller, offer);
+        ArrangeControllerPage(controller, offer);
 
         AddProfileSection(display, "display", offer);
         AddProfileSection(power, "power", offer);
         AddProfileSection(controller, "controller", offer);
         List<SteamNativeSettingsPage> pages = [];
-        // WSGM's Display controls lead the page; Steam's own Big Picture rows follow, then the reset.
-        Page("display", display, display.Count > 0 && display[^1].Id == "display.reset" ? display.Count - 1 : display.Count);
-        Page("power", power);
+        // WSGM's Display and Power controls lead their pages; Steam's own rows follow, then the reset.
+        Page("display", display, Lead(display, "display"));
+        Page("power", power, Lead(power, "power"));
         Page("audio", audio);
-        Page("controller", controller);
+        Page("controller", controller, Lead(controller, "controller"));
         return (pages, offer.QuickAccess, offer.Commands);
+
+        static int Lead(List<SteamSettingsSection> sections, string page)
+        {
+            return sections.Count > 0 && sections[^1].Id == page + ".reset" ? sections.Count - 1 : sections.Count;
+        }
 
         void Page(string id, List<SteamSettingsSection> sections, int lead = 0)
         {
@@ -348,6 +354,50 @@ internal sealed partial class SteamNativeSettingsService(
             }
         }
     }
+
+    /// <summary>
+    ///     Leads the Controller page with the managed controller and makes lighting and rumble its subpages, each
+    ///     one row with a summary.
+    /// </summary>
+    /// <param name="controller">The page's sections: lighting, the managed controller and rumble, as built.</param>
+    /// <param name="offer">The read's offered command set.</param>
+    private static void ArrangeControllerPage(List<SteamSettingsSection> controller, OfferedRows offer)
+    {
+        var target = controller.FindIndex(section => section.Id == "controller-target");
+        if (target > 0)
+        {
+            var section = controller[target];
+            controller.RemoveAt(target);
+            controller.Insert(0, section);
+        }
+
+        var lighting = controller.FindIndex(section => section.Id?.StartsWith("device/", StringComparison.Ordinal) == true);
+        var rumble = controller.FindIndex(section => section.Id == "rumble");
+        if (lighting >= 0)
+        {
+            var end = rumble > lighting ? rumble : controller.Count;
+            var lightingSections = controller.GetRange(lighting, end - lighting);
+            SteamSettingsLevel level = new("lighting", "Lighting",
+                ValueSummary(lightingSections, 0) ?? GroupSummary(lightingSections, 0), "bulb",
+                GameOverrideBadge(lightingSections, 0, offer.Profile.EditsGame), MoreControllerGroup);
+            for (var index = lighting; index < end; index++)
+            {
+                controller[index] = controller[index] with { Level = level };
+            }
+        }
+
+        if (rumble >= 0)
+        {
+            controller[rumble] = controller[rumble] with
+            {
+                Level = new SteamSettingsLevel("rumble", "Rumble", RumbleSummary(controller[rumble]), "controller",
+                    Group: MoreControllerGroup)
+            };
+        }
+    }
+
+    /// <summary>The heading over the Controller page's subpage rows.</summary>
+    internal const string MoreControllerGroup = "More controller settings";
 
     /// <summary>Opens a page with its editing-scope rows and closes it with its reset action.</summary>
     /// <param name="sections">The page's sections; the profile section is inserted first.</param>
@@ -444,6 +494,8 @@ internal sealed partial class SteamNativeSettingsService(
         foreach (var group in capabilities.GroupBy(capability => capability.PluginSectionId))
         {
             var declaration = declarations.FirstOrDefault(section => section.SectionId == group.Key);
+            // Each device section is a subpage of Power; its categories are the groups inside it.
+            var powerFrom = power.Count;
             foreach (var category in group.GroupBy(capability => capability.CategoryId))
             {
                 var categoryName = declaration?.Categories.FirstOrDefault(item => item.Id == category.Key)?.Title;
@@ -475,9 +527,18 @@ internal sealed partial class SteamNativeSettingsService(
                 }
 
                 var id = "device/" + group.Key + "/" + category.Key;
-                Section(power, title, id, powerRows);
+                Section(power, categoryName ?? declaration?.Title ?? "Device", id, powerRows);
                 Section(controller, title == "Device" ? "Controller lighting" : title, id, lightingRows);
             }
+
+            var deviceTitle = declaration?.Title ?? "Device";
+            var summary = GroupSummary(power, powerFrom);
+            Subpage(power, powerFrom, new SteamSettingsLevel("device/" + group.Key, deviceTitle,
+                summary is null || summary == deviceTitle
+                    ? string.Join(" · ", power.Skip(powerFrom).SelectMany(section => section.Rows)
+                        .Select(row => row.Label).Distinct())
+                    : summary,
+                "power", GameOverrideBadge(power, powerFrom, profile.EditsGame), MorePowerGroup));
         }
     }
 

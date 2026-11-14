@@ -12822,12 +12822,20 @@
       if (rejected.length) void request(patchId, "rejected", { rows: rejected }).catch(() => {});
     };
     const send = (row, value) => {
-      // A columns row's entries are rows of their own, offered under their own keys.
+      // A columns row's entries are rows of their own, and an action row's buttons send under their own
+      // keys; each is sendable while neither it nor its row is disabled.
       const current = state.pages
         .flatMap((page) => page.sections.flatMap((section) => section.rows))
-        .flatMap((candidate) =>
-          candidate.kind === "columns" ? [candidate, ...candidate.columns] : [candidate],
-        )
+        .flatMap((candidate) => [
+          candidate,
+          ...(candidate.kind === "columns" ? candidate.columns : []),
+          ...(Array.isArray(candidate.actions)
+            ? candidate.actions.map((action) => ({
+                key: action.key,
+                disabled: !!candidate.disabled || !!action.disabled,
+              }))
+            : []),
+        ])
         .find((candidate) => candidate.key === row.key);
       if (!installed() || !current || current.disabled)
         return Promise.reject(new Error("This setting is unavailable."));

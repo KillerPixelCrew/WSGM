@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -30,40 +31,40 @@ internal sealed partial class SteamNativeSettingsService
             var calibration = coordinator.RumbleCalibration;
             var available = coordinator.CanPreviewRumble;
             List<SteamSettingsRow> rumble = [];
-            CalibrationRange("strength", "Overall rumble strength", calibration.StrengthPercent, 100, "%",
-                "Global user preference. Zero silences output; 100% preserves the original requested strength.");
-            CalibrationRange("floor", "Minimum feelable pulse strength", calibration.MinimumStrengthPercent, 100,
-                "%",
-                "The minimum nonzero bounded-pulse drive. Continuous rumble is never raised to this floor. Device motor limits remain authoritative.");
-            CalibrationRange("duration", "Minimum feelable pulse duration", calibration.MinimumPulseMilliseconds,
-                500, " ms",
-                "Bounded pulses are stretched to this duration or the device minimum, whichever is longer.");
-            offer.Add(rumble, new SteamSettingsRow("rumble.test-floor", SteamSettingsRowKind.Action,
-                "Test minimum strength and duration",
-                "One bounded pulse at the selected minimum motor drive, without overall gain. Adjust until reliably feelable.",
-                Disabled: !available, ButtonLabel: "Test pulse"), (_, token) => Preview(true, token));
-            offer.Add(rumble, new SteamSettingsRow("rumble.preview", SteamSettingsRowKind.Action,
-                "Preview overall calibration",
-                "A 25% reference pulse shaped by overall strength, pulse floor and duration. Maximum preview: 500 ms.",
-                Disabled: !available, ButtonLabel: "Preview"), (_, token) => Preview(false, token));
-            offer.Add(rumble, new SteamSettingsRow("rumble.stop", SteamSettingsRowKind.Action, "Stop rumble preview",
-                ButtonLabel: "Stop"), (_, _) => StopRumblePreviewAsync());
-            if (!available)
-            {
-                rumble.Add(new SteamSettingsRow("rumble.availability", SteamSettingsRowKind.Note,
-                    "Preview availability",
-                    Text:
-                    "Connect a WSGM-managed controller with published motor output. Saved calibration applies when that output becomes available."));
-            }
+            CalibrationRange("strength", "Overall strength", calibration.StrengthPercent, 100, "%",
+                "Zero silences rumble; 100% keeps the strength the game asks for.");
+            CalibrationRange("floor", "Minimum pulse strength", calibration.MinimumStrengthPercent, 100, "%",
+                "The weakest short pulse the motors are driven at. Continuous rumble is never raised to it.");
+            CalibrationRange("duration", "Minimum pulse length", calibration.MinimumPulseMilliseconds, 500, " ms",
+                "Short pulses last at least this long, or the device's own minimum if that is longer.");
+            // The three previews are one row of buttons, each still its own offered command.
+            offer.Add(null, new SteamSettingsRow("rumble.test-floor", SteamSettingsRowKind.Action, "Test pulse",
+                Disabled: !available), (_, token) => Preview(true, token));
+            offer.Add(null, new SteamSettingsRow("rumble.preview", SteamSettingsRowKind.Action, "Preview",
+                Disabled: !available), (_, token) => Preview(false, token));
+            offer.Add(null, new SteamSettingsRow("rumble.stop", SteamSettingsRowKind.Action, "Stop"),
+                (_, _) => StopRumblePreviewAsync());
+            rumble.Add(new SteamSettingsRow("rumble.try", SteamSettingsRowKind.Action, "Try it",
+                available
+                    ? "Test pulse plays one pulse at the minimum strength and length. Preview plays a 25% pulse "
+                      + "with every setting applied, for at most 500 ms."
+                    : "Connect a WSGM-managed controller with motor output. Saved settings apply once it is "
+                      + "available.",
+                Actions:
+                [
+                    new SteamSettingsAction("rumble.test-floor", "Test pulse", Disabled: !available),
+                    new SteamSettingsAction("rumble.preview", "Preview", Disabled: !available),
+                    new SteamSettingsAction("rumble.stop", "Stop")
+                ]));
 
-            Section(controller, "Rumble calibration", "rumble", rumble);
+            Section(controller, "Rumble", "rumble", rumble);
 
             void CalibrationRange(string key, string label, int current, int maximum, string suffix,
                 string description)
             {
                 offer.Add(rumble, new SteamSettingsRow("rumble." + key, SteamSettingsRowKind.Range, label,
-                    description + " Saved on completion of the edit.", Number: current, Minimum: 0,
-                    Maximum: maximum, Step: 1, Suffix: suffix), async (value, token) =>
+                    description, Number: current, Minimum: 0, Maximum: maximum, Step: 1, Suffix: suffix,
+                    Summary: current.ToString(CultureInfo.InvariantCulture) + suffix.Trim()), async (value, token) =>
                 {
                     await coordinator.SetRumbleCalibrationAsync(key, Integer(value), token).ConfigureAwait(false);
                     return SteamUiCommandResult.Applied;
@@ -78,6 +79,16 @@ internal sealed partial class SteamNativeSettingsService
                         "A preview is already active or controller output is unavailable.");
             }
         }
+    }
+
+    /// <summary>The rumble subpage's summary: its three settings with their values.</summary>
+    /// <param name="section">The rumble section.</param>
+    /// <returns>The summary, or null when the section has no values.</returns>
+    internal static string? RumbleSummary(SteamSettingsSection section)
+    {
+        var values = section.Rows.Where(row => row.Kind == SteamSettingsRowKind.Range && row.Summary is not null)
+            .Select(row => row.Label + " " + row.Summary).ToArray();
+        return values.Length == 0 ? null : string.Join(" · ", values);
     }
 
     /// <summary>The managed-controller target, in Quick Access and on the Settings Controller page.</summary>
@@ -109,7 +120,7 @@ internal sealed partial class SteamNativeSettingsService
                 Accent: state.Accent, Icon: "swap", LabelToken: "#QuickAccess_Tab_Settings_Section_Controller_Title",
                 Summary: selected?.Label),
             (value, token) => SetControllerTargetAsync(value.GetString()!, token)));
-        Section(controller, "Controller", "controller-target", rows);
+        Section(controller, "Emulated controller", "controller-target", rows);
     }
 
     /// <summary>The controller target as controller management reports it now.</summary>

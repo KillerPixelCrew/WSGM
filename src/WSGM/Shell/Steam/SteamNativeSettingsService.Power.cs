@@ -26,63 +26,94 @@ internal sealed partial class SteamNativeSettingsService
         ValueTask<PowerPresetRowState> presetsRead, ValueTask<ChoiceRowState?> schemesRead,
         ValueTask<ChoiceRowState?> boostRead, ValueTask<ChoiceRowState?> coresRead)
     {
-        AddPresetRows(power, offer, await presetsRead.ConfigureAwait(false));
+        // The page leads with what changes performance and when the device sleeps; the rest are subpages.
+        var presets = await presetsRead.ConfigureAwait(false);
+        List<SteamSettingsRow> performance = [];
+        AddPresetRows(performance, offer, presets);
+        if (ChoiceRow("power.scheme", "Windows power profile", "power", await schemesRead.ConfigureAwait(false))
+            is { } scheme)
+        {
+            offer.Quick("powerProfile", offer.Add(performance, scheme,
+                (value, token) => powerProfiles.SetPowerProfileAsync(value.GetString()!, token)));
+        }
+
+        Section(power, "Performance", "presets", performance);
 
         List<SteamSettingsRow> limits = [];
         AddPowerLimitRows(limits, offer);
         AddAutoTdpRows(limits, offer);
-        Section(power, "TDP and AutoTDP", "tdp", limits);
+        Section(power, "Power limits", "tdp", limits);
 
-        List<SteamSettingsRow> windows = [];
-        if (ChoiceRow("power.scheme", "Windows power profile", "power", await schemesRead.ConfigureAwait(false))
-            is { } scheme)
-        {
-            offer.Quick("powerProfile", offer.Add(windows, scheme,
-                (value, token) => powerProfiles.SetPowerProfileAsync(value.GetString()!, token)));
-        }
-
-        Section(power, "Windows power policy", "windows-power", windows);
-
+        List<SteamSettingsRow> sleep = [];
         if (displayTimeouts is not null)
         {
-            List<SteamSettingsRow> rows = [];
-            SleepTimeout(PowerTimeoutKind.SleepDc, "standby-battery",
-                "Idle time before the device enters standby.");
-            SleepTimeout(PowerTimeoutKind.SleepAc, "standby-plugged-in",
-                "Idle time before the device enters standby.");
-            SleepTimeout(PowerTimeoutKind.HibernateDc, "hibernate-battery",
-                "Time in standby before the device hibernates. Only the power button wakes it.");
-            SleepTimeout(PowerTimeoutKind.HibernateAc, "hibernate-plugged-in",
-                "Time in standby before the device hibernates. Only the power button wakes it.");
-            Section(power, "Sleep and hibernation", "sleep", rows);
+            // One row per timeout, a dropdown per power source, each still its own offered command.
+            List<SteamSettingsRow> screen = [];
+            foreach (var timeout in displayTimeouts.ReadState().Rows)
+            {
+                var id = timeout.Id;
+                screen.Add(offer.Add(null, new SteamSettingsRow("display.timeout-" + id,
+                        SteamSettingsRowKind.Choice, TimeoutColumnLabel(id, timeout.Label), timeout.Description,
+                        Text: timeout.Seconds.ToString(CultureInfo.InvariantCulture),
+                        Choices:
+                        [
+                            .. timeout.Options.Select(option => new SteamSettingsChoice(
+                                option.Seconds.ToString(CultureInfo.InvariantCulture), option.Label))
+                        ],
+                        Disabled: !timeout.Available),
+                    (value, token) => displayTimeouts.SetTimeoutAsync(id,
+                        int.Parse(value.GetString()!, CultureInfo.InvariantCulture), token)));
+            }
 
-            void SleepTimeout(PowerTimeoutKind kind, string id, string description)
+            Paired(sleep, "power.screen-off", "Turn screen off after", screen);
+            Paired(sleep, "power.standby", "Standby after",
+            [
+                .. SleepTimeout(PowerTimeoutKind.SleepDc, "standby-battery",
+                    "Idle time before the device enters standby."),
+                .. SleepTimeout(PowerTimeoutKind.SleepAc, "standby-plugged-in",
+                    "Idle time before the device enters standby.")
+            ]);
+            Paired(sleep, "power.hibernate", "Hibernate after",
+            [
+                .. SleepTimeout(PowerTimeoutKind.HibernateDc, "hibernate-battery",
+                    "Time in standby before the device hibernates. Only the power button wakes it."),
+                .. SleepTimeout(PowerTimeoutKind.HibernateAc, "hibernate-plugged-in",
+                    "Time in standby before the device hibernates. Only the power button wakes it.")
+            ]);
+
+            IEnumerable<SteamSettingsRow> SleepTimeout(PowerTimeoutKind kind, string id, string description)
             {
                 // An unreadable value, or a hibernate timeout on a machine that cannot hibernate, is not offered.
                 if (displayTimeouts.Read(kind) is not { } current)
                 {
-                    return;
+                    return [];
                 }
 
-                offer.Add(rows, new SteamSettingsRow("power.timeout-" + id, SteamSettingsRowKind.Choice,
-                        PowerTimeouts.Label(kind), description, Text: current.ToString(CultureInfo.InvariantCulture),
-                        Choices:
-                        [
-                            .. DisplayTimeoutPolicy.Choices(current, null).Select(seconds =>
-                                new SteamSettingsChoice(seconds.ToString(CultureInfo.InvariantCulture),
-                                    PowerTimeouts.Describe(seconds)))
-                        ]),
-                    (value, _) => Task.FromResult(
-                        displayTimeouts.Select(kind, int.Parse(value.GetString()!, CultureInfo.InvariantCulture))
-                            ? SteamUiCommandResult.Applied
-                            : new SteamUiCommandResult(false, "Windows did not accept the timeout.")));
+                var source = kind is PowerTimeoutKind.SleepDc or PowerTimeoutKind.HibernateDc
+                    ? "On battery"
+                    : "Plugged in";
+                return
+                [
+                    offer.Add(null, new SteamSettingsRow("power.timeout-" + id, SteamSettingsRowKind.Choice, source,
+                            description, Text: current.ToString(CultureInfo.InvariantCulture),
+                            Choices:
+                            [
+                                .. DisplayTimeoutPolicy.Choices(current, null).Select(seconds =>
+                                    new SteamSettingsChoice(seconds.ToString(CultureInfo.InvariantCulture),
+                                        PowerTimeouts.Describe(seconds)))
+                            ]),
+                        (value, _) => Task.FromResult(
+                            displayTimeouts.Select(kind, int.Parse(value.GetString()!, CultureInfo.InvariantCulture))
+                                ? SteamUiCommandResult.Applied
+                                : new SteamUiCommandResult(false, "Windows did not accept the timeout.")))
+                ];
             }
         }
 
         if (powerButton is { Available: true } button)
         {
-            List<SteamSettingsRow> rows = [];
-            offer.Add(rows, new SteamSettingsRow("power.button-short-press", SteamSettingsRowKind.Choice, "Desktop short press",
+            offer.Add(sleep, new SteamSettingsRow("power.button-short-press", SteamSettingsRowKind.Choice,
+                    "Power button press on the desktop",
                     "Game Mode always uses Steam suspend. Hold to open the power menu.",
                     Text: button.Current.ToString(),
                     Choices:
@@ -95,7 +126,18 @@ internal sealed partial class SteamNativeSettingsService
                     && await button.SelectAsync(choice, token).ConfigureAwait(false)
                         ? SteamUiCommandResult.Applied
                         : new SteamUiCommandResult(false, "The power button choice was not saved."));
-            Section(power, "Power button", "power-button", rows);
+        }
+
+        Section(power, "Screen and sleep", "sleep", sleep);
+
+        if (presets.Options.Count > 0)
+        {
+            var from = power.Count;
+            AddSavedPresetRows(power, offer, presets, coordinator?.Power.PowerAssignments);
+            var saved = presets.Saved ?? [];
+            Subpage(power, from, new SteamSettingsLevel("saved-presets", "Saved presets",
+                saved.Count == 0 ? "None saved yet" : string.Join(" · ", saved.Select(item => item.Name)), "star",
+                Group: MorePowerGroup));
         }
 
         List<SteamSettingsRow> cpu = [];
@@ -113,14 +155,62 @@ internal sealed partial class SteamNativeSettingsService
                 (value, token) => hybridCores.SetHybridCoresAsync(value.GetString()!, token)));
         }
 
-        Section(power, "CPU behavior", "cpu", cpu);
+        var processor = power.Count;
+        Section(power, "Processor", "cpu", cpu);
+        Subpage(power, processor, new SteamSettingsLevel("processor", "Processor", ValueSummary(power, processor),
+            "cores", GameOverrideBadge(power, processor, offer.Profile.EditsGame), MorePowerGroup));
+    }
+
+    /// <summary>Adds one setting split by power source as a single row, a dropdown per source.</summary>
+    /// <param name="rows">The section's rows.</param>
+    /// <param name="key">The row's key; each entry keeps its own.</param>
+    /// <param name="label">The setting.</param>
+    /// <param name="entries">The offered choice rows, one per source; none adds nothing.</param>
+    private static void Paired(List<SteamSettingsRow> rows, string key, string label,
+        IReadOnlyList<SteamSettingsRow> entries)
+    {
+        if (entries.Count == 0)
+        {
+            return;
+        }
+
+        var notes = entries.Select(entry => entry.Description).Distinct().ToArray();
+        rows.Add(new SteamSettingsRow(key, SteamSettingsRowKind.Columns, label, notes.Length == 1 ? notes[0] : null,
+            Columns: entries));
+    }
+
+    /// <summary>A screen timeout's column label: the power source it applies on.</summary>
+    /// <param name="id">The display timeout's id.</param>
+    /// <param name="label">Its full label, used for an id without a short one.</param>
+    /// <returns>The column label.</returns>
+    internal static string TimeoutColumnLabel(string id, string label)
+    {
+        return id switch
+        {
+            "battery" => "On battery",
+            "plugged-in" => "Plugged in",
+            _ => label
+        };
+    }
+
+    /// <summary>A subpage's summary: each of its rows' labels with the value it shows, in order.</summary>
+    /// <param name="sections">The page's sections.</param>
+    /// <param name="from">The index of the subpage's first section.</param>
+    /// <returns>The values joined, or null when no row has one.</returns>
+    internal static string? ValueSummary(List<SteamSettingsSection> sections, int from)
+    {
+        var values = sections.Skip(from).SelectMany(section => section.Rows)
+            .Where(row => !string.IsNullOrEmpty(row.Summary))
+            .Select(row => $"{row.Label}: {row.Summary}")
+            .ToArray();
+        return values.Length == 0 ? null : string.Join(" · ", values);
     }
 
     /// <summary>The plugged-in and battery preset assignments, and the preset in effect.</summary>
-    /// <param name="power">The Settings page's sections.</param>
+    /// <param name="rows">The Performance section's rows, which the preset rows lead.</param>
     /// <param name="offer">The read's offered command set and Quick Access sections.</param>
     /// <param name="presets">The device's presets and assignments.</param>
-    private void AddPresetRows(List<SteamSettingsSection> power, OfferedRows offer, PowerPresetRowState presets)
+    private void AddPresetRows(List<SteamSettingsRow> rows, OfferedRows offer, PowerPresetRowState presets)
     {
         if (presets.Options.Count == 0)
         {
@@ -135,7 +225,6 @@ internal sealed partial class SteamNativeSettingsService
             .. presets.Options
         ];
         var detail = string.Join(" · ", new[] { presets.Scope, presets.StatusText }.Where(text => text.Length > 0));
-        List<SteamSettingsRow> rows = [];
         SteamSettingsRow? active = null;
         if (presets.Current.Length > 0)
         {
@@ -175,9 +264,6 @@ internal sealed partial class SteamNativeSettingsService
             offer.Add(null, new SteamSettingsRow(PresetSaveKey, SteamSettingsRowKind.Text, "Preset name"),
                 (value, token) => PowerPresetRows.SaveAsync(assignments, value.GetString()!, token));
         }
-
-        Section(power, "Device performance", "presets", rows);
-        AddSavedPresetRows(power, offer, presets, assignments);
 
         void Assignment(string key, string label, string icon, string selected, bool accent, string? description,
             bool ac)

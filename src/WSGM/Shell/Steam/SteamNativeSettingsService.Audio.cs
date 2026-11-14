@@ -38,7 +38,7 @@ internal sealed partial class SteamNativeSettingsService
                     : audioFormat.SetFormatForEndpointAsync(endpointId, value.GetString()!, token)));
             }
 
-            Section(audio, "Advanced playback", "advanced-playback", rows);
+            Section(audio, "Output format", "advanced-playback", rows);
         }
     }
 
@@ -64,7 +64,9 @@ internal sealed partial class SteamNativeSettingsService
         void Add(string key, string label, string icon, IReadOnlyList<ChoiceRowOption> options, string current,
             bool spatial)
         {
-            if (ChoiceRow(key, label, icon, new ChoiceRowState(true, options, current, playback.StatusText)) is
+            // The endpoint's status line is the same for all three, so only the first row says it.
+            if (ChoiceRow(key, label, icon,
+                    new ChoiceRowState(true, options, current, rows.Count == 0 ? playback.StatusText : string.Empty)) is
                 { } row)
             {
                 rows.Add((row, spatial));
