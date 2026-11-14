@@ -431,11 +431,11 @@ manager, the bridge and the services; the shell detaches and disposes the transp
 ### Screensaver settings
 
 Steam's Big Picture screensaver runs natively on Windows on its own idle timeout, and holds no power
-request while it does. WSGM leaves it Steam's and adds two rows, "Turn display off after (on
-battery)" and "(plugged in)", to the Screensaver section of Steam's Customization settings through
-the toolkit's `SteamScreensaverSurface`. They edit the same active-scheme display timeouts as the
-overlay's Power page, through the one session owner `Shell\Display\DisplayTimeouts.cs`. Nothing
-caches the values; both surfaces read Windows each time.
+request while it does. WSGM leaves it Steam's. The display-off timeouts are edited on Steam's Power
+page ("Screen and sleep") and the overlay's Power page, through the one session owner
+`Shell\Display\DisplayTimeouts.cs`; the toolkit's `SteamScreensaverSurface` publishes no rows of its
+own into the Screensaver section, only the custom screensaver sources. Nothing caches the values;
+every surface reads Windows each time.
 
 The gate reports Steam's `system_idle_screensaver_ac_sec` and `system_idle_screensaver_battery_sec`
 and whether Steam believes the machine has a battery, when it first reads them, when they change on
@@ -1226,9 +1226,11 @@ are.
 Steam's Settings > Customization page is where Big Picture's look and sound are chosen. The
 `wsgmCustomization` gate (`Core\SteamUiAssets\Source\customization.ts`, declared by
 `Shell\Themes\SteamCustomizationSurface`) adds three native sections in front of Valve's Startup
-Movie section: Themes, UI sounds and Boot animation. Valve's LED, Startup Movie, Screensaver and
-Advanced sections render as Steam draws them, and the Screensaver section, with what the toolkit's
-`SteamScreensaverSurface` adds to it, stays the page's one screensaver entry.
+Movie section: Themes, UI sounds and Boot animation, each ending with a row that opens its own page.
+Valve's Startup Movie and Screensaver sections are folded behind one row each ("Steam startup
+movies", "Screensaver"), which opens the Valve section alone with Back; the Screensaver section
+keeps what the toolkit's `SteamScreensaverSurface` adds to it. Valve's LED and Advanced sections
+render as Steam draws them.
 
 The gate is a `defineGate` gate whose hub is a Settings section of the toolkit's
 (`registerSteamSettingsSection`), the same mechanism the screensaver gate's rows use: one transform
@@ -1247,18 +1249,18 @@ so `ThemeService`, `SoundPackService` and `AnimationService` remain the only aut
 apply, update and reset. Its rows are drawn with `renderSteamUiFields`, so a refused change shows on
 its row. A session without one of those services shows no section for it.
 
-| Section        | Inline                                                                                                               | Browse and manage                     |
-| -------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
-| Themes         | Use themes (off is Steam's own look; themes stay installed), the profile, one switch per installed theme, Update All | `/wsgm/themes`, Installed or Browse   |
-| UI sounds      | The sound pack, Steam default first, with the service's compatibility and integration text                           | `/wsgm/sounds`                        |
-| Boot animation | The boot movie, Steam's own first, the restart note, and why suspend and standby movies are not offered on Windows   | `/wsgm/animations`, Library or Browse |
+| Section        | Inline                                                                                     | Manage row                                                                |
+| -------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| Themes         | Use themes (off is Steam's own look; themes stay installed), the profile, Update All       | `/wsgm/themes`, Installed or Browse; how many are on, and pending updates |
+| UI sounds      | The sound pack, Steam default first, with the service's compatibility and integration text | `/wsgm/sounds`; how many packs are installed                              |
+| Boot animation | The boot movie, Steam's own first, and the restart note                                    | `/wsgm/animations`, Library or Browse; how many movies the library holds  |
 
-Steam's own Startup Movie section stays: its Points Shop and local movies, shuffle and resume
-options are Valve's. While a WSGM movie is chosen, the hub says that Steam's choice is set aside and
-comes back when Steam's own is chosen again, as `AnimationService` already does. The Overlay keeps
-the same three capabilities on Tools › CSS Loader, Sounds and Video Switcher over the same services.
-`eng/check-customization-hub.mjs` exercises the emitted gate against an inert fixture, beside the
-screensaver gate in both orders.
+Each theme is switched on the Themes page. Steam's own Startup Movie section stays behind its row:
+its Points Shop and local movies, shuffle and resume options are Valve's. While a WSGM movie is
+chosen, the hub says it plays in place of Steam's Startup Movie, as `AnimationService` already does.
+The Overlay keeps the same three capabilities on Tools › CSS Loader, Sounds and Video Switcher over
+the same services. `eng/check-customization-hub.mjs` exercises the emitted gate against an inert
+fixture, beside the screensaver gate in both orders.
 
 ### SD Card Manager and Library Tab Manager
 

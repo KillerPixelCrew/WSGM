@@ -133,20 +133,26 @@ const ui = {
   dropdown: "Dropdown",
   valueField: "ValueField",
   dialogButton: "Button",
+  focusable: "Focusable",
+  smallButton: "SmallButton",
 };
 const Row = "Row";
+const NavRow = "NavRow";
 const renderSteamUiFields = (_ui, props) =>
   element(
     "SettingsSection",
     {
       label: props.title,
-      children: props.rows.map((row) =>
-        element(
-          Row,
-          { row, send: (value) => props.onChange(row, value), act: () => props.onAction?.(row) },
-          `steam-setting-${row.key}`,
+      children: [
+        ...props.rows.map((row) =>
+          element(
+            Row,
+            { row, send: (value) => props.onChange(row, value), act: () => props.onAction?.(row) },
+            `steam-setting-${row.key}`,
+          ),
         ),
-      ),
+        ...(props.extra ?? []),
+      ],
     },
     props.key,
   );
@@ -174,6 +180,9 @@ const globals = {
   getWebpackRuntime,
   resolveSteamUiComponents: () => ui,
   renderSteamUiFields,
+  renderSteamUiNavRow: (_ui, props) => element(NavRow, props, props.key),
+  renderSteamUiLevel: (_ui, props, ...children) => element("Level", { ...props, children }),
+  renderSteamUiSubpageHeader: (_ui, props) => element("SubpageHeader", props),
   steamUiKitStyle: () => element("style", {}),
   request: (patchId, command, payload) => {
     requests.push({ patchId, command, payload });
@@ -234,6 +243,15 @@ const rows = (node) => find(react, node, (candidate) => candidate.type === Row);
 const rowByKey = (node, key) => {
   const found = rows(node).filter((candidate) => candidate.props.row.key === key);
   assert.equal(found.length, 1, `exactly one row ${key}`);
+  return found[0];
+};
+const navByKey = (node, key) => {
+  const found = find(
+    react,
+    node,
+    (candidate) => candidate.type === NavRow && candidate.props.key === key,
+  );
+  assert.equal(found.length, 1, `exactly one subpage row ${key}`);
   return found[0];
 };
 const sections = (node) =>
@@ -308,10 +326,31 @@ let tree = renderCustomization();
 assert.deepEqual(order(tree), [
   "LedSection",
   "hub",
-  "StartupSection",
-  "ScreensaverSection",
+  "WsgmStartupMovieFold",
+  "WsgmScreensaverFold",
   "AdvancedSection",
 ]);
+// A folded section is one row; opening it makes Steam's section, under its heading, the whole page.
+const foldOf = (node, name) =>
+  react.Children.toArray(node.props.children).find((child) => child.type.name === name);
+const startupFold = foldOf(tree, "WsgmStartupMovieFold");
+assert.equal(startupFold.props.section.type, StartupSection);
+const startupRow = startupFold.type(startupFold.props);
+assert.equal(find(react, startupRow, (node) => node.type === NavRow).length, 1);
+startupFold.props.onOpen();
+tree = renderCustomization();
+assert.equal(
+  react.Children.toArray(tree.props.children).length,
+  1,
+  "an open fold is the whole page",
+);
+const opened = react.Children.toArray(tree.props.children)[0];
+const level = opened.type(opened.props);
+assert.equal(level.type, "Level");
+assert.equal(find(react, level, (node) => node.type === StartupSection).length, 1);
+level.props.onBack();
+tree = renderCustomization();
+assert.equal(react.Children.toArray(tree.props.children).length, 5, "Back brings the page back");
 assert.deepEqual(sections(renderHub(tree)), ["Themes", "UI sounds", "Boot animation"]);
 assert.equal(rows(renderHub(tree)).length, 3, "each source says it is loading until it publishes");
 
@@ -335,8 +374,13 @@ publish("wsgm.sounds", soundsState);
 publish("wsgm.animations", animationsState);
 let body = renderHub(renderCustomization());
 assert.equal(rowByKey(body, "themes-on").props.row.checked, true);
-assert.equal(rowByKey(body, "themes-on").props.row.description, "1 of 2 themes on");
-assert.equal(rowByKey(body, "themes-theme-b").props.row.description, "Update available (3)");
+assert.equal(navByKey(body, "themes-manage").props.summary, "1 of 2 on");
+assert.equal(navByKey(body, "themes-manage").props.badge.text, "1 update");
+assert.equal(
+  rows(body).filter((row) => row.props.row.key.startsWith("themes-theme-")).length,
+  0,
+  "each theme is switched on its own page, not in the hub",
+);
 assert.deepEqual(
   rowByKey(body, "themes-profile").props.row.choices.map((choice) => choice.value),
   ["", "p"],
@@ -352,18 +396,19 @@ assert.deepEqual(
   ["Steam's own", "Movie"],
 );
 assert.equal(rowByKey(body, "animations-restart").props.row.accent, true);
-rowByKey(body, "animations-suspend");
+assert.equal(
+  navByKey(body, "animations-manage").props.summary.startsWith("1 in your library"),
+  true,
+);
 
 // The request is the answer the kit's drafts wait on, so a refusal is drawn on the row that asked.
 assert.equal(typeof rowByKey(body, "themes-on").props.send(false)?.then, "function");
-rowByKey(body, "themes-theme-b").props.send(true);
 rowByKey(body, "themes-profile").props.send("p");
 rowByKey(body, "themes-update").props.act();
 rowByKey(body, "sounds-pack").props.send("");
 rowByKey(body, "animations-boot").props.send("m1");
 assert.deepEqual(requests.splice(0), [
   { patchId: "wsgm.themes", command: "setSetting", payload: { key: "enabled", value: false } },
-  { patchId: "wsgm.themes", command: "setEnabled", payload: { name: "b", enabled: true } },
   { patchId: "wsgm.themes", command: "setProfile", payload: { name: "p" } },
   { patchId: "wsgm.themes", command: "updateAll", payload: {} },
   { patchId: "wsgm.sounds", command: "select", payload: { id: "" } },
@@ -371,9 +416,9 @@ assert.deepEqual(requests.splice(0), [
 ]);
 
 // Browse and manage: the page's tab is chosen first, then its route opens.
-rowByKey(body, "themes-manage").props.act();
-rowByKey(body, "sounds-manage").props.act();
-rowByKey(body, "animations-manage").props.act();
+navByKey(body, "themes-manage").props.onActivate();
+navByKey(body, "sounds-manage").props.onActivate();
+navByKey(body, "animations-manage").props.onActivate();
 await tick();
 assert.deepEqual(requests.splice(0), [
   { patchId: "wsgm.themes", command: "setTab", payload: { tab: "installed" } },
@@ -381,11 +426,11 @@ assert.deepEqual(requests.splice(0), [
 ]);
 assert.deepEqual(history.splice(0), ["/wsgm/sounds", "/wsgm/themes", "/wsgm/animations"]);
 
-// Stock restore stays reachable: themes off disables only the per-theme rows and the profile.
+// Stock restore stays reachable: themes off disables only the profile.
 publish("wsgm.themes", { ...themesState, settings: { enabled: false } });
 body = renderHub(renderCustomization());
 assert.equal(rowByKey(body, "themes-on").props.row.disabled, false);
-assert.equal(rowByKey(body, "themes-theme-a").props.row.disabled, true);
+assert.equal(rowByKey(body, "themes-profile").props.row.disabled, true);
 assert.match(rowByKey(body, "themes-on").props.row.description, /Steam's own look/u);
 
 // A choice the service no longer holds is shown as unavailable rather than silently as the default.
@@ -422,14 +467,22 @@ for (const first of ["hub", "screensaver"]) {
   tree = renderCustomization();
   assert.equal(hubsIn(tree).length, 1, `one hub with ${first} first`);
   const children = react.Children.toArray(tree.props.children);
-  const decorated = children.filter((child) => child.type.name === "SteamUiSettingsSectionHost");
-  assert.equal(decorated.length, 1, `the screensaver section stays decorated with ${first} first`);
+  const screensaverFold = children.find((child) => child.type.name === "WsgmScreensaverFold");
+  const decorated = screensaverFold.props.section;
+  assert.equal(
+    decorated.type.name,
+    "SteamUiSettingsSectionHost",
+    `the folded screensaver section stays decorated with ${first} first`,
+  );
   assert.equal(
     children.findIndex((child) => child.key === "wsgm-customization-hub") + 1,
-    children.findIndex((child) => child.type === StartupSection),
+    children.findIndex((child) => child.type.name === "WsgmStartupMovieFold"),
     "the hub stays directly in front of Valve's Startup Movie section",
   );
-  assert.equal(find(react, decorated[0].rendered, named("SteamUiScreensaverTimeouts")).length, 1);
+  assert.equal(
+    find(react, decorated.type(decorated.props), named("SteamUiScreensaverTimeouts")).length,
+    1,
+  );
   for (const name of [...order_].reverse()) assert.equal(gates[name].remove().ok, true);
   assert.equal(react.useMemo, originalUseMemo);
 }
@@ -451,7 +504,7 @@ tree = renderCustomization([
   { route: "/settings/system", content: element(SystemPage, {}) },
   { route: "/settings/customization", content: element(NoStartupPage, {}) },
 ]);
-assert.deepEqual(order(tree), ["LedSection", "ScreensaverSection", "hub"]);
+assert.deepEqual(order(tree), ["LedSection", "WsgmScreensaverFold", "hub"]);
 assert.equal(hubAlone.remove().ok, true);
 
 console.log("Customization hub gate: ok");

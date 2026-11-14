@@ -14,7 +14,7 @@ const createWsgmCustomization = () => {
   } as const;
   type Source = keyof typeof Sources;
   // What the hub's rows are drawn with; a client without one of them gets no hub.
-  const Required = ["settingsSection", "toggleField", "dropdown", "valueField", "dialogButton"];
+  const Required = ["settingsSection", "toggleField", "dropdown", "valueField", "dialogButton", "focusable"];
 
   let react: any = null;
   let ui: any = null;
@@ -41,24 +41,28 @@ const createWsgmCustomization = () => {
     return send(source, SteamUiBrowse.setTab, { tab }).then(go);
   };
 
-  const manage = (key: string, label: string, description: string) => ({
-    key,
-    kind: "action",
-    label,
-    description,
-    buttonLabel: "Open",
-  });
+  // The row that opens a source's own page, where everything else about it is managed.
+  const manage = (key: string, title: string, summary: string, onActivate: () => void, badge?: string) =>
+    renderSteamUiNavRow(ui, {
+      key,
+      title,
+      summary,
+      badge: badge ? { text: badge, tone: "info" } : null,
+      onActivate,
+    });
   const failed = (key: string, error: string | null | undefined) =>
     error ? { key, kind: "note", label: "Last change failed", text: "", description: error } : null;
   const waiting = (key: string, text: string) => [{ key, kind: "note", label: text, text: "" }];
 
-  // One section of the hub, drawn with Steam's fields over the shared drafts.
+  // One section of the hub, drawn with Steam's fields over the shared drafts, ending with the row
+  // that opens the source's own page.
   const section = (
     key: Source,
     title: string,
     rows: any[],
     change: (row: any, value: any) => unknown,
     action: (row: any) => unknown,
+    open?: any,
   ) =>
     renderSteamUiFields(ui, {
       key,
@@ -67,6 +71,7 @@ const createWsgmCustomization = () => {
       revision: states[key]?.revision ?? 0,
       onChange: change,
       onAction: action,
+      extra: open ? [open] : [],
     });
 
   const themesSection = () => {
@@ -76,17 +81,14 @@ const createWsgmCustomization = () => {
     const presets: any[] = state.presets ?? [];
     const on = !!state.settings?.enabled;
     const enabled = themes.filter((theme) => theme.enabled).length;
-    const summary = !on
-      ? "Off: Steam's own look. Your themes stay installed and come back when this is on."
-      : themes.length
-        ? `${enabled} of ${themes.length} themes on${state.selectedPreset ? ` · Profile: ${state.selectedPreset}` : ""}`
-        : "No themes installed yet.";
     const rows = [
       {
         key: "themes-on",
         kind: "boolean",
         label: "Use themes",
-        description: summary,
+        description: on
+          ? "Restyles Steam with the themes you turned on."
+          : "Off: Steam's own look. Your themes stay installed and come back when this is on.",
         checked: on,
         disabled: !!state.busy,
       },
@@ -107,19 +109,6 @@ const createWsgmCustomization = () => {
             ],
           }
         : null,
-      ...themes.map((theme) => ({
-        key: `themes-theme-${theme.name}`,
-        kind: "boolean",
-        label: theme.displayName,
-        description:
-          theme.status === "outdated"
-            ? `Update available (${theme.latestVersion})`
-            : [theme.version, theme.author].filter(Boolean).join(" · "),
-        checked: !!theme.enabled,
-        disabled: !on || !!state.busy,
-        nested: true,
-        name: theme.name,
-      })),
       state.updates > 0
         ? {
             key: "themes-update",
@@ -130,11 +119,6 @@ const createWsgmCustomization = () => {
           }
         : null,
       failed("themes-error", state.error),
-      manage(
-        "themes-manage",
-        "Browse and manage themes",
-        "Screenshots, install, update and remove, each theme's options and profiles.",
-      ),
     ].filter(Boolean);
     return section(
       "themes",
@@ -145,15 +129,17 @@ const createWsgmCustomization = () => {
           ? send("themes", "setSetting", { key: "enabled", value: !!value })
           : row.key === "themes-profile"
             ? send("themes", "setProfile", { name: String(value ?? "") })
-            : row.name
-              ? send("themes", "setEnabled", { name: row.name, enabled: !!value })
-              : undefined,
-      (row) =>
-        row.key === "themes-update"
-          ? send("themes", "updateAll")
-          : row.key === "themes-manage"
-            ? open("themes", themes.length ? "installed" : "browse")
             : undefined,
+      (row) => (row.key === "themes-update" ? send("themes", "updateAll") : undefined),
+      manage(
+        "themes-manage",
+        "Manage themes",
+        themes.length
+          ? `${enabled} of ${themes.length} on${state.selectedPreset ? ` · Profile ${state.selectedPreset}` : ""}`
+          : "Browse and install themes",
+        () => open("themes", themes.length ? "installed" : "browse"),
+        state.updates > 0 ? `${state.updates} update${state.updates === 1 ? "" : "s"}` : undefined,
+      ),
     );
   };
 
@@ -181,11 +167,6 @@ const createWsgmCustomization = () => {
         ],
       },
       failed("sounds-error", state.error),
-      manage(
-        "sounds-manage",
-        "Browse and manage sound packs",
-        "DeckThemes Audio Loader packs, previews, ZIP import, update and remove.",
-      ),
     ].filter(Boolean);
     return section(
       "sounds",
@@ -193,7 +174,13 @@ const createWsgmCustomization = () => {
       rows,
       (row, value) =>
         row.key === "sounds-pack" ? send("sounds", "select", { id: String(value ?? "") }) : undefined,
-      (row) => (row.key === "sounds-manage" ? open("sounds") : undefined),
+      () => undefined,
+      manage(
+        "sounds-manage",
+        "Manage sound packs",
+        packs.length ? `${packs.length} installed · previews, import and updates` : "Browse and install sound packs",
+        () => open("sounds"),
+      ),
     );
   };
 
@@ -210,8 +197,8 @@ const createWsgmCustomization = () => {
     const library: any[] = state.library ?? [];
     const known = !state.selected || library.some((item) => item.id === state.selected);
     const description = state.selected
-      ? "Plays when Big Picture starts. Steam's Startup Movie choice below is set aside while it does, and comes back when you choose Steam's own here."
-      : "Steam's Startup Movie choice below decides what plays.";
+      ? "Plays when Big Picture starts, in place of Steam's Startup Movie below."
+      : "Steam's Startup Movie below decides what plays.";
     const rows = [
       {
         key: "animations-boot",
@@ -236,20 +223,7 @@ const createWsgmCustomization = () => {
             accent: true,
           }
         : null,
-      {
-        key: "animations-suspend",
-        kind: "note",
-        label: "Suspend and standby movies",
-        text: "",
-        description:
-          "Steam plays these only in its own suspend flow, which Windows does not run, so the boot movie is the one Steam shows here.",
-      },
       failed("animations-error", state.error),
-      manage(
-        "animations-manage",
-        "Browse and manage boot animations",
-        "SteamDeckRepo movies with previews, your own WebM files, shuffle and volume.",
-      ),
     ].filter(Boolean);
     return section(
       "animations",
@@ -259,10 +233,15 @@ const createWsgmCustomization = () => {
         row.key === "animations-boot"
           ? send("animations", "select", { id: String(value ?? "") })
           : undefined,
-      (row) =>
-        row.key === "animations-manage"
-          ? open("animations", library.length ? "library" : "browse")
-          : undefined,
+      () => undefined,
+      manage(
+        "animations-manage",
+        "Manage boot movies",
+        library.length
+          ? `${library.length} in your library · your own WebM files, shuffle and volume`
+          : "Browse movies or add your own WebM files",
+        () => open("animations", library.length ? "library" : "browse"),
+      ),
     );
   };
 
@@ -284,6 +263,52 @@ const createWsgmCustomization = () => {
     before: ['"#Settings_Customization_StartupVideo"'],
     render: WsgmCustomizationHub,
   });
+
+  // Steam's own Startup Movie and Screensaver sections, each behind one row that opens it alone.
+  const fold = (title: string, summary: string, icon: string) => (props) => {
+    react.useSyncExternalStore(local.subscribe, local.revision);
+    if (!ui) return props.section;
+    if (props.open)
+      return renderSteamUiLevel(
+        ui,
+        { onBack: props.onClose },
+        renderSteamUiSubpageHeader(ui, { title, onBack: props.onClose }),
+        props.section,
+      );
+    return react.createElement(
+      ui.settingsSection,
+      {},
+      renderSteamUiNavRow(ui, { title, summary, icon, onActivate: props.onOpen }),
+    );
+  };
+  const startupFold = fold(
+    "Steam startup movies",
+    "Points Shop movies, shuffle and wake movie",
+    "star",
+  );
+  const screensaverFold = fold(
+    "Screensaver",
+    "Current screensaver, artwork, screenshots and custom sources",
+    "display",
+  );
+  const folds = [
+    registerSteamSettingsSection({
+      page: "Customization",
+      key: "wsgm-customization-startup-fold",
+      fold: ['"#Settings_Customization_StartupVideo"'],
+      render: function WsgmStartupMovieFold(props) {
+        return startupFold(props);
+      },
+    }),
+    registerSteamSettingsSection({
+      page: "Customization",
+      key: "wsgm-customization-screensaver-fold",
+      fold: ['"#Settings_Customization_Screensaver"', "ForceScreensaver"],
+      render: function WsgmScreensaverFold(props) {
+        return screensaverFold(props);
+      },
+    }),
+  ];
 
   // Pure: Steam's settings fields the rows are drawn with, React with the store hook the hub
   // redraws through, and the Customization page's route. A client without one is incompatible.
@@ -324,6 +349,10 @@ const createWsgmCustomization = () => {
       }
       const attached = hub.attach(ledger, react, handles.route);
       if (attached) return attached;
+      for (const section of folds) {
+        const folded = section.attach(ledger, react, handles.route);
+        if (folded) return folded;
+      }
       lastError = "";
       local.changed();
     },
@@ -339,6 +368,7 @@ const createWsgmCustomization = () => {
     status: () => ({
       registered: hub.attached(),
       section: hub.status(),
+      folds: folds.map((section) => section.status()),
       sources: Object.fromEntries(
         (Object.keys(Sources) as Source[]).map((source) => [
           source,

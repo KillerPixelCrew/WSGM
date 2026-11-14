@@ -7092,6 +7092,8 @@
     pages: new Map(),
     wrapped: new WeakMap(),
     sections: new Map(),
+    // The folded Valve section each Settings page has open, by route: its section's key.
+    open: new Map(),
   };
   const steamSettingsChildren = (element) => {
     const children = element.props?.children;
@@ -7141,14 +7143,62 @@
         steamSettingsSectionHost.changed.revision,
         steamSettingsSectionHost.changed.revision,
       );
+      // Leaving the page closes a folded section it had open.
+      react.useEffect(
+        () => () => {
+          if (steamSettingsSectionHost.open.delete(route))
+            steamSettingsSectionHost.changed.changed();
+        },
+        [],
+      );
       const tree = original(props);
-      const sections = steamSettingsSectionHost.attached.filter(
+      const attached = steamSettingsSectionHost.attached.filter(
         (section) => section.route === route,
       );
-      if (!sections.length || !react.isValidElement(tree)) return tree;
+      if (!attached.length || !react.isValidElement(tree)) return tree;
+      // Sections inside a Valve section first, so a fold carries them; folds last, so a section
+      // placed in front of a Valve section still finds it.
+      const sections = [
+        ...attached.filter((section) => section.definition.into),
+        ...attached.filter((section) => !section.definition.into && !section.definition.fold),
+        ...attached.filter((section) => section.definition.fold),
+      ];
       let children = steamSettingsChildren(tree);
       for (const section of sections) {
         const definition = section.definition;
+        if (definition.fold) {
+          const at = children
+            .map((child, index) =>
+              steamSettingsSectionMatches(react, child, definition.fold ?? []) ? index : -1,
+            )
+            .filter((index) => index >= 0);
+          if (at.length !== 1) {
+            section.outcome = at.length
+              ? "the section it folds was not unique on the page"
+              : "the section it folds was not found on the page";
+            continue;
+          }
+          const valve = children[at[0]];
+          const open = steamSettingsSectionHost.open.get(route) === definition.key;
+          const setOpen = (value) => {
+            if (value) steamSettingsSectionHost.open.set(route, definition.key);
+            else steamSettingsSectionHost.open.delete(route);
+            steamSettingsSectionHost.changed.changed();
+          };
+          const slot = react.createElement(definition.render, {
+            key: definition.key,
+            open,
+            section: valve,
+            onOpen: () => setOpen(true),
+            onClose: () => setOpen(false),
+          });
+          section.outcome = open ? "rendered open" : "rendered folded";
+          // An open fold is the page: the Valve section alone, under the host's heading.
+          if (open) return react.cloneElement(tree, undefined, slot);
+          children = children.slice();
+          children[at[0]] = slot;
+          continue;
+        }
         if (definition.into) {
           const at = children
             .map((child, index) =>
@@ -7259,7 +7309,14 @@
   };
   /**
    * Declares a section a gate adds to one of Steam's own Settings pages: drawn in front of the Valve
-   * section `before` names, appended inside the Valve section `into` names, or last on the page.
+   * section `before` names, appended inside the Valve section `into` names, in place of the Valve
+   * section `fold` names, or last on the page.
+   *
+   * A fold puts one of Steam's own sections behind a row of the host's: `render` is drawn where the
+   * Valve section was, with `open`, the Valve `section` element and `onOpen`/`onClose`. Folded, it
+   * draws its row (such as `renderSteamUiNavRow`); open, it is the whole page and draws the section
+   * under its own heading (such as `renderSteamUiSubpageHeader` in a `renderSteamUiLevel`). Leaving the
+   * page closes it, and sections placed inside the Valve section stay in it.
    *
    * Every section shares one transform on the shared useMemo claim. A gate finds the page's route in
    * its pure `find` with `find(runtime)` and attaches the section in its bind with
@@ -19198,7 +19255,14 @@
       animations: { patchId: "wsgm.animations", route: "/wsgm/animations" },
     };
     // What the hub's rows are drawn with; a client without one of them gets no hub.
-    const Required = ["settingsSection", "toggleField", "dropdown", "valueField", "dialogButton"];
+    const Required = [
+      "settingsSection",
+      "toggleField",
+      "dropdown",
+      "valueField",
+      "dialogButton",
+      "focusable",
+    ];
     let react = null;
     let ui = null;
     let lastError = "";
@@ -19221,20 +19285,23 @@
       }
       return send(source, SteamUiBrowse.setTab, { tab }).then(go);
     };
-    const manage = (key, label, description) => ({
-      key,
-      kind: "action",
-      label,
-      description,
-      buttonLabel: "Open",
-    });
+    // The row that opens a source's own page, where everything else about it is managed.
+    const manage = (key, title, summary, onActivate, badge) =>
+      renderSteamUiNavRow(ui, {
+        key,
+        title,
+        summary,
+        badge: badge ? { text: badge, tone: "info" } : null,
+        onActivate,
+      });
     const failed = (key, error) =>
       error
         ? { key, kind: "note", label: "Last change failed", text: "", description: error }
         : null;
     const waiting = (key, text) => [{ key, kind: "note", label: text, text: "" }];
-    // One section of the hub, drawn with Steam's fields over the shared drafts.
-    const section = (key, title, rows, change, action) =>
+    // One section of the hub, drawn with Steam's fields over the shared drafts, ending with the row
+    // that opens the source's own page.
+    const section = (key, title, rows, change, action, open) =>
       renderSteamUiFields(ui, {
         key,
         title,
@@ -19242,6 +19309,7 @@
         revision: states[key]?.revision ?? 0,
         onChange: change,
         onAction: action,
+        extra: open ? [open] : [],
       });
     const themesSection = () => {
       const state = states.themes;
@@ -19257,17 +19325,14 @@
       const presets = state.presets ?? [];
       const on = !!state.settings?.enabled;
       const enabled = themes.filter((theme) => theme.enabled).length;
-      const summary = !on
-        ? "Off: Steam's own look. Your themes stay installed and come back when this is on."
-        : themes.length
-          ? `${enabled} of ${themes.length} themes on${state.selectedPreset ? ` \u00b7 Profile: ${state.selectedPreset}` : ""}`
-          : "No themes installed yet.";
       const rows = [
         {
           key: "themes-on",
           kind: "boolean",
           label: "Use themes",
-          description: summary,
+          description: on
+            ? "Restyles Steam with the themes you turned on."
+            : "Off: Steam's own look. Your themes stay installed and come back when this is on.",
           checked: on,
           disabled: !!state.busy,
         },
@@ -19288,19 +19353,6 @@
               ],
             }
           : null,
-        ...themes.map((theme) => ({
-          key: `themes-theme-${theme.name}`,
-          kind: "boolean",
-          label: theme.displayName,
-          description:
-            theme.status === "outdated"
-              ? `Update available (${theme.latestVersion})`
-              : [theme.version, theme.author].filter(Boolean).join(" \u00b7 "),
-          checked: !!theme.enabled,
-          disabled: !on || !!state.busy,
-          nested: true,
-          name: theme.name,
-        })),
         state.updates > 0
           ? {
               key: "themes-update",
@@ -19311,11 +19363,6 @@
             }
           : null,
         failed("themes-error", state.error),
-        manage(
-          "themes-manage",
-          "Browse and manage themes",
-          "Screenshots, install, update and remove, each theme's options and profiles.",
-        ),
       ].filter(Boolean);
       return section(
         "themes",
@@ -19326,15 +19373,19 @@
             ? send("themes", "setSetting", { key: "enabled", value: !!value })
             : row.key === "themes-profile"
               ? send("themes", "setProfile", { name: String(value ?? "") })
-              : row.name
-                ? send("themes", "setEnabled", { name: row.name, enabled: !!value })
-                : undefined,
-        (row) =>
-          row.key === "themes-update"
-            ? send("themes", "updateAll")
-            : row.key === "themes-manage"
-              ? open("themes", themes.length ? "installed" : "browse")
               : undefined,
+        (row) => (row.key === "themes-update" ? send("themes", "updateAll") : undefined),
+        manage(
+          "themes-manage",
+          "Manage themes",
+          themes.length
+            ? `${enabled} of ${themes.length} on${state.selectedPreset ? ` \u00b7 Profile ${state.selectedPreset}` : ""}`
+            : "Browse and install themes",
+          () => open("themes", themes.length ? "installed" : "browse"),
+          state.updates > 0
+            ? `${state.updates} update${state.updates === 1 ? "" : "s"}`
+            : undefined,
+        ),
       );
     };
     const soundsSection = () => {
@@ -19369,11 +19420,6 @@
           ],
         },
         failed("sounds-error", state.error),
-        manage(
-          "sounds-manage",
-          "Browse and manage sound packs",
-          "DeckThemes Audio Loader packs, previews, ZIP import, update and remove.",
-        ),
       ].filter(Boolean);
       return section(
         "sounds",
@@ -19383,7 +19429,15 @@
           row.key === "sounds-pack"
             ? send("sounds", "select", { id: String(value ?? "") })
             : undefined,
-        (row) => (row.key === "sounds-manage" ? open("sounds") : undefined),
+        () => undefined,
+        manage(
+          "sounds-manage",
+          "Manage sound packs",
+          packs.length
+            ? `${packs.length} installed \u00b7 previews, import and updates`
+            : "Browse and install sound packs",
+          () => open("sounds"),
+        ),
       );
     };
     const animationsSection = () => {
@@ -19399,8 +19453,8 @@
       const library = state.library ?? [];
       const known = !state.selected || library.some((item) => item.id === state.selected);
       const description = state.selected
-        ? "Plays when Big Picture starts. Steam's Startup Movie choice below is set aside while it does, and comes back when you choose Steam's own here."
-        : "Steam's Startup Movie choice below decides what plays.";
+        ? "Plays when Big Picture starts, in place of Steam's Startup Movie below."
+        : "Steam's Startup Movie below decides what plays.";
       const rows = [
         {
           key: "animations-boot",
@@ -19427,20 +19481,7 @@
               accent: true,
             }
           : null,
-        {
-          key: "animations-suspend",
-          kind: "note",
-          label: "Suspend and standby movies",
-          text: "",
-          description:
-            "Steam plays these only in its own suspend flow, which Windows does not run, so the boot movie is the one Steam shows here.",
-        },
         failed("animations-error", state.error),
-        manage(
-          "animations-manage",
-          "Browse and manage boot animations",
-          "SteamDeckRepo movies with previews, your own WebM files, shuffle and volume.",
-        ),
       ].filter(Boolean);
       return section(
         "animations",
@@ -19450,10 +19491,15 @@
           row.key === "animations-boot"
             ? send("animations", "select", { id: String(value ?? "") })
             : undefined,
-        (row) =>
-          row.key === "animations-manage"
-            ? open("animations", library.length ? "library" : "browse")
-            : undefined,
+        () => undefined,
+        manage(
+          "animations-manage",
+          "Manage boot movies",
+          library.length
+            ? `${library.length} in your library \u00b7 your own WebM files, shuffle and volume`
+            : "Browse movies or add your own WebM files",
+          () => open("animations", library.length ? "library" : "browse"),
+        ),
       );
     };
     function WsgmCustomizationHub() {
@@ -19473,6 +19519,51 @@
       before: ['"#Settings_Customization_StartupVideo"'],
       render: WsgmCustomizationHub,
     });
+    // Steam's own Startup Movie and Screensaver sections, each behind one row that opens it alone.
+    const fold = (title, summary, icon) => (props) => {
+      react.useSyncExternalStore(local.subscribe, local.revision);
+      if (!ui) return props.section;
+      if (props.open)
+        return renderSteamUiLevel(
+          ui,
+          { onBack: props.onClose },
+          renderSteamUiSubpageHeader(ui, { title, onBack: props.onClose }),
+          props.section,
+        );
+      return react.createElement(
+        ui.settingsSection,
+        {},
+        renderSteamUiNavRow(ui, { title, summary, icon, onActivate: props.onOpen }),
+      );
+    };
+    const startupFold = fold(
+      "Steam startup movies",
+      "Points Shop movies, shuffle and wake movie",
+      "star",
+    );
+    const screensaverFold = fold(
+      "Screensaver",
+      "Current screensaver, artwork, screenshots and custom sources",
+      "display",
+    );
+    const folds = [
+      registerSteamSettingsSection({
+        page: "Customization",
+        key: "wsgm-customization-startup-fold",
+        fold: ['"#Settings_Customization_StartupVideo"'],
+        render: function WsgmStartupMovieFold(props) {
+          return startupFold(props);
+        },
+      }),
+      registerSteamSettingsSection({
+        page: "Customization",
+        key: "wsgm-customization-screensaver-fold",
+        fold: ['"#Settings_Customization_Screensaver"', "ForceScreensaver"],
+        render: function WsgmScreensaverFold(props) {
+          return screensaverFold(props);
+        },
+      }),
+    ];
     // Pure: Steam's settings fields the rows are drawn with, React with the store hook the hub
     // redraws through, and the Customization page's route. A client without one is incompatible.
     const find = (runtime) => {
@@ -19514,6 +19605,10 @@
         }
         const attached = hub.attach(ledger, react, handles.route);
         if (attached) return attached;
+        for (const section of folds) {
+          const folded = section.attach(ledger, react, handles.route);
+          if (folded) return folded;
+        }
         lastError = "";
         local.changed();
       },
@@ -19529,6 +19624,7 @@
       status: () => ({
         registered: hub.attached(),
         section: hub.status(),
+        folds: folds.map((section) => section.status()),
         sources: Object.fromEntries(
           Object.keys(Sources).map((source) => [
             source,

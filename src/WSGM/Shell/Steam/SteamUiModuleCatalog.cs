@@ -533,15 +533,15 @@ internal sealed class SteamUiModuleCatalog
             () => new ValueTask<SteamExtensionsTabState?>(_extensionsTab.ReadState()),
             _extensionsTab));
 
-        // WSGM's display-off rows in Steam's Screensaver settings, over the same timeouts the overlay
-        // edits. Reading goes to Windows each time, so an overlay change reaches Steam on the next
-        // publication and a change made in Windows reaches it when the page next opens.
+        // Steam's Screensaver settings: its timeouts reported back and the custom sources drawn in it.
+        // The display-off timeouts are edited on Power's Screen and sleep row, so none are drawn here.
         if (_backends.DisplayTimeouts is { } timeouts)
         {
             modules.Add(SteamScreensaverSurface.Module(
                 () => SteamUiPatchSwitches.ScreensaverRowsWanted(_switches(), timeouts),
                 () => new ValueTask<SteamScreensaverState?>(timeouts.ReadState() with
                 {
+                    Rows = [],
                     Activity = _screensaverInput.Read(),
                     Content = _backends.Screensavers?.ReadState()
                 }),
