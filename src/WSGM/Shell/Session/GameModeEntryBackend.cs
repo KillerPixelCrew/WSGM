@@ -141,6 +141,13 @@ internal sealed class GameModeEntryBackend(
     }
 
     /// <inheritdoc />
+    public Task<string?> ApplyHdrAsync(IReadOnlyList<DisplayLayoutOutput> outputs,
+        CancellationToken cancellationToken)
+    {
+        return DisplayGpuProfileService.ApplyHdrAsync(outputs, cancellationToken);
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<DisplayGpuPreference>> CaptureDisplayGpuAsync(
         IReadOnlyList<DisplayGpuPreference> preferences, CancellationToken cancellationToken,
         bool refreshTopology = false)
@@ -302,9 +309,7 @@ internal sealed class GameModeEntryBackend(
         }
         originalWarning = originalWarning is null ? null : "Saved display settings: " + originalWarning;
         var launch = state.Config.GameModeLaunch;
-        var layout = explicitLayout
-                     ?? recovery.PendingReturnLayout
-                     ?? (launch.Return == GameModeReturn.DesktopLayout ? launch.DesktopLayout : null);
+        var layout = GameModeLaunchRules.ReturnLayout(explicitLayout, launch, recovery);
         if (layout is null)
         {
             return originalWarning;

@@ -1,5 +1,15 @@
 # Display profiles, power and wake locks
 
+Display profiles finish driver color encoding and bit depth before enabling HDR. When a layout
+requests HDR plus output color controls, activation holds that output in SDR during those writes,
+then enables the requested HDR once. Output format precedes bit depth. The same ordering applies to
+Game Mode entry, Desktop return and recorded recovery, without a 10-bit/12-bit toggle.
+
+This follows the color-before-final-HDR ordering in
+[ColorControl's NVIDIA preset application](https://github.com/Maassoft/ColorControl/blob/master/ColorControl/Services/NVIDIA/NvService.cs)
+and
+[DisplayMagician's NVIDIA override](https://github.com/terrymacdonald/DisplayMagician/blob/main/DisplayMagicianShared/NVIDIA/NVIDIALibrary.cs).
+
 The [GPU-scaled source-resolution editor](scaled-resolutions.md) lives in Settings > Display and
 Steam Display Settings. Its vendor catalogs are separate from display layouts and the existing
 Overlay/Quick Access active-mode pickers. Those pickers validate driver modes at the current refresh

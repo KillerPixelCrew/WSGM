@@ -8,6 +8,14 @@ namespace WSGM.Core;
 /// <summary>Repairs persisted display, audio, and action preferences before transition execution.</summary>
 internal static class GameModeLaunchRules
 {
+    /// <summary>Chooses an explicit return, the durable snapshot, then the configured Desktop layout.</summary>
+    internal static DisplayLayout? ReturnLayout(DisplayLayout? explicitLayout, GameModeLaunchConfiguration launch,
+        GameModeLaunchRecovery recovery)
+    {
+        return explicitLayout ?? recovery.PendingReturnLayout
+                              ?? (launch.Return == GameModeReturn.DesktopLayout ? launch.DesktopLayout : null);
+    }
+
     /// <summary>Chooses explicit desktop audio over the pending return snapshot.</summary>
     /// <param name="launch">User-authored transition preferences.</param>
     /// <param name="recovery">Captured audio restoration intent.</param>

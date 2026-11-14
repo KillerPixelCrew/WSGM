@@ -12,6 +12,44 @@ namespace WSGM.Shell;
 /// <summary>Applies display-layout driver preferences through the resident graphics owner.</summary>
 internal static class DisplayGpuProfileService
 {
+    /// <summary>Activates HDR outputs in SDR while their explicit color encoding is being changed.</summary>
+    internal static (DisplayLayout Activation, IReadOnlyList<DisplayLayoutOutput> FinalHdr) PrepareLayout(
+        DisplayLayout layout, IReadOnlyList<DisplayGpuPreference> preferences)
+    {
+        var finalHdr = layout.Outputs.Where(output => output.Hdr == true && preferences.Any(
+            preference => preference.Target?.Matches(output.Target) == true
+                          && (preference.CapabilityId?.StartsWith("display.color.", StringComparison.Ordinal) == true
+                              || preference.CapabilityId == "display.hdr-output-mode"))).ToArray();
+        var activation = finalHdr.Length == 0 ? layout : new DisplayLayout(
+            [.. layout.Outputs.Select(output => finalHdr.Contains(output) ? output with { Hdr = false } : output)]);
+        return (activation, finalHdr);
+    }
+
+    /// <summary>Applies final HDR signaling once the requested driver color data has been written.</summary>
+    internal static Task<string?> ApplyHdrAsync(IReadOnlyList<DisplayLayoutOutput> outputs,
+        CancellationToken cancellationToken)
+    {
+        return Task.Run(() =>
+        {
+            var failures = 0;
+            foreach (var output in outputs)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var result = DisplayColor.SetHdr(output.Target, output.Hdr == true);
+                Log.Info($"Display profile final HDR: {output.Target.FriendlyName}, enabled={output.Hdr}, "
+                         + $"outcome={result.Outcome}, nativeStatus={result.NativeStatus}.");
+                if (!result.Succeeded)
+                {
+                    failures++;
+                    Log.Warn($"Display profile HDR for {output.Target.FriendlyName}: "
+                             + DisplayText.Hdr(result.Outcome, result.NativeStatus));
+                }
+            }
+
+            return failures == 0 ? null : "HDR could not be applied to every display. Details are in wsgm.log.";
+        }, CancellationToken.None);
+    }
+
     /// <summary>Refreshes output routes after Windows accepted the layout, then writes each explicit preference once.</summary>
     internal static async Task<string?> ApplyAsync(GpuCoordinator? graphics,
         IReadOnlyList<DisplayGpuPreference> preferences, CancellationToken cancellationToken)
@@ -28,7 +66,14 @@ internal static class DisplayGpuProfileService
 
         await graphics.RefreshDisplayTopologyAsync(cancellationToken).ConfigureAwait(false);
         List<string> failures = [];
-        foreach (var preference in preferences)
+        // Encoding first, then the other fields, with bit depth last. A later encoding write must
+        // not invalidate the requested bit depth before Windows enables the final HDR state.
+        foreach (var preference in preferences.OrderBy(preference => preference.CapabilityId switch
+                 {
+                     "display.color.format" => 0,
+                     "display.color.depth" => 2,
+                     _ => 1
+                 }))
         {
             cancellationToken.ThrowIfCancellationRequested();
             var result = await graphics.ExecuteDisplayPreferenceAsync(preference, cancellationToken)

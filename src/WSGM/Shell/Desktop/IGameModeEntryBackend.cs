@@ -43,6 +43,12 @@ internal interface IGameModeEntryBackend
     Task<string?> ApplyDisplayGpuAsync(IReadOnlyList<DisplayGpuPreference> preferences,
         CancellationToken cancellationToken);
 
+    /// <summary>Applies final HDR state after output color encoding and bit depth have been written.</summary>
+    /// <param name="outputs">Active outputs whose requested HDR was deferred during layout activation.</param>
+    /// <param name="cancellationToken">Cancels before an HDR write starts; admitted writes are never retried.</param>
+    /// <returns>A concise warning for refused HDR writes, or null.</returns>
+    Task<string?> ApplyHdrAsync(IReadOnlyList<DisplayLayoutOutput> outputs, CancellationToken cancellationToken);
+
     /// <summary>Captures readable original values only for driver controls this entry changes.</summary>
     Task<IReadOnlyList<DisplayGpuPreference>> CaptureDisplayGpuAsync(
         IReadOnlyList<DisplayGpuPreference> preferences, CancellationToken cancellationToken,

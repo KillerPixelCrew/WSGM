@@ -70,6 +70,46 @@ public sealed class GameModeEntryTransactionTests
     }
 
     [Fact]
+    public async Task HdrIsEnabledAfterColorWritesAndBeforeHdmiAudio()
+    {
+        var backend = new Backend();
+        var launch = Custom();
+        launch.GameLayout = new DisplayLayout([Layout(Tv).Outputs[0] with { Hdr = true }]);
+        launch.GameDisplayGpu =
+        [
+            new DisplayGpuPreference
+            {
+                Target = Tv, PluginId = "wsgm.gpu.nvidia", CapabilityId = "display.color.depth",
+                Value = new PluginValue(Text: "v00000004")
+            }
+        ];
+        launch.GameAudio = new AudioProfilePreference { Output = new AudioEndpointPreference { Id = "hdmi" } };
+
+        var result = await new GameModeEntryTransaction(backend, launch).RunAsync(CancellationToken.None);
+
+        Assert.Equal(GameModeEntryOutcome.Entered, result.Outcome);
+        Assert.False(Assert.Single(backend.AppliedLayouts[0].Outputs).Hdr);
+        Assert.True(Assert.Single(backend.AppliedHdr).Hdr);
+        Assert.True(backend.Calls.IndexOf("apply-layout") < backend.Calls.IndexOf("apply-display-gpu"));
+        Assert.True(backend.Calls.IndexOf("apply-display-gpu") < backend.Calls.IndexOf("apply-hdr"));
+        Assert.True(backend.Calls.IndexOf("apply-hdr") < backend.Calls.IndexOf("apply-audio"));
+    }
+
+    [Fact]
+    public async Task HdrWithoutColorOverridesKeepsItsNormalLayoutApplication()
+    {
+        var backend = new Backend();
+        var launch = Custom();
+        launch.GameLayout = new DisplayLayout([Layout(Tv).Outputs[0] with { Hdr = true }]);
+
+        var result = await new GameModeEntryTransaction(backend, launch).RunAsync(CancellationToken.None);
+
+        Assert.Equal(GameModeEntryOutcome.Entered, result.Outcome);
+        Assert.True(Assert.Single(backend.AppliedLayouts[0].Outputs).Hdr);
+        Assert.Empty(backend.AppliedHdr);
+    }
+
+    [Fact]
     public async Task ADefaultEntryTouchesNoLayoutButStillRunsTheActionsAndTheWait()
     {
         // The maintainer's desktop needs the IR switch and the TV wait even when the layout itself
@@ -395,6 +435,8 @@ public sealed class GameModeEntryTransactionTests
         internal DisplayLayout? PendingReturnLayout { get; set; }
 
         internal List<string> RestoredLayouts { get; } = [];
+        internal List<DisplayLayout> AppliedLayouts { get; } = [];
+        internal List<DisplayLayoutOutput> AppliedHdr { get; } = [];
 
         internal string? FailAction { get; init; }
 
@@ -454,6 +496,7 @@ public sealed class GameModeEntryTransactionTests
         public Task<DisplayLayoutResult> ApplyLayoutAsync(
             DisplayLayout layout, CancellationToken cancellationToken)
         {
+            AppliedLayouts.Add(layout);
             var name = layout.Outputs[0].Target.FriendlyName == "Desk" ? "desk" : "captured";
             // A restore is the same call with the layout entry recorded; distinguishing them by
             // whether Explorer has left yet would test the test, so both are recorded.
@@ -470,6 +513,14 @@ public sealed class GameModeEntryTransactionTests
             {
                 Output = new AudioEndpointPreference { Id = "desktop", Name = "Desktop" }
             });
+        }
+
+        public Task<string?> ApplyHdrAsync(IReadOnlyList<DisplayLayoutOutput> outputs,
+            CancellationToken cancellationToken)
+        {
+            Calls.Add("apply-hdr");
+            AppliedHdr.AddRange(outputs);
+            return Task.FromResult<string?>(null);
         }
 
         public Task<string?> ApplyDisplayGpuAsync(IReadOnlyList<DisplayGpuPreference> preferences,

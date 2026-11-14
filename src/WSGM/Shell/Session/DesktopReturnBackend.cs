@@ -38,7 +38,16 @@ internal sealed class DesktopReturnBackend(
         _recovery = current.GameModeLaunchRecovery;
         DisplayScale.RestoreSaved(modes.Store, current);
         var services = hooks.Entry;
-        var layoutWarning = await services.ApplyReturnLayoutAsync(layout, _recovery).ConfigureAwait(false);
+        var requested = GameModeLaunchRules.ReturnLayout(layout, current.GameModeLaunch, _recovery);
+        IReadOnlyList<DisplayLayoutOutput> finalHdr = [];
+        if (requested is not null)
+        {
+            var plan = DisplayGpuProfileService.PrepareLayout(requested, current.GameModeLaunch.DesktopDisplayGpu);
+            requested = plan.Activation;
+            finalHdr = plan.FinalHdr;
+        }
+
+        var layoutWarning = await services.ApplyReturnLayoutAsync(requested, _recovery).ConfigureAwait(false);
         if (layoutWarning is not null)
         {
             warnings.Add(layoutWarning);
@@ -50,7 +59,14 @@ internal sealed class DesktopReturnBackend(
             warnings.Add(graphicsWarning);
         }
 
-        return layoutWarning is null && graphicsWarning is null;
+        var hdrWarning = finalHdr.Count == 0 ? null
+            : await services.ApplyHdrAsync(finalHdr, CancellationToken.None).ConfigureAwait(false);
+        if (hdrWarning is not null)
+        {
+            warnings.Add(hdrWarning);
+        }
+
+        return layoutWarning is null && graphicsWarning is null && hdrWarning is null;
     }
 
     /// <inheritdoc />

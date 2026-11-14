@@ -26,6 +26,7 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
         DisplayLayout? returnLayout = null;
         AudioProfilePreference? returnAudio = null;
         IReadOnlyList<DisplayGpuPreference> returnGraphics = [];
+        IReadOnlyList<DisplayLayoutOutput> finalHdr = [];
         bool? recovered = null;
 
         // Recovery reports its own failure; cache it to avoid duplicate attempts and warnings.
@@ -132,11 +133,17 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
             if (launch is { Kind: GameModeLaunchKind.Custom, GameLayout: { } game })
             {
                 backend.SetStatus("Applying the display layout");
-                var applied = await backend.ApplyLayoutAsync(game, CancellationToken.None)
+                // ColorControl and DisplayMagician finish color data before final HDR signaling.
+                // Activate the requested layout in SDR while its driver color settings change,
+                // then enable the requested HDR once those writes have completed.
+                var plan = DisplayGpuProfileService.PrepareLayout(game, launch.GameDisplayGpu);
+                finalHdr = plan.FinalHdr;
+                var applied = await backend.ApplyLayoutAsync(plan.Activation, CancellationToken.None)
                     .ConfigureAwait(false);
                 // A refused layout leaves Game Mode usable on the existing display; report the refusal.
                 if (!applied.Applied)
                 {
+                    finalHdr = [];
                     layoutWarning = "Game Mode display layout: " + DisplayText.Layout(applied);
                 }
             }
@@ -162,6 +169,16 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
                 {
                     layoutWarning = (layoutWarning is null ? "" : layoutWarning + " ")
                                     + "Game Mode display controls: " + warning;
+                }
+            }
+
+            if (finalHdr.Count > 0)
+            {
+                backend.SetStatus("Applying the Game Mode HDR preferences");
+                var hdrWarning = await backend.ApplyHdrAsync(finalHdr, CancellationToken.None).ConfigureAwait(false);
+                if (hdrWarning is not null)
+                {
+                    layoutWarning = layoutWarning is null ? hdrWarning : layoutWarning + " " + hdrWarning;
                 }
             }
 

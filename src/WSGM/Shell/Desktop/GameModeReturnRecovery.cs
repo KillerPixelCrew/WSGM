@@ -148,6 +148,7 @@ internal static class GameModeReturnRecovery
             }
 
             var complete = true;
+            IReadOnlyList<DisplayLayoutOutput> finalHdr = [];
             if (pending.PendingReturnDisplayGpu is { Count: > 0 } originals)
             {
                 var originalsRestored = await AttemptAsync("original display driver controls",
@@ -159,8 +160,10 @@ internal static class GameModeReturnRecovery
 
             if (pending.PendingReturnLayout is { } layout)
             {
+                var plan = DisplayGpuProfileService.PrepareLayout(layout, config.GameModeLaunch.DesktopDisplayGpu);
+                finalHdr = plan.FinalHdr;
                 complete &= await AttemptAsync("display layout",
-                        () => Task.Run(() => DisplayLayouts.Apply(layout).Applied, cancellationToken))
+                        () => Task.Run(() => DisplayLayouts.Apply(plan.Activation).Applied, cancellationToken))
                     .ConfigureAwait(false);
             }
 
@@ -174,6 +177,13 @@ internal static class GameModeReturnRecovery
             }
 
             var preference = GameModeLaunchRules.DesktopAudio(config.GameModeLaunch, pending);
+            if (finalHdr.Count > 0)
+            {
+                complete &= await AttemptAsync("HDR", async () =>
+                    await DisplayGpuProfileService.ApplyHdrAsync(finalHdr, cancellationToken).ConfigureAwait(false)
+                    is null).ConfigureAwait(false);
+            }
+
             if (preference is not null)
             {
                 var audioRestored = await AttemptAsync("audio", async () =>
