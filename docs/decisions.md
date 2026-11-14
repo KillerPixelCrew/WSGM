@@ -76,12 +76,12 @@ the next strict write persists it. Before that first write the store keeps the o
 Legacy `BoostWatts` moves into the device PL2 entry at runtime, when the device publishes it. A
 stored custom tab without an id gets `tab-<index>-<name>` on every read instead of a random id.
 
-**Toolchain pins.** .NET 10 and Avalonia 12.1.2. `LoadingIndicators.Avalonia` is vendored under
+**Toolchain pins.** .NET 10 and Avalonia 12.1.6. `LoadingIndicators.Avalonia` is vendored under
 `external\LoadingIndicators.Avalonia` and built from source, because its published Avalonia 11
 package has precompiled XAML that fails on Avalonia 12; its Unlicense text ships from
 `src\WSGM\Licenses\`. `FluentAvaloniaUI` 3.1.0 and an explicit `Avalonia.Controls.ColorPicker`
-12.1.2 pin keep the controls on the same Avalonia line. `Avalonia.Labs.Panels` 12.0.2 supplies the
-production overlay's FlexPanel layout. `Microsoft.Data.Sqlite` 10.0.12 reads launchers' SQLite
+12.1.6 pin keep the controls on the same Avalonia line. `Avalonia.Labs.Panels` 12.1.0 supplies the
+production overlay's FlexPanel layout. `Microsoft.Data.Sqlite` 11.0.0 reads launchers' SQLite
 databases for the Game Library; its MIT text and SQLitePCLRaw's Apache 2.0 text ship from
 `src\WSGM\Licenses\`.
 
