@@ -65,7 +65,10 @@ The endpoint serves one host at a time and the newest connection replaces an old
 reconnecting WSGM never waits on a dead socket, and the firmware closes idle clients after two
 minutes. Each explicit Wi-Fi action discards the previous connection and identifies a fresh one
 before doing any endpoint work, so returning to the desktop later does not send through an idle
-socket. An uncertain transmission is never retried.
+socket. An uncertain transmission is never retried. Firmware buffers each complete reply before
+writing it to USB or TCP, so a catalog is not sent as thousands of tiny Wi-Fi writes. On 2026-11-14
+the same catalog read fell from 5.375 seconds to 15 milliseconds after this fix was flashed. Both
+checks read only; they did not emit IR.
 
 Firmware 0.1.0 had no network support. The current host refuses all protocol-1 firmware during
 identification, before Wi-Fi setup or emission.

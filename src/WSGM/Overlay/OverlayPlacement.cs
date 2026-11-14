@@ -50,8 +50,8 @@ internal sealed class OverlayPlacement
     /// <param name="tray">The tray strip whose width is budgeted against the window.</param>
     /// <param name="uiScale">The desktop-DPI scale factor for WSGM UI (1.5 for a 150% desktop).</param>
     /// <param name="preferredScreenPoint">
-    ///     A physical point in the foreground window that summoned the sheet, or null for Avalonia's
-    ///     current window or primary-screen selection.
+    ///     A physical point in the foreground window that summoned the sheet, used only if the primary
+    ///     display cannot be identified.
     /// </param>
     internal OverlayPlacement(Window window, LayoutTransformControl rootScale, Border glassCanvas, Control tray,
         double uiScale, PixelPoint? preferredScreenPoint)
@@ -140,23 +140,23 @@ internal sealed class OverlayPlacement
     }
 
     /// <summary>
-    ///     Covers the summoning window's display with a surface window and renders its content at the desktop's
+    ///     Covers the primary display with a surface window and renders its content at the desktop's
     ///     DPI. Shared by the sheet and the Game Mode taskbar.
     /// </summary>
     /// <param name="window">The surface window, moved and sized to the display.</param>
     /// <param name="rootScale">The surface's root transform.</param>
     /// <param name="uiScale">The desktop-DPI scale factor for WSGM UI (1.5 for a 150% desktop).</param>
-    /// <param name="preferredScreenPoint">A physical point on the display to cover, or null for the window's own.</param>
+    /// <param name="preferredScreenPoint">Fallback physical point when the primary display cannot be identified.</param>
     /// <param name="surfaceName">The surface's name in the log.</param>
     /// <returns>The covered display, or null when there is none.</returns>
     internal static DisplayCover? Cover(Window window, LayoutTransformControl rootScale, double uiScale,
         PixelPoint? preferredScreenPoint, string surfaceName)
     {
         var screens = window.Screens;
-        var screen = preferredScreenPoint is { } point
+        var screen = screens.Primary ?? (preferredScreenPoint is { } point
             ? screens.ScreenFromPoint(point)
-            : null;
-        screen ??= screens.ScreenFromWindow(window) ?? screens.Primary;
+            : null);
+        screen ??= screens.ScreenFromWindow(window);
         if (screen is null && screens.ScreenCount > 0)
         {
             screen = screens.All[0];

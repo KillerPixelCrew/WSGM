@@ -6,6 +6,11 @@ Styling and headless rendering are in [UI mechanisms](ui.md). The
 [Steam Input lease](steam-input.md) and the [device runtime](device-runtime.md) document their own
 integration boundaries.
 
+The sheet and Game Mode taskbar open on Windows' primary display, independent of the cursor or
+foreground window's monitor. Each new surface resolves the current primary display, so the selected
+Game Mode layout determines placement after a display switch. If no primary is available, placement
+falls back to the summoning window's display, then the surface's display or first screen.
+
 ## Code ownership and an open/close cycle
 
 All paths below are under [`src/WSGM`](../src/WSGM). The [repository source map](source-map.md)

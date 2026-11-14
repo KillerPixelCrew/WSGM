@@ -106,8 +106,15 @@ void reply(Print& out, const String& id, const char* status, JsonDocument* paylo
     message["id"] = id;
     message["status"] = status;
     if (payload) message["data"] = payload->as<JsonVariant>();
-    serializeJson(message, out);
-    out.println();
+    // Serializing directly to Print sends JSON characters as tiny TCP writes. With TCP_NODELAY
+    // a small catalog took over five seconds on Wi-Fi, exceeding the host's read deadline.
+    // Buffer the complete bounded frame and submit it once, without retrying a partial write.
+    String frame;
+    size_t length = measureJson(message);
+    if (length > MaxFrame || !frame.reserve(length + 1)) return;
+    if (serializeJson(message, frame) != length) return;
+    frame += '\n';
+    out.write(reinterpret_cast<const uint8_t*>(frame.c_str()), frame.length());
 }
 
 // Capture pauses during emission so the receiver never decodes the endpoint's own frame.
