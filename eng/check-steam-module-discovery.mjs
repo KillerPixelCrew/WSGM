@@ -63,7 +63,10 @@ function fixture() {
     return exports;
   }
   runtime.m = factories;
-  const window = { webpackChunksteamui: { push: (chunk) => chunk[2](runtime) } };
+  const window = {
+    App: { GetServicesInitialized: () => true },
+    webpackChunksteamui: { push: (chunk) => chunk[2](runtime) },
+  };
   const steamModules = runInNewContext(`${resolver}\ncreateSteamUiModuleResolver("fixture")`, {
     window,
   });

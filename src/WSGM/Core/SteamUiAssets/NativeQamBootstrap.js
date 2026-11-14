@@ -3230,6 +3230,23 @@
    * @throws When the runtime is absent, a fingerprint is invalid or a requested match/load fails.
    */
   function createSteamUiModuleResolver(scope) {
+    // Nothing is read while Steam's UI is still starting. A document Steam has just replaced (opening
+    // Big Picture from the desktop) carries the webpack runtime before its chunks have loaded, so a
+    // probe then counted no module and stood as incompatible for the whole generation, and requiring
+    // modules ahead of Steam's own initialization left its UI stuck before login. Steam's app reports
+    // its services initialized at the end of its after-login init; older clients only report the
+    // stages before it.
+    const app = window.App;
+    const started = !app
+      ? false
+      : typeof app.GetServicesInitialized === "function"
+        ? app.GetServicesInitialized() === true
+        : typeof app.BFinishedInitBeforeLogin === "function"
+          ? app.BFinishedInitBeforeLogin() === true
+          : typeof app.BFinishedInitStageOne === "function"
+            ? app.BFinishedInitStageOne() === true
+            : true;
+    if (!started) throw new Error("Steam modules unavailable: Steam is still starting");
     let runtime;
     const chunks = window.webpackChunksteamui;
     const capture = [
