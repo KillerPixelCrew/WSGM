@@ -1,4 +1,5 @@
 using System;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Platform;
 using WSGM.Core;
@@ -9,9 +10,12 @@ namespace WSGM.Shell;
 internal sealed class DesktopTray : IDisposable
 {
     private readonly TrayIcon _icon;
+    private readonly TrayIcons _icons;
 
     internal DesktopTray(Action open, Action gameMode, Action settings, Action exit)
     {
+        var application = Application.Current
+                          ?? throw new InvalidOperationException("The desktop tray requires an Avalonia application.");
         NativeMenu menu = [];
         Add(menu, "Open WSGM", open);
         Add(menu, "Enter Game Mode", gameMode);
@@ -27,10 +31,29 @@ internal sealed class DesktopTray : IDisposable
             IsVisible = false
         };
         _icon.Clicked += (_, _) => open();
+        // Avalonia 12 creates the native implementation only when an icon joins the Application collection.
+        // IsVisible on an unattached icon updates a property but never registers anything with Explorer.
+        _icons = TrayIcon.GetIcons(application) ?? new TrayIcons();
+        if (TrayIcon.GetIcons(application) is null)
+        {
+            TrayIcon.SetIcons(application, _icons);
+        }
+        try
+        {
+            _icons.Add(_icon);
+        }
+        catch
+        {
+            _icons.Remove(_icon);
+            _icon.Dispose();
+            throw;
+        }
+        Log.Info("Desktop tray icon attached to the application.");
     }
 
     public void Dispose()
     {
+        _icons.Remove(_icon);
         _icon.Dispose();
     }
 

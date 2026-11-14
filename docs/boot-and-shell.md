@@ -37,6 +37,12 @@ ordinary coordinated shutdown: integrations and runtime resources retire, Explor
 the interactive process ends. The logon service stays installed for the next sign-in; Exit neither
 uninstalls it nor changes the configured next-logon preference.
 
+The desktop tray joins Avalonia's application tray-icon collection, which creates its native
+implementation; creating an unattached `TrayIcon` and setting `IsVisible` alone does not. The owner
+removes only its own icon during shutdown, preserving icons registered by other owners. After a
+desktop return restores Explorer, the existing re-registration toggles that attached icon's
+visibility so it is added to the new taskbar.
+
 `StartupOptions.Parse` picks one mode from the command line. `--shell` or `--boot` wins over
 `--settings`, which wins over `--overlay-test`; no mode flag means Settings. These flags are
 case-insensitive. WSGM never registers as the Windows shell.
