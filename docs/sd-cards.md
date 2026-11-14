@@ -226,6 +226,13 @@ target, it suspends media watching and removes the existing Steam library regist
    previous letter when Windows chose another, again after revalidation. It creates the Steam
    library structure and registers the resulting library.
 
+After formatting, volume GUID resolution and its disk query may still be settling. WSGM retries only
+those read-only checks for up to 20 seconds, rechecking the disk's physical identity before creating
+library files through the verified GUID root. A known wrong disk stops immediately. An unreadable
+mapping reports that formatting completed but library setup could not finish; it does not report a
+card swap or restart formatting. The existing Add Steam Library action can register the formatted
+card after it is mounted again.
+
 Allocation size is left to Windows by omitting DiskPart's `unit` override. Microsoft recommends the
 default for general use; filesystem clusters and physical sectors are different units, so WSGM does
 not derive a cluster size from a reported sector size. See Microsoft's

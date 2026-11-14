@@ -250,7 +250,7 @@ internal static class Diskpart
 
     /// <summary>Resolves a drive letter to its volume GUID root and the physical disk under it.</summary>
     /// <param name="letter">The drive letter to resolve.</param>
-    /// <returns>The volume GUID root and disk number, or (null, -1) when the letter maps to no disk volume.</returns>
+    /// <returns>The GUID root when resolved, and the disk number or -1 when its query failed.</returns>
     internal static (string? Root, int Disk) ReadVolume(char letter)
     {
         if (!WindowsStorage.TryGetVolumeGuidPath(letter, out var root, out _) || root is null)
@@ -259,7 +259,7 @@ internal static class Diskpart
         }
 
         var disk = WindowsStorage.DiskOfVolume(root);
-        return disk >= 0 ? (root, disk) : (null, -1);
+        return (root, disk);
     }
 
     /// <summary>

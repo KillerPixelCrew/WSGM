@@ -32,7 +32,7 @@ public sealed partial class SdFormatTests
         }
 
         Assert.Equal(2, run.Events.Count(value => value == "delay"));
-        Assert.Equal(6, run.IdentityReads);
+        Assert.Equal(7, run.IdentityReads);
         Assert.Contains("volume", run.Events);
         Assert.True(run.Events.IndexOf("volume") < run.Events.IndexOf("format"));
         Assert.Contains(run.Logs, line => line.Contains("volume on disk 3 appeared after 125 ms"));
@@ -421,6 +421,86 @@ public sealed partial class SdFormatTests
     }
 
     [Fact]
+    public async Task FormatRun_UnreadableMappingSettlesWithoutRepeatingTheFormat()
+    {
+        using var run = new FormatRunFixture();
+        run.VolumeReads.Enqueue((null, -1));
+        run.VolumeReads.Enqueue((run.VolumeRootPath, -1));
+
+        await run.StartAsync();
+
+        Assert.True(run.Success);
+        Assert.Equal(["clean", "format"], run.Stages);
+        Assert.Equal(3, run.VolumeReadCount);
+        Assert.Equal(2, run.Events.Count(value => value == "delay"));
+        Assert.True(File.Exists(run.MarkerPath));
+    }
+
+    [Fact]
+    public async Task FormatRun_UnresolvedMappingReportsFormattedAndNeverWritesALibrary()
+    {
+        using var run = new FormatRunFixture();
+        run.VolumeDisk = -1;
+
+        await run.StartAsync();
+
+        Assert.False(run.Success);
+        Assert.Equal(["clean", "format"], run.Stages);
+        Assert.Equal(40, run.VolumeReadCount);
+        Assert.Contains("card was formatted", run.Manager.Progress.StatusText);
+        Assert.DoesNotContain("card changed", run.Manager.Progress.StatusText);
+        Assert.False(File.Exists(run.MarkerPath));
+        Assert.Empty(run.LiveAdds);
+        Assert.DoesNotContain("retrim", run.Events);
+    }
+
+    [Fact]
+    public async Task FormatRun_KnownWrongMappingStopsImmediatelyWithoutRetryOrLibraryWrites()
+    {
+        using var run = new FormatRunFixture();
+        run.VolumeDisk = 4;
+
+        await run.StartAsync();
+
+        Assert.False(run.Success);
+        Assert.Equal(1, run.VolumeReadCount);
+        Assert.DoesNotContain("delay", run.Events);
+        Assert.False(File.Exists(run.MarkerPath));
+        Assert.Empty(run.LiveAdds);
+    }
+
+    [Fact]
+    public async Task FormatRun_ChangedPhysicalDiskAfterFormatStopsBeforeLibraryWrites()
+    {
+        using var run = new FormatRunFixture();
+        run.OnLetter = () => run.Identity = run.Identity with { SizeBytes = run.Identity.SizeBytes + 1 };
+
+        await run.StartAsync();
+
+        Assert.False(run.Success);
+        Assert.False(File.Exists(run.MarkerPath));
+        Assert.DoesNotContain("retrim", run.Events);
+        Assert.Empty(run.LiveAdds);
+    }
+
+    [Fact]
+    public async Task FormatRun_CancellationWhileWaitingForMappingNeverWritesALibrary()
+    {
+        using var run = new FormatRunFixture();
+        run.VolumeDisk = -1;
+        run.OnDelay = run.Cancellation.Cancel;
+
+        await run.StartAsync();
+
+        Assert.False(run.Success);
+        Assert.Equal(["clean", "format"], run.Stages);
+        Assert.Equal(1, run.VolumeReadCount);
+        Assert.False(File.Exists(run.MarkerPath));
+        Assert.Empty(run.LiveAdds);
+        Assert.DoesNotContain("retrim", run.Events);
+    }
+
+    [Fact]
     public async Task FormatRun_WritesUseTheVolumeRootWhileSteamReceivesTheLetterPath()
     {
         using var run = new FormatRunFixture();
@@ -500,6 +580,7 @@ public sealed partial class SdFormatTests
         internal readonly TemporaryDirectory Files = new();
         internal readonly Queue<ConsoleToolResult> FormatResults = new();
         internal readonly Queue<char?> Letters = new();
+        internal readonly Queue<(string? Root, int Disk)> VolumeReads = new();
         internal readonly List<(string Path, string Label, bool Replace)> LiveAdds = [];
         internal readonly List<string> Logs = [];
 
@@ -583,7 +664,11 @@ public sealed partial class SdFormatTests
                     OnLetter?.Invoke();
                     return Task.FromResult(Letters.Count > 0 ? Letters.Dequeue() : 'E');
                 },
-                ReadVolume = _ => (VolumeRootPath, VolumeDisk),
+                ReadVolume = _ =>
+                {
+                    VolumeReadCount++;
+                    return VolumeReads.Count > 0 ? VolumeReads.Dequeue() : (VolumeRootPath, VolumeDisk);
+                },
                 LettersOnDisk = _ => ['E'],
                 LetterRoot = _ => LetterRootPath,
                 ReadSteam = () => (SteamRunning, SteamExe),
@@ -662,6 +747,7 @@ public sealed partial class SdFormatTests
         internal bool MapLetterMarkerToVolume { get; set; }
         internal int VolumeWait { get; set; } = 125;
         internal int VolumeDisk { get; set; } = 3;
+        internal int VolumeReadCount { get; private set; }
         internal int IdentityReads { get; private set; }
         internal ConsoleToolResult PartitionResult { get; set; } = Succeeded;
 

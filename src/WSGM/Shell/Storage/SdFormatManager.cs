@@ -56,6 +56,9 @@ public sealed class SdFormatManager : ObservableObject
     /// </summary>
     private const int LetterProbeAttempts = 6;
 
+    /// <summary>Read-only volume mapping probes after format, at 500 ms intervals for at most 20 seconds.</summary>
+    private const int VolumeProbeAttempts = 40;
+
     /// <summary>Session cancellation used by cancellable format stages; it cannot undo disk writes.</summary>
     private readonly CancellationToken _lifetime;
 
@@ -651,10 +654,13 @@ public sealed class SdFormatManager : ObservableObject
                 return;
             }
 
-            var volumeRoot = await Task.Run(() => VerifiedVolumeRoot(target, letter.Value));
-            if (volumeRoot is null)
+            var verifiedVolume = await WaitForVerifiedVolumeRootAsync(target, letter.Value);
+            if (verifiedVolume.Root is not { } volumeRoot)
             {
-                Progress.Finish(CardChangedMidRunMessage, false);
+                Progress.Finish(verifiedVolume.Identity == FormatTargetIdentity.Changed
+                    ? CardChangedMidRunMessage
+                    : "The card was formatted, but WSGM could not verify its mounted volume. "
+                      + "Reinsert the card, then use Add Steam Library.", false);
                 return;
             }
 
@@ -1115,11 +1121,52 @@ public sealed class SdFormatManager : ObservableObject
     ///     confirms that volume still sits on the run's disk. Every later file write goes
     ///     through this root, so a letter re-pointed after the wait cannot redirect them.
     /// </summary>
-    /// <returns>The volume GUID root, or null when the letter no longer maps to the run's disk.</returns>
-    private string? VerifiedVolumeRoot(FormatRunTarget target, char letter)
+    /// <returns>The verified root and Same, or a confirmed Changed / unresolved Unreadable verdict.</returns>
+    private async Task<(string? Root, FormatTargetIdentity Identity)> WaitForVerifiedVolumeRootAsync(
+        FormatRunTarget target, char letter)
     {
-        var (root, disk) = _operations.ReadVolume(letter);
-        return disk == target.DiskNumber ? root : null;
+        (string? Root, int Disk) last = (null, -1);
+        for (var attempt = 0; attempt < VolumeProbeAttempts; attempt++)
+        {
+            _lifetime.ThrowIfCancellationRequested();
+            last = await Task.Run(() => _operations.ReadVolume(letter));
+            if (last.Disk >= 0 && last.Disk != target.DiskNumber)
+            {
+                Warn($"Format: {letter}: maps to disk {last.Disk}, not formatted disk {target.DiskNumber} "
+                     + $"(volume {last.Root ?? "unavailable"}); stopping before library creation.");
+                return (null, FormatTargetIdentity.Changed);
+            }
+
+            if (last.Root is not null && last.Disk == target.DiskNumber)
+            {
+                var identity = await Task.Run(() => ReadTargetIdentity(target));
+                LogReverification(target, identity, "library creation");
+                if (identity.Identity == FormatTargetIdentity.Changed)
+                {
+                    return (null, FormatTargetIdentity.Changed);
+                }
+
+                // The exact volume maps to the selected disk. A failed secondary identity read
+                // is not swap evidence, just as it is not between the destructive stages.
+                return (last.Root, FormatTargetIdentity.Same);
+            }
+
+            if (attempt == 0)
+            {
+                Info($"Format: waiting for the formatted volume on {letter}: to resolve to disk "
+                     + $"{target.DiskNumber}; read-only verification will wait up to 20 seconds.");
+            }
+
+            if (attempt + 1 < VolumeProbeAttempts)
+            {
+                await _operations.Delay(500, _lifetime);
+            }
+        }
+
+        Warn($"Format: disk {target.DiskNumber} was formatted, but its volume could not be verified "
+             + $"on {letter}: (volume {last.Root ?? "unavailable"}, disk {last.Disk}). "
+             + "No Steam library files were written.");
+        return (null, FormatTargetIdentity.Unreadable);
     }
 
     private void Info(string message)
