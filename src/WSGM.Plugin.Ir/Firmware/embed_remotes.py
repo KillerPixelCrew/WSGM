@@ -466,7 +466,7 @@ def load(identifier, folder, library):
         source = json.loads((folder / "remote.json").read_text(encoding="utf-8"), object_pairs_hook=unique_keys)
     except (OSError, ValueError) as problem:
         fail(where, f"remote.json is not readable JSON ({problem})")
-    fields(where, source, {"name", "defaults", "buttons", "climate", "sequences"})
+    fields(where, source, {"name", "defaults", "buttons", "climate", "sequences", "touchSequence"})
     defaults = fields(f"{where}.defaults", source.get("defaults", {}),
                       {"protocol", "address", "bits", "repeats"})
     entry = {
@@ -482,6 +482,11 @@ def load(identifier, folder, library):
     names = {b["id"] for b in entry["buttons"]}
     entry["sequences"] = [{"id": key, **sequence(f"{where}.sequences.{key}", value, names)}
                           for key, value in entries(f"{where}.sequences", source.get("sequences", {}))]
+    if "touchSequence" in source:
+        touch_sequence = source["touchSequence"]
+        if not isinstance(touch_sequence, str) or touch_sequence not in {s["id"] for s in entry["sequences"]}:
+            fail(f"{where}.touchSequence", "must name a sequence in this remote")
+        entry["touchSequence"] = touch_sequence
     custom = folder / "index.html"
     if custom.is_file():
         page = custom.read_text(encoding="utf-8")
@@ -526,6 +531,8 @@ def generate():
             folders[folder.name] = folder
     loaded = [load(identifier, folders[identifier], library) for identifier in sorted(folders)]
     remotes = [entry for entry, _ in loaded]
+    if sum("touchSequence" in entry for entry in remotes) > 1:
+        fail("touchSequence", "only one remote may bind the touch button")
     pages = [compress(page) for _, page in loaded]
     compact = {"separators": (",", ":"), "ensure_ascii": False}
     parts = [

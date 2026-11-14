@@ -66,6 +66,9 @@ answers `busy`, and so does `wifi`, because the radio should not change under a 
 Reads such as `identify`, `remotes` and `protocols` keep answering. `identify` also reports
 `webPort`, `webConfigured`, the number of built-in `remotes` and `sequenceRunning`. When the
 built-in definitions fail to load, the endpoint reports no remotes and serves an empty catalog.
+Identity also reports `touchRemote` and `touchSequence`, the built-in sequence bound to a physical
+touch-button tap, or empty strings when unbound. The binding is fixed at build time through the
+remote definition's `touchSequence` field; reading it never transmits IR.
 
 `learn` is asynchronous on the endpoint so cancellation and health remain available. Another learn
 or send while learning receives `busy`. Learning also ends on its firmware deadline without a host,

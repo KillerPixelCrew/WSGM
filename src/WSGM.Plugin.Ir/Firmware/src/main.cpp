@@ -59,6 +59,7 @@ decode_results captured;
 String learningId, token, webUser, webPassword, wifiSsid, wifiPassword;
 // Built-in remotes: full definitions for sending, and the id/label catalog hosts and pages read.
 JsonDocument remotes, catalog;
+JsonObjectConst touchRemote;
 // The catalog text the remotes operation serves in chunks: the generated one, or an empty catalog
 // when the generated definitions did not load.
 const char* catalogText = reinterpret_cast<const char*>(CatalogJson);
@@ -77,8 +78,8 @@ struct SequenceRun
 
 Print* learningOut = nullptr;
 char hostname[24];
-uint32_t learningDeadline = 0, feedbackDeadline = 0, clientActivity = 0;
-bool touchWasDown = false, mdnsStarted = false, feedbackActive = false;
+uint32_t learningDeadline = 0, feedbackDeadline = 0, clientActivity = 0, touchChangedAt = 0;
+bool touchWasDown = false, touchSampleDown = false, mdnsStarted = false, feedbackActive = false;
 
 /** Starts or extends motor/LED feedback; duration is milliseconds on the wrap-safe millis clock. */
 void feedback(uint32_t duration)
@@ -349,6 +350,24 @@ void stepSequence()
     if (strcmp(pressNamed(sequence.remote, step["button"] | ""), "transmitted") != 0) sequence.active = false;
 }
 
+/** A debounced tap starts the bound sequence once; busy taps are refused rather than queued. */
+void pollTouch()
+{
+    bool down = digitalRead(TouchPin) == HIGH;
+    if (down != touchSampleDown)
+    {
+        touchSampleDown = down;
+        touchChangedAt = millis();
+    }
+    if (down == touchWasDown || uint32_t(millis() - touchChangedAt) < 50) return;
+    touchWasDown = down;
+    if (!down) return;
+    if (touchRemote.isNull()) return feedback(70);
+    if (busy()) return feedback(300);
+    const char* result = startSequence(touchRemote, touchRemote["touchSequence"] | "");
+    feedback(strcmp(result, "started") == 0 ? 70 : 300);
+}
+
 void cancelLearn(const char* reason)
 {
     if (!learningId.isEmpty())
@@ -417,6 +436,8 @@ void describe(JsonDocument& data)
     data["webConfigured"] = !webUser.isEmpty();
     data["remotes"] = definitionsReady ? RemotePageCount : 0;
     data["sequenceRunning"] = sequence.active;
+    data["touchRemote"] = touchRemote["id"] | "";
+    data["touchSequence"] = touchRemote["touchSequence"] | "";
 }
 
 /**
@@ -869,6 +890,13 @@ void setup()
         catalogText = "{\"remotes\":[]}";
         catalogLength = strlen(catalogText);
     }
+    for (JsonObjectConst remote : remotes["remotes"].as<JsonArrayConst>())
+    {
+        if (!remote["touchSequence"].isNull()) touchRemote = remote;
+    }
+    // A finger held during boot must be released before it can start an IR sequence.
+    touchWasDown = touchSampleDown = digitalRead(TouchPin) == HIGH;
+    touchChangedAt = millis();
     setupWeb();
     transmitter.begin();
     receiver.enableIRIn();
@@ -888,9 +916,7 @@ void loop()
         led.clear();
         led.show();
     }
-    bool touchDown = digitalRead(TouchPin) == HIGH;
-    if (touchDown && !touchWasDown) feedback(70);
-    touchWasDown = touchDown;
+    pollTouch();
     if (!learningId.isEmpty() && int32_t(millis() - learningDeadline) >= 0) cancelLearn("timeout");
     if (receiver.decode(&captured))
     {

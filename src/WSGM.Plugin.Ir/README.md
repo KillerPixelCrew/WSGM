@@ -161,6 +161,11 @@ sources, fails the build on any error, compresses the pages and embeds everythin
   `modes` and `fans`, `minDegrees`, `maxDegrees`, and `swing` as `none` or `toggle`.
 - `sequences` list steps of `{ "button": id }` and `{ "delayMs": n }`, with at most ten minutes of
   delay in total.
+- `touchSequence` optionally names one of that remote's sequences to run on a touch-button tap. Only
+  one remote in a build may bind the button. Keep personal bindings in `remotes.local/`. A tap is
+  debounced for 50 ms and starts the sequence once; holding the button does not repeat it. Taps
+  while learning or running a sequence are refused with longer feedback and are never queued. A
+  finger held during boot must be released first. Without a binding, touch only gives feedback.
 
 Ids are lowercase letters, digits and dashes, and a custom page may only reference ids that exist.
 The build checks the literal `data-button` and `data-sequence` attributes in a custom page, not ids
@@ -211,7 +216,7 @@ Firmware 0.5.0 also ends a network learn with `cancelled` when its connection is
 answers `storage-failed` when Wi-Fi or web credentials cannot be written to flash and keeps the
 running ones, refuses an out-of-range A/C model number and a code value with anything but hex
 digits, keeps answering `protocols` during a learn or sequence, and serves no remotes if its
-built-in definitions fail to load. It has not been flashed or tested on hardware yet.
+built-in definitions fail to load.
 
 Firmware 0.3.0 added `sendCode`, `sendAc` and `protocols`, so an appliance whose remote is lost can
 be driven from published codes or the library's A/C encoders. It also enlarged the USB receive queue
@@ -220,8 +225,8 @@ payload arrived over USB in one write.
 
 Wi-Fi credentials, the token and the web credentials live in the ESP32 NVS `wsgmir` namespace.
 Built-in remotes are fixed at build time, and there is no runtime command storage and no cloud
-dependency. The RGB LED and motor give brief feedback, and touch gives feedback without transmitting
-a user command.
+dependency. The RGB LED and motor give brief feedback. Touch starts its explicitly bound sequence,
+or only gives feedback when no remote declares `touchSequence`.
 
 ### The carrier frequency
 
@@ -264,6 +269,13 @@ A firmware build is not the same thing as a successful capture or verified appli
 hardware acceptance has to keep those apart.
 
 ## What has actually been tested
+
+On 2026-11-14 the firmware was built from source and flashed to the confirmed XIAO IR Mate after
+saving its full 4 MiB flash. esptool verified all four written images. USB identification confirmed
+protocol 2, three remotes, retained Wi-Fi/web configuration and a connected network; the complete
+paged remote catalog parsed successfully. The maintainer's local HDMI remote binds touch to its
+`android-audio-reset` sequence. Identity confirmed that binding; physical touch, IR emission and
+appliance response still need the maintainer's manual check.
 
 These are historical checks of firmware 0.2.0, 0.3.0 and 0.4.0 with protocol 1. They do not validate
 firmware 0.5.0, protocol 2, catalog paging or the current storage and learn-retirement changes.
