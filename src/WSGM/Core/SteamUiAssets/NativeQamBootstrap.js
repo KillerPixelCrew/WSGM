@@ -7452,6 +7452,7 @@
 .steam-ui-kit-header-caret{flex:0 0 auto;color:rgba(255,255,255,.7);display:flex}
 .steam-ui-kit-group,.steam-ui-kit-blocks > div:not(:empty),.steam-ui-kit-valve > div:not(:empty){border-radius:4px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);padding:4px 12px 8px!important;margin:0 0 10px!important;box-sizing:border-box}
 .steam-ui-kit-group.plain{padding:8px 12px!important}
+.steam-ui-kit-group.sub{background:transparent;border:0;border-top:1px solid rgba(255,255,255,.08);border-radius:0;padding:2px 0 4px!important;margin:0!important}
 .steam-ui-kit-group.hidden{display:none}
 .steam-ui-kit-more{display:flex;justify-content:center;padding:8px 0 24px}
 .steam-ui-kit-more .DialogButton{width:50%!important}
@@ -7846,7 +7847,8 @@
   /**
    * Creates a section whose hidden or folded descendants remain mounted but cannot receive focus.
    * @param ui Steam's resolved React and native control components.
-   * @param props Section identity, optional title/icon/detail and fold/visibility controls.
+   * @param props Section identity, optional title/icon/detail, fold/visibility controls and whether it is
+   * a sub-group nested in another group (a quieter heading, no box of its own).
    * @param children Rows retained while the section is folded.
    * @returns The grouped React element; the caller owns fold state.
    */
@@ -7857,6 +7859,7 @@
     const className = [
       "steam-ui-kit-group",
       props.title ? "" : "plain",
+      props.sub ? "sub" : "",
       collapsed ? "closed" : "",
       props.hidden ? "hidden" : "",
     ]
@@ -7878,6 +7881,7 @@
             detail: props.detail,
             collapsed,
             onToggle: props.onToggle,
+            sub: props.sub,
           })
         : null,
       box(collapsed, { className: "steam-ui-kit-group-body" }, ...children),
@@ -16677,13 +16681,30 @@
           );
         };
         const rows = section.rows.map(draw);
-        const groups = section.groups.map((group) =>
-          renderSteamUiGroup(
+        // A titled sub-group folds on its own, nested under the section, closed until opened and
+        // kept under the section's id and its own; folded, its heading says what its rows report.
+        const folds = acceptedStates.get("folds") ?? null;
+        const groups = section.groups.map((group) => {
+          const foldId = id + "." + group.id;
+          return renderSteamUiGroup(
             controlRuntime,
-            { key: id + "." + group.id, title: group.title || undefined },
+            group.title
+              ? {
+                  key: foldId,
+                  title: group.title,
+                  detail:
+                    group.rows
+                      .map((row) => normalizeText(row.summary))
+                      .filter(Boolean)
+                      .join(" \u00b7 ") || undefined,
+                  sub: true,
+                  collapsed: isFolded(folds, foldId),
+                  onToggle: () => setFolded(foldId, !isFolded(folds, foldId)),
+                }
+              : { key: foldId },
             ...group.rows.map(draw),
-          ),
-        );
+          );
+        });
         renderOutcomes[kind] = `rendered ${drawn} row(s)`;
         return react.createElement(react.Fragment, null, ...rows, ...groups);
       };

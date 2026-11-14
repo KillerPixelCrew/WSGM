@@ -282,7 +282,12 @@ internal sealed partial class SteamNativeSettingsService
                         (value, token) => graphics.SetAsync(key, value, token), true);
                 }
 
-                groups.Add(section with { Rows = rows });
+                // Each group folds on its own under the vendor's section, so it needs no vendor in its title.
+                groups.Add(section with
+                {
+                    Rows = rows,
+                    Title = section.Title is { } title ? WithinDriver(title, page.Title) : null
+                });
             }
 
             offer.QuickSection(new SteamQuickAccessRowSection("settings." + page.Id, [], page.Title, page.Glyph,
