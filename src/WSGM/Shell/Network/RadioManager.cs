@@ -803,8 +803,8 @@ public sealed class RadioManager : ObservableObject, IDisposable
     /// <summary>Turns a radio on or off.</summary>
     /// <param name="bluetooth">True for the Bluetooth radio, false for Wi-Fi.</param>
     /// <param name="on">The state to switch to.</param>
-    /// <returns>Completion of the serialized power request. Failures update StatusText; the queued refresh is not awaited.</returns>
-    public async Task SetRadioAsync(bool bluetooth, bool on)
+    /// <returns>Whether every adapter accepted the request. Failures update StatusText; the queued refresh is not awaited.</returns>
+    public async Task<bool> SetRadioAsync(bool bluetooth, bool on)
     {
         var kind = bluetooth ? WindowsRadio.RadioKind.Bluetooth : WindowsRadio.RadioKind.WiFi;
         var label = bluetooth ? "Bluetooth" : "Wi-Fi";
@@ -813,6 +813,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
         // could settle with the radio OFF while the switch shows on — and the
         // two completions would overwrite each other's status besides.
         var gate = bluetooth ? _bluetoothPowerGate : _wifiPowerGate;
+        var accepted = false;
         await gate.WaitAsync();
         try
         {
@@ -831,6 +832,18 @@ public sealed class RadioManager : ObservableObject, IDisposable
             else
             {
                 ApplyRadioResult(label, on, (int)result.Access);
+                accepted = result.Access == WindowsRadio.Access.Allowed;
+                if (accepted)
+                {
+                    if (bluetooth)
+                    {
+                        BluetoothPower = on ? RadioPower.On : RadioPower.Off;
+                    }
+                    else
+                    {
+                        WifiPower = on ? RadioPower.On : RadioPower.Off;
+                    }
+                }
             }
         }
         catch (Exception ex)
@@ -843,6 +856,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
         }
 
         QueueRefresh();
+        return accepted;
     }
 
     /// <summary>

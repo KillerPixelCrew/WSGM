@@ -17,7 +17,7 @@ namespace WSGM.Shell;
 /// </summary>
 /// <remarks>
 ///     The radio manager is borrowed rather than owned. Joins, disconnects and forgets go through it,
-///     the same operations the Overlay's radio panel uses; the radio toggles stay with that panel.
+///     the same operations the Overlay's radio panel uses, including Wi-Fi radio power.
 /// </remarks>
 internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisposable
 {
@@ -62,6 +62,17 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
         _publishDebounce.Dispose();
         // ReSharper restore MethodHasAsyncOverload
         await NativeQamUi.RunAsync(_radios.StopScanning).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<SteamUiCommandResult> SetWifiEnabledAsync(bool enabled, CancellationToken cancellationToken)
+    {
+        Task<bool>? operation = null;
+        await NativeQamUi.RunAsync(() => operation = _radios.SetRadioAsync(bluetooth: false, on: enabled),
+            cancellationToken).ConfigureAwait(false);
+        var accepted = await operation!.ConfigureAwait(false);
+        QueuePublication();
+        return new SteamUiCommandResult(accepted, accepted ? null : _radios.StatusText);
     }
 
     /// <inheritdoc />
@@ -179,8 +190,15 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
         List<SteamNetworkAccessPoint> networks = [];
         WindowsRadio.WifiNetworkKey? connected = null;
         var connectedSignal = 0;
+        bool? wifiEnabled = null;
         await NativeQamUi.RunAsync(() =>
         {
+            wifiEnabled = _radios.WifiPower switch
+            {
+                WindowsRadio.Power.On => true,
+                WindowsRadio.Power.Off or WindowsRadio.Power.Disabled => false,
+                _ => null
+            };
             foreach (var entry in _radios.Wifi.Networks.Where(entry => !string.IsNullOrWhiteSpace(entry.Ssid)))
             {
                 keys.Add(entry.Key);
@@ -208,7 +226,7 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
             || connected is not { } network
             || string.IsNullOrWhiteSpace(network.DisplayText))
         {
-            return new SteamNetworkState(networks, join);
+            return new SteamNetworkState(networks, join, wifiEnabled);
         }
 
         var existing = keys.IndexOf(network);
@@ -226,7 +244,7 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
             networks.Insert(0, joined);
         }
 
-        return new SteamNetworkState(networks, join);
+        return new SteamNetworkState(networks, join, wifiEnabled);
     }
 
     private async Task JoinAsync(

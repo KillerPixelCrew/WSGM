@@ -280,6 +280,11 @@ Mode events: `PrepareSteamUiForDesktopAsync` retracts the injected Steam UI, lib
 before Big Picture is asked to close, and the transport stays held until the desktop return settles
 and the configured state is re-applied. `DesktopModeStarting` then clears game mode and cancels the
 tab boot sync; `GameModeEntered` sets game mode, re-checks the gate and starts the tab boot sync.
+Steam's Internet-page Wi-Fi switch uses the same `RadioManager.SetRadioAsync` operation as the
+Overlay. The network bridge publishes Windows radio power separately from the access-point list, so
+the switch also updates when Wi-Fi is off or no networks are listed. Windows refusals remain command
+failures; an accepted request publishes its requested state before the normal refresh.
+
 The header Wi-Fi indicator, download sort, the library badge and game-page stat, the Home carousel
 and the Screensaver settings rows are not mode-bound. They follow their own switches in either mode,
 because Big Picture on the desktop draws the same surfaces. Game-mode-only, the indicator left the
