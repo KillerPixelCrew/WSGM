@@ -375,15 +375,16 @@ internal sealed class SteamUiServices
 
     /// <summary>Dismisses Steam's screensaver once for this wake, as soon as the capability holds.</summary>
     /// <param name="reason">The wake signal, for the log.</param>
+    /// <param name="restoreGame">Whether this attended wake may activate the pre-sleep game.</param>
     /// <remarks>
     ///     A wake usually closes the transport for its settle, so the host keeps the request until the
     ///     dismissal patch verifies on the new generation and makes the one call then.
     /// </remarks>
-    internal void RequestScreensaverDismissal(string reason)
+    internal void RequestScreensaverDismissal(string reason, bool restoreGame = true)
     {
         if (!_state.ShutdownRequested)
         {
-            Host?.RequestScreensaverDismissal(reason);
+            Host?.RequestScreensaverDismissal(reason, restoreGame && _state.InGameMode);
         }
     }
 
@@ -399,6 +400,10 @@ internal sealed class SteamUiServices
             return;
         }
 
+        if (_state.InGameMode && (Holds & SteamUiHold.Suspended) == 0)
+        {
+            Host?.CaptureGameBeforeSuspend();
+        }
         AddHold(SteamUiHold.Suspended);
         CloseTransportForHold();
         Log.Change("steam-ui-transport-gate", DescribeTransportGate(false, _cefMasterEnabled, _state.InGameMode,

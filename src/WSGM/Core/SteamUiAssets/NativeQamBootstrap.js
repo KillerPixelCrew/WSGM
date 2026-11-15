@@ -14873,7 +14873,7 @@
       typeof value?.GetActiveState === "function" && typeof value?.ForceScreensaver === "function";
     // The saver's state as Steam reports it, then Steam's own dismissal. The state only says whether
     // there was anything to dismiss; the dismissal is sent either way, as Steam's input path does.
-    const dismiss = async () => {
+    const dismiss = async (resumeAppId = 0) => {
       if (!service || !gate.status().held) return { dismissed: false, active: null };
       let active = null;
       try {
@@ -14890,6 +14890,36 @@
         return { dismissed: false, active };
       }
       dismissals++;
+      if (Number.isInteger(resumeAppId) && resumeAppId > 0 && resumeAppId <= 4294967295) {
+        try {
+          const lifetime = window.__steamUiRunningApps;
+          if (lifetime?.live !== true || !lifetime.ids.has(resumeAppId))
+            throw new Error("the pre-sleep game no longer has a positive Steam lifetime");
+          const ui = window.SteamUIStore;
+          const app = window.appStore?.GetAppOverviewByAppID(resumeAppId);
+          const gameId = app?.GetGameID?.();
+          const overlays = ui?.WindowStore?.GetOverlayInstances?.(resumeAppId);
+          if (
+            !gameId ||
+            typeof ui?.SetRunningApp !== "function" ||
+            !Array.isArray(overlays) ||
+            overlays.length === 0 ||
+            overlays.some((overlay) => typeof overlay?.NavigateToRunningApp !== "function") ||
+            typeof window.SteamClient?.Apps?.RaiseWindowForGame !== "function"
+          )
+            throw new Error("Steam's running-game activation path is not ready");
+          // Steam's ResumeGameInProgress action: select the running app, restore its overlay
+          // routes, then raise its existing game window. No launch or renderer reinjection.
+          ui.SetRunningApp(resumeAppId);
+          overlays.forEach((overlay) => overlay.NavigateToRunningApp());
+          window.SteamClient.Apps.RaiseWindowForGame(gameId);
+          lastError = "";
+          return { dismissed: true, active, gameRestored: true };
+        } catch (error) {
+          lastError = "Running-game activation failed: " + String(error);
+          return { dismissed: true, active, gameRestored: false, gameError: lastError };
+        }
+      }
       return { dismissed: true, active };
     };
     const gate = defineGate({

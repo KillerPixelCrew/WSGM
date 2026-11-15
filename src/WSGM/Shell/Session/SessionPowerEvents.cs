@@ -116,7 +116,8 @@ internal sealed class SessionPowerEvents(
         // Every resume, including the second of one modern standby wake: the settle restarts with it.
         steamUi.ReleaseAfterResume();
         devicePower.Queue(false, "system resumed", true);
-        if (!ResumeWasUnattended())
+        var unattended = ResumeWasUnattended();
+        if (!unattended)
         {
             // A wake timer or maintenance wake has nobody in front of the screen; the wake list
             // (a TV, an HDMI switch) runs when a person wakes the machine, which sends another resume.
@@ -126,7 +127,7 @@ internal sealed class SessionPowerEvents(
         performance.RepairAfterResume();
         if (_screensaverWake.NoteResume())
         {
-            steamUi.RequestScreensaverDismissal("system resumed");
+            steamUi.RequestScreensaverDismissal("system resumed", restoreGame: !unattended);
         }
     }
 

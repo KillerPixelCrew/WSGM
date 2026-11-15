@@ -70,6 +70,14 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     // The wake a screensaver dismissal is owed for, or null. Taken exactly once: by the request when
     // the capability already holds, otherwise by the first synchronization that verifies it.
     private string? _screensaverDismissalOwed;
+    private long _preSleepAppId;
+
+    /// <summary>Retains the active Steam game before suspend retires foreground observations.</summary>
+    internal void CaptureGameBeforeSuspend()
+    {
+        var appId = _backends.Performance.Current.Target?.SteamAppId ?? 0;
+        Interlocked.Exchange(ref _preSleepAppId, appId);
+    }
 
     /// <summary>Creates the host and its surface services.</summary>
     /// <param name="transport">The one process-long Steam UI transport.</param>
@@ -651,13 +659,18 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     /// <summary>Owes Steam one screensaver dismissal for a wake, delivered as soon as the capability holds.</summary>
     /// <param name="reason">The wake signal, for the log.</param>
-    internal void RequestScreensaverDismissal(string reason)
+    /// <param name="restoreGame">Whether this attended wake may activate the pre-sleep game.</param>
+    internal void RequestScreensaverDismissal(string reason, bool restoreGame = true)
     {
         if (_disposed)
         {
             return;
         }
 
+        if (!restoreGame)
+        {
+            Interlocked.Exchange(ref _preSleepAppId, 0);
+        }
         Volatile.Write(ref _screensaverDismissalOwed, reason);
         DismissScreensaverIfOwed();
     }
@@ -683,6 +696,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             return;
         }
 
+        if (Interlocked.Read(ref _preSleepAppId) != 0 && !_patches.GetSnapshots().Any(snapshot =>
+                snapshot.Id == _shortcutRunningState.Id && snapshot.State == SteamUiPatchState.Verified))
+        {
+            return;
+        }
+
         if (Interlocked.Exchange(ref _screensaverDismissalOwed, null) is not { } reason)
         {
             return;
@@ -694,7 +713,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     private async Task DismissScreensaverAsync(string reason, CancellationToken token)
     {
-        var result = await SteamScreensaverDismissal.TryDismissAsync(_transport, token).ConfigureAwait(false);
+        var appId = (uint)Interlocked.Exchange(ref _preSleepAppId, 0);
+        var result = await SteamScreensaverDismissal.TryDismissAsync(_transport, token,
+            appId == 0 ? null : appId).ConfigureAwait(false);
         var state = result.WasActive switch
         {
             true => "it was showing",
@@ -704,6 +725,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         Log.Info(result.Delivered
             ? $"Steam screensaver dismissed after a wake ({reason}): {state}."
             : $"Steam screensaver dismissal after a wake ({reason}) was not delivered; Steam's own input still ends it.");
+        if (appId != 0)
+        {
+            Log.Info(result.GameRestored
+                ? $"Steam wake recovery activated the existing game and overlay for AppID {appId}."
+                : $"Steam wake recovery did not activate AppID {appId}: {result.GameError ?? "request undelivered"}.");
+        }
     }
 
     /// <summary>Forgets Steam's screensaver timeouts whenever the surface that reports them does not hold.</summary>

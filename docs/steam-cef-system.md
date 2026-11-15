@@ -279,7 +279,16 @@ Picture window Steam was no longer servicing and never answered a liveness probe
 Mode events: `PrepareSteamUiForDesktopAsync` retracts the injected Steam UI, library tabs included,
 before Big Picture is asked to close, and the transport stays held until the desktop return settles
 and the configured state is re-applied. `DesktopModeStarting` then clears game mode and cancels the
-tab boot sync; `GameModeEntered` sets game mode, re-checks the gate and starts the tab boot sync.
+tab boot sync; `GameModeEntered` sets game mode, re-checks the gate and starts the tab boot sync. An
+attended system wake in Game Mode also restores the Steam game captured before suspend. Once the
+screensaver and lifetime patches verify, one generation-bound request dismisses the saver and uses
+Steam's `ResumeGameInProgress` sequence: `SetRunningApp`, the existing overlay windows'
+`NavigateToRunningApp`, then `RaiseWindowForGame` with the app's full game ID. A game without a
+positive Steam lifetime or existing overlay windows is not activated. Maintenance wakes do not
+activate a game, and a dispatched failure is not retried. This is separate from the
+imported-shortcut running-state repair. Megabonk wake/overlay acceptance remains pending on the
+maintainer's device.
+
 Steam's Internet-page Wi-Fi switch uses the same `RadioManager.SetRadioAsync` operation as the
 Overlay. The network bridge publishes Windows radio power separately from the access-point list, so
 the switch also updates when Wi-Fi is off or no networks are listed. Windows refusals remain command
