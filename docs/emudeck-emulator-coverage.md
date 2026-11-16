@@ -220,4 +220,12 @@ the system even if another dump has a wrong checksum.
 
 Relink preserves supplied files and existing destinations, adding missing canonical filenames for
 verified dumps and named files without catalogue hashes before applying emulator paths. Imports
-prefer a recognized checksum over a misleading filename. A scan alone does not copy files.
+prefer a recognized checksum over a misleading filename. Check files and folder selection apply the
+shared-folder configuration after discovery. One emulator failure does not stop setup for the
+others; failures remain visible. Native firmware installation stays an explicit setup action. Xbox
+checks include MCPX, a named flash BIOS and the disk image; only MCPX has a published checksum.
+
+RetroArch setup also arranges supplied root files into the subfolders declared by installed core
+metadata, without replacing existing destinations. The completed check reports remaining missing
+core paths separately from catalogue checksum results. A populated shared folder does not establish
+that every core has its prerequisites, or that native firmware has been installed.

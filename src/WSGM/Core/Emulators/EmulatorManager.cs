@@ -137,7 +137,11 @@ public sealed partial class EmulatorManager : IDisposable
         LoadLocal();
         try
         {
-            VerifyBios(CancellationToken.None);
+            VerifyBios(_lifetime.Token);
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        {
+            return;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

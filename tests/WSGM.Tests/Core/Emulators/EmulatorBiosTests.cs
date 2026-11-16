@@ -56,4 +56,42 @@ public sealed class EmulatorBiosTests
         Assert.Equal("Wrong file", manager.ReadBiosState().Systems.Single(item => item.Id == "dreamcast")
             .Files.Single(item => item.Path == "dc/dc_flash.bin").Status);
     }
+    [Fact]
+    public async Task SelectingAndCheckingFolderLinksRetroArchAndPreservesItsExistingFiles()
+    {
+        using var temporary = new TemporaryDirectory();
+        var bios = Directory.CreateDirectory(Path.Combine(temporary.Root, "bios")).FullName;
+        var secondBios = Directory.CreateDirectory(Path.Combine(temporary.Root, "second-bios")).FullName;
+        var data = Directory.CreateDirectory(Path.Combine(temporary.Root, "retroarch")).FullName;
+        var system = Directory.CreateDirectory(Path.Combine(data, "system")).FullName;
+        File.WriteAllText(Path.Combine(system, "local-core-file.bin"), "keep this file");
+        File.WriteAllText(Path.Combine(bios, "FMT_DIC.ROM"), "supplied core file");
+        var installed = new EmulatorInstallation
+        {
+            Cores = [new EmulatorCore { RequiredFiles = [Path.Combine(system, "geartowns", "FMT_DIC.ROM")] }],
+            Id = "retroarch-test", DefinitionId = "retroarch", Name = "RetroArch", DataPath = data,
+            DataPolicy = new EmulatorDataPolicy
+            {
+                HasCores = true, ConfigFile = "retroarch.cfg",
+                Prerequisites = [new EmulatorPrerequisite { Kind = "system", Destination = "system" }]
+            }
+        };
+        File.WriteAllText(EmulatorStorage.StorePath(temporary.Root),
+            JsonSerializer.Serialize(new EmulatorStore { Installations = [installed] }, EmulatorStorage.JsonOptions));
+        using var manager = new EmulatorManager(new UserDataContext(temporary.Root, "unused-test-config"));
+        await manager.Initialization;
+        await manager.SetBiosFolderAsync(bios, CancellationToken.None);
+        Assert.Equal(bios, new DirectoryInfo(system).ResolveLinkTarget(true)!.FullName);
+        Assert.Equal("keep this file", File.ReadAllText(Path.Combine(bios, "local-core-file.bin")));
+        Assert.Equal("supplied core file", File.ReadAllText(Path.Combine(system, "geartowns", "FMT_DIC.ROM")));
+        Assert.Equal(bios.Replace('\\', '/'), IniFile.ReadValue(Path.Combine(data, "retroarch.cfg"),
+            "system_directory")!.Trim('"'));
+
+        await manager.SetBiosFolderAsync(secondBios, CancellationToken.None);
+        await manager.VerifyBiosAsync(CancellationToken.None);
+        Assert.Equal(secondBios, new DirectoryInfo(system).ResolveLinkTarget(true)!.FullName);
+        Assert.Equal("keep this file", File.ReadAllText(Path.Combine(bios, "local-core-file.bin")));
+        Assert.Equal(secondBios, EmulatorStorage.ReadInstallations(temporary.Root).Single()
+            .ConfiguredPrerequisites["system"]);
+    }
 }

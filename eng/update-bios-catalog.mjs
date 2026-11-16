@@ -102,6 +102,18 @@ result
     { path: "title.keys", md5: [], optional: true },
     { path: "switch/firmware", md5: [], directory: true },
   );
+// xemu's published MCPX checksum; flash/HDD images vary and are presence-only.
+result.push({
+  id: "xbox",
+  name: "Xbox",
+  any: false,
+  optional: false,
+  files: [
+    { path: "xemu/mcpx_1.0.bin", md5: ["d49c52a4102f6df7bcf8d0617ac475ed"] },
+    { path: "xemu/bios.bin", md5: [], aliases: ["Complex_4627.bin"] },
+    { path: "xemu/xbox_hdd.qcow2", md5: [] },
+  ],
+});
 await mkdir("src/WSGM/Core/Emulators", { recursive: true });
 await writeFile(
   "src/WSGM/Core/Emulators/bios-catalog.json",
@@ -115,6 +127,7 @@ await writeFile(
         "https://docs.libretro.com/library/flycast/",
         "https://docs.libretro.com/library/genesis_plus_gx/",
         "https://docs.libretro.com/library/melonds/",
+        "https://xemu.app/docs/required-files/",
       ],
       systems: result,
     },
