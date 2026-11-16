@@ -7428,7 +7428,8 @@
 .steam-ui-kit-resolution-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .steam-ui-kit-resolution-actions>.DialogButton:last-child{margin-left:auto}
 .steam-ui-kit-resolution-note{margin:0;font-size:14px;color:#8b929a;line-height:1.4}
-.steam-ui-kit-page{margin-top:var(--basicui-header-height,40px);height:calc(100% - var(--basicui-header-height,40px));display:flex;flex-direction:column;background:var(--gpSystemDarkestGrey,#0e141b);color:#dcdedf}
+.steam-ui-page-root{min-width:0;min-height:0;overflow:hidden}
+.steam-ui-kit-page{min-width:0;min-height:0;overflow:hidden;margin-top:var(--basicui-header-height,40px);height:calc(100% - var(--basicui-header-height,40px));display:flex;flex-direction:column;background:var(--gpSystemDarkestGrey,#0e141b);color:#dcdedf}
 .steam-ui-kit-pane{display:flex;flex-direction:column;gap:14px;padding:12px 4px 72px}
 .steam-ui-kit-content{display:flex;flex-direction:column;gap:20px;width:min(100%,960px);max-width:100%;min-width:0;box-sizing:border-box;margin-inline:auto;padding:24px clamp(20px,4vw,48px) 72px}
 .steam-ui-kit-content>*{min-width:0;flex-shrink:0}
@@ -8108,7 +8109,13 @@
             .filter(Boolean)
             .join(" ") || undefined,
         autoFocus: true,
-        onCancelButton: props.onBack,
+        onCancelButton: props.onBack
+          ? (event) => {
+              event?.preventDefault();
+              event?.stopPropagation();
+              props.onBack?.();
+            }
+          : undefined,
         onCancelActionDescription: "Back",
       },
       ...children,
@@ -9106,7 +9113,13 @@
         className: "steam-ui-kit-detail",
         "flow-children": "grid",
         autoFocus: true,
-        onCancelButton: props.onBack,
+        onCancelButton: props.onBack
+          ? (event) => {
+              event?.preventDefault();
+              event?.stopPropagation();
+              props.onBack?.();
+            }
+          : undefined,
         onCancelActionDescription: "Back",
       },
       h(

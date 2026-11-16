@@ -114,11 +114,6 @@ public sealed partial class EmulatorManager
                 var match = candidates.FirstOrDefault(file =>
                     file.Path.Equals(relative, StringComparison.OrdinalIgnoreCase));
                 match ??= candidates.Length == 1 ? candidates[0] : null;
-                if (match is null && candidates.Length > 1)
-                {
-                    throw new InvalidDataException("Preserve the EmuDeck subfolder for " + name + " when adding it.");
-                }
-
                 var switchFirmware = systemId == "switch" || systemId.Length == 0;
                 var isFirmware = switchFirmware &&
                                  Path.GetExtension(source).Equals(".nca", StringComparison.OrdinalIgnoreCase);
@@ -131,12 +126,21 @@ public sealed partial class EmulatorManager
                         entry.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase));
                 }
 
-                if (match is null && !isFirmware && !isFirmwareZip && new FileInfo(source).Length <= 64 * 1024 * 1024)
+                if (!isFirmware && !isFirmwareZip && new FileInfo(source).Length <= 64 * 1024 * 1024)
                 {
                     // Recognize renamed console dumps by the actual MD5, not their chosen filename.
                     var digest = BiosMd5(source, token);
-                    match = definitions.FirstOrDefault(file =>
-                        file.Md5.Contains(digest, StringComparer.OrdinalIgnoreCase));
+                    if (match is null || match.Md5.Length > 0
+                        && !match.Md5.Contains(digest, StringComparer.OrdinalIgnoreCase))
+                    {
+                        match = definitions.FirstOrDefault(file =>
+                            file.Md5.Contains(digest, StringComparer.OrdinalIgnoreCase)) ?? match;
+                    }
+                }
+
+                if (match is null && candidates.Length > 1)
+                {
+                    throw new InvalidDataException("Preserve the EmuDeck subfolder for " + name + " when adding it.");
                 }
 
                 var destination = match is not null ? Path.Combine(folder, match.Path)
@@ -208,6 +212,31 @@ public sealed partial class EmulatorManager
     {
         var folder = BiosFolder;
         var snapshot = GetSnapshot();
+        // Index once: BIOS collections commonly keep console subfolders or renamed dumps.
+        // Keep the actual path in the checklist so callers can locate the file we checked.
+        var paths = Directory.Exists(folder)
+            ? Directory.EnumerateFiles(folder, "*", new EnumerationOptions
+            {
+                RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint,
+                IgnoreInaccessible = true
+            }).Select(path =>
+            {
+                token.ThrowIfCancellationRequested();
+                return path;
+            }).ToArray()
+            : [];
+        var digests = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        string Digest(string path)
+        {
+            if (!digests.TryGetValue(path, out var digest))
+            {
+                digest = BiosMd5(path, token);
+                digests.Add(path, digest);
+            }
+
+            return digest;
+        }
+
         var systems = BiosDefinitions.Systems.Where(system => snapshot.Definitions.Any(definition =>
             definition.Systems.Contains(system.Id))).Select(system =>
         {
@@ -224,17 +253,43 @@ public sealed partial class EmulatorManager
                     present = File.Exists(Path.Combine(folder, "switch", "firmware.zip"));
                 }
 
-                var md5 = present && !file.Directory && file.Md5.Length > 0 ? BiosMd5(path, token) : "";
+                if (!present && !file.Directory)
+                {
+                    // A matching name is useful for unhashed keys/firmware too. Never guess a
+                    // renamed file without a catalogue checksum.
+                    var candidates = paths.Where(candidate => Path.GetFileName(candidate).Equals(
+                        Path.GetFileName(file.Path), StringComparison.OrdinalIgnoreCase));
+                    if (file.Md5.Length > 0 && system.Any)
+                    {
+                        candidates = candidates.Concat(paths.Where(candidate =>
+                            Path.GetExtension(candidate).Equals(Path.GetExtension(file.Path),
+                                StringComparison.OrdinalIgnoreCase)));
+                    }
+
+                    var found = candidates.Distinct(StringComparer.OrdinalIgnoreCase).FirstOrDefault(candidate =>
+                    {
+                        token.ThrowIfCancellationRequested();
+                        return file.Md5.Length == 0 || new FileInfo(candidate).Length <= 64 * 1024 * 1024
+                            && file.Md5.Contains(Digest(candidate), StringComparer.OrdinalIgnoreCase);
+                    });
+                    if (found is not null)
+                    {
+                        path = found;
+                        present = true;
+                    }
+                }
+
+                var md5 = present && !file.Directory && file.Md5.Length > 0 ? Digest(path) : "";
                 var status = !present ? "Missing"
                     : file.Md5.Length == 0 ? "Present"
                     : file.Md5.Contains(md5, StringComparer.OrdinalIgnoreCase) ? "Verified" : "Wrong file";
-                return new EmulatorBiosFile(file.Path, status, md5, file.Optional || system.Optional);
+                return new EmulatorBiosFile(Path.GetRelativePath(folder, path).Replace('\\', '/'), status, md5, file.Optional || system.Optional);
             }).ToArray();
             var required = files.Where(file => !file.Optional).ToArray();
             var ready = system.Any
                 ? files.Any(file => file.Status is "Verified" or "Present")
                 : required.All(file => file.Status is "Verified" or "Present");
-            var status = files.Any(file => file.Status == "Wrong file")
+            var status = files.Any(file => file.Status == "Wrong file") && !(system.Any && ready)
                 ? "Wrong file"
                 : system.Optional
                     ? "Optional"
@@ -275,6 +330,36 @@ public sealed partial class EmulatorManager
                          && (installationId.Length == 0 || item.Id == installationId)))
             {
                 EmulatorPrerequisites.EnsureStopped(installed);
+            }
+
+            var checkedBios = ReadBiosState();
+            if (checkedBios.Checked && checkedBios.Folder.Equals(folder, StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var system in checkedBios.Systems.Where(system => systemId.Length == 0 || system.Id == systemId))
+                {
+                    var definitions = BiosDefinitions.Systems.First(item => item.Id == system.Id).Files;
+                    foreach (var file in system.Files.Where(file => file.Status is "Verified" or "Present"))
+                    {
+                        token.ThrowIfCancellationRequested();
+                        var definition = definitions.FirstOrDefault(item => !item.Directory &&
+                            (file.Md5.Length > 0
+                                ? item.Md5.Contains(file.Md5, StringComparer.OrdinalIgnoreCase)
+                                : Path.GetFileName(item.Path).Equals(Path.GetFileName(file.Path),
+                                    StringComparison.OrdinalIgnoreCase)));
+                        if (definition is null)
+                        {
+                            continue;
+                        }
+
+                        var source = Path.Combine(folder, file.Path);
+                        var destination = Path.Combine(folder, definition.Path);
+                        if (!File.Exists(destination))
+                        {
+                            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                            File.Copy(source, destination, overwrite: false);
+                        }
+                    }
+                }
             }
 
             for (var index = 0; index < installations.Length; index++)
@@ -484,7 +569,16 @@ public sealed partial class EmulatorManager
                                            Path.GetFileName(path));
         }
 
-        return Convert.ToHexString(MD5.HashData(stream)).ToLowerInvariant();
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
+        var buffer = new byte[64 * 1024];
+        int count;
+        while ((count = stream.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            token.ThrowIfCancellationRequested();
+            hash.AppendData(buffer, 0, count);
+        }
+
+        return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
     }
 
     private static BiosCatalog LoadBiosCatalog()

@@ -208,3 +208,16 @@ download success. Legacy Suyu hosting errors were not treated as proof that the 
 continuation is absent. Other archive downloads, GUI startup, save/update/repair round trips, BIOS
 compatibility, ROM gameplay, artwork and Steam/runtime acceptance remain unverified until that
 batch/manual use.
+
+## BIOS collection discovery
+
+BIOS scans and folder/import/relink actions run as session-owned operations with progress and
+Cancel, so the Steam bridge acknowledges admission without waiting for disk scanning. Check files
+searches subfolders by filename and recognizes renamed regional alternatives by catalogue checksum.
+The checklist shows the file actually found. Hashes are reused within a scan and cancellation is
+checked between reads. For systems accepting any regional BIOS, one verified alternative satisfies
+the system even if another dump has a wrong checksum.
+
+Relink preserves supplied files and existing destinations, adding missing canonical filenames for
+verified dumps and named files without catalogue hashes before applying emulator paths. Imports
+prefer a recognized checksum over a misleading filename. A scan alone does not copy files.

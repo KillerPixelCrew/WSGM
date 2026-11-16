@@ -129,23 +129,26 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
 
     public Task<SteamUiCommandResult> SetBiosFolderAsync(string path, CancellationToken cancellationToken)
     {
-        return Run(() => _manager.SetBiosFolderAsync(path, cancellationToken));
+        return StartOperation("BIOS folder change", token => _manager.SetBiosFolderAsync(path, token),
+            cancellationToken, "bios");
     }
 
     public Task<SteamUiCommandResult> AddBiosFilesAsync(string path, string systemId,
         CancellationToken cancellationToken)
     {
-        return Run(() => _manager.AddBiosFilesAsync(path, systemId, cancellationToken));
+        return StartOperation("BIOS import", token => _manager.AddBiosFilesAsync(path, systemId, token),
+            cancellationToken, "bios");
     }
 
     public Task<SteamUiCommandResult> VerifyBiosAsync(CancellationToken cancellationToken)
     {
-        return Run(() => _manager.VerifyBiosAsync(cancellationToken));
+        return StartOperation("BIOS scan", token => _manager.VerifyBiosAsync(token), cancellationToken, "bios");
     }
 
     public Task<SteamUiCommandResult> RelinkBiosAsync(string systemId, CancellationToken cancellationToken)
     {
-        return Run(() => _manager.RelinkBiosAsync(systemId, cancellationToken));
+        return StartOperation("BIOS relink", token => _manager.RelinkBiosAsync(systemId, token),
+            cancellationToken, "bios");
     }
 
     public Task<SteamUiCommandResult> InstallEmulatorAsync(string definitionId, string channel,
