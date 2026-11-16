@@ -61,4 +61,14 @@ internal interface IEmulatorBackend : IChangeSource
 
     Task<SteamUiCommandResult> SetPreferredEmulatorAsync(string systemId, string installationId, string coreId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    ///     Brings ES-DE in step with the ROM folders and emulators now, pointing it back at WSGM's ROM folder when it
+    ///     was changed in ES-DE. The result arrives in <see cref="EmulatorPageState.EsDe" />.
+    /// </summary>
+    Task<SteamUiCommandResult> SyncEsDeAsync(CancellationToken cancellationToken);
+
+    /// <summary>Ticks or unticks a ROM source in Library Importer: whether its games are offered to Steam as well.</summary>
+    Task<SteamUiCommandResult> SetRomSourceInSteamAsync(string sourceId, bool enabled,
+        CancellationToken cancellationToken);
 }

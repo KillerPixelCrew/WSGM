@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
@@ -20,7 +21,7 @@ public static class PreviewEmulatorPage
 {
     /// <summary>Every scene, in the order the page reaches them.</summary>
     internal static readonly string[] Scenes =
-        ["installed", "catalog", "cores", "defaults", "bios", "detail", "remove", "installing"];
+        ["installed", "catalog", "cores", "defaults", "bios", "detail", "remove", "installing", "esde", "esde-folders"];
 
     /// <summary>Exports every scene at one viewport.</summary>
     /// <param name="directory">The output folder.</param>
@@ -70,6 +71,11 @@ public static class PreviewEmulatorPage
             };
         }
 
+        if (scene is "esde" or "esde-folders")
+        {
+            PreviewEmulators.AddEsDe(source);
+        }
+
         if (scene == "installing")
         {
             source.State = source.State with { Busy = true, Status = "Downloading RPCS3 0.0.36" };
@@ -107,6 +113,13 @@ public static class PreviewEmulatorPage
             case "installing":
                 Click(window, "Get emulators");
                 Click(window, "RPCS3");
+                break;
+            case "esde":
+                Click(window, "ES-DE");
+                break;
+            case "esde-folders":
+                Click(window, "ES-DE");
+                UiFixture.Tagged<Control>(window, "emu.esde.footer").BringIntoView();
                 break;
         }
 

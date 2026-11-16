@@ -8,8 +8,12 @@ namespace WSGM.Core;
 /// <summary>Shared emulator and core labels and filters for both management surfaces.</summary>
 internal static class EmulatorPresentation
 {
-    /// <summary>The console families both surfaces filter and group systems by, in the order they list them.</summary>
-    internal static string[] Families { get; } = ["Nintendo", "PlayStation", "Sega", "Xbox", "Arcade", "Other systems"];
+    /// <summary>
+    ///     The console families both surfaces filter and group systems by, in the order they list them, and the
+    ///     frontends, which Get emulators filters apart.
+    /// </summary>
+    internal static string[] Families { get; } =
+        ["Nintendo", "PlayStation", "Sega", "Xbox", "Arcade", "Other systems", "Frontends"];
 
     internal static EmulatorOffer? Offer(EmulatorSnapshot state, EmulatorInstallation installed)
     {
@@ -78,10 +82,15 @@ internal static class EmulatorPresentation
         };
     }
 
-    /// <summary>The families a set of systems covers, in <see cref="Families" /> order.</summary>
-    internal static string[] FamiliesOf(string[] systems)
+    /// <summary>The families a definition's systems cover, in <see cref="Families" /> order; a frontend's is Frontends.</summary>
+    internal static string[] FamiliesOf(EmulatorDefinition definition)
     {
-        var covered = systems.Select(SystemGroup).ToHashSet(StringComparer.Ordinal);
+        if (definition.Kind == EmulatorDefinition.FrontendKind)
+        {
+            return ["Frontends"];
+        }
+
+        var covered = definition.Systems.Select(SystemGroup).ToHashSet(StringComparer.Ordinal);
         return [.. Families.Where(covered.Contains)];
     }
 

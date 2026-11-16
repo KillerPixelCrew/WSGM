@@ -1179,6 +1179,29 @@
         "environment": {}
       },
       "steamGridDbId": 34346
+    },
+    {
+      "id": "es-de",
+      "name": "ES-DE",
+      "kind": "frontend",
+      "systems": [],
+      "architectures": ["x64"],
+      "executableNames": ["ES-DE.exe"],
+      "launchArguments": [],
+      "packageType": "zip",
+      "validationArguments": ["{portable-layout}"],
+      "sources": {
+        "stable": {
+          "provider": "EsDe",
+          "baseUrl": "https://gitlab.com/es-de/emulationstation-de/-/raw/master/latest_release.json",
+          "packageName": "WindowsPortable"
+        }
+      },
+      "dataPolicy": {
+        "portableDirectory": "ES-DE",
+        "portableMarkers": ["portable.txt", "ES-DE"],
+        "requiresVisualCpp": false
+      }
     }
   ]
 }

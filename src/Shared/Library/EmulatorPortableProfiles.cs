@@ -4,7 +4,7 @@ using System.Linq;
 
 namespace WSGM.Core;
 
-/// <summary>Native Windows portable layouts for the additional EmuDeck emulators.</summary>
+/// <summary>Native Windows portable layouts for the additional EmuDeck emulators and the ES-DE frontend.</summary>
 internal static class EmulatorPortableProfiles
 {
     internal static bool Supports(string id)
@@ -12,7 +12,7 @@ internal static class EmulatorPortableProfiles
         return id is "mgba" or "melonds" or "ppsspp" or "flycast" or "cemu" or "azahar"
             or "vita3k" or "xemu" or "xenia" or "mame" or "supermodel" or "model2"
             or "bigpemu" or "ares" or "rmg" or "primehack" or "scummvm" or "shadps4" or "citron"
-            or "ryujinx" or "suyu" or "armsx2";
+            or "ryujinx" or "suyu" or "armsx2" or "es-de";
     }
 
     /// <summary>Gets the folder beside the executable that holds an emulator's portable data.</summary>
@@ -34,6 +34,8 @@ internal static class EmulatorPortableProfiles
             "primehack" => "User",
             "shadps4" => "user",
             "bigpemu" => "UserData",
+            // portable.txt beside ES-DE.exe puts its application data in this folder.
+            "es-de" => "ES-DE",
             _ => ""
         };
     }
@@ -53,6 +55,7 @@ internal static class EmulatorPortableProfiles
             "rmg" => ["Portable.txt"],
             "armsx2" => ["portable.txt"],
             "primehack" => ["portable.txt", "User"],
+            "es-de" => ["portable.txt", "ES-DE"],
             "bigpemu" => ["UserData"],
             "scummvm" => ["scummvm.ini"],
             _ when Alias(id).Length > 0 => [Alias(id)],

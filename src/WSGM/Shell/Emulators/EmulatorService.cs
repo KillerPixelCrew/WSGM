@@ -12,6 +12,7 @@ namespace WSGM.Shell;
 /// <summary>Projects the session-owned emulator manager into its two user interfaces.</summary>
 internal sealed class EmulatorService : IEmulatorBackend, IDisposable
 {
+    private readonly EsDeSync _esDe;
     private readonly Lock _gate = new();
     private readonly CancellationTokenSource _lifetime = new();
     private readonly EmulatorManager _manager;
@@ -28,6 +29,7 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
     private RomEmulatorState? _romState;
     private string _runningOperation = "";
     private string _runningTarget = "";
+    private Func<string, bool, CancellationToken, Task<SteamUiCommandResult>>? _setSourceInSteam;
     private IReadOnlyDictionary<string, EmulatorSetupItem[]> _setup = new Dictionary<string, EmulatorSetupItem[]>();
     private string _shortcutStatus = "";
     private EmulatorShortcutSync? _shortcuts;
@@ -40,6 +42,7 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
     {
         _manager = manager;
         _openUrl = openUrl;
+        _esDe = new EsDeSync(manager.UserRoot, manager.GetSnapshot, OnEsDeChanged);
         manager.Changed += OnChanged;
         manager.InstallationsChanged += OnInstallationsChanged;
         OnChanged();
@@ -62,6 +65,9 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
     /// <summary>Settles after shortcut admission closes and every dispatched Steam write has been recorded.</summary>
     internal Task ShortcutCompletion => _shortcuts?.Completion ?? Task.CompletedTask;
 
+    /// <summary>The ES-DE pass in progress, settled when none runs.</summary>
+    internal Task EsDeCompletion => _esDe.Completion;
+
     public void Dispose()
     {
         Task operation;
@@ -77,6 +83,7 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
         }
 
         _lifetime.Cancel();
+        _esDe.Dispose();
         _shortcuts?.Dispose();
         _manager.Cancel();
         operation.ContinueWith(_ => _lifetime.Dispose(), CancellationToken.None,
@@ -97,7 +104,7 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
             var romState = ReadRomStateCore();
             return _pageState ??= EmulatorPageProjection.Create(_snapshot, _systems!, romState,
                 _manager.ReadBiosState(), _usage, _setup, _coreStatus, _updateAll, _shortcutStatus,
-                EmulatorPackages.HostArchitecture);
+                EmulatorPackages.HostArchitecture, _esDe.State);
         }
     }
 
@@ -245,6 +252,33 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
         return Run(() => _manager.SetPreferredAsync(systemId, installationId, coreId, cancellationToken));
     }
 
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> SyncEsDeAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_esDe.State.Installed && !ReadState().Installations.Any(item =>
+                item is { Managed: true, DefinitionId: EsDeConfiguration.DefinitionId }))
+        {
+            return Task.FromResult(new SteamUiCommandResult(false, "Install ES-DE from Get emulators first."));
+        }
+
+        // An explicit sync also points ES-DE back at WSGM's ROM folder when it was changed in ES-DE.
+        _esDe.Request(true);
+        return Task.FromResult(SteamUiCommandResult.Applied);
+    }
+
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> SetRomSourceInSteamAsync(string sourceId, bool enabled,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var set = Volatile.Read(ref _setSourceInSteam);
+        return set is null
+            ? Task.FromResult(new SteamUiCommandResult(false,
+                "Library Importer is not running, so its Steam choice can't change now."))
+            : set(sourceId, enabled, cancellationToken);
+    }
+
     public Task<SteamUiCommandResult> OpenEmulatorReleaseNotesAsync(string definitionId, string channel,
         string architecture,
         CancellationToken cancellationToken)
@@ -282,6 +316,24 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
             _shortcuts ??= new EmulatorShortcutSync(_manager, store, writer, readLibrary, readShortcut,
                 inputManaged, ready, artwork, SetShortcutStatus, () => ShortcutsChanged?.Invoke());
         }
+    }
+
+    /// <summary>
+    ///     Gives the ES-DE page Library Importer's source switch, so a ROM folder's Steam choice is the same fact
+    ///     in both places.
+    /// </summary>
+    /// <param name="setSourceInSteam">Library Importer's command that ticks or unticks a source.</param>
+    internal void AttachRomSourceSwitch(
+        Func<string, bool, CancellationToken, Task<SteamUiCommandResult>> setSourceInSteam)
+    {
+        Volatile.Write(ref _setSourceInSteam, setSourceInSteam);
+    }
+
+    /// <summary>Takes the library's ROM sources and Steam choices, and brings ES-DE in step with them.</summary>
+    /// <param name="settings">The library's settings in force.</param>
+    internal void UpdateRomSources(GameLibraryConfig settings)
+    {
+        _esDe.UpdateSources(settings);
     }
 
     /// <summary>Reconciles pending shortcuts after Steam readiness, reconnect or configuration changes.</summary>
@@ -374,7 +426,25 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
             Interlocked.Increment(ref _catalogRevision);
         }
 
+        // ES-DE's commands name each emulator's active version and the System defaults.
+        _esDe.Request();
         ChoicesChanged?.Invoke();
+    }
+
+    private void OnEsDeChanged()
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _pageState = null;
+            Interlocked.Increment(ref _catalogRevision);
+        }
+
+        Changed?.Invoke();
     }
 
     private void OnChanged()

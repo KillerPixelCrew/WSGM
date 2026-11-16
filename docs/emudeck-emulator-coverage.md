@@ -53,8 +53,9 @@ Windows x64 compatibility; it is not mislabeled as a native x64 binary.
 
 `emuDeckTemplate.ps1` is an installer template, `RetroArch_maincfg.sh` is configuration, and EmuDeck
 ToolScripts (ES-DE, Pegasus, Steam ROM Manager, migration, download helpers, save sync, store,
-homebrew installers) are not emulator engines. Historical Citra/Lime3DS names are superseded by
-Azahar; their still-published libretro builds remain core choices below.
+homebrew installers) are not emulator engines. WSGM installs and configures ES-DE itself, as
+[Game Library](game-library.md#es-de) describes, without EmuDeck's scripts. Historical Citra/Lime3DS
+names are superseded by Azahar; their still-published libretro builds remain core choices below.
 
 ## Libretro cores and aliases
 

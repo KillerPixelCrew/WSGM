@@ -40,8 +40,60 @@ internal sealed class EmulatorReleases(DownloadClient client)
             "Dolphin" => await DolphinAsync(source, architecture, cancellationToken).ConfigureAwait(false),
             "WebPage" => await EmulatorWebReleases.FindAsync(client, source, architecture, cancellationToken)
                 .ConfigureAwait(false),
+            "EsDe" => await EsDeAsync(source, cancellationToken).ConfigureAwait(false),
             _ => throw new InvalidDataException("Unsupported emulator release provider: " + source.Provider)
         };
+    }
+
+    /// <summary>
+    ///     Reads ES-DE's published release feed: the stable release's package named by the source, its URL on ES-DE's
+    ///     own package host and the MD5 the feed publishes, which is the only digest ES-DE supplies.
+    /// </summary>
+    private async Task<EmulatorRelease> EsDeAsync(EmulatorSource source, CancellationToken cancellationToken)
+    {
+        using var document = JsonDocument.Parse(await client.TextAsync(DownloadClient.Https(source.BaseUrl).AbsoluteUri,
+            cancellationToken).ConfigureAwait(false));
+        return EsDeRelease(document.RootElement, source.PackageName);
+    }
+
+    /// <summary>Selects the named package of the stable release in ES-DE's feed.</summary>
+    /// <param name="root">The feed's root object.</param>
+    /// <param name="packageName">The package's name in the feed, such as <c>WindowsPortable</c>.</param>
+    /// <returns>The release, verified against the feed's MD5 when downloaded.</returns>
+    internal static EmulatorRelease EsDeRelease(JsonElement root, string packageName)
+    {
+        if (!root.TryGetProperty("stable", out var stable) || stable.ValueKind != JsonValueKind.Object
+            || !stable.TryGetProperty("packages", out var packages) || packages.ValueKind != JsonValueKind.Array)
+        {
+            throw new InvalidDataException("ES-DE's release feed has no stable release.");
+        }
+
+        var version = JsonRead.StringOrNumber(stable, "version");
+        var matches = packages.EnumerateArray()
+            .Where(package => JsonRead.StringOrNumber(package, "name") == packageName).ToArray();
+        if (version.Length == 0 || matches.Length != 1)
+        {
+            throw new InvalidDataException("ES-DE's release feed does not list one " + packageName + " package.");
+        }
+
+        var url = JsonRead.StringOrNumber(matches[0], "url");
+        var name = JsonRead.StringOrNumber(matches[0], "filename");
+        var md5 = JsonRead.StringOrNumber(matches[0], "md5");
+        var uri = DownloadClient.Https(url);
+        if (!uri.Host.Equals("packages.es-de.org", StringComparison.OrdinalIgnoreCase)
+            || name != Uri.UnescapeDataString(Path.GetFileName(uri.AbsolutePath)))
+        {
+            throw new InvalidDataException("ES-DE's release feed names a package outside ES-DE's package host.");
+        }
+
+        if (!Regex.IsMatch(md5, "^[a-fA-F0-9]{32}$", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))
+        {
+            throw new InvalidDataException("ES-DE's release feed publishes no MD5 for " + name + ".");
+        }
+
+        return new EmulatorRelease(version, version + ":" + md5.ToLowerInvariant(),
+            "https://gitlab.com/es-de/emulationstation-de/-/blob/master/CHANGELOG.md", "EsDe",
+            new ReleaseAsset(name, uri.AbsoluteUri, Md5: md5.ToLowerInvariant()));
     }
 
     private static HostedReleaseSource Hosted(EmulatorSource source, string channel)

@@ -676,6 +676,91 @@ const ps2System = find(
 button(ps2System, "Relink emulators").props.onClick();
 assert.deepEqual(commands.pop(), ["relinkBios", { systemId: "ps2" }]);
 
+// ES-DE: its library in place of setup, each ROM folder's Steam choice, Sync now, and no setup
+// checklist.
+const esDeDefinition = {
+  id: "es-de",
+  name: "ES-DE",
+  kind: "frontend",
+  systems: [],
+  channels: ["stable"],
+  source: "gitlab.com",
+  prerequisites: [],
+  dataPolicy: { prerequisites: [] },
+};
+state.emulators.definitions = [...definitions, esDeDefinition];
+state.emulators.installations = [...installations, installation(esDeDefinition)];
+state.installed = [
+  ...listed,
+  {
+    id: "es-de-1",
+    name: "ES-DE",
+    versionLine: "3.5.0 · Stable",
+    summary: "1 system from 1 ROM folder",
+    appId: 0,
+    chips: [{ kind: "upToDate", label: "Up to date", tone: "good" }],
+    setup: [],
+    setupLabel: "",
+  },
+];
+state.esDe = {
+  installed: true,
+  summary: "1 system from 1 ROM folder",
+  status: "",
+  tone: "",
+  romFolder: "C:\\WSGM\\Emulation\\es-de-roms",
+  synced: true,
+  systems: [
+    { systemId: "ps2", name: "Sony PlayStation 2", detail: "PCSX2 · 1 folder", problem: "" },
+    {
+      systemId: "n64",
+      name: "Nintendo 64",
+      detail: "Install an emulator for this system.",
+      problem: "Install an emulator for this system.",
+    },
+  ],
+  folders: [
+    {
+      sourceId: "ps2-card",
+      name: "PS2 card",
+      location: "E:\\PS2",
+      systems: "Sony PlayStation 2",
+      connected: true,
+      inSteam: true,
+    },
+  ],
+};
+tree = tab("installed");
+children(byClass(tree, "steam-ui-kit-grid")[0]).at(-1).props.onActivate();
+tree = render();
+assert.ok(text(tree).includes("1 system from 1 ROM folder"), "the library names what ES-DE shows");
+assert.equal(button(tree, "Recheck"), undefined, "a frontend has no setup checklist");
+const shownSystem = find(
+  react,
+  tree,
+  (node) => node.type === Field && node.props.name === "Sony PlayStation 2",
+)[0];
+assert.equal(shownSystem.props.icon.props.className, "steam-ui-kit-state ready");
+const leftOut = find(
+  react,
+  tree,
+  (node) => node.type === Field && node.props.name === "Nintendo 64",
+)[0];
+assert.equal(leftOut.props.icon.props.className, "steam-ui-kit-state missing");
+const folderToggle = find(
+  react,
+  tree,
+  (node) => node.type === Toggle && node.props.label === "PS2 card",
+)[0];
+assert.ok(folderToggle, "each ROM folder has its Steam switch");
+folderToggle.props.onChange(false);
+assert.deepEqual(commands.pop(), ["setRomSourceInSteam", { sourceId: "ps2-card", enabled: false }]);
+button(tree, "Sync now").props.onClick();
+assert.deepEqual(commands.pop(), ["syncEsDe", {}]);
+button(tree, "System defaults").props.onClick();
+assert.equal(activeTab, "defaults", "the library links to System defaults");
+tree = render();
+
 // An empty installation offers the catalogue; one still loading says so.
 state.installed = [];
 tree = tab("installed");
@@ -688,5 +773,5 @@ assert.ok(text(tree).includes("Reading the installed emulators"), "loading is no
 assert.deepEqual(reports.filter(Boolean), [], "no command was refused");
 assert.deepEqual(commandNames(), [], "every command was accounted for");
 console.log(
-  "Emulators page: five tabs, installed cards, update banner, detail with setup, In Steam and removal, item progress with Stop, catalogue, cores, defaults and BIOS passed.",
+  "Emulators page: five tabs, installed cards, update banner, detail with setup, In Steam and removal, item progress with Stop, catalogue, cores, defaults, BIOS and ES-DE's library passed.",
 );

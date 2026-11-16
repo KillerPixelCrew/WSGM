@@ -90,6 +90,17 @@ internal sealed class EmulatorOverlaySource : IEmulatorBackend
         }
     } = [];
 
+    /// <summary>ES-DE's setup, as the service's sync publishes it.</summary>
+    internal EsDeState EsDe
+    {
+        get;
+        set
+        {
+            field = value;
+            Invalidate();
+        }
+    } = EsDeState.NotInstalled;
+
     /// <summary>The last Update all run.</summary>
     internal EmulatorUpdateAllState? UpdateAll
     {
@@ -134,7 +145,7 @@ internal sealed class EmulatorOverlaySource : IEmulatorBackend
         var systems = RomProfiles.ForInstallations(State.Installations);
         // The production projection, so both surfaces' contract is what the captures show.
         return _page = EmulatorPageProjection.Create(State with { Busy = false, Status = "" }, systems,
-            RomEmulatorProjection.Create(State, systems), Bios, Usage, Setup, CoreStatus, UpdateAll, "", "x64");
+            RomEmulatorProjection.Create(State, systems), Bios, Usage, Setup, CoreStatus, UpdateAll, "", "x64", EsDe);
     }
 
     public event Action? Changed;
@@ -243,6 +254,17 @@ internal sealed class EmulatorOverlaySource : IEmulatorBackend
         CancellationToken cancellationToken)
     {
         return Command("SetPreferredEmulatorAsync", cancellationToken);
+    }
+
+    public Task<SteamUiCommandResult> SyncEsDeAsync(CancellationToken cancellationToken)
+    {
+        return Command("SyncEsDeAsync", cancellationToken);
+    }
+
+    public Task<SteamUiCommandResult> SetRomSourceInSteamAsync(string sourceId, bool enabled,
+        CancellationToken cancellationToken)
+    {
+        return Command("SetRomSourceInSteamAsync:" + sourceId + ":" + enabled, cancellationToken);
     }
 
     private void Invalidate()

@@ -74,6 +74,9 @@ public sealed partial class EmulatorManager : IDisposable
 
     internal Task Initialization { get; }
 
+    /// <summary>The user's WSGM data root the emulators and their data live under.</summary>
+    internal string UserRoot => _context.Root;
+
     /// <summary>Closes admission, cancels active work and releases the transport.</summary>
     public void Dispose()
     {
@@ -582,8 +585,9 @@ public sealed partial class EmulatorManager : IDisposable
                 Source = release.Provider,
                 Sha256 = hash,
                 ExpectedSha256 = release.Asset.Sha256,
-                Integrity =
-                    release.Asset.Sha256.Length > 0 ? "Verified SHA-256" : "HTTPS; no upstream SHA-256 supplied",
+                Integrity = release.Asset.Sha256.Length > 0 ? "Verified SHA-256"
+                    : release.Asset.Md5.Length > 0 ? "Verified published MD5"
+                    : "HTTPS; no upstream SHA-256 supplied",
                 Systems = definition.Systems,
                 LaunchArguments = [.. definition.DataPolicy.DataArguments, .. definition.LaunchArguments],
                 DataPolicy = definition.DataPolicy,
@@ -717,6 +721,13 @@ public sealed partial class EmulatorManager : IDisposable
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (definition.Kind == EmulatorDefinition.FrontendKind)
+        {
+            // WSGM configures the frontend it installs. Taking over someone's own ES-DE would replace its
+            // ROM folder and systems, so an existing installation is never adopted.
+            throw new InvalidOperationException(definition.Name + " is set up by WSGM. Install it from Get emulators.");
+        }
+
         executable = Path.GetFullPath(executable);
         var architecture = EmulatorExternalInstall.Validate(definition, executable);
         var id = EmulatorExternalInstall.Id(definition.Id, executable);
@@ -737,7 +748,7 @@ public sealed partial class EmulatorManager : IDisposable
         var forgotten = state.ForgottenExternalIds.ToHashSet(StringComparer.Ordinal);
         foreach (var definition in _catalog.Definitions)
         {
-            if (installedIds.Contains(definition.Id))
+            if (installedIds.Contains(definition.Id) || definition.Kind == EmulatorDefinition.FrontendKind)
             {
                 continue;
             }

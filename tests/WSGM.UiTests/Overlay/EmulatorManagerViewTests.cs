@@ -29,6 +29,10 @@ public sealed class EmulatorManagerViewTests
     [InlineData("overlay-emulators-remove-980", "remove", 980, 640)]
     [InlineData("overlay-emulators-installing-1280", "installing", 1280, 800)]
     [InlineData("overlay-emulators-installing-980", "installing", 980, 640)]
+    [InlineData("overlay-emulators-esde-1280", "esde", 1280, 800)]
+    [InlineData("overlay-emulators-esde-980", "esde", 980, 640)]
+    [InlineData("overlay-emulators-esde-folders-1280", "esde-folders", 1280, 800)]
+    [InlineData("overlay-emulators-esde-folders-980", "esde-folders", 980, 640)]
     public void Scene(string name, string scene, int width, int height)
     {
         using UiFixture fixture = new();
@@ -36,6 +40,22 @@ public sealed class EmulatorManagerViewTests
         Assert.Equal(width, window.ClientSize.Width);
         Assert.Equal(height, window.ClientSize.Height);
         VisualBaseline.Verify(window, name);
+    }
+
+    [AvaloniaFact]
+    public async Task EsDeLibrarySyncsAndSendsEachFoldersSteamChoiceThroughTheBackend()
+    {
+        using var fixture = new UiFixture();
+        var (window, source) = PreviewEmulatorPage.Open(fixture, "esde", 1280, 800);
+        Assert.DoesNotContain(Visible(window), button => button.Title == "Recheck");
+        var folder = UiFixture.Tagged<Grid>(window, "emu.esde.folder:retro").GetVisualDescendants()
+            .OfType<ToggleSwitch>().Single();
+        Assert.False(folder.IsChecked);
+        folder.IsChecked = true;
+        Assert.Equal("SetRomSourceInSteamAsync:retro:True",
+            await source.CommandCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+        PreviewEmulatorPage.Click(window, "Sync now");
+        Assert.Contains("SyncEsDeAsync", source.Commands);
     }
 
     [AvaloniaFact]

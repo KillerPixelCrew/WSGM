@@ -39,4 +39,7 @@ internal sealed record EmulatorPageState(
 
     /// <summary>The BIOS folder's checklist and its found count.</summary>
     public EmulatorBiosSummary BiosSummary { get; init; } = new(0, 0, "", []);
+
+    /// <summary>ES-DE's setup: its systems, its ROM folders and their Steam choice, and what needs attention.</summary>
+    public EsDeState EsDe { get; init; } = EsDeState.NotInstalled;
 }

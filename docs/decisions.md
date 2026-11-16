@@ -423,6 +423,15 @@ controller-only choice. Unknown classification must not silently enable injectio
 [the packaged-game launcher](packaged-game-launcher.md) for what was built and the evidence it rests
 on.
 
+**ES-DE browses the ROM folders and starts emulators itself (2026-11-17).** Emulator Manager
+installs ES-DE and writes its systems, its ROM folder links and its ROM folder setting from the ROM
+sources, the installed emulators and the System defaults. ES-DE runs each emulator directly with
+WSGM's own launch arguments; WSGM's launcher and the Steam Input lease apply once, to ES-DE's Steam
+shortcut. This adds no launch path and no launcher mode. The accepted cost is that ES-DE's scanner,
+not WSGM's, decides what it lists, and WSGM's pre-launch checks do not run for games started there.
+A ROM folder's Steam choice is Library Importer's source switch, not a second setting.
+[Game Library](game-library.md#es-de) holds the mechanism.
+
 ## Devices and plugins
 
 **Plugin categories share common contracts.** Independent extensions use the MIT common SDK. Native

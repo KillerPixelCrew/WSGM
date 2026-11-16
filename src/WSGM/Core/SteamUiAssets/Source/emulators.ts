@@ -18,6 +18,8 @@ const EmulatorStepOf: Record<string, number> = { find: 0, download: 1, extract: 
 const EmulatorItemWork = ["install", "update", "repair", "updateAll"];
 // Ready cores each list adds per Load More; RetroArch publishes a few hundred.
 const EmulatorCoreChunk = 40;
+// The frontend WSGM sets up from the ROM folders; its page shows its library in place of setup.
+const EmulatorEsDe = "es-de";
 
 // Layout glue under the page's root: where the kit's elements go, not how they look.
 const emulatorStyles = `
@@ -158,6 +160,15 @@ const emulatorFolder = (installation: any) => {
  * program files, the data, the emulator's own shortcut and the imported games.
  */
 const emulatorRemoveText = (installation: any, dependency: any) => {
+  if (installation.definitionId === EmulatorEsDe) {
+    return [
+      `WSGM deletes ES-DE's program files from ${installation.root}.`,
+      `Its settings, game lists and scraped media stay in ${installation.dataPath}. Your ROM folders and emulators stay as they are.`,
+      installation.steamShortcutEnabled ? "Its shortcut is removed from Steam." : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+  }
   const paragraphs = installation.managed
     ? [
         `WSGM deletes ${installation.name}'s program files from ${installation.root}.`,
@@ -299,6 +310,73 @@ function EmulatorTab({ context, state, tab }: any) {
       { key: `${tab}:${level.kind}:${level.id}:gone` },
     );
 
+  // ES-DE's library in place of an emulator's setup: what it shows, what holds a system back, and
+  // each ROM folder with whether Library Importer also offers it to Steam.
+  const esDe = state?.esDe ?? {};
+  const esDeLibrary = () => {
+    const systems: any[] = esDe.systems ?? [];
+    const folders: any[] = esDe.folders ?? [];
+    return section(
+      "esde",
+      "Library",
+      esDe.summary ?? "",
+      muted(
+        "ES-DE shows the games in your ROM folders and starts them with the emulators installed here. Your System defaults come first; choose another emulator for a system or a game in ES-DE.",
+        "esde-intro",
+      ),
+      esDe.status ? renderSteamUiBanner(ui, { key: "esde-status", text: esDe.status, error: esDe.tone === "bad" }) : null,
+      !esDe.synced
+        ? muted("Setting up ES-DE from your ROM folders…", "esde-pending")
+        : !folders.length
+          ? muted("No ROM folders yet. Add them in Library Importer, under Sources; ES-DE shows their games once they're added.", "esde-empty")
+          : null,
+      systems.length
+        ? h(
+            ui.settingsSection,
+            { key: "esde-systems" },
+            ...systems.map((system: any) =>
+              field(
+                `esde:system:${system.systemId}`,
+                system.name,
+                system.detail,
+                null,
+                renderSteamUiStateMark(react, {
+                  state: system.problem ? "missing" : "ready",
+                  label: system.problem ? "Not in ES-DE" : "In ES-DE",
+                }),
+              ),
+            ),
+          )
+        : null,
+      folders.length
+        ? muted("Switch a folder off to keep its games in ES-DE only. Games already in Steam stay until you remove them in Library Importer.", "esde-folders")
+        : null,
+      folders.length
+        ? h(
+            ui.settingsSection,
+            { key: "esde-folders" },
+            ...folders.map((folder: any) =>
+              h(ui.toggleField, {
+                key: `esde:folder:${folder.sourceId}`,
+                label: folder.name,
+                description: `${folder.systems} · ${folder.inSteam ? "also in Library Importer" : "ES-DE only"}`,
+                controlled: true,
+                checked: !!folder.inSteam,
+                disabled: busy,
+                onChange: (value: boolean) =>
+                  !!value !== !!folder.inSteam && act("setRomSourceInSteam", { sourceId: folder.sourceId, enabled: !!value }),
+              }),
+            ),
+          )
+        : null,
+      esDe.romFolder ? muted(`ES-DE reads games through ${esDe.romFolder}`, "esde-roms") : null,
+      actions([
+        { id: "esde-sync", label: "Sync now", onClick: () => act("syncEsDe") },
+        { id: "esde-defaults", label: "System defaults", onClick: () => toTab("defaults") },
+      ]),
+    );
+  };
+
   // An installed emulator: its update, the setup checklist, In Steam, the supporting actions and
   // Remove set apart, with the installation beside them.
   const installationLevel = (id: string) => {
@@ -430,8 +508,11 @@ function EmulatorTab({ context, state, tab }: any) {
     const firmware = (installation.dataPolicy?.prerequisites ?? []).some((rule: any) =>
       ["bios", "firmware", "keys", "system"].includes(rule.kind),
     );
+    const frontend = installation.definitionId === EmulatorEsDe;
     main.push(
-      section(
+      frontend
+        ? esDeLibrary()
+        : section(
         "setup",
         "Setup",
         item.setupLabel ?? "",
@@ -447,7 +528,7 @@ function EmulatorTab({ context, state, tab }: any) {
           { id: "recheck", label: "Recheck", disabled: busy, onClick: () => act("refreshEmulators") },
           firmware ? { id: "bios", label: "BIOS and firmware", onClick: toBios } : null,
         ]),
-      ),
+          ),
     );
 
     // The emulator's own Steam shortcut, its launch mode and what in the library uses it.
@@ -485,7 +566,11 @@ function EmulatorTab({ context, state, tab }: any) {
               act("setEmulatorShortcut", { installationId: id, enabled: shortcut, launchMode: option.data }),
           }),
         ),
-        muted(dependency?.summary ?? "Not used by a ROM source yet."),
+        muted(
+          frontend
+            ? "Games you start in ES-DE run under this shortcut, with its launch mode."
+            : (dependency?.summary ?? "Not used by a ROM source yet."),
+        ),
         renderSteamUiStatus(ui, [state.shortcutStatus ? { key: "shortcut", text: state.shortcutStatus } : null]),
       ),
     );
@@ -546,8 +631,9 @@ function EmulatorTab({ context, state, tab }: any) {
         {
           key: "owner",
           value: installation.managed ? "Managed by WSGM" : "Your own installation",
-          detail: dependency?.summary ?? "Not used by a ROM source yet.",
+          detail: frontend ? esDe.summary || "Setting up your ROM folders" : (dependency?.summary ?? "Not used by a ROM source yet."),
         },
+        frontend && esDe.romFolder ? { key: "roms", label: "ROM folder for ES-DE", detail: esDe.romFolder, rule: true } : null,
         { key: "program", label: "Program", detail: emulatorFolder(installation), rule: true },
         installation.dataPath ? { key: "data", label: "Settings and saves", detail: installation.dataPath } : null,
       ],
@@ -667,16 +753,25 @@ function EmulatorTab({ context, state, tab }: any) {
           )
         : null,
     ].filter(Boolean);
+    const frontend = definition.kind === "frontend";
     main.push(
       section(
         "requires",
         "Before you play",
         "",
-        needs.length
-          ? h(ui.settingsSection, null, ...needs)
-          : muted("Nothing else is needed. Its games start once a ROM source uses it."),
+        frontend
+          ? muted(
+              "ES-DE lists the games in your Library Importer ROM folders and starts them with the emulators installed here, " +
+                "so you can browse them without adding every game to Steam. WSGM sets it up and keeps it in step; it appears in Steam as one shortcut.",
+            )
+          : needs.length
+            ? h(ui.settingsSection, null, ...needs)
+            : muted("Nothing else is needed. Its games start once a ROM source uses it."),
       ),
-      section(
+      // WSGM sets a frontend up itself and never takes over an existing one.
+      frontend
+        ? null
+        : section(
         "external",
         "Already installed it yourself?",
         "",
@@ -700,7 +795,7 @@ function EmulatorTab({ context, state, tab }: any) {
             ]),
           ),
         ),
-      ),
+          ),
     );
     const copies = installations.filter((item) => item.definitionId === id);
     if (copies.length) {

@@ -9,6 +9,10 @@ internal sealed record EmulatorPackageDefinition
     public int? SteamGridDbId { get; init; }
     public string Id { get; init; } = "";
     public string Name { get; init; } = "";
+
+    /// <summary><c>emulator</c>, or <c>frontend</c> for a game browser that starts installed emulators.</summary>
+    public string Kind { get; init; } = EmulatorDefinition.EmulatorKind;
+
     public string[] Systems { get; init; } = [];
     public string[] Architectures { get; init; } = [];
     public string[] ExecutableNames { get; init; } = [];
@@ -27,6 +31,7 @@ internal sealed record EmulatorPackageDefinition
             Id = Id,
             SteamGridDbId = SteamGridDbId,
             Name = Name,
+            Kind = Kind,
             Systems = [.. Systems],
             Channels = [.. Sources.Keys],
             DataPolicy = DataPolicy,

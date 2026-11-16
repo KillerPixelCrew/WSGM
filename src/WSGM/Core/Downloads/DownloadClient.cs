@@ -19,7 +19,7 @@ namespace WSGM.Core;
 ///     </para>
 ///     <para>
 ///         <see cref="DownloadAsync" /> writes through <see cref="VerifiedDownload" />: bounded streaming into a
-///         private partial file, the published size and SHA-256 checked when they are known, and an atomic move into
+///         private partial file, the published size and digest checked when they are known, and an atomic move into
 ///         place. It never retries; callers own any retry policy.
 ///     </para>
 /// </remarks>
@@ -160,7 +160,7 @@ internal sealed class DownloadClient : IDisposable
         return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Downloads an asset to a path once, verified against its published size and SHA-256.</summary>
+    /// <summary>Downloads an asset to a path once, verified against its published size and digest.</summary>
     /// <param name="asset">The asset; an empty <see cref="ReleaseAsset.Sha256" /> only reports the hash.</param>
     /// <param name="destination">The final path, written only with a verified file.</param>
     /// <param name="cancellationToken">Cancels the transfer.</param>
@@ -178,6 +178,6 @@ internal sealed class DownloadClient : IDisposable
         }
 
         return await VerifiedDownload.WriteAsync(token => OpenAsync(asset.Url, token), destination, asset.Sha256,
-            asset.Size, cancellationToken, copied).ConfigureAwait(false);
+            asset.Size, cancellationToken, copied, expectedMd5: asset.Md5).ConfigureAwait(false);
     }
 }

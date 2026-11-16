@@ -20195,6 +20195,8 @@
   const EmulatorItemWork = ["install", "update", "repair", "updateAll"];
   // Ready cores each list adds per Load More; RetroArch publishes a few hundred.
   const EmulatorCoreChunk = 40;
+  // The frontend WSGM sets up from the ROM folders; its page shows its library in place of setup.
+  const EmulatorEsDe = "es-de";
   // Layout glue under the page's root: where the kit's elements go, not how they look.
   const emulatorStyles = `
 #wsgm-emulators { overflow-wrap: anywhere; }
@@ -20328,6 +20330,15 @@
    * program files, the data, the emulator's own shortcut and the imported games.
    */
   const emulatorRemoveText = (installation, dependency) => {
+    if (installation.definitionId === EmulatorEsDe) {
+      return [
+        `WSGM deletes ES-DE's program files from ${installation.root}.`,
+        `Its settings, game lists and scraped media stay in ${installation.dataPath}. Your ROM folders and emulators stay as they are.`,
+        installation.steamShortcutEnabled ? "Its shortcut is removed from Steam." : "",
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+    }
     const paragraphs = installation.managed
       ? [
           `WSGM deletes ${installation.name}'s program files from ${installation.root}.`,
@@ -20473,6 +20484,85 @@
         ),
         { key: `${tab}:${level.kind}:${level.id}:gone` },
       );
+    // ES-DE's library in place of an emulator's setup: what it shows, what holds a system back, and
+    // each ROM folder with whether Library Importer also offers it to Steam.
+    const esDe = state?.esDe ?? {};
+    const esDeLibrary = () => {
+      const systems = esDe.systems ?? [];
+      const folders = esDe.folders ?? [];
+      return section(
+        "esde",
+        "Library",
+        esDe.summary ?? "",
+        muted(
+          "ES-DE shows the games in your ROM folders and starts them with the emulators installed here. Your System defaults come first; choose another emulator for a system or a game in ES-DE.",
+          "esde-intro",
+        ),
+        esDe.status
+          ? renderSteamUiBanner(ui, {
+              key: "esde-status",
+              text: esDe.status,
+              error: esDe.tone === "bad",
+            })
+          : null,
+        !esDe.synced
+          ? muted("Setting up ES-DE from your ROM folders\u2026", "esde-pending")
+          : !folders.length
+            ? muted(
+                "No ROM folders yet. Add them in Library Importer, under Sources; ES-DE shows their games once they're added.",
+                "esde-empty",
+              )
+            : null,
+        systems.length
+          ? h(
+              ui.settingsSection,
+              { key: "esde-systems" },
+              ...systems.map((system) =>
+                field(
+                  `esde:system:${system.systemId}`,
+                  system.name,
+                  system.detail,
+                  null,
+                  renderSteamUiStateMark(react, {
+                    state: system.problem ? "missing" : "ready",
+                    label: system.problem ? "Not in ES-DE" : "In ES-DE",
+                  }),
+                ),
+              ),
+            )
+          : null,
+        folders.length
+          ? muted(
+              "Switch a folder off to keep its games in ES-DE only. Games already in Steam stay until you remove them in Library Importer.",
+              "esde-folders",
+            )
+          : null,
+        folders.length
+          ? h(
+              ui.settingsSection,
+              { key: "esde-folders" },
+              ...folders.map((folder) =>
+                h(ui.toggleField, {
+                  key: `esde:folder:${folder.sourceId}`,
+                  label: folder.name,
+                  description: `${folder.systems} \u00b7 ${folder.inSteam ? "also in Library Importer" : "ES-DE only"}`,
+                  controlled: true,
+                  checked: !!folder.inSteam,
+                  disabled: busy,
+                  onChange: (value) =>
+                    !!value !== !!folder.inSteam &&
+                    act("setRomSourceInSteam", { sourceId: folder.sourceId, enabled: !!value }),
+                }),
+              ),
+            )
+          : null,
+        esDe.romFolder ? muted(`ES-DE reads games through ${esDe.romFolder}`, "esde-roms") : null,
+        actions([
+          { id: "esde-sync", label: "Sync now", onClick: () => act("syncEsDe") },
+          { id: "esde-defaults", label: "System defaults", onClick: () => toTab("defaults") },
+        ]),
+      );
+    };
     // An installed emulator: its update, the setup checklist, In Steam, the supporting actions and
     // Remove set apart, with the installation beside them.
     const installationLevel = (id) => {
@@ -20641,29 +20731,32 @@
       const firmware = (installation.dataPolicy?.prerequisites ?? []).some((rule) =>
         ["bios", "firmware", "keys", "system"].includes(rule.kind),
       );
+      const frontend = installation.definitionId === EmulatorEsDe;
       main.push(
-        section(
-          "setup",
-          "Setup",
-          item.setupLabel ?? "",
-          setupRows.length
-            ? h(ui.settingsSection, null, ...setupRows)
-            : muted(
-                (installation.missingRequirements ?? []).length
-                  ? installation.missingRequirements.join(" ")
-                  : "Nothing to set up. Its games start once a ROM source uses it.",
-              ),
-          muted("Finished the emulator's own first-run setup? Recheck reads its files again."),
-          actions([
-            {
-              id: "recheck",
-              label: "Recheck",
-              disabled: busy,
-              onClick: () => act("refreshEmulators"),
-            },
-            firmware ? { id: "bios", label: "BIOS and firmware", onClick: toBios } : null,
-          ]),
-        ),
+        frontend
+          ? esDeLibrary()
+          : section(
+              "setup",
+              "Setup",
+              item.setupLabel ?? "",
+              setupRows.length
+                ? h(ui.settingsSection, null, ...setupRows)
+                : muted(
+                    (installation.missingRequirements ?? []).length
+                      ? installation.missingRequirements.join(" ")
+                      : "Nothing to set up. Its games start once a ROM source uses it.",
+                  ),
+              muted("Finished the emulator's own first-run setup? Recheck reads its files again."),
+              actions([
+                {
+                  id: "recheck",
+                  label: "Recheck",
+                  disabled: busy,
+                  onClick: () => act("refreshEmulators"),
+                },
+                firmware ? { id: "bios", label: "BIOS and firmware", onClick: toBios } : null,
+              ]),
+            ),
       );
       // The emulator's own Steam shortcut, its launch mode and what in the library uses it.
       const launchMode = installation.steamShortcutLaunchMode ?? 2;
@@ -20708,7 +20801,11 @@
                 }),
             }),
           ),
-          muted(dependency?.summary ?? "Not used by a ROM source yet."),
+          muted(
+            frontend
+              ? "Games you start in ES-DE run under this shortcut, with its launch mode."
+              : (dependency?.summary ?? "Not used by a ROM source yet."),
+          ),
           renderSteamUiStatus(ui, [
             state.shortcutStatus ? { key: "shortcut", text: state.shortcutStatus } : null,
           ]),
@@ -20774,8 +20871,13 @@
           {
             key: "owner",
             value: installation.managed ? "Managed by WSGM" : "Your own installation",
-            detail: dependency?.summary ?? "Not used by a ROM source yet.",
+            detail: frontend
+              ? esDe.summary || "Setting up your ROM folders"
+              : (dependency?.summary ?? "Not used by a ROM source yet."),
           },
+          frontend && esDe.romFolder
+            ? { key: "roms", label: "ROM folder for ES-DE", detail: esDe.romFolder, rule: true }
+            : null,
           { key: "program", label: "Program", detail: emulatorFolder(installation), rule: true },
           installation.dataPath
             ? { key: "data", label: "Settings and saves", detail: installation.dataPath }
@@ -20907,40 +21009,49 @@
             )
           : null,
       ].filter(Boolean);
+      const frontend = definition.kind === "frontend";
       main.push(
         section(
           "requires",
           "Before you play",
           "",
-          needs.length
-            ? h(ui.settingsSection, null, ...needs)
-            : muted("Nothing else is needed. Its games start once a ROM source uses it."),
+          frontend
+            ? muted(
+                "ES-DE lists the games in your Library Importer ROM folders and starts them with the emulators installed here, " +
+                  "so you can browse them without adding every game to Steam. WSGM sets it up and keeps it in step; it appears in Steam as one shortcut.",
+              )
+            : needs.length
+              ? h(ui.settingsSection, null, ...needs)
+              : muted("Nothing else is needed. Its games start once a ROM source uses it."),
         ),
-        section(
-          "external",
-          "Already installed it yourself?",
-          "",
-          h(
-            ui.settingsSection,
-            null,
-            field(
+        // WSGM sets a frontend up itself and never takes over an existing one.
+        frontend
+          ? null
+          : section(
               "external",
-              "Use my installation",
-              "Choose its program file. WSGM uses it as it is and doesn't move, update or change its files.",
-              rowActions([
-                {
-                  id: "external",
-                  label: "Use my installation\u2026",
-                  disabled: busy,
-                  onClick: () =>
-                    pick(`Choose ${definition.name}'s program`, "file", [".exe"], (path) =>
-                      act("useExternalEmulator", { definitionId: id, path }),
-                    ),
-                },
-              ]),
+              "Already installed it yourself?",
+              "",
+              h(
+                ui.settingsSection,
+                null,
+                field(
+                  "external",
+                  "Use my installation",
+                  "Choose its program file. WSGM uses it as it is and doesn't move, update or change its files.",
+                  rowActions([
+                    {
+                      id: "external",
+                      label: "Use my installation\u2026",
+                      disabled: busy,
+                      onClick: () =>
+                        pick(`Choose ${definition.name}'s program`, "file", [".exe"], (path) =>
+                          act("useExternalEmulator", { definitionId: id, path }),
+                        ),
+                    },
+                  ]),
+                ),
+              ),
             ),
-          ),
-        ),
       );
       const copies = installations.filter((item) => item.definitionId === id);
       if (copies.length) {

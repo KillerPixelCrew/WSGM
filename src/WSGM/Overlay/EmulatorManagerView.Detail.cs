@@ -40,8 +40,19 @@ public sealed partial class EmulatorManagerView
         }
 
         body.Children.Add(Hero(shown, installation, item, working));
-        var setup = SetupCard(shown, installation, item);
         var steam = SteamCard(shown, installation);
+        if (installation.DefinitionId == EsDeConfiguration.DefinitionId)
+        {
+            // A frontend's library is long and its Steam card short, so each takes the full width.
+            body.Children.Add(EsDeCard(shown));
+            body.Children.Add(steam);
+            body.Children.Add(Maintenance(shown, installation));
+            SetEmulatorContent(body, shown);
+            RestoreFocus();
+            return;
+        }
+
+        var setup = SetupCard(shown, installation, item);
         if (_wide)
         {
             body.Children.Add(CardGrid("emu.detail.cards:" + installationId, [setup, steam], 2));
@@ -317,7 +328,9 @@ public sealed partial class EmulatorManagerView
             "With Give the game the controller, the emulator reads the controller directly.", mode));
         body.Children.Add(Divider());
         var dependency = page.Dependencies.FirstOrDefault(entry => entry.InstallationId == id);
-        var usage = Caption(dependency?.Summary ?? "Not used by a ROM source yet.");
+        var usage = Caption(installation.DefinitionId == EsDeConfiguration.DefinitionId
+            ? "Games you start in ES-DE run under this shortcut, with its launch mode."
+            : dependency?.Summary ?? "Not used by a ROM source yet.");
         usage.Margin = new Thickness(2, 10, 2, 0);
         body.Children.Add(Tagged(usage, "emu.steam.usage"));
         if (page.ShortcutStatus.Length > 0)
@@ -378,7 +391,14 @@ public sealed partial class EmulatorManagerView
 
         var id = installation.Id;
         var dependency = shown.Page.Dependencies.FirstOrDefault(entry => entry.InstallationId == id);
-        List<string> paragraphs = installation.Managed
+        List<string> paragraphs = installation.DefinitionId == EsDeConfiguration.DefinitionId
+            ?
+            [
+                "WSGM deletes ES-DE's program files from " + installation.Root + ".",
+                "Its settings, game lists and scraped media stay in " + installation.DataPath
+                + ". Your ROM folders and emulators stay as they are."
+            ]
+            : installation.Managed
             ?
             [
                 "WSGM deletes " + installation.Name + "'s program files from " + installation.Root + ".",
@@ -390,13 +410,16 @@ public sealed partial class EmulatorManagerView
                 "WSGM stops using your installation at " + installation.ExecutablePath
                                                          + ". Its files and data stay as they are."
             ];
-        paragraphs.Add((installation.SteamShortcutEnabled
-                           ? "Its own shortcut is removed from Steam. "
-                           : "")
-                       + (dependency?.Summary ?? "")
-                       + " Imported games stay in Steam and need another emulator before they start.");
+        paragraphs.Add(installation.DefinitionId == EsDeConfiguration.DefinitionId
+            ? installation.SteamShortcutEnabled ? "Its shortcut is removed from Steam." : ""
+            : (installation.SteamShortcutEnabled
+                  ? "Its own shortcut is removed from Steam. "
+                  : "")
+              + (dependency?.Summary ?? "")
+              + " Imported games stay in Steam and need another emulator before they start.");
         var title = (installation.Managed ? "Remove " : "Forget ") + installation.Name + "?";
-        ShowConfirm(title, paragraphs.Select(paragraph => paragraph.Trim()), installation.Managed ? "Remove" : "Forget", () =>
+        ShowConfirm(title, paragraphs.Select(paragraph => paragraph.Trim()).Where(paragraph => paragraph.Length > 0),
+            installation.Managed ? "Remove" : "Forget", () =>
         {
             _ = RunCommandAsync(token => _service!.RemoveEmulatorAsync(id, token), "remove", () =>
             {
@@ -507,7 +530,11 @@ public sealed partial class EmulatorManagerView
 
         body.Children.Add(Card(hero, "emu.definition.hero:" + definitionId + ":" + _wide + ":" + working));
         body.Children.Add(BeforeYouPlay(definition));
-        body.Children.Add(External(definition, busy));
+        if (definition.Kind != EmulatorDefinition.FrontendKind)
+        {
+            // WSGM sets a frontend up itself and never takes over an existing one.
+            body.Children.Add(External(definition, busy));
+        }
         foreach (var installation in snapshot.Installations.Where(item => item.DefinitionId == definitionId))
         {
             var installed = installation.Id;
@@ -527,7 +554,14 @@ public sealed partial class EmulatorManagerView
     {
         var body = new StackPanel();
         body.Children.Add(CardTitle("emu.requires.title", "Before you play", null));
-        if (definition.Prerequisites.Length == 0 && !definition.DataPolicy.RequiresVisualCpp)
+        if (definition.Kind == EmulatorDefinition.FrontendKind)
+        {
+            body.Children.Add(Caption("ES-DE lists the games in your Library Importer ROM folders and starts them with "
+                                      + "the emulators installed here, so you can browse them without adding every "
+                                      + "game to Steam. WSGM sets it up and keeps it in step; it appears in Steam as "
+                                      + "one shortcut."));
+        }
+        else if (definition.Prerequisites.Length == 0 && !definition.DataPolicy.RequiresVisualCpp)
         {
             body.Children.Add(Caption("Nothing else is needed. Its games start once a ROM source uses it."));
         }

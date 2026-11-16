@@ -52,7 +52,8 @@ internal sealed class GameLibraryEmulators(EmulatorService? service)
 
     /// <summary>
     ///     Counts what the emulator manager shows of the library again: the sources and imported titles using each
-    ///     installation and each system, and the Steam shortcut of each installation's interface.
+    ///     installation and each system, and the Steam shortcut of each installation's interface. ES-DE takes the
+    ///     ROM sources at the same time.
     /// </summary>
     /// <param name="settings">The library's settings in force.</param>
     /// <param name="imports">The import records the titles and shortcuts are read from.</param>
@@ -66,6 +67,7 @@ internal sealed class GameLibraryEmulators(EmulatorService? service)
         var store = ReadStore();
         Service.UpdateLibraryUsage(new EmulatorLibraryUsage(Dependencies(settings, imports, store),
             SystemUsage(settings, imports), imports.ShortcutAppIds(EmulatorShortcutSync.Source)));
+        Service.UpdateRomSources(settings);
     }
 
     /// <summary>The sources and imported titles of each system: its configured sources and those its titles came from.</summary>

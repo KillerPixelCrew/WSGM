@@ -38,7 +38,9 @@ internal sealed record EmulatorCatalog
                 || definition.Sources.Count == 0 || definition.ExecutableNames.Length == 0
                 || definition.ExecutableNames.Any(name => Path.GetFileName(name) != name)
                 || definition.PackageType is not ("zip" or "7z" or "exe") || definition.ValidationArguments.Length == 0
-                || definition.SteamGridDbId is <= 0)
+                || definition.SteamGridDbId is <= 0
+                || definition.Kind is not (EmulatorDefinition.EmulatorKind or EmulatorDefinition.FrontendKind)
+                || (definition.Kind == EmulatorDefinition.FrontendKind && definition.Systems.Length > 0))
             {
                 throw new InvalidDataException("Invalid emulator definition: " + definition.Id);
             }
@@ -47,7 +49,7 @@ internal sealed record EmulatorCatalog
             {
                 DownloadClient.Https(source.BaseUrl);
                 if (!HostedReleases.Providers.Contains(source.Provider)
-                    && source.Provider is not ("Scoop" or "Buildbot" or "Dolphin" or "WebPage"))
+                    && source.Provider is not ("Scoop" or "Buildbot" or "Dolphin" or "WebPage" or "EsDe"))
                 {
                     throw new InvalidDataException("Unsupported emulator release provider: " + source.Provider);
                 }

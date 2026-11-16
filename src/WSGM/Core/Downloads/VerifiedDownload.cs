@@ -8,8 +8,8 @@ using System.Threading.Tasks;
 namespace WSGM.Core;
 
 /// <summary>
-///     Streams a download to a private partial file through <see cref="BoundedHttp" />, checks its size and SHA-256,
-///     and only then moves it into place, so the destination is either absent or the verified file.
+///     Streams a download to a private partial file through <see cref="BoundedHttp" />, checks its size and published
+///     digest, and only then moves it into place, so the destination is either absent or the verified file.
 /// </summary>
 internal static class VerifiedDownload
 {
@@ -21,11 +21,12 @@ internal static class VerifiedDownload
     /// <param name="cancellationToken">Cancels the transfer.</param>
     /// <param name="copied">Receives the bytes copied so far.</param>
     /// <param name="stallTimeout">Fails a transfer that stops delivering data for this long.</param>
+    /// <param name="expectedMd5">The required MD5 when the publisher supplies no SHA-256, or an empty string.</param>
     /// <returns>The lowercase SHA-256 of the placed file.</returns>
-    /// <exception cref="InvalidDataException">The size or SHA-256 does not match; nothing is placed.</exception>
+    /// <exception cref="InvalidDataException">The size or a published digest does not match; nothing is placed.</exception>
     internal static async Task<string> WriteAsync(Func<CancellationToken, Task<HttpResponseMessage>> open,
         string destination, string expectedSha256, long expectedSize, CancellationToken cancellationToken,
-        Action<long>? copied = null, TimeSpan? stallTimeout = null)
+        Action<long>? copied = null, TimeSpan? stallTimeout = null, string expectedMd5 = "")
     {
         var partial = destination + ".partial-" + Guid.NewGuid().ToString("N");
         try
@@ -49,6 +50,17 @@ internal static class VerifiedDownload
             if (expectedSha256.Length > 0 && !hash.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidDataException("The downloaded file does not match its expected SHA-256.");
+            }
+
+            if (expectedSha256.Length == 0 && expectedMd5.Length > 0)
+            {
+                input.Position = 0;
+                var md5 = Convert.ToHexStringLower(await MD5.HashDataAsync(input, cancellationToken)
+                    .ConfigureAwait(false));
+                if (!md5.Equals(expectedMd5, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidDataException("The downloaded file does not match its published MD5.");
+                }
             }
 
             input.Close();

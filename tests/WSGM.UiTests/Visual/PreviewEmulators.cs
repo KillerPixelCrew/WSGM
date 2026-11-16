@@ -149,6 +149,46 @@ internal static class PreviewEmulators
         return source;
     }
 
+    /// <summary>
+    ///     Adds an installed ES-DE with its library: systems shown and one left out, and ROM folders that are
+    ///     offered to Steam, kept in ES-DE only or disconnected.
+    /// </summary>
+    internal static void AddEsDe(EmulatorOverlaySource source)
+    {
+        var definition = Definition("es-de", "ES-DE", ["stable"], [], []) with { Kind = "frontend" };
+        source.State = source.State with
+        {
+            Definitions = [.. source.State.Definitions, definition],
+            Installations = [.. source.State.Installations, Installed(definition, "stable", "3.5.0", true)],
+            Offers = [.. source.State.Offers, Offer("es-de", "stable", "3.5.0", "installed")]
+        };
+        source.EsDe = new EsDeState(true, "5 systems from 5 ROM folders", "", "")
+        {
+            RomFolder = @"D:\WSGM\Emulation\es-de-roms",
+            Synced = true,
+            Systems =
+            [
+                new EsDeSystemRow("psx", "Sony PlayStation", "DuckStation, and 1 more in ES-DE · 1 folder", ""),
+                new EsDeSystemRow("ps2", "Sony PlayStation 2", "PCSX2 · 2 folders, 1 not connected", ""),
+                new EsDeSystemRow("snes", "Nintendo SNES (Super Nintendo)", "Snes9x · 1 folder", ""),
+                new EsDeSystemRow("gba", "Nintendo Game Boy Advance", "mGBA · 1 folder", ""),
+                new EsDeSystemRow("dreamcast", "Sega Dreamcast", "Flycast · 1 folder", ""),
+                new EsDeSystemRow("ps3", "Sony PlayStation 3",
+                    "ES-DE can't find games installed this way. They stay available as Steam shortcuts.",
+                    "ES-DE can't find games installed this way. They stay available as Steam shortcuts.")
+            ],
+            Folders =
+            [
+                new EsDeFolderRow("psx", "PlayStation", @"D:\ROMs\psx", "Sony PlayStation", true, true),
+                new EsDeFolderRow("ps2", "PS2 collection", @"D:\ROMs\ps2", "Sony PlayStation 2", true, true),
+                new EsDeFolderRow("ps2-card", "PS2 SD card", @"E:\ps2", "Not connected", false, false),
+                new EsDeFolderRow("retro", "Retro collection", @"D:\ROMsetro",
+                    "Nintendo SNES (Super Nintendo), Nintendo Game Boy Advance and Sega Dreamcast", true, false),
+                new EsDeFolderRow("ps3", "PS3", @"D:\ROMs\ps3", "Sony PlayStation 3", true, true)
+            ]
+        };
+    }
+
     private static EmulatorPrerequisite Rule(string kind, string name, bool required, string description)
     {
         return new EmulatorPrerequisite { Kind = kind, Name = name, Required = required, Description = description };

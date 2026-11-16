@@ -24,12 +24,14 @@ internal static class EmulatorPageProjection
     /// <param name="updateAll">The last Update all run, or null.</param>
     /// <param name="shortcutStatus">The shortcut reconciler's pending message, or empty.</param>
     /// <param name="architecture">The host architecture.</param>
+    /// <param name="esDe">ES-DE's setup, or null before it was read.</param>
     /// <returns>The page state.</returns>
     internal static EmulatorPageState Create(EmulatorSnapshot snapshot, IReadOnlyList<RomSystemProfile> systems,
         RomEmulatorState rom, EmulatorBiosState bios, EmulatorLibraryUsage usage,
         IReadOnlyDictionary<string, EmulatorSetupItem[]> setup, EmulatorCoreStatus[] coreStatus,
-        EmulatorUpdateAllState? updateAll, string shortcutStatus, string architecture)
+        EmulatorUpdateAllState? updateAll, string shortcutStatus, string architecture, EsDeState? esDe = null)
     {
+        esDe ??= EsDeState.NotInstalled;
         var updates = PendingUpdates(snapshot);
         var catalog = Catalog(snapshot);
         return new EmulatorPageState(snapshot, systems, rom.Choices, usage.Dependencies, architecture)
@@ -39,8 +41,15 @@ internal static class EmulatorPageProjection
             CoreStatus = coreStatus,
             Installed =
             [
-                .. snapshot.Installations.Select(item => Installed(snapshot, item,
-                    setup.GetValueOrDefault(item.Id), usage.ShortcutAppIds.GetValueOrDefault(item.Id), bios))
+                .. snapshot.Installations.Select(item =>
+                {
+                    var card = Installed(snapshot, item, setup.GetValueOrDefault(item.Id),
+                        usage.ShortcutAppIds.GetValueOrDefault(item.Id), bios);
+                    // A frontend runs no system itself; its card says what it shows.
+                    return item.DefinitionId == EsDeConfiguration.DefinitionId
+                        ? card with { Summary = esDe.Installed ? esDe.Summary : "Setting up your ROM folders" }
+                        : card;
+                })
             ],
             Catalog = catalog,
             Families =
@@ -52,7 +61,8 @@ internal static class EmulatorPageProjection
             UpdatesSummary = UpdatesSummary(updates),
             UpdateAll = updateAll,
             Systems = Systems(snapshot, systems, usage.Systems),
-            BiosSummary = Bios(bios)
+            BiosSummary = Bios(bios),
+            EsDe = esDe
         };
     }
 
@@ -234,9 +244,11 @@ internal static class EmulatorPageProjection
                                                                        && item.Error.Length == 0);
                     var installed = snapshot.Installations.FirstOrDefault(item =>
                         item.DefinitionId == definition.Id);
-                    return new EmulatorCatalogItem(definition.Id, definition.Name,
-                        string.Join(" · ", definition.Systems.Select(EmulatorPresentation.SystemName)),
-                        EmulatorPresentation.FamiliesOf(definition.Systems), offer?.Version ?? "",
+                    var systems = definition.Kind == EmulatorDefinition.FrontendKind
+                        ? "Browse and start your ROM folders' games"
+                        : string.Join(" · ", definition.Systems.Select(EmulatorPresentation.SystemName));
+                    return new EmulatorCatalogItem(definition.Id, definition.Name, systems,
+                        EmulatorPresentation.FamiliesOf(definition), offer?.Version ?? "",
                         EmulatorPresentation.Requirement(definition.Prerequisites),
                         installed is null ? "" : installed.Version.Length > 0 ? installed.Version : "installed")
                     {

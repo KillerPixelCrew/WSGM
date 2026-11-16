@@ -581,6 +581,49 @@ supervises direct children while preserving Steam's environment and lifetime. Ex
 launcher-follow routes retain their own mechanisms. Explicit title edits rename existing Steam
 shortcuts in place through Steam's write API; automatic source-name changes preserve Steam edits.
 
+### ES-DE
+
+ES-DE (EmulationStation Desktop Edition) is in Get emulators under Frontends, for people who want to
+browse their ROM folders without a Steam shortcut per game. It installs like an emulator: the
+Windows portable package that ES-DE's release feed (`latest_release.json`) names, checked against
+the MD5 the feed publishes, with its `portable.txt` data folder `ES-DE` bound to
+`EmulatorData/<installation>`. WSGM never adopts an ES-DE installed some other way. Its Steam
+shortcut is the ordinary emulator-interface shortcut with its launch mode, and every game started in
+ES-DE runs under it.
+
+`EsDeSync` keeps ES-DE in step when the ROM sources change, after a scan, when an installation or a
+System default changes, and on Sync now. It writes three things and nothing else:
+
+- `Emulation\es-de-roms` under the user's data root, ES-DE's ROM folder: one directory link per
+  system to its ROM folder, or a folder of links named after each source when several hold the
+  system. A source set to detect system folders contributes each subfolder it recognises. A
+  disconnected folder keeps its link, and a link no longer planned is removed without entering its
+  target. Nothing is ever written into a ROM folder.
+- `ES-DE\custom_systems\es_systems.xml`, generated whole: one system for each system with a launch
+  command, under ES-DE's name for it (`gamecube` is `gc`, `3ds` is `n3ds`), with the sources' file
+  types in both cases. Each installed emulator, and each RetroArch core whose information names the
+  system, is one command, the System default first, so ES-DE lists the rest as alternative
+  emulators. A command is WSGM's own launch arguments with the active version's absolute paths, the
+  emulator's folder as its start folder and ES-DE's game variables. A file WSGM did not write is
+  kept once as `es_systems.user.xml`.
+- `ROMDirectory` in `ES-DE\settings\es_settings.xml`, set when it is empty or missing. A folder
+  chosen in ES-DE is reported and kept until Sync now replaces it. Nothing is written there while
+  ES-DE runs, because ES-DE rewrites its settings.
+
+ES-DE's own scanner decides what it lists, so exclusion patterns, title cleanup and the Switch
+update and DLC filter do not apply there. Systems whose games WSGM finds by an installed EBOOT (PS3,
+Vita and PS4) are left out, and so are Model 2 and any emulator that needs its own environment; they
+stay available as Steam shortcuts. PS2 playlists and compressed Switch files are not offered to
+ES-DE. Per-title and per-source emulator overrides do not carry over; ES-DE's alternative emulator
+choice takes their place. WSGM's pre-launch checks do not run either, so a missing BIOS shows as the
+emulator's own error.
+
+ES-DE's detail page, in the Overlay and on `/wsgm/emulators`, shows its library in place of setup:
+each system with its default emulator or the reason it is left out, then each ROM folder with a
+switch that is Library Importer's own source tick (`setRomSourceInSteam`). Turning a folder off
+keeps its games in ES-DE only; games already imported stay in Steam until they are removed in
+Library Importer. Sync now (`syncEsDe`) also points ES-DE back at WSGM's ROM folder.
+
 ### Shortcut availability
 
 One session-owned tracker reports whether every non-Steam shortcut in Steam's list can start: WSGM's

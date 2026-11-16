@@ -13,6 +13,12 @@ namespace WSGM.Core;
 /// <summary>A reviewed emulator definition, independent of its installed version.</summary>
 public sealed record EmulatorDefinition
 {
+    /// <summary>The ordinary kind: an emulator that runs games of its systems.</summary>
+    public const string EmulatorKind = "emulator";
+
+    /// <summary>A game browser, such as ES-DE, that runs no system itself and starts installed emulators.</summary>
+    public const string FrontendKind = "frontend";
+
     /// <summary>Reviewed SteamGridDB game identity, or null to search by name.</summary>
     public int? SteamGridDbId { get; init; }
 
@@ -24,6 +30,9 @@ public sealed record EmulatorDefinition
 
     /// <summary>User-facing display name.</summary>
     public string Name { get; init; } = "";
+
+    /// <summary><see cref="EmulatorKind" /> or <see cref="FrontendKind" />.</summary>
+    public string Kind { get; init; } = EmulatorKind;
 
     /// <summary>Supported canonical ROM system identifiers.</summary>
     public string[] Systems { get; init; } = [];
@@ -654,13 +663,8 @@ public static class EmulatorStorage
 
         string Expand(string value)
         {
-            return value.Replace("{rom}", romPath, StringComparison.Ordinal)
-                .Replace("{romname}", Path.GetFileNameWithoutExtension(romPath), StringComparison.Ordinal)
-                .Replace("{romdir}", Path.GetDirectoryName(romPath)!, StringComparison.Ordinal)
-                .Replace("{core}", core?.Path ?? "", StringComparison.Ordinal)
-                .Replace("{data}", installation.DataPath, StringComparison.Ordinal)
-                .Replace("{config}", Path.Combine(installation.DataPath, installation.DataPolicy.ConfigFile),
-                    StringComparison.Ordinal);
+            return ExpandArgument(value, installation, core, romPath, Path.GetFileNameWithoutExtension(romPath),
+                Path.GetDirectoryName(romPath)!);
         }
 
         var arguments = EmulatorPortable.BindArguments(installation,
@@ -670,6 +674,29 @@ public static class EmulatorStorage
             arguments,
             installation.Environment.ToDictionary(pair => pair.Key, pair => Expand(pair.Value),
                 StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    ///     Replaces a launch argument's tokens: the game's path, name and folder, and the installation's core, data
+    ///     folder and configuration file. ES-DE's generated commands pass its own variables as the game's values.
+    /// </summary>
+    /// <param name="value">One argument from the definition or an override.</param>
+    /// <param name="installation">The emulator that starts the game.</param>
+    /// <param name="core">The selected core, or null for a standalone emulator.</param>
+    /// <param name="rom">The value for <c>{rom}</c>.</param>
+    /// <param name="romName">The value for <c>{romname}</c>.</param>
+    /// <param name="romDirectory">The value for <c>{romdir}</c>.</param>
+    /// <returns>The argument with every token replaced.</returns>
+    public static string ExpandArgument(string value, EmulatorInstallation installation, EmulatorCore? core,
+        string rom, string romName, string romDirectory)
+    {
+        return value.Replace("{rom}", rom, StringComparison.Ordinal)
+            .Replace("{romname}", romName, StringComparison.Ordinal)
+            .Replace("{romdir}", romDirectory, StringComparison.Ordinal)
+            .Replace("{core}", core?.Path ?? "", StringComparison.Ordinal)
+            .Replace("{data}", installation.DataPath, StringComparison.Ordinal)
+            .Replace("{config}", Path.Combine(installation.DataPath, installation.DataPolicy.ConfigFile),
+                StringComparison.Ordinal);
     }
 
     /// <summary>Checks declared native BIOS/data/runtime locations afresh without relying on cached setup state.</summary>

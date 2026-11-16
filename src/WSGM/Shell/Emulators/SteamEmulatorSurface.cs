@@ -73,7 +73,11 @@ internal static class SteamEmulatorSurface
                 SteamUiModuleBuilder.Command<PreferredRequest>(PatchId, "setPreferredEmulator", TryReadPreferred,
                     (value, token) =>
                         backend.SetPreferredEmulatorAsync(value.SystemId, value.InstallationId, value.CoreId, token),
-                    "The preferred emulator is invalid.")
+                    "The preferred emulator is invalid."),
+                SteamUiModuleBuilder.Command(PatchId, "syncEsDe", backend.SyncEsDeAsync),
+                SteamUiModuleBuilder.Command<SourceRequest>(PatchId, "setRomSourceInSteam", TryReadSource,
+                    (value, token) => backend.SetRomSourceInSteamAsync(value.SourceId, value.Enabled, token),
+                    "The ROM folder choice is invalid.")
             ]);
     }
 
@@ -221,7 +225,23 @@ internal static class SteamEmulatorSurface
         return true;
     }
 
+    private static bool TryReadSource(JsonElement payload, out SourceRequest value)
+    {
+        value = default;
+        if (!SteamUiPayload.HasExactly(payload, 2)
+            || !SteamUiPayload.TryReadNonBlankString(payload, "sourceId", out var source)
+            || !SteamUiPayload.TryReadBoolean(payload, "enabled", out var enabled))
+        {
+            return false;
+        }
+
+        value = new SourceRequest(source, enabled);
+        return true;
+    }
+
     private readonly record struct BiosRequest(string Path, string SystemId);
+
+    private readonly record struct SourceRequest(string SourceId, bool Enabled);
 
     private readonly record struct ShortcutRequest(string InstallationId, bool Enabled, int LaunchMode);
 

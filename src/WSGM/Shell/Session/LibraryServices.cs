@@ -79,6 +79,9 @@ internal sealed class LibraryServices(SessionState state, SteamUiServices steamU
                     state.ShutdownToken)
                 .ConfigureAwait(false);
             EmulatorTool = new EmulatorService(Emulators, url => AppLauncher.Open(url));
+            // ES-DE follows the ROM sources whether or not Library Importer starts in this session; the
+            // importer replaces them with its settings in force once it runs.
+            EmulatorTool.UpdateRomSources(state.Config.GameLibrary.Copy());
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
         {
@@ -216,6 +219,7 @@ internal sealed class LibraryServices(SessionState state, SteamUiServices steamU
                 availability: Availability,
                 readCollections: shortcuts.ReadCollectionsAsync);
             _libraryArtwork = libraryArtwork;
+            EmulatorTool?.AttachRomSourceSwitch(GameLibrary.SetSourceEnabledAsync);
             GameLibrary.Start();
             Availability.Start();
         });
