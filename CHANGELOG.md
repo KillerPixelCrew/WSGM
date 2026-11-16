@@ -1,5 +1,22 @@
 # WSGM changelog
 
+## 3.1.3 (2026-11-16)
+
+- Steam Settings' Wi-Fi switch now uses Windows radio control and displays Windows' radio state.
+- Wake recovery reactivates the pre-sleep Steam game and its existing overlay using Steam's Continue
+  action. Native Steam games and imported shortcuts use the same recovery path. Repeated wake and
+  overlay acceptance remains pending on the affected devices.
+- Atlas IPF power changes omit two diagnostic readbacks while retaining the measured Manual-mode
+  sequence. Unchanged Steam slider callbacks no longer dispatch another command. Whether this
+  resolves the reported Atlas audio/system stutter remains unverified.
+- Improved Game Mode entry after stale desktop recovery, offline audio-profile retention and display
+  restoration. Display colour settings apply before final HDR activation, and G-SYNC controls no
+  longer require flip-status readback.
+- The Overlay prefers the primary display. IR touch buttons can run a configured remote sequence,
+  and network replies use the corrected timing.
+
+The Atlas OEM menu-button report in #264 remains unresolved; this release does not claim to fix it.
+
 ## 3.1.1 (2026-11-13)
 
 - Recognizes Steam Stable `1794424036` and Beta `1794536281` as checked builds, clearing the

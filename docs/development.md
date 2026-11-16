@@ -213,8 +213,9 @@ enable RTSS and no installation is registered.
 [`eng/wsgm-revision.targets`](../eng/wsgm-revision.targets) stamps the application's/setup's fourth
 assembly/file version component from the reachable Git commit count, with 0 when unavailable or an
 explicit `-p:WsgmRevision=N` override. Full Git history is needed for a comparable count. Test
-builds do not consume a new release version. A local request to publish a release means building
-this setup; GitHub tags/releases are a separate action.
+builds do not consume a new release version. A request to release or publish a release includes
+building this setup and publishing the GitHub release with its version, tag, notes, installer and
+checksum. Only an explicitly local/test setup request stops at local artifacts.
 
 ## Verification and tools
 

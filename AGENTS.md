@@ -17,9 +17,12 @@ The validation budget below overrides older gate recipes in skills and documenta
 - An approved implementation needs no second permission round. For an authorized development
   deployment use eng/dev-deploy.ps1; it owns stopping WSGM/Steam, swapping files and restarting.
   Do not ask the maintainer to close WSGM manually or overwrite a running application's files.
-- "Publish a release" means building the full setup locally with build.ps1. GitHub tags/releases
-  need an explicit request. Report applied code, actual checks, delivered artifacts and remaining
-  acceptance briefly. Builds and fixtures do not prove live Steam, visible UI or hardware behavior.
+- "Release", "release the latest changes" and "publish a release" mean publishing a GitHub release:
+  prepare the release version and notes, build the full setup locally with build.ps1, create the tag
+  at the released commit and upload the installer and checksum. The request authorizes those steps;
+  do not ask again or stop at a local build. Only an explicitly local/test setup request stops at
+  local artifacts. Report the published release link, actual checks and remaining acceptance briefly.
+  Builds and fixtures do not prove live Steam, visible UI or hardware behavior.
 
 ## Source and ownership
 
