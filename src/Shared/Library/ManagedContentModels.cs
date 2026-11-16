@@ -392,12 +392,39 @@ public static class ManagedContentStorage
         return copy;
     }
 
-    /// <summary>Reads one canonical system preference without materializing or copying launch records.</summary>
+    /// <summary>Resolves a saved system preference or an automatic choice from installed emulators and known cores.</summary>
     public static EmulatorSystemPreference? PreferredSystem(EmulatorStore store, string systemId)
     {
-        return store.SystemPreferences.FirstOrDefault(preference =>
-            EmulatorStorage.NormalizeSystemId(preference.SystemId)
-            == EmulatorStorage.NormalizeSystemId(systemId));
+        var system = EmulatorStorage.NormalizeSystemId(systemId);
+        var preferred = store.SystemPreferences.FirstOrDefault(preference =>
+            EmulatorStorage.NormalizeSystemId(preference.SystemId) == system);
+        if (preferred is not null)
+        {
+            return preferred;
+        }
+
+        // Prefer a dedicated installed emulator. A frontend needs an installed core with known
+        // compatibility; unknown metadata must never make it the automatic default for everything.
+        foreach (var installed in store.Installations.Where(item => EmulatorStorage.SupportsSystem(item, system))
+                     .OrderBy(item => item.DataPolicy.HasCores).ThenBy(item => item.Name, StringComparer.Ordinal)
+                     .ThenBy(item => item.Id, StringComparer.Ordinal))
+        {
+            var core = installed.DataPolicy.HasCores
+                ? EmulatorStorage.CompatibleCores(installed, system)
+                    .Where(item => !item.MetadataMissing && item.Systems.Length > 0)
+                    .OrderBy(item => item.Name, StringComparer.Ordinal).ThenBy(item => item.Id, StringComparer.Ordinal)
+                    .FirstOrDefault()
+                : null;
+            if (installed.DataPolicy.HasCores && core is null)
+            {
+                continue;
+            }
+
+            return new EmulatorSystemPreference
+                { SystemId = system, InstallationId = installed.Id, CoreId = core?.Id ?? "" };
+        }
+
+        return null;
     }
 
     /// <summary>Captures a full path and its current volume identity when Windows exposes one.</summary>

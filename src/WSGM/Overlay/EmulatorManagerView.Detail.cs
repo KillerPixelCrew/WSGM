@@ -238,6 +238,15 @@ public sealed partial class EmulatorManagerView
                 }
             }
 
+            if (!entry.Ready && entry.SourcePath.Length > 0)
+            {
+                var install = Command("emu.setup.detected:" + kind, "Install detected firmware", busy
+                    ? null
+                    : () => Run(token => _service!.ConfigureEmulatorPrerequisiteAsync(id, entry.SourcePath, kind, token),
+                        "firmware"));
+                command = command is null ? install : CommandStrip(install, command);
+            }
+
             if (command is WrapPanel wrap)
             {
                 wrap.Margin = new Thickness(0, 8, 0, 0);

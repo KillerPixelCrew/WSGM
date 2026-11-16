@@ -26,6 +26,8 @@ public sealed partial class EmulatorManager : IDisposable
     private readonly EmulatorInstallFolders _folders;
     private readonly ImportStateStore? _importState;
     private readonly CancellationTokenSource _lifetime = new();
+    private EmulatorStore? _preferencesFor;
+    private EmulatorSystemPreference[] _effectivePreferences = [];
     private readonly SemaphoreSlim _operations = new(1);
     private readonly EmulatorPackages _packages;
     private readonly EmulatorReleases _releases;
@@ -199,6 +201,16 @@ public sealed partial class EmulatorManager : IDisposable
     {
         lock (_stateLock)
         {
+            if (!ReferenceEquals(_preferencesFor, _state))
+            {
+                _effectivePreferences = RomProfiles.ForInstallations(_state.Installations).Select(item => item.Id)
+                    .Concat(_state.SystemPreferences.Select(item => item.SystemId))
+                    .Select(EmulatorStorage.NormalizeSystemId).Distinct(StringComparer.Ordinal)
+                    .Select(system => ManagedContentStorage.PreferredSystem(_state, system))
+                    .OfType<EmulatorSystemPreference>().ToArray();
+                _preferencesFor = _state;
+            }
+
             return new EmulatorSnapshot
             {
                 Definitions = _definitionViews,
@@ -211,7 +223,7 @@ public sealed partial class EmulatorManager : IDisposable
                 Phase = _phase,
                 Bytes = _downloaded,
                 Total = _downloadTotal,
-                SystemPreferences = _state.SystemPreferences
+                SystemPreferences = _effectivePreferences
             };
         }
     }

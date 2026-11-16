@@ -7445,6 +7445,9 @@
 .steam-ui-kit-sheet-note{font-size:14px;color:#8b929a;line-height:1.45;margin:0 0 12px}
 .steam-ui-kit-sheet-error{color:#ff6d6d;font-size:14px}
 .steam-ui-kit-sheet-actions{padding-top:18px}
+/* Native tabs translate the entire incoming content by 40% of its width. Keep custom pages
+   stationary; retain a short opacity transition so Valve's exit lifecycle still completes. */
+.steam-ui-kit-page.tabbed div:has(>div>[role=tabpanel]){transform:none!important;transition-duration:1ms!important;transition-delay:0s!important}
 .steam-ui-kit-page div[class*="gamepadtabbedpage_TabHeaderRowWrapper"]{background:#1b2838}
 .steam-ui-kit-page-banner{margin:8px 48px 0}
 .steam-ui-kit-page h3{margin:6px 0 0;font-size:15px;font-weight:700;color:#fff}
@@ -20589,6 +20592,14 @@
               ]);
         } else {
           value = rowActions([
+            !entry.ready && entry.sourcePath
+              ? {
+                  id: "detected",
+                  label: "Install detected firmware",
+                  disabled: busy,
+                  onClick: () => configure(entry.kind, entry.sourcePath),
+                }
+              : null,
             {
               id: "file",
               label: entry.ready ? "Replace\u2026" : "Choose file\u2026",
@@ -21384,7 +21395,7 @@
           label: `${system.name} emulator`,
           showLabel: false,
           rgOptions: [
-            { data: "", label: "No default" },
+            { data: "", label: choices.length ? "Automatic" : "No emulator installed" },
             ...choices.map((item) => ({ data: item.id, label: label(item) })),
           ],
           selectedOption: preference?.installationId ?? "",
@@ -21441,13 +21452,19 @@
           ),
         );
       };
-      const used = systems.filter((system) => system.inLibrary);
-      const others = systems.filter((system) => !system.inLibrary);
+      const used = systems.filter(
+        (system) =>
+          system.inLibrary ||
+          (state.choices ?? []).some(
+            (choice) => choice.systemId === system.systemId && choice.installations?.length,
+          ),
+      );
+      const others = systems.filter((system) => !used.includes(system));
       view.push(
         h(
           "p",
           { key: "intro" },
-          "The emulator each system's games use unless a ROM source or a game picks its own. Changing one leaves existing choices on sources and games alone.",
+          "Defaults are filled from installed emulators and cores. Games use them unless a ROM source or game picks its own. Your selections take priority.",
         ),
         used.length
           ? h(ui.settingsSection, { key: "used" }, ...used.map(defaultRow))
@@ -21463,7 +21480,7 @@
             {
               key: "others",
               title: "Other systems",
-              detail: "Systems none of your ROM sources use yet",
+              detail: "Systems without an installed emulator",
               collapsed: !emulatorMemory.otherSystems,
               onToggle: () => {
                 emulatorMemory.otherSystems = !emulatorMemory.otherSystems;

@@ -396,6 +396,10 @@ function EmulatorTab({ context, state, tab }: any) {
             ]);
       } else {
         value = rowActions([
+          !entry.ready && entry.sourcePath ? {
+            id: "detected", label: "Install detected firmware", disabled: busy,
+            onClick: () => configure(entry.kind, entry.sourcePath),
+          } : null,
           {
             id: "file",
             label: entry.ready ? "Replace…" : "Choose file…",
@@ -1107,7 +1111,7 @@ function EmulatorTab({ context, state, tab }: any) {
       const emulator = renderSteamUiChoice(ui, {
         label: `${system.name} emulator`,
         showLabel: false,
-        rgOptions: [{ data: "", label: "No default" }, ...choices.map((item) => ({ data: item.id, label: label(item) }))],
+        rgOptions: [{ data: "", label: choices.length ? "Automatic" : "No emulator installed" }, ...choices.map((item) => ({ data: item.id, label: label(item) }))],
         selectedOption: preference?.installationId ?? "",
         disabled: busy,
         onChange: (option: any) =>
@@ -1150,13 +1154,13 @@ function EmulatorTab({ context, state, tab }: any) {
         h(ui.focusable, { className: "wsgm-emu-choices", "flow-children": "row" }, emulator, core),
       );
     };
-    const used = systems.filter((system) => system.inLibrary);
-    const others = systems.filter((system) => !system.inLibrary);
+    const used = systems.filter((system) => system.inLibrary || (state.choices ?? []).some((choice: any) => choice.systemId === system.systemId && choice.installations?.length));
+    const others = systems.filter((system) => !used.includes(system));
     view.push(
       h(
         "p",
         { key: "intro" },
-        "The emulator each system's games use unless a ROM source or a game picks its own. Changing one leaves existing choices on sources and games alone.",
+        "Defaults are filled from installed emulators and cores. Games use them unless a ROM source or game picks its own. Your selections take priority.",
       ),
       used.length
         ? h(ui.settingsSection, { key: "used" }, ...used.map(defaultRow))
@@ -1172,7 +1176,7 @@ function EmulatorTab({ context, state, tab }: any) {
           {
             key: "others",
             title: "Other systems",
-            detail: "Systems none of your ROM sources use yet",
+            detail: "Systems without an installed emulator",
             collapsed: !emulatorMemory.otherSystems,
             onToggle: () => {
               emulatorMemory.otherSystems = !emulatorMemory.otherSystems;

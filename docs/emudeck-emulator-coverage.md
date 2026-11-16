@@ -222,10 +222,25 @@ Relink preserves supplied files and existing destinations, adding missing canoni
 verified dumps and named files without catalogue hashes before applying emulator paths. Imports
 prefer a recognized checksum over a misleading filename. Check files and folder selection apply the
 shared-folder configuration after discovery. One emulator failure does not stop setup for the
-others; failures remain visible. Native firmware installation stays an explicit setup action. Xbox
-checks include MCPX, a named flash BIOS and the disk image; only MCPX has a published checksum.
+others; failures remain visible. Interactive firmware installation stays an explicit setup action.
+Xbox checks include MCPX, a named flash BIOS and the disk image; only MCPX has a published checksum.
 
 RetroArch setup also arranges supplied root files into the subfolders declared by installed core
 metadata, without replacing existing destinations. The completed check reports remaining missing
 core paths separately from catalogue checksum results. A populated shared folder does not establish
 that every core has its prerequisites, or that native firmware has been installed.
+
+System defaults use installed standalone emulators, or installed cores with known system
+compatibility when no standalone is available. Explicit preferences take priority. Automatic
+selections are derived rather than written over user preferences, and the same resolver is used by
+the launch wrapper, library importer, Steam page and Overlay. Resetting a preference returns it to
+Automatic. Systems with installed support appear in the main defaults list without requiring a ROM
+source first.
+
+Switch firmware discovery reads ZIP contents under the shared SWITCH folder, including versioned
+archive names, and accepts extracted NCA trees. Checks apply the native Switch firmware setup only
+when it is missing; content IDs are verified before the NAND directory swap. Other firmware packages
+are shown as available separately from native installation readiness. Both interfaces offer Install
+detected firmware without another file-picker step, and setup runs outside the bridge response.
+System aliases are normalized once in the shared launch contract, including stored Saturn core
+aliases, so installed choices and automatic defaults agree.

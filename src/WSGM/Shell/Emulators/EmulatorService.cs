@@ -229,7 +229,8 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
     public Task<SteamUiCommandResult> ConfigureEmulatorPrerequisiteAsync(string installationId, string path,
         string kind, CancellationToken cancellationToken)
     {
-        return Run(() => _manager.ConfigurePrerequisiteAsync(installationId, path, kind, cancellationToken));
+        return StartOperation("emulator setup", token => _manager.ConfigurePrerequisiteAsync(installationId, path, kind, token),
+            cancellationToken, "setup", installationId);
     }
 
     public Task<SteamUiCommandResult> InstallEmulatorRuntimeDependenciesAsync(string definitionId,

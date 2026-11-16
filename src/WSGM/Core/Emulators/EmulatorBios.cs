@@ -219,7 +219,7 @@ public sealed partial class EmulatorManager
         SetStatus("BIOS files checked and linked to installed emulators. "
                   + (missing.Length == 0 ? "" : missing.Length + " core files still missing: "
                       + string.Join(", ", missing.Take(8)) + ". ")
-                  + "Native firmware uses Install firmware.");
+                  + "Interactive firmware installers remain in Setup.");
     }
 
     private static void ArrangeCoreBios(EmulatorInstallation installed, string folder, CancellationToken token)
@@ -306,9 +306,14 @@ public sealed partial class EmulatorManager
                     ? Directory.Exists(path)
                       && Directory.EnumerateFiles(path, "*.nca").Any()
                     : File.Exists(path);
-                if (!present && system.Id == "switch" && file.Directory)
+                if (system.Id == "switch" && file.Directory)
                 {
-                    present = File.Exists(Path.Combine(folder, "switch", "firmware.zip"));
+                    var firmware = FindSwitchFirmware(folder, token);
+                    present = firmware.Length > 0;
+                    if (present)
+                    {
+                        path = firmware;
+                    }
                 }
 
                 if (!present && !file.Directory)
@@ -508,16 +513,15 @@ public sealed partial class EmulatorManager
                     }
 
                     installed = installed with { ConfiguredPrerequisites = configured };
-                    foreach (var rule in installed.DataPolicy.Prerequisites.Where(rule => rule.NativeInstaller && installNativeFirmware))
+                    foreach (var rule in installed.DataPolicy.Prerequisites.Where(rule => rule.NativeInstaller && (installNativeFirmware
+                                     || EmulatorFirmware.InstallsSwitchFirmware(installed.DefinitionId))))
                     {
                         var source = installed.DefinitionId switch
                         {
                             "rpcs3" => Path.Combine(folder, "PS3UPDAT.PUP"),
                             "vita3k" => Path.Combine(folder, "PSP2UPDAT.PUP"),
                             var id when EmulatorFirmware.InstallsSwitchFirmware(id) =>
-                                File.Exists(Path.Combine(folder, "switch", "firmware.zip"))
-                                    ? Path.Combine(folder, "switch", "firmware.zip")
-                                    : Path.Combine(folder, "switch", "firmware"),
+                                FindSwitchFirmware(folder, token),
                             _ => ""
                         };
                         if ((File.Exists(source) || Directory.Exists(source))
@@ -632,6 +636,41 @@ public sealed partial class EmulatorManager
 
             throw;
         }
+    }
+
+    private static string FindSwitchFirmware(string folder, CancellationToken token)
+    {
+        var root = Path.Combine(folder, "switch");
+        if (!Directory.Exists(root))
+        {
+            return "";
+        }
+
+        var options = new EnumerationOptions
+            { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint };
+        var canonical = Path.Combine(root, "firmware.zip");
+        var archives = Directory.EnumerateFiles(root, "*.zip", options)
+            .OrderByDescending(path => path.Equals(canonical, StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(File.GetLastWriteTimeUtc);
+        foreach (var path in archives)
+        {
+            token.ThrowIfCancellationRequested();
+            try
+            {
+                using var archive = ZipFile.OpenRead(path);
+                if (archive.Entries.Count <= 1024 && archive.Entries.Any(entry =>
+                        entry.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)))
+                {
+                    return path;
+                }
+            }
+            catch (InvalidDataException)
+            {
+                // A ZIP of something else is not a firmware package.
+            }
+        }
+
+        return Directory.EnumerateFiles(root, "*.nca", options).Any() ? root : "";
     }
 
     private static string BiosMd5(string path, CancellationToken token)

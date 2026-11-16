@@ -426,14 +426,30 @@ public static class EmulatorStorage
     /// <summary>Maps upstream aliases to the importer's canonical system identity.</summary>
     public static string NormalizeSystemId(string systemId)
     {
-        return systemId.ToLowerInvariant() switch
+        return systemId.Trim().ToLowerInvariant() switch
         {
-            "genesis" => "megadrive",
+            "nintendo - nintendo entertainment system" => "nes",
+            "nintendo - super nintendo entertainment system" or "super_nes" => "snes",
+            "nintendo - game boy" or "game_boy" => "gb",
+            "nintendo - game boy color" or "game_boy_color" => "gbc",
+            "nintendo - game boy advance" or "game_boy_advance" => "gba",
+            "nintendo - nintendo 64" or "nintendo_64" => "n64",
+            "nintendo - nintendo ds" or "nintendo_ds" => "nds",
+            "sony - playstation" or "playstation" => "psx",
+            "sony - playstation 2" or "playstation2" => "ps2",
+            "sony - playstation portable" => "psp",
+            "sega - mega drive - genesis" or "mega_drive" or "genesis" => "megadrive",
+            "sega - master system - mark iii" or "master_system" => "mastersystem",
+            "sega - game gear" or "game_gear" => "gamegear",
+            "sega - 32x" or "32x" => "sega32x",
+            "sega - pico" or "segapico" => "pico",
+            "sega - sega saturn" or "sega_saturn" or "sega - saturn" => "saturn",
+            "sega - dreamcast" => "dreamcast",
+            "nec - pc engine - turbografx 16" or "pc_engine" => "pcengine",
+            "mame" => "arcade",
             "gc" => "gamecube",
             "n3ds" => "3ds",
-            "32x" => "sega32x",
-            "segapico" => "pico",
-            _ => systemId.ToLowerInvariant()
+            _ => systemId.Trim().ToLowerInvariant()
         };
     }
 

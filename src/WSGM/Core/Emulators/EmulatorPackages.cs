@@ -15,56 +15,6 @@ namespace WSGM.Core;
 
 internal sealed class EmulatorPackages(DownloadClient client)
 {
-    private static readonly Dictionary<string, string[]> SystemAliases = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["Nintendo - Nintendo Entertainment System"] = ["nes"],
-        ["nes"] = ["nes"],
-        ["Nintendo - Super Nintendo Entertainment System"] = ["snes"],
-        ["super_nes"] = ["snes"],
-        ["snes"] = ["snes"],
-        ["Nintendo - Game Boy"] = ["gb"],
-        ["game_boy"] = ["gb"],
-        ["gb"] = ["gb"],
-        ["Nintendo - Game Boy Color"] = ["gbc"],
-        ["game_boy_color"] = ["gbc"],
-        ["gbc"] = ["gbc"],
-        ["Nintendo - Game Boy Advance"] = ["gba"],
-        ["game_boy_advance"] = ["gba"],
-        ["gba"] = ["gba"],
-        ["Nintendo - Nintendo 64"] = ["n64"],
-        ["nintendo_64"] = ["n64"],
-        ["n64"] = ["n64"],
-        ["Nintendo - Nintendo DS"] = ["nds"],
-        ["nintendo_ds"] = ["nds"],
-        ["nds"] = ["nds"],
-        ["Sony - PlayStation"] = ["psx"],
-        ["playstation"] = ["psx"],
-        ["psx"] = ["psx"],
-        ["Sony - PlayStation 2"] = ["ps2"],
-        ["playstation2"] = ["ps2"],
-        ["ps2"] = ["ps2"],
-        ["Sony - PlayStation Portable"] = ["psp"],
-        ["psp"] = ["psp"],
-        ["Sega - Mega Drive - Genesis"] = ["megadrive"],
-        ["mega_drive"] = ["megadrive"],
-        ["genesis"] = ["megadrive"],
-        ["megadrive"] = ["megadrive"],
-        ["Sega - Master System - Mark III"] = ["mastersystem"],
-        ["master_system"] = ["mastersystem"],
-        ["Sega - Game Gear"] = ["gamegear"],
-        ["game_gear"] = ["gamegear"],
-        ["Sega - 32X"] = ["sega32x"],
-        ["Sega - PICO"] = ["pico"],
-        ["Sega - Sega Saturn"] = ["saturn"],
-        ["saturn"] = ["saturn"],
-        ["Sega - Dreamcast"] = ["dreamcast"],
-        ["dreamcast"] = ["dreamcast"],
-        ["NEC - PC Engine - TurboGrafx 16"] = ["pcengine"],
-        ["pc_engine"] = ["pcengine"],
-        ["arcade"] = ["arcade"],
-        ["MAME"] = ["arcade"]
-    };
-
     /// <summary>The RetroArch asset bundles every install downloads and every repair restores.</summary>
     private static readonly string[] RetroArchBundles =
         ["info", "assets", "autoconfig", "database-rdb", "database-cursors"];
@@ -323,7 +273,7 @@ internal sealed class EmulatorPackages(DownloadClient client)
     {
         var raw = Split(fields.GetValueOrDefault("systemid", ""));
         var database = Split(fields.GetValueOrDefault("database", ""));
-        var systems = raw.Concat(database).SelectMany(value => SystemAliases.GetValueOrDefault(value, [value]))
+        var systems = raw.Concat(database).Select(EmulatorStorage.NormalizeSystemId)
             .ToList();
         if (id is "mgba_libretro" or "gambatte_libretro" or "sameboy_libretro")
         {

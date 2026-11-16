@@ -23,7 +23,7 @@ internal static class RomEmulatorProjection
                         (installation.Managed ? " · Managed" : " · External"),
                         installation.DataPolicy.HasCores, cores.FirstOrDefault()?.Id ?? "",
                         cores.Select(core => new RomEmulatorCoreChoice(core.Id,
-                            core.Name + (core.MetadataMissing || core.Systems.Length == 0
+                            CoreLabel(core.Name) + (core.MetadataMissing || core.Systems.Length == 0
                                 ? " · System compatibility unavailable"
                                 : ""))).ToArray());
                 }).ToArray())).ToArray();
@@ -32,5 +32,10 @@ internal static class RomEmulatorProjection
             .Select(preference => EmulatorStorage.NormalizeSystemId(preference.SystemId)).Distinct()
             .Select(system => ManagedContentStorage.PreferredSystem(preferences, system)! with { SystemId = system })
             .ToArray());
+    }
+    private static string CoreLabel(string name)
+    {
+        var start = name.LastIndexOf('(');
+        return start >= 0 && name.EndsWith(')') ? name[(start + 1)..^1] : name;
     }
 }

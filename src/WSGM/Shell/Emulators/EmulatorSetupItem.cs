@@ -8,6 +8,9 @@ namespace WSGM.Shell;
 /// <param name="Required">Whether games refuse to start without it.</param>
 internal sealed record EmulatorSetupItem(string Kind, string Name, bool Ready, string Detail, bool Required)
 {
+    /// <summary>A supplied firmware package that still needs its native installation action.</summary>
+    public string SourcePath { get; init; } = "";
+
     /// <summary>File types the chooser accepts; empty accepts any file.</summary>
     public string[] Extensions { get; init; } = [];
 

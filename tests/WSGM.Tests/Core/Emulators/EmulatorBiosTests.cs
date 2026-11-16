@@ -94,4 +94,26 @@ public sealed class EmulatorBiosTests
         Assert.Equal(secondBios, EmulatorStorage.ReadInstallations(temporary.Root).Single()
             .ConfiguredPrerequisites["system"]);
     }
+    [Fact]
+    public async Task ScanFindsVersionedSwitchFirmwareArchiveBesideKeys()
+    {
+        using var temporary = new TemporaryDirectory();
+        var bios = Directory.CreateDirectory(Path.Combine(temporary.Root, "bios")).FullName;
+        var folder = Directory.CreateDirectory(Path.Combine(bios, "SWITCH")).FullName;
+        var path = Path.Combine(folder, "Firmware 23.0.1.zip");
+        using (var archive = System.IO.Compression.ZipFile.Open(path, System.IO.Compression.ZipArchiveMode.Create))
+        {
+            using var stream = archive.CreateEntry("0123456789abcdef0123456789abcdef.nca").Open();
+            stream.WriteByte(1);
+        }
+
+        using var manager = new EmulatorManager(new UserDataContext(temporary.Root, "unused-test-config"));
+        await manager.Initialization;
+        await manager.SetBiosFolderAsync(bios, CancellationToken.None);
+        var firmware = manager.ReadBiosState().Systems.Single(item => item.Id == "switch").Files
+            .Single(item => item.Path.EndsWith(".zip", StringComparison.Ordinal));
+        Assert.Equal("Present", firmware.Status);
+        Assert.Equal("SWITCH/Firmware 23.0.1.zip", firmware.Path, ignoreCase: true);
+        Assert.True(File.Exists(path));
+    }
 }

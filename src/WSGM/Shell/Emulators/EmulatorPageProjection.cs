@@ -40,7 +40,7 @@ internal static class EmulatorPageProjection
             Installed =
             [
                 .. snapshot.Installations.Select(item => Installed(snapshot, item,
-                    setup.GetValueOrDefault(item.Id), usage.ShortcutAppIds.GetValueOrDefault(item.Id)))
+                    setup.GetValueOrDefault(item.Id), usage.ShortcutAppIds.GetValueOrDefault(item.Id), bios))
             ],
             Catalog = catalog,
             Families =
@@ -119,11 +119,28 @@ internal static class EmulatorPageProjection
 
     /// <summary>One installed emulator's card: its lines, its status chips and its setup checklist.</summary>
     internal static EmulatorListItem Installed(EmulatorSnapshot snapshot, EmulatorInstallation item,
-        EmulatorSetupItem[]? setup, uint appId)
+        EmulatorSetupItem[]? setup, uint appId, EmulatorBiosState? bios = null)
     {
         var update = EmulatorPresentation.HasUpdate(snapshot, item);
         var offer = EmulatorPresentation.Offer(snapshot, item);
-        setup ??= [];
+        setup = (setup ?? []).Select(entry =>
+        {
+            if (entry.Ready || entry.Kind != "firmware" || bios is null)
+            {
+                return entry;
+            }
+
+            var source = bios.Systems.Where(system => item.Systems.Contains(system.Id))
+                .SelectMany(system => system.Files).FirstOrDefault(file => file.Status is "Verified" or "Present"
+                    && (Path.GetExtension(file.Path).ToLowerInvariant() is ".pup" or ".zip"
+                        || Path.GetExtension(file.Path).Length == 0));
+            return source is null ? entry : entry with
+            {
+                SourcePath = Path.Combine(bios.Folder, source.Path),
+                Detail = "Firmware package found: " + Path.Combine(bios.Folder, source.Path)
+                         + ". Install it to finish setup."
+            };
+        }).ToArray();
         var missing = setup.Where(entry => entry is { Required: true, Ready: false }).ToArray();
         var needsSetup = missing.Length > 0 || (setup.Length == 0 && item.MissingRequirements.Length > 0);
         List<EmulatorStatusChip> chips = [];
@@ -179,7 +196,7 @@ internal static class EmulatorPageProjection
             : kinds[0] switch
             {
                 "bios" => "BIOS missing",
-                "firmware" => "Firmware missing",
+                "firmware" => missing.Any(entry => entry.SourcePath.Length > 0) ? "Install firmware" : "Firmware missing",
                 "keys" => "Keys missing",
                 "runtime" => "Runtime missing",
                 _ => "Needs setup"
@@ -190,6 +207,11 @@ internal static class EmulatorPageProjection
     {
         if (missing.Length > 0)
         {
+            if (missing.All(entry => entry.SourcePath.Length > 0))
+            {
+                return "Firmware available; installation required";
+            }
+
             return missing.All(entry => entry.Kind != "runtime")
                 ? EmulatorPresentation.Count(missing.Length, "file") + " missing"
                 : EmulatorPresentation.Count(missing.Length, "item") + " missing";

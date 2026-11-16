@@ -15,10 +15,11 @@ public sealed partial class EmulatorManagerView
     private void AddDefaults(StackPanel body, EmulatorShown shown)
     {
         var page = shown.Page;
-        body.Children.Add(Tagged(Caption("The emulator each system's games use unless a ROM source or a game picks "
+        body.Children.Add(Tagged(Caption("Defaults are filled from installed emulators and cores. Games use them unless a ROM source or a game picks "
                                          + "its own. Changing one leaves existing choices on sources and games alone."),
             "emu.defaults.intro"));
-        var used = page.Systems.Where(system => system.InLibrary).ToArray();
+        var used = page.Systems.Where(system => system.InLibrary
+            || page.Choices.Any(choice => choice.SystemId == system.SystemId && choice.Installations.Count > 0)).ToArray();
         var table = new StackPanel { Tag = "emu.defaults.table" };
         table.Children.Add(DefaultsHeading());
         if (used.Length == 0)
@@ -36,14 +37,14 @@ public sealed partial class EmulatorManagerView
 
         body.Children.Add(Card(table, "emu.defaults.card:" + _wide));
         var others = new StackPanel { Spacing = 0 };
-        foreach (var system in page.Systems.Where(system => !system.InLibrary))
+        foreach (var system in page.Systems.Except(used))
         {
             others.Children.Add(DefaultRow(shown, system));
         }
 
         var section = new CollapsibleSection("Other systems", others)
         {
-            Summary = "Systems none of your ROM sources use yet"
+            Summary = "Systems without an installed emulator"
         };
         section.Heading.Tag = "emu.defaults.others";
         body.Children.Add(section);
@@ -107,7 +108,7 @@ public sealed partial class EmulatorManagerView
         labels.Children.Add(summary);
         row.Children.Add(labels);
         var emulator = Tagged(new OverlayChoice<string>(
-                [("", "No default"), .. choices.Select(item => (item.Id, ChoiceLabel(shown, choices, item)))],
+                [("", choices.Count > 0 ? "Automatic" : "No emulator installed"), .. choices.Select(item => (item.Id, ChoiceLabel(shown, choices, item)))],
                 preference?.InstallationId ?? "",
                 value => Run(token => _service!.SetPreferredEmulatorAsync(systemId, value,
                     choices.FirstOrDefault(item => item.Id == value)?.DefaultCoreId ?? "", token)))
