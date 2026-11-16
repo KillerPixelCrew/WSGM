@@ -2,13 +2,13 @@ using WSGM.Shell;
 
 namespace WSGM.Tests.Shell;
 
-/// <summary>One dismissal of Steam's screensaver per physical wake, whatever signals the wake brings.</summary>
-public sealed class ScreensaverWakePolicyTests
+/// <summary>One action or dismissal per physical wake, whatever signals the wake brings.</summary>
+public sealed class PhysicalWakePolicyTests
 {
     [Fact]
     public void AResumeAfterARealSleepDismissesOnce()
     {
-        var policy = new ScreensaverWakePolicy();
+        var policy = new PhysicalWakePolicy();
 
         policy.NoteSuspendAccepted();
 
@@ -19,7 +19,7 @@ public sealed class ScreensaverWakePolicyTests
     [Fact]
     public void TheStaleHalfOfAModernStandbyWakeDismissesNothing()
     {
-        var policy = new ScreensaverWakePolicy();
+        var policy = new PhysicalWakePolicy();
 
         // Resume, a suspend the session drops as stale (never accepted), and a second resume.
         policy.NoteSuspendAccepted();
@@ -33,7 +33,7 @@ public sealed class ScreensaverWakePolicyTests
     [Fact]
     public void ADisplayWakeWithoutASleepDismissesOnce()
     {
-        var policy = new ScreensaverWakePolicy();
+        var policy = new PhysicalWakePolicy();
 
         policy.NoteDisplayOff();
 
@@ -46,7 +46,7 @@ public sealed class ScreensaverWakePolicyTests
     [InlineData(false)]
     public void AWakeThatBringsBothSignalsDismissesOnce(bool resumeFirst)
     {
-        var policy = new ScreensaverWakePolicy();
+        var policy = new PhysicalWakePolicy();
         policy.NoteDisplayOff();
         policy.NoteSuspendAccepted();
 
@@ -68,7 +68,7 @@ public sealed class ScreensaverWakePolicyTests
     [Fact]
     public void ALitDisplayOrAResumeWithoutADarkPeriodDismissesNothing()
     {
-        var policy = new ScreensaverWakePolicy();
+        var policy = new PhysicalWakePolicy();
 
         Assert.False(policy.NoteDisplayOn());
         Assert.False(policy.NoteResume());
@@ -77,11 +77,26 @@ public sealed class ScreensaverWakePolicyTests
     [Fact]
     public void EveryLaterWakeDismissesAgain()
     {
-        var policy = new ScreensaverWakePolicy();
+        var policy = new PhysicalWakePolicy();
 
         policy.NoteDisplayOff();
         Assert.True(policy.NoteDisplayOn());
         policy.NoteSuspendAccepted();
         Assert.True(policy.NoteResume());
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void UnattendedResumeLeavesTheWakePendingForThePerson(bool displayFirst)
+    {
+        var policy = new PhysicalWakePolicy();
+        policy.NoteSuspendAccepted();
+
+        Assert.False(policy.NoteResume(unattended: true));
+        Assert.False(policy.NoteResume(unattended: true));
+        Assert.True(displayFirst ? policy.NoteDisplayOn() : policy.NoteResume());
+        Assert.False(policy.NoteDisplayOn());
+        Assert.False(policy.NoteResume());
     }
 }

@@ -92,7 +92,10 @@ display, on any input since the wake, inside a settle period, and after three un
 row; only a wake a person causes resets that count, so a wake source that keeps firing cannot hold
 the machine in a loop. Only this session's display may report the screen dark, as for the download
 mute, and the guard registers the display notifications itself rather than relying on the mute
-feature having done so. Desktop wake actions likewise run only on a resume a person caused.
+feature having done so. Desktop wake actions run on an attended resume or when the session's display
+lights after going dark, including a display-only wake with no system resume notification. The two
+signals share one physical-wake claim, so they do not repeat an action. An unattended resume leaves
+the claim pending for the person returning to the display.
 
 The display gate is the one that does not depend on Windows counting a device as input. A gamepad
 does not advance the last-input time, the same fact behind the idle-timeout bug in #69, so a player

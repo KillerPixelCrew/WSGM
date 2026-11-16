@@ -1,6 +1,6 @@
 namespace WSGM.Shell;
 
-/// <summary>Decides when a wake should dismiss Steam's screensaver: once per physical wake.</summary>
+/// <summary>Coalesces system resume and display-on notifications into one physical wake.</summary>
 /// <remarks>
 ///     <para>
 ///         Steam ends its saver only when it sees input. After a wake nothing has reached it yet, so a
@@ -15,7 +15,7 @@ namespace WSGM.Shell;
 ///         so it does not arm the policy again.
 ///     </para>
 /// </remarks>
-internal sealed class ScreensaverWakePolicy
+internal sealed class PhysicalWakePolicy
 {
     private readonly object _gate = new();
     private bool _dark;
@@ -39,14 +39,15 @@ internal sealed class ScreensaverWakePolicy
     }
 
     /// <summary>The system resumed.</summary>
-    /// <returns>True when this wake should dismiss Steam's screensaver.</returns>
-    internal bool NoteResume()
+    /// <param name="unattended">True to leave the wake pending until a person resumes or lights the display.</param>
+    /// <returns>True for the first attended signal after a dark period.</returns>
+    internal bool NoteResume(bool unattended = false)
     {
-        return Wake();
+        return !unattended && Wake();
     }
 
     /// <summary>The display lit again.</summary>
-    /// <returns>True when this wake should dismiss Steam's screensaver.</returns>
+    /// <returns>True for the first waking signal after a dark period.</returns>
     internal bool NoteDisplayOn()
     {
         return Wake();

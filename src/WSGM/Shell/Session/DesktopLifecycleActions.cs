@@ -53,6 +53,7 @@ internal sealed class DesktopLifecycleActions(
                 return;
             }
 
+            Log.Info($"Desktop {(startup ? "startup" : "wake")} actions starting ({steps.Count} step(s)).");
             foreach (var step in await integrations.ActionSequence().RunAllAsync(steps, state.ShutdownToken))
             {
                 Log.Info($"Desktop {(startup ? "startup" : "wake")} action "

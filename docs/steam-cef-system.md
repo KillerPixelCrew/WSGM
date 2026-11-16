@@ -478,7 +478,7 @@ input. `ForceScreensaver(false)` alone cannot repair automatic activation: the c
 handler clears forced-preview mode and immediately reevaluates its original idle query.
 
 After a wake nothing has given Steam input yet, so a saver that was showing when the display went
-dark can stay up over a black screen. `Shell\Power\ScreensaverWakePolicy.cs` owes one dismissal per
+dark can stay up over a black screen. `Shell\Power\PhysicalWakePolicy.cs` owes one dismissal per
 physical wake: a resume after an accepted suspend, or this session's display lighting after it went
 dark (the Atlas 8's wake on 2026-11-07 was a display-off wake with no system sleep). Whichever
 signal comes first takes it, and the stale half of a modern standby wake never arms it. The session

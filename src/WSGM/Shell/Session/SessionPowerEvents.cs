@@ -39,7 +39,10 @@ internal sealed class SessionPowerEvents(
     private long _systemResumeWallTicks = DateTimeOffset.UtcNow.AddHours(-1).UtcTicks;
 
     /// <summary>One screensaver dismissal per physical wake, whichever signal arrives first.</summary>
-    private readonly ScreensaverWakePolicy _screensaverWake = new();
+    private readonly PhysicalWakePolicy _screensaverWake = new();
+
+    /// <summary>Wake actions wait for an attended resume or a display that lights after going dark.</summary>
+    private readonly PhysicalWakePolicy _desktopWake = new();
 
     /// <summary>
     ///     Follows the message window's notifications. The device cycle follows the session it belongs to:
@@ -105,6 +108,7 @@ internal sealed class SessionPowerEvents(
             $"Device cycle suspend accepted (system suspending): monotonic={monotonic.TotalMilliseconds:F0} ms, "
             + $"wall={wall.TotalMilliseconds:F0} ms since the last resume.");
         _screensaverWake.NoteSuspendAccepted();
+        _desktopWake.NoteSuspendAccepted();
         steamUi.HoldForSuspend();
         devicePower.Queue(true, "system suspending", true);
     }
@@ -117,10 +121,11 @@ internal sealed class SessionPowerEvents(
         steamUi.ReleaseAfterResume();
         devicePower.Queue(false, "system resumed", true);
         var unattended = ResumeWasUnattended();
-        if (!unattended)
+        if (_desktopWake.NoteResume(unattended))
         {
             // A wake timer or maintenance wake has nobody in front of the screen; the wake list
             // (a TV, an HDMI switch) runs when a person wakes the machine, which sends another resume.
+            Log.Info("Desktop wake actions signalled: system resumed.");
             queueWakeActions();
         }
 
@@ -136,6 +141,12 @@ internal sealed class SessionPowerEvents(
         if (!DisplayPowerSignal.IsDisplayOff(displayState))
         {
             performance.RecheckExtendedVrrWhenDisplayLit();
+            if (_desktopWake.NoteDisplayOn())
+            {
+                Log.Info("Desktop wake actions signalled: display lit.");
+                queueWakeActions();
+            }
+
             if (_screensaverWake.NoteDisplayOn())
             {
                 steamUi.RequestScreensaverDismissal("display lit");
@@ -148,6 +159,7 @@ internal sealed class SessionPowerEvents(
         if (DisplayPowerSignal.MayReportDark(source))
         {
             _screensaverWake.NoteDisplayOff();
+            _desktopWake.NoteDisplayOff();
         }
     }
 
