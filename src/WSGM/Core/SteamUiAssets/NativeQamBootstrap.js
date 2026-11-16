@@ -7581,7 +7581,9 @@
 .steam-ui-kit-tool.grow{flex:1 1 auto;min-width:160px}
 .steam-ui-kit-tool.grow .DialogInputLabelGroup,.steam-ui-kit-tool.grow .DialogInput_Wrapper{margin:0}
 .steam-ui-kit-chips{display:flex;flex-wrap:wrap;gap:8px}
-.steam-ui-kit-chips .DialogButton{width:auto;min-width:auto;height:32px;padding:0 12px;font-size:13px}
+/* Match the native button's state selectors so its default padding/minimum width cannot
+   override the compact chip layout. Allow labels to wrap rather than overflow a fixed height. */
+.steam-ui-kit-chips button.DialogButton,.steam-ui-kit-chips button.DialogButton:enabled,.steam-ui-kit-chips button.DialogButton:active,.steam-ui-kit-chips button.DialogButton:enabled:active:hover{width:auto;min-width:0;min-height:32px;height:auto;padding:6px 12px;font-size:13px;line-height:20px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center}
 .steam-ui-kit-box{background:rgba(27,40,56,.9);border-radius:4px;padding:16px;display:flex;flex-direction:column;gap:10px}
 .steam-ui-kit-box-title{display:flex;align-items:center;gap:6px;font-size:16px;font-weight:600;color:#fff}
 .steam-ui-kit-box-title svg{width:18px;height:18px}
@@ -7638,7 +7640,7 @@
 .DialogButton.steam-ui-kit-selected{box-shadow:inset 3px 0 0 #1a9fff}
 .DialogButton.gpfocus .steam-ui-kit-select-row-detail,.DialogButton:focus-visible .steam-ui-kit-select-row-detail{color:#3d4450}
 .DialogButton.gpfocus .steam-ui-kit-select-row-detail.error,.DialogButton:focus-visible .steam-ui-kit-select-row-detail.error{color:#b3261e}
-.steam-ui-kit-chips .DialogButton.steam-ui-kit-selected{box-shadow:inset 0 -3px 0 #1a9fff}
+.steam-ui-kit-chips button.DialogButton.steam-ui-kit-selected,.steam-ui-kit-chips button.DialogButton.steam-ui-kit-selected:enabled,.steam-ui-kit-chips button.DialogButton.steam-ui-kit-selected:active,.steam-ui-kit-chips button.DialogButton.steam-ui-kit-selected:enabled:active:hover{box-shadow:inset 0 -3px 0 #1a9fff}
 .steam-ui-kit-tags{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
 .steam-ui-kit-tag{display:inline-flex;align-items:center;height:22px;max-width:100%;padding:0 8px;border-radius:2px;box-sizing:border-box;background:#2a3039;color:#b8bcbf;font-size:11px;line-height:22px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .steam-ui-kit-tag.info{color:#dcdedf}
