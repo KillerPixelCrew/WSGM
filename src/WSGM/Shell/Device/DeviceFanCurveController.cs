@@ -30,6 +30,7 @@ internal sealed class DeviceFanCurveController : IAsyncDisposable
     private CancellationTokenSource? _loopCancellation;
     private DeviceFanCurveSmoothing _smoothing;
     private bool _suspended;
+    private bool _displaySleeping;
 
     internal DeviceFanCurveController(Func<string, DeviceFanCurveTemperature> readTemperature,
         Func<string, int, CancellationToken, ValueTask<DeviceFanCurveWriteResult>> writeDuty,
@@ -146,6 +147,30 @@ internal sealed class DeviceFanCurveController : IAsyncDisposable
         }
     }
 
+    /// <summary>Hands software-driven fans to firmware while the display is dark, independently of system suspension.</summary>
+    internal async Task SetDisplaySleepingAsync(bool sleeping)
+    {
+        await _lifecycle.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _displaySleeping = sleeping;
+            if (sleeping)
+            {
+                await JoinLoopAsync().ConfigureAwait(false);
+                await ReleaseAllAsync().ConfigureAwait(false);
+            }
+            else
+            {
+                StartLoop();
+            }
+        }
+        finally
+        {
+            _lifecycle.Release();
+        }
+    }
+
     internal async Task SuspendAsync()
     {
         await _lifecycle.WaitAsync().ConfigureAwait(false);
@@ -193,7 +218,7 @@ internal sealed class DeviceFanCurveController : IAsyncDisposable
 
     private void StartLoop()
     {
-        if (!_enabled || _suspended || _disposed || _curve.Length == 0)
+        if (!_enabled || _suspended || _displaySleeping || _disposed || _curve.Length == 0)
         {
             return;
         }

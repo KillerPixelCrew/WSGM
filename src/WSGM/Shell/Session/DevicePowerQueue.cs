@@ -19,6 +19,7 @@ internal sealed class DevicePowerQueue(IntegrationServices integrations, Session
 
     /// <summary>The direction the device cycle is heading: the last transition queued, run or not.</summary>
     private bool _deviceSuspended;
+    private bool _fanDisplaySleeping;
 
     /// <summary>The latest power transition queued, so an opposite one can cancel it before it runs.</summary>
     private DevicePowerTransition? _latestTransition;
@@ -101,6 +102,41 @@ internal sealed class DevicePowerQueue(IntegrationServices integrations, Session
             _latestTransition = transition;
             var previous = _work;
             _work = Task.Run(() => ApplyAsync(previous, coordinator, transition));
+        }
+    }
+
+    /// <summary>Serializes the early display-off fan handoff with full device suspend/resume.</summary>
+    internal void QueueFanDisplayState(bool sleeping)
+    {
+        lock (_gate)
+        {
+            if (state.ShutdownRequested || _fanDisplaySleeping == sleeping)
+            {
+                return;
+            }
+
+            _fanDisplaySleeping = sleeping;
+            var previous = _work;
+            _work = Task.Run(() => ApplyFanDisplayStateAsync(previous, sleeping));
+        }
+    }
+
+    private async Task ApplyFanDisplayStateAsync(Task previous, bool sleeping)
+    {
+        await previous.ConfigureAwait(false);
+        if (state.ShutdownRequested || integrations.Device is not { } coordinator)
+        {
+            return;
+        }
+
+        try
+        {
+            await coordinator.FanCurves.Controller.SetDisplaySleepingAsync(sleeping).ConfigureAwait(false);
+            Log.Info($"Software fan display-off hold {(sleeping ? "applied" : "released")}.");
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error("Software fan display power transition failed", ex);
         }
     }
 

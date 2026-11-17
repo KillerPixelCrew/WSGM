@@ -651,3 +651,24 @@ exists. An Explorer folder process alone is insufficient. A stalled probe is ter
 owned process handle. The existing crash-loop breaker remains deliberate recovery policy.
 
 These are implementation changes, not a new live shell or hardware pass.
+
+## Software fan ownership during display sleep
+
+The software curve releases its driven fans to firmware when Windows reports this session's display
+off. This earlier edge matters on Modern Standby machines, which can freeze managed work before the
+system-suspend callback runs. The fan handoff shares the device power queue, so it completes in
+order with full suspend/resume and shutdown. Console-wide display-off notifications do not darken
+this session's fan policy.
+
+Display sleep and system suspend hold the curve independently. A maintenance resume while the
+display is still dark leaves firmware in control. The selected curve resumes only once the display
+is lit and the device cycle has resumed, whichever happens last. Curve/profile changes while asleep
+retain the new selection without starting duty writes. A failed or uncertain handoff remains visible
+and is not retried automatically on wake.
+
+The 2026-11-17 Atlas 8 report described intermittent full-speed fans during Modern Standby. Both
+current Acer fan journal entries selected firmware Auto as the original state. The display-off gap
+was found in source; fixtures cover both wake orders and uncertain handoff. A physical standby/wake
+cycle with the deployed change still needs maintainer acceptance. This change adds no fan protocol
+writes beyond the existing automatic-mode handoff and does not change manual or firmware fan
+choices.

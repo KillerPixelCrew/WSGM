@@ -164,6 +164,95 @@ public sealed class DeviceFanCurveControllerTests
             controller.ConfigureAsync(Curve, [new DeviceFanCurveFan("cpu")], true));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DisplayOffReleasesFirmwareOnceAndBothWakeHoldsMustClearBeforeSoftwareResumes(bool displayWakesFirst)
+    {
+        TickGate ticks = new();
+        List<int> writes = [];
+        var releases = 0;
+        await using DeviceFanCurveController controller = new(
+            _ => new DeviceFanCurveTemperature(60, Now),
+            (_, duty, _) =>
+            {
+                writes.Add(duty);
+                return ValueTask.FromResult(new DeviceFanCurveWriteResult(true));
+            }, _ => { },
+            (_, _) =>
+            {
+                releases++;
+                return ValueTask.CompletedTask;
+            }, () => Now, ticks.WaitAsync, smoothing: DeviceFanCurveSmoothing.None);
+        await controller.ConfigureAsync(Curve, [new DeviceFanCurveFan("cpu")], true);
+        await ticks.WaitForLoopAsync();
+        Assert.Equal([60], writes);
+
+        await controller.SetDisplaySleepingAsync(sleeping: true);
+        await controller.SetDisplaySleepingAsync(sleeping: true);
+        await controller.SuspendAsync();
+        Assert.Equal(1, releases);
+        Assert.True(controller.Completion.IsCompleted);
+        await controller.ConfigureAsync([new CurvePoint(40, 45), new CurvePoint(80, 45)],
+            [new DeviceFanCurveFan("cpu")], true);
+
+        if (displayWakesFirst)
+        {
+            await controller.SetDisplaySleepingAsync(sleeping: false);
+        }
+        else
+        {
+            // An unattended maintenance resume must leave cooling under firmware ownership.
+            await controller.ResumeAsync();
+            await controller.ResumeAsync();
+        }
+
+        Assert.True(controller.Completion.IsCompleted);
+        Assert.Equal([60], writes);
+        Assert.Equal(1, releases);
+        if (displayWakesFirst)
+        {
+            await controller.ResumeAsync();
+        }
+        else
+        {
+            await controller.SetDisplaySleepingAsync(sleeping: false);
+        }
+
+        await ticks.WaitForLoopAsync();
+        Assert.Equal([60, 45], writes);
+    }
+
+    [Fact]
+    public async Task DisplayWakeDoesNotRetryAnUncertainFirmwareHandoff()
+    {
+        TickGate ticks = new();
+        var writes = 0;
+        var releases = 0;
+        List<string?> statuses = [];
+        await using DeviceFanCurveController controller = new(
+            _ => new DeviceFanCurveTemperature(60, Now),
+            (_, _, _) =>
+            {
+                writes++;
+                return ValueTask.FromResult(new DeviceFanCurveWriteResult(true));
+            }, statuses.Add,
+            (_, _) =>
+            {
+                releases++;
+                throw new InvalidOperationException("Lost firmware acknowledgement");
+            }, () => Now, ticks.WaitAsync, smoothing: DeviceFanCurveSmoothing.None);
+        await controller.ConfigureAsync(Curve, [new DeviceFanCurveFan("cpu")], true);
+        await ticks.WaitForLoopAsync();
+        await controller.SetDisplaySleepingAsync(sleeping: true);
+        await controller.ResumeAsync();
+        await controller.SetDisplaySleepingAsync(sleeping: false);
+        Assert.True(controller.Completion.IsCompleted);
+        Assert.Equal(1, writes);
+        Assert.Equal(1, releases);
+        Assert.Contains(statuses, status => status?.Contains("Lost firmware acknowledgement") == true);
+    }
+
     [Fact]
     public async Task StopWaitsForAnInFlightDutyWriteToFinishBeforeReleasingAutomaticMode()
     {

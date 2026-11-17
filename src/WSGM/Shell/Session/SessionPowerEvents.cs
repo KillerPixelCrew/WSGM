@@ -140,6 +140,7 @@ internal sealed class SessionPowerEvents(
     {
         if (!DisplayPowerSignal.IsDisplayOff(displayState))
         {
+            devicePower.QueueFanDisplayState(sleeping: false);
             performance.RecheckExtendedVrrWhenDisplayLit();
             if (_desktopWake.NoteDisplayOn())
             {
@@ -158,6 +159,9 @@ internal sealed class SessionPowerEvents(
         // Only the session's own display may say the screen went dark.
         if (DisplayPowerSignal.MayReportDark(source))
         {
+            // Modern Standby can freeze managed work before a system-suspend notification.
+            // Return software-driven fans to firmware now; maintenance resumes keep this hold.
+            devicePower.QueueFanDisplayState(sleeping: true);
             _screensaverWake.NoteDisplayOff();
             _desktopWake.NoteDisplayOff();
         }
