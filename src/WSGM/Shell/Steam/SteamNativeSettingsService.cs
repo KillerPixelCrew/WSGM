@@ -75,28 +75,36 @@ internal sealed partial class SteamNativeSettingsService(
     /// <param name="value">The renderer's value.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
     /// <returns>The write's outcome, or why the key or value is no longer offered.</returns>
-    public Task<SteamUiCommandResult> SetAsync(string key, JsonElement value, CancellationToken cancellationToken)
+    public async Task<SteamUiCommandResult> SetAsync(string key, JsonElement value, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (key == "rumble.stop" && value.ValueKind == JsonValueKind.True)
         {
-            return StopRumblePreviewAsync();
+            return await StopRumblePreviewAsync().ConfigureAwait(false);
         }
 
         if (!Volatile.Read(ref _offered).TryGetValue(key, out var offered)
             || !ValidValue(offered.Row, value))
         {
-            return Task.FromResult(new SteamUiCommandResult(false, "That setting or value is no longer available."));
+            return new SteamUiCommandResult(false, "That setting or value is no longer available.");
         }
 
         if (offered.Active is { } active && (profiles.Current.Active != active
                                              || profiles.Current.EditsGame != offered.EditsGame))
         {
-            return Task.FromResult(new SteamUiCommandResult(false,
-                "The running application or editing scope changed."));
+            return new SteamUiCommandResult(false, "The running application or editing scope changed.");
         }
 
-        return offered.Write(value, cancellationToken);
+        Invalidate();
+        try
+        {
+            return await offered.Write(value, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            // Telemetry shares a bounded cache, but the result of a command must be fresh.
+            Invalidate();
+        }
     }
 
     /// <summary>Stops the shared device rumble preview when its owner exists.</summary>

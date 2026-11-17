@@ -273,6 +273,39 @@ the growth that happens each time the bundle is reinstalled inside one document.
   integration (`cef.enabled`) off and on.
 - Module-group attribution, and the GPU process with themes, artwork and animations on.
 
+## Idle CPU investigation, 2026-11-17
+
+On the maintainer's Acer PA08-I51 (14 logical processors), the reported constant 3% CPU reproduced
+as 1.57% normalized process CPU time. The initial ETW recording measured 23.52% of one core and
+1,917 context switches/s. These percentages use elapsed CPU time; Task Manager's frequency-adjusted
+CPU display is a different measure.
+
+Steam's publication notifications invalidated the native-settings projection for unrelated feature
+changes. Background telemetry also bypassed its one-second shared cache. WSGM now scopes network,
+several custom-page and native telemetry notifications to the surfaces they affect. The native
+safety poll keeps its two-second cadence; command results invalidate the cache immediately. Startup,
+reconnection, profile changes and other cross-feature notifications still request a full round. The
+toolkit merges pending scoped requests, and a full request includes them all.
+
+An exploratory WinRT callback change removed projected COM wrapper creation from the sampled stacks,
+but did not materially reduce CPU. It was reverted. The sensor and virtual-controller cadences are
+unchanged by the delivered fix.
+
+Post-change samples were 0.77% on Desktop and 1.18% in Big Picture. Later Big Picture samples were
+1.89% over 20 seconds and 1.52% over 30 seconds. The log recorded an AC power/preset change and
+software fan-curve activation during the later interval. These are useful live observations, not a
+controlled benchmark or proof that the reported 3% regression is resolved. Maintainer idle
+acceptance and matched power/fan-state measurements remain open.
+
+Raw evidence is under `artifacts/perf/cpu-regression/`, with ETW captures under
+`artifacts/perf/20261117-092957-cpu-regression/` and
+`artifacts/perf/20261117-095031-cpu-regression-after/`. The deployed source is based on WSGM
+`9dbe3380` and toolkit `f28b3f6` plus the command-cache changes. Release compilation and development
+deployment completed without warnings, 13 module-runtime and 90 native-settings tests passed,
+Stable/Beta fingerprints and emitted-asset claims passed, and all 43 enabled Steam patches reached
+Verified after the final development deployment. No physical motion or controller acceptance is
+claimed by this CPU investigation.
+
 ## Budgets
 
 Proposed for the maintainer's decision; not agreed yet.

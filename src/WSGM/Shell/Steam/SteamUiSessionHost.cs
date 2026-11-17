@@ -108,7 +108,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             () => _disposed,
             () => _wsgmSettingsReady,
             toggleQuickAccess,
-            QueueStatePublication,
+            () => QueueSurfacePublication(SteamNetworkSurface.PatchId),
             _overlayActivation.Id);
         try
         {
@@ -157,7 +157,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             var host = (SteamUiSessionHost)state!;
             if (!host._disposed && host._switches.HostSurfaces)
             {
-                host.QueueStatePublication();
+                host.QueueNativeStatePublication();
             }
         }, this, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
     }
@@ -209,14 +209,14 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // Both host pages answer a command immediately and finish the work in the background, so
         // without these the page only ever sees the first loading snapshot: the scan or the search
         // completes, raises this, and nobody is listening. The page spins forever.
-        _backends.Artwork?.Changed += QueueStatePublication;
+        _backends.Artwork?.Changed += OnArtworkChanged;
         _backends.LibraryImport?.Changed += QueueStatePublication;
-        _backends.Emulators?.Changed += QueueStatePublication;
-        _backends.LaunchActions?.Changed += QueueStatePublication;
-        _backends.GameTools?.Changed += QueueStatePublication;
+        _backends.Emulators?.Changed += OnEmulatorsChanged;
+        _backends.LaunchActions?.Changed += OnLaunchActionsChanged;
+        _backends.GameTools?.Changed += OnGameToolsChanged;
         _backends.LibraryManager?.Changed += QueueStatePublication;
-        _backends.Notes?.Changed += QueueStatePublication;
-        _backends.ChordMirror?.Changed += QueueStatePublication;
+        _backends.Notes?.Changed += OnNotesChanged;
+        _backends.ChordMirror?.Changed += OnChordMirrorChanged;
         _backends.WsgmSettings?.Changed += QueueStatePublication;
         _backends.Graphics?.Changed += QueueStatePublication;
         _backends.DriverUpdates?.Changed += QueueStatePublication;
@@ -251,14 +251,14 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _backends.Profiles.Changed -= OnProfilesChanged;
         _backends.PluginSteamUi?.Changed -= QueueStatePublication;
         _backends.PluginSteamUi?.ModulesChanged -= OnPluginModulesChanged;
-        _backends.Artwork?.Changed -= QueueStatePublication;
+        _backends.Artwork?.Changed -= OnArtworkChanged;
         _backends.LibraryImport?.Changed -= QueueStatePublication;
-        _backends.Emulators?.Changed -= QueueStatePublication;
-        _backends.LaunchActions?.Changed -= QueueStatePublication;
-        _backends.GameTools?.Changed -= QueueStatePublication;
+        _backends.Emulators?.Changed -= OnEmulatorsChanged;
+        _backends.LaunchActions?.Changed -= OnLaunchActionsChanged;
+        _backends.GameTools?.Changed -= OnGameToolsChanged;
         _backends.LibraryManager?.Changed -= QueueStatePublication;
-        _backends.Notes?.Changed -= QueueStatePublication;
-        _backends.ChordMirror?.Changed -= QueueStatePublication;
+        _backends.Notes?.Changed -= OnNotesChanged;
+        _backends.ChordMirror?.Changed -= OnChordMirrorChanged;
         _backends.WsgmSettings?.Changed -= QueueStatePublication;
         _backends.Graphics?.Changed -= QueueStatePublication;
         _backends.DriverUpdates?.Changed -= QueueStatePublication;
@@ -810,23 +810,23 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     private void OnCapabilitiesChanged(IReadOnlyList<DeviceCapabilityView> views)
     {
-        QueueStatePublication();
+        QueueNativeStatePublication();
     }
 
     private void OnPerformanceStateChanged(PerformanceState state)
     {
-        QueueStatePublication();
+        QueueNativeStatePublication();
     }
 
     // Raised from AutoTDP's own tick loop. Queueing a publication is thread-safe, so no UI-thread hop.
     private void OnAutoTdpStatusChanged(AutoTdpStatus status)
     {
-        QueueStatePublication();
+        QueueNativeStatePublication();
     }
 
     private void OnControllerStatusChanged(ControllerManagerStatus status)
     {
-        QueueStatePublication();
+        QueueNativeStatePublication();
     }
 
     private void OnProfilesChanged(ProfileSnapshot snapshot, ProfileChangeKind kind)
@@ -865,6 +865,40 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     {
         _backends.PluginSteamUi?.FailModule(failure.Module.Id, $"{failure.Operation}: {failure.Error}");
         Log.Warn($"Steam UI module {failure.Module.Id} was disabled after {failure.Operation}: {failure.Error}");
+    }
+
+    private void OnArtworkChanged() => QueueSurfacePublication(SteamArtworkBrowserSurface.PatchId);
+
+    private void OnEmulatorsChanged() => QueueSurfacePublication(SteamEmulatorSurface.PatchId);
+
+    private void OnLaunchActionsChanged() => QueueSurfacePublication(SteamLaunchActionsSurface.PatchId);
+
+    private void OnGameToolsChanged() => QueueSurfacePublication(SteamGameToolsSurface.PatchId);
+
+    private void OnNotesChanged() => QueueSurfacePublication(NotesSteamSurface.PatchId);
+
+    private void OnChordMirrorChanged() => QueueSurfacePublication(SteamChordResetSurface.PatchId);
+
+    private void QueueSurfacePublication(string patchId)
+    {
+        if (!_disposed)
+        {
+            _runtime.QueuePublication(patchId);
+        }
+    }
+
+    private void QueueNativeStatePublication()
+    {
+        if (!_disposed)
+        {
+            // The shared projection already refreshes after one second. Background telemetry must
+            // not defeat that bound; commands invalidate their accepted result immediately.
+            _runtime.QueuePublication(SteamNativeSettingsSurface.PatchId);
+            _runtime.QueuePublication(SteamQuickAccessRowsSurface.PatchId);
+            _runtime.QueuePublication(SteamPerformanceSurface.PatchId);
+            _runtime.QueuePublication(SteamFrameLimitRow.PatchId);
+            _runtime.QueuePublication(SteamLightingZonesRow.PatchId);
+        }
     }
 
     /// <summary>Queues one publication round of every Steam surface's state, unless the host is closed.</summary>

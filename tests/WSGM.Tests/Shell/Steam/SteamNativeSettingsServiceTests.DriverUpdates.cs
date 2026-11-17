@@ -58,9 +58,15 @@ public sealed partial class SteamNativeSettingsServiceTests
         await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(20));
         Assert.True(process.ExitCode == 0, await output + await error);
 
+        // Prime the shared projection immediately before the command. Its accepted value must
+        // reach both surfaces without waiting for the background cache lifetime to expire.
+        await rig.Producer.ReadAsync();
         Assert.True((await rig.Producer.SetAsync("driver-updates.non-whql", JsonSerializer.SerializeToElement(true),
             CancellationToken.None)).Succeeded);
         await updates.Completion;
         Assert.True(updates.IncludeNonWhql);
+        var refreshed = (await rig.Producer.ReadAsync())!;
+        Assert.Contains(refreshed.Pages.SelectMany(page => page.Sections).SelectMany(item => item.Rows),
+            row => row.Key == "driver-updates.non-whql" && row.Checked == true);
     }
 }
