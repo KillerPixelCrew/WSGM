@@ -632,6 +632,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                     }
 
                     _error = string.Join(" ", problems);
+                    LogProblems("collections", problems);
                     Publish();
                 }
 
@@ -1398,6 +1399,8 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     {
         Phase = GameLibraryPhases.Review;
         _notes.AddRange(notes);
+        Log.Info($"Game Library scan finished: {Entries.Count} titles in review."
+                 + (notes.Count > 0 ? " " + string.Join(" ", notes) : ""));
         Publish();
     }
 
@@ -1416,6 +1419,8 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
             Phase = GameLibraryPhases.Done;
             _notes.Add(note);
+            Log.Info("Game Library save finished: " + note);
+            LogProblems("save", problems);
 
             // A problem is an error the user sees, not a note the completion message replaces: a
             // controller-only title with no override has no working controller route, and nothing on a
@@ -1505,6 +1510,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                         return;
                     }
 
+                    Log.Info($"Game Library {RunName(Phase)} stopped.");
                     Phase = GameLibraryPhases.Review;
                     _notes.Add("Stopped.");
                     Publish();
@@ -1514,8 +1520,8 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                // Anything else, a timeout's cancellation included, is a failure with its reason.
-                Log.Warn($"Game Library run failed: {ex.Message}");
+                // Anything else, a timeout's cancellation included, is a failure with its reason,
+                // which Fail logs.
                 Fail(generation, ex.Message, []);
             }
             finally
@@ -1570,6 +1576,10 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 return;
             }
 
+            // Every way a run ends reaches the log as well as the page: a tester's log is how a failure
+            // the page showed gets diagnosed.
+            Log.Warn($"Game Library {RunName(Phase)} failed: {error}");
+            LogProblems(RunName(Phase), problems);
             Phase = GameLibraryPhases.Review;
             _error = string.Join(" ", [error, .. problems]);
             Publish();
@@ -1592,10 +1602,31 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             }
 
             _notes.Add(note);
+            Log.Info("Game Library: " + note);
             Publish();
         }
 
         Notify();
+    }
+
+    /// <summary>The run a phase belongs to, as the log names it.</summary>
+    private static string RunName(string phase)
+    {
+        return phase switch
+        {
+            GameLibraryPhases.Scanning => "scan",
+            GameLibraryPhases.Applying => "save",
+            _ => "run"
+        };
+    }
+
+    /// <summary>Logs each problem a run reported to the page, one line each.</summary>
+    private static void LogProblems(string run, IReadOnlyList<string> problems)
+    {
+        foreach (var problem in problems)
+        {
+            Log.Warn($"Game Library {run} problem: {problem}");
+        }
     }
 
     /// <summary>Reports how many selected changes a run that is still the newest has applied.</summary>

@@ -510,7 +510,7 @@ public abstract class ServiceSubView : OverlaySubView
         window.Surfaces.ShowConfirm(content, title, cancel);
     }
 
-    /// <summary>Runs one of the service's commands; a refusal is shown, a failure logged.</summary>
+    /// <summary>Runs one of the service's commands; a refusal is shown and logged, a failure logged.</summary>
     /// <param name="operation">The command.</param>
     /// <param name="what">What it was, for the log.</param>
     private protected void Run(Func<CancellationToken, Task<SteamUiCommandResult>> operation, string what = "command")
@@ -540,18 +540,16 @@ public abstract class ServiceSubView : OverlaySubView
             var result = await Task.Run(() => operation(CancellationToken.None));
             if (!result.Succeeded)
             {
-                // The service owns its work and finishes it after the user leaves. A refusal that
-                // arrives then is only logged: a left view keeps its notice for the next open.
+                // The service owns its work and finishes it after the user leaves, so a refusal that
+                // arrives then is not shown. Either way it is logged: what the user saw, or would have
+                // seen, has to be in the log a tester sends.
                 var message = result.Error ?? "That did not work.";
+                Log.Info($"{LogScope}: {what} did nothing: {message}");
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     if (CurrentLevel is not null && generation == NavigationGeneration)
                     {
                         Toast(message);
-                    }
-                    else
-                    {
-                        Log.Info($"{LogScope}: {message}");
                     }
                 });
             }

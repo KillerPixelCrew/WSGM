@@ -605,7 +605,12 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
         try
         {
             var result = await Run(operation).ConfigureAwait(false);
-            if (!result.Succeeded)
+            if (result.Succeeded)
+            {
+                // The manager's last status line says what the operation did, such as "ES-DE 3.5.0 installed."
+                Log.Info($"Emulator {name}: {_manager.GetSnapshot().Status}");
+            }
+            else
             {
                 if (result.Error is { } error && _manager.GetSnapshot().Status != error)
                 {
