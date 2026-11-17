@@ -145,6 +145,12 @@ foreach ($retiredFile in 'WSGM.Device.Sdk.dll', 'WSGM.Device.Sdk.pdb', 'WSGM.Dev
     }
 }
 
+# Even -SkipBuild must keep installed packages compatible with the published application's release.
+# Prepare and validate replacements while the live session is still available; swap only after exit.
+. (Join-Path $PSScriptRoot 'stage-dev-plugins.ps1')
+$pluginCopies = @(Get-DevPluginCopies -Root $root -AppPublish $appPublish -PluginsRoot $pluginsRoot `
+    -RetiredPackageIds $retiredPackageIds)
+
 $sessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId
 # Both wrappers own a live game session: WSGM.Launch holds an input lease and a job over the game
 # tree, and WSGM.PackagedLaunch is the only thing keeping Steam's running state for a packaged title
@@ -282,6 +288,7 @@ $request = Join-Path $root 'publish\dev-deploy-request.json'
     AppDirectory = $appDirectory
     Copies = $copies
     PluginsRoot = $pluginsRoot
+    PluginCopies = $pluginCopies
     RetiredPackageIds = $retiredPackageIds
 } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $request -Encoding UTF8
 
@@ -321,6 +328,12 @@ foreach ($copy in $request.Copies) {
             Start-Sleep -Milliseconds 500
         }
     }
+}
+foreach ($copy in $request.PluginCopies) {
+    if ([IO.Path]::GetFileName($copy.Name) -cne $copy.Name -or [IO.Path]::GetExtension($copy.Name) -cne '.wsgmpkg') {
+        throw "Invalid plugin replacement filename: $($copy.Name)"
+    }
+    Copy-Item -LiteralPath $copy.Source -Destination (Join-Path $request.PluginsRoot $copy.Name) -Force
 }
 # The direct libraries replace only these built-in archive identities. Filename prefixes are
 # insufficient: keep unrelated packages and all per-user DeviceState/PluginState journals.

@@ -170,6 +170,10 @@ internal sealed class CommonPluginManager
 
             _catalog = await Task.Run(() => PluginPackageCatalog.Discover(_installedRoot), cancellationToken)
                 .ConfigureAwait(false);
+            if (_catalog.Errors.Count > 0)
+            {
+                Log.Change("plugin-catalog-errors", "Plugin catalog: " + string.Join(" ", _catalog.Errors));
+            }
             if (_stopping || revision != Volatile.Read(ref _requestedRevision))
             {
                 return;

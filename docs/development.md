@@ -156,11 +156,15 @@ its own validation: the main verification gate does not build or validate that l
 Opening Settings and `--overlay-test` are the allowed UI inspection modes. Shell/boot takeover,
 service install, plugin install/removal, attended hardware probes and
 [`eng/dev-deploy.ps1`](../eng/dev-deploy.ps1) alter the live machine and require explicit direction.
-The `tools/WsgmLibTest` scripts connect to live Steam and are attended tools, not compilation
-checks. Before connecting any live CEF tool, inspect Steam's file logs and confirm that Steam and
-Big Picture have fully started. A listening debug port, process, window or target list does not
-establish that. Early attachment can hang Steam's entire UI and require force-closing Steam; use the
-Steam CEF debugging skill's readiness procedure before opening a connection.
+Development deployment rebuilds already installed first-party plugins when their host release stamp
+differs from the published application, including with `-SkipBuild`. It validates packages before
+stopping WSGM and swaps them alongside the application. An incompatible package with no matching
+source stops deployment before the live session exits. The `tools/WsgmLibTest` scripts connect to
+live Steam and are attended tools, not compilation checks. Before connecting any live CEF tool,
+inspect Steam's file logs and confirm that Steam and Big Picture have fully started. A listening
+debug port, process, window or target list does not establish that. Early attachment can hang
+Steam's entire UI and require force-closing Steam; use the Steam CEF debugging skill's readiness
+procedure before opening a connection.
 
 ## Setup and plugin outputs
 
