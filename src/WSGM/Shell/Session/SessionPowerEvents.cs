@@ -130,7 +130,7 @@ internal sealed class SessionPowerEvents(
         }
 
         performance.RepairAfterResume();
-        if (_screensaverWake.NoteResume())
+        if (_screensaverWake.NoteResume(unattended))
         {
             steamUi.RequestScreensaverDismissal("system resumed", restoreGame: !unattended);
         }
@@ -161,6 +161,7 @@ internal sealed class SessionPowerEvents(
         {
             // Modern Standby can freeze managed work before a system-suspend notification.
             // Return software-driven fans to firmware now; maintenance resumes keep this hold.
+            steamUi.CaptureGameBeforeSleep();
             devicePower.QueueFanDisplayState(sleeping: true);
             _screensaverWake.NoteDisplayOff();
             _desktopWake.NoteDisplayOff();

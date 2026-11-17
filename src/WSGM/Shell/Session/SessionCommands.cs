@@ -116,10 +116,13 @@ internal sealed class SessionCommands(
                 return true;
             }, cancellationToken),
             RunSteamSuspendFlowAsync = async cancellationToken =>
-                SteamReachable() is { } transport
+            {
+                steamUi.CaptureGameBeforeSleep();
+                return SteamReachable() is { } transport
                     ? await SteamPowerCommands.RunSuspendFlowAsync(transport, SteamPowerCommands.DefaultSuspendBudget,
                         cancellationToken).ConfigureAwait(false)
-                    : SteamSuspendFlowResult.Unavailable,
+                    : SteamSuspendFlowResult.Unavailable;
+            },
             NotifySteamResumedAsync = cancellationToken => steamUi.Readiness.RunWhenReadyAsync(
                 "Steam resume after a power-button sleep",
                 token => SteamReachable() is { } transport

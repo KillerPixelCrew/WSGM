@@ -42,6 +42,37 @@ public sealed class SteamUiSessionHostTests : IDisposable
     }
 
     [Fact]
+    public async Task FirstSleepEdgeKeepsTheGameWhenLaterSuspendObservationsDisappearOrChange()
+    {
+        await using var transport = new SessionHostTransport();
+        await using var performance = PerformanceBuilders.Service();
+        var backends = Backends(performance);
+        await using var host = new SteamUiSessionHost(transport, _ => Task.FromResult(true), backends);
+        await performance.RunAsync(backends.Profiles, new PerformanceApplicationTarget("steam:42", 42, null));
+        Assert.Equal(42u, host.CaptureGameBeforeSuspend());
+
+        // Steam can retire or replace its foreground projection after the initial display-off edge.
+        await performance.RunAsync(backends.Profiles, null);
+        Assert.Equal(42u, host.CaptureGameBeforeSuspend());
+        await performance.RunAsync(backends.Profiles, new PerformanceApplicationTarget("steam:7", 7, null));
+        Assert.Equal(42u, host.CaptureGameBeforeSuspend());
+    }
+
+    [Fact]
+    public async Task ADesktopApplicationIsNotRememberedAsASteamGameForWake()
+    {
+        await using var transport = new SessionHostTransport();
+        await using var performance = PerformanceBuilders.Service();
+        var backends = Backends(performance);
+        await using var host = new SteamUiSessionHost(transport, _ => Task.FromResult(true), backends);
+        await performance.RunAsync(backends.Profiles,
+            new PerformanceApplicationTarget("process:editor.exe", null, "editor.exe"));
+        Assert.Equal(0u, host.CaptureGameBeforeSuspend());
+        await performance.RunAsync(backends.Profiles, new PerformanceApplicationTarget("steam:42", 42, null));
+        Assert.Equal(42u, host.CaptureGameBeforeSuspend());
+    }
+
+    [Fact]
     public async Task EmittedBridgeConfigurationMatchesTheEmbeddedAsset()
     {
         await using var transport = new SessionHostTransport();

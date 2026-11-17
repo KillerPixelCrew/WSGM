@@ -672,3 +672,24 @@ was found in source; fixtures cover both wake orders and uncertain handoff. A ph
 cycle with the deployed change still needs maintainer acceptance. This change adds no fan protocol
 writes beyond the existing automatic-mode handoff and does not change manual or firmware fan
 choices.
+
+## Returning to a running game after standby
+
+WSGM captures the active Steam AppID before its power-button Steam sleep flow, on session
+display-off, and as a fallback before system suspend. The first positive identity is retained across
+overlapping sleep notifications, even after Steam clears its foreground observation. This also
+covers Big Picture running in Desktop Mode. Ordinary desktop applications are not treated as Steam
+games.
+
+A display-only wake also completes any pending Steam power-button resume once; a later system resume
+does not send it twice. An unattended maintenance resume leaves both the physical wake and its
+retained game pending. The first attended resume or display-on requests recovery once the Steam
+transport and required patches verify. Recovery uses Steam's existing Continue path to select the
+still-running app, restore its overlay route and raise its existing window. It never relaunches the
+game; missing positive Steam lifetime or activation failure is logged without automatically retrying
+the command.
+
+The 2026-11-17 report of waking to Steam's Continue page exposed a display-only standby gap: game
+capture previously depended on a full system-suspend event. Source and fixtures cover identity
+retention and attended-wake coalescing; returning to an actual suspended game still needs live
+standby/wake acceptance.

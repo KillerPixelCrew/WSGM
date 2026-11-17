@@ -162,14 +162,18 @@ internal sealed class PowerButtonCoordinator : IDisposable
     /// <param name="off">Whether the display is now off.</param>
     internal void NoteDisplay(bool off)
     {
+        bool woke;
         lock (_gate)
         {
-            if (_displayOff && !off)
-            {
-                SettleUnderGate();
-            }
-
+            woke = _displayOff && !off;
             _displayOff = off;
+        }
+
+        if (woke)
+        {
+            // Modern Standby can wake with display notifications alone. Steam still needs the
+            // resume matching its power-button preparation; NoteResume consumes it only once.
+            NoteResume();
         }
     }
 

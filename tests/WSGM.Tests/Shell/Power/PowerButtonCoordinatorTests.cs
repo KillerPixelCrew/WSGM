@@ -46,6 +46,35 @@ public sealed class PowerButtonCoordinatorTests
     }
 
     [Fact]
+    public async Task GameModeDisplayOnlyWakeCompletesThePendingSteamResumeOnce()
+    {
+        using var directory = new TemporaryDirectory();
+        using var button = Create(directory);
+        await button.Completion;
+        List<string> calls = [];
+        TaskCompletionSource resumed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var resumeCalls = 0;
+        var services = Services(gameMode: true, calls) with
+        {
+            RunSteamSuspendFlowAsync = _ => Task.FromResult(SteamSuspendFlowResult.Completed),
+            NotifySteamResumedAsync = _ =>
+            {
+                Interlocked.Increment(ref resumeCalls);
+                resumed.TrySetResult();
+                return Task.FromResult(true);
+            }
+        };
+        button.ConfigureActions(services);
+        await button.RunShortPressAsync(services, PowerButtonShortPress.Sleep, CancellationToken.None);
+        button.NoteDisplay(off: true);
+        button.NoteDisplay(off: false);
+        await resumed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        button.NoteDisplay(off: false);
+        button.NoteResume();
+        Assert.Equal(1, Volatile.Read(ref resumeCalls));
+    }
+
+    [Fact]
     public async Task DesktopStillUsesTheConfiguredActionWithoutCallingSteam()
     {
         using var directory = new TemporaryDirectory();

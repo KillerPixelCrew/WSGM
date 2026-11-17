@@ -72,11 +72,18 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private string? _screensaverDismissalOwed;
     private long _preSleepAppId;
 
-    /// <summary>Retains the active Steam game before suspend retires foreground observations.</summary>
-    internal void CaptureGameBeforeSuspend()
+    /// <summary>Retains the active Steam game at the first sleep edge, including display-only standby.</summary>
+    /// <returns>The retained AppID, or zero when no Steam game was observed.</returns>
+    internal uint CaptureGameBeforeSuspend()
     {
         var appId = _backends.Performance.Current.Target?.SteamAppId ?? 0;
-        Interlocked.Exchange(ref _preSleepAppId, appId);
+        if (appId != 0 && Interlocked.CompareExchange(ref _preSleepAppId, appId, 0) == 0)
+        {
+            Log.Info($"Steam wake recovery retained AppID {appId} before sleep.");
+        }
+
+        // A later suspend edge may arrive after Steam retired the foreground observation.
+        return (uint)Interlocked.Read(ref _preSleepAppId);
     }
 
     /// <summary>Creates the host and its surface services.</summary>

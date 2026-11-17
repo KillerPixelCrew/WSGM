@@ -384,7 +384,16 @@ internal sealed class SteamUiServices
     {
         if (!_state.ShutdownRequested)
         {
-            Host?.RequestScreensaverDismissal(reason, restoreGame && _state.InGameMode);
+            Host?.RequestScreensaverDismissal(reason, restoreGame);
+        }
+    }
+
+    /// <summary>Captures the game before Steam's sleep flow or display-off can retire its observation.</summary>
+    internal void CaptureGameBeforeSleep()
+    {
+        if (!_state.ShutdownRequested && (_state.InGameMode || _bigPictureReady))
+        {
+            Host?.CaptureGameBeforeSuspend();
         }
     }
 
@@ -400,9 +409,9 @@ internal sealed class SteamUiServices
             return;
         }
 
-        if (_state.InGameMode && (Holds & SteamUiHold.Suspended) == 0)
+        if ((Holds & SteamUiHold.Suspended) == 0)
         {
-            Host?.CaptureGameBeforeSuspend();
+            CaptureGameBeforeSleep();
         }
         AddHold(SteamUiHold.Suspended);
         CloseTransportForHold();
