@@ -562,6 +562,11 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             }
         }
 
+        if (GameLibrarySource.TrySplitSystemRow(id, out var libraryId, out var systemId))
+        {
+            return SetRomSystemEnabled(libraryId, EmulatorStorage.NormalizeSystemId(systemId), enabled);
+        }
+
         if (_scanner.Sources().All(source => !string.Equals(source.Id, id, StringComparison.OrdinalIgnoreCase)))
         {
             return Refuse("That source is not known.");
@@ -1919,6 +1924,59 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     }
 
     /// <summary>Takes one source's titles out of the review and the artwork stage.</summary>
+    /// <summary>
+    ///     Switches one system of a ROM library on or off, as a source's tick does: off takes its titles out of
+    ///     the review at once, on scans for them.
+    /// </summary>
+    private Task<SteamUiCommandResult> SetRomSystemEnabled(string libraryId, string systemId, bool enabled)
+    {
+        if (ReadSettings().RomSources.All(source => !string.Equals(source.Id, libraryId,
+                StringComparison.OrdinalIgnoreCase)))
+        {
+            return Refuse("That ROM library is not configured.");
+        }
+
+        return Task.FromResult(ChangeSettings(settings =>
+            {
+                if (settings.RomSources.FirstOrDefault(source =>
+                        string.Equals(source.Id, libraryId, StringComparison.OrdinalIgnoreCase)) is not { } library)
+                {
+                    return;
+                }
+
+                library.SkippedSystems.RemoveAll(skipped => EmulatorStorage.NormalizeSystemId(skipped) == systemId);
+                if (!enabled)
+                {
+                    library.SkippedSystems.Add(systemId);
+                }
+            },
+            () =>
+            {
+                if (!enabled)
+                {
+                    DropSystem(libraryId, systemId);
+                }
+                else
+                {
+                    _scanner.ScanOrQueue();
+                }
+            },
+            settled: enabled ? null : () => ResetArtwork(_scanner.Sources())));
+    }
+
+    /// <summary>Takes one system of a ROM library out of the review. The caller holds <see cref="Gate" />.</summary>
+    private void DropSystem(string libraryId, string systemId)
+    {
+        foreach (var (id, entry) in Entries.ToList())
+        {
+            if (string.Equals(entry.Plan.Source, libraryId, StringComparison.OrdinalIgnoreCase)
+                && EmulatorStorage.NormalizeSystemId(entry.Game.Content?.SystemId ?? "") == systemId)
+            {
+                Entries.Remove(id);
+            }
+        }
+    }
+
     private void Drop(string sourceId)
     {
         foreach (var (id, entry) in Entries.ToList())

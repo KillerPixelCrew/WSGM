@@ -137,9 +137,11 @@ const importStyles = `
 #wsgm-import .wsgm-import-crumb { font-size: 30px; font-weight: 700; color: #8b929a; }
 #wsgm-import .wsgm-import-crumb svg { width: 18px; height: 18px; margin: 0 -2px 2px 0; vertical-align: middle; }
 #wsgm-import .wsgm-import-muted { color: #8b929a; font-size: 14px; }
-#wsgm-import .wsgm-import-body { flex: 1; min-height: 0; display: flex; gap: 32px; padding: 16px 48px 0; }
+#wsgm-import .wsgm-import-body { flex: 1; min-height: 0; display: flex; gap: 32px;
+  padding: 16px 48px var(--gamepadui-current-footer-height, 64px); }
 #wsgm-import .wsgm-import-sidebar { width: 260px; flex: 0 0 auto; overflow-y: auto; min-height: 0;
-  padding-bottom: 72px; display: flex; flex-direction: column; gap: 2px; }
+  padding-bottom: 16px; display: flex; flex-direction: column; gap: 2px; }
+#wsgm-import .wsgm-import-source.wsgm-import-system .DialogCheckbox_Container { padding-left: 34px; }
 #wsgm-import .wsgm-import-eyebrow { font-size: 13px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase;
   color: #dcdedf; padding: 0 10px 8px; }
 #wsgm-import .wsgm-import-sidebar .wsgm-import-custom { padding-top: 16px; }
@@ -154,7 +156,7 @@ const importStyles = `
 #wsgm-import .wsgm-import-source[data-missing="true"] .DialogCheckbox_Container { opacity: 0.6; }
 #wsgm-import .wsgm-import-sidebar > .DialogButton { margin: 8px 0 0; width: auto; min-width: auto; height: 36px; }
 #wsgm-import .wsgm-import-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-#wsgm-import .wsgm-import-pane { display: flex; flex-direction: column; gap: 14px; padding: 12px 4px 72px; }
+#wsgm-import .wsgm-import-pane { display: flex; flex-direction: column; gap: 14px; padding: 12px 4px 16px; }
 #wsgm-import .wsgm-import-bar { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
 #wsgm-import .wsgm-import-bar .DialogButton { width: auto; min-width: auto; height: 40px; padding: 0 16px;
   white-space: nowrap; box-sizing: border-box; }
@@ -961,56 +963,6 @@ function ImportRomSourceBody({ sourceId, singleFile = false, close }: any) {
     };
   });
   const [error, setError] = react.useState("");
-  // The system folders a library set to detect them holds, read again whenever its folder changes;
-  // null while that read runs.
-  const detecting = !singleFile && draft.systemId === "auto" && !!draft.root.absolutePath;
-  const [detected, setDetected] = react.useState(null as any[] | null);
-  react.useEffect(() => {
-    if (!detecting) return;
-    let live = true;
-    setDetected(null);
-    void importAct("detectRomSystems", { path: draft.root.absolutePath }).then(
-      (answer: any) => live && setDetected(answer?.systems ?? []),
-      () => live && setDetected([]),
-    );
-    return () => {
-      live = false;
-    };
-  }, [detecting, draft.root.absolutePath]);
-  const skipped: string[] = draft.skippedSystems ?? [];
-  const systemSwitches = !detecting
-    ? []
-    : detected === null
-      ? [h("div", { key: "systems-reading", className: "wsgm-import-muted" }, "Looking for system folders…")]
-      : !detected.length
-        ? [
-            h(
-              "div",
-              { key: "systems-none", className: "wsgm-import-muted" },
-              "No system folders found. Name each system's folder after it, such as psx, snes or gc.",
-            ),
-          ]
-        : [
-            h(
-              "div",
-              { key: "systems-note", className: "wsgm-import-muted" },
-              "Systems to scan. A system switched off is not added to Steam; ES-DE still shows it.",
-            ),
-            ...detected.map((folder: any) =>
-              h(importUi.toggleField, {
-                key: `system:${folder.systemId}`,
-                label: folder.name,
-                description: folder.folder,
-                checked: !skipped.includes(folder.systemId),
-                onChange: (value: boolean) =>
-                  change({
-                    skippedSystems: value
-                      ? skipped.filter((id) => id !== folder.systemId)
-                      : [...skipped, folder.systemId],
-                  }),
-              }),
-            ),
-          ];
   const change = (fields: any) => setDraft((current: any) => ({ ...current, ...fields }));
   const systems = (state?.romSystems ?? []).filter((item: any) => !singleFile || item.id !== "auto");
   const field = (label: string, value: string, onChange: any) =>
@@ -1094,7 +1046,6 @@ function ImportRomSourceBody({ sourceId, singleFile = false, close }: any) {
           });
       },
     }),
-    ...systemSwitches,
     h(ImportRomLaunchControls, {
       state,
       systemId: draft.systemId,
@@ -1887,7 +1838,7 @@ function LibraryImportPage({ context, state }: any) {
         "div",
         {
           key: source.id,
-          className: "wsgm-import-source",
+          className: source.parentId ? "wsgm-import-source wsgm-import-system" : "wsgm-import-source",
           "data-missing": String(!source.installed),
         },
         h(Check, {
@@ -1979,12 +1930,14 @@ function LibraryImportPage({ context, state }: any) {
           ),
         ),
       ...sources
-        .filter((source) => source.kind === "Rom")
+        .filter((source) => source.kind === "Rom" && !source.parentId)
         .map((source) =>
           h(
             ui.focusable,
             { key: `${source.id}-custom`, "flow-children": "column" },
             sourceRow(source),
+            // A library that detects its system folders lists them under it, each ticked like a source.
+            ...sources.filter((system) => system.parentId === source.id).map(sourceRow),
             h(
               ui.dialogButton,
               {
@@ -2120,7 +2073,7 @@ function LibraryImportPage({ context, state }: any) {
       saveButton,
     );
 
-    const installed = sources.filter((source) => source.installed).length;
+    const installed = sources.filter((source) => source.installed && !source.parentId).length;
     header = h(
       "div",
       { className: "wsgm-import-head" },

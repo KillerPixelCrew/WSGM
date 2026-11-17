@@ -123,7 +123,10 @@ public sealed partial class GameLibraryView : ServiceSubView
         {
             var id = source.Id;
             var enabled = source.Checked;
-            stack.Children.Add(Tagged(Row(source.Name, GameLibraryRows.SourceLine(source),
+            // A ROM library's systems follow it in the list, named with it, each ticked like a source.
+            var parent = state.Sources.FirstOrDefault(item => source.ParentId.Length > 0 && item.Id == source.ParentId);
+            var name = parent is null ? source.Name : parent.Name + " › " + source.Name;
+            stack.Children.Add(Tagged(Row(name, GameLibraryRows.SourceLine(source),
                 source.Installed ? null : Icons.BlockedCircle,
                 source.CanToggle && !busy
                     ? () => Run(token => _service.SetSourceEnabledAsync(id, !enabled, token))

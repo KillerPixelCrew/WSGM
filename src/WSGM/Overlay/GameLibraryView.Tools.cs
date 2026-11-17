@@ -138,7 +138,8 @@ public sealed partial class GameLibraryView
             Icons.Restart, state.Loading ? null : () => Run(token => _service!.RecheckArtworkAsync("", token))),
             "review.recheck-artwork"));
         var sources = new List<(string, string)> { ("", "All sources") };
-        sources.AddRange(state.Sources.Select(source => (source.Id, source.Name)));
+        sources.AddRange(state.Sources.Where(source => source.ParentId.Length == 0)
+            .Select(source => (source.Id, source.Name)));
         body.Children.Add(ChoiceRow("Source", sources, _sourceId, value =>
         {
             _sourceId = value;

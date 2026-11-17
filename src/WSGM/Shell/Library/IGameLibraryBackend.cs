@@ -15,12 +15,6 @@ public interface IGameLibraryBackend
     /// <summary>The reviewed and installed-core parser systems.</summary>
     IReadOnlyList<RomSystemProfile> ReadRomSystems();
 
-    /// <summary>Lists the system folders a ROM library's folder holds, so the user can choose which to scan.</summary>
-    /// <param name="path">The library's folder.</param>
-    /// <param name="cancellationToken">Cancels the read.</param>
-    /// <returns>Each recognised system folder; empty when none is, or the folder cannot be read.</returns>
-    Task<IReadOnlyList<RomSystemFolder>> DetectRomSystemsAsync(string path, CancellationToken cancellationToken);
-
     /// <summary>Adds or edits a ROM source without changing its existing identity.</summary>
     Task<SteamUiCommandResult> AddRomSourceAsync(RomSourceConfig source, CancellationToken cancellationToken);
 

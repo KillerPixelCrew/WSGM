@@ -30,9 +30,16 @@ public sealed class RomLibrarySource(RomSourceConfig source, IReadOnlyList<RomSy
         try
         {
             var root = source.ResolveRoot();
-            return new SourceAvailability(Directory.Exists(root), source.Name);
+            if (!Directory.Exists(root))
+            {
+                return new SourceAvailability(false, source.Name);
+            }
+
+            return EmulatorStorage.NormalizeSystemId(source.SystemId) == RomProfiles.Automatic.Id
+                ? new SourceAvailability(true, source.Name) { Systems = SystemFolders(root, profiles ?? RomProfiles.All) }
+                : new SourceAvailability(true, source.Name);
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return new SourceAvailability(false, "Storage unavailable");
         }

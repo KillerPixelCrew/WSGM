@@ -6,6 +6,7 @@ using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Overlay;
+using WSGM.Shell;
 using WSGM.UiTests.Fakes;
 using WSGM.UiTests.Infrastructure;
 using WSGM.UiTests.Visual;
@@ -72,37 +73,38 @@ public sealed class OverlayToolsTests
     [AvaloniaTheory]
     [InlineData("overlay-importer-rom-systems-1280", 1280, 800)]
     [InlineData("overlay-importer-rom-systems-980", 980, 640)]
-    public void ARomLibraryListsTheSystemFoldersItScans(string name, int width, int height)
+    public void ARomLibrarysSystemsAreListedAndTickedLikeSources(string name, int width, int height)
     {
         using var fixture = new UiFixture();
+        var library = OverlayToolFixtures.Library;
         var source = new FakeLibrarySource
         {
-            State = OverlayToolFixtures.Library with
+            State = library with
             {
-                RomSources =
+                Sources =
                 [
-                    new RomSourceConfig
-                    {
-                        Id = "retro", Name = "Retro collection", SystemId = "auto", SkippedSystems = ["gamecube"],
-                        Root = new ManagedContentPath { AbsolutePath = @"D:\ROMs", Directory = true }
-                    }
+                    .. library.Sources,
+                    new GameLibrarySource("retro", "Retro collection", LibrarySourceKind.Rom, true, true,
+                        "Retro collection", 296, true, true),
+                    new GameLibrarySource("retro/psx", "PlayStation", LibrarySourceKind.Rom, true, true, "psx", 212,
+                        true, true, "retro"),
+                    new GameLibrarySource("retro/snes", "Super Nintendo", LibrarySourceKind.Rom, true, true, "snes",
+                        84, true, true, "retro"),
+                    new GameLibrarySource("retro/gamecube", "Nintendo GameCube", LibrarySourceKind.Rom, true, false,
+                        "Not scanned", -1, false, true, "retro")
                 ]
-            },
-            RomSystemFolders =
-            [
-                new RomSystemFolder("psx", "PlayStation", @"D:\ROMs\psx"),
-                new RomSystemFolder("snes", "Super Nintendo", @"D:\ROMs\snes"),
-                new RomSystemFolder("gamecube", "Nintendo GameCube", @"D:\ROMs\gc")
-            ]
+            }
         };
         var window = PreviewTools.Create(fixture, width, height, source);
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SteamGameLibrary));
-        Click(window, $"Sources ({OverlayToolFixtures.Library.Reading.Count} on)");
-        Click(window, "Configure Retro collection");
+        Click(window, $"Sources ({library.Reading.Count} on)");
         Dispatcher.UIThread.RunJobs();
-
-        Assert.Contains("DetectRomSystemsAsync", source.Commands);
+        UiFixture.Tagged<Control>(window, "source:retro/gamecube").BringIntoView();
+        Dispatcher.UIThread.RunJobs();
         VisualBaseline.Verify(window, name);
+
+        Click(window, "Retro collection › Nintendo GameCube");
+        Assert.Equal("SetSourceEnabledAsync", source.Commands[^1]);
     }
 
     [AvaloniaFact]

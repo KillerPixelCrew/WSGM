@@ -102,27 +102,6 @@ internal sealed partial class GameLibraryService
     }
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<RomSystemFolder>> DetectRomSystemsAsync(string path, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        var systems = ReadRomSystems();
-        return Task.Run<IReadOnlyList<RomSystemFolder>>(() =>
-        {
-            try
-            {
-                return Path.IsPathFullyQualified(path) && Directory.Exists(path)
-                    ? RomLibrarySource.SystemFolders(Path.GetFullPath(path), systems, cancellationToken)
-                    : [];
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                Log.Warn($"Game Library: the system folders of {path} could not be read: {ex.Message}");
-                return [];
-            }
-        }, cancellationToken);
-    }
-
-    /// <inheritdoc />
     public Task<SteamUiCommandResult> RemoveRomSourceAsync(string id, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

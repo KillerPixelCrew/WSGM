@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using WSGM.Core;
 
@@ -52,29 +53,39 @@ internal static class GameLibraryProjection
             .OrderBy(entry => entry.Plan.Name, StringComparer.CurrentCulture)
             .Select(entry => Project(entry, names, settings.ArtworkPreference, artwork, tracked))
             .ToList();
-        List<GameLibrarySource> published =
-        [
-            .. sources.Select(source =>
+        List<GameLibrarySource> published = [];
+        foreach (var source in sources)
+        {
+            var found = availability.TryGetValue(source.Id, out var detected)
+                ? detected
+                : new SourceAvailability(false, "Checking…");
+            var row = new GameLibrarySource(
+                source.Id,
+                source.DisplayName,
+                source.Kind,
+                found.Installed,
+                !disabled.Contains(source.Id),
+                found.Detail,
+                counts.TryGetValue(source.Id, out var count) ? count : -1,
+                !disabled.Contains(source.Id) && (source.Kind != LibrarySourceKind.Launcher || found.Installed),
+                source.Kind != LibrarySourceKind.Launcher || found.Installed);
+            var systems = SystemRows(row, found, settings, entries, counts.ContainsKey(source.Id));
+            if (systems.Count > 0 && row.Count >= 0)
             {
-                var found = availability.TryGetValue(source.Id, out var detected)
-                    ? detected
-                    : new SourceAvailability(false, "Checking…");
-                return new GameLibrarySource(
-                    source.Id,
-                    source.DisplayName,
-                    source.Kind,
-                    found.Installed,
-                    !disabled.Contains(source.Id),
-                    found.Detail,
-                    counts.TryGetValue(source.Id, out var count) ? count : -1,
-                    !disabled.Contains(source.Id) && (source.Kind != LibrarySourceKind.Launcher || found.Installed),
-                    source.Kind != LibrarySourceKind.Launcher || found.Installed);
-            })
-        ];
+                // The library's own count is its scanned systems', so switching one off updates it at once.
+                row = row with { Count = systems.Where(system => system.Count > 0).Sum(system => system.Count) };
+            }
+
+            published.Add(row);
+            published.AddRange(systems);
+        }
 
         return new GameLibraryState(
             published,
-            [.. published.Where(source => source is { Installed: true, Enabled: true }).Select(source => source.Name)],
+            [
+                .. published.Where(source => source is { Installed: true, Enabled: true, ParentId.Length: 0 })
+                    .Select(source => source.Name)
+            ],
             phase,
             projected,
             projected.Count(entry => entry.Selected),
@@ -366,5 +377,40 @@ internal static class GameLibraryProjection
                ?? (entry.Game.Content is { } content
                    ? tracked.Shortcuts.FirstOrDefault(status => status.ContentId == content.Id)
                    : null);
+    }
+
+    /// <summary>
+    ///     One row per system folder a ROM library detected, under the library, with whether it is scanned and
+    ///     how many titles of it the review holds. Its switch is the library's skipped systems.
+    /// </summary>
+    private static List<GameLibrarySource> SystemRows(GameLibrarySource library, SourceAvailability found,
+        GameLibraryConfig settings, IReadOnlyCollection<GameLibraryEntryState> entries, bool scanned)
+    {
+        if (found.Systems.Count == 0
+            || settings.RomSources.FirstOrDefault(source => source.Id == library.Id) is not { } config)
+        {
+            return [];
+        }
+
+        var skipped = config.SkippedSystems.Select(EmulatorStorage.NormalizeSystemId)
+            .ToHashSet(StringComparer.Ordinal);
+        return
+        [
+            .. found.Systems.Select(folder =>
+            {
+                var off = skipped.Contains(folder.SystemId);
+                var titles = scanned && !off
+                    ? entries.Count(entry => entry.Plan.Action is not ImportAction.Remove
+                                             && string.Equals(entry.Plan.Source, library.Id,
+                                                 StringComparison.OrdinalIgnoreCase)
+                                             && EmulatorStorage.NormalizeSystemId(entry.Game.Content?.SystemId ?? "")
+                                             == folder.SystemId)
+                    : -1;
+                return new GameLibrarySource(GameLibrarySource.SystemRowId(library.Id, folder.SystemId), folder.Name,
+                    LibrarySourceKind.Rom, library.Installed, !off,
+                    off ? "Not scanned" : Path.GetFileName(folder.Folder), titles, library.Checked && !off,
+                    library.Checked && library.Installed, library.Id);
+            })
+        ];
     }
 }

@@ -1259,6 +1259,48 @@ public sealed class GameLibraryServiceTests
     }
 
     [Fact]
+    public async Task ARomLibrarysSystemsAreListedWithItsSourcesAndSwitchedOffLikeOne()
+    {
+        using Harness harness = new();
+        using TemporaryDirectory media = new();
+        Directory.CreateDirectory(media.GetPath("snes"));
+        Directory.CreateDirectory(media.GetPath("psx"));
+        File.WriteAllText(media.GetPath(Path.Combine("snes", "One.sfc")), "fixture ROM");
+        File.WriteAllText(media.GetPath(Path.Combine("snes", "Two.sfc")), "fixture ROM");
+        File.WriteAllText(media.GetPath(Path.Combine("psx", "Three.cue")), "FILE \"Three.bin\" BINARY");
+        File.WriteAllText(media.GetPath(Path.Combine("psx", "Three.bin")), "fixture disc");
+        GameLibraryConfig settings = new()
+        {
+            RomSources =
+            [
+                new RomSourceConfig
+                {
+                    Id = "roms", Name = "ROMs", SystemId = "auto",
+                    Root = new ManagedContentPath { AbsolutePath = media.Root, Directory = true }
+                }
+            ]
+        };
+        using var source = harness.Create([], settings: settings);
+
+        var scanned = await ScannedAsync(source);
+        var library = scanned.Sources.Single(row => row.Id == "roms");
+        var systems = scanned.Sources.Where(row => row.ParentId == "roms").ToDictionary(row => row.Id);
+        Assert.Equal(3, library.Count);
+        Assert.Equal((2, true), (systems["roms/snes"].Count, systems["roms/snes"].Checked));
+        Assert.Equal((1, true), (systems["roms/psx"].Count, systems["roms/psx"].Checked));
+        Assert.Equal(1, scanned.Reading.Count(name => name == "ROMs"));
+
+        Assert.True((await source.SetSourceEnabledAsync("roms/psx", false, CancellationToken.None)).Succeeded);
+
+        var after = source.ReadState();
+        Assert.Equal(["psx"], Assert.Single(settings.RomSources).SkippedSystems);
+        Assert.DoesNotContain(after.Entries, entry => entry.Name.StartsWith("Three", StringComparison.Ordinal));
+        Assert.Equal((-1, false, "Not scanned"),
+            after.Sources.Single(row => row.Id == "roms/psx") is var psx ? (psx.Count, psx.Checked, psx.Detail) : default);
+        Assert.Equal(2, after.Sources.Single(row => row.Id == "roms").Count);
+    }
+
+    [Fact]
     public async Task ASkippedSystemsImportedTitlesLeaveTheReviewInsteadOfBeingOfferedForRemoval()
     {
         using Harness harness = new();
