@@ -35,6 +35,12 @@ public sealed class RomSourceConfig
     /// <summary>Filename or relative-path wildcard exclusions.</summary>
     public List<string> Exclusions { get; set; } = [];
 
+    /// <summary>
+    ///     For a library that detects its system folders, the systems Library Importer does not scan. Empty
+    ///     scans every system it finds, including a folder added later.
+    /// </summary>
+    public List<string> SkippedSystems { get; set; } = [];
+
     /// <summary>Typed launch argument override; empty follows the emulator definition.</summary>
     public List<string> Arguments { get; set; } = [];
 
@@ -45,6 +51,7 @@ public sealed class RomSourceConfig
         copy.Root = Root.Copy();
         copy.Extensions = [.. Extensions];
         copy.Exclusions = [.. Exclusions];
+        copy.SkippedSystems = [.. SkippedSystems];
         copy.Arguments = [.. Arguments];
         return copy;
     }

@@ -26,6 +26,9 @@ internal sealed partial class GameLibraryService
             var copy = source.Copy();
             copy.SystemId = EmulatorStorage.NormalizeSystemId(copy.SystemId);
             copy.Extensions = GameLibraryRules.NormalizeExtensions(copy.Extensions);
+            copy.SkippedSystems = copy.SystemId == RomProfiles.Automatic.Id
+                ? [.. copy.SkippedSystems.Select(EmulatorStorage.NormalizeSystemId).Distinct(StringComparer.Ordinal)]
+                : [];
             if (RomArgumentsRefusal(copy.Arguments) is { } argumentRefusal)
             {
                 return Refuse(argumentRefusal);
@@ -96,6 +99,27 @@ internal sealed partial class GameLibraryService
         {
             return Refuse(ex.Message);
         }
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<RomSystemFolder>> DetectRomSystemsAsync(string path, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var systems = ReadRomSystems();
+        return Task.Run<IReadOnlyList<RomSystemFolder>>(() =>
+        {
+            try
+            {
+                return Path.IsPathFullyQualified(path) && Directory.Exists(path)
+                    ? RomLibrarySource.SystemFolders(Path.GetFullPath(path), systems, cancellationToken)
+                    : [];
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Log.Warn($"Game Library: the system folders of {path} could not be read: {ex.Message}");
+                return [];
+            }
+        }, cancellationToken);
     }
 
     /// <inheritdoc />

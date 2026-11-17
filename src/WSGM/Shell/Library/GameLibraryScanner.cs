@@ -374,8 +374,19 @@ internal sealed class GameLibraryScanner(
                 "Collection ownership could not be checked; its changes remain pending. " + ex.Message);
         }
 
-        // Emulator UI shortcuts share the ownership ledger, but are reconciled by their manager.
-        var recorded = store.Entries().Where(entry => entry.Source != EmulatorShortcutSync.Source).ToArray();
+        // Emulator UI shortcuts share the ownership ledger, but are reconciled by their manager. A ROM
+        // library's skipped systems are left out as an unticked source is: their titles leave the review
+        // and are never offered for removal just because they were not scanned.
+        var skipped = settings.RomSources.Where(source => source.SkippedSystems.Count > 0).ToDictionary(
+            source => source.Id,
+            source => source.SkippedSystems.Select(EmulatorStorage.NormalizeSystemId).ToHashSet(StringComparer.Ordinal),
+            StringComparer.OrdinalIgnoreCase);
+        var recorded = store.Entries().Where(entry => entry.Source != EmulatorShortcutSync.Source
+                                                      && !(entry.Content is { SourceKind: LibrarySourceKind.Rom } rom
+                                                           && skipped.TryGetValue(entry.Source, out var systems)
+                                                           && systems.Contains(
+                                                               EmulatorStorage.NormalizeSystemId(rom.SystemId))))
+            .ToArray();
         var scanChoices = store.Choices().ToDictionary(choice => (choice.Source, choice.Key), ImportPlan.Identity);
         var recordedSources = recorded.Select(record => record.Source).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var emulatorSnapshot = emulators.ReadStore();

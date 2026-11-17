@@ -554,14 +554,18 @@ share one admission gate with the launcher while activating a version or startin
 installations can be registered without granting WSGM ownership of their files. Removal preserves
 user data by default and retains dependent ROM shortcuts.
 
-ROM setup accepts a system folder or a collection root with **Detect system folders**. Folder
-aliases include `gc`, `n3ds` and `genesis`; Sega Pico and 32X are available through compatible
-RetroArch cores. An emulator can be chosen later: discovery and preview work before installation,
-while launch still requires a compatible emulator/core and its prerequisites. File types, recursion
-and exclusions remain editable; exclusion paths accept both slash styles. Installed core metadata
-extends the profile list. PSP CHD and N64 7z are recognized. Switch update/DLC folders and tagged
-update/add-on title IDs are excluded. NSZ/XCZ files appear with a conversion requirement instead of
-being offered as bootable games; the supported Switch releases require NSP/XCI.
+ROM setup accepts a system folder or a collection root with **Detect system folders**. A
+collection's editor lists the system folders it holds, each with a switch: a system switched off is
+not scanned, so its games are not offered to Steam, and titles imported from it earlier leave the
+review as an unticked source's do, never offered for removal. Every system is scanned unless
+switched off, including a folder added later. ES-DE still shows every system the collection holds.
+Folder aliases include `gc`, `n3ds` and `genesis`; Sega Pico and 32X are available through
+compatible RetroArch cores. An emulator can be chosen later: discovery and preview work before
+installation, while launch still requires a compatible emulator/core and its prerequisites. File
+types, recursion and exclusions remain editable; exclusion paths accept both slash styles. Installed
+core metadata extends the profile list. PSP CHD and N64 7z are recognized. Switch update/DLC folders
+and tagged update/add-on title IDs are excluded. NSZ/XCZ files appear with a conversion requirement
+instead of being offered as bootable games; the supported Switch releases require NSP/XCI.
 
 Disc descriptors/playlists retain required companions. PS2 playlists launch their first image
 through PCSX2 rather than passing it an unsupported M3U; use the emulator's Change Disc menu for

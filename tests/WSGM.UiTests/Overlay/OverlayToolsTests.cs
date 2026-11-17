@@ -4,6 +4,7 @@ using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Controls;
+using WSGM.Core;
 using WSGM.Overlay;
 using WSGM.UiTests.Fakes;
 using WSGM.UiTests.Infrastructure;
@@ -66,6 +67,42 @@ public sealed class OverlayToolsTests
         Assert.DoesNotContain(UiFixture.Named<StackPanel>(window, "SectionRail").Children.OfType<Button>(),
             button => Equals(button.Tag, "rail.SystemThemes"));
         Assert.False(UiFixture.Named<ThemesView>(window, "ThemesHost").IsEffectivelyVisible);
+    }
+
+    [AvaloniaTheory]
+    [InlineData("overlay-importer-rom-systems-1280", 1280, 800)]
+    [InlineData("overlay-importer-rom-systems-980", 980, 640)]
+    public void ARomLibraryListsTheSystemFoldersItScans(string name, int width, int height)
+    {
+        using var fixture = new UiFixture();
+        var source = new FakeLibrarySource
+        {
+            State = OverlayToolFixtures.Library with
+            {
+                RomSources =
+                [
+                    new RomSourceConfig
+                    {
+                        Id = "retro", Name = "Retro collection", SystemId = "auto", SkippedSystems = ["gamecube"],
+                        Root = new ManagedContentPath { AbsolutePath = @"D:\ROMs", Directory = true }
+                    }
+                ]
+            },
+            RomSystemFolders =
+            [
+                new RomSystemFolder("psx", "PlayStation", @"D:\ROMs\psx"),
+                new RomSystemFolder("snes", "Super Nintendo", @"D:\ROMs\snes"),
+                new RomSystemFolder("gamecube", "Nintendo GameCube", @"D:\ROMs\gc")
+            ]
+        };
+        var window = PreviewTools.Create(fixture, width, height, source);
+        UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SteamGameLibrary));
+        Click(window, $"Sources ({OverlayToolFixtures.Library.Reading.Count} on)");
+        Click(window, "Configure Retro collection");
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("DetectRomSystemsAsync", source.Commands);
+        VisualBaseline.Verify(window, name);
     }
 
     [AvaloniaFact]

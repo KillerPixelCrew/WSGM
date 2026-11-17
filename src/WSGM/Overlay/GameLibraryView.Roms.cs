@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using WSGM.Controls;
@@ -13,6 +15,8 @@ public sealed partial class GameLibraryView
 {
     private RomSourceConfig? _romDraft;
     private bool _romSingleFile;
+    private IReadOnlyList<RomSystemFolder>? _romSystemFolders;
+    private string _romSystemFoldersFor = "";
 
     private void OpenRomSource(string? id, bool singleFile = false)
     {
@@ -22,6 +26,8 @@ public sealed partial class GameLibraryView
         var system = _service?.ReadRomSystems().FirstOrDefault(profile => !singleFile || profile.Id != "auto");
         var preferred = _service?.ReadRomState().SystemPreferences.FirstOrDefault(item => item.SystemId == system?.Id);
         _romSingleFile = singleFile;
+        _romSystemFolders = null;
+        _romSystemFoldersFor = "";
         if (manual?.RomPath is { } path)
         {
             _romDraft = new RomSourceConfig
@@ -96,6 +102,10 @@ public sealed partial class GameLibraryView
                 _romDraft.CoreId = coreId;
                 RenderRomSource();
             });
+        if (!_romSingleFile && draft.SystemId == RomProfiles.Automatic.Id && draft.Root.AbsolutePath.Length > 0)
+        {
+            AddRomSystemSwitches(body, draft);
+        }
         body.Children.Add(Tagged(Row("Manage emulators", "Install one or register an existing executable", Icons.Grid4,
             () => EmulatorsRequested?.Invoke()), "rom.manage"));
         if (!_romSingleFile)
@@ -163,6 +173,67 @@ public sealed partial class GameLibraryView
         // library, so an apply's saved titles leave the editor as drawn.
         SetLibraryContent(body, shown, ReadRomEditor, static reading => reading.State,
             static (a, b) => ReferenceEquals(a.Rom, b.Rom) && a.Systems.SequenceEqual(b.Systems));
+    }
+
+    /// <summary>
+    ///     The systems a library set to detect them holds, each with a switch: switched off, it is not
+    ///     scanned for Steam. The folder is read again whenever it changes.
+    /// </summary>
+    private void AddRomSystemSwitches(StackPanel body, RomSourceConfig draft)
+    {
+        var path = draft.Root.AbsolutePath;
+        if (!string.Equals(_romSystemFoldersFor, path, StringComparison.OrdinalIgnoreCase))
+        {
+            _romSystemFoldersFor = path;
+            _romSystemFolders = null;
+            _ = RunSafelyAsync(DetectRomSystemsAsync(path), "ROM systems");
+        }
+
+        if (_romSystemFolders is not { } folders)
+        {
+            body.Children.Add(Tagged(Caption("Looking for system folders…"), "rom.systems.reading"));
+            return;
+        }
+
+        if (folders.Count == 0)
+        {
+            body.Children.Add(Tagged(Caption("No system folders found. Name each system's folder after it, such as "
+                                             + "psx, snes or gc."), "rom.systems.none"));
+            return;
+        }
+
+        body.Children.Add(Tagged(Caption("Systems to scan. A system switched off is not added to Steam; ES-DE "
+                                         + "still shows it."), "rom.systems.note"));
+        foreach (var folder in folders)
+        {
+            var systemId = folder.SystemId;
+            body.Children.Add(Tagged(ToggleRow(folder.Name + " · " + Path.GetFileName(folder.Folder),
+                !draft.SkippedSystems.Contains(systemId), scan =>
+                {
+                    _romDraft!.SkippedSystems.RemoveAll(id => id == systemId);
+                    if (!scan)
+                    {
+                        _romDraft.SkippedSystems.Add(systemId);
+                    }
+
+                    RenderRomSource();
+                }), "rom.system:" + systemId));
+        }
+    }
+
+    private async Task DetectRomSystemsAsync(string path)
+    {
+        var generation = NavigationGeneration;
+        // Never inside the render that asked: the answer draws the editor again.
+        await Task.Yield();
+        var found = await _service!.DetectRomSystemsAsync(path, CancellationToken.None);
+        if (generation == NavigationGeneration && _romDraft is not null
+                                               && string.Equals(_romSystemFoldersFor, path,
+                                                   StringComparison.OrdinalIgnoreCase))
+        {
+            _romSystemFolders = found;
+            RenderRomSource();
+        }
     }
 
     private async Task ChooseRomFolderAsync()

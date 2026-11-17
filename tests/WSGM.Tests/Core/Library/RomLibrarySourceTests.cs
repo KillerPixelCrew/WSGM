@@ -73,6 +73,28 @@ public sealed class RomLibrarySourceTests
     }
 
     [Fact]
+    public async Task ACollectionListsItsSystemFoldersAndScansOnlyTheSystemsNotSkipped()
+    {
+        using TemporaryDirectory temporary = new();
+        Write(temporary.Root, "gc/Game.rvz");
+        Write(temporary.Root, "psx/Game.cue");
+        Write(temporary.Root, "snes/Game.sfc");
+        Write(temporary.Root, "unknown/Game.zip");
+
+        var folders = RomLibrarySource.SystemFolders(temporary.Root, RomProfiles.All);
+        Assert.Equal(["gamecube", "psx", "snes"], folders.Select(folder => folder.SystemId).Order());
+        Assert.Equal(Path.Combine(temporary.Root, "gc"), folders.Single(folder => folder.SystemId == "gamecube").Folder);
+
+        var source = new RomLibrarySource(new RomSourceConfig
+        {
+            Id = "roms", Name = "Test ROMs", SystemId = "auto", SkippedSystems = ["PSX", "gamecube"],
+            Root = new ManagedContentPath { AbsolutePath = temporary.Root, Directory = true }
+        });
+        var games = await source.DiscoverAsync([], CancellationToken.None);
+        Assert.Equal("snes", Assert.Single(games).Content!.SystemId);
+    }
+
+    [Fact]
     public async Task CleanupKeepsDiscNumbersAndDuplicateVersionsNeedExplicitSelection()
     {
         using TemporaryDirectory temporary = new();

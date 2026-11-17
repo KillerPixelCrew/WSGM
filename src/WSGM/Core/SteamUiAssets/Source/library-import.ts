@@ -933,6 +933,7 @@ function ImportRomSourceBody({ sourceId, singleFile = false, close }: any) {
         titleCleanup: true,
         extensions: [],
         exclusions: [],
+        skippedSystems: [],
         arguments: [...(manual.romArguments ?? [])],
       };
     if (source)
@@ -941,6 +942,7 @@ function ImportRomSourceBody({ sourceId, singleFile = false, close }: any) {
         root: { ...source.root },
         extensions: [...source.extensions],
         exclusions: [...source.exclusions],
+        skippedSystems: [...(source.skippedSystems ?? [])],
         arguments: [...source.arguments],
       };
     return {
@@ -954,10 +956,61 @@ function ImportRomSourceBody({ sourceId, singleFile = false, close }: any) {
       titleCleanup: true,
       extensions: system?.extensions ?? [],
       exclusions: [],
+      skippedSystems: [],
       arguments: [],
     };
   });
   const [error, setError] = react.useState("");
+  // The system folders a library set to detect them holds, read again whenever its folder changes;
+  // null while that read runs.
+  const detecting = !singleFile && draft.systemId === "auto" && !!draft.root.absolutePath;
+  const [detected, setDetected] = react.useState(null as any[] | null);
+  react.useEffect(() => {
+    if (!detecting) return;
+    let live = true;
+    setDetected(null);
+    void importAct("detectRomSystems", { path: draft.root.absolutePath }).then(
+      (answer: any) => live && setDetected(answer?.systems ?? []),
+      () => live && setDetected([]),
+    );
+    return () => {
+      live = false;
+    };
+  }, [detecting, draft.root.absolutePath]);
+  const skipped: string[] = draft.skippedSystems ?? [];
+  const systemSwitches = !detecting
+    ? []
+    : detected === null
+      ? [h("div", { key: "systems-reading", className: "wsgm-import-muted" }, "Looking for system folders…")]
+      : !detected.length
+        ? [
+            h(
+              "div",
+              { key: "systems-none", className: "wsgm-import-muted" },
+              "No system folders found. Name each system's folder after it, such as psx, snes or gc.",
+            ),
+          ]
+        : [
+            h(
+              "div",
+              { key: "systems-note", className: "wsgm-import-muted" },
+              "Systems to scan. A system switched off is not added to Steam; ES-DE still shows it.",
+            ),
+            ...detected.map((folder: any) =>
+              h(importUi.toggleField, {
+                key: `system:${folder.systemId}`,
+                label: folder.name,
+                description: folder.folder,
+                checked: !skipped.includes(folder.systemId),
+                onChange: (value: boolean) =>
+                  change({
+                    skippedSystems: value
+                      ? skipped.filter((id) => id !== folder.systemId)
+                      : [...skipped, folder.systemId],
+                  }),
+              }),
+            ),
+          ];
   const change = (fields: any) => setDraft((current: any) => ({ ...current, ...fields }));
   const systems = (state?.romSystems ?? []).filter((item: any) => !singleFile || item.id !== "auto");
   const field = (label: string, value: string, onChange: any) =>
@@ -1041,6 +1094,7 @@ function ImportRomSourceBody({ sourceId, singleFile = false, close }: any) {
           });
       },
     }),
+    ...systemSwitches,
     h(ImportRomLaunchControls, {
       state,
       systemId: draft.systemId,

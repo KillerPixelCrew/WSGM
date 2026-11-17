@@ -890,6 +890,16 @@ internal sealed class FakeLibrarySource : IGameLibraryOverlaySource
         return Command("AddRomSourceAsync");
     }
 
+    /// <summary>The system folders a ROM library's folder answers with.</summary>
+    internal IReadOnlyList<RomSystemFolder> RomSystemFolders { get; set; } = [];
+
+    public Task<IReadOnlyList<RomSystemFolder>> DetectRomSystemsAsync(string path,
+        CancellationToken cancellationToken)
+    {
+        Commands.Add("DetectRomSystemsAsync");
+        return Task.FromResult(RomSystemFolders);
+    }
+
     public Task<SteamUiCommandResult> RemoveRomSourceAsync(string id, CancellationToken cancellationToken)
     {
         return Command("RemoveRomSourceAsync");

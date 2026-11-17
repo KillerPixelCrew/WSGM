@@ -19,6 +19,11 @@ internal static partial class SteamLibraryImportSurface
     {
         return
         [
+            SteamUiModuleBuilder.Command<string>(PatchId, "detectRomSystems", TryReadPath,
+                async (path, token) => new SteamUiCommandResult(true, null, JsonSerializer.SerializeToElement(
+                    new RomSystemsAnswer([.. await backend.DetectRomSystemsAsync(path, token).ConfigureAwait(false)]),
+                    GameLibraryJsonContext.Default.RomSystemsAnswer)),
+                "The ROM library folder is invalid."),
             SteamUiModuleBuilder.Command<RomSourceConfig>(PatchId, "addRomSource", TryReadSource,
                 backend.AddRomSourceAsync, "The ROM source is invalid."),
             SteamUiModuleBuilder.Command<string>(PatchId, "removeRomSource", TryReadId,
@@ -90,6 +95,13 @@ internal static partial class SteamLibraryImportSurface
         {
             return false;
         }
+    }
+
+    private static bool TryReadPath(JsonElement payload, out string path)
+    {
+        path = "";
+        return SteamUiPayload.HasExactly(payload, 1)
+               && SteamUiPayload.TryReadNonBlankString(payload, "path", out path);
     }
 
     private static bool TryReadTitle(JsonElement payload, out TitleRequest value)

@@ -52,26 +52,15 @@ public sealed class RomLibrarySource(RomSourceConfig source, IReadOnlyList<RomSy
         var known = profiles ?? RomProfiles.All;
         if (systemId == "auto")
         {
-            RomSystemProfile? Match(string path)
-            {
-                return known.FirstOrDefault(profile =>
-                    profile.Id == EmulatorStorage.NormalizeSystemId(Path.GetFileName(path.TrimEnd('\\', '/'))));
-            }
-
-            if (Match(root) is { } selected)
-            {
-                return Discover(root, selected, cancellationToken);
-            }
-
+            var skipped = source.SkippedSystems.Select(EmulatorStorage.NormalizeSystemId)
+                .ToHashSet(StringComparer.Ordinal);
             List<DiscoveredGame> collection = [];
-            foreach (var directory in LibraryFiles.List(root).Where(item => item.IsDirectory))
+            foreach (var folder in SystemFolders(root, known, cancellationToken))
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                if ((directory.Attributes &
-                     (FileAttributes.ReparsePoint | FileAttributes.Hidden | FileAttributes.System)) == 0
-                    && Match(directory.Path) is { } system)
+                if (!skipped.Contains(folder.SystemId))
                 {
-                    collection.AddRange(Discover(directory.Path, system, cancellationToken));
+                    collection.AddRange(Discover(folder.Folder,
+                        known.First(profile => profile.Id == folder.SystemId), cancellationToken));
                 }
             }
 
@@ -81,6 +70,43 @@ public sealed class RomLibrarySource(RomSourceConfig source, IReadOnlyList<RomSy
         var profile = known.FirstOrDefault(value => value.Id == systemId)
                       ?? throw new InvalidDataException("Choose a supported ROM system.");
         return Discover(root, profile, cancellationToken);
+    }
+
+    /// <summary>
+    ///     The system folders a library set to detect them holds: the folder itself when its name names a
+    ///     system, otherwise each visible subfolder whose name does, such as <c>psx</c> or <c>gc</c>.
+    /// </summary>
+    /// <param name="root">The library's folder.</param>
+    /// <param name="profiles">The systems a folder's name can name.</param>
+    /// <param name="cancellationToken">Stops between folders.</param>
+    /// <returns>Each system folder found, in the order the folder lists them.</returns>
+    public static List<RomSystemFolder> SystemFolders(string root, IReadOnlyList<RomSystemProfile> profiles,
+        CancellationToken cancellationToken = default)
+    {
+        RomSystemProfile? Match(string path)
+        {
+            return profiles.FirstOrDefault(profile =>
+                profile.Id == EmulatorStorage.NormalizeSystemId(Path.GetFileName(path.TrimEnd('\\', '/'))));
+        }
+
+        if (Match(root) is { } named)
+        {
+            return [new RomSystemFolder(named.Id, named.Name, root)];
+        }
+
+        List<RomSystemFolder> folders = [];
+        foreach (var directory in LibraryFiles.List(root).Where(item => item.IsDirectory))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if ((directory.Attributes &
+                 (FileAttributes.ReparsePoint | FileAttributes.Hidden | FileAttributes.System)) == 0
+                && Match(directory.Path) is { } system)
+            {
+                folders.Add(new RomSystemFolder(system.Id, system.Name, directory.Path));
+            }
+        }
+
+        return folders;
     }
 
     private IReadOnlyList<DiscoveredGame> Discover(string root, RomSystemProfile profile,

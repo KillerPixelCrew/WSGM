@@ -93,12 +93,6 @@ internal static class EsDeFiles
     internal static List<EsDeFolder> Folders(IEnumerable<RomSourceConfig> sources,
         IReadOnlyList<RomSystemProfile> profiles)
     {
-        RomSystemProfile? Match(string path)
-        {
-            var name = EmulatorStorage.NormalizeSystemId(Path.GetFileName(Path.TrimEndingDirectorySeparator(path)));
-            return profiles.FirstOrDefault(profile => profile.Id == name);
-        }
-
         List<EsDeFolder> folders = [];
         foreach (var source in sources)
         {
@@ -131,23 +125,14 @@ internal static class EsDeFiles
                 continue;
             }
 
-            if (Match(root) is { } named)
-            {
-                folders.Add(new EsDeFolder(source.Id, source.Name, named.Id, root, Extensions(source, named)));
-                continue;
-            }
-
             try
             {
-                foreach (var directory in new DirectoryInfo(root).EnumerateDirectories())
+                // The importer's own detection. Its skipped systems are a Steam choice: ES-DE shows every
+                // system the library holds.
+                foreach (var folder in RomLibrarySource.SystemFolders(root, profiles))
                 {
-                    if ((directory.Attributes &
-                         (FileAttributes.ReparsePoint | FileAttributes.Hidden | FileAttributes.System)) == 0
-                        && Match(directory.FullName) is { } system)
-                    {
-                        folders.Add(new EsDeFolder(source.Id, source.Name, system.Id, directory.FullName,
-                            Extensions(source, system)));
-                    }
+                    folders.Add(new EsDeFolder(source.Id, source.Name, folder.SystemId, folder.Folder,
+                        Extensions(source, profiles.First(profile => profile.Id == folder.SystemId))));
                 }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

@@ -1259,6 +1259,44 @@ public sealed class GameLibraryServiceTests
     }
 
     [Fact]
+    public async Task ASkippedSystemsImportedTitlesLeaveTheReviewInsteadOfBeingOfferedForRemoval()
+    {
+        using Harness harness = new();
+        using TemporaryDirectory media = new();
+        Directory.CreateDirectory(media.GetPath("snes"));
+        Directory.CreateDirectory(media.GetPath("psx"));
+        File.WriteAllText(media.GetPath(Path.Combine("snes", "Game.sfc")), "fixture ROM");
+        GameLibraryConfig settings = new()
+        {
+            RomSources =
+            [
+                new RomSourceConfig
+                {
+                    Id = "roms", Name = "ROMs", SystemId = "auto", SkippedSystems = ["psx"],
+                    Root = new ManagedContentPath { AbsolutePath = media.Root, Directory = true }
+                }
+            ]
+        };
+        harness.Import(new ImportedEntry
+        {
+            AccountId = Harness.Account, Source = "roms", Key = Path.Combine("psx", "Old.cue"), Name = "Old",
+            AppId = 2147483700u, Target = "\"C:\\WSGM\\WSGM.PackagedLaunch.exe\"", LaunchOptions = "",
+            Mode = nameof(ImportMode.SteamIntegration), ConfirmedUtc = "2026-11-17T00:00:00.0000000+00:00",
+            Content = new ManagedContentRecord
+            {
+                Id = ManagedContentStorage.ContentId("roms", "psx/Old.cue"), SourceId = "roms",
+                SourceKey = "psx/Old.cue", Name = "Old", SourceKind = LibrarySourceKind.Rom, SystemId = "psx"
+            }
+        });
+        using var source = harness.Create([], settings: settings);
+
+        var state = await ScannedAsync(source);
+
+        Assert.DoesNotContain(state.Entries, entry => entry.Name == "Old");
+        Assert.Contains(state.Entries, entry => entry.SourceId == "roms");
+    }
+
+    [Fact]
     public async Task ASingleRomIsAnAuthoredEntryWithOneStableManagedIdentity()
     {
         using Harness harness = new();
