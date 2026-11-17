@@ -25756,12 +25756,18 @@
           { key: "storage-head", className: "wsgm-import-eyebrow wsgm-import-custom" },
           "Storage",
         ),
-        renderSteamUiSelectRow(ui, {
-          key: "storage",
-          title: "Storage",
-          detail: importStorageSummary(state),
-          onClick: () => showImportStorage(actions.openTitle),
-        }),
+        // A list row, not a bare sidebar button: those are fixed one-line buttons, and the
+        // summary below the title wraps to two lines in this column.
+        h(
+          "div",
+          { key: "storage", className: "steam-ui-kit-list" },
+          renderSteamUiSelectRow(ui, {
+            key: "storage",
+            title: "Storage",
+            detail: importStorageSummary(state),
+            onClick: () => showImportStorage(actions.openTitle),
+          }),
+        ),
         h("div", { className: "wsgm-import-eyebrow wsgm-import-custom" }, "Steam"),
         h(
           "div",
