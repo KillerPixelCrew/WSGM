@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
+using WSGM.Core;
 using WSGM.Interop;
 using WSGM.Launch;
 
@@ -89,6 +90,16 @@ internal static class DetachedStart
         var name = Path.GetFileName(program);
         var directory = Path.GetDirectoryName(program) ?? Environment.CurrentDirectory;
         var commandLine = $"\"{program}\"{(arguments.Length > 0 ? " " + arguments : string.Empty)}";
+        var batch = PackagedLaunchCommand.IsBatchFile(program);
+        var application = program;
+        if (batch)
+        {
+            // CreateProcess runs only executables. The command processor runs the batch file, in its own
+            // folder and without a console window; /s keeps the quoted program and its arguments as written.
+            application = Path.Combine(Environment.SystemDirectory, "cmd.exe");
+            arguments = $"/d /s /c \"{commandLine}\"";
+            commandLine = $"\"{application}\" {arguments}";
+        }
         foreach (var parentName in Parents)
         {
             if (!TryOpenParent(parentName, out var parent, out var token))
@@ -98,8 +109,8 @@ internal static class DetachedStart
 
             try
             {
-                if (ParentProcessStart.TryCreate(parent, token, program, commandLine, directory, out var id,
-                        out var handle, out var error))
+                if (ParentProcessStart.TryCreate(parent, token, application, commandLine, directory, out var id,
+                        out var handle, out var error, batch))
                 {
                     detail = $"Started {name} ({id}) under {parentName}, outside Steam's tree and its environment.";
                     return new StartedLauncher((int)id, new SafeProcessHandle(handle, true), name);
@@ -114,18 +125,19 @@ internal static class DetachedStart
             }
         }
 
-        return StartAsChild(program, arguments, directory, name, out detail);
+        return StartAsChild(application, arguments, directory, name, batch, out detail);
     }
 
     private static StartedLauncher? StartAsChild(
-        string program, string arguments, string directory, string name, out string detail)
+        string program, string arguments, string directory, string name, bool batch, out string detail)
     {
         try
         {
             ProcessStartInfo start = new(program, arguments)
             {
                 UseShellExecute = false,
-                WorkingDirectory = directory
+                WorkingDirectory = directory,
+                CreateNoWindow = batch
             };
             start.Environment.Remove(SteamControllerExclusion.Variable);
             using var process = Process.Start(start);

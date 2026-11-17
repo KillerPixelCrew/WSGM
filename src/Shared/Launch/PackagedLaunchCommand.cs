@@ -465,6 +465,17 @@ internal static class PackagedLaunchCommand
         return true;
     }
 
+    /// <summary>
+    ///     Whether a program is a batch file. Steam will not create a shortcut to one, so such a title
+    ///     runs through the follow launcher, which starts it through the command processor.
+    /// </summary>
+    /// <param name="program">The program's path.</param>
+    /// <returns>True for a <c>.bat</c> or <c>.cmd</c> file.</returns>
+    internal static bool IsBatchFile(string program)
+    {
+        return Path.GetExtension(program).ToLowerInvariant() is ".bat" or ".cmd";
+    }
+
     /// <summary>Why a follow request cannot be run, or null when it can.</summary>
     /// <param name="request">The request.</param>
     /// <returns>The refusal, naming the condition and the value that failed it.</returns>
@@ -485,9 +496,9 @@ internal static class PackagedLaunchCommand
             return $"The program to start, '{request.Program}', is not an absolute path.";
         }
 
-        if (!request.Program.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+        if (!request.Program.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && !IsBatchFile(request.Program))
         {
-            return $"The program to start, '{request.Program}', is not an .exe.";
+            return $"The program to start, '{request.Program}', is not an .exe or a batch file.";
         }
 
         if (request.Directory.Length == 0 && request.Marker.Length == 0)

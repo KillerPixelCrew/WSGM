@@ -182,6 +182,22 @@ public sealed class CommandRouteTests
         Assert.True(CommandShortcut.TryCompose(route, Launcher, out _, out _));
     }
 
+    [Fact]
+    public void ABatchFileRunsThroughTheFollowLauncherAndIsRecognisedAgain()
+    {
+        // GMDX's GOG play task is run_GMDX.bat; Steam answers AddShortcut for a batch file with
+        // EResult 2. Through the follow launcher Steam is given an executable and the title is added.
+        const string game = @"C:\Games\NoDRM\GoG\GMDX";
+        var route = new ShortcutRoute("direct", "Game executable", game + @"\run_GMDX.bat", game, "",
+            ShortcutRoute.DirectEvidence);
+
+        Assert.True(CommandShortcut.TryCompose(route, Launcher, out var fields, out var refusal), refusal);
+        Assert.Equal(Launcher, fields.Target.Trim('"'));
+        Assert.Equal($@"--follow --dir ""{game}"" -- ""{game}\run_GMDX.bat""", fields.LaunchOptions);
+        Assert.True(CommandShortcut.Runs(
+            new ExistingShortcut(1, fields.Target, fields.LaunchOptions, fields.StartDirectory), route, Launcher));
+    }
+
     private static bool AnyFile(string path)
     {
         return true;

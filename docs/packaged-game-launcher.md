@@ -173,6 +173,13 @@ processes, only the job count is checked. Machine discovery resumes at half-seco
 the job is empty, including the exit grace. A process is known by its id and start time, so a new
 game process that reuses a finished one's id is still contained.
 
+A title whose program is a batch file, such as GOG's `run_GMDX.bat` for GMDX, runs through follow
+mode with the batch file's folder as `--dir`. Steam's AddShortcut answers a batch file with EResult
+2 and creates nothing, while the follow launcher is an executable Steam accepts. It starts the batch
+file through `cmd.exe /d /s /c` in the batch file's folder, without a console window, and follows
+the game it starts from that folder. `CommandShortcut` makes that choice both when it writes the
+shortcut and when it recognises it on the next scan.
+
 For Minecraft, the shortcut starts the launcher with the instance rather than building a Java
 command itself. A direct command would carry a Microsoft account token that expires within a day,
 and refreshing it would mean WSGM handling the user's sign-in. ATLauncher is started with the

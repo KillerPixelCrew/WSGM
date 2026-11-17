@@ -22,6 +22,7 @@ namespace WSGM.Interop;
 /// </remarks>
 internal static partial class ParentProcessStart
 {
+    private const uint CreateNoWindow = 0x0800_0000;
     private const uint CreateUnicodeEnvironment = 0x0000_0400;
     private const uint ExtendedStartupInfoPresent = 0x0008_0000;
     private const nuint ProcThreadAttributeParentProcess = 0x0002_0000;
@@ -41,6 +42,10 @@ internal static partial class ParentProcessStart
     /// <param name="processId">The created process's id, on success.</param>
     /// <param name="processHandle">An owned handle to the created process, on success.</param>
     /// <param name="error">The Win32 error, on failure.</param>
+    /// <param name="noConsoleWindow">
+    ///     Whether a console program gets no window, as the command processor running a batch file that
+    ///     starts a game should not.
+    /// </param>
     /// <returns>Whether the process was created.</returns>
     internal static unsafe bool TryCreate(
         nint parentProcess,
@@ -50,7 +55,8 @@ internal static partial class ParentProcessStart
         string workingDirectory,
         out uint processId,
         out nint processHandle,
-        out int error)
+        out int error,
+        bool noConsoleWindow = false)
     {
         ArgumentNullException.ThrowIfNull(applicationPath);
         ArgumentNullException.ThrowIfNull(commandLine);
@@ -123,7 +129,7 @@ internal static partial class ParentProcessStart
                         0,
                         0,
                         false,
-                        CreateUnicodeEnvironment | ExtendedStartupInfoPresent,
+                        CreateUnicodeEnvironment | ExtendedStartupInfoPresent | (noConsoleWindow ? CreateNoWindow : 0),
                         environment,
                         directory,
                         in startup,

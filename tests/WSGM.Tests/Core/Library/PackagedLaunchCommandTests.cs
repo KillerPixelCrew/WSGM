@@ -252,7 +252,7 @@ public sealed class PackagedLaunchCommandTests
     [Theory]
     [InlineData("--follow --dir \"C:\\Games\\X\"")]
     [InlineData("--follow --dir \"C:\\Games\\X\" -- \"relative.exe\"")]
-    [InlineData("--follow --dir \"C:\\Games\\X\" -- \"C:\\Tools\\script.bat\"")]
+    [InlineData("--follow --dir \"C:\\Games\\X\" -- \"C:\\Tools\\script.ps1\"")]
     [InlineData("--dir \"C:\\Games\\X\" -- \"C:\\Games\\X\\launcher.exe\"")]
     [InlineData("--follow --what \"C:\\Games\\X\" -- \"C:\\Games\\X\\launcher.exe\"")]
     public void AMalformedFollowLineIsRefused(string line)
@@ -305,7 +305,7 @@ public sealed class PackagedLaunchCommandTests
 
     [Theory]
     [InlineData("relative.exe", "absolute")]
-    [InlineData("C:\\Tools\\script.bat", ".exe")]
+    [InlineData("C:\\Tools\\script.ps1", ".exe or a batch file")]
     [InlineData("C:\\Tools\\\"odd\".exe", "quote")]
     public void EachProgramRefusalNamesItsCondition(string program, string condition)
     {
@@ -313,6 +313,19 @@ public sealed class PackagedLaunchCommandTests
 
         Assert.NotNull(refusal);
         Assert.Contains(condition, refusal, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(@"C:\Games\GMDX\run_GMDX.bat")]
+    [InlineData(@"C:\Games\X\Start.CMD")]
+    public void ABatchFileIsAProgramTheFollowLauncherRuns(string program)
+    {
+        // Steam will not create a shortcut to a batch file, so such a title runs through follow mode.
+        PackagedFollowRequest request = new(program, "-windowed", Game, "");
+
+        Assert.Null(PackagedLaunchCommand.FollowRefusal(request));
+        Assert.True(PackagedLaunchCommand.IsBatchFile(program));
+        Assert.Equal(request, RoundTrip(request));
     }
 
     [Fact]

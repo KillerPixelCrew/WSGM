@@ -38,6 +38,7 @@ public static class CommandShortcut
     {
         ArgumentNullException.ThrowIfNull(route);
         ArgumentNullException.ThrowIfNull(launcherTarget);
+        route = AsLaunched(route, launcherTarget);
         fields = new ShortcutFields("", "", "");
         if (route.IsManaged)
         {
@@ -140,6 +141,7 @@ public static class CommandShortcut
     {
         ArgumentNullException.ThrowIfNull(shortcut);
         ArgumentNullException.ThrowIfNull(route);
+        route = AsLaunched(route, launcher);
         if (!TryCompose(route, launcher, out var fields, out _))
         {
             return false;
@@ -157,6 +159,23 @@ public static class CommandShortcut
                && string.Equals(live.Arguments.Trim(), route.LaunchOptions.Trim(), StringComparison.Ordinal)
                && SameFolder(live.Directory, route.FollowDirectory)
                && SameFolder(live.Marker, route.FollowMarker);
+    }
+
+    /// <summary>
+    ///     The route as its shortcut runs it. A batch file, such as a GOG play task's <c>run_GMDX.bat</c>,
+    ///     runs through the follow launcher with its own folder as the game's: Steam's AddShortcut answers a
+    ///     batch file with EResult 2 and creates nothing, while the follow launcher is an executable Steam
+    ///     takes, starts the batch file through the command processor and follows the game it starts.
+    /// </summary>
+    /// <param name="route">The route as the source found it.</param>
+    /// <param name="launcher">The follow launcher, or empty when this install has none.</param>
+    /// <returns>The route to compose and recognise.</returns>
+    private static ShortcutRoute AsLaunched(ShortcutRoute route, string launcher)
+    {
+        return route is { IsManaged: false, Follows: false } && launcher.Length > 0
+                                                         && PackagedLaunchCommand.IsBatchFile(route.Target)
+            ? route with { FollowDirectory = Path.GetDirectoryName(route.Target) ?? string.Empty }
+            : route;
     }
 
     /// <summary>Which of a title's routes a live shortcut runs.</summary>
