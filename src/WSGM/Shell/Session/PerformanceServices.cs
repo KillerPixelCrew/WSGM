@@ -616,6 +616,13 @@ internal sealed class PerformanceServices(
     {
         var bridge = OverlayBridge;
         OverlayBridge = null;
+        if (bridge is not null && RefreshRates is { } refreshRates)
+        {
+            // The refresh rates live until StopAsync, which runs after this UI step: stop them raising
+            // into a disposed bridge here, while the subscribed instance is still known.
+            refreshRates.Changed -= bridge.RaiseChanged;
+        }
+
         steps.Step("Disposing the performance overlay bridge failed", () => bridge?.Dispose());
     }
 
@@ -639,7 +646,13 @@ internal sealed class PerformanceServices(
 
         if (RefreshRates is { } refreshRates)
         {
-            refreshRates.Changed -= OverlayBridge!.RaiseChanged;
+            // The UI-owned cleanup normally disposed the bridge and unsubscribed it already; a null
+            // bridge here once threw and skipped every later shutdown step.
+            if (OverlayBridge is { } bridge)
+            {
+                refreshRates.Changed -= bridge.RaiseChanged;
+            }
+
             RefreshRates = null;
         }
     }
