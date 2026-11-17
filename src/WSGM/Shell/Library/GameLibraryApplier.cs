@@ -558,6 +558,19 @@ internal sealed class GameLibraryApplier(
                 OwnsProfile = record is { OwnsProfile: true } && record.AppId == result.AppId
             };
 
+        if (current.Action is ImportAction.Add && result is { Confirmed: false, Refused: true })
+        {
+            // Steam answered and created nothing, so nothing about this title is uncertain and the
+            // titles after it are no less likely to work: report it and carry on, instead of
+            // stopping the whole save as an unconfirmed write must.
+            var program = fields.Target.Trim('"');
+            var script = Path.GetExtension(program).ToLowerInvariant() is ".bat" or ".cmd";
+            run.Problems.Add($"{entry.Plan.Name}: Steam refused to add it ({result.Error})"
+                             + (script ? $"; its program is the batch file {Path.GetFileName(program)}" : "")
+                             + ". Nothing was created for it; the other titles were saved.");
+            return null;
+        }
+
         if (!result.Confirmed)
         {
             if (current.Action is ImportAction.Update)

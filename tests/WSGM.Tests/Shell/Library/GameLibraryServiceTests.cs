@@ -586,6 +586,26 @@ public sealed class GameLibraryServiceTests
     }
 
     [Fact]
+    public async Task AnAddSteamRefusesIsReportedAndTheRestOfTheSaveGoesOn()
+    {
+        // GMDX's GOG play task is a batch file, which Steam's AddShortcut answered with EResult 2. The
+        // save used to stop there, leaving every title after it unsaved.
+        using Harness harness = new();
+        harness.RefusedAdds.Add("GMDX");
+        using var source = harness.Create([], [new FakeSource("epic", [EpicGame("GMDX"), EpicGame("Hades")])]);
+        Assert.Equal(2, (await ScannedAsync(source)).Entries.Count(entry => entry.Selected));
+
+        await source.ApplyAsync(CancellationToken.None);
+        await DoneAsync(source);
+
+        var state = source.ReadState();
+        Assert.Equal("done", state.Phase);
+        Assert.Contains("GMDX: Steam refused to add it (EResult 2)", state.Error);
+        Assert.Equal(["refused GMDX", $"add {harness.FirstAppId}"], harness.Calls);
+        Assert.Equal("Hades", Assert.Single(harness.Store.Entries()).Name);
+    }
+
+    [Fact]
     public async Task ARefusedUpdateLeavesTheRecordAsSteamStillHasIt()
     {
         // Recording the new command while Steam kept the old one reads as a hand edit on every scan.
@@ -1288,6 +1308,9 @@ public sealed class GameLibraryServiceTests
         internal List<ShortcutFields> Updated { get; } = [];
         internal bool AcceptUpdates { get; init; } = true;
         internal bool LandUnconfirmedUpdate { get; init; }
+
+        /// <summary>The names Steam answers an add for with a refusal, creating nothing.</summary>
+        internal HashSet<string> RefusedAdds { get; } = new(StringComparer.Ordinal);
         internal int ShortcutReads { get; private set; }
         internal uint FirstAppId => 2147483651u;
         internal Func<CancellationToken, Task<IReadOnlyList<ExistingShortcut>>>? ReadLibrary { get; set; }
@@ -1348,6 +1371,13 @@ public sealed class GameLibraryServiceTests
             SteamShortcutWriter writer = new(
                 (name, fields, _) =>
                 {
+                    if (RefusedAdds.Contains(name))
+                    {
+                        Calls.Add($"refused {name}");
+                        return Task.FromResult(new ShortcutWriteResult(0, false, "EResult 2",
+                            CreationMayExist: false, Refused: true));
+                    }
+
                     var appId = _next++;
                     Calls.Add($"add {appId}");
                     Library.Add(new ExistingShortcut(appId, fields.Target, fields.LaunchOptions, fields.StartDirectory,

@@ -9,9 +9,14 @@ namespace WSGM.Core;
 ///     The shortcut exists either way.
 /// </param>
 /// <param name="CreationMayExist">False only when an add was definitely not sent or explicitly rejected.</param>
+/// <param name="Refused">
+///     Steam answered and refused this one add, creating nothing. Unlike an add that was never sent, it
+///     says nothing about the next title, so a run leaves this one out and carries on.
+/// </param>
 public sealed record ShortcutWriteResult(
     uint AppId,
     bool Confirmed,
     string? Error,
     string? Mismatch = null,
-    bool CreationMayExist = true);
+    bool CreationMayExist = true,
+    bool Refused = false);
