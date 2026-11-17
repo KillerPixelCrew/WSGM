@@ -177,6 +177,8 @@ internal sealed class LibraryServices(SessionState state, SteamUiServices steamU
         {
             StoreCatalogClient catalog = new();
             GameLibraryArtwork libraryArtwork = new(new ArtworkSearchProviders(() => state.Config.Artwork));
+            // A save downloads a few titles ahead, so a provider's gate is busy while Steam writes.
+            ArtworkPrefetch images = new((url, token) => ArtworkSearch.DownloadAsync(url, state.Config.Artwork, token));
             // One tracker reports every non-Steam shortcut's availability; the importer reads its results.
             Availability = new ShortcutAvailabilityTracker(ImportState, shortcuts.ReadShortcutsAsync,
                 () => EmulatorTool?.ReadStore() ?? new EmulatorStore(), storage.Drives, messageWindow, Emulators);
@@ -202,8 +204,7 @@ internal sealed class LibraryServices(SessionState state, SteamUiServices steamU
                 shortcuts.ReadShortcutsAsync,
                 shortcuts.ReadShortcutAsync,
                 state.Config.GameLibrary,
-                (appId, images, token) =>
-                    SteamArtwork.ApplyManyFromUrlsAsync(steam, appId, images, state.Config.Artwork, token),
+                (appId, picked, token) => SteamArtwork.ApplyManyFromUrlsAsync(steam, appId, picked, images, token),
                 (id, name, target, removeEmptyProfile, token) =>
                     profiles.SetApplicationControllerTargetAsync(id, name, target, removeEmptyProfile, token),
                 openArtwork: ArtworkPage is { } artwork ? artwork.OpenAsync : null,
@@ -217,7 +218,8 @@ internal sealed class LibraryServices(SessionState state, SteamUiServices steamU
                     steam.Collections.SyncAsync(id, name, add, remove, true, token),
                 emulators: EmulatorTool,
                 availability: Availability,
-                readCollections: shortcuts.ReadCollectionsAsync);
+                readCollections: shortcuts.ReadCollectionsAsync,
+                prefetchArtwork: images.Start);
             _libraryArtwork = libraryArtwork;
             EmulatorTool?.AttachRomSourceSwitch(GameLibrary.SetSourceEnabledAsync);
             GameLibrary.Start();
@@ -238,8 +240,9 @@ internal sealed class LibraryServices(SessionState state, SteamUiServices steamU
             {
                 var images = await EmulatorShortcutArtwork.FindAsync(definition, state.Config.Artwork, token)
                     .ConfigureAwait(false);
-                var applied = await SteamArtwork.ApplyManyFromUrlsAsync(steam, appId, images, state.Config.Artwork,
-                        token)
+                ArtworkPrefetch downloads = new((url, download) =>
+                    ArtworkSearch.DownloadAsync(url, state.Config.Artwork, download));
+                var applied = await SteamArtwork.ApplyManyFromUrlsAsync(steam, appId, images, downloads, token)
                     .ConfigureAwait(false);
                 return applied.Count(result => result.Succeeded);
             });

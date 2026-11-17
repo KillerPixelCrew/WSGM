@@ -288,6 +288,38 @@ public sealed class ArtworkProviderTests
         Assert.Equal(format, ImageHeader.Format(bytes));
     }
 
+    [Theory]
+    [InlineData("3", 3)]
+    [InlineData("50", ScreenscraperProvider.MaximumThreads)]
+    [InlineData("0", 1)]
+    public async Task ScreenscraperUsesAsManyThreadsAsTheAccountIsAllowedUntilTheCredentialsChange(
+        string stated, int threads)
+    {
+        // A supporter's account is allowed more than one request at once; its answers say how many.
+        ArtworkRequestGate gate = new(1, 0);
+        ScreenscraperProvider provider = new(
+            new AnswerHandler($"{{\"response\":{{\"ssuser\":{{\"maxthreads\":\"{stated}\"}},\"jeux\":[]}}}}"),
+            gate);
+
+        Assert.Empty(await provider.SearchGamesAsync("Dawnwalker", new ArtworkConfig(), CancellationToken.None));
+        Assert.False(gate.Resize(threads));
+
+        provider.ResetCache();
+        Assert.False(gate.Resize(1));
+    }
+
+    private sealed class AnswerHandler(string json) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(json)
+            });
+        }
+    }
+
     private sealed class TimingOutHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,

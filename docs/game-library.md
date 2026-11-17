@@ -278,15 +278,18 @@ Screenscraper's daily allowance.
 
 Each provider paces its own requests behind one gate (`ArtworkRequestGate`): SteamGridDB four at a
 time, backing off on a 429, and Screenscraper one, since a free account, registered or not, is
-allowed one thread. A page a provider answered is remembered for the session, checked both before
-and behind the gate, and a failure is remembered for half a minute so the lookups queued behind it
-do not each wait out the timeout. The background gathering waits behind every request a person is
-waiting on, so the artwork page and "Fix match" are answered first; a request already in flight
-still finishes or times out first. Nothing retries a request: when Screenscraper does not answer,
-each distinct lookup (one per title, and the user's search) costs its own 20 second timeout, one
-after another, and says "Screenscraper is not responding" rather than "no artwork". Screenscraper's
-media URLs carry the request's credentials; the user's account is taken out of every URL before it
-is shown, stored or logged, and put back only for the download, which goes through the same gate.
+allowed one thread. An answer for a user's Screenscraper account states its own allowance
+(`maxthreads`, more for supporters of the site); the gate widens to it, up to eight, logs it once
+and returns to one when the credentials change. A page a provider answered is remembered for the
+session, checked both before and behind the gate, and a failure is remembered for half a minute so
+the lookups queued behind it do not each wait out the timeout. The background gathering waits behind
+every request a person is waiting on, so the artwork page and "Fix match" are answered first; a
+request already in flight still finishes or times out first. Nothing retries a request: when
+Screenscraper does not answer, each distinct lookup (one per title, and the user's search) costs its
+own 20 second timeout, one after another, and says "Screenscraper is not responding" rather than "no
+artwork". Screenscraper's media URLs carry the request's credentials; the user's account is taken
+out of every URL before it is shown, stored or logged, and put back only for the download, which
+goes through the same gate.
 
 Each title starts on the first candidate from the provider Settings prefers, per artwork type. A
 title Steam already has starts on "keep current" and changes nothing until the user picks an image.
@@ -294,9 +297,14 @@ Cycling, picking, clearing and the bulk fills change picks only; nothing is down
 Steam. "Fill empty slots" leaves a slot alone that already shows an image, a default or the artwork
 Steam has. On save, a title's picks are downloaded together, each through the provider that serves
 it, and applied one at a time to the confirmed shortcut through the same path the artwork page uses
-(`SteamArtwork.ApplyManyFromUrlsAsync`). The image's format is read from its own bytes, never from
-its URL; an image that is not PNG, JPEG, WEBP or ICO is refused. A pick that fails to download or
-apply is reported and does not stop the run.
+(`SteamArtwork.ApplyManyFromUrlsAsync`). The save starts the downloads for the next three titles
+before it writes the current one (`ArtworkPrefetch`), so a provider's gate keeps working while Steam
+writes, and an address two slots share, such as Screenscraper's box as poster and icon, downloads
+once. With Screenscraper's one thread the downloads still set the pace: four full-size images take
+about four seconds a title. wsgm.log records each title's shortcut write and its images' download
+and write times. The image's format is read from its own bytes, never from its URL; an image that is
+not PNG, JPEG, WEBP or ICO is refused. A pick that fails to download or apply is reported and does
+not stop the run.
 
 ## Writing to Steam
 

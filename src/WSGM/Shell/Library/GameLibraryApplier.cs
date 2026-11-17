@@ -26,6 +26,9 @@ namespace WSGM.Shell;
 /// <param name="readLibrary">Reads every shortcut Steam holds; throws when the library cannot be read whole.</param>
 /// <param name="readShortcut">Reads one shortcut again, or answers null when Steam no longer has it.</param>
 /// <param name="applyArtwork">Applies images to a confirmed app id, or null to skip.</param>
+/// <param name="prefetchArtwork">
+///     Starts downloading images a later title will apply, or null to download each title's own.
+/// </param>
 /// <param name="setControllerTarget">Writes the per-game controller override, or null to skip.</param>
 /// <param name="controllerManaged">Whether anything switches the controller for a running title.</param>
 /// <param name="syncCollection">Brings one Steam collection in step, or null without collections.</param>
@@ -42,6 +45,7 @@ internal sealed class GameLibraryApplier(
     Func<uint, CancellationToken, Task<ExistingShortcut?>> readShortcut,
     Func<uint, IReadOnlyList<(ArtworkAsset Asset, string Url)>, CancellationToken,
         Task<IReadOnlyList<ArtworkResult>>>? applyArtwork,
+    Action<IReadOnlyList<string>, CancellationToken>? prefetchArtwork,
     Func<string, string, ManagedControllerTarget?, bool, CancellationToken, Task<bool>>? setControllerTarget,
     Func<bool> controllerManaged,
     Func<string?, string, IReadOnlyCollection<uint>, IReadOnlyCollection<uint>, CancellationToken,
@@ -52,6 +56,13 @@ internal sealed class GameLibraryApplier(
     GameLibraryCardStorage storage,
     GameLibraryEmulators emulators)
 {
+    /// <summary>How many titles past the current one a save downloads images for.</summary>
+    /// <remarks>
+    ///     Enough that the next title's images are queued at the provider while Steam writes this one,
+    ///     and few enough that the images held ahead stay a few megabytes.
+    /// </remarks>
+    private const int ArtworkLookAhead = 3;
+
     private readonly SemaphoreSlim _collectionSync = new(1, 1);
 
     /// <summary>Whether this session can keep Steam collections for imported titles.</summary>
@@ -79,9 +90,11 @@ internal sealed class GameLibraryApplier(
         var snapshot = await readLibrary(cancellationToken).ConfigureAwait(false);
         var run = new GameLibraryApplyRun(generation, shortcuts, launcher, CaptureAccount(snapshot), snapshot,
             store.Entries());
-        foreach (var entry in selected)
+        for (var index = 0; index < selected.Count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var entry = selected[index];
+            PrefetchImages(selected, index, cancellationToken);
             RequireAccount(run.AccountId);
             var identity = (entry.Plan.Source, entry.Plan.Key);
             var record = run.Records.GetValueOrDefault(identity);
@@ -749,6 +762,38 @@ internal sealed class GameLibraryApplier(
         }
 
         return Math.Max(before, results.Count(result => result.Succeeded));
+    }
+
+    /// <summary>Starts downloading the images of this title and the few after it.</summary>
+    /// <param name="selected">The run's entries, in the order they are applied.</param>
+    /// <param name="index">The entry about to be applied.</param>
+    /// <param name="cancellationToken">The run's token, which stops the downloads with it.</param>
+    /// <remarks>
+    ///     A title's images follow from its picks and the action the review planned. Revalidation may
+    ///     still change that action; an image downloaded for nothing is dropped with the run's others.
+    /// </remarks>
+    private void PrefetchImages(IReadOnlyList<GameLibraryEntryState> selected, int index,
+        CancellationToken cancellationToken)
+    {
+        if (prefetchArtwork is null || applyArtwork is null)
+        {
+            return;
+        }
+
+        List<string> urls = [];
+        lock (owner.Gate)
+        {
+            for (var next = index; next < Math.Min(selected.Count, index + ArtworkLookAhead + 1); next++)
+            {
+                var entry = selected[next];
+                if (entry.Plan.Action is not ImportAction.Remove)
+                {
+                    urls.AddRange(Images(entry, entry.Plan.Action is ImportAction.Add).Select(image => image.Url));
+                }
+            }
+        }
+
+        prefetchArtwork(urls, cancellationToken);
     }
 
     /// <summary>The images an apply writes for one entry.</summary>

@@ -44,6 +44,9 @@ internal sealed class ScreenscraperProvider : IArtworkProvider
 {
     private const string ApiBase = "https://api.screenscraper.fr/api2";
 
+    /// <summary>The most requests WSGM sends at once, whatever the account is allowed.</summary>
+    internal const int MaximumThreads = 8;
+
     /// <summary>The host whose media endpoint counts against the account's allowance.</summary>
     private const string Host = "screenscraper.fr";
 
@@ -67,14 +70,15 @@ internal sealed class ScreenscraperProvider : IArtworkProvider
     /// <summary>Region preference: a world release first, then the common regional ones.</summary>
     private static readonly string[] RegionPreference = ["wor", "us", "eu", "jp", "ss"];
 
-    /// <summary>One request in flight, and the last 64 answers remembered for the session.</summary>
+    /// <summary>One request in flight to start with, and the last 64 answers remembered for the session.</summary>
     /// <remarks>
     ///     <para>
-    ///         One, because a free Screenscraper account, registered or anonymous, is allowed one
-    ///         thread; more come only from supporting the site, and WSGM does not read the account's
-    ///         level. Every request past the first would otherwise draw a 429 and lose its candidates.
-    ///         Image downloads from the media endpoint count against the same thread, so they go
-    ///         through this gate too (<see cref="DownloadAsync" />).
+    ///         One to start with, because a free Screenscraper account, registered or anonymous, is
+    ///         allowed one thread, and every request past the allowance would draw a 429 and lose its
+    ///         candidates. More come only from supporting the site: an answer for a user's account
+    ///         states its allowance (<c>maxthreads</c>), and the gate widens to it, up to
+    ///         <see cref="MaximumThreads" />. Image downloads from the media endpoint count against the
+    ///         same threads, so they go through this gate too (<see cref="DownloadAsync" />).
     ///     </para>
     ///     <para>
     ///         Sixty-four answers rather than SteamGridDB's 256: a game's page carries every media
@@ -85,6 +89,9 @@ internal sealed class ScreenscraperProvider : IArtworkProvider
     private readonly ArtworkRequestGate Gate;
 
     private readonly HttpClient Http;
+
+    /// <summary>The thread allowance the account's last answer stated, or zero before one did.</summary>
+    private int _accountThreads;
 
     /// <summary>Creates a provider with optional transport and shared pacing/cache seams.</summary>
     /// <param name="handler">Borrowed HTTP handler, or null for the default transport.</param>
@@ -267,9 +274,12 @@ internal sealed class ScreenscraperProvider : IArtworkProvider
     }
 
     /// <inheritdoc />
+    /// <remarks>The credentials changed, so the allowance falls back to one thread until an answer states another.</remarks>
     public void ResetCache()
     {
         Gate.Clear();
+        Interlocked.Exchange(ref _accountThreads, 0);
+        Gate.Resize(1);
     }
 
     /// <inheritdoc />
@@ -535,6 +545,16 @@ internal sealed class ScreenscraperProvider : IArtworkProvider
                    && parsed >= 0
                 ? parsed
                 : null;
+        }
+
+        if (Read(user, "maxthreads") is { } stated)
+        {
+            var threads = Math.Clamp(stated, 1, MaximumThreads);
+            if (Interlocked.Exchange(ref _accountThreads, threads) != threads)
+            {
+                Gate.Resize(threads);
+                Log.Info($"Screenscraper allows this account {threads} request(s) at once.");
+            }
         }
 
         if (Read(user, "maxrequestskoperday") is { } negativeMaximum

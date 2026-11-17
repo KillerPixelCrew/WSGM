@@ -116,6 +116,10 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     /// <param name="emulators">The session-owned emulator manager, or null in an isolated importer.</param>
     /// <param name="availability">The session's shortcut availability tracker, or null in an isolated importer.</param>
     /// <param name="readCollections">Reads collections while verifying the captured Steam account.</param>
+    /// <param name="prefetchArtwork">
+    ///     Starts downloading images a later title will apply, or null to download each title's own when
+    ///     it is reached.
+    /// </param>
     internal GameLibraryService(
         IReadOnlyList<ILibrarySource> sources,
         Func<IReadOnlyList<UninstallEntry>> readPrograms,
@@ -138,7 +142,8 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             Task<SteamCollectionSyncResult>>? syncCollection = null,
         EmulatorService? emulators = null,
         ShortcutAvailabilityTracker? availability = null,
-        Func<uint, CancellationToken, Task<IReadOnlyList<ImportedCollection>>>? readCollections = null)
+        Func<uint, CancellationToken, Task<IReadOnlyList<ImportedCollection>>>? readCollections = null,
+        Action<IReadOnlyList<string>, CancellationToken>? prefetchArtwork = null)
     {
         _store = store;
         _resolveLauncher = resolveLauncher ?? PackagedLauncherShortcut.ResolveLauncher;
@@ -150,7 +155,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         _storage = new GameLibraryCardStorage(this, store, availability);
         // The scanner is created next; the applier reads its sources only once a run is under way.
         _applier = new GameLibraryApplier(this, store, writer, readLibrary, readShortcut, applyArtwork,
-            setControllerTarget, controllerManaged ?? (() => true), syncCollection, readCollections,
+            prefetchArtwork, setControllerTarget, controllerManaged ?? (() => true), syncCollection, readCollections,
             () => _scanner!.Sources(), artwork, _storage, _emulators);
         _scanner = new GameLibraryScanner(this, sources, readPrograms, _resolveLauncher, readLibrary, folderSource,
             store, _storage, _emulators, _applier);

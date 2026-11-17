@@ -606,6 +606,37 @@ public sealed class GameLibraryServiceTests
     }
 
     [Fact]
+    public async Task ASaveStartsTheNextTitlesImagesBeforeWritingTheFirst()
+    {
+        // A free Screenscraper account serves one request at a time. Each title's images used to start
+        // only once its shortcut existed, so Steam's writes and the downloads took turns.
+        using Harness harness = new();
+        List<string> events = [];
+        using var source = harness.Create([], [
+                new FakeSource("epic", [
+                    EpicGame("Alpha") with { Artwork = [new DiscoveredArtwork(ArtworkAsset.Grid, "https://s/a.png")] },
+                    EpicGame("Beta") with { Artwork = [new DiscoveredArtwork(ArtworkAsset.Grid, "https://s/b.png")] }
+                ])
+            ],
+            applyArtwork: (_, images, _) =>
+            {
+                events.AddRange(images.Select(image => "apply " + image.Url));
+                return Task.FromResult<IReadOnlyList<ArtworkResult>>(
+                    [.. images.Select(_ => new ArtworkResult("ok", true))]);
+            },
+            prefetchArtwork: (urls, _) => events.AddRange(urls.Select(url => "prefetch " + url)));
+        Assert.Equal(2, (await ScannedAsync(source)).Entries.Count(entry => entry.Selected));
+
+        await source.ApplyAsync(CancellationToken.None);
+        await DoneAsync(source);
+
+        var first = events.FindIndex(item => item.StartsWith("apply", StringComparison.Ordinal));
+        Assert.Contains("prefetch https://s/a.png", events.Take(first));
+        Assert.Contains("prefetch https://s/b.png", events.Take(first));
+        Assert.Equal(2, events.Count(item => item.StartsWith("apply", StringComparison.Ordinal)));
+    }
+
+    [Fact]
     public async Task ARefusedUpdateLeavesTheRecordAsSteamStillHasIt()
     {
         // Recording the new command while Steam kept the old one reads as a hand edit on every scan.
@@ -1446,7 +1477,8 @@ public sealed class GameLibraryServiceTests
             Func<uint, string, CancellationToken, Task<SteamUiCommandResult>>? openArtwork = null,
             GameLibraryConfig? settings = null,
             Action<Action<GameLibraryConfig>>? updateSettings = null,
-            GameLibraryArtwork? artwork = null)
+            GameLibraryArtwork? artwork = null,
+            Action<IReadOnlyList<string>, CancellationToken>? prefetchArtwork = null)
         {
             SteamShortcutWriter writer = new(
                 (name, fields, _) =>
@@ -1526,7 +1558,7 @@ public sealed class GameLibraryServiceTests
                         return settings;
                     },
                 folder => new FakeSource(folder.Id, [], LibrarySourceKind.Folder), artwork,
-                SyncCollection);
+                SyncCollection, prefetchArtwork: prefetchArtwork);
         }
     }
 

@@ -189,4 +189,43 @@ public sealed class ArtworkRequestGateTests
 
         Assert.Equal(2, await gate.RunAsync(_ => Task.FromResult(2), CancellationToken.None));
     }
+
+    [Fact]
+    public async Task AWiderBoundAdmitsTheQueueAndANarrowerOneTakesEffectAsRequestsLeave()
+    {
+        // Screenscraper states the account's thread allowance in its answers, after requests queued.
+        ArtworkRequestGate gate = new(1, 0);
+        TaskCompletionSource release = new();
+        var running = 0;
+        var peak = 0;
+        var requests = Enumerable.Range(0, 3).Select(_ => gate.RunAsync(async _ =>
+        {
+            peak = Math.Max(peak, Interlocked.Increment(ref running));
+            await release.Task;
+            Interlocked.Decrement(ref running);
+            return 0;
+        }, CancellationToken.None)).ToList();
+        await AsyncConditions.WaitForAsync(() => Volatile.Read(ref running) == 1);
+
+        Assert.True(gate.Resize(3));
+        await AsyncConditions.WaitForAsync(() => Volatile.Read(ref running) == 3);
+        Assert.False(gate.Resize(3));
+        Assert.True(gate.Resize(1));
+        release.SetResult();
+        await Task.WhenAll(requests);
+
+        // All three leave and give their slots back rather than passing them on past the bound.
+        TaskCompletionSource hold = new();
+        var first = gate.RunAsync(async _ =>
+        {
+            await hold.Task;
+            return 1;
+        }, CancellationToken.None);
+        var second = gate.RunAsync(_ => Task.FromResult(2), CancellationToken.None);
+        Assert.False(second.IsCompleted);
+        hold.SetResult();
+        var answers = await Task.WhenAll(first, second);
+        Assert.Equal([1, 2], answers);
+        Assert.Equal(3, peak);
+    }
 }

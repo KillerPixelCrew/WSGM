@@ -34,7 +34,6 @@ internal sealed class ArtworkRequestGate
 
     private readonly Dictionary<string, JsonElement> _answers = new(StringComparer.Ordinal);
     private readonly LinkedList<TaskCompletionSource> _background = new();
-    private readonly int _capacity;
 
     private readonly Dictionary<string, (ArtworkProviderException Failure, DateTime Until)> _failures =
         new(StringComparer.Ordinal);
@@ -43,6 +42,7 @@ internal sealed class ArtworkRequestGate
     private readonly Queue<string> _order = new();
     private readonly int _remembered;
     private readonly Lock _sync = new();
+    private int _capacity;
     private ArtworkProviderException? _pause;
     private DateTimeOffset? _pausedUntil;
     private int _running;
@@ -165,6 +165,32 @@ internal sealed class ArtworkRequestGate
         finally
         {
             Exit();
+        }
+    }
+
+    /// <summary>Changes how many requests may be in flight, admitting waiters a wider bound now has room for.</summary>
+    /// <param name="capacity">The new bound, at least one.</param>
+    /// <returns>Whether the bound changed.</returns>
+    /// <remarks>A narrower bound takes effect as requests leave: none in flight is stopped.</remarks>
+    internal bool Resize(int capacity)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(capacity, 1);
+        lock (_sync)
+        {
+            if (capacity == _capacity)
+            {
+                return false;
+            }
+
+            _capacity = capacity;
+            while (_running < _capacity && (_interactive.First ?? _background.First) is { } next)
+            {
+                next.List!.Remove(next);
+                _running++;
+                next.Value.TrySetResult();
+            }
+
+            return true;
         }
     }
 
@@ -306,9 +332,9 @@ internal sealed class ArtworkRequestGate
         lock (_sync)
         {
             // The slot passes straight to the next waiter, interactive first, so it is never counted
-            // free while someone is queued for it.
+            // free while someone is queued for it. Under a bound narrowed since, it goes instead.
             var next = _interactive.First ?? _background.First;
-            if (next is null)
+            if (next is null || _running > _capacity)
             {
                 _running--;
                 return;

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -77,40 +78,41 @@ internal static class SteamArtwork
     /// <param name="steam">The session's Steam client.</param>
     /// <param name="appId">The Steam app id.</param>
     /// <param name="images">The slot and address of each image; an empty address clears the slot.</param>
-    /// <param name="config">The loaded configuration, for the providers' credentials.</param>
+    /// <param name="downloads">The save's images, some of them already downloaded ahead of this title.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>Each slot's outcome, in the order given.</returns>
     /// <remarks>
     ///     One image failing does not stop the others: a title with a poster and no logo still gets
     ///     its poster. Full-size capsules are the slow half of dressing a title, so they download
-    ///     together; each provider's own gate still paces its share. The applies stay serial because
-    ///     each is a write into the running client's library store.
+    ///     together, and an address two slots share (Screenscraper's box is both poster and icon)
+    ///     downloads once; each provider's own gate still paces its share. The applies stay serial
+    ///     because each is a write into the running client's library store.
     /// </remarks>
     public static async Task<IReadOnlyList<ArtworkResult>> ApplyManyFromUrlsAsync(
-        SteamClient steam, long appId, IReadOnlyList<(ArtworkAsset Asset, string Url)> images, ArtworkConfig config,
-        CancellationToken cancellationToken)
+        SteamClient steam, long appId, IReadOnlyList<(ArtworkAsset Asset, string Url)> images,
+        ArtworkPrefetch downloads, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(images);
-        (byte[]? Bytes, string? Failure)[] downloads;
+        ArgumentNullException.ThrowIfNull(downloads);
+        var started = Stopwatch.GetTimestamp();
+        string[] urls =
+            [.. images.Select(image => image.Url).Where(url => url.Length > 0).Distinct(StringComparer.Ordinal)];
+        Dictionary<string, (byte[]? Bytes, string? Failure)> fetched;
         try
         {
-            downloads = await Task.WhenAll(images.Select(async image =>
+            var answers = await Task.WhenAll(urls.Select(async url =>
             {
-                if (image.Url.Length == 0)
-                {
-                    return (Bytes: null, Failure: null);
-                }
-
                 try
                 {
-                    return (Bytes: await ArtworkSearch.DownloadAsync(image.Url, config, cancellationToken)
-                        .ConfigureAwait(false), Failure: null);
+                    return (Bytes: await downloads.TakeAsync(url, cancellationToken).ConfigureAwait(false),
+                        Failure: (string?)null);
                 }
                 catch (ArtworkProviderException ex)
                 {
                     return (Bytes: (byte[]?)null, Failure: (string?)ex.Message);
                 }
             })).ConfigureAwait(false);
+            fetched = urls.Zip(answers).ToDictionary(pair => pair.First, pair => pair.Second, StringComparer.Ordinal);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -118,6 +120,7 @@ internal static class SteamArtwork
             return images.Select(_ => new ArtworkResult("Stopped before the image was written.")).ToArray();
         }
 
+        var ready = Stopwatch.GetTimestamp();
         var results = new ArtworkResult[images.Count];
         for (var index = 0; index < images.Count; index++)
         {
@@ -138,12 +141,17 @@ internal static class SteamArtwork
                 continue;
             }
 
-            results[index] = downloads[index] is { Bytes: { } bytes }
+            var download = fetched[images[index].Url];
+            results[index] = download is { Bytes: { } bytes }
                 ? await ApplyAsync(steam, appId, images[index].Asset, bytes, CancellationToken.None)
                     .ConfigureAwait(false)
-                : new ArtworkResult(downloads[index].Failure ?? "The image did not download.");
+                : new ArtworkResult(download.Failure ?? "The image did not download.");
         }
 
+        var size = fetched.Values.Sum(download => (long)(download.Bytes?.Length ?? 0)) / 1024;
+        Log.Info($"Steam artwork for {appId}: {urls.Length} image(s), {size} KB, ready in "
+                 + $"{Stopwatch.GetElapsedTime(started, ready).TotalMilliseconds:F0} ms, written in "
+                 + $"{Stopwatch.GetElapsedTime(ready).TotalMilliseconds:F0} ms.");
         return results;
     }
 
