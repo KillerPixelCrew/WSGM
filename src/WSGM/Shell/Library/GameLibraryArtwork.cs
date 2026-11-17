@@ -480,7 +480,21 @@ internal sealed class GameLibraryArtwork : IDisposable
 
             if (match is null)
             {
+                if (failure is null)
+                {
+                    Log.Info(
+                        $"Artwork for {request.Name}: no {(skip.Count == 0 ? "" : "other ")}provider found the game.");
+                }
+
                 return GatherResult.Nothing(answered ? null : failure, answered ? null : pausedProvider);
+            }
+
+            if (fixedMatch is null && match.ProviderId != request.PreferredProviderId
+                                   && !skip.Contains(request.PreferredProviderId))
+            {
+                var pause = _providers.PauseReason(request.PreferredProviderId) is { } reason ? $" ({reason})" : "";
+                Log.Info(
+                    $"Artwork for {request.Name}: no {request.PreferredProviderId} match{pause}; using the {match.ProviderId} match \"{match.Name}\".");
             }
 
             // The five types go out together; the provider paces its own requests behind its gate.
@@ -527,6 +541,8 @@ internal sealed class GameLibraryArtwork : IDisposable
                 pausedProvider = failedProvider;
             }
 
+            Log.Info(
+                $"Artwork for {request.Name}: the {match.ProviderId} match \"{match.Name}\" has no images; trying the next provider.");
             skip.Add(match.ProviderId);
         }
     }

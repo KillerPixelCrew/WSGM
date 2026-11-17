@@ -252,12 +252,14 @@ one update, not one per artwork type.
 There are two rules for asking the providers, one for each question:
 
 - **The automatic match**, with nobody looking, asks them in preference order
-  (`ArtworkSearch.FindMatchAsync`). SteamGridDB knows Steam libraries and is asked first.
-  Screenscraper, a ROM database, is asked only when SteamGridDB does not know the title, or its game
-  there has no images. The match is that provider's first exact result for the title's name, else
-  its first result. A provider that could not be asked (a rejected key, a spent quota, no
-  connection) gives way to the next one; when none answers, the title is marked failed with the
-  provider's reason rather than as having no artwork.
+  (`ArtworkSearch.FindMatchAsync`). A ROM title asks Screenscraper first: by file name and size
+  under its system's Screenscraper id (`RomProfiles`, checked against ES-DE's scraper map), then by
+  name within that system. Every other title asks SteamGridDB first, since it knows Steam libraries.
+  The other provider is asked only when the first does not know the title or its game there has no
+  images, and wsgm.log names each title that falls back and why. The match is that provider's first
+  exact result for the title's name, else its first result. A provider that could not be asked (a
+  rejected key, a spent quota, no connection) gives way to the next one; when none answers, the
+  title is marked failed with the provider's reason rather than as having no artwork.
 - **"Fix match"**, with the user choosing, searches every ready provider at once and lists their
   games together, the way the artwork page does. The game the user picks is kept as a choice. The
   command only starts the search and answers at once: a provider can take its whole request timeout
