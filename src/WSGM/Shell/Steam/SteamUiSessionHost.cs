@@ -25,6 +25,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     ///     host only reads them.
     /// </summary>
     private readonly SteamUiBackends _backends;
+    private readonly Func<bool> _publicationAllowed;
 
     private readonly SteamUiBridgeHost _bridge;
 
@@ -93,6 +94,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     ///     The session-owned services behind the surfaces. The session builds and disposes them; this
     ///     host only reads them, and a surface whose backend is null is not declared.
     /// </param>
+    /// <param name="publicationAllowed">Whether the session currently admits background state reads.</param>
     /// <remarks>
     ///     The throwable steps (the asset, the module set, the patch registry) run before anything is
     ///     subscribed, so a host that fails to build leaves no handler behind on the session's services.
@@ -100,7 +102,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     internal SteamUiSessionHost(
         ISteamUiTransport transport,
         Func<CancellationToken, Task<bool>> toggleQuickAccess,
-        SteamUiBackends backends)
+        SteamUiBackends backends,
+        Func<bool>? publicationAllowed = null)
     {
         ArgumentNullException.ThrowIfNull(backends);
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
@@ -108,6 +111,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // WSGM's composed asset, loaded first: it is the step most likely to throw.
         var asset = SteamUiAssetCatalog.LoadNativeQamBootstrap();
         _backends = backends;
+        _publicationAllowed = publicationAllowed ?? (static () => true);
         _modules = new SteamUiModuleCatalog(
             backends,
             _switchGate,
@@ -143,7 +147,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 modules,
                 _patches,
                 () => _switches.HostSurfaces,
-                () => _switches.HostSurfaces);
+                CanPublishState);
         }
         catch
         {
@@ -162,7 +166,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _nativeStateRefresh = new Timer(static state =>
         {
             var host = (SteamUiSessionHost)state!;
-            if (!host._disposed && host._switches.HostSurfaces)
+            if (host.CanPublishState())
             {
                 host.QueueNativeStatePublication();
             }
@@ -896,7 +900,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     private void QueueNativeStatePublication()
     {
-        if (!_disposed)
+        if (CanPublishState())
         {
             // The shared projection already refreshes after one second. Background telemetry must
             // not defeat that bound; commands invalidate their accepted result immediately.
@@ -906,6 +910,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _runtime.QueuePublication(SteamFrameLimitRow.PatchId);
             _runtime.QueuePublication(SteamLightingZonesRow.PatchId);
         }
+    }
+
+    private bool CanPublishState()
+    {
+        return !_disposed && _switches.HostSurfaces && _publicationAllowed();
     }
 
     /// <summary>Queues one publication round of every Steam surface's state, unless the host is closed.</summary>

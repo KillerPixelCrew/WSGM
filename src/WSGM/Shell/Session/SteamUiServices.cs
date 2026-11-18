@@ -309,6 +309,11 @@ internal sealed class SteamUiServices
             return "Steam UI transport closed: the system is suspending.";
         }
 
+        if ((holds & SteamUiHold.DisplaySleep) != SteamUiHold.None)
+        {
+            return "Steam UI transport closed: Modern Standby display is off.";
+        }
+
         if ((holds & SteamUiHold.Resuming) != SteamUiHold.None)
         {
             return "Steam UI transport closed: the system resumed; reconnecting once Steam has settled.";
@@ -1031,7 +1036,8 @@ internal sealed class SteamUiServices
                                ?? throw new InvalidOperationException("Steam UI transport was not created.");
         try
         {
-            Host = new SteamUiSessionHost(steamUiTransport, toggleOverlay, backends);
+            Host = new SteamUiSessionHost(steamUiTransport, toggleOverlay, backends,
+                () => !HasHold(SteamUiHold.DisplaySleep) && Readiness.IsReady);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
