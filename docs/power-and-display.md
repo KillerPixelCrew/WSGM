@@ -95,7 +95,11 @@ mute, and the guard registers the display notifications itself rather than relyi
 feature having done so. Desktop wake actions run on an attended resume or when the session's display
 lights after going dark, including a display-only wake with no system resume notification. The two
 signals share one physical-wake claim, so they do not repeat an action. An unattended resume leaves
-the claim pending for the person returning to the display.
+the claim pending for the person returning to the display. The display-on path resumes the session's
+power queue before admitting the action list. A prior session lock suspends common plugins as well
+as the device, so joining the old queue tail alone leaves IR stopped until Windows unlocks. Wake
+actions await the resumed queue and resolve the plugin's current generation before dispatch; they
+remain suppressed in Game Mode.
 
 The display gate is the one that does not depend on Windows counting a device as input. A gamepad
 does not advance the last-input time, the same fact behind the idle-timeout bug in #69, so a player

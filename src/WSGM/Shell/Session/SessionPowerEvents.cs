@@ -145,6 +145,10 @@ internal sealed class SessionPowerEvents(
             performance.RecheckExtendedVrrWhenDisplayLit();
             if (_desktopWake.NoteDisplayOn())
             {
+                // A classic desktop can wake its display before any system-resume or unlock event.
+                // The lock suspended common plugins too. Resume that lane before the action list
+                // joins its tail, so IR is running even while the Windows lock screen is showing.
+                devicePower.Queue(false, "display lit");
                 Log.Info("Desktop wake actions signalled: display lit.");
                 queueWakeActions();
             }

@@ -76,6 +76,32 @@ public sealed class IrRemoteActionTests
     }
 
     [Fact]
+    public async Task ADesktopWakePressNeedsResumeAndUsesTheFreshGenerationOnce()
+    {
+        FakeEndpoint endpoint = new() { Catalog = Catalog() };
+        await WithPlugin(endpoint, async (plugin, context) =>
+        {
+            await plugin.SuspendAsync(context, CancellationToken.None);
+            var suspended = await InvokeAutomated(plugin, context, "remote-press",
+                ("remote", new PluginValue(Text: "hdmi-switch")), ("button", new PluginValue(Text: "port-3")));
+            Assert.Equal(PluginActionOutcome.Rejected, suspended.Outcome);
+            Assert.Empty(endpoint.RemoteCalls);
+
+            var resumed = context with { Generation = context.Generation + 1 };
+            await plugin.ResumeAsync(resumed, CancellationToken.None);
+            var result = await InvokeAutomated(plugin, resumed, "remote-press",
+                ("remote", new PluginValue(Text: "hdmi-switch")), ("button", new PluginValue(Text: "port-3")));
+            Assert.Equal(PluginActionOutcome.Dispatched, result.Outcome);
+            Assert.Equal(["press hdmi-switch/port-3"], endpoint.RemoteCalls);
+
+            var stale = await InvokeAutomated(plugin, context, "remote-press",
+                ("remote", new PluginValue(Text: "hdmi-switch")), ("button", new PluginValue(Text: "port-3")));
+            Assert.Equal(PluginActionOutcome.Rejected, stale.Outcome);
+            Assert.Single(endpoint.RemoteCalls);
+        });
+    }
+
+    [Fact]
     public async Task EndpointRefusalBeforeEmissionIsRejected()
     {
         FakeEndpoint endpoint = new() { Catalog = Catalog(), PressRefusal = new IrRejectedException("busy") };
