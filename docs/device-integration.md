@@ -21,11 +21,12 @@ settings are preserved as user-owned state.
 
 ## Power limits across a wake
 
-On Atlas 8, session display-off hands processor power back through the journaled power service. The
-IPF connection stays open, and the controller, OEM input and other native services stay acquired. A
-maintenance wake while the display remains dark keeps AutoTDP paused. Display-on restores the
-selected power path and limits before reopening AutoTDP. Full system suspend still uses the full
-device lifecycle.
+On Atlas 8, session display-off hands processor power back through the journaled power service.
+Firmware Quiet is selected after restoring the temporary power limits, and the previous firmware
+mode stays in the recovery journal for wake or shutdown. The IPF connection stays open, and the
+controller, OEM input and other native services stay acquired. A maintenance wake while the display
+remains dark keeps AutoTDP paused. Display-on restores the selected power path and limits before
+reopening AutoTDP. Full system suspend still uses the full device lifecycle.
 
 A suspend gives the limits back and firmware resets them during standby, so every device cycle that
 comes up writes the limit in force once, even when the device already reports that value: the active
