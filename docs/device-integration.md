@@ -24,9 +24,10 @@ settings are preserved as user-owned state.
 On Atlas 8, session display-off hands processor power back through the journaled power service.
 Firmware Quiet is selected after restoring the temporary power limits, and the previous firmware
 mode stays in the recovery journal for wake or shutdown. The IPF connection stays open, and the
-controller, OEM input and other native services stay acquired. A maintenance wake while the display
-remains dark keeps AutoTDP paused. Display-on restores the selected power path and limits before
-reopening AutoTDP. Full system suspend still uses the full device lifecycle.
+physical gamepad and its companion HID readers close for standby. The firmware controller mode and
+the independent power-button service stay acquired. The readers reopen on wake. A maintenance wake
+while the display remains dark keeps AutoTDP paused. Display-on restores the selected power path and
+limits before reopening AutoTDP. Full system suspend still uses the full device lifecycle.
 
 A suspend gives the limits back and firmware resets them during standby, so every device cycle that
 comes up writes the limit in force once, even when the device already reports that value: the active
@@ -122,8 +123,8 @@ The virtual target's output and calibration previews share one physical haptic s
 neutralizes forwarding and ends output before physical controller release and native stop.
 
 During Modern Standby, WSGM unplugs its VIIPER virtual USB controller at display-off so the USB/IP
-host controller can enter low power. The physical controller stays acquired and hidden. WSGM
-recreates the virtual target selected by the current profile when the display wakes and the physical
+host controller can enter low power. Atlas 8 also stops reading the physical gamepad. WSGM recreates
+the virtual target selected by the current profile when the display wakes and the physical
 controller is ready. A running game sees a controller disconnect and reconnect, so its hot-plug
 support determines how it resumes input. The native Steam controller and classic sleep keep their
 usual controller behavior.

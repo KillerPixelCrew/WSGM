@@ -677,7 +677,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         }
     }
 
-    /// <summary>Hands only native power control back during display-only standby, preserving controller endpoints.</summary>
+    /// <summary>Hands power control and the model-specific input transition to the handheld during display sleep.</summary>
     internal async Task SetDisplayPowerSleepingAsync(bool sleeping)
     {
         if (sleeping)
@@ -700,7 +700,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
         var supported = await client.SetPowerControlSuspendedAsync(sleeping,
             Deadline.After(TimeSpan.FromSeconds(5)), _lifetime.Token).ConfigureAwait(false);
-        Log.Info($"Display-only power handoff: sleeping={sleeping}, supported={supported}; input ownership retained.");
+        Log.Info($"Display-only power handoff: sleeping={sleeping}, supported={supported}.");
         if (!sleeping)
         {
             await Commands.ReconcileDesiredValuesAsync("display wake power restore", _lifetime.Token,

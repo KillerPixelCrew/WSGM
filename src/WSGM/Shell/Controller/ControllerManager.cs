@@ -437,7 +437,7 @@ internal sealed class ControllerManager : IAsyncDisposable
                 try
                 {
                     await Forwarding.DetachForStandbyAsync(cancellationToken).ConfigureAwait(false);
-                    Log.Info("Virtual controller detached for Modern Standby; physical controller ownership retained.");
+                    Log.Info("Virtual controller detached for Modern Standby.");
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
                 {
