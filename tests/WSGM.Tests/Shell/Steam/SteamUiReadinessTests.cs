@@ -4,6 +4,19 @@ namespace WSGM.Tests.Shell.Steam;
 
 public sealed class SteamUiReadinessTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void DisplaySleepHoldsSteamTransportThroughAMaintenanceResume(bool inGameMode)
+    {
+        Assert.False(SteamUiReadiness.TransportShouldBeOpen(true, inGameMode,
+            SteamUiHold.DisplaySleep | SteamUiHold.Resuming, bigPictureReady: true));
+        Assert.False(SteamUiReadiness.TransportShouldBeOpen(true, inGameMode,
+            SteamUiHold.DisplaySleep, bigPictureReady: true));
+        Assert.True(SteamUiReadiness.TransportShouldBeOpen(true, inGameMode,
+            SteamUiHold.None, bigPictureReady: true));
+    }
+
     [Fact]
     public async Task NextReadyWaitsForAFreshEdgeEvenWhileTheTransportIsOpen()
     {

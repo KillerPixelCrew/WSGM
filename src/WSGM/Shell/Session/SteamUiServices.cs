@@ -397,6 +397,27 @@ internal sealed class SteamUiServices
         }
     }
 
+    /// <summary>Pauses Steam UI traffic through display-only standby and any dark maintenance wakes.</summary>
+    internal void SetDisplaySleeping(bool sleeping)
+    {
+        if (Transport is null || _state.ShutdownRequested || sleeping == HasHold(SteamUiHold.DisplaySleep))
+        {
+            return;
+        }
+
+        if (sleeping)
+        {
+            AddHold(SteamUiHold.DisplaySleep);
+            CloseTransportForHold();
+            Log.Info("Steam UI transport held during display sleep.");
+        }
+        else
+        {
+            RemoveHold(SteamUiHold.DisplaySleep);
+            RequestGateCheck();
+        }
+    }
+
     /// <summary>Closes the transport before the machine sleeps, so nothing is in flight across it.</summary>
     /// <remarks>
     ///     A request in flight at the freeze timed out the moment the machine woke and was reported as

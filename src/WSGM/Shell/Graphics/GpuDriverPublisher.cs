@@ -90,7 +90,7 @@ internal sealed class GpuDriverPublisher : ICapabilityPublisher, IBuiltinGpuDriv
 
     public ValueTask RefreshTopologyAsync(CancellationToken token)
     {
-        return NativeDriver.RefreshTopologyAsync(token);
+        return IsActive ? NativeDriver.RefreshTopologyAsync(token) : ValueTask.CompletedTask;
     }
 
     public void CloseAdmission()
@@ -113,6 +113,7 @@ internal sealed class GpuDriverPublisher : ICapabilityPublisher, IBuiltinGpuDriv
             }
 
             _suspended = suspended;
+            NativeDriver.SetObservationPaused(suspended);
             descriptors = _descriptors;
             states = _states.Values.ToArray();
         }

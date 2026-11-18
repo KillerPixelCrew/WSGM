@@ -29,5 +29,8 @@ internal enum SteamUiHold
     Suspended = 8,
 
     /// <summary>The machine resumed moments ago; the transport reconnects once Steam has settled.</summary>
-    Resuming = 16
+    Resuming = 16,
+
+    /// <summary>The session display is off on a Modern Standby system.</summary>
+    DisplaySleep = 32
 }

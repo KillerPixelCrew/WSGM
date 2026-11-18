@@ -24,7 +24,9 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
     private string? _activation;
     private volatile bool _closed;
     private GpuVendor[] _configured = [];
-    private bool _suspended;
+    private volatile bool _suspended;
+    private bool _systemSuspended;
+    private bool _displaySleeping;
     private readonly HashSet<GpuVendor> _updating = [];
 
     /// <summary>Raised after a native vendor owner has successfully acquired fresh driver handles.</summary>
@@ -262,7 +264,7 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
         }
     }
 
-    internal async Task PowerTransitionAsync(bool suspend, CancellationToken cancellationToken)
+    internal async Task PowerTransitionAsync(bool suspend, CancellationToken cancellationToken, bool displayOnly = false)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -272,7 +274,22 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
                 return;
             }
 
-            _suspended = suspend;
+            if (displayOnly)
+            {
+                _displaySleeping = suspend;
+            }
+            else
+            {
+                _systemSuspended = suspend;
+            }
+
+            var suspended = _displaySleeping || _systemSuspended;
+            if (_suspended == suspended)
+            {
+                return;
+            }
+
+            _suspended = suspended;
             Entry[] entries;
             lock (_registration)
             {
@@ -281,7 +298,7 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
 
             foreach (var entry in entries)
             {
-                entry.Publisher.SetSuspended(suspend);
+                entry.Publisher.SetSuspended(suspended);
             }
         }
         finally
@@ -289,7 +306,7 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
             _gate.Release();
         }
 
-        if (!suspend && !_closed)
+        if (!_suspended && !_closed)
         {
             await ReconcileCurrentAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -297,6 +314,11 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
 
     internal async Task RefreshTopologyAsync(AppConfig config, CancellationToken cancellationToken)
     {
+        if (_suspended)
+        {
+            return;
+        }
+
         await ReconcileAsync(config, cancellationToken).ConfigureAwait(false);
         Entry[] entries;
         lock (_registration)

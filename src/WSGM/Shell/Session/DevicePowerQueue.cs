@@ -137,7 +137,29 @@ internal sealed class DevicePowerQueue(IntegrationServices integrations, Session
     private async Task ApplyFanDisplayStateAsync(Task previous, bool sleeping, bool modernStandby)
     {
         await previous.ConfigureAwait(false);
-        if (state.ShutdownRequested || integrations.Device is not { } coordinator)
+        if (state.ShutdownRequested)
+        {
+            return;
+        }
+
+        if (modernStandby && integrations.BuiltinGpu is { } graphics)
+        {
+            try
+            {
+                await graphics.PowerTransitionAsync(sleeping, state.ShutdownToken, displayOnly: true)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (state.ShutdownRequested)
+            {
+                return;
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Log.Error("Graphics display sleep transition failed", ex);
+            }
+        }
+
+        if (integrations.Device is not { } coordinator)
         {
             return;
         }

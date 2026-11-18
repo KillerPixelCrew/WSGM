@@ -15,6 +15,30 @@ public sealed class BuiltinGpuServiceTests
     }
 
     [Fact]
+    public async Task DarkMaintenanceResumeKeepsGraphicsHeldUntilDisplayWake()
+    {
+        using var store = new TemporaryConfigStore();
+        var driver = new FakeDriver();
+        driver.Finish.SetResult(GpuHealth.Ready);
+        await using var service = Service(store, new Queue<FakeDriver>([driver]));
+        await service.ReconcileAsync(Enabled(), CancellationToken.None);
+
+        await service.PowerTransitionAsync(true, CancellationToken.None, displayOnly: true);
+        await service.PowerTransitionAsync(true, CancellationToken.None);
+        await service.PowerTransitionAsync(false, CancellationToken.None);
+        await service.RefreshTopologyAsync(Enabled(), CancellationToken.None);
+        Assert.Equal([true], driver.SuspensionChanges);
+        Assert.Equal(0, driver.TopologyReads);
+
+        await service.PowerTransitionAsync(false, CancellationToken.None, displayOnly: true);
+        await service.RefreshTopologyAsync(Enabled(), CancellationToken.None);
+        Assert.Equal([true, false], driver.SuspensionChanges);
+        Assert.Equal(1, driver.TopologyReads);
+        Assert.Equal(1, driver.Starts);
+        Assert.Equal(0, driver.Disposals);
+    }
+
+    [Fact]
     public async Task DriverUpdateRetiresNativeOwnerAndRecreatesItOnlyAfterTheHoldEnds()
     {
         using var store = new TemporaryConfigStore();
@@ -207,6 +231,8 @@ public sealed class BuiltinGpuServiceTests
         internal int Disposals;
         internal CancellationToken StartToken;
         internal int Starts;
+        internal int TopologyReads;
+        internal List<bool> SuspensionChanges { get; } = [];
 
         public ValueTask<GpuHealth> StartAsync(CancellationToken token)
         {
@@ -218,6 +244,7 @@ public sealed class BuiltinGpuServiceTests
 
         public ValueTask RefreshTopologyAsync(CancellationToken token)
         {
+            TopologyReads++;
             return ValueTask.CompletedTask;
         }
 
@@ -229,6 +256,7 @@ public sealed class BuiltinGpuServiceTests
 
         public void SetSuspended(bool suspended)
         {
+            SuspensionChanges.Add(suspended);
         }
 
         public ValueTask DisposeAsync()
