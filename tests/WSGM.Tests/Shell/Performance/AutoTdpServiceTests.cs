@@ -23,6 +23,64 @@ public sealed class AutoTdpServiceTests
     private const int RaiseJudgeWindows = 2;
 
     [Fact]
+    public async Task SleepClosesAutomaticAdmissionAndWaitsForAnAlreadyDispatchedWrite()
+    {
+        Harness harness = new();
+        harness.Service.Apply(true);
+        harness.Frametimes.Live = [Rendering(22)];
+        for (var miss = 1; miss < AutoTdpController.SustainedMisses; miss++)
+        {
+            await harness.Service.TickAsync(CancellationToken.None);
+        }
+
+        var pending = new TaskCompletionSource<CapabilityCommandResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.PendingWrite = pending;
+        var tick = harness.Service.TickAsync(CancellationToken.None);
+        await WaitForWriteCountAsync(harness, 1);
+        var sleeping = harness.Service.SuspendControlAsync(CancellationToken.None);
+        Assert.False(sleeping.IsCompleted);
+        Assert.False(harness.Service.OwnsPower);
+        Assert.Contains("Sleeping", harness.Service.Availability.Detail);
+        pending.SetResult(new CapabilityCommandResult
+        {
+            CommandId = Guid.NewGuid(), Outcome = CommandOutcome.AppliedVerified,
+            CompletedAt = DateTimeOffset.UtcNow
+        });
+        await tick;
+        await sleeping;
+        var held = harness.Service.HeldWatts;
+        for (var window = 0; window < 8; window++)
+        {
+            await harness.Service.TickAsync(CancellationToken.None);
+        }
+
+        Assert.Single(harness.Writes);
+        Assert.True(harness.Service.Enabled);
+        Assert.Equal(held, harness.Service.HeldWatts);
+        harness.Service.ResumeControl();
+        Assert.True(harness.Service.OwnsPower);
+        await harness.Service.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task SleepAndWakePreserveTheUsersManualAutoTdpPause()
+    {
+        Harness harness = new();
+        harness.Service.Apply(true);
+        harness.Service.NoteManualChange(19);
+        await harness.Service.SuspendControlAsync(CancellationToken.None);
+        harness.Service.ResumeControl();
+        Assert.True(harness.Service.Enabled);
+        Assert.False(harness.Service.OwnsPower);
+        Assert.Equal(19, harness.Service.HeldWatts);
+        harness.Frametimes.Live = [Rendering(22)];
+        await harness.Service.TickAsync(CancellationToken.None);
+        Assert.Empty(harness.Writes);
+        Assert.False(harness.Service.OwnsPower);
+        await harness.Service.DisposeAsync();
+    }
+
+    [Fact]
     public async Task ManualPowerIntentCancelsAnAdmittedAutomaticWriteAndKeepsItsNewRestoreTarget()
     {
         Harness harness = new();

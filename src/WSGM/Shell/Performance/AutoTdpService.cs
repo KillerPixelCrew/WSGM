@@ -53,6 +53,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     private Task? _disposeTask;
     private bool _disposed;
     private bool _enabled;
+    private bool _suspended;
     private CancellationTokenSource? _generation;
     private Task<bool> _lastStop = Task.FromResult(true);
 
@@ -111,13 +112,15 @@ internal sealed class AutoTdpService : IAsyncDisposable
         {
             lock (_gate)
             {
-                return _enabled && !_controller.IsPaused;
+                return _enabled && !_suspended && !_controller.IsPaused;
             }
         }
     }
 
     /// <summary>The shared admission state for the current deadline and power limits.</summary>
-    internal AutoTdpAvailability Availability => _power.Availability(_targetFrametimeMs());
+    internal AutoTdpAvailability Availability => Volatile.Read(ref _suspended)
+        ? new AutoTdpAvailability(false, "Sleeping; firmware owns the power limits.", _targetFrametimeMs())
+        : _power.Availability(_targetFrametimeMs());
 
     /// <summary>The final stop, or a completed task before <see cref="StopAsync(Deadline)" /> was called.</summary>
     /// <remarks>
@@ -584,13 +587,41 @@ internal sealed class AutoTdpService : IAsyncDisposable
         }
     }
 
+    /// <summary>Closes automatic write admission and drains its accepted write before the native sleep handoff.</summary>
+    internal async Task SuspendControlAsync(CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            _suspended = true;
+        }
+
+        RefreshPrerequisites();
+        await _write.WaitAsync(cancellationToken).ConfigureAwait(false);
+        _write.Release();
+    }
+
+    /// <summary>Reopens control after native profile restoration without changing enablement or manual pause.</summary>
+    internal void ResumeControl()
+    {
+        lock (_gate)
+        {
+            _suspended = false;
+            if (!_controller.IsPaused)
+            {
+                _resync = true;
+            }
+        }
+
+        RefreshPrerequisites();
+    }
+
     /// <summary>Runs one control tick: reads the window, asks the controller, and applies its decision.</summary>
     /// <param name="cancellationToken">Cancels the AutoTDP worker or caller.</param>
     /// <returns>A task completing when the tick and any write it dispatched finished.</returns>
     internal async Task TickAsync(CancellationToken cancellationToken)
     {
         var availability = RefreshPrerequisites();
-        if (!Volatile.Read(ref _enabled))
+        if (!Volatile.Read(ref _enabled) || Volatile.Read(ref _suspended))
         {
             return;
         }
@@ -600,7 +631,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
         CancellationTokenSource writeCancellation;
         lock (_gate)
         {
-            if (!_enabled)
+            if (!_enabled || _suspended)
             {
                 return;
             }
@@ -729,13 +760,13 @@ internal sealed class AutoTdpService : IAsyncDisposable
         bool started;
         lock (_gate)
         {
-            if (!_enabled || (_running?.Generation ?? -1) != runningGeneration)
+            if (!_enabled || _suspended || (_running?.Generation ?? -1) != runningGeneration)
             {
                 return;
             }
 
-            rebased = _resync && _controllerStarted;
-            started = (!_controllerStarted || _resync) && context is not null;
+            rebased = _resync && _controllerStarted && !_controller.IsPaused;
+            started = (!_controllerStarted || _resync) && !_controller.IsPaused && context is not null;
             if (started)
             {
                 // Either the first window of this generation, or the window after a write that
@@ -869,6 +900,12 @@ internal sealed class AutoTdpService : IAsyncDisposable
             Task<CapabilityCommandResult> command;
             lock (_gate)
             {
+                if (_suspended)
+                {
+                    trace?.WriteNote = "system-sleep";
+                    return false;
+                }
+
                 if (expectedRunningGeneration is { } expected
                     && (!_enabled || (_running?.Generation ?? -1) != expected))
                 {

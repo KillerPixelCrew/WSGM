@@ -21,6 +21,20 @@ settings are preserved as user-owned state.
 
 ## Power limits across a wake
 
+On Modern Standby systems, this same journaled device suspend now starts at session display-off,
+without waiting for a system-suspend broadcast. Software fans hand back first; AutoTDP closes write
+admission and drains any admitted command before the native services restore their originals. The
+Atlas keeps its IPF session open. A maintenance resume while that display remains dark cannot resume
+the cycle or reassert WSGM's limits. Display-on resumes the owner, waits for its power-path and
+desired profile restoration, then reopens AutoTDP. Its enabled setting, held limit and manual pause
+are kept. Classic S3 systems do not suspend the device just because the display timed out.
+
+This routes display-only standby through the existing complete native lifecycle rather than adding
+parallel TDP restore packets. The virtual controller and physical hiding remain owned, with
+forwarding paused through the transition. The 2026-11-18 fixtures cover early handoff, maintenance
+wake, attended restore, classic-display behavior, automatic-write drain and manual-pause retention.
+Actual Atlas 8 standby/wake power and fan behavior still needs maintainer confirmation.
+
 A suspend gives the limits back and firmware resets them during standby, so every device cycle that
 comes up writes the limit in force once, even when the device already reports that value: the active
 profile's limit, the limit AutoTDP holds (including one set by hand while it is paused), or the

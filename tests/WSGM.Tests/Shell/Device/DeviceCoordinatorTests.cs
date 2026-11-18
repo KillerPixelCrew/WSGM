@@ -15,6 +15,35 @@ namespace WSGM.Tests.Shell;
 
 public sealed class DeviceCoordinatorTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ModernDisplaySleepHandsTheCycleBackUntilAnAttendedDisplayWake(bool modernStandby)
+    {
+        await using Harness harness = new();
+        await harness.Coordinator.InitializeAsync();
+        await harness.Coordinator.ResumeRestore;
+        using var store = new TemporaryConfigStore();
+        var state = new SessionState(harness.Config, store.Store, overlayTestOnly: false);
+        var integrations = new IntegrationServices(state);
+        integrations.AdoptDevice(harness.Coordinator);
+        var queue = new DevicePowerQueue(integrations, state);
+        queue.QueueDisplaySleep(sleeping: true, modernStandby);
+        await queue.Work;
+        Assert.Equal(modernStandby ? DeviceCycleState.Suspended : DeviceCycleState.Active,
+            harness.Coordinator.State);
+        Assert.Equal(modernStandby ? 1 : 0, harness.Calls.Count(call => call == "suspend"));
+
+        queue.Queue(false, "unattended maintenance resume", systemSleep: true);
+        await queue.Work;
+        Assert.DoesNotContain("resume", harness.Calls);
+        queue.QueueDisplaySleep(sleeping: false, modernStandby);
+        await queue.Work;
+        Assert.Equal(DeviceCycleState.Active, harness.Coordinator.State);
+        Assert.Equal(modernStandby ? 1 : 0, harness.Calls.Count(call => call == "resume"));
+        Assert.Equal(1, harness.Loads);
+    }
+
     [Fact]
     public async Task IntegrationOffSkipsDiscoveryRuntimePowerNotificationsAndControllerTargets()
     {

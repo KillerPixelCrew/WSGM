@@ -20,6 +20,7 @@ internal sealed class DevicePowerQueue(IntegrationServices integrations, Session
     /// <summary>The direction the device cycle is heading: the last transition queued, run or not.</summary>
     private bool _deviceSuspended;
     private bool _fanDisplaySleeping;
+    private bool _displayPowerSuspended;
 
     /// <summary>The latest power transition queued, so an opposite one can cancel it before it runs.</summary>
     private DevicePowerTransition? _latestTransition;
@@ -70,6 +71,12 @@ internal sealed class DevicePowerQueue(IntegrationServices integrations, Session
                 return;
             }
 
+            if (!suspend && _displayPowerSuspended)
+            {
+                Log.Info($"Device resume deferred ({reason}): Modern Standby display is still off.");
+                return;
+            }
+
             // A cycle that faulted across the sleep still needs this wake's resume, even though no
             // suspend was recorded for it.
             var repair = !suspend && systemSleep && coordinator?.State is DeviceCycleState.Faulted;
@@ -105,8 +112,8 @@ internal sealed class DevicePowerQueue(IntegrationServices integrations, Session
         }
     }
 
-    /// <summary>Serializes the early display-off fan handoff with full device suspend/resume.</summary>
-    internal void QueueFanDisplayState(bool sleeping)
+    /// <summary>Hands Modern Standby ownership back early; classic display sleep only holds software fans.</summary>
+    internal void QueueDisplaySleep(bool sleeping, bool modernStandby)
     {
         lock (_gate)
         {
@@ -116,8 +123,15 @@ internal sealed class DevicePowerQueue(IntegrationServices integrations, Session
             }
 
             _fanDisplaySleeping = sleeping;
+            _displayPowerSuspended = sleeping && modernStandby;
             var previous = _work;
             _work = Task.Run(() => ApplyFanDisplayStateAsync(previous, sleeping));
+            if (modernStandby)
+            {
+                // Reuse the journaled power handoff, kept IPF session and desired-value restore.
+                Queue(sleeping, sleeping ? "Modern Standby display off" : "Modern Standby display lit",
+                    systemSleep: true);
+            }
         }
     }
 
@@ -170,6 +184,30 @@ internal sealed class DevicePowerQueue(IntegrationServices integrations, Session
         }
     }
 
+    private static async Task TransitionDeviceAsync(DeviceCoordinator? coordinator, bool suspend, bool systemSleep)
+    {
+        if (coordinator is null)
+        {
+            return;
+        }
+
+        if (suspend)
+        {
+            // Finish an admitted AutoTDP command before firmware takes the limits back.
+            using var drain = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await coordinator.Power.AutoTdp.SuspendControlAsync(drain.Token).ConfigureAwait(false);
+            await coordinator.SuspendAsync().ConfigureAwait(false);
+        }
+        else
+        {
+            await coordinator.ResumeAsync(systemSleep).ConfigureAwait(false);
+            // ResumeAsync releases the device transition lane before its desired-state pass runs.
+            // Keep automatic writes held until the selected path and profile are restored.
+            await coordinator.ResumeRestore.ConfigureAwait(false);
+            coordinator.Power.AutoTdp.ResumeControl();
+        }
+    }
+
     private async Task ApplyAsync(
         Task previous,
         DeviceCoordinator? coordinator,
@@ -193,8 +231,7 @@ internal sealed class DevicePowerQueue(IntegrationServices integrations, Session
         var suspend = transition.Suspend;
         try
         {
-            var deviceWork = coordinator is null ? Task.CompletedTask
-                : suspend ? coordinator.SuspendAsync() : coordinator.ResumeAsync(transition.SystemSleep);
+            var deviceWork = TransitionDeviceAsync(coordinator, suspend, transition.SystemSleep);
             await Task.WhenAll(deviceWork, integrations.PluginPowerTransitionAsync(suspend)).ConfigureAwait(false);
             Log.Info($"Device cycle {(suspend ? "suspended" : "resumed")}: {transition.Reason}.");
         }

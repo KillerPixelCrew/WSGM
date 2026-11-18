@@ -9,6 +9,9 @@ public static class PowerActions
 {
     private static readonly Lazy<bool> ModernStandbyOnly = new(ReadModernStandby);
 
+    /// <summary>Whether display-off enters S0 low-power idle instead of requiring classic suspend.</summary>
+    internal static bool UsesModernStandby => ModernStandbyOnly.Value;
+
     /// <summary>Requests the action without blocking the UI; a suspend completes after resume.</summary>
     /// <param name="action">The action the user confirmed.</param>
     public static void Request(SessionPowerAction action)

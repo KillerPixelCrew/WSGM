@@ -140,7 +140,7 @@ internal sealed class SessionPowerEvents(
     {
         if (!DisplayPowerSignal.IsDisplayOff(displayState))
         {
-            devicePower.QueueFanDisplayState(sleeping: false);
+            devicePower.QueueDisplaySleep(sleeping: false, PowerActions.UsesModernStandby);
             performance.RecheckExtendedVrrWhenDisplayLit();
             if (_desktopWake.NoteDisplayOn())
             {
@@ -162,7 +162,7 @@ internal sealed class SessionPowerEvents(
             // Modern Standby can freeze managed work before a system-suspend notification.
             // Return software-driven fans to firmware now; maintenance resumes keep this hold.
             steamUi.CaptureGameBeforeSleep();
-            devicePower.QueueFanDisplayState(sleeping: true);
+            devicePower.QueueDisplaySleep(sleeping: true, PowerActions.UsesModernStandby);
             _screensaverWake.NoteDisplayOff();
             _desktopWake.NoteDisplayOff();
         }
