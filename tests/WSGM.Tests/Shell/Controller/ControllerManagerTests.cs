@@ -17,6 +17,72 @@ public sealed class ControllerManagerTests
     private const string HostApplication = @"C:\Program Files\WSGM\WSGM.exe";
 
     [Fact]
+    public async Task ModernStandbyUnplugsOnlyTheVirtualPadAndRestoresTheCurrentGameTarget()
+    {
+        Harness harness = new();
+        await using var manager = harness.Manager;
+        var selection = Enabled(ManagedControllerTarget.Xbox360,
+            Override("steam:70", ManagedControllerTarget.DualShock4));
+        await manager.StartAsync(selection, [Device()], null, null, CancellationToken.None);
+        Assert.True(await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None));
+
+        await manager.SetDisplaySleepingAsync(true, true, selection, null, null, CancellationToken.None);
+        await manager.ApplyRunningApplicationAsync(Running(applicationId: "steam:70"), CancellationToken.None);
+        await manager.StartAsync(selection, [Device()], "steam:70", null, CancellationToken.None);
+        Assert.Contains("remove:1", harness.Backend.Operations);
+        Assert.Single(harness.Backend.Operations, operation => operation.StartsWith("create:"));
+        Assert.Contains(Device().InstancePath, harness.HidHide.Devices);
+        Assert.False(await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.A), CancellationToken.None));
+
+        await manager.SetDisplaySleepingAsync(false, true, selection, "steam:70", null, CancellationToken.None);
+        await manager.SetDisplaySleepingAsync(false, true, selection, "steam:70", null, CancellationToken.None);
+
+        Assert.Contains(Device().InstancePath, harness.HidHide.Devices);
+        Assert.Equal(ControllerManagementState.Active, manager.State);
+        Assert.Equal(ManagedControllerTarget.DualShock4, manager.Snapshot().Target);
+        Assert.Single(harness.Backend.Operations, operation => operation == "create:2:neutral");
+        Assert.True(await manager.Forwarding.RouteAsync(Sample(CanonicalButtons.None), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ManagementReleasedDuringModernStandbyDoesNotReattachOnWake()
+    {
+        Harness harness = new();
+        await using var manager = harness.Manager;
+        var selection = Enabled(ManagedControllerTarget.Xbox360);
+        await StartActiveAsync(manager);
+        await manager.SetDisplaySleepingAsync(true, true, selection, null, null, CancellationToken.None);
+        await manager.ReleaseAsync(HandoffScope.FullDeactivation, _ => Task.CompletedTask, Deadline.Never,
+            CancellationToken.None);
+
+        await manager.SetDisplaySleepingAsync(false, false, selection, null, null, CancellationToken.None);
+
+        Assert.Equal(ControllerManagementState.Off, manager.State);
+        Assert.Single(harness.Backend.Operations, operation => operation.StartsWith("create:"));
+        Assert.False(harness.HidHide.Active);
+    }
+
+    [Fact]
+    public async Task UnconfirmedModernStandbyRemovalDoesNotCreateASecondControllerOnWake()
+    {
+        Harness harness = new();
+        await using var manager = harness.Manager;
+        var selection = Enabled(ManagedControllerTarget.Xbox360);
+        await StartActiveAsync(manager);
+        harness.Backend.RemovalConfirmed = false;
+        List<string> faults = [];
+        manager.TargetLost += faults.Add;
+
+        await manager.SetDisplaySleepingAsync(true, true, selection, null, null, CancellationToken.None);
+        Assert.Empty(faults);
+        await manager.SetDisplaySleepingAsync(false, true, selection, null, null, CancellationToken.None);
+
+        Assert.Single(faults);
+        Assert.Equal(ControllerManagementState.Faulted, manager.State);
+        Assert.Single(harness.Backend.Operations, operation => operation.StartsWith("create:"));
+    }
+
+    [Fact]
     public async Task MotionIsWantedOnlyWhileADeckConsumerAsksOrADualShockTargetIsActive()
     {
         Harness harness = new();

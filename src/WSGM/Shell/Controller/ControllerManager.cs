@@ -24,8 +24,8 @@ namespace WSGM.Shell;
 ///     <para>
 ///         <see cref="DeviceCoordinator" /> owns the plugin lifecycle; this object owns WSGM's virtual
 ///         controller half, the way HC's <c>ControllerManager</c> and <c>VirtualManager</c> split it.
-///         Like HC, the virtual controller and the hidden pad stay up across sleep and restarts; only
-///         leaving takes them down.
+///         The physical pad stays hidden across sleep and restarts. Modern Standby temporarily unplugs
+///         the virtual USB target so its host controller can idle.
 ///     </para>
 /// </remarks>
 internal sealed class ControllerManager : IAsyncDisposable
@@ -46,6 +46,9 @@ internal sealed class ControllerManager : IAsyncDisposable
     private volatile bool _disposed;
 
     private IReadOnlyList<PhysicalDeviceIdentity> _physicalDevices = [];
+    private bool _displaySleeping;
+    private bool _standbyTargetPending;
+    private string? _standbyDetachFailure;
 
     private ControllerSelection _selection = new(
         false,
@@ -310,7 +313,7 @@ internal sealed class ControllerManager : IAsyncDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
             var status = await StartUnderGateAsync(selection, physicalDevices, applicationId, executable,
                 cancellationToken).ConfigureAwait(false);
-            if (selection.Enabled && status.State is not ControllerManagementState.Active)
+            if (selection.Enabled && status.State is not ControllerManagementState.Active && !_standbyTargetPending)
             {
                 // Management is on but no virtual controller came up, so nothing would drive a hidden
                 // pad. A disabled selection leaves HidHide alone: the release already showed the pad.
@@ -349,6 +352,13 @@ internal sealed class ControllerManager : IAsyncDisposable
         {
             // Nothing is hidden and no target is made; StartAsync shows anything a previous owner hid.
             return await EnterNativeUnderGateAsync(resolved, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (_displaySleeping)
+        {
+            _standbyTargetPending = true;
+            SetEffective(resolved);
+            return SetState(ControllerManagementState.Idle, "Virtual controller is paused for Modern Standby.");
         }
 
         var health = await _backend.DiscoverAsync(cancellationToken)
@@ -396,6 +406,90 @@ internal sealed class ControllerManager : IAsyncDisposable
         return SetState(
             ControllerManagementState.Active,
             $"Managed target {resolved.Target} is active ({resolved.Source}).");
+    }
+
+    /// <summary>Unplugs the virtual USB controller during Modern Standby while retaining physical ownership.</summary>
+    internal async Task SetDisplaySleepingAsync(
+        bool sleeping,
+        bool physicalControllerReady,
+        ControllerSelection selection,
+        string? applicationId,
+        string? executable,
+        CancellationToken cancellationToken)
+    {
+        await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_disposed || _displaySleeping == sleeping)
+            {
+                return;
+            }
+
+            _displaySleeping = sleeping;
+            if (sleeping)
+            {
+                if (_router.Target is null)
+                {
+                    return;
+                }
+
+                _standbyTargetPending = true;
+                try
+                {
+                    await Forwarding.DetachForStandbyAsync(cancellationToken).ConfigureAwait(false);
+                    Log.Info("Virtual controller detached for Modern Standby; physical controller ownership retained.");
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
+                {
+                    _standbyDetachFailure = ex.Message;
+                    Log.Error("Virtual controller detach for Modern Standby failed", ex);
+                }
+
+                SetState(ControllerManagementState.Idle, "Virtual controller is paused for Modern Standby.");
+                return;
+            }
+
+            var pending = _standbyTargetPending;
+            var detachFailure = _standbyDetachFailure;
+            _standbyTargetPending = false;
+            _standbyDetachFailure = null;
+            if (!pending)
+            {
+                return;
+            }
+
+            if (detachFailure is not null)
+            {
+                OnRouterTargetFaulted(detachFailure);
+                return;
+            }
+
+            if (!physicalControllerReady || !selection.Enabled)
+            {
+                await ShowPhysicalUnderGateAsync(cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            Forwarding.DropPendingSample();
+            var restored = await StartUnderGateAsync(selection, _physicalDevices, applicationId, executable,
+                cancellationToken).ConfigureAwait(false);
+            if (restored.State is ControllerManagementState.Active)
+            {
+                Log.Info("Virtual controller restored after Modern Standby.");
+            }
+            else if (restored.State is ControllerManagementState.Faulted or ControllerManagementState.Unavailable)
+            {
+                OnRouterTargetFaulted(restored.Detail);
+            }
+            else
+            {
+                await ShowPhysicalUnderGateAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _transition.Release();
+        }
     }
 
     /// <summary>
@@ -560,6 +654,8 @@ internal sealed class ControllerManager : IAsyncDisposable
             }
 
             Forwarding.DropPendingSample();
+            _standbyTargetPending = false;
+            _standbyDetachFailure = null;
 
             // Admission closes before the target is quietened, not after: a sample arriving once the
             // router reaches Neutral would re-activate the source and publish a live report again.
@@ -715,6 +811,11 @@ internal sealed class ControllerManager : IAsyncDisposable
         string? executable,
         CancellationToken cancellationToken)
     {
+        if (_displaySleeping && _standbyTargetPending)
+        {
+            return Snapshot();
+        }
+
         var resolved = ControllerTargetSelection.Resolve(
             _selection.Profiles,
             applicationId,

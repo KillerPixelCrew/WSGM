@@ -237,6 +237,26 @@ internal sealed class ControllerForwarding
         return NeutralizeRoutingAsync(reason, true, cancellationToken);
     }
 
+    /// <summary>Stops game forwarding and removes the virtual target under the same route gate.</summary>
+    internal async Task DetachForStandbyAsync(CancellationToken cancellationToken)
+    {
+        await _routeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            lock (_gate)
+            {
+                _forwardingBlocked = true;
+                _gameLive = false;
+            }
+
+            await _router.RemoveAsync("Modern Standby", cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _routeGate.Release();
+        }
+    }
+
     /// <summary>Lets samples reach the kept target again after a sleep or a session lock.</summary>
     /// <param name="reason">Why, for the log.</param>
     /// <param name="cancellationToken">Cancels waiting for the route gate.</param>

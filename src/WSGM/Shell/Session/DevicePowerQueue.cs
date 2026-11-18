@@ -128,9 +128,33 @@ internal sealed class DevicePowerQueue(IntegrationServices integrations, Session
             _work = Task.Run(() => ApplyFanDisplayStateAsync(previous, sleeping, modernStandby));
             if (modernStandby && !sleeping && _deviceSuspended)
             {
-                // Only a real system suspend resumes the full cycle; display sleep preserves input.
+                // A real system suspend must resume the physical input before the virtual pad returns.
                 Queue(false, "Modern Standby display lit", systemSleep: true);
             }
+
+            if (modernStandby)
+            {
+                var beforeController = _work;
+                _work = Task.Run(() => ApplyControllerDisplayStateAsync(beforeController, sleeping));
+            }
+        }
+    }
+
+    private async Task ApplyControllerDisplayStateAsync(Task previous, bool sleeping)
+    {
+        await previous.ConfigureAwait(false);
+        if (state.ShutdownRequested || integrations.Device is not { } coordinator)
+        {
+            return;
+        }
+
+        try
+        {
+            await coordinator.SetDisplayControllerSleepingAsync(sleeping).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error("Virtual controller display power transition failed", ex);
         }
     }
 

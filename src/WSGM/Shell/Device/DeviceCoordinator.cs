@@ -714,6 +714,24 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         }
     }
 
+    /// <summary>Quiesces the VIIPER target at display-off and restores it once the awake device owns input.</summary>
+    internal async Task SetDisplayControllerSleepingAsync(bool sleeping)
+    {
+        using var transition = await EnterTransitionAsync(_lifetime.Token).ConfigureAwait(false);
+        if (_disposed)
+        {
+            return;
+        }
+
+        await Controllers.SetDisplaySleepingAsync(
+            sleeping,
+            _handheldOwnsController && _client is { IsActive: true },
+            CurrentControllerSelection(),
+            _runningApplicationId,
+            _runningExecutable,
+            _lifetime.Token).ConfigureAwait(false);
+    }
+
     /// <summary>Quiesces the active handheld for suspend or session lock.</summary>
     /// <param name="cancellationToken">Cancels transition waiting and the bounded handheld suspension.</param>
     /// <returns>Suspension completion; the virtual target and physical hiding are retained while forwarding is blocked.</returns>

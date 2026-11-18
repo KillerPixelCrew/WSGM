@@ -121,6 +121,13 @@ cleanup, after admission of new presses closes.
 The virtual target's output and calibration previews share one physical haptic sink. Cleanup
 neutralizes forwarding and ends output before physical controller release and native stop.
 
+During Modern Standby, WSGM unplugs its VIIPER virtual USB controller at display-off so the USB/IP
+host controller can enter low power. The physical controller stays acquired and hidden. WSGM
+recreates the virtual target selected by the current profile when the display wakes and the physical
+controller is ready. A running game sees a controller disconnect and reconnect, so its hot-plug
+support determines how it resumes input. The native Steam controller and classic sleep keep their
+usual controller behavior.
+
 ## The USB/IP driver is replaced on a boot of its own
 
 Setup installs or upgrades USB/IP in a separate boot before WSGM attaches a virtual controller. The
