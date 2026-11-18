@@ -673,7 +673,7 @@ cycle with the deployed change still needs maintainer acceptance. This change ad
 writes beyond the existing automatic-mode handoff and does not change manual or firmware fan
 choices.
 
-On Modern Standby systems, display-off also queues the complete device power handoff described in
+On Modern Standby systems, display-off also queues the scoped device power handoff described in
 [device integration](device-integration.md#power-limits-across-a-wake). This releases WSGM's TDP
 ownership as well as the software fans. Automatic power writes remain held through native restore;
 an unattended resume while dark does not reacquire control. Classic display timeouts retain the

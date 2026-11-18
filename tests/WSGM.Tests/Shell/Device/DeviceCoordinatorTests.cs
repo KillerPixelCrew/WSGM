@@ -18,7 +18,7 @@ public sealed class DeviceCoordinatorTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task ModernDisplaySleepHandsTheCycleBackUntilAnAttendedDisplayWake(bool modernStandby)
+    public async Task ModernDisplaySleepHandsPowerBackWithoutCyclingDeviceOrInput(bool modernStandby)
     {
         await using Harness harness = new();
         await harness.Coordinator.InitializeAsync();
@@ -30,9 +30,9 @@ public sealed class DeviceCoordinatorTests
         var queue = new DevicePowerQueue(integrations, state);
         queue.QueueDisplaySleep(sleeping: true, modernStandby);
         await queue.Work;
-        Assert.Equal(modernStandby ? DeviceCycleState.Suspended : DeviceCycleState.Active,
-            harness.Coordinator.State);
-        Assert.Equal(modernStandby ? 1 : 0, harness.Calls.Count(call => call == "suspend"));
+        Assert.Equal(DeviceCycleState.Active, harness.Coordinator.State);
+        Assert.DoesNotContain("suspend", harness.Calls);
+        Assert.Equal(modernStandby ? 1 : 0, harness.Calls.Count(call => call == "power-suspend"));
 
         queue.Queue(false, "unattended maintenance resume", systemSleep: true);
         await queue.Work;
@@ -40,7 +40,8 @@ public sealed class DeviceCoordinatorTests
         queue.QueueDisplaySleep(sleeping: false, modernStandby);
         await queue.Work;
         Assert.Equal(DeviceCycleState.Active, harness.Coordinator.State);
-        Assert.Equal(modernStandby ? 1 : 0, harness.Calls.Count(call => call == "resume"));
+        Assert.DoesNotContain("resume", harness.Calls);
+        Assert.Equal(modernStandby ? 1 : 0, harness.Calls.Count(call => call == "power-resume"));
         Assert.Equal(1, harness.Loads);
     }
 

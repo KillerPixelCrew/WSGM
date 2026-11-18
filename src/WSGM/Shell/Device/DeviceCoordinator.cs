@@ -677,6 +677,43 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         }
     }
 
+    /// <summary>Hands only native power control back during display-only standby, preserving controller endpoints.</summary>
+    internal async Task SetDisplayPowerSleepingAsync(bool sleeping)
+    {
+        if (sleeping)
+        {
+            using var drain = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await Power.AutoTdp.SuspendControlAsync(drain.Token).ConfigureAwait(false);
+        }
+
+        using var transition = await EnterTransitionAsync(_lifetime.Token).ConfigureAwait(false);
+        if (_disposed || _client is not { IsActive: true } client)
+        {
+            return;
+        }
+
+        if (sleeping && _cycleGap is null)
+        {
+            _cycleGap = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Volatile.Write(ref _resumeRestore, _cycleGap.Task);
+        }
+
+        var supported = await client.SetPowerControlSuspendedAsync(sleeping,
+            Deadline.After(TimeSpan.FromSeconds(5)), _lifetime.Token).ConfigureAwait(false);
+        Log.Info($"Display-only power handoff: sleeping={sleeping}, supported={supported}; input ownership retained.");
+        if (!sleeping)
+        {
+            await Commands.ReconcileDesiredValuesAsync("display wake power restore", _lifetime.Token,
+                skipReassertedPowerLimit: true, powerOnly: true).ConfigureAwait(false);
+            await Power.ReassertLimitAsync(_lifetime.Token).ConfigureAwait(false);
+            _cycleGap?.TrySetResult();
+            _cycleGap = null;
+            await Power.PowerAssignments.ForgetAppliedAsync().ConfigureAwait(false);
+            Power.AutoTdp.ResumeControl();
+            Power.RequestAssignmentReconcile();
+        }
+    }
+
     /// <summary>Quiesces the active handheld for suspend or session lock.</summary>
     /// <param name="cancellationToken">Cancels transition waiting and the bounded handheld suspension.</param>
     /// <returns>Suspension completion; the virtual target and physical hiding are retained while forwarding is blocked.</returns>

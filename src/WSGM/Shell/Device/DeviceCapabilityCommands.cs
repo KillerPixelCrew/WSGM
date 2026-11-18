@@ -311,9 +311,10 @@ internal sealed class DeviceCapabilityCommands
     ///     applied its fan curve but not its power limit is still better than one that applied nothing.
     ///     A value the device already reports is skipped, so reselecting the active profile is free.
     /// </remarks>
+    /// <param name="powerOnly">Restores only power controls, leaving lighting, fans and input untouched.</param>
     internal async Task ReconcileDesiredValuesAsync(
         string reason, CancellationToken cancellationToken, bool lightingOnly = false,
-        bool skipReassertedPowerLimit = false)
+        bool skipReassertedPowerLimit = false, bool powerOnly = false)
     {
         await _reconcileGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -323,7 +324,10 @@ internal sealed class DeviceCapabilityCommands
                 return;
             }
 
-            await _lighting.ReconcileProfileAsync(_profiles.Current, cancellationToken).ConfigureAwait(false);
+            if (!powerOnly)
+            {
+                await _lighting.ReconcileProfileAsync(_profiles.Current, cancellationToken).ConfigureAwait(false);
+            }
             await CapabilityDesiredReconciler.RunAsync(
                 new CapabilityReconcilePass(
                     "Device",
@@ -332,7 +336,11 @@ internal sealed class DeviceCapabilityCommands
                     (view, desired, token) => RestoreDesiredValueAsync(view, desired, reason, token))
                 {
                     Priority = ReconciliationPriority,
-                    Include = view => !_lighting.OwnsProfile(view)
+                    Include = view => (!powerOnly || view.Descriptor.Role is CapabilityRole.PowerBackend
+                                          or CapabilityRole.ScenarioMode or CapabilityRole.PowerSustainedLimit
+                                          or CapabilityRole.PowerSlowLimit or CapabilityRole.PowerFastLimit
+                                          or CapabilityRole.PowerPeakLimit)
+                                      && !_lighting.OwnsProfile(view)
                                       && !(skipReassertedPowerLimit && _power.IsReassertedLimit(view))
                                       && (!lightingOnly || DeviceLightingRestore.IsLighting(view.Descriptor.Role))
                                       && !(view.Descriptor.Role is CapabilityRole.FanDuty or CapabilityRole.FanTargetRpm
@@ -346,7 +354,7 @@ internal sealed class DeviceCapabilityCommands
                 },
                 reason,
                 cancellationToken).ConfigureAwait(false);
-            if (!lightingOnly)
+            if (!lightingOnly && !powerOnly)
             {
                 await _fanCurves.ApplyAuthoredProfilesAsync(_profiles.Current, cancellationToken)
                     .ConfigureAwait(false);

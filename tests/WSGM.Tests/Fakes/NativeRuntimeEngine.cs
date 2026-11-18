@@ -35,6 +35,12 @@ internal sealed class NativeRuntimeEngine(List<string> calls, Func<string, Cance
         return new EngineStartResult { State = EngineOperationalState.Active };
     }
 
+    public async ValueTask<bool> SetPowerControlSuspendedAsync(bool suspended, Deadline deadline, CancellationToken token)
+    {
+        await CallAsync(suspended ? "power-suspend" : "power-resume", token);
+        return true;
+    }
+
     public async ValueTask SuspendAsync(EngineQuiesceContext context, CancellationToken token)
     {
         await CallAsync("suspend", token);

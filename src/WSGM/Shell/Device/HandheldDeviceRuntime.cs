@@ -392,6 +392,13 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
         }
     }
 
+    internal async Task<bool> SetPowerControlSuspendedAsync(bool suspended, Deadline deadline, CancellationToken token)
+    {
+        var work = Device.SetPowerControlSuspendedAsync(suspended, Budget(deadline), token).AsTask();
+        await AwaitWorkAsync(work, deadline, token).ConfigureAwait(false);
+        return await work.ConfigureAwait(false);
+    }
+
     internal async Task ReleaseControllerAsync(Deadline deadline, CancellationToken token)
     {
         await AwaitWorkAsync(Device.ReleaseControllerAsync(Budget(deadline), token).AsTask(), deadline, token)

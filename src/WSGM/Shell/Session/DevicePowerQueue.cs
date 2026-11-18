@@ -125,17 +125,16 @@ internal sealed class DevicePowerQueue(IntegrationServices integrations, Session
             _fanDisplaySleeping = sleeping;
             _displayPowerSuspended = sleeping && modernStandby;
             var previous = _work;
-            _work = Task.Run(() => ApplyFanDisplayStateAsync(previous, sleeping));
-            if (modernStandby)
+            _work = Task.Run(() => ApplyFanDisplayStateAsync(previous, sleeping, modernStandby));
+            if (modernStandby && !sleeping && _deviceSuspended)
             {
-                // Reuse the journaled power handoff, kept IPF session and desired-value restore.
-                Queue(sleeping, sleeping ? "Modern Standby display off" : "Modern Standby display lit",
-                    systemSleep: true);
+                // Only a real system suspend resumes the full cycle; display sleep preserves input.
+                Queue(false, "Modern Standby display lit", systemSleep: true);
             }
         }
     }
 
-    private async Task ApplyFanDisplayStateAsync(Task previous, bool sleeping)
+    private async Task ApplyFanDisplayStateAsync(Task previous, bool sleeping, bool modernStandby)
     {
         await previous.ConfigureAwait(false);
         if (state.ShutdownRequested || integrations.Device is not { } coordinator)
@@ -146,6 +145,11 @@ internal sealed class DevicePowerQueue(IntegrationServices integrations, Session
         try
         {
             await coordinator.FanCurves.Controller.SetDisplaySleepingAsync(sleeping).ConfigureAwait(false);
+            if (modernStandby)
+            {
+                await coordinator.SetDisplayPowerSleepingAsync(sleeping).ConfigureAwait(false);
+            }
+
             Log.Info($"Software fan display-off hold {(sleeping ? "applied" : "released")}.");
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
