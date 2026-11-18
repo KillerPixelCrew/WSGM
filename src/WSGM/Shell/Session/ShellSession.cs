@@ -158,7 +158,7 @@ public sealed class ShellSession
             () => _overlay, () => _desktopHost);
         _entryBackend = new GameModeEntryBackend(_state, _boot, _integrations, _system, () => _modes,
             () => _desktopHost, () => _displayChangeWindow);
-        _commands = new SessionCommands(_state, _integrations, _performance, _steamUi, () => _overlay,
+        _commands = new SessionCommands(_state, _devicePower, _integrations, _performance, _steamUi, () => _overlay,
             () => _modes, () => _monitor);
         _serviceBoot = serviceBoot;
         // boot.json and its launch arguments are a projection from an earlier config read.
@@ -655,7 +655,7 @@ public sealed class ShellSession
         overlay.BuildNotice = _steamUi.BuildNotice;
         if (!_state.OverlayTestOnly)
         {
-            overlay.RequestPowerAction = PowerActions.Request;
+            overlay.RequestPowerAction = _commands.RequestPowerAction;
             overlay.GameReturn = _system.GameReturn;
         }
 

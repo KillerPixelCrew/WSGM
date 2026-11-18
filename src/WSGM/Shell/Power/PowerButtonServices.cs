@@ -28,7 +28,7 @@ internal sealed record PowerButtonServices
     internal required Func<CancellationToken, Task<bool>> NotifySteamResumedAsync { get; init; }
 
     /// <summary>Enters Modern Standby the way the display timeout does.</summary>
-    internal required Func<bool> EnterStandby { get; init; }
+    internal required Func<Task<bool>> EnterStandbyAsync { get; init; }
 
     /// <summary>Requests hibernate, restart or shut down through the session's power actions.</summary>
     internal required Action<SessionPowerAction> RequestPowerAction { get; init; }

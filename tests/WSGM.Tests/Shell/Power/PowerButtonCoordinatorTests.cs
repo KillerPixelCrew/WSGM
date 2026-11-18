@@ -130,10 +130,10 @@ public sealed class PowerButtonCoordinatorTests
             CloseDesktopPowerMenuAsync = _ => Task.FromResult(false),
             RunSteamSuspendFlowAsync = _ => throw new InvalidOperationException("Unexpected Steam suspend"),
             NotifySteamResumedAsync = _ => Task.FromResult(true),
-            EnterStandby = () =>
+            EnterStandbyAsync = () =>
             {
                 calls.Add("standby");
-                return true;
+                return Task.FromResult(true);
             },
             RequestPowerAction = action => calls.Add(action.ToString())
         };

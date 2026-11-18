@@ -18,6 +18,7 @@ namespace WSGM.Shell;
 ///     once shutdown began.
 /// </summary>
 /// <param name="state">The session's live state.</param>
+/// <param name="devicePower">Prepares the handheld before Windows can freeze the session.</param>
 /// <param name="integrations">The device whose OEM buttons and controllers the commands use.</param>
 /// <param name="performance">The performance overlay level an OEM button cycles.</param>
 /// <param name="steamUi">The transport Steam's keyboard is opened through.</param>
@@ -26,6 +27,7 @@ namespace WSGM.Shell;
 /// <param name="monitor">Reads the session's Steam monitor.</param>
 internal sealed class SessionCommands(
     SessionState state,
+    DevicePowerQueue devicePower,
     IntegrationServices integrations,
     PerformanceServices performance,
     SteamUiServices steamUi,
@@ -129,9 +131,39 @@ internal sealed class SessionCommands(
                     ? SteamPowerCommands.NotifyResumedAsync(transport, token)
                     : Task.FromResult(false),
                 cancellationToken),
-            EnterStandby = PowerActions.EnterStandby,
-            RequestPowerAction = PowerActions.Request
+            EnterStandbyAsync = EnterStandbyAsync,
+            RequestPowerAction = RequestPowerAction
         };
+    }
+
+    internal void RequestPowerAction(SessionPowerAction action)
+    {
+        if (action == SessionPowerAction.Standby)
+        {
+            _ = EnterStandbyAsync();
+            return;
+        }
+
+        PowerActions.Request(action);
+    }
+
+    private async Task<bool> EnterStandbyAsync()
+    {
+        if (!PowerActions.UsesModernStandby)
+        {
+            return PowerActions.EnterStandby();
+        }
+
+        devicePower.QueueDisplaySleep(sleeping: true, modernStandby: true);
+        await devicePower.Work.ConfigureAwait(false);
+        if (!state.ShutdownRequested && PowerActions.EnterStandby())
+        {
+            return true;
+        }
+
+        devicePower.QueueDisplaySleep(sleeping: false, modernStandby: true);
+        await devicePower.Work.ConfigureAwait(false);
+        return false;
     }
 
     /// <summary>The Steam UI transport when Steam integration is on and Steam is running, otherwise null.</summary>

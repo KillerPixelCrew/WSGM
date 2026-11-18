@@ -378,12 +378,12 @@ internal sealed class PowerButtonCoordinator : IDisposable
             case PowerButtonShortPress.Nothing:
                 return;
             case PowerButtonShortPress.Sleep:
-                Standby(services);
+                await StandbyAsync(services).ConfigureAwait(false);
                 return;
             case PowerButtonShortPress.SteamSuspend:
                 if (!inGameMode)
                 {
-                    Standby(services);
+                    await StandbyAsync(services).ConfigureAwait(false);
                     return;
                 }
 
@@ -406,7 +406,7 @@ internal sealed class PowerButtonCoordinator : IDisposable
                     Log.Warn($"Power button: Steam's suspend screen did not run ({result}); sleeping directly.");
                 }
 
-                if (!services.EnterStandby())
+                if (!await services.EnterStandbyAsync().ConfigureAwait(false))
                 {
                     Log.Warn("Power button: Modern Standby could not be requested.");
                     if (result is SteamSuspendFlowResult.Completed)
@@ -433,9 +433,9 @@ internal sealed class PowerButtonCoordinator : IDisposable
         }
     }
 
-    private static void Standby(PowerButtonServices services)
+    private static async Task StandbyAsync(PowerButtonServices services)
     {
-        if (!services.EnterStandby())
+        if (!await services.EnterStandbyAsync().ConfigureAwait(false))
         {
             Log.Warn("Power button: Modern Standby could not be requested.");
         }
