@@ -306,7 +306,7 @@ internal static class SteamGlyphCss
         {
             // Steam leaves intrinsic sizing to the image in binding labels. ViewBox-only SVG
             // replacements measured 0 x 0 there, even while the same glyph rendered in the sidebar.
-            css.Append(".DialogControlsSection [id$='_Label'] img[src*='/steaminputglyphs/'] ")
+            css.Append(":is(.DialogControlsSection, ._1S9TiIKAh7MGSn55xwGAUZ) [id$='_Label'] img[src*='/steaminputglyphs/'] ")
                 .Append("{ min-width: 1.5em; min-height: 1.5em; object-fit: contain; }\n");
         }
 
@@ -479,6 +479,9 @@ internal static class SteamGlyphCss
                 // Each wrapper owns one input. Its enclosing section also owns both bumpers.
                 row.Control is GlyphControlId.RearM1 or GlyphControlId.RearM2 or GlyphControlId.RearLeft2 or GlyphControlId.RearRight2
                     ? $".{DialogSectionClass} > ._3hp6GpXpBRCJ2K-9wN05l3:has(img[src=\"{Attribute(row.ValvePath)}\"])"
+                    : "",
+                row.Control is GlyphControlId.RearM1 or GlyphControlId.RearM2 or GlyphControlId.RearLeft2 or GlyphControlId.RearRight2
+                    ? $"._1S9TiIKAh7MGSn55xwGAUZ > .Panel:has([id$='_Label'] img[src=\"{Attribute(row.ValvePath)}\"])"
                     : "",
 
                 // And the controller-diagram pickers, which are neither rows nor sections: one icon

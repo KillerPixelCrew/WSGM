@@ -19219,7 +19219,12 @@
         } catch {
           continue;
         }
-        const cleared = caps & ~mask;
+        const upperGrips = 1n << 22n;
+        const grips = 1n << 10n;
+        // Quick Settings uses GRIPS for its entire rear-button editor. Keep that editor
+        // when the device has upper grips. Individual unavailable bindings are hidden by glyph.
+        const listMask = caps & upperGrips ? mask & ~grips : mask;
+        const cleared = caps & ~listMask;
         if (cleared !== caps) {
           controller.capabilities = cleared.toString();
           masked++;
