@@ -188,6 +188,20 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
         _timer.Start();
     }
 
+    internal void SetPollingParked(bool parked)
+    {
+        if (_timer is null)
+        {
+            return;
+        }
+
+        _timer.IsEnabled = !parked;
+        if (!parked)
+        {
+            QueueRefresh();
+        }
+    }
+
     /// <summary>
     ///     Forces a full re-enumeration — bound to the panel's refresh
     ///     button and run when the panel opens.

@@ -14,6 +14,7 @@ public sealed class SteamMonitor : IDisposable
 {
     private readonly DispatcherTimer _timer;
     private bool _pollInFlight;
+    private int _pollGeneration;
 
     private bool _seenDead;
     private bool _wasAlive;
@@ -41,6 +42,7 @@ public sealed class SteamMonitor : IDisposable
     /// <summary>Stops the lifecycle monitor.</summary>
     public void Dispose()
     {
+        _pollGeneration++;
         _timer.Stop();
     }
 
@@ -60,6 +62,16 @@ public sealed class SteamMonitor : IDisposable
     /// </summary>
     public event Action? ClientStarted;
 
+    internal void SetPollingParked(bool parked)
+    {
+        _pollGeneration++;
+        _timer.IsEnabled = !parked;
+        if (!parked)
+        {
+            Poll();
+        }
+    }
+
     private void Poll()
     {
         if (_pollInFlight)
@@ -68,6 +80,7 @@ public sealed class SteamMonitor : IDisposable
         }
 
         _pollInFlight = true;
+        var generation = _pollGeneration;
         // Steam.IsRunning takes a full process snapshot per watched name — off the
         // UI thread, with only the resulting boolean marshalled back, so the 16 ms
         // gamepad poll and the overlay animations never wait on it. All monitor
@@ -86,13 +99,23 @@ public sealed class SteamMonitor : IDisposable
                 return;
             }
 
-            Dispatcher.UIThread.Post(() => Apply(alive));
+            Dispatcher.UIThread.Post(() =>
+            {
+                _pollInFlight = false;
+                if (generation == _pollGeneration)
+                {
+                    Apply(alive);
+                }
+                else if (_timer.IsEnabled)
+                {
+                    Poll();
+                }
+            });
         });
     }
 
     private void Apply(bool alive)
     {
-        _pollInFlight = false;
         IsAlive = alive;
 
         // _wasAlive can only be true after a poll saw Steam alive, so the

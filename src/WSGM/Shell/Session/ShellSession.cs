@@ -151,7 +151,13 @@ public sealed class ShellSession
         _devicePower = new DevicePowerQueue(_integrations, _state);
         _desktopActions = new DesktopLifecycleActions(_state, _integrations, _devicePower, () => _modes);
         _powerEvents = new SessionPowerEvents(_state, _devicePower, _steamUi, _performance, _integrations,
-            () => _desktopActions.Queue(false));
+            parked =>
+            {
+                _monitor?.SetPollingParked(parked);
+                _system.Audio?.SetPollingParked(parked);
+                _storage.Drives?.SetPollingParked(parked);
+                _overlay?.SetPollingParked(parked);
+            }, () => _desktopActions.Queue(false));
         _surfaces = new GameModeSurfaces(_state, _integrations, _steamUi, _storage, _system, () => _overlay,
             () => _messageWindow);
         _boot = new SessionBoot(_state, _steamUi, _surfaces, _desktopActions, () => _modes, () => _monitor,

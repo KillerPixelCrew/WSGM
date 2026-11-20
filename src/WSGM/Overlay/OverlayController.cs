@@ -102,6 +102,13 @@ public sealed partial class OverlayController : IDisposable
 
     private bool _suppressFocusRestore;
     private SystemStatus? _systemStatus;
+    private bool _pollingParked;
+
+    internal void SetPollingParked(bool parked)
+    {
+        _pollingParked = parked;
+        _systemStatus?.SetHeaderActive(!parked && Sheet?.IsActive == true);
+    }
     private CancellationTokenSource? _windowReturnCancellation;
 
     /// <summary>Creates the overlay controller and its input activation surfaces.</summary>
@@ -488,6 +495,10 @@ public sealed partial class OverlayController : IDisposable
         var overlay = new OverlayWindow(_store, vm, switcher, _systemStatus, _windowSession,
             static window => window.Placement.Dock(), UiScale(explorerRunning),
             WindowCenter(_restoreFocusTo), SteamClient);
+        var status = _systemStatus;
+        status.SetHeaderActive(false);
+        overlay.Activated += (_, _) => status.SetHeaderActive(!_pollingParked);
+        overlay.Deactivated += (_, _) => status.SetHeaderActive(false);
         _sheet.Attach(overlay);
         overlay.Placement.SetBlurRadius(_config.OverlayBlurRadius);
         var powerSchemes = _services.AttachPower(overlay);

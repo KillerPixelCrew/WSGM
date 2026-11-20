@@ -154,6 +154,20 @@ public sealed class SystemStatus : ObservableObject, IDisposable
         _timer.Start();
     }
 
+    internal void SetHeaderActive(bool active)
+    {
+        if (_timer is null || _timer.IsEnabled == active)
+        {
+            return;
+        }
+
+        _timer.IsEnabled = active;
+        if (active)
+        {
+            Refresh();
+        }
+    }
+
     private void OnTick(object? sender, EventArgs e)
     {
         Refresh();

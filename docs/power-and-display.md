@@ -78,13 +78,14 @@ takes.
 subscriptions, the timer and the attempt count. Off by default and switched on from Settings >
 System > Power: it decides on its own to suspend the machine, so it is the user's to enable.
 
-WSGM changes no power settings and arms no wake sources for it. The machine wakes normally and the
-guard only decides whether to put it back, so nothing global is left altered and nothing needs
-restoring if the process dies mid-session. That shape comes from the #27 investigation: Winhanced's
-`SleepCoordinator` imports `IsSystemResumeAutomatic`, `SetSuspendState` and the power-notification
-registrations and writes no scheme values at all, unlike Handheld Companion's Enhanced Sleep, which
-writes eight settings into the active scheme and only restores them when its own toggle is turned
-back off.
+Once an unattended wake qualifies, the guard waits three seconds, then checks wake attribution,
+display state, input and the setting again. A new resume or a lit display cancels the pending
+request. This uses the current Windows power plan.
+
+Steam process polling and the periodic audio and removable-drive checks park on system suspend or
+when the Modern Standby display goes dark. They refresh after both holds clear. Audio and drive
+notifications continue to report changes. The overlay also parks its clock and battery timer while
+inactive. These reductions apply independently of the optional re-suspend setting.
 
 `ModernStandby.WasLastResumeUnattended` is the whole basis: Windows says whether a person woke the
 machine. A wake it attributes to the user is never undone. Beyond that the guard refuses on a lit
@@ -161,7 +162,7 @@ accepts it. No read follows the write, and a failed write never triggers a retry
 Windows remains authoritative through independent refreshes, including subsequent changes made by
 Settings or OEM tools. Native failures retain their error codes.
 
-Overlay → Device → Power offers a Windows power-profile dropdown inside the Windows energy plan
+Overlay â†’ Device â†’ Power offers a Windows power-profile dropdown inside the Windows energy plan
 card, shown only once Windows has been read and enumerates more than one plan; a single plan is
 nothing to choose, and the card and its pin stay hidden. It stays available with Device Integration
 off. It draws the same row Steam's Quick Access does, from `NativeQamPowerProfileService`: the same
@@ -185,7 +186,7 @@ settings were changed for validation. No session-mode or per-application scheme 
 and the selector has no device-plugin dependency. WSGM Settings configures WSGM itself; this Windows
 control belongs in the overlay and Steam QAM.
 
-Steam QAM → Performance offers a Windows power profile dropdown, built on Valve's dropdown field,
+Steam QAM â†’ Performance offers a Windows power profile dropdown, built on Valve's dropdown field,
 when Windows enumerates more than one plan; with one plan the row publishes no options and is not
 drawn. Selecting an entry applies it immediately through the same Core backend and saves the
 verified GUID. Each publication reads the active GUID. The installed scheme list is cached for one
@@ -218,7 +219,7 @@ through that one carrier; both mark a game override and offer the way back to Gl
 
 ## Device power presets
 
-Steam QAM → Performance offers AC and battery profile assignments when the native definition
+Steam QAM â†’ Performance offers AC and battery profile assignments when the native definition
 declares presets. The Claw A2VM supplies:
 
 | Preset              | PL1 / PL2 | Windows power mode | EC scenario on AC | EC scenario on battery |
@@ -280,13 +281,13 @@ not change live power settings or a running Steam client.
 
 ## AC and battery assignments
 
-Device → Power and Steam QAM → Performance provide **When plugged in** and **On battery** profile
-assignments and a read-only active-profile status. There is no separate active-profile selector.
-Background reads do not block assignment selection or overwrite an open dropdown. Global assignments
-are the defaults; with the per-game profile on, an assignment made for the running game overrides
-Global for that source only, and an unset one inherits Global ([profiles](profiles.md)). References
-include the native family identity so changing definitions cannot silently apply another family's
-similarly named preset.
+Device â†’ Power and Steam QAM â†’ Performance provide **When plugged in** and **On battery**
+profile assignments and a read-only active-profile status. There is no separate active-profile
+selector. Background reads do not block assignment selection or overwrite an open dropdown. Global
+assignments are the defaults; with the per-game profile on, an assignment made for the running game
+overrides Global for that source only, and an unset one inherits Global ([profiles](profiles.md)).
+References include the native family identity so changing definitions cannot silently apply another
+family's similarly named preset.
 
 When an assignment is applied:
 
@@ -377,14 +378,15 @@ gate:
 
 Surfaces:
 
-- The Overlay's power assignments show **Save as preset…** with the current values while the profile
-  reads Custom, and **Saved presets** once there is one. That opens an in-window utility listing
-  each preset's name, values and status with Rename…, Update… and Delete…. Names are typed on the
-  in-window keyboard; Update and Delete ask in the centred confirmation with Cancel focused.
-- Steam's Quick Access and the Power settings page show **Save as preset…** under the assignments,
+- The Overlay's power assignments show **Save as presetâ€¦** with the current values while the
+  profile reads Custom, and **Saved presets** once there is one. That opens an in-window utility
+  listing each preset's name, values and status with Renameâ€¦, Updateâ€¦ and Deleteâ€¦. Names are
+  typed on the in-window keyboard; Update and Delete ask in the centred confirmation with Cancel
+  focused.
+- Steam's Quick Access and the Power settings page show **Save as presetâ€¦** under the assignments,
   which asks for the name in the toolkit's prompt. The Power page's **Saved presets** section lists
-  each preset as one action row with Rename…, Update… and Delete… buttons (`SteamSettingsAction`),
-  and says when there are none.
+  each preset as one action row with Renameâ€¦, Updateâ€¦ and Deleteâ€¦ buttons
+  (`SteamSettingsAction`), and says when there are none.
 
 ## Game Mode display layouts
 
@@ -518,7 +520,7 @@ an observed refresh.
 
 Keep-awake (below) lets the display time out while downloads continue, and Steam then plays a sound
 for every finished download into a dark room. `Shell\Display\DisplayOffMuteService.cs` mutes for
-exactly that case. Config `MuteWhileDisplayOff`, default off, Settings → System → Power.
+exactly that case. Config `MuteWhileDisplayOff`, default off, Settings â†’ System â†’ Power.
 
 The condition is the conjunction of three facts: the setting is enabled, this session's display is
 off, and Steam is actively downloading. Screen-off alone never mutes. A download that starts while
@@ -602,7 +604,7 @@ These are the remote test surface; keep their shape.
 | `Mute on display off: screen dark without an active Steam download, leaving audio unchanged.`                                     | The no-op branch.                                                                        |
 | `Mute on display off: muted.` / `already muted, leaving it alone.` / `unmuted.`                                                   | Claim taken, declined, released.                                                         |
 | `Mute on display off: downloads inactive, waiting 10 s before unmute.` / `downloads remained inactive for 10 s, restoring audio.` | Restore grace started, elapsed.                                                          |
-| `Mute on display off: user input while muted, restoring …`                                                                        | The input net fired.                                                                     |
+| `Mute on display off: user input while muted, restoring â€¦`                                                                      | The input net fired.                                                                     |
 
 ## The power button
 
@@ -687,8 +689,8 @@ Steam cannot be reached the hold opens the overlay's power menu instead. The too
 | Line                                                                              | Meaning                                 |
 | --------------------------------------------------------------------------------- | --------------------------------------- |
 | `Power button: Windows' own handling is off in N power plan(s).`                  | Takeover applied.                       |
-| `Power button: Windows handles it again, because …` / `… handling restored.`      | Takeover ending, and restored.          |
-| `Power button: short press, <choice>.` / `long press, …`                          | A press and what it did.                |
+| `Power button: Windows handles it again, because â€¦` / `â€¦ handling restored.`  | Takeover ending, and restored.          |
+| `Power button: short press, <choice>.` / `long press, â€¦`                        | A press and what it did.                |
 | `Power button: press ignored, it is part of a wake.`                              | The wake guard.                         |
 | `Power button: Steam's suspend screen did not run (<result>); sleeping directly.` | Steam suspend fell back to plain Sleep. |
 | `Power: standby (Modern Standby)`                                                 | Standby entered through the display.    |
@@ -740,7 +742,7 @@ pid colours the state but is excluded from the summary.
 
 A "What's keeping this awake" row opens `Overlay\WakeLockHoldersView.cs`, a Power-tab sub-view
 listing every requester, deduplicated on (label, detail, reason) so thirty identical Steam requests
-read as `steam.exe ×30`, sorted by count then name, with caller kind, pid, path and reason on the
+read as `steam.exe Ã—30`, sorted by count then name, with caller kind, pid, path and reason on the
 second line. Unlike the summary it does not hide WSGM's own request: the list must not omit an
 answer. An unelevated read shows "couldn't read", never an empty all-clear. It belongs to the Power
 tab rather than Tools, and it is opened from inside the Wake category, so leaving it restores the
@@ -782,13 +784,13 @@ switch cannot land between another owner's read of the active scheme and its wri
 
 ### Log lines
 
-| Line                                                                          | Meaning                                               |
-| ----------------------------------------------------------------------------- | ----------------------------------------------------- |
-| `Keep awake: download hold acquired (…)` / `released (…)`                     | The automatic hold changed, with the snapshot detail. |
-| `Keep awake: download hold released (disabled in settings).`                  | Config apply dropped an engaged hold.                 |
-| `Keep awake: manual mode Off\|Standby\|StandbyAndDisplay (quick access).`     | The resulting manual hold state.                      |
-| `Steam downloads: active\|inactive (…)`                                       | The activity answer consumed by muting changed.       |
-| `Keep awake: PowerCreateRequest\|PowerSetRequest\|PowerClearRequest failed …` | The Windows request itself failed.                    |
+| Line                                                                            | Meaning                                               |
+| ------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `Keep awake: download hold acquired (â€¦)` / `released (â€¦)`                   | The automatic hold changed, with the snapshot detail. |
+| `Keep awake: download hold released (disabled in settings).`                    | Config apply dropped an engaged hold.                 |
+| `Keep awake: manual mode Off\|Standby\|StandbyAndDisplay (quick access).`       | The resulting manual hold state.                      |
+| `Steam downloads: active\|inactive (â€¦)`                                       | The activity answer consumed by muting changed.       |
+| `Keep awake: PowerCreateRequest\|PowerSetRequest\|PowerClearRequest failed â€¦` | The Windows request itself failed.                    |
 
 ## Refresh rates: what a panel advertises is not what a driver accepts
 

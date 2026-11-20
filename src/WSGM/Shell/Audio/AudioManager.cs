@@ -244,6 +244,20 @@ public sealed class AudioManager : ObservableObject, IDisposable
         _timer.Start();
     }
 
+    internal void SetPollingParked(bool parked)
+    {
+        if (_timer is null)
+        {
+            return;
+        }
+
+        _timer.IsEnabled = !parked;
+        if (!parked)
+        {
+            QueueRefresh(true);
+        }
+    }
+
     /// <summary>Requests a fresh volume and device enumeration.</summary>
     public void Refresh()
     {

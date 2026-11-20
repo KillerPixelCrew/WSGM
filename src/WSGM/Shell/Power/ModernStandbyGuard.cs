@@ -26,7 +26,7 @@ internal sealed class ModernStandbyGuard : IDisposable
     private readonly Func<bool> _enabled;
     private readonly Func<TimeSpan> _lastInputAge;
     private readonly Func<bool> _lastResumeUnattended;
-    private readonly CancellationTokenSource _lifetime = new();
+    private CancellationTokenSource? _pendingSuspend;
     private readonly MessageWindow _messages;
     private readonly Func<TimeSpan> _sinceWake;
     private readonly Func<CancellationToken, Task> _suspend;
@@ -36,7 +36,7 @@ internal sealed class ModernStandbyGuard : IDisposable
     // notification arrived could suspend a machine on its very first tick.
     private bool _displayOn = true;
     private bool _disposed;
-    private bool _suspending;
+
 
     /// <summary>Creates the guard and subscribes it to resume and display notifications.</summary>
     /// <param name="messages">The session's message window; not owned or disposed here.</param>
@@ -83,13 +83,13 @@ internal sealed class ModernStandbyGuard : IDisposable
         _messages.DisplayStateChanged -= OnDisplayStateChanged;
         _messages.DeregisterDisplayStateNotifications();
         _timer.Stop();
-        _lifetime.Cancel();
+        CancelPendingSuspend();
     }
 
     private void OnSystemResumed()
     {
         // A resume ends any suspend this guard asked for, even before that request's continuation runs.
-        _suspending = false;
+        CancelPendingSuspend();
         Evaluate();
     }
 
@@ -103,24 +103,29 @@ internal sealed class ModernStandbyGuard : IDisposable
         }
 
         _displayOn = !off;
-        if (off)
+        if (!off)
+        {
+            CancelPendingSuspend();
+            _timer.Stop();
+        }
+        else
         {
             // The screen going dark is the transition that can turn a refusal into a decision.
             Evaluate();
         }
     }
 
-    private void Evaluate()
+    private bool Evaluate(bool confirmed = false)
     {
-        if (_disposed || _suspending)
+        if (_disposed || (_pendingSuspend is not null && !confirmed))
         {
-            return;
+            return false;
         }
 
         if (!_enabled())
         {
             _timer.Stop();
-            return;
+            return false;
         }
 
         ModernStandbyDecision decision;
@@ -143,7 +148,7 @@ internal sealed class ModernStandbyGuard : IDisposable
             // the user; suspending on a state WSGM could not establish is not.
             _timer.Stop();
             Log.Warn($"Modern Standby guard: could not read wake state, leaving the machine awake: {ex.Message}");
-            return;
+            return false;
         }
 
         if (decision.Outcome is ModernStandbyOutcome.UserWoke)
@@ -156,34 +161,53 @@ internal sealed class ModernStandbyGuard : IDisposable
         if (decision.ShouldKeepWatching)
         {
             _timer.Start();
-            return;
+            return false;
         }
 
         _timer.Stop();
         if (!decision.ShouldResuspend)
         {
-            return;
+            return false;
+        }
+
+        if (!confirmed)
+        {
+            _pendingSuspend = new CancellationTokenSource();
+            _ = ConfirmAndSuspendAsync(_pendingSuspend);
+            return false;
         }
 
         Attempts++;
-        _suspending = true;
         Log.Change(
             "power.modern-standby.resuspend",
             $"Modern Standby guard: unexplained wake {sinceWake.TotalSeconds:F0}s ago with the "
             + $"display off and no input; suspending again (attempt {Attempts} of "
             + $"{ModernStandbyPolicy.MaximumAttemptsPerWake}).");
-        _ = SuspendAsync();
+        return true;
     }
 
-    private async Task SuspendAsync()
+    private void CancelPendingSuspend()
+    {
+        _pendingSuspend?.Cancel();
+        _pendingSuspend = null;
+    }
+
+    private async Task ConfirmAndSuspendAsync(CancellationTokenSource request)
     {
         try
         {
-            await _suspend(_lifetime.Token).ConfigureAwait(true);
+            // Give a following attended resume or display-on signal time to arrive. Re-read input,
+            // wake attribution and the setting immediately before handing this request to Windows.
+            await Task.Delay(TimeSpan.FromSeconds(3), request.Token).ConfigureAwait(true);
+            request.Token.ThrowIfCancellationRequested();
+            if (Evaluate(confirmed: true))
+            {
+                await _suspend(request.Token).ConfigureAwait(true);
+            }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (request.IsCancellationRequested)
         {
-            // The session is going away; the machine's power state is no longer this guard's business.
+            // A newer wake, a lit display or shutdown superseded this request.
         }
         catch (Exception ex)
         {
@@ -191,7 +215,12 @@ internal sealed class ModernStandbyGuard : IDisposable
         }
         finally
         {
-            _suspending = false;
+            if (ReferenceEquals(_pendingSuspend, request))
+            {
+                _pendingSuspend = null;
+            }
+
+            request.Dispose();
         }
     }
 }

@@ -17,6 +17,7 @@ namespace WSGM.Shell;
 /// <param name="steamUi">The Steam transport the sleep holds and releases.</param>
 /// <param name="performance">The performance answers a sleep invalidates.</param>
 /// <param name="integrations">The device a power-source change reaches.</param>
+/// <param name="setPollingParked">Parks session fallback polls while either sleep signal is active.</param>
 /// <param name="queueWakeActions">Queues the desktop wake action list.</param>
 internal sealed class SessionPowerEvents(
     SessionState state,
@@ -24,6 +25,7 @@ internal sealed class SessionPowerEvents(
     SteamUiServices steamUi,
     PerformanceServices performance,
     IntegrationServices integrations,
+    Action<bool> setPollingParked,
     Action queueWakeActions)
 {
     /// <summary>How close to a resume a suspend has to be before it is treated as its stale partner.</summary>
@@ -77,6 +79,23 @@ internal sealed class SessionPowerEvents(
         messageWindow.DeregisterDisplayStateNotifications();
     }
 
+    private bool _displaySleeping;
+    private bool _systemSuspended;
+    private bool _pollingParked;
+
+    private void UpdatePolling()
+    {
+        var parked = _displaySleeping || _systemSuspended;
+        if (_pollingParked == parked || state.ShutdownRequested)
+        {
+            return;
+        }
+
+        _pollingParked = parked;
+        setPollingParked(parked);
+        Log.Info($"Session background polling {(parked ? "parked" : "resumed")}.");
+    }
+
     private void OnSessionLocked()
     {
         devicePower.Queue(true, "session locked");
@@ -109,6 +128,8 @@ internal sealed class SessionPowerEvents(
             + $"wall={wall.TotalMilliseconds:F0} ms since the last resume.");
         _screensaverWake.NoteSuspendAccepted();
         _desktopWake.NoteSuspendAccepted();
+        _systemSuspended = true;
+        UpdatePolling();
         steamUi.HoldForSuspend();
         devicePower.Queue(true, "system suspending", true);
     }
@@ -118,6 +139,8 @@ internal sealed class SessionPowerEvents(
         Interlocked.Exchange(ref _systemResumeTimestamp, Stopwatch.GetTimestamp());
         Interlocked.Exchange(ref _systemResumeWallTicks, DateTimeOffset.UtcNow.UtcTicks);
         // Every resume, including the second of one modern standby wake: the settle restarts with it.
+        _systemSuspended = false;
+        UpdatePolling();
         steamUi.ReleaseAfterResume();
         devicePower.Queue(false, "system resumed", true);
         var unattended = ResumeWasUnattended();
@@ -140,6 +163,8 @@ internal sealed class SessionPowerEvents(
     {
         if (!DisplayPowerSignal.IsDisplayOff(displayState))
         {
+            _displaySleeping = false;
+            UpdatePolling();
             steamUi.SetDisplaySleeping(false);
             devicePower.QueueDisplaySleep(sleeping: false, PowerActions.UsesModernStandby);
             performance.RecheckExtendedVrrWhenDisplayLit();
@@ -169,6 +194,8 @@ internal sealed class SessionPowerEvents(
             steamUi.CaptureGameBeforeSleep();
             if (PowerActions.UsesModernStandby)
             {
+                _displaySleeping = true;
+                UpdatePolling();
                 steamUi.SetDisplaySleeping(true);
             }
 
