@@ -16,12 +16,17 @@ function createWsgmControllerCaps() {
   const StoreFingerprints: Array<[string[], (value: any) => boolean]> = [
     [
       ["GetControllerBySerial", "m_unboundControllerList"],
-      (value) => typeof value?.GetControllerBySerial === "function" && typeof value?.DoControllerListQuery === "function",
+      (value) =>
+        typeof value?.GetController === "function" &&
+        typeof value?.GetControllerBySerial === "function" &&
+        typeof value?.DoControllerListQuery === "function",
     ],
     [
       ["m_pendingEditingConfiguration", "EnsureEditingConfiguration"],
       (value) =>
-        typeof value?.EnsureEditingConfiguration === "function" && typeof value?.DoControllerListQuery === "function",
+        typeof value?.SetEditingConfigurationValue === "function" &&
+        typeof value?.EnsureEditingConfiguration === "function" &&
+        typeof value?.DoControllerListQuery === "function",
     ],
   ];
 
@@ -34,6 +39,7 @@ function createWsgmControllerCaps() {
 
   let installed = false;
   let service: any = null;
+  let editor: any = null;
   let unsubscribe: (() => void) | null = null;
   let resolver: any = null;
   let lastError = "";
@@ -54,9 +60,15 @@ function createWsgmControllerCaps() {
   };
 
   const maskList = (list) => {
-    if (mask === 0n || !list || typeof list !== "object" || !Array.isArray(list.controllers)) return list;
+    if (mask === 0n || !list || typeof list !== "object" || !Array.isArray(list.controllers))
+      return list;
     for (const controller of list.controllers) {
-      if (!controller || Number(controller.vendor_id) !== vendorId || Number(controller.product_id) !== productId) continue;
+      if (
+        !controller ||
+        Number(controller.vendor_id) !== vendorId ||
+        Number(controller.product_id) !== productId
+      )
+        continue;
       let caps: bigint;
       try {
         caps = BigInt(controller.capabilities ?? 0);
@@ -76,7 +88,8 @@ function createWsgmControllerCaps() {
   // shape every mapper reads. Both are replaced on the instance only, so the wrapper's own type stays
   // as it was.
   const maskResponse = (response) => {
-    if (!response || typeof response.Body !== "function" || typeof response.BSuccess !== "function") return response;
+    if (!response || typeof response.Body !== "function" || typeof response.BSuccess !== "function")
+      return response;
     try {
       if (!response.BSuccess()) return response;
       const body = response.Body();
@@ -98,15 +111,66 @@ function createWsgmControllerCaps() {
       lastError = String(error);
       return false;
     }
-    const claim = claimMember(service, "GetControllerList", claimKeys, (original: any) =>
-      function (this: any, ...args) {
-        const result = original.apply(this, args);
-        return result && typeof result.then === "function" ? result.then(maskResponse) : maskResponse(result);
-      },
+    const claim = claimMember(
+      service,
+      "GetControllerList",
+      claimKeys,
+      (original: any) =>
+        function (this: any, ...args) {
+          const result = original.apply(this, args);
+          return result && typeof result.then === "function"
+            ? result.then(maskResponse)
+            : maskResponse(result);
+        },
     );
     if (!claim.ok) {
       lastError = claim.error;
       service = null;
+      return false;
+    }
+    try {
+      const controllers = resolver.exported(...StoreFingerprints[0]);
+      editor = resolver.exported(...StoreFingerprints[1]);
+      const edit = claimMember(
+        editor,
+        "SetEditingConfigurationValue",
+        claimKeys,
+        (original: any) =>
+          function (this: any, appId, update, ...rest) {
+            // Valve's activation picker XORs each selection with the saved mask, including a
+            // default stick-touch button the device lacks and the picker cannot deselect.
+            const setting = update?.new_setting;
+            if (
+              mask &&
+              update?.source_binding_key != null &&
+              update?.modeid != null &&
+              setting?.key === 157 &&
+              typeof setting.long_value === "string" &&
+              /^\d+$/.test(setting.long_value)
+            ) {
+              const device = controllers.GetController(this.EditingConfigurationControllerIndex);
+              if (device?.unVendorID === vendorId && device.unProductID === productId) {
+                let absent = 0n;
+                if (mask & (1n << 10n)) absent |= 3n << 15n; // Lower grips.
+                if (mask & (1n << 12n)) absent |= 15n << 17n; // Trackpad clicks and touches.
+                if (mask & (1n << 24n)) absent |= 3n << 46n; // Capacitive sticks.
+                const requested = BigInt(setting.long_value);
+                if (requested & absent) {
+                  update = {
+                    ...update,
+                    new_setting: { ...setting, long_value: (requested & ~absent).toString() },
+                  };
+                }
+              }
+            }
+            return original.call(this, appId, update, ...rest);
+          },
+      );
+      if (!edit.ok) throw new Error(edit.error);
+    } catch (error) {
+      releaseMember(service, "GetControllerList", claimKeys);
+      editor = null;
+      lastError = String(error);
       return false;
     }
     return true;
@@ -145,6 +209,8 @@ function createWsgmControllerCaps() {
   // by the next remove rather than left in Steam behind an "absent" answer.
   const remove = () => {
     if (!installed) return { ok: true, absent: true };
+    const edit = releaseMember(editor, "SetEditingConfigurationValue", claimKeys);
+    if (!edit.ok) return { ok: false, error: edit.error };
     const released = releaseMember(service, "GetControllerList", claimKeys);
     if (!released.ok) {
       lastError = released.error ?? "controller list release failed";
@@ -153,6 +219,7 @@ function createWsgmControllerCaps() {
     installed = false;
     unsubscribe = endSubscription(unsubscribe);
     service = null;
+    editor = null;
     mask = 0n;
     refresh();
     return { ok: true, removed: true };
@@ -166,7 +233,11 @@ function createWsgmControllerCaps() {
     try {
       runtime = getWebpackRuntime("controller-caps");
     } catch (error) {
-      return { ok: false, outcome: "notReady", reason: `Steam modules unavailable: ${String(error)}` };
+      return {
+        ok: false,
+        outcome: "notReady",
+        reason: `Steam modules unavailable: ${String(error)}`,
+      };
     }
     const count = runtime.count(ServiceTokens);
     return count === 1
@@ -185,8 +256,15 @@ function createWsgmControllerCaps() {
     hooked: memberClaimed(service, "GetControllerList", claimKeys),
     subscribed: !!unsubscribe,
     // The standard status: the claim and the subscription are what this gate holds.
-    held: installed && memberClaimed(service, "GetControllerList", claimKeys) && !!unsubscribe,
-    claims: (memberClaimed(service, "GetControllerList", claimKeys) ? 1 : 0) + (unsubscribe ? 1 : 0),
+    held:
+      installed &&
+      memberClaimed(service, "GetControllerList", claimKeys) &&
+      memberClaimed(editor, "SetEditingConfigurationValue", claimKeys) &&
+      !!unsubscribe,
+    claims:
+      Number(memberClaimed(service, "GetControllerList", claimKeys)) +
+      Number(memberClaimed(editor, "SetEditingConfigurationValue", claimKeys)) +
+      Number(!!unsubscribe),
     mask: mask.toString(),
     vendorId,
     productId,

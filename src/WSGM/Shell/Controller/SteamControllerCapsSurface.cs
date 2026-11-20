@@ -13,7 +13,7 @@ namespace WSGM.Shell;
 /// </summary>
 /// <remarks>
 ///     Only wholly absent control pairs are masked because Steam exposes paired capability bits.
-///     Grip-button bits remain unchanged without a verified mapping. The mask affects UI RPC replies,
+///     The mask affects UI RPC replies,
 ///     not native controller state or saved layouts.
 /// </remarks>
 internal static class SteamControllerCapsSurface
@@ -92,6 +92,12 @@ internal static class SteamControllerCapsSurface
         if (absent.Contains(GlyphControlId.LeftStickTouch) && absent.Contains(GlyphControlId.RightStickTouch))
         {
             mask |= CapacitiveStickBit;
+        }
+
+        if (absent.Contains(GlyphControlId.RearLeft2) && absent.Contains(GlyphControlId.RearRight2))
+        {
+            // Steam uses ATTRIBCAP_GRIPS for lower L5/R5 and ATTRIBCAP_UPPERGRIPS for L4/R4.
+            mask |= 1UL << 10;
         }
 
         return mask;

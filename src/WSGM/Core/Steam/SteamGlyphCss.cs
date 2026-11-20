@@ -302,6 +302,14 @@ internal static class SteamGlyphCss
                 .Append("\");\n  transform: scale(1);\n}\n");
         }
 
+        if (byAsset.Length > 0)
+        {
+            // Steam leaves intrinsic sizing to the image in binding labels. ViewBox-only SVG
+            // replacements measured 0 x 0 there, even while the same glyph rendered in the sidebar.
+            css.Append(".DialogControlsSection [id$='_Label'] img[src*='/steaminputglyphs/'] ")
+                .Append("{ min-width: 1.5em; min-height: 1.5em; object-fit: contain; }\n");
+        }
+
         return byAsset.Length;
     }
 
@@ -467,12 +475,10 @@ internal static class SteamGlyphCss
                 // is a table someone has to keep, and this is the same hook without it.
                 $"[id*=\"{BindingRowIdToken}\"]:has(img[src=\"{Attribute(row.ValvePath)}\"])",
 
-                // And the binding editor's own grouping, which uses readable class names rather
-                // than generated ones — the same family as Panel and Focusable. Worth preferring
-                // wherever Steam offers it: this is the only anchor here that a CSS-module rebuild
-                // cannot rename.
-                row.Control is GlyphControlId.LeftTrackpad or GlyphControlId.RightTrackpad
-                    ? $".{DialogSectionClass}:has(img[src=\"{Attribute(row.ValvePath)}\"])"
+                // The layout editor also renders saved rear bindings without a binding-row id.
+                // Each wrapper owns one input. Its enclosing section also owns both bumpers.
+                row.Control is GlyphControlId.RearM1 or GlyphControlId.RearM2 or GlyphControlId.RearLeft2 or GlyphControlId.RearRight2
+                    ? $".{DialogSectionClass} > ._3hp6GpXpBRCJ2K-9wN05l3:has(img[src=\"{Attribute(row.ValvePath)}\"])"
                     : "",
 
                 // And the controller-diagram pickers, which are neither rows nor sections: one icon
@@ -484,6 +490,11 @@ internal static class SteamGlyphCss
             .Where(selector => selector.Length > 0)
             .Distinct(StringComparer.Ordinal)
             .ToArray();
+        if (absent.Contains(GlyphControlId.RearLeft2) && absent.Contains(GlyphControlId.RearRight2))
+        {
+            const string row = "._3hp6GpXpBRCJ2K-9wN05l3";
+            selectors = [.. selectors, $".{DialogSectionClass} > [role='region']:has(+ {row} img[src$='/sd_l5.svg']):has(+ {row} + {row} img[src$='/sd_r5.svg'])"];
+        }
         // The trackpads page itself, through its entry in the configurator's page list. Only when
         // the device has neither pad: a device with one still needs the page.
         if (absent.Contains(GlyphControlId.LeftTrackpad) && absent.Contains(GlyphControlId.RightTrackpad))

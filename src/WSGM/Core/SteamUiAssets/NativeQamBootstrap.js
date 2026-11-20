@@ -19165,12 +19165,14 @@
       [
         ["GetControllerBySerial", "m_unboundControllerList"],
         (value) =>
+          typeof value?.GetController === "function" &&
           typeof value?.GetControllerBySerial === "function" &&
           typeof value?.DoControllerListQuery === "function",
       ],
       [
         ["m_pendingEditingConfiguration", "EnsureEditingConfiguration"],
         (value) =>
+          typeof value?.SetEditingConfigurationValue === "function" &&
           typeof value?.EnsureEditingConfiguration === "function" &&
           typeof value?.DoControllerListQuery === "function",
       ],
@@ -19183,6 +19185,7 @@
     };
     let installed = false;
     let service = null;
+    let editor = null;
     let unsubscribe = null;
     let resolver = null;
     let lastError = "";
@@ -19271,6 +19274,51 @@
         service = null;
         return false;
       }
+      try {
+        const controllers = resolver.exported(...StoreFingerprints[0]);
+        editor = resolver.exported(...StoreFingerprints[1]);
+        const edit = claimMember(
+          editor,
+          "SetEditingConfigurationValue",
+          claimKeys,
+          (original) =>
+            function (appId, update, ...rest) {
+              // Valve's activation picker XORs each selection with the saved mask, including a
+              // default stick-touch button the device lacks and the picker cannot deselect.
+              const setting = update?.new_setting;
+              if (
+                mask &&
+                update?.source_binding_key != null &&
+                update?.modeid != null &&
+                setting?.key === 157 &&
+                typeof setting.long_value === "string" &&
+                /^\d+$/.test(setting.long_value)
+              ) {
+                const device = controllers.GetController(this.EditingConfigurationControllerIndex);
+                if (device?.unVendorID === vendorId && device.unProductID === productId) {
+                  let absent = 0n;
+                  if (mask & (1n << 10n)) absent |= 3n << 15n; // Lower grips.
+                  if (mask & (1n << 12n)) absent |= 15n << 17n; // Trackpad clicks and touches.
+                  if (mask & (1n << 24n)) absent |= 3n << 46n; // Capacitive sticks.
+                  const requested = BigInt(setting.long_value);
+                  if (requested & absent) {
+                    update = {
+                      ...update,
+                      new_setting: { ...setting, long_value: (requested & ~absent).toString() },
+                    };
+                  }
+                }
+              }
+              return original.call(this, appId, update, ...rest);
+            },
+        );
+        if (!edit.ok) throw new Error(edit.error);
+      } catch (error) {
+        releaseMember(service, "GetControllerList", claimKeys);
+        editor = null;
+        lastError = String(error);
+        return false;
+      }
       return true;
     };
     const refresh = () => {
@@ -19304,6 +19352,8 @@
     // by the next remove rather than left in Steam behind an "absent" answer.
     const remove = () => {
       if (!installed) return { ok: true, absent: true };
+      const edit = releaseMember(editor, "SetEditingConfigurationValue", claimKeys);
+      if (!edit.ok) return { ok: false, error: edit.error };
       const released = releaseMember(service, "GetControllerList", claimKeys);
       if (!released.ok) {
         lastError = released.error ?? "controller list release failed";
@@ -19312,6 +19362,7 @@
       installed = false;
       unsubscribe = endSubscription(unsubscribe);
       service = null;
+      editor = null;
       mask = 0n;
       refresh();
       return { ok: true, removed: true };
@@ -19346,9 +19397,15 @@
       hooked: memberClaimed(service, "GetControllerList", claimKeys),
       subscribed: !!unsubscribe,
       // The standard status: the claim and the subscription are what this gate holds.
-      held: installed && memberClaimed(service, "GetControllerList", claimKeys) && !!unsubscribe,
+      held:
+        installed &&
+        memberClaimed(service, "GetControllerList", claimKeys) &&
+        memberClaimed(editor, "SetEditingConfigurationValue", claimKeys) &&
+        !!unsubscribe,
       claims:
-        (memberClaimed(service, "GetControllerList", claimKeys) ? 1 : 0) + (unsubscribe ? 1 : 0),
+        Number(memberClaimed(service, "GetControllerList", claimKeys)) +
+        Number(memberClaimed(editor, "SetEditingConfigurationValue", claimKeys)) +
+        Number(!!unsubscribe),
       mask: mask.toString(),
       vendorId,
       productId,

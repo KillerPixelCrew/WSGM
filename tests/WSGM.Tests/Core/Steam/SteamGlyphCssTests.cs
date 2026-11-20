@@ -34,7 +34,8 @@ public sealed class SteamGlyphCssTests
         Assert.Contains($".{SteamGlyphCss.ControlRowClass}:has(img[src=\"/steaminputglyphs/sd_l5.svg\"])", css,
             StringComparison.Ordinal);
         Assert.DoesNotContain(SteamGlyphCss.ControlSectionClass, css, StringComparison.Ordinal);
-        Assert.DoesNotContain(SteamGlyphCss.DialogSectionClass, css, StringComparison.Ordinal);
+        Assert.Contains($".{SteamGlyphCss.DialogSectionClass} > ._3hp6GpXpBRCJ2K-9wN05l3:has(img[src=\"/steaminputglyphs/sd_l5.svg\"])", css, StringComparison.Ordinal);
+        Assert.DoesNotContain($".{SteamGlyphCss.DialogSectionClass}:has(", css, StringComparison.Ordinal);
         Assert.DoesNotContain("sd_l4.svg", css, StringComparison.Ordinal);
         Assert.DoesNotContain("sd_r5.svg", css, StringComparison.Ordinal);
     }
@@ -62,6 +63,8 @@ public sealed class SteamGlyphCssTests
             $".{SteamGlyphCss.DialogCheckboxClass}:has(img[src=\"/steaminputglyphs/sd_ltrackpad_click.svg\"])",
             css,
             StringComparison.Ordinal);
+
+        Assert.DoesNotContain($".{SteamGlyphCss.DialogSectionClass}:has(", css, StringComparison.Ordinal);
 
         // A control the device has keeps its checkbox.
         Assert.DoesNotContain("shared_rstick_touch.svg", css, StringComparison.Ordinal);

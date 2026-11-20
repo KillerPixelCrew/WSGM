@@ -192,21 +192,21 @@ WMI fans and optimized charging, Windows motion, controller RAM lighting and sep
 lighting. The same descriptors supply Overlay and Steam controls for performance mode, manual power,
 both fans, charge protection, percentage ceiling and lighting. Choosing a custom ceiling disables
 optimized charging; enabling optimized charging disables the custom ceiling. The percentage range is
-51..100%, with charging resuming at 50%; 100 removes the custom ceiling. Controller acquisition
-selects the native rear-button reporting mode and restores the original mode on release; users do
-not need to configure rear assignments in Predator Sense first. Fan originals without readable
-behavior return to firmware Auto with unverified restoration. Atlas fan duty is an absolute share of
-full speed, about 70 RPM per percent, from 10% upwards because slower commands stall the fans. The
-firmware honours a speed command absolutely only for a few seconds after a behavior write, so
-LibHandheld re-arms manual mode every second while WSGM drives a fan; a failed re-arm is resolved by
-readback and dropped, never repeated blindly. Lighting changes retain the other profile fields and
-never write ROM. Shared ring color and eight measured segment colors use the same backend; the
-unassigned ninth wire slot is retained. Rear-logo color, brightness, effect and speed use a separate
-lighting endpoint and never modify that slot or the ring profile. Logo state cannot be read, so its
-values start unknown and become known after an accepted explicit write. Lighting commands preserve
-the exact capability ID and instance, including shared ring controls with no instance and the named
-logo controls. Optional Intel voltage settings use the signed PawnIO IntelMSR module. Exact
-on-device results and remaining acceptance are in the
+51..100%. Charging resumes five percentage points below the ceiling, with a 50% floor. Selecting 100
+removes the custom ceiling. Controller acquisition selects the native rear-button reporting mode and
+restores the original mode on release; users do not need to configure rear assignments in Predator
+Sense first. Fan originals without readable behavior return to firmware Auto with unverified
+restoration. Atlas fan duty is an absolute share of full speed, about 70 RPM per percent, from 10%
+upwards because slower commands stall the fans. The firmware honours a speed command absolutely only
+for a few seconds after a behavior write, so LibHandheld re-arms manual mode every second while WSGM
+drives a fan; a failed re-arm is resolved by readback and dropped, never repeated blindly. Lighting
+changes retain the other profile fields and never write ROM. Shared ring color and eight measured
+segment colors use the same backend; the unassigned ninth wire slot is retained. Rear-logo color,
+brightness, effect and speed use a separate lighting endpoint and never modify that slot or the ring
+profile. Logo state cannot be read, so its values start unknown and become known after an accepted
+explicit write. Lighting commands preserve the exact capability ID and instance, including shared
+ring controls with no instance and the named logo controls. Optional Intel voltage settings use the
+signed PawnIO IntelMSR module. Exact on-device results and remaining acceptance are in the
 [Acer provenance](../external/libhandheld/src/LibHandheld/Families/Acer/PROVENANCE.md).
 
 113 exact definitions select authored artwork through 107 glyph profiles. WSGM imports those

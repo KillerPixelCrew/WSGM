@@ -34,14 +34,13 @@ public sealed class SteamControllerCapsSurfaceTests
     }
 
     [Fact]
-    public void BothStickTouchesAbsentClearsTheCapacitiveStickBit()
+    public void AbsentStickTouchesAndLowerGripsClearOnlyTheirOwnBits()
     {
         var mask = SteamControllerCapsSurface.Mask(Presentation(
             GlyphControlId.LeftStickTouch, GlyphControlId.RightStickTouch, GlyphControlId.RearLeft2,
             GlyphControlId.RearRight2));
 
-        // The back-button pair is not mapped to a bit on purpose.
-        Assert.Equal(SteamControllerCapsSurface.CapacitiveStickBit, mask);
+        Assert.Equal(SteamControllerCapsSurface.CapacitiveStickBit | (1UL << 10), mask);
     }
 
     [Fact]
