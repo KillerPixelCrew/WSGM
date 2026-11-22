@@ -1,5 +1,111 @@
 # WSGM changelog
 
+## 3.2.0 (2026-11-22)
+
+### Emulator Manager and firmware
+
+- Install EmulationStation Desktop Edition (ES-DE) from Emulator Manager in Steam or the Overlay.
+  WSGM verifies the portable Windows download, gives ES-DE its own data folder and can add one Steam
+  shortcut for the frontend. You can browse and launch its library without creating a shortcut for
+  each ROM.
+- ES-DE syncs the ROM folder links and launch commands for installed standalone emulators and
+  RetroArch cores. The system default is listed first. Its library shows the default emulator or why
+  a system is unavailable, and lets you keep a ROM source in ES-DE only. You can sync manually
+  without moving the original ROMs.
+- Automatic System defaults are available as soon as a compatible emulator or core is installed,
+  before adding a ROM source. WSGM prefers installed standalone emulators when no explicit choice is
+  saved. Steam, the Overlay, Library Importer and the launcher use the same defaults and system
+  aliases.
+- BIOS scans and folder actions show progress and can be canceled. They search nested folders,
+  recognize renamed regional BIOS dumps by checksum and report the file found. One valid regional
+  alternative satisfies a system even when another file fails verification.
+- Checking or selecting the BIOS folder also configures the shared BIOS paths. Relink adds missing
+  canonical names without overwriting files, and imports prefer a known checksum over a misleading
+  name. One emulator's setup failure is reported without stopping the others.
+- Xbox checks include the MCPX ROM, flash BIOS and disk image. RetroArch arranges supplied files
+  into the subdirectories its installed cores expect and reports missing core paths separately.
+- Switch firmware detection recognizes versioned ZIPs and extracted NCA files. Checks apply the
+  Switch firmware setup when missing. Detected firmware can also be installed from either interface
+  without selecting the files again.
+- Steam custom tabs keep their scroll position when switching with the shoulder buttons. Back closes
+  a nested view before leaving its page, and custom pages keep scrolling inside their content.
+
+### Game Library and artwork
+
+- ROM collections that detect system folders list each system and title count under its source in
+  both interfaces. You can exclude systems from scans and Steam import without removing their
+  previously imported games. New systems are included by default, and ES-DE still sees the full
+  collection.
+- Steam's importer columns end above the footer so controller focus can reach the last rows. The
+  Game Library storage row now shows its full summary, and Steam filter chips use the correct
+  padding and selection styling.
+- Games whose launch command is a batch file can be imported. WSGM starts the batch file in its
+  working folder without opening a console and follows the game it launches. Rescanning recognizes
+  these shortcuts.
+- If Steam explicitly refuses one title, Library Importer reports that title and continues. It still
+  stops when Steam becomes unreachable or a write has an uncertain outcome.
+- New shortcuts write and verify only the fields Steam did not already save. Each confirmed add logs
+  the time spent waiting for the shortcut, applying fields and reading them back.
+- ScreenScraper lookups use the correct system IDs for PSP, GameCube and Sega Pico. The log now
+  explains why an artwork lookup falls back to another provider or produces no images.
+- Saving starts artwork downloads for the next three titles while Steam writes the current one.
+  Shared image URLs are downloaded once. ScreenScraper requests can use the account's reported
+  concurrency allowance, up to eight, and the log records per-title download and write times.
+- Library Importer logs scan and save outcomes, including warnings, failures and early stops.
+  Emulator Manager logs operation outcomes alongside the feedback shown in the Overlay.
+
+### Modern Standby and wake
+
+- WSGM starts the handheld power and controller handoff before requesting Modern Standby. At
+  display-off it releases software fan control and temporary processor limits to firmware. Atlas 8
+  selects firmware Quiet for standby and restores the previous mode on wake. A maintenance wake with
+  the display still off keeps the software curve and AutoTDP paused.
+- Atlas 8 stops its gamepad and companion HID readers for standby while keeping the firmware
+  controller mode and independent power-button service acquired. VIIPER virtual controllers
+  disconnect for Modern Standby and reconnect when the display wakes and the physical controller is
+  ready. A running game's input recovery depends on its controller hot-plug support.
+- Handheld observation, GPU state reads and Steam UI activity pause during the standby hold. Steam
+  process polling and periodic audio and removable-drive reads also park through standby. Audio and
+  drive notifications continue to report changes, and the inactive Overlay pauses its clock and
+  battery timer.
+- The unattended-wake guard waits briefly and checks wake attribution, display state, input and
+  settings again before re-suspending. A new resume or a lit display cancels the pending request.
+- Desktop wake actions can run when the display lights without a system resume notification. Resume
+  and display-on share one wake claim, and a locked session resumes its plugins before dispatching
+  desktop actions.
+- Steam wake recovery retains the running game's identity through display-only standby, including
+  Big Picture in Desktop Mode. On an attended wake it can restore the existing game window and
+  overlay through Steam's Continue path. A maintenance wake leaves that recovery pending.
+
+### Atlas controls
+
+- On Predator Atlas 8, the power-limit controls accept values down to 4 W. The Atlas 7 floor remains
+  8 W. Actual Atlas 8 package power below 8 W is still unmeasured.
+- Holding an Atlas rear button in Combination mode no longer freezes the other gamepad inputs. WSGM
+  reconstructs those inputs from the device's vendor reports until normal reporting resumes.
+- Atlas charging resumes five percentage points below the selected ceiling, with a 50% floor.
+  Setting the ceiling to 100% removes the custom cap.
+- Steam Input keeps the rear-button editor visible for the Atlas's physical rear buttons and hides
+  only the unavailable lower bindings. Replacement glyphs remain visible in binding labels, and
+  hiding absent bindings no longer hides the neighboring bumper controls.
+- Atlas 8 voltage adjusters are hidden. Other supported Intel handhelds hide the voltage controls
+  when Intel IPF reports that firmware undervolt protection is enabled.
+
+### Steam, shutdown and maintenance
+
+- Background Steam state changes refresh only the surfaces they affect. Unrelated refreshes no
+  longer rebuild open sections.
+- Shutdown continues through audio, radio, storage and other service cleanup after the performance
+  overlay bridge is disposed.
+- Development deployment stages compatible replacements for installed first-party plugins before
+  stopping WSGM, including with `-SkipBuild`. Hardware identity for the deployment guard is read
+  from Windows' SMBIOS-backed registry data.
+- Updated SharpCompress to 0.50.10 and the IR plugin's System.IO.Ports to 11.0.0. Development and
+  test tools now use Chrome DevTools MCP 1.13.0, Prettier 3.10.1, ReSharper 2026.3.0.1,
+  coverlet.collector 10.1.1 and the Visual Studio xUnit adapter 4.0.1 in both Avalonia test suites.
+
+[All changes since 3.1.3](https://github.com/KillerPixelCrew/WSGM/compare/3.1.3...3.2.0)
+
 ## 3.1.3 (2026-11-16)
 
 - Steam Settings' Wi-Fi switch now uses Windows radio control and displays Windows' radio state.
