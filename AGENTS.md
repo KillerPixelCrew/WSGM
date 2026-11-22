@@ -24,6 +24,11 @@ The validation budget below overrides older gate recipes in skills and documenta
   local artifacts. Treat the maintainer's release request as acceptance. Keep release notes focused
   on shipped changes and upgrade instructions. Report the release link and checks run briefly.
   Include outstanding acceptance or deferred validation in release communications only on request.
+- Before drafting GitHub release notes, read the previous published WSGM releases and follow the
+  layout in [WSGM 3.1.2](https://github.com/KillerPixelCrew/WSGM/releases/tag/3.1.2). Keep its order
+  for the version heading, short summary, Changed and Fixed, upgrade instructions, compare link,
+  Support, and fenced SHA-256 checksums. Copy its Support section with the Ko-fi button and verify
+  the published notes against the reference.
 
 ## Source and ownership
 
