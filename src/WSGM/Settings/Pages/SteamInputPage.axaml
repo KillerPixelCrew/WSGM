@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="using:WSGM.Controls"
              xmlns:s="using:WSGM.Settings"
              x:Class="WSGM.Settings.Pages.SteamInputPage"
              x:DataType="s:SettingsViewModel">
@@ -18,7 +19,7 @@
         </Grid>
       </Border>
       <Border Classes="setting-row">
-        <TextBlock Text="{Binding SteamInputShimStatusText}" Classes="caption" TextWrapping="Wrap"
+        <TextBlock Text="{Binding SteamInputShimStatusText}" c:ScreenReader.AnnouncesText="True" Classes="caption" TextWrapping="Wrap"
                    VerticalAlignment="Center" />
       </Border>
     </StackPanel>

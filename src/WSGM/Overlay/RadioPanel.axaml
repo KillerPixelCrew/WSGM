@@ -184,7 +184,7 @@
         </ScrollViewer>
 
         <StackPanel Grid.Row="3" Spacing="8">
-          <TextBlock Text="{Binding StatusText}"
+          <TextBlock Text="{Binding StatusText}" c:ScreenReader.AnnouncesText="True"
                      Classes="caption"
                      TextWrapping="Wrap"
                      IsVisible="{Binding HasStatus}" />

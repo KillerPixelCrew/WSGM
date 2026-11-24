@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="using:WSGM.Controls"
              xmlns:s="using:WSGM.Settings"
              x:Class="WSGM.Settings.Pages.GeneralPage"
              x:DataType="s:SettingsViewModel">
@@ -95,7 +96,7 @@
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <StackPanel VerticalAlignment="Center" Spacing="1">
               <TextBlock Text="Version" Classes="setting-title" />
-              <TextBlock Text="{Binding UpdateStatusText}" Classes="caption" TextWrapping="Wrap" />
+              <TextBlock Text="{Binding UpdateStatusText}" c:ScreenReader.AnnouncesText="True" Classes="caption" TextWrapping="Wrap" />
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
               <Button Content="Check now" Command="{Binding CheckForUpdatesNowCommand}" IsEnabled="{Binding !UpdateBusy}" />

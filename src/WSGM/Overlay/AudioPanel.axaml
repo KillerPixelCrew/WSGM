@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:sh="using:WSGM.Shell"
+             xmlns:c="using:WSGM.Controls"
              xmlns:cv="using:Avalonia.Data.Converters"
              x:Class="WSGM.Overlay.AudioPanel"
              x:DataType="sh:AudioManager">
@@ -10,8 +11,9 @@
 
     <Grid ColumnDefinitions="100,*,Auto" ColumnSpacing="12" MinHeight="36">
       <TextBlock Text="Volume" VerticalAlignment="Center" />
-      <Slider x:Name="VolumeSlider" Grid.Column="1" Minimum="0" Maximum="100" TickFrequency="1"
-              FocusAdorner="{x:Null}" Value="{Binding VolumePercent, Mode=TwoWay}" VerticalAlignment="Center" />
+      <c:UnknownValueSlider x:Name="VolumeSlider" Grid.Column="1" Minimum="0" Maximum="100" TickFrequency="1"
+              FocusAdorner="{x:Null}" Value="{Binding VolumePercent, Mode=TwoWay}" VerticalAlignment="Center"
+              ValueText="{Binding VolumeText}" />
       <TextBlock Grid.Column="2" Text="{Binding VolumeText}" MinWidth="38"
                  HorizontalAlignment="Right" VerticalAlignment="Center" />
     </Grid>

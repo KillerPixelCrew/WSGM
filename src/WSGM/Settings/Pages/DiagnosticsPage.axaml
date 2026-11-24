@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="using:WSGM.Controls"
              xmlns:s="using:WSGM.Settings"
              x:Class="WSGM.Settings.Pages.DiagnosticsPage"
              x:DataType="s:SettingsViewModel">
@@ -28,7 +29,7 @@
             </Grid>
             <TextBlock Text="{Binding LogUploadConfirmText}" IsVisible="{Binding LogUploadConfirmPending}"
                        Classes="caption" TextWrapping="Wrap" />
-            <TextBlock Text="{Binding LogUploadStatusText}" IsVisible="{Binding HasLogUploadStatus}"
+            <TextBlock Text="{Binding LogUploadStatusText}" c:ScreenReader.AnnouncesText="True" IsVisible="{Binding HasLogUploadStatus}"
                        Classes="caption" Classes.problem="{Binding LogUploadProblem}" TextWrapping="Wrap" />
             <SelectableTextBlock Text="{Binding LogUploadLink}" IsVisible="{Binding HasLogUploadLink}"
                                  FontSize="12" TextWrapping="Wrap" />

@@ -18,13 +18,17 @@ namespace WSGM.Controls;
 ///     rests: the minimum, or zero. While <see cref="IsValueUnknown" /> is set the thumb and the filled
 ///     track are not drawn, and assistive technology hears "Unknown" instead of a number. The first
 ///     change the user makes draws the thumb where they put it. Steam's rows do the same in the toolkit's
-///     settings renderer.
+///     settings renderer. <see cref="ValueText" /> lets a known value be read with its unit.
 /// </remarks>
 internal sealed class UnknownValueSlider : Slider
 {
     /// <summary>Defines <see cref="IsValueUnknown" />.</summary>
     internal static readonly StyledProperty<bool> IsValueUnknownProperty =
         AvaloniaProperty.Register<UnknownValueSlider, bool>(nameof(IsValueUnknown));
+
+    /// <summary>Defines <see cref="ValueText" />.</summary>
+    public static readonly StyledProperty<string?> ValueTextProperty =
+        AvaloniaProperty.Register<UnknownValueSlider, string?>(nameof(ValueText));
 
     private const string UnknownClass = ":unknown";
 
@@ -35,12 +39,20 @@ internal sealed class UnknownValueSlider : Slider
             slider.PseudoClasses.Set(UnknownClass, change.GetNewValue<bool>());
             slider.SquareJoint();
         });
+        // The focused slider says where it moved. A value refreshed under an unfocused slider is not spoken.
+        ValueTextProperty.Changed.AddClassHandler<UnknownValueSlider>((slider, change) =>
+        {
+            if (slider.IsFocused && !slider.IsValueUnknown)
+            {
+                ScreenReader.Announce(slider, change.GetNewValue<string?>(), "wsgm.slider-value");
+            }
+        });
     }
 
     private RepeatButton? _decrease;
     private RepeatButton? _increase;
 
-    internal UnknownValueSlider()
+    public UnknownValueSlider()
     {
         // No thumb, and no gap where it would sit: the track reads as one unfilled line.
         Styles.Add(new Style(selector => selector.OfType<Slider>().Class(UnknownClass).Template().OfType<Thumb>())
@@ -60,6 +72,18 @@ internal sealed class UnknownValueSlider : Slider
     {
         get => GetValue(IsValueUnknownProperty);
         set => SetValue(IsValueUnknownProperty, value);
+    }
+
+    /// <summary>The value as the row shows it, with its unit ("17 W"), for assistive technology.</summary>
+    /// <remarks>
+    ///     A screen reader reads a bare range value as a percentage of the range, so a 5 to 30 W slider at
+    ///     17 W would say "48". With this set the slider reports the text instead, and the focused slider
+    ///     announces each new value. Null reports the plain number.
+    /// </remarks>
+    public string? ValueText
+    {
+        get => GetValue(ValueTextProperty);
+        set => SetValue(ValueTextProperty, value);
     }
 
     /// <inheritdoc />
@@ -131,12 +155,15 @@ internal sealed class UnknownValueSlider : Slider
         }
     }
 
-    /// <summary>Reports a number only while one is known; otherwise the read-only value "Unknown".</summary>
+    /// <summary>
+    ///     Reports "Unknown" while no value is known, the value text while one is set, and otherwise the
+    ///     plain number. A text value replaces the range value, which readers turn into a percentage.
+    /// </summary>
     private sealed class Peer(UnknownValueSlider owner) : SliderAutomationPeer(owner), IValueProvider
     {
         bool IValueProvider.IsReadOnly => true;
 
-        string IValueProvider.Value => "Unknown";
+        string IValueProvider.Value => owner.IsValueUnknown ? "Unknown" : owner.ValueText ?? string.Empty;
 
         void IValueProvider.SetValue(string? value)
         {
@@ -145,7 +172,8 @@ internal sealed class UnknownValueSlider : Slider
 
         protected override object? GetProviderCore(Type providerType)
         {
-            if (!owner.IsValueUnknown)
+            var spoken = owner.IsValueUnknown || !string.IsNullOrEmpty(owner.ValueText);
+            if (!spoken)
             {
                 return providerType == typeof(IValueProvider) ? null : base.GetProviderCore(providerType);
             }

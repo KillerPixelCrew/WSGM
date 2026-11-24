@@ -119,6 +119,7 @@ public partial class OverlayWindow : Window
         AnimationsHost.ConfigureContext(store.Context);
         ArtworkHost.ConfigureContext(store.Context);
         viewModel.PropertyChanged += OnWorkspacePolicyChanged;
+        viewModel.PropertyChanged += OnWarningChanged;
         SurfaceRoot.SizeChanged += OnWorkspaceSizeChanged;
         Placement = new OverlayPlacement(this, RootScale, GlassCanvas, TrayScroller, uiScale, preferredScreenPoint);
         _powerConfirms = new PowerActionConfirms(viewModel, PanelPowerActions.RestartButton,
@@ -405,6 +406,7 @@ public partial class OverlayWindow : Window
         PanelSteamLaunch.Detach();
         _profileScope.Detach();
         ViewModel.PropertyChanged -= OnWorkspacePolicyChanged;
+        ViewModel.PropertyChanged -= OnWarningChanged;
         _pins.Detach();
         GameLibraryHost.Attach(null);
         LibraryTabsHost.Attach(null);

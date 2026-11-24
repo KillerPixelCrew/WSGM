@@ -153,6 +153,8 @@ internal sealed class DeviceSliderRow : Border
             Classes = { "device-setting", "device-setting-primary" }
         };
         AutomationProperties.SetName(_slider, title);
+        // The slider says what the row shows, "17 W" rather than a bare number.
+        _slider.Bind(UnknownValueSlider.ValueTextProperty, _value.GetObservable(TextBlock.TextProperty));
         ShowDescription();
         Child = setting;
         DetachedFromVisualTree += (_, _) => CommitPendingChange();
@@ -227,9 +229,9 @@ internal sealed class DeviceSliderRow : Border
             return;
         }
 
-        _value.Text = Format((int)Math.Round(_slider.Value));
         _unknown = false;
         _slider.IsValueUnknown = false;
+        _value.Text = Format((int)Math.Round(_slider.Value));
         ShowDescription();
 
         // Restart the settle window on every change so a drag or a held press commits once.

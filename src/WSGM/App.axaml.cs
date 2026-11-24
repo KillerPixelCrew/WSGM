@@ -5,6 +5,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
+using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Settings;
 using WSGM.Shell;
@@ -46,6 +47,8 @@ public class App : Application
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
+        // Every window's unlabelled editors take their row's title, for screen readers.
+        AccessibleLabels.Register();
     }
 
     /// <inheritdoc />

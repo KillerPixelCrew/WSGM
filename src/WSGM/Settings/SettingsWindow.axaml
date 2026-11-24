@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:c="using:WSGM.Controls"
         xmlns:s="using:WSGM.Settings"
         xmlns:pages="using:WSGM.Settings.Pages"
         xmlns:ov="using:WSGM.Overlay"
@@ -64,7 +65,7 @@
                   MinWidth="120" />
           <TextBlock Grid.Column="1" Text="{Binding UnsavedChangesText}" Classes="caption"
                      Classes.settings-unsaved="{Binding HasUnsavedChanges}" VerticalAlignment="Center" />
-          <TextBlock Grid.Column="2" Text="{Binding StatusText}" Classes="caption"
+          <TextBlock Grid.Column="2" Text="{Binding StatusText}" c:ScreenReader.AnnouncesText="True" Classes="caption"
                      VerticalAlignment="Center" TextWrapping="Wrap" MaxLines="2" />
           <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
             <StackPanel Orientation="Horizontal" Spacing="5">

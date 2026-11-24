@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Data;
@@ -450,13 +451,17 @@ internal sealed class CommonPluginPanel : StackPanel
             }
             case PluginUiKind.Slider:
             {
-                var editor = new Slider
+                var editor = new UnknownValueSlider
                 {
                     MinWidth = 240,
                     Minimum = argument!.Minimum!.Value,
                     Maximum = argument.Maximum!.Value,
                     Value = argument.Default.Number!.Value
                 };
+                AutomationProperties.SetName(editor, contribution.Label);
+                editor.ValueText = editor.Value.ToString("G", CultureInfo.CurrentCulture);
+                editor.ValueChanged += (_, _) =>
+                    editor.ValueText = editor.Value.ToString("G", CultureInfo.CurrentCulture);
                 inputs.Children.Add(editor);
                 read = () => new PluginValue(Number: editor.Value);
                 break;
@@ -471,11 +476,14 @@ internal sealed class CommonPluginPanel : StackPanel
         var apply = new ActionButton
         {
             Title = contribution.Kind == PluginUiKind.Action ? contribution.Label : "Apply",
+            AccessibleName = contribution.Kind == PluginUiKind.Action ? null : "Apply " + contribution.Label,
             IconGeometry = Icons.Play,
             Tag = $"plugin.{instance.Identity.PluginId}.{instance.Identity.InstanceId}.{contribution.Id}"
         };
         inputs.Children.Add(apply);
         var result = new TextBlock { Classes = { "caption" }, TextWrapping = TextWrapping.Wrap, IsVisible = false };
+        // "Requested…", "Applied" or the refusal is spoken, since it appears only beside the button.
+        ScreenReader.SetAnnouncesText(result, true);
         row.Children.Add(result);
         var busy = false;
         _refresh.Add(() => apply.IsEnabled = !busy && _observed.Any(value =>

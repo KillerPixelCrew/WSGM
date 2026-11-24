@@ -152,7 +152,7 @@ public sealed class DeviceColorView : OverlaySubView
     /// <summary>One channel slider row: label, 0–255 slider, live value.</summary>
     private Grid ChannelRow(int index, string label, int shift)
     {
-        Slider slider = new()
+        UnknownValueSlider slider = new()
         {
             Minimum = 0,
             Maximum = 255,
@@ -161,6 +161,8 @@ public sealed class DeviceColorView : OverlaySubView
             VerticalAlignment = VerticalAlignment.Center
         };
         var value = SliderValueText(Channel(shift).ToString(CultureInfo.CurrentCulture));
+        // The channel is read as 0 to 255, as shown, not as a percentage of the range.
+        slider.Bind(UnknownValueSlider.ValueTextProperty, value.GetObservable(TextBlock.TextProperty));
         _channels[index] = slider;
         _channelValues[index] = value;
         slider.ValueChanged += (_, _) =>

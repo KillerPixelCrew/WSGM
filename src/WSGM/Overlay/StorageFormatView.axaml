@@ -79,7 +79,7 @@
                              Width="22" Height="22"
                              IsVisible="{Binding Progress.Busy}"
                              VerticalAlignment="Center" />
-        <TextBlock Text="{Binding Progress.StatusText}"
+        <TextBlock Text="{Binding Progress.StatusText}" c:ScreenReader.AnnouncesText="True"
                    TextWrapping="Wrap"
                    VerticalAlignment="Center" />
       </StackPanel>

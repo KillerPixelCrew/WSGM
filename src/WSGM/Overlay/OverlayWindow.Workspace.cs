@@ -25,6 +25,15 @@ public partial class OverlayWindow
     private Button? SelectedSectionButton => SectionRail.Children.OfType<Button>()
         .FirstOrDefault(button => button.Classes.Contains("selected"));
 
+    /// <summary>Speaks a new warning, which otherwise shows only as the bar above the controls.</summary>
+    private void OnWarningChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (!_closed && e.PropertyName == nameof(OverlayViewModel.WarningText))
+        {
+            ScreenReader.Announce(this, ViewModel.WarningText, "wsgm.warning");
+        }
+    }
+
     private void OnWorkspacePolicyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_closed || e.PropertyName is not (

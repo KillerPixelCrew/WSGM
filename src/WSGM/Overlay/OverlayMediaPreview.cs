@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -43,9 +44,12 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
             Add("Forward 10s", "forward");
             var volume = new Slider { Minimum = 0, Maximum = 100, Value = 60, Width = 180, Tag = "preview.volume" };
             volume.ValueChanged += (_, _) => _viewport.Command("volume", volume.Value);
+            AutomationProperties.SetName(volume, "Preview volume");
             commands.Children.Add(volume);
             var position = new Slider { Minimum = 0, Maximum = 1000, Width = 220, Tag = "preview.seek" };
             position.ValueChanged += (_, _) => _viewport.Command("seek", position.Value);
+            // Read as a percentage of the movie, which is what the position is.
+            AutomationProperties.SetName(position, "Seek");
             ToolTip.SetTip(position, "Seek through the movie");
             commands.Children.Add(position);
         }

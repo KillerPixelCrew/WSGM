@@ -296,6 +296,7 @@ internal sealed class QuickAccessPins
         _toastText.Text = added ? "Pinned to Quick access" : "Unpinned from Quick access";
         _toastHint.Text = added ? "X again to unpin" : string.Empty;
         _toast.IsVisible = true;
+        ScreenReader.Announce(_toast, $"{_toastText.Text}. {_toastHint.Text}".TrimEnd(' ', '.'), "wsgm.pin");
         if (_toastTimer is null)
         {
             DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(2400) };

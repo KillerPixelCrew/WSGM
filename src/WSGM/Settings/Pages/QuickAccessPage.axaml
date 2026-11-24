@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:s="using:WSGM.Settings"
+             xmlns:c="using:WSGM.Controls"
              x:Class="WSGM.Settings.Pages.QuickAccessPage"
              x:DataType="s:SettingsViewModel">
   <!-- How the Overlay opens and how it looks over a game. Element order is the controller order:
@@ -19,9 +20,10 @@
             <TextBlock Text="Background blur" Classes="setting-title" />
             <TextBlock Text="0 leaves the game behind the sheet sharp." Classes="caption" TextWrapping="Wrap" />
           </StackPanel>
-          <Slider Grid.Column="1" Minimum="0" Maximum="60" TickFrequency="1" IsSnapToTickEnabled="True"
+          <c:UnknownValueSlider Grid.Column="1" Minimum="0" Maximum="60" TickFrequency="1" IsSnapToTickEnabled="True"
                   Value="{Binding OverlayBlurRadius}" VerticalAlignment="Center"
-                  AutomationProperties.Name="Overlay background blur in pixels" />
+                  ValueText="{Binding OverlayBlurLabel}"
+                  AutomationProperties.Name="Overlay background blur" />
           <TextBlock Grid.Column="2" Text="{Binding OverlayBlurLabel}" VerticalAlignment="Center"
                      HorizontalAlignment="Right" />
         </Grid>

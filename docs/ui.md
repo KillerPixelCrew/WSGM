@@ -134,6 +134,18 @@ the one owner, and each rendered row keeps a stable focus key.
 Settings keeps its page controls alive and switches `IsVisible`, which preserves scroll position and
 recorder lifetime.
 
+Screen readers read the Avalonia windows through UI Automation. `AccessibleLabels`, registered once
+by the application, names every editor that has no accessible name as it loads: the `setting-title`
+of its row becomes the name and the row's first `caption` the help text, or a TextBlock placed just
+before the editor names it. A text button such as "Open" keeps its text and takes the row title as
+help text. An explicit `AutomationProperties.Name` always wins, so set one where the title alone is
+not enough. A slider whose row shows a formatted value is an `UnknownValueSlider` with `ValueText`
+set to that text ("17 W"), because readers turn a bare range value into a percentage of the range.
+Messages that appear only visually are spoken through `ScreenReader`: `Announce` for a toast or
+warning, and `ScreenReader.AnnouncesText` on a status TextBlock whose text changes. An opened
+overlay surface takes the foreground even when Windows refused its activation, so focus events reach
+the reader.
+
 | Surface  | Layout floor   |
 | -------- | -------------- |
 | overlay  | 980 × 640 DIPs |

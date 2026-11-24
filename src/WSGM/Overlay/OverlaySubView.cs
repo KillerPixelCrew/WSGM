@@ -159,6 +159,7 @@ public abstract partial class OverlaySubView : UserControl
         Log.Info($"{LogScope}: {message}");
         _notice = message;
         CurrentLevel?.Invoke();
+        ScreenReader.Announce(this, message, "wsgm.notice");
     }
 
     // ---- Shared builders ----

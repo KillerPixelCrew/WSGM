@@ -3,6 +3,7 @@ using Avalonia.Automation.Provider;
 using WSGM.Controls;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Overlay;
+using WSGM.Shell;
 
 namespace WSGM.Tests.Overlay;
 
@@ -33,17 +34,42 @@ public sealed class DeviceSliderReadbackTests
         Assert.Null(peer.GetProvider<IRangeValueProvider>());
         Assert.Equal("Unknown", peer.GetProvider<IValueProvider>()!.Value);
 
-        // A readback makes it known: the number is back and the thumb is drawn.
+        // A readback makes it known: the value is read as the row shows it and the thumb is drawn.
         row.RefreshReadback(0, 359, 1, 120, true);
         Assert.False(slider.IsValueUnknown);
-        Assert.Equal(120, peer.GetProvider<IRangeValueProvider>()!.Value);
-        Assert.Null(peer.GetProvider<IValueProvider>());
+        Assert.Equal("120", peer.GetProvider<IValueProvider>()!.Value);
+        Assert.Null(peer.GetProvider<IRangeValueProvider>());
 
         // Unknown again, and then the user's own move makes it known.
         row.RefreshReadback(0, 359, 1, null, true);
         Assert.True(slider.IsValueUnknown);
         slider.Value = 30;
         Assert.False(slider.IsValueUnknown);
+    }
+
+    [Fact]
+    public void AKnownValueIsReadWithItsUnitRatherThanAsAPercentageOfTheRange()
+    {
+        DeviceSliderRow row = new("power", "Sustained power", "", 5, 30, 1, CapabilityUnit.Watt, 17, true, _ => { });
+        var slider = Assert.IsType<UnknownValueSlider>(row.FocusTarget);
+        var peer = ControlAutomationPeer.CreatePeerForElement(slider);
+        Assert.Equal("Sustained power", peer.GetName());
+        Assert.Equal("17" + CapabilityRowProjection.UnitSuffix(CapabilityUnit.Watt),
+            peer.GetProvider<IValueProvider>()!.Value);
+        Assert.Null(peer.GetProvider<IRangeValueProvider>());
+
+        slider.Value = 18;
+        Assert.Equal("18" + CapabilityRowProjection.UnitSuffix(CapabilityUnit.Watt),
+            peer.GetProvider<IValueProvider>()!.Value);
+    }
+
+    [Fact]
+    public void ASliderWithoutValueTextKeepsItsRangeValue()
+    {
+        UnknownValueSlider slider = new() { Minimum = 0, Maximum = 100, Value = 40 };
+        var peer = ControlAutomationPeer.CreatePeerForElement(slider);
+        Assert.Equal(40, peer.GetProvider<IRangeValueProvider>()!.Value);
+        Assert.Null(peer.GetProvider<IValueProvider>());
     }
 
     [Fact]

@@ -67,6 +67,28 @@ public sealed partial class OverlayController
         // Game-Bar-style: the game stops receiving input while the surface is up. Safe because the Steam
         // Input lease keeps the pad readable despite focus.
         window.Activate();
+        TakeForeground(slot.SurfaceId, window);
+    }
+
+    /// <summary>Makes an opened surface the foreground window when Windows refused its activation.</summary>
+    /// <remarks>
+    ///     Windows refuses a background process the foreground, which is what WSGM is when the surface opens
+    ///     from a device button rather than a registered hotkey. The pad still moves focus inside the window,
+    ///     but a screen reader hears no focus change and reads nothing. Sharing the foreground thread's input
+    ///     state, as a return to a game window does, lets the activation through.
+    /// </remarks>
+    /// <param name="surfaceId">The surface, for the log.</param>
+    /// <param name="window">The shown surface window.</param>
+    private static void TakeForeground(string surfaceId, Window window)
+    {
+        if (window.TryGetPlatformHandle()?.Handle is not { } hwnd || hwnd == 0
+                                                                 || NativeMethods.GetForegroundWindow() == hwnd)
+        {
+            return;
+        }
+
+        var raised = WindowFinder.ForceForeground(hwnd);
+        Log.Info($"{surfaceId} was not activated by Windows; foreground {(raised ? "taken" : "still refused")}.");
     }
 
     /// <summary>Brings an open surface back, cancelling its deferred close and restoring its capture claim.</summary>
