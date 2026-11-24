@@ -365,6 +365,48 @@ public sealed class DeviceCoordinatorTests
     }
 
     [Fact]
+    public async Task AWakeStartRefusedByALateRetirementStartsOnceTheOldRuntimeRetires()
+    {
+        // The Atlas 7 wake of 24 Nov: the failed resume's stop outlived its budget, so the fresh start
+        // was refused while the old runtime retired, and nothing started the cycle again.
+        await using Harness harness = new(stopBudget: TimeSpan.FromMilliseconds(200));
+        await harness.Coordinator.InitializeAsync();
+        await harness.Coordinator.SuspendAsync();
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource active = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.Hook = (call, _) => call switch
+        {
+            "resume" => Task.FromException(new IOException("fixture resume failed")),
+            "stop" => release.Task,
+            _ => Task.CompletedTask
+        };
+        try
+        {
+            await harness.Coordinator.ResumeAsync(true);
+
+            Assert.Equal(DeviceCycleState.Faulted, harness.Coordinator.State);
+            Assert.Equal(1, harness.Loads);
+            Assert.False(await harness.Coordinator.RetryAfterFaultAsync());
+            harness.Coordinator.StateChanged += state =>
+            {
+                if (state == DeviceCycleState.Active)
+                {
+                    active.TrySetResult();
+                }
+            };
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+
+        await active.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(2, harness.Loads);
+        Assert.Equal(1, harness.Calls.Count(call => call == "dispose"));
+        Assert.Equal(0, harness.RestartDelays);
+    }
+
+    [Fact]
     public async Task AdmissionClosureRefusesQueuedSettingsAndConfigWithoutStoppingThePluginEarly()
     {
         await using Harness harness = new();
@@ -618,7 +660,7 @@ public sealed class DeviceCoordinatorTests
         internal int RestartDelays;
         internal HandheldDeviceRuntime? Runtime;
 
-        internal Harness(bool enabled = true, Action<AppConfig>? configure = null)
+        internal Harness(bool enabled = true, Action<AppConfig>? configure = null, TimeSpan? stopBudget = null)
         {
             Definition = new HandheldDefinition(NativeRuntimeEngine.DefinitionId,
                     NativeRuntimeEngine.FamilyId, "Runtime fixture", "fixture")
@@ -671,7 +713,10 @@ public sealed class DeviceCoordinatorTests
                     RestartDelays++;
                     return Task.CompletedTask;
                 },
-                (_, _) => new Diagnostics(this));
+                (_, _) => new Diagnostics(this))
+            {
+                StopBudget = stopBudget ?? TimeSpan.FromSeconds(15)
+            };
         }
 
         internal AppConfig Config { get; }
