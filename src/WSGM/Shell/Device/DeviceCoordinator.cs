@@ -79,6 +79,12 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     /// <remarks>The session starts Steam only after this, so Steam never meets the physical pad.</remarks>
     internal Task StartupReady => _startupReady.Task;
 
+    /// <summary>
+    ///     Bounds an ordinary stop, and how long a refused start waits for the previous runtime to retire.
+    ///     Fifteen seconds outside tests.
+    /// </summary>
+    internal TimeSpan StopBudget { get; init; } = TimeSpan.FromSeconds(15);
+
     /// <summary>Cancels the controller-management start the last publication began.</summary>
     private CancellationTokenSource _controllerStartCancellation = new();
 
@@ -113,6 +119,10 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     private string? _runningApplicationId;
     private string? _runningExecutable;
     private Task _runtimeRetirement = Task.CompletedTask;
+
+    /// <summary>The retirement a refused start waits on, so one wait serves every refusal of that runtime.</summary>
+    private Task _awaitedRetirement = Task.CompletedTask;
+
     private Task? _shutdownTask;
 
     private volatile DeviceCycleState _state = DeviceCycleState.Disabled;
@@ -1173,6 +1183,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         {
             SetState(DeviceCycleState.Faulted);
             Log.Warn("Device start refused while the previous runtime is still retiring.");
+            ScheduleStartAfterRetirement(_runtimeRetirement);
             return;
         }
 
@@ -1582,6 +1593,68 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             + $"runtimePresent={_client is not null}.");
     }
 
+    /// <summary>
+    ///     Starts the cycle a retiring runtime refused once that runtime finishes. A wake whose old runtime
+    ///     outlives its stop budget otherwise stays faulted, with the physical pad still hidden, until the
+    ///     next sleep or a manual retry.
+    /// </summary>
+    /// <param name="retirement">The previous runtime's late cleanup.</param>
+    private void ScheduleStartAfterRetirement(Task retirement)
+    {
+        if (ReferenceEquals(_awaitedRetirement, retirement))
+        {
+            return;
+        }
+
+        _awaitedRetirement = retirement;
+        Observe(StartAfterRetirementAsync(retirement), "start after runtime retirement");
+    }
+
+    /// <summary>
+    ///     Waits one stop budget for the retirement, then starts the refused cycle if nothing replaced it.
+    ///     A runtime that never retires keeps the cycle faulted, so the physical pad is shown as after
+    ///     restart exhaustion.
+    /// </summary>
+    /// <param name="retirement">The late cleanup the refused start waited on.</param>
+    private async Task StartAfterRetirementAsync(Task retirement)
+    {
+        try
+        {
+            await retirement.WaitAsync(StopBudget, _lifetime.Token).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            Log.Warn($"The previous device runtime is still retiring after {StopBudget.TotalSeconds:0.#} s; "
+                     + "the device cycle stays faulted until a retry or the next wake.");
+            await Controllers.ShowPhysicalControllerAsync("the previous device runtime did not retire",
+                _lifetime.Token).ConfigureAwait(false);
+            return;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException
+                                          && !_lifetime.IsCancellationRequested)
+        {
+            // An ended retirement frees the runtime slot whether or not its cleanup succeeded.
+            Log.Warn($"The previous device runtime retired with an error: {exception.Message}");
+        }
+
+        using var transition = await EnterTransitionAsync(_lifetime.Token).ConfigureAwait(false);
+        if (_disposed
+            || !_config.DeviceIntegration.Enabled
+            || _client is not null
+            || State is not DeviceCycleState.Faulted
+            || !ReferenceEquals(_runtimeRetirement, retirement))
+        {
+            Log.Info(
+                "Device start after runtime retirement skipped: "
+                + $"state={State}, disposed={_disposed}, integrationEnabled={_config.DeviceIntegration.Enabled}, "
+                + $"runtimePresent={_client is not null}.");
+            return;
+        }
+
+        Log.Info("The previous device runtime retired; starting the refused device cycle.");
+        await StartCycleUnderGateAsync(_lifetime.Token).ConfigureAwait(false);
+    }
+
     private async Task<DeviceClientTeardownResult> StopCycleUnderGateAsync(
         HandheldStopReason reason,
         Deadline deadline,
@@ -1750,9 +1823,9 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         cancellationToken.ThrowIfCancellationRequested();
     }
 
-    private static Deadline NormalShutdownDeadline()
+    private Deadline NormalShutdownDeadline()
     {
-        return Deadline.After(TimeSpan.FromSeconds(15));
+        return Deadline.After(StopBudget);
     }
 
     private async Task SetControllerManagementUnderGateAsync(
