@@ -13,7 +13,7 @@
     <!-- Avalonia.Headless.XUnit 12.1.4 is built against xunit.v3 3.2.2; 4.0 breaks its test discoverer. -->
     <PackageReference Include="xunit.v3" Version="4.0.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1" PrivateAssets="all" />
-    <PackageReference Include="Avalonia.Headless.XUnit" Version="12.1.6" />
+    <PackageReference Include="Avalonia.Headless.XUnit" Version="12.2.0" />
     <ProjectReference Include="../../src/Avalonia.LiveBackdrop/Avalonia.LiveBackdrop.csproj" />
     <Using Include="Xunit" />
   </ItemGroup>
